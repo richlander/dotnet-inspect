@@ -25,93 +25,305 @@ public static class TypeDocumentInspectionOperation
             ArgumentNullException.ThrowIfNull(request);
             cancellationToken.ThrowIfCancellationRequested();
 
-            TypeMemberGroupPopulationInspectionPlan? declarationsPlan =
-                request.Plan.Declarations is null
-                    ? null
-                    : new(
-                        request.Plan.Type,
-                        request.Plan.Declarations,
-                        request.Plan.Bounds);
-            TypeMemberGroupRowsRequest? rows =
-                declarationsPlan?.Query.Terminal
-                        is QuerySpaceTerminalRequirement.Rows
-                    ? request.Plan.Declarations!.Rows
-                    : null;
-            TypeMemberGroupPopulationInspectionRejection?
-                declarationRejection = null;
-            if (rows?.Continuation is { } candidateContinuation)
-            {
-                AssemblyReferenceIdentity requestedAssembly =
-                    request.Library.ApiAssembly.AssemblyIdentity
-                        ?.Identity
-                    ?? throw new InvalidOperationException(
-                        "A Type document requires a managed API assembly identity.");
-                if (!TypeMemberGroupPopulationInspectionOperation
-                    .IsCompatible(
-                        candidateContinuation,
-                        requestedAssembly,
-                        request.Plan.Type,
-                        declarationsPlan!.Query))
-                {
-                    declarationRejection =
-                        TypeMemberGroupPopulationInspectionRejection
-                            .IncompatibleContinuation;
-                }
-            }
-
-            int startOrdinal =
-                rows?.Continuation?.NextOrdinal ?? 0;
-            MetadataTypeMemberGroupPopulationRequest?
-                metadataDeclarations =
-                declarationsPlan is null
-                    || declarationRejection is not null
-                    ? null
-                    : TypeMemberGroupPopulationInspectionOperation
-                        .CreateMetadataRequest(
-                            declarationsPlan,
-                            startOrdinal);
-            MetadataTypeDefinitionAddress? expectedType = null;
-            if (metadataDeclarations is not null
-                && rows?.Continuation is { } boundContinuation)
-            {
-                try
-                {
-                    expectedType =
-                        MetadataTypeDefinitionAddress.FromToken(
-                            boundContinuation.Binding.ModuleVersionId,
-                            boundContinuation.Binding.TypeDefinitionToken);
-                }
-                catch (ArgumentException)
-                {
-                    declarationRejection =
-                        TypeMemberGroupPopulationInspectionRejection
-                            .IncompatibleContinuation;
-                    metadataDeclarations = null;
-                }
-            }
+            AssemblyReferenceIdentity requestedAssembly =
+                request.Library.ApiAssembly.AssemblyIdentity
+                    ?.Identity
+                ?? throw new InvalidOperationException(
+                    "A Type document requires a managed API assembly identity.");
+            ResolvedTypeDocumentPlan execution =
+                ResolvePlan(request.Plan, requestedAssembly);
             LibraryTypeDocumentInspectionOutcome source =
                 LibraryTypeDocumentInspection.Execute(
                     new(
                         request.Library,
                         new(
                             request.Plan.Type,
-                            metadataDeclarations,
-                            expectedType),
+                            execution.MetadataDeclarations,
+                            execution.ExpectedType),
                         request.Plan.Bounds),
                     lease,
                     cancellationToken);
             return Project(
                 source,
                 request.Plan,
-                declarationsPlan,
-                declarationRejection,
-                startOrdinal);
+                execution.DeclarationsPlan,
+                execution.DeclarationRejection,
+                execution.StartOrdinal);
         }
         finally
         {
             lease.Dispose();
         }
     }
+
+    public static InspectionEnvelope<TypeDocumentInspectionOutcome> Execute(
+        ResolvedAssemblyReference assembly,
+        TypeDocumentInspectionPlan plan,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(plan);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        ResolvedTypeDocumentPlan execution =
+            ResolvePlan(plan, assembly.Identity);
+        try
+        {
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.Open(assembly);
+            return Execute(
+                session,
+                assembly,
+                plan,
+                execution,
+                cancellationToken);
+        }
+        catch (UnsupportedMetadataFormatException)
+        {
+            return Failed(
+                TypeDocumentInspectionFailure
+                    .UnsupportedWindowsMetadata);
+        }
+        catch (Exception exception) when (
+            exception is MalformedMetadataRootException
+                or BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException)
+        {
+            return Failed(
+                TypeDocumentInspectionFailure.MalformedMetadata);
+        }
+    }
+
+    public static TypeDocumentExtensionPresenceInspectionResult
+        ExecuteWithExtensionPresence(
+            ResolvedAssemblyReference assembly,
+            TypeDocumentInspectionPlan plan,
+            CancellationToken cancellationToken = default)
+        => ExecuteWithExtensionPresence(
+            assembly,
+            plan,
+            includeNonPublic: false,
+            cancellationToken);
+
+    public static TypeDocumentExtensionPresenceInspectionResult
+        ExecuteWithExtensionPresence(
+            ResolvedAssemblyReference assembly,
+            TypeDocumentInspectionPlan plan,
+            bool includeNonPublic,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(plan);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        ResolvedTypeDocumentPlan execution =
+            ResolvePlan(plan, assembly.Identity);
+        try
+        {
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.Open(assembly);
+            InspectionEnvelope<TypeDocumentInspectionOutcome> document =
+                Execute(
+                    session,
+                    assembly,
+                    plan,
+                    execution,
+                    cancellationToken);
+            if (document.Content
+                is not TypeDocumentInspectionOutcome.Available available)
+            {
+                return new(
+                    document,
+                    new TypeExtensionMethodPresenceInspectionOutcome
+                        .Failed());
+            }
+
+            return new(
+                document,
+                TypeExtensionMethodPresenceInspectionOperation.Execute(
+                    session,
+                    assembly.Identity,
+                    plan.Type,
+                    plan.Bounds.MaxMetadataRows,
+                    includeNonPublic,
+                    cancellationToken,
+                    MetadataTypeDefinitionAddress.FromToken(
+                        available.Document.Subject.ModuleVersionId,
+                        available.Document.Subject
+                            .TypeDefinitionToken)));
+        }
+        catch (UnsupportedMetadataFormatException)
+        {
+            return FailedWithExtensionPresence(
+                TypeDocumentInspectionFailure.UnsupportedWindowsMetadata);
+        }
+        catch (Exception exception) when (
+            exception is MalformedMetadataRootException
+                or BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException)
+        {
+            return FailedWithExtensionPresence(
+                TypeDocumentInspectionFailure.MalformedMetadata);
+        }
+    }
+
+    private static InspectionEnvelope<TypeDocumentInspectionOutcome>
+        Execute(
+            AssemblyInspectionSession session,
+            ResolvedAssemblyReference assembly,
+            TypeDocumentInspectionPlan plan,
+            ResolvedTypeDocumentPlan execution,
+            CancellationToken cancellationToken)
+    {
+        if (!session.HasMetadata)
+        {
+            return Failed(
+                TypeDocumentInspectionFailure.NotManagedAssembly);
+        }
+        if (!session.IsAssembly)
+        {
+            return Failed(
+                TypeDocumentInspectionFailure.ManagedModule);
+        }
+
+        AssemblyReferenceIdentity identity =
+            session.AssemblyIdentity();
+        if (!identity.IsEquivalentTo(assembly.Identity))
+        {
+            return Rejected(
+                TypeDocumentInspectionRejection
+                    .AssemblyIdentityMismatch);
+        }
+        Guid moduleVersionId = session.ModuleVersionId();
+        if (moduleVersionId == Guid.Empty)
+        {
+            return Failed(
+                TypeDocumentInspectionFailure.EmptyModuleVersionId);
+        }
+
+        using var metadataOperation = new MetadataOperationContext(
+            new MetadataOperationPolicy(
+                plan.Bounds.MaxMetadataRows));
+        using MetadataDeclarationSession declaration =
+            session.CreateDeclarationSession(metadataOperation);
+        if (declaration.ImageAdmission
+            is MetadataImageAdmissionResult.Rejected rejection)
+        {
+            return Incomplete(
+                TypeDocumentInspectionBound.MetadataRows,
+                plan.Bounds.MaxMetadataRows,
+                rejection.Failure.ImageMetadataRows);
+        }
+
+        MetadataRootAdjacencyInspectionOutcome rootAdjacency =
+            declaration.InspectRootAdjacency(cancellationToken);
+        MetadataTypeDocumentInspectionOutcome document =
+            declaration.InspectTypeDocument(
+                new(
+                    plan.Type,
+                    execution.MetadataDeclarations,
+                    execution.ExpectedType),
+                plan.Bounds,
+                cancellationToken);
+        int assemblyBytes = checked((int)session.ImageLength);
+        return Project(
+            libraryCorrespondence: null,
+            identity,
+            assemblyBytes,
+            rootAdjacency,
+            document,
+            plan,
+            execution.DeclarationsPlan,
+            execution.DeclarationRejection,
+            execution.StartOrdinal);
+    }
+
+    private static TypeDocumentExtensionPresenceInspectionResult
+        FailedWithExtensionPresence(
+            TypeDocumentInspectionFailure failure) =>
+        new(
+            Failed(failure),
+            new TypeExtensionMethodPresenceInspectionOutcome.Failed());
+
+    private static ResolvedTypeDocumentPlan ResolvePlan(
+        TypeDocumentInspectionPlan plan,
+        AssemblyReferenceIdentity requestedAssembly)
+    {
+        TypeMemberGroupPopulationInspectionPlan? declarationsPlan =
+            plan.Declarations is null
+                ? null
+                : new(
+                    plan.Type,
+                    plan.Declarations,
+                    plan.Bounds);
+        TypeMemberGroupRowsRequest? rows =
+            declarationsPlan?.Query.Terminal
+                    is QuerySpaceTerminalRequirement.Rows
+                ? plan.Declarations!.Rows
+                : null;
+        TypeMemberGroupPopulationInspectionRejection?
+            declarationRejection = null;
+        if (rows?.Continuation is { } candidateContinuation
+            && !TypeMemberGroupPopulationInspectionOperation.IsCompatible(
+                candidateContinuation,
+                requestedAssembly,
+                plan.Type,
+                declarationsPlan!.Query))
+        {
+            declarationRejection =
+                TypeMemberGroupPopulationInspectionRejection
+                    .IncompatibleContinuation;
+        }
+
+        int startOrdinal =
+            rows?.Continuation?.NextOrdinal ?? 0;
+        MetadataTypeMemberGroupPopulationRequest?
+            metadataDeclarations =
+            declarationsPlan is null
+                || declarationRejection is not null
+                ? null
+                : TypeMemberGroupPopulationInspectionOperation
+                    .CreateMetadataRequest(
+                        declarationsPlan,
+                        startOrdinal);
+        MetadataTypeDefinitionAddress? expectedType = null;
+        if (metadataDeclarations is not null
+            && rows?.Continuation is { } boundContinuation)
+        {
+            try
+            {
+                expectedType =
+                    MetadataTypeDefinitionAddress.FromToken(
+                        boundContinuation.Binding.ModuleVersionId,
+                        boundContinuation.Binding.TypeDefinitionToken);
+            }
+            catch (ArgumentException)
+            {
+                declarationRejection =
+                    TypeMemberGroupPopulationInspectionRejection
+                        .IncompatibleContinuation;
+                metadataDeclarations = null;
+            }
+        }
+
+        return new(
+            declarationsPlan,
+            declarationRejection,
+            startOrdinal,
+            metadataDeclarations,
+            expectedType);
+    }
+
+    private sealed record ResolvedTypeDocumentPlan(
+        TypeMemberGroupPopulationInspectionPlan? DeclarationsPlan,
+        TypeMemberGroupPopulationInspectionRejection?
+            DeclarationRejection,
+        int StartOrdinal,
+        MetadataTypeMemberGroupPopulationRequest?
+            MetadataDeclarations,
+        MetadataTypeDefinitionAddress? ExpectedType);
 
     private static InspectionEnvelope<TypeDocumentInspectionOutcome>
         Project(
@@ -191,6 +403,49 @@ public static class TypeDocumentInspectionOperation
             MetadataTypeDocumentInspectionOutcome.Available available =>
                 Available(
                     correspondence,
+                    correspondence.AssemblyIdentity,
+                    correspondence.AssemblyBytes,
+                    correspondence.RootAdjacency,
+                    plan,
+                    declarationsPlan,
+                    declarationRejection,
+                    available.Document,
+                    startOrdinal),
+            MetadataTypeDocumentInspectionOutcome.TypeNotFound =>
+                Rejected(TypeDocumentInspectionRejection.TypeNotFound),
+            MetadataTypeDocumentInspectionOutcome.TypeAmbiguous =>
+                Rejected(TypeDocumentInspectionRejection.TypeAmbiguous),
+            MetadataTypeDocumentInspectionOutcome.Incomplete incomplete =>
+                Incomplete(
+                    TypeDocumentInspectionBound.MetadataRows,
+                    incomplete.Limit,
+                    incomplete.Measured),
+            MetadataTypeDocumentInspectionOutcome.Failed =>
+                Failed(TypeDocumentInspectionFailure.MalformedMetadata),
+            _ => throw new InvalidOperationException(
+                "Unknown Metadata Type document outcome."),
+        };
+
+    private static InspectionEnvelope<TypeDocumentInspectionOutcome>
+        Project(
+            LibraryTypeDocumentCorrespondence? libraryCorrespondence,
+            AssemblyReferenceIdentity assemblyIdentity,
+            int assemblyBytes,
+            MetadataRootAdjacencyInspectionOutcome rootAdjacency,
+            MetadataTypeDocumentInspectionOutcome document,
+            TypeDocumentInspectionPlan plan,
+            TypeMemberGroupPopulationInspectionPlan? declarationsPlan,
+            TypeMemberGroupPopulationInspectionRejection?
+                declarationRejection,
+            int startOrdinal) =>
+        document switch
+        {
+            MetadataTypeDocumentInspectionOutcome.Available available =>
+                Available(
+                    libraryCorrespondence,
+                    assemblyIdentity,
+                    assemblyBytes,
+                    rootAdjacency,
                     plan,
                     declarationsPlan,
                     declarationRejection,
@@ -213,7 +468,10 @@ public static class TypeDocumentInspectionOperation
 
     private static InspectionEnvelope<TypeDocumentInspectionOutcome>
         Available(
-            LibraryTypeDocumentCorrespondence correspondence,
+            LibraryTypeDocumentCorrespondence? libraryCorrespondence,
+            AssemblyReferenceIdentity assemblyIdentity,
+            int assemblyBytes,
+            MetadataRootAdjacencyInspectionOutcome rootAdjacency,
             TypeDocumentInspectionPlan plan,
             TypeMemberGroupPopulationInspectionPlan? declarationsPlan,
             TypeMemberGroupPopulationInspectionRejection?
@@ -223,7 +481,7 @@ public static class TypeDocumentInspectionOperation
     {
         LibraryAssemblyIdentity assembly =
             TypeMemberGroupPopulationInspectionOperation.PortableIdentity(
-                correspondence.AssemblyIdentity);
+                assemblyIdentity);
         if (document.Subject.Type.ModuleVersionId == Guid.Empty)
         {
             return Failed(
@@ -234,22 +492,64 @@ public static class TypeDocumentInspectionOperation
             declarationRejection is { } rejected
                 ? new TypeDocumentDeclarations.Rejected(rejected)
                 : ProjectDeclarations(
-                    correspondence,
+                    assemblyIdentity,
+                    assemblyBytes,
                     plan,
                     declarationsPlan,
                     document.Declarations,
                     document.Subject.Type.ModuleVersionId,
                     startOrdinal);
-        return Envelope(
+        TypeDocumentDeclarationSignature signature =
+            new(
+                ImmutableArray.CreateRange(
+                    document.Subject.Signature
+                        .GenericParameters
+                        .Select(parameter =>
+                            new TypeDocumentGenericParameter(
+                                parameter.DefinitionSegmentIndex,
+                                parameter.MetadataIndex,
+                                parameter.Name,
+                                parameter.Attributes))));
+        TypeSubject subject = libraryCorrespondence is null
+            ? new(
+                assembly,
+                document.Subject.Type.ModuleVersionId,
+                plan.Type,
+                document.Subject.Type.Definition.Value,
+                signature,
+                document.Subject.Category,
+                document.Subject.Attributes,
+                document.Subject.IsHidden,
+                document.Subject.IsCompilerGenerated,
+                document.Subject.IsByRefLike,
+                document.Subject.IsReadOnly,
+                document.Subject.DefinesCoreLibraryRoot,
+                document.Subject.DeclaringType?.Definition.Value)
+            : ProjectSubject(
+                libraryCorrespondence,
+                plan.Type,
+                document.Subject,
+                assembly);
+        var outcome =
             new TypeDocumentInspectionOutcome.Available(
                 new(
-                    ProjectSubject(
-                        correspondence,
-                        plan.Type,
-                        document.Subject,
-                        assembly),
+                    subject,
                     declarations,
-                    correspondence.AssemblyBytes)));
+                    assemblyBytes,
+                    document.Subject.BaseKind,
+                    document.Subject.InterfaceCount));
+        return rootAdjacency
+                is MetadataRootAdjacencyInspectionOutcome.Invalid invalid
+            ? Envelope(
+                outcome,
+                [
+                    new InspectionDiagnostic(
+                        "type-document.root-adjacency-incomplete",
+                        InspectionDiagnosticSeverity.Error,
+                        invalid.Detail,
+                        assembly.Name.ToString()),
+                ])
+            : Envelope(outcome);
     }
 
     internal static TypeSubject ProjectSubject(
@@ -274,13 +574,16 @@ public static class TypeDocumentInspectionOperation
                                 parameter.Attributes)))),
             subject.Category,
             subject.Attributes,
+            subject.IsHidden,
+            subject.IsCompilerGenerated,
             subject.IsByRefLike,
             subject.IsReadOnly,
             subject.DefinesCoreLibraryRoot,
             subject.DeclaringType?.Definition.Value);
 
     private static TypeDocumentDeclarations ProjectDeclarations(
-        LibraryTypeDocumentCorrespondence correspondence,
+        AssemblyReferenceIdentity assemblyIdentity,
+        int assemblyBytes,
         TypeDocumentInspectionPlan plan,
         TypeMemberGroupPopulationInspectionPlan? declarationsPlan,
         MetadataTypeDocumentDeclarations declarations,
@@ -302,9 +605,9 @@ public static class TypeDocumentInspectionOperation
                 ProjectDeclarations(
                     TypeMemberGroupPopulationInspectionOperation
                         .ProjectPopulation(
-                            correspondence.AssemblyIdentity,
+                            assemblyIdentity,
                             moduleVersionId,
-                            correspondence.AssemblyBytes,
+                            assemblyBytes,
                             inspected.Outcome,
                             declarationsPlan
                                 ?? throw new InvalidOperationException(
@@ -355,10 +658,13 @@ public static class TypeDocumentInspectionOperation
         Envelope(new TypeDocumentInspectionOutcome.Failed(reason));
 
     private static InspectionEnvelope<TypeDocumentInspectionOutcome>
-        Envelope(TypeDocumentInspectionOutcome outcome) =>
+        Envelope(
+            TypeDocumentInspectionOutcome outcome,
+            IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
         new(
             outcome,
             new InspectionShare.NonProjectable(
                 SharePath,
-                ShareReason));
+                ShareReason),
+            diagnostics);
 }

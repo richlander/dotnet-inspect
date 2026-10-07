@@ -820,6 +820,22 @@ knobs handle remaining cell narrowing and formatting:
 - **Table mode** (`MarkoutWriterOptions.TableMode`) picks how tables render:
   Markdown (default), `MarkoutTableMode.Tsv`, or `MarkoutTableMode.Jsonl`.
 
+For the CLI Markout-dependency migration in #9579, a shared presentation
+adapter may accept settled version-feed, version-listing, and string-list rows
+with a host-neutral Table/TSV/JSONL choice, then construct the existing
+`TableFormatter` and Markout writer. It passes rows through Markout's
+begin/row/end table API rather than buffering a second copy of the complete
+rendered output. Markout owns any format-specific buffering. The companion
+[Markout streaming change](https://github.com/richlander/markout/pull/231)
+emits TSV and JSONL rows as they arrive; pretty tables still need all rows to
+calculate column widths. The CLI retains row acquisition, JSON array output,
+and destination handling. This adapter's approved consumer is the
+CLI; Browser/Wasm continues using its existing presentation paths and has no
+planned adoption of this text-table adapter. The user approved this exact
+CLI-only scope on 2026-10-07 by replying "proceed" to the explicit request for
+approval of the narrow adapter in `DotnetInspector.Presentation` without
+Browser/Wasm adoption.
+
 Formatters decide presentation, not content:
 
 - **`MarkdownFormatter`** — the rich, multi-section, verbosity-aware Document
@@ -1375,7 +1391,7 @@ resolved by discarding one.
 ### Lens modes project their own payload
 
 A few requests select a *lens* rather than a section of the normal document:
-`package --versions`, `--layout`, `--tfms`, and `--content`, along with
+`package --versions`, `--tfms`, and `--content`, along with
 `library address --file` and the `-D`/`--discover` listing. Each renders a
 payload it computes itself and returns before the section pipeline, so the
 section-selection vocabulary does not describe what the caller is looking at.

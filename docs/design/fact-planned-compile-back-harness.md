@@ -337,7 +337,7 @@ exclusions and exact candidate/eligibility counters; the QuerySpace Count path
 remains the complete-breadth, zero-row terminal. Sharing must not widen capped
 target selection back into either complete plan.
 
-The [rank-first capped selection Lean proof](../../prototypes/rts-capped-selection/)
+The [rank-first capped selection Lean proof](models/rts-capped-selection/)
 adds prototype evidence for every scoped population, eligibility decision, and
 cap. It proves that the capped plan selects the complete pre-cap plan's prefix,
 provided both rankings order eligible bodies the same way. It also proves that
@@ -345,6 +345,18 @@ the receipt counts only the evaluated ranked prefix, ending at the cap-th
 eligible body, and that the plan either settles the cap or exhausts the
 population. It does not replace the scorecard fingerprint or NativeAOT
 evidence.
+
+Capped selection materializes API evidence only for the ranked prefix it can
+reach. It decodes the declaring Types of the first `cap` ranked candidates that
+pass the target-Type filter, then doubles that prefix only when evaluation runs
+past it. Types the filter rejects are never decoded. The receipt records the
+prepared prefix length and the number of Types decoded, so a regression to
+whole-assembly extraction fails
+`CappedSelectionMaterializesApiEvidenceOnlyForTheEvaluatedPrefix` instead of
+hiding in timing noise. Decisions are unchanged: deciding every ranked body of
+CoreLib, System.Linq, System.Text.Json, System.Collections.Immutable,
+System.Private.Xml, and ILInspector.Metadata (84,912 bodies) with whole-assembly
+and prefix-only evidence produces identical decisions and capped selections.
 
 The first production QuerySpace slice exposes exact eligible Count through one
 operation, one candidate row set, and the Count terminal. The operation-owned

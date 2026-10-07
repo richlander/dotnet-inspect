@@ -83,7 +83,7 @@ root README remains current without cataloging every focused capability.
 | --- | --- |
 | Layering and project families | [Inspection Layers](design/inspection-layers.md), [Library Family Boundaries](design/library-family-boundaries.md), and [Inspection Operation Kernels](design/inspection-operation-kernels.md) |
 | Graph structure and execution | [Inspector.Graph Library Boundary](design/inspector-graph-library-boundary.md), [Inspector.Graph Execution](design/inspector-graph-execution.md), [Inspector.Graph Group Projection](design/inspector-graph-group-projection.md), and [Inspector.Graph Components and Levels](design/inspector-graph-components.md) |
-| Analysis planning, realization, execution, and metric coordination | [Analysis Surfaces and Universes](design/analysis-surfaces-and-universes.md), [Analysis Universe Realization](design/analysis-universe-realization.md), [Assembly Analysis Operation](design/assembly-analysis-operation.md), and [Evidence and Metric Coordination](design/evidence-metric-coordination.md) |
+| Analysis planning, realization, execution, and metric coordination | [Analysis Surfaces and Universes](design/analysis-surfaces-and-universes.md), [Analysis Universe Realization](design/analysis-universe-realization.md), [Assembly Analysis Operation](design/assembly-analysis-operation.md), [Evidence and Metric Coordination](design/evidence-metric-coordination.md), and [Streaming Library Performance Analysis](design/streaming-library-performance-analysis.md) |
 | Cross-host operation composition | [Inspection Operation Composition](design/inspection-operation-composition.md) |
 | Query library, composition, operation registration, portable intent, and payload | [QuerySpace Library Boundary](design/query-space-library.md), [Query Space Composition](design/query-space-composition.md), [Query Operation Infrastructure](design/query-operation-infrastructure.md), [Portable Query Intent](design/portable-query-intent.md), and [Portable Query Payload](design/portable-query-payload.md) |
 | Installed capability composition, search, discovery, and exact explanation | [Inspection Capability Composition](design/inspection-capability-composition.md), [Capability Catalog Search](design/capability-catalog-search.md), [Schema Query](design/schema-query.md), [Resource Explanation](design/resource-explanation.md), and [Product Vocabulary](design/vocabulary.md) |
@@ -122,7 +122,9 @@ root README remains current without cataloging every focused capability.
 | Multi-PR work | [Stacked PRs](stacked-prs.md) |
 | Release candidate identity and readiness | [Nightly Release Candidate](release-candidate.md) |
 | Release certification and publication | [Release Workflow](release-workflow.md) |
+| Choosing formal models | [Proof Methodology](proof-methodology.md) |
 | TLA+ setup and modeling | [TLA+ Methodology](tla-plus-methodology.md) and [TLA+ Setup](runbooks/tla-plus-setup.md) |
+| Lean setup and proofs | [Lean Methodology](lean-methodology.md) |
 | Markout co-development | [Markout Co-development](markout-co-development.md) |
 
 ## Finding focused documentation

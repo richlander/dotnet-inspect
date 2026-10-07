@@ -714,15 +714,19 @@ public class LibraryInspection
     public List<BodyShapeJsonMatch>? BodyShapes =>
         BodyShapeSections?.Contains(SectionNames.BodyShapes) == false
             ? null
-            : EffectiveBodyShapeSearchResult?.Matches?
+            : (BodyShapeRowSelection?.Matches
+                ?? EffectiveBodyShapeSearchResult?.Matches)?
                 .Select(BodyShapeJsonMatch.FromMatch)
                 .ToList();
 
     [JsonPropertyName("body_shape_summary")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<BodyShapeSummary>? BodyShapeSummary =>
-        BodyShapeSections?.Contains(SectionNames.BodyShapeSummary) == true
-            && EffectiveBodyShapeSearchResult is { } result
+        BodyShapeSections?.Contains(SectionNames.BodyShapeSummary) != true
+            ? null
+            : BodyShapeRowSelection?.Summary is { } selected
+                ? [.. selected]
+                : EffectiveBodyShapeSearchResult is { } result
                 ? [.. RowWindow.Apply(
                     BodyShapeSummaryRows,
                     Output.BodyShapeSummary.FromMatches(result.Matches))]
@@ -733,6 +737,13 @@ public class LibraryInspection
 
     [JsonIgnore]
     public RowWindow? BodyShapeSummaryRows { get; set; }
+
+    /// <summary>
+    /// Rows retained by a semantic Body Shapes row selection; null when no
+    /// selection applies and every view renders its complete rows.
+    /// </summary>
+    [JsonIgnore]
+    internal BodyShapeRowSelection? BodyShapeRowSelection { get; set; }
 
     [JsonIgnore]
     public BodyKindQueryOptions BodyKindQueryOptions { get; set; } = BodyKindQueryOptions.Default;
@@ -1892,8 +1903,6 @@ public sealed record LibraryIntegrationSummaryJson(string Integration, int Count
 public sealed record VersionJson(string Version);
 
 public sealed record PackageTfmJson(string Tfm);
-
-public sealed record PackageLayoutFileJson(string Path);
 
 public sealed record VersionListingJson(string Version, string Listing);
 

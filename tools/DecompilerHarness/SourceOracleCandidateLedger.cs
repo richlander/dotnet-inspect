@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using Inspector.Findings;
 
@@ -1000,8 +1001,7 @@ static class SourceOracleCandidateLedger
     /// The complete MethodDef to primary-document census for one assembly, computed from
     /// the portable PDB before any source is acquired.
     ///
-    /// <para>Primary selection matches
-    /// <see cref="PdbSourceHouse.AcquireMemberAsync"/> exactly —
+    /// <para>Primary selection matches SourceHouse exactly —
     /// <c>IsPrimaryDocument</c> descending, then <c>DocumentRowId</c> — because a census
     /// that picked a different document than acquisition would attribute a member's
     /// result to a file the acquisition never read.</para>
@@ -1123,9 +1123,8 @@ static class SourceOracleCandidateLedger
 
     /// <summary>
     /// The single document a mapping points at, or <see langword="null"/> when the
-    /// portable PDB does not identify one uniquely. Mirrors
-    /// <c>PdbSourceHouse.SelectMappedDocument</c>, which is internal to the
-    /// services assembly.
+    /// portable PDB does not identify one uniquely. Mirrors SourceHouse's
+    /// document-row and path correlation.
     /// </summary>
     static SourceDocumentObservation? SelectMappedDocument(
         MemberSourceObservation mapping,
@@ -1406,6 +1405,8 @@ static class SourceOracleCandidateLedger
             return false;
         }
 
+        IPdbStore pdbStore =
+            new InMemoryPdbStore();
         SourceLinkService source;
         try
         {
@@ -1422,9 +1423,34 @@ static class SourceOracleCandidateLedger
             return false;
         }
         using var sourceScope = source;
+        AuthoredSourceQuerySession sourceQuery;
         try
         {
-            await AuthoredRebuildFidelity.AcquirePdbAsync(source, httpClient);
+            sourceQuery =
+                AuthoredSourceQuerySession.Open(
+                    assemblyPath,
+                    httpClient,
+                    fetcher,
+                    repositoryPaths,
+                    pdbStore: pdbStore);
+        }
+        catch (Exception ex) when (ex is IOException
+            or UnauthorizedAccessException
+            or BadImageFormatException
+            or InvalidOperationException)
+        {
+            Console.Error.WriteLine(
+                $"Could not open source query for '{assemblyPath}' "
+                + $"({ex.GetType().Name}: {ex.Message}).");
+            return false;
+        }
+        await using var sourceQueryScope = sourceQuery;
+        try
+        {
+            await AuthoredRebuildFidelity.AcquirePdbAsync(
+                source,
+                httpClient,
+                pdbStore: pdbStore);
         }
         catch (Exception ex) when (
             AuthoredRebuildFidelity.IsPdbAcquisitionFailure(ex))
@@ -1472,12 +1498,10 @@ static class SourceOracleCandidateLedger
                 continue;
 
             var attempt = await AuthoredSourceHarvest.TryHarvestAsync(
-                source,
+                sourceQuery,
                 identity,
                 byToken[member.Member.MetadataToken],
-                fetcher,
-                evil: false,
-                repositoryPaths);
+                evil: false);
             if (attempt.Record is not { } record)
             {
                 if (attempt.Reason is CandidateReason.NoPdbSourceMapping

@@ -681,6 +681,34 @@ public static partial class ApiSurfaceExtractor
             constraintResolution: null);
 
     /// <summary>
+    /// Extracts declarations physically owned by the Types that
+    /// <paramref name="includeType"/> admits, at one explicit visibility scope.
+    /// </summary>
+    /// <remarks>
+    /// Types the predicate rejects are not decoded, so a caller that needs a
+    /// few Types does not pay for the whole image. Each admitted Type yields
+    /// the same declarations as a complete <see cref="ExtractDeclarations(PEReader, ApiSurfaceExtractionScope, bool, bool)"/>
+    /// walk; receiver-contextual extension members are not projected.
+    /// </remarks>
+    public static ApiSurface ExtractDeclarations(
+        PEReader peReader,
+        ApiSurfaceExtractionScope scope,
+        Func<TypeDefinitionHandle, bool> includeType,
+        bool includeCompilerGenerated = false)
+    {
+        ArgumentNullException.ThrowIfNull(includeType);
+        return Extract(
+            peReader,
+            scope,
+            typesOnly: false,
+            includeCompilerGenerated,
+            includeLocalExtensionProjections: false,
+            budget: null,
+            constraintResolution: null,
+            includeType: includeType);
+    }
+
+    /// <summary>
     /// Extracts an API surface and classifies external named generic constraints
     /// through one frozen type-resolution generation.
     /// </summary>
@@ -995,7 +1023,8 @@ public static partial class ApiSurfaceExtractor
         ExtractionBudget? budget,
         TypeParameterConstraintResolution? constraintResolution,
         MetadataOperationContext? operationContext = null,
-        Func<ApiType, bool>? stopAfterType = null)
+        Func<ApiType, bool>? stopAfterType = null,
+        Func<TypeDefinitionHandle, bool>? includeType = null)
     {
         if (!Enum.IsDefined(scope))
             throw new ArgumentOutOfRangeException(nameof(scope));
@@ -1179,6 +1208,9 @@ public static partial class ApiSurfaceExtractor
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
+            if (includeType is not null && !includeType(typeDefHandle))
+                continue;
+
             MetadataTypeDefinitionName? owningTypeDefinition = null;
             TypeAttributes? owningTypeAttributes = null;
             TypeDefinitionHandle owningTypeParent = default;

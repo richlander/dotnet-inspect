@@ -3,6 +3,7 @@ using System.Runtime.ExceptionServices;
 
 using DotnetInspector.Libraries;
 using DotnetInspector.Queries;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections;
 
@@ -27,6 +28,118 @@ public sealed record AssemblyContextLibraryInspectionRun<T>(
 /// </summary>
 public static class AssemblyContextLibraryInspection
 {
+    /// <summary>
+    /// Materializes one selected assembly through a fresh directly owned
+    /// Workspace, executes one Library inspection, and retires every acquired
+    /// resource before returning.
+    /// </summary>
+    public static async Task<AssemblyContextLibraryInspectionRun<T>>
+        ExecuteAsync<T>(
+            ResolvedAssemblyReference assembly,
+            IAssemblyBindingPolicy bindingPolicy,
+            AssemblyContextLibraryRole role,
+            AssemblyContextLibraryMaterializationLimits limits,
+            Func<LibraryReference, LibraryContentOwner, T?> inspect,
+            CancellationToken cancellationToken = default)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+        ArgumentNullException.ThrowIfNull(limits);
+        ArgumentNullException.ThrowIfNull(inspect);
+
+        ExceptionDispatchInfo? primaryFailure = null;
+        var cleanupFailures = new List<string>();
+        AssemblyContextLibraryInspectionRun<T>? run = null;
+        var workspace = new InspectionWorkspace();
+        AssemblyContextGroup? group = null;
+        try
+        {
+            var participant =
+                new AssemblyContextParticipant(
+                    assembly,
+                    bindingPolicy);
+            group = workspace.CreateAssemblyContextGroup(
+                [participant],
+                new AssemblyContextGroupOptions
+                {
+                    MaxRetainedImageBytes =
+                        limits.MaxCapturedImageBytes,
+                });
+            run = await ExecuteAsync(
+                    AssemblyContextLibraryAdapter.MaterializeAsync(
+                        group,
+                        participant,
+                        role,
+                        limits,
+                        cancellationToken),
+                    inspect)
+                .ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            primaryFailure = ExceptionDispatchInfo.Capture(failure);
+        }
+        finally
+        {
+            try
+            {
+                group?.Dispose();
+            }
+            catch
+            {
+                cleanupFailures.Add(
+                    "The direct Library assembly group could not retire.");
+            }
+
+            try
+            {
+                await workspace.DisposeAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                cleanupFailures.Add(
+                    "The direct Library inspection Workspace could not retire.");
+            }
+        }
+
+        if (primaryFailure is not null)
+        {
+            if (cleanupFailures.Count > 0)
+            {
+                throw new AggregateException(
+                    "Direct Library inspection and resource retirement both "
+                        + "failed.",
+                    [
+                        primaryFailure.SourceException,
+                        .. cleanupFailures.Select(
+                            static failure =>
+                                new InvalidOperationException(failure)),
+                    ]);
+            }
+
+            primaryFailure.Throw();
+        }
+        if (run is null)
+        {
+            return new(
+                Result: null,
+                Failure: "Direct Library inspection did not complete.",
+                CleanupFailures: [.. cleanupFailures]);
+        }
+
+        return cleanupFailures.Count == 0
+            ? run
+            : run with
+            {
+                CleanupFailures =
+                [
+                    .. run.CleanupFailures,
+                    .. cleanupFailures,
+                ],
+            };
+    }
+
     /// <summary>
     /// Issues one operation lease for a materialized Library, executes a
     /// resource-free inspection, and releases the lease before owner

@@ -12,7 +12,11 @@ public sealed record BodyShapeSummaryRow(string Kind, string Match, int Count)
 
     internal static List<BodyShapeSummaryRow> FromMatches(
         IEnumerable<ILInspector.Decompiler.BodyShapeMatch> matches)
-        => BodyShapeSummary.FromMatches(matches)
+        => FromSummaries(BodyShapeSummary.FromMatches(matches));
+
+    internal static List<BodyShapeSummaryRow> FromSummaries(
+        IEnumerable<BodyShapeSummary> summaries)
+        => summaries
             .Select(summary => new BodyShapeSummaryRow(summary.Kind, summary.Match, summary.Count))
             .ToList();
 }

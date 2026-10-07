@@ -593,7 +593,6 @@ public partial class PackageCommand
         List<string> conflicts = [];
         if (options.ExplicitVersion != null) conflicts.Add("--version");
         if (options.ListVersions) conflicts.Add("--versions/--version");
-        if (options.ListLayout) conflicts.Add("--layout");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.Print) conflicts.Add("--print");
         if (options.Value) conflicts.Add("--value");
@@ -673,7 +672,6 @@ public partial class PackageCommand
         if (options.ShowContent)
         {
             List<string> conflicts = [];
-            if (options.ListLayout) conflicts.Add("--layout");
             if (options.ListTfms) conflicts.Add("--tfms");
             if (options.ListVersions) conflicts.Add("--versions/--version");
             if (options.Roots) conflicts.Add("--roots");

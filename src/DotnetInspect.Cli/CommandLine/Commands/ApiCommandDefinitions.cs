@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Sections;
+using DotnetInspector.Presentation;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -108,6 +109,7 @@ public static class ApiCommandDefinitions
         opts.AddPerformanceTriageOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(opts.PlainText);
+        typeCommand.Options.Add(opts.Mermaid);
         opts.AddEnvelopeOptionTo(
             typeCommand,
             opts.Discover,
@@ -176,10 +178,45 @@ public static class ApiCommandDefinitions
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
                     lowering));
+        CliRowSelectionCommandRegistry.Register(
+            typeCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => BodyShapeRowSelectionAdoption.IsActive(
+                result,
+                opts,
+                tfmOption),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
-            if (parseResult.GetValue(opts.Envelope)
+            bool mermaidRequested =
+                parseResult.GetResult(opts.Mermaid)
+                    is { Implicit: false }
+                && parseResult.GetValue(opts.Mermaid);
+            if (mermaidRequested
+                && parseResult.GetValue(matchOption))
+            {
+                CommandError.Write(
+                    TypeCommandPlanner.StandaloneMermaidError);
+                return 1;
+            }
+
+            if (!mermaidRequested
+                && parseResult.GetValue(opts.Envelope)
                 && parseResult.GetResult(opts.Verbosity)
                     is { Implicit: false }
                 && opts.ParseVerbosity(parseResult)
@@ -199,7 +236,8 @@ public static class ApiCommandDefinitions
                 return 1;
             }
 
-            if (parseResult.GetValue(compactOption)
+            if (!mermaidRequested
+                && parseResult.GetValue(compactOption)
                 && opts.ResolveFormat(parseResult) != OutputFormat.Json
                 && !parseResult.GetValue(opts.Envelope))
             {
@@ -225,7 +263,8 @@ public static class ApiCommandDefinitions
                 };
             }
 
-            if (opts.ResolveFormat(parseResult) == OutputFormat.Json
+            if (!mermaidRequested
+                && opts.ResolveFormat(parseResult) == OutputFormat.Json
                 && parseResult.GetValue(opts.Tree)
                 && parseResult.GetValue(opts.Discover) is null)
             {
@@ -234,7 +273,8 @@ public static class ApiCommandDefinitions
                 return 1;
             }
 
-            if (TypeOptionsParser.TryCreateStructuralPlan(
+            if (!mermaidRequested
+                && TypeOptionsParser.TryCreateStructuralPlan(
                     parseResult,
                     opts,
                     commandArgs,
@@ -306,6 +346,7 @@ public static class ApiCommandDefinitions
                     return await TypeCommand.ExecuteAsync(
                         success.Options,
                         success.Plan,
+                        success.CommandPlan,
                         ct);
 
                 default:
@@ -524,6 +565,28 @@ public static class ApiCommandDefinitions
             result => CloneCandidateRowSelectionAdoption.IsActive(
                 result,
                 opts),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            memberCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => BodyShapeRowSelectionAdoption.IsActive(
+                result,
+                opts,
+                tfmOption),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),

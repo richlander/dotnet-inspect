@@ -385,6 +385,7 @@ function packageRootLoad(
   return {
     packageChildren: packageChildren(surface),
     documents: surface.documents,
+    defaultLibraryId: surface.defaultAssemblyId,
   };
 }
 
@@ -929,6 +930,7 @@ function acquisitionDependencies(
 ): PackageAcquisitionDependencies {
   return {
     queryPackageSummary: async () => ({
+      defaultLibraryId: null,
       versionSettlement: {
         content: {
           kind: "Settled",
@@ -1036,6 +1038,35 @@ test("query results open through the exact opaque Root request", async () => {
   assert.equal(packageLibrariesForModel(result)[0]?.types, null);
 });
 
+test("exact Root opening preserves a product default second in inventory", async () => {
+  const surface = packageSurface({
+    assemblies: [assembly("asset:first", "AAA"), assembly("asset:default", "Example.Package")],
+    defaultAssemblyId: "asset:default",
+  });
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    queryPackageRoot: async () => packageRootLoad(surface),
+  }));
+  const result = await acquisition.loadPackage({
+    packageId: "Display.Only", version: "0.0.0", framework: "",
+    rootRequest: "owner-issued-root-request",
+  });
+  assert.equal(result?.assemblyId, "asset:default");
+  assert.equal(result?.packageChildren?.content.libraries[0]?.assetId, "asset:first");
+});
+
+test("exact Root opening preserves an explicit absence of a default", async () => {
+  const surface = packageSurface({ defaultAssemblyId: null });
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    queryPackageRoot: async () => packageRootLoad(surface),
+  }));
+  const result = await acquisition.loadPackage({
+    packageId: "Display.Only", version: "0.0.0", framework: "",
+    rootRequest: "owner-issued-root-request",
+  });
+  assert.equal(result?.assemblyId, "");
+  assert.ok(result?.packageChildren?.content.libraries.length);
+});
+
 test("missing exact Root capability never falls back to coordinate opening", async () => {
   let coordinateCalls = 0;
   const acquisition = createPackageAcquisition(acquisitionDependencies({
@@ -1089,6 +1120,7 @@ test("NotSettled package loads preserve the complete shared baseline", async () 
   } satisfies BrowserPackageVersionSettlementInspection;
   const acquisition = createPackageAcquisition(acquisitionDependencies({
     queryPackageSummary: async () => ({
+      defaultLibraryId: null,
       versionSettlement,
       packageInfo: null,
       packageChildren: null,
@@ -1776,17 +1808,28 @@ test("package acquisition publishes only current results", async () => {
     version: "1.0.0",
   }));
   const acquisition = createPackageAcquisition(acquisitionDependencies({
+    queryPackageSummary: async (...args) => {
+      const summary = await acquisitionDependencies().queryPackageSummary(...args);
+      assert.ok(summary.packageInfo);
+      return {
+        ...summary,
+        packageInfo: { ...summary.packageInfo, content: {
+          ...summary.packageInfo.content, selectedTargetFramework: "net8.0",
+        } },
+        surface: packageSurface({ activeFramework: "net8.0" }),
+      };
+    },
     retainPackage: (packageModel, replaced) =>
       events.push(`retain:${packageModel.id}/${replaced?.id ?? "none"}`),
-    recordRecentPackage: (id, version, framework) =>
-      events.push(`recent:${id}@${version}/${framework}`),
+    recordRecentPackage: (id, version, framework, _nugetOrg, highestFramework) =>
+      events.push(`recent:${id}@${version}/${framework}/highest=${highestFramework}`),
     refreshPackageStats: () => events.push("stats"),
   }));
 
   const stale = await acquisition.loadPackage({
     packageId: "Example.Package",
     version: "1.2.3",
-    framework: "net10.0",
+    framework: "net8.0",
     isCurrent: () => false,
   });
   assert.equal(stale, null);
@@ -1795,14 +1838,14 @@ test("package acquisition publishes only current results", async () => {
   const current = await acquisition.loadPackage({
     packageId: "Example.Package",
     version: "1.2.3",
-    framework: "net10.0",
+    framework: "net8.0",
     replacePackage: replacedPackage,
   });
   assert.equal(current?.id, "Example.Package");
   assert.deepEqual(events, [
     "stats",
     "retain:Example.Package/Example.Old",
-    "recent:Example.Package@1.2.3/net10.0",
+    "recent:Example.Package@1.2.3/net8.0/highest=net10.0",
   ]);
 });
 

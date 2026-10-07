@@ -139,12 +139,20 @@ public static partial class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(
-                reader,
-                attr.Constructor,
-                beforeMaterialize);
-            if (attrTypeName == KnownAttributeNames.ExtensionAttribute)
+            if (beforeMaterialize is null
+                ? IsTopLevelAttributeType(
+                    reader,
+                    attr.Constructor,
+                    "System.Runtime.CompilerServices",
+                    "ExtensionAttribute")
+                : GetAttributeTypeName(
+                    reader,
+                    attr.Constructor,
+                    beforeMaterialize)
+                    == KnownAttributeNames.ExtensionAttribute)
+            {
                 return true;
+            }
         }
         return false;
     }
@@ -255,17 +263,31 @@ public static partial class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(
-                reader,
-                attr.Constructor,
-                beforeMaterialize);
-
-            if (attrTypeName == EditorBrowsableAttributeName)
+            string? attrTypeName = beforeMaterialize is null
+                ? null
+                : GetAttributeTypeName(
+                    reader,
+                    attr.Constructor,
+                    beforeMaterialize);
+            bool isEditorBrowsable = beforeMaterialize is null
+                ? IsTopLevelAttributeType(
+                    reader,
+                    attr.Constructor,
+                    EditorBrowsableAttributeNamespace,
+                    EditorBrowsableAttributeSimpleName)
+                : attrTypeName == EditorBrowsableAttributeName;
+            if (isEditorBrowsable)
             {
                 if (IsEditorBrowsableNever(reader, attr, beforeMaterialize))
                     return true;
             }
-            else if (attrTypeName == ObsoleteAttributeName)
+            else if (beforeMaterialize is null
+                ? IsTopLevelAttributeType(
+                    reader,
+                    attr.Constructor,
+                    "System",
+                    "ObsoleteAttribute")
+                : attrTypeName == ObsoleteAttributeName)
             {
                 if (!IsCompilerCompatibilityObsolete(
                     reader,

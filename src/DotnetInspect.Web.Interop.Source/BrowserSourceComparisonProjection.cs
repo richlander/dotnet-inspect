@@ -3,7 +3,6 @@ using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using Inspector.Findings;
-using ILInspector.SourceLink;
 
 namespace DotnetInspect.Web.Interop.Source;
 
@@ -71,13 +70,7 @@ internal static class BrowserSourceComparisonProjection
                     case AssemblyMemberPdbSourceAttempt.Available available:
                         state = "Available";
                         text = retainText ? available.Inspection.Text : null;
-                        if (available.Inspection.ChecksumVerification is
-                            SourceChecksumVerification.Exact
-                                or SourceChecksumVerification.LineEndingNormalized)
-                        {
-                            browseUrl = BrowserSourceDiffProjection.BrowseUrl(
-                                available.Inspection.Document?.ResolvedUrl);
-                        }
+                        browseUrl = available.Inspection.VerifiedBrowseUrl;
                         provenance = available.Provenance;
                         break;
                     case AssemblyMemberPdbSourceAttempt.Unavailable unavailable:
@@ -119,7 +112,7 @@ internal static class BrowserSourceComparisonProjection
             endpoint.Subject.Registration.ModuleVersionId?.ToString("D"),
             endpoint.Subject.Identity.ToString(),
             request is null ? null
-                : $"{request.Type.ToEscapedFullName()}::{request.Member.StableSelector}",
+                : $"{request.Type.ToEscapedFullName()}::{request.ProjectedMember.StableSelector}",
             request?.MetadataToken,
             state, detail, text, browseUrl, provenance?.RepositoryUrl, provenance?.Revision);
     }

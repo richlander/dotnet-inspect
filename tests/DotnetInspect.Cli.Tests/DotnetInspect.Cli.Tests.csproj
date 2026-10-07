@@ -52,6 +52,9 @@
     <None Include="$(NuGetPackageRoot)microsoft.netcore.app.ref/11.0.0-rc.1.26425.128/ref/net11.0/System.Net.Sockets.dll"
           Link="RealAssets/LibraryInfo/ref/System.Net.Sockets.dll"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.ref/11.0.0-rc.1.26425.128/ref/net11.0/System.Runtime.dll"
+          Link="RealAssets/LibraryInfo/ref/System.Runtime.dll"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.runtime.compilerservices.unsafe/6.0.0/lib/net6.0/System.Runtime.CompilerServices.Unsafe.dll"
           Link="RealAssets/LibraryInfo/unsafe/System.Runtime.CompilerServices.Unsafe.dll"
           CopyToOutputDirectory="PreserveNewest" />

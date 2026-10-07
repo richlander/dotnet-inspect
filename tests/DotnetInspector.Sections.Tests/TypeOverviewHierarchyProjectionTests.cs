@@ -239,6 +239,87 @@ public sealed partial class TypeOverviewDocumentInspectionOperationTests
         await library.RetireAsync();
     }
 
+    [Fact]
+    public async Task HierarchyProjection_LeafProfileCountsMemberGroupRowsOnly()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        TypeOverviewDocument document =
+            Available(
+                Execute(
+                    library,
+                    rows: new(
+                        maximumRows: 4096,
+                        includeExactMemberCount: false)));
+        var sink = new RecordingHierarchySink();
+
+        TypeOverviewHierarchyProjection.Write(
+            document,
+            LeafHierarchy(),
+            sink);
+
+        TypeOverviewHierarchyNode.Category[] categories =
+        [
+            .. sink.Events
+                .Select(static e => e.Node)
+                .OfType<TypeOverviewHierarchyNode.Category>(),
+        ];
+        TypeOverviewHierarchyNode.Member[] members =
+        [
+            .. sink.Events
+                .Select(static e => e.Node)
+                .OfType<TypeOverviewHierarchyNode.Member>(),
+        ];
+        Assert.NotEmpty(categories);
+        Assert.All(categories, static c => Assert.Null(c.ExactMemberCount));
+        Assert.Equal(members.Length, categories.Sum(static c => c.LogicalCount));
+        Assert.All(members, static m => Assert.Null(m.Value.ExactMemberCount));
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public void HierarchyRequest_RejectsMismatchedExactMemberCountDemand()
+    {
+        ArgumentException leafWithCounts =
+            Assert.Throws<ArgumentException>(
+                () => new TypeOverviewDocumentInspectionPlan(
+                    Name("System.Text.Json", "JsonSerializer"),
+                    new(maximumRows: 1, includeExactMemberCount: true),
+                    s_bounds,
+                    hierarchy: LeafHierarchy()));
+        ArgumentException countWithoutCounts =
+            Assert.Throws<ArgumentException>(
+                () => new TypeOverviewDocumentInspectionPlan(
+                    Name("System.Text.Json", "JsonSerializer"),
+                    new(maximumRows: 1, includeExactMemberCount: false),
+                    s_bounds,
+                    hierarchy: CompactHierarchy()));
+
+        Assert.Contains(
+            "leaf member groups",
+            leafWithCounts.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "requires a Count",
+            countWithoutCounts.Message,
+            StringComparison.Ordinal);
+    }
+
+    private static InspectionHierarchyRequest<
+        TypeOverviewHierarchyTopology> LeafHierarchy() =>
+        new(
+            TypeOverviewHierarchyTopology
+                .TypeCategoriesAndMemberGroups,
+            InspectionHierarchyNodeSpelling.FullSpelling,
+            new InspectionHierarchyPopulationRequest.Rows(
+                InspectionHierarchyNodeSpelling.Name,
+                new InspectionHierarchyPopulationRequest.Rows(
+                    InspectionHierarchyNodeSpelling.Name)));
+
     private static InspectionHierarchyRequest<
         TypeOverviewHierarchyTopology> CompactHierarchy() =>
         new(

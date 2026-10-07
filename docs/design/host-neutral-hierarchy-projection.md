@@ -6,17 +6,25 @@ This document is the normative design for **Host-neutral hierarchy
 projection**. The substrate is tracked by
 [#9458](https://github.com/richlander/dotnet-inspect/issues/9458).
 Type Overview and shared presentation are the first adopters under
-[#8430](https://github.com/richlander/dotnet-inspect/issues/8430), whose
-counted transport-host adoption will reach both the CLI and Inspect Web.
+[#8430](https://github.com/richlander/dotnet-inspect/issues/8430). The CLI
+adopts the compact profile; Inspect Web adoption remains separate.
 
-The first shared presentation profile is the compact Type hierarchy:
+The first shared presentation profile is the compact Type hierarchy. Under the
+work bound in
+[Primary subject views](primary-subject-views.md#authority-and-exact-claim),
+its default lists MemberGroups as leaves, and category nodes count only
+MemberGroup rows:
 
 ```text
 Type (FullSpelling)
   -> categories (Rows, Name)
     -> MemberGroups (Rows, Name)
-      -> exact Members (Count)
+      -> exact Members (Count, explicit profile only)
 ```
+
+[Type and Member inspection documents](type-member-inspection-documents.md#hierarchy-projection)
+owns the leaf default and the explicit exact-Member Count profile
+([#9722](https://github.com/richlander/dotnet-inspect/issues/9722)).
 
 It can be lowered as Tree or Mermaid without changing the semantic request.
 An expanded Type-to-MemberGroup-to-exact-Member Rows profile waits for the
@@ -25,13 +33,14 @@ from compact Counts.
 
 The Library document is the second adopter
 ([#9593](https://github.com/richlander/dotnet-inspect/issues/9593)). Its
-owner admits one profile over the complete Type declaration population:
+owner's default profile lists the complete Type declaration population as
+leaves, grouped by namespace, and an explicit profile may add Member Counts:
 
 ```text
 Library (FullSpelling)
   -> namespaces (Rows, Name)
     -> Type declarations (Rows, Name)
-      -> Members (Count)
+      -> Members (Count, explicit profile only)
 ```
 
 [Library inspection documents](library-inspection-document.md#hierarchy-projection)
@@ -118,6 +127,14 @@ Every parent-to-child population closes independently as Rows or Count.
 Count does not require or imply Rows. Rows do not become Count by host-side
 enumeration. The adopting owner maps each requested closing to its existing
 typed population request and publishes the corresponding outcome.
+
+The vocabulary can express nested populations, but a subject's default view
+does not request them.
+[Primary subject views](primary-subject-views.md#authority-and-exact-claim)
+owns that rule: one row population per default view, with owner-issued groups
+derived from those rows and deeper levels reached through the next command.
+A Rows level that only groups the same population, such as a Library's
+namespaces or a Type's categories, is not a second population.
 
 ### Name or FullSpelling
 
@@ -247,19 +264,20 @@ thread affinity, retained reader, inspected assembly load, or host UI object.
 
 ## Type Overview first adoption
 
-The compact Type Overview profile requests:
+The default Type Overview profile requests:
 
 ```text
 topology: TypeCategoriesAndMemberGroups
 root: FullSpelling
 children: Rows(Name)          # categories
-  children: Rows(Name)        # MemberGroups
-    children: Count           # exact Members
+  children: Rows(Name)        # MemberGroups (leaves)
 ```
 
-The Type owner requires complete MemberGroup Rows with exact-Member Counts,
-then pushes category and MemberGroup nodes in owner-issued order. It rejects
-unavailable, partial, uncounted, or unsupported requests before presentation.
+An explicit profile adds `children: Count` beneath MemberGroups for exact-Member
+Counts. The Type owner requires complete MemberGroup Rows whose Counts match
+the requested profile, then pushes category and MemberGroup nodes in
+owner-issued order. It rejects unavailable, partial, mismatched, or unsupported
+requests before presentation.
 
 Shared presentation owns both initial lowerings:
 
@@ -268,11 +286,22 @@ Shared presentation owns both initial lowerings:
 - Mermaid writes the same semantic nodes and edges with format-local stable
   identifiers and Mermaid escaping.
 
-The shared presentation API accepts only Tree or Mermaid intent,
-accessibility policy, the completed owner document, and the destination. A
-focused CLI adoption will pass those values without owning Markout, node
-formatting, or hierarchy formation. Inspect Web may request either format or
-a later Browser transport without duplicating hierarchy formation.
+`TypeOverviewHierarchyInspection` accepts the host-selected assembly, exact
+Type query, Tree or Mermaid intent, accessibility policy, and operation
+bounds. It owns direct-Library materialization, exact Type identity
+resolution, and construction of the owner-issued `TypeOverviewDocument`
+request. Exact-Type identity resolution and the document request use the same
+accessibility policy, so an all-declarations request admits both the non-public
+Type and its non-public Members. `TypeOverviewHierarchyPresentation.Write`
+then accepts only the completed owner document, admitted presentation plan,
+and destination.
+
+The CLI exact-Type hierarchy route selects the source, format, policy, and
+destination without owning Library Type enumeration, exact-Type matching,
+Markout, node formatting, or hierarchy formation. Inspect Web may use the same
+inspection API with its selected assembly, or supply an already completed
+document to a later Browser transport, without duplicating hierarchy
+formation.
 
 The expanded Mermaid example
 `JsonSerializer -> DeserializeAsync -> exact DeserializeAsync overloads`
@@ -288,7 +317,8 @@ The first adoption proves:
   independently represented;
 - the Type owner rejects request shapes its compact document cannot satisfy;
 - Tree and Mermaid lower the same owner-issued node sequence and identities;
-- Count branches do not materialize exact-Member Rows;
+- Count branches do not materialize exact-Member Rows, and the leaf default
+  requests no exact-Member Count;
 - Tree streaming constructs no Markout `TreeNode`;
 - the shared presentation path contains no transport-host routing or
   destination policy;

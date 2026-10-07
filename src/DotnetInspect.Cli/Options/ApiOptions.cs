@@ -248,6 +248,7 @@ public partial record ApiOptions : IProjectionOptions
     public bool Count { get; init; }
     public RowWindow? Rows { get; init; }
     public RowSelectionIntent<string>? CloneCandidateRowSelection { get; init; }
+    public RowSelectionIntent<string>? BodyShapeRowSelection { get; init; }
     public PerformanceTriageOptions PerformanceTriage { get; init; } = PerformanceTriageOptions.Default;
     public BodyKindQueryOptions BodyKindQuery { get; init; } = BodyKindQueryOptions.Default;
     public CloneCandidateQueryOptions CloneCandidateQuery { get; init; } =
@@ -395,6 +396,12 @@ public partial record ApiOptions
 
 public record TypeOptions : ApiOptions
 {
+    internal bool MermaidExplicitlySet { get; init; }
+    internal bool NonHierarchyFormatExplicitlySet { get; init; }
+    internal bool LineWindowExplicitlySet { get; init; }
+    internal bool ShapeOrDiscoveryControlExplicitlySet { get; init; }
+    internal bool PerformanceTriageControlExplicitlySet { get; init; }
+    internal bool TypeTargetUsedPlatformPrefixFallback { get; init; }
     public string? WorkspacePacket { get; init; }
     public WorkspaceShareFormat? ShareFormat { get; init; }
     public string? TypeFilter { get; init; }

@@ -86,12 +86,14 @@ type MetadataOperations =
 
 type AnalysisOperations =
   | "queryCloneCandidates"
+  | "renderTriageCaret"
   | "queryMemberFacts"
   | "queryPackageTypeImplementationHeat"
   | "queryPackageTypeMethodLeverage"
   | "queryPackageIntegrations"
   | "queryPackageOpportunities"
   | "queryPackagePerformance"
+  | "queryPackageResourceTriage"
   | "queryPackageLibraryDependencyStructure"
   | "queryPackageLibraryMetrics"
   | "queryPackageLibraryStructuralSalience"
@@ -102,7 +104,8 @@ type AnalysisOperations =
   | "queryPlatformLibraryStructuralSalience"
   | "queryPlatformIntegrations"
   | "queryPlatformOpportunities"
-  | "queryPlatformPerformance";
+  | "queryPlatformPerformance"
+  | "queryPlatformResourceTriage";
 
 type SourceOperations =
   | "queryMemberBodyDiff"

@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis.ClassicAsyncFixtures;
 using ILInspector.Analysis.ImplementationProfileFixtures;
+using ILInspector.Analysis.Planning;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -1005,79 +1006,6 @@ public sealed class LibraryBodyAnalysisExecutionTests
 
     [Fact]
     public void
-        MetricExecution_DirectCallCountAvoidsTargetAndContextWork()
-    {
-        string path =
-            typeof(ImplementationProfileSample).Assembly.Location;
-        int token = typeof(ImplementationProfileSample)
-            .GetMethod(
-                nameof(ImplementationProfileSample.CallHiddenTwice),
-                BindingFlags.Public | BindingFlags.Static)!
-            .MetadataToken;
-
-        LibraryBodyAnalysisExecution execution =
-            LibraryBodyAnalysisService.ExecutePath(
-                path,
-                LibraryBodyAnalysisRequest.CreateDirectCallCounts(
-                    CountMetricLimits(),
-                    new HashSet<int> { token })
-                .WithStageParticipation());
-
-        LibraryDirectCallCountAnalysisResult result =
-            execution.DirectCallCounts;
-        MethodDirectCallCountEvidence count =
-            Assert.Single(result.Counts);
-        Assert.True(result.WasRequested);
-        Assert.True(result.IsComplete);
-        Assert.Equal(token, count.Method.MetadataToken);
-        Assert.Equal(token, count.EvidenceMethod.MetadataToken);
-        Assert.Equal(2, count.Count);
-        Assert.Empty(result.UnavailableBodies);
-        LibraryBodyAnalysisStageParticipationReceipt stages =
-            Assert.IsType<
-                LibraryBodyAnalysisStageParticipationReceipt>(
-                    execution.Receipt.StageParticipation);
-        LibraryBodyAnalysisStageParticipation discovery =
-            stages.For(
-                LibraryBodyAnalysisStage.DirectCallDiscovery);
-        Assert.Equal(1, discovery.Attempts);
-        Assert.Equal(1, discovery.Completions);
-        Assert.Equal(0, discovery.Failures);
-        Assert.Equal(
-            0,
-            stages.For(
-                LibraryBodyAnalysisStage.CallAnalysis)
-                .Attempts);
-        Assert.Equal(
-            0,
-            stages.For(
-                LibraryBodyAnalysisStage.CanonicalMethodContext)
-                .Attempts);
-        Assert.True(result.Participation.WasPlanned);
-        Assert.Equal(1, result.Participation.AttemptedBodies);
-        Assert.Equal(1, result.Participation.CompletedBodies);
-        Assert.Equal(0, result.Participation.FailedBodies);
-        Assert.Empty(execution.CallGraph.DirectCalls);
-
-        MethodImplementationMetricEvidence body =
-            Assert.Single(
-                execution.ImplementationMetrics.Bodies);
-        Assert.Equal(2, body.DirectCallCount?.Count);
-        Assert.Null(body.DirectCalls);
-        Assert.DoesNotContain(
-            execution.ImplementationMetrics
-                .Participation!.ActualStages,
-            stage => stage.Stage
-                is ImplementationMetricWorkStage
-                    .LocalSignatureDecode
-                    or ImplementationMetricWorkStage
-                        .CanonicalMethodContext
-                    or ImplementationMetricWorkStage
-                        .DirectCallCollection);
-    }
-
-    [Fact]
-    public void
         MetricExecution_DirectCallsPublishesRequestedZeroWithoutOtherTopics()
     {
         string path =
@@ -1762,56 +1690,48 @@ public sealed class LibraryBodyAnalysisExecutionTests
 
     [Fact]
     public void
-        MetricExecution_DirectCallCountDoesNotResolveMalformedTarget()
+        MethodCallCountProducer_DoesNotResolveMalformedTarget()
     {
         byte[] image = File.ReadAllBytes(
             typeof(ImplementationProfileSample).Assembly.Location);
         int token = ReplaceSecondCallTokenWithInvalidValue(image);
 
-        LibraryBodyAnalysisExecution execution =
-            LibraryBodyAnalysisService.ExecuteImage(
-                "MalformedDirectCall.dll",
-                ImmutableArray.Create(image),
-                LibraryBodyAnalysisRequest.CreateDirectCallCounts(
-                    CountMetricLimits(),
-                    new HashSet<int> { token }));
+        (ProducerResult<MethodCallCountProducerResult> result,
+            MethodDefinitionExecution execution) =
+                ExecuteCallCount(
+                    image,
+                    token,
+                    MethodCallCountProducer.DirectInvocations);
 
-        LibraryDirectCallCountAnalysisResult result =
-            execution.DirectCallCounts;
-        Assert.True(result.IsComplete);
-        Assert.Equal(2, Assert.Single(result.Counts).Count);
-        Assert.Empty(result.UnavailableBodies);
-        Assert.Empty(execution.CallGraph.DirectCalls);
+        Assert.Equal(ProducerOutcome.Complete, result.Outcome);
+        MethodCallCountBody body =
+            Assert.Single(result.Value!.Bodies);
+        Assert.Equal(2, body.Count);
+        Assert.Null(body.Diagnostic);
+        Assert.Equal(
+            0,
+            execution.SourceCoverage.ModuleLookupMethods.Count);
     }
 
     [Fact]
     public void
-        MetricExecution_DirectCallDiscoveryFailureIsVisible()
+        MethodCallCountProducer_DiscoveryFailureIsVisible()
     {
         byte[] image = File.ReadAllBytes(
             typeof(ImplementationProfileSample).Assembly.Location);
         int token = ReplaceReturnWithTruncatedCall(image);
 
-        LibraryBodyAnalysisExecution execution =
-            LibraryBodyAnalysisService.ExecuteImage(
-                "MalformedDirectCallDiscovery.dll",
-                ImmutableArray.Create(image),
-                LibraryBodyAnalysisRequest.CreateDirectCallCounts(
-                    CountMetricLimits(),
-                    new HashSet<int> { token })
-                .WithStageParticipation());
+        (ProducerResult<MethodCallCountProducerResult> result, _) =
+            ExecuteCallCount(
+                image,
+                token,
+                MethodCallCountProducer.DirectInvocations);
 
-        Assert.False(execution.DirectCallCounts.IsComplete);
-        LibraryBodyAnalysisStageParticipation discovery =
-            Assert.IsType<
-                LibraryBodyAnalysisStageParticipationReceipt>(
-                    execution.Receipt.StageParticipation)
-                .For(
-                    LibraryBodyAnalysisStage
-                        .DirectCallDiscovery);
-        Assert.Equal(1, discovery.Attempts);
-        Assert.Equal(0, discovery.Completions);
-        Assert.Equal(1, discovery.Failures);
+        Assert.Equal(ProducerOutcome.Complete, result.Outcome);
+        MethodCallCountBody body =
+            Assert.Single(result.Value!.Bodies);
+        Assert.Null(body.Count);
+        Assert.NotNull(body.Diagnostic);
     }
 
     [Fact]
@@ -3115,46 +3035,66 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
-    public void ExecuteImage_CallCountsRetainTokenOnlyIdentityFailures()
+    public void MethodCallCountProducer_DoesNotDecodeDamagedSignature()
     {
         byte[] image = File.ReadAllBytes(
             typeof(LibraryBodyAnalysisExecutionTests).Assembly.Location);
         int methodToken =
             ReplaceMethodSignatureWithInvalidValue(image);
-        ImmutableArray<byte> immutableImage =
-            ImmutableArray.Create(image);
-        var scope = new HashSet<int> { methodToken };
 
-        LibraryDirectCallCountAnalysisResult directCalls =
-            LibraryBodyAnalysisService.ExecuteImage(
-                "MalformedDirectCallCountSignature.dll",
-                immutableImage,
-                LibraryBodyAnalysisRequest.CreateDirectCallCounts(
-                    CountMetricLimits(),
-                    scope))
-                .DirectCallCounts;
-        LibraryCallSiteCountAnalysisResult callSites =
-            LibraryBodyAnalysisService.ExecuteImage(
-                "MalformedCallSiteCountSignature.dll",
-                immutableImage,
-                LibraryBodyAnalysisRequest.CreateCallSiteCounts(
-                    CountMetricLimits(),
-                    scope))
-                .CallSiteCounts;
+        (ProducerResult<MethodCallCountProducerResult> direct, _) =
+            ExecuteCallCount(
+                image,
+                methodToken,
+                MethodCallCountProducer.DirectInvocations);
+        (ProducerResult<MethodCallCountProducerResult> callSites, _) =
+            ExecuteCallCount(
+                image,
+                methodToken,
+                MethodCallCountProducer.CallSites);
 
-        Assert.False(directCalls.IsComplete);
-        DirectCallCountUnavailableBody directUnavailable =
-            Assert.Single(directCalls.UnavailableBodies);
-        Assert.Null(directUnavailable.EvidenceMethod);
-        Assert.Equal(methodToken, directUnavailable.MethodToken);
-        Assert.NotNull(directUnavailable.Diagnostic);
+        MethodCallCountBody directBody =
+            Assert.Single(direct.Value!.Bodies);
+        MethodCallCountBody callSiteBody =
+            Assert.Single(callSites.Value!.Bodies);
+        Assert.Equal(ProducerOutcome.Complete, direct.Outcome);
+        Assert.Equal(ProducerOutcome.Complete, callSites.Outcome);
+        Assert.NotNull(directBody.Count);
+        Assert.Null(directBody.Diagnostic);
+        Assert.NotNull(callSiteBody.Count);
+        Assert.Null(callSiteBody.Diagnostic);
+    }
 
-        Assert.False(callSites.IsComplete);
-        CallSiteCountUnavailableBody callSiteUnavailable =
-            Assert.Single(callSites.UnavailableBodies);
-        Assert.Null(callSiteUnavailable.EvidenceMethod);
-        Assert.Equal(methodToken, callSiteUnavailable.MethodToken);
-        Assert.NotNull(callSiteUnavailable.Diagnostic);
+    static (
+        ProducerResult<MethodCallCountProducerResult> Result,
+        MethodDefinitionExecution Execution)
+        ExecuteCallCount(
+            byte[] image,
+            int methodToken,
+            MethodCallCountProducer producer)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        WorkDescription work =
+            ProducerPlanner.Plan(
+                [new ProducerRequest(producer, ProducerTerminal.Count)])
+            is ProducerPlanResult.Accepted accepted
+                ? accepted.Description
+                : throw new InvalidOperationException(
+                    "The method call Count test request must plan.");
+        var handle =
+            (MethodDefinitionHandle)MetadataTokens.EntityHandle(
+                methodToken);
+        MethodDefinitionExecution execution =
+            MethodDefinitionExecution.Execute(
+                work,
+                "MethodCallCountProducerTests",
+                peReader,
+                MethodDefinitionSourceBreadth.ExactMethods(handle),
+                new(
+                    maximumBodies: 10,
+                    maximumEncodedIlBytes: 10_000_000));
+        return (execution.ResultOf(producer), execution);
     }
 
     static ImmutableArray<int> ManagedMethodTokens(
@@ -3180,13 +3120,6 @@ public sealed class LibraryBodyAnalysisExecutionTests
             maximumEncodedIlBytes: 10_000,
             maximumAttributionProbeBodies: 20,
             maximumAttributionProbeIlBytes: 20_000);
-
-    static ImplementationMetricWorkLimits CountMetricLimits() =>
-        new(
-            maximumPhysicalBodies: 10,
-            maximumEncodedIlBytes: 10_000,
-            maximumAttributionProbeBodies: 10_000,
-            maximumAttributionProbeIlBytes: 10_000_000);
 
     static ImplementationMetricWorkLimits
         RelationshipMetricLimits() =>

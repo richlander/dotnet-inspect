@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using System.Runtime.Versioning;
 
 using DotnetInspector.PackageQueries;
@@ -60,6 +62,19 @@ internal sealed class
             AssemblyReferenceResolutionWorkLedger work,
             CancellationToken cancellationToken)
     {
+        if (TryCreateCurrentRuntimeTarget(
+                family,
+                targetFramework,
+                typeof(object).Assembly
+                    .GetCustomAttribute<
+                        AssemblyInformationalVersionAttribute>()
+                    ?.InformationalVersion,
+                out PlatformFamilyTarget? currentRuntime))
+        {
+            return new PlatformTargetDiscoveryOutcome.Selected(
+                currentRuntime);
+        }
+
         PlatformTargetDiscoverySource package =
             PackagePlatformTargetDiscovery.CreateSource(
                 _platform,
@@ -148,6 +163,40 @@ internal sealed class
             _ => throw new InvalidOperationException(
                 "Unknown Platform target-selection outcome."),
         };
+    }
+
+    internal static bool TryCreateCurrentRuntimeTarget(
+        PlatformFamily family,
+        string targetFramework,
+        string? informationalVersion,
+        [NotNullWhen(true)] out PlatformFamilyTarget? target)
+    {
+        target = null;
+        if (family != PlatformFamily.DotNetRuntime
+            || !PlatformTargetFramework.TryParse(
+                targetFramework,
+                out PlatformTargetFramework? framework)
+            || string.IsNullOrWhiteSpace(informationalVersion))
+        {
+            return false;
+        }
+
+        string versionText =
+            informationalVersion.Split('+', 2)[0];
+        if (!PlatformVersion.TryParse(
+                versionText,
+                out PlatformVersion? version)
+            || version.Major != framework.Major
+            || version.Minor != framework.Minor)
+        {
+            return false;
+        }
+
+        target = new PlatformFamilyTarget(
+            family,
+            framework,
+            version);
+        return true;
     }
 
     protected override PlatformSourcePlan CreateSourcePlan(

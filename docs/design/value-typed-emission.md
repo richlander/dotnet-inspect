@@ -52,6 +52,46 @@ Instance 3 is noted where it sits and deferred. A second, orthogonal axis of
 thinness — the writer's *output* being structure rather than strings — is scoped
 in [the output half](#the-output-half--structure-not-strings) below.
 
+### Reconstructed tuple type testimony
+
+Raised tuple expressions carry the actual core-library generic definition,
+including its metadata arity. A two-element tuple uses ``System.ValueTuple`2``,
+not the nongeneric `System.ValueTuple` definition with two supplied arguments.
+Tuple comparison and swap reconstruction preserve this rule at construction;
+the printer and fidelity census do not excuse an inconsistent type because
+tuple syntax happens to hide its definition name.
+
+Wide tuples preserve the CLR rest encoding: after seven elements, the eighth
+type argument is another `ValueTuple` containing the remaining elements.
+An eight-element tuple therefore has a one-element rest tuple, and a
+fifteen-element tuple has two rest levels. Flat C# tuple syntax does not
+license substituting the eighth scalar element for that nested storage type.
+
+The motivating asset is dotnet/runtime at
+[`ab19415702aa8139d5369e47c73edb47343c34ad`,
+`JsonElement.cs`](https://github.com/dotnet/runtime/blob/ab19415702aa8139d5369e47c73edb47343c34ad/src/libraries/System.Text.Json/src/System/Text/Json/Document/JsonElement.cs),
+the .NET 11 RC1 source. `JsonElement.DeepEquals` in runtime
+`11.0.0-rc.1.26425.128` reports two `DEC0009` generic-arity causes on
+reconstructed tuple expressions. Tracker #9625 records the exact MethodDef
+and selector. Retention uses the installed RC1 assembly as a reproducible
+real witness and existing independently compiler-produced tuple comparison,
+nested tuple, and swap specimens as deterministic boundary evidence.
+
+`TupleBinaryOperatorPassTests.ReconstructedTupleTypesRetainMetadataArity`
+and `SwapIdiomPassTests.ValueSwap_RaisesToTupleDeconstruction` gate the
+construction rule. `UnspellableTypeFidelityTests.MalformedTupleArity_RemainsPartial`
+gates the neighboring malformed-type boundary. These gates establish type
+consistency, not independent semantic equivalence; compile-back remains the
+separate fidelity gate. No control-flow, consumption, or recognition rule
+changes in this slice.
+
+`TupleBinaryOperatorPassTests.WideTupleTypesMatchCompilerSignature` compares
+reconstructed eight-, nine-, and fifteen-element operand types against the
+compiler-emitted return signatures of independent tuple-value specimens.
+`WideTupleComparisonCompileBack_RemainsExact` gates the three comparison
+bodies separately. These specimens close the wide-tuple boundary found during
+PR #9626 Round 1; they complement the motivating RC1 witness above.
+
 ### Reference-coalesce assignment testimony
 
 Reference-coalesce assignment is a pre-print decision (#8105). Its evidence
@@ -1885,6 +1925,46 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    raising pipeline used by CLI and Browser/Wasm consumers; no host-specific
    conversion or naming path is introduced.
 
+### Producer-only slot retirement
+
+A function-scope stack-slot component with stores but no surviving observer has
+no storage identity to materialize. After the final slots-only inlining and
+reference-target refresh, `ProducerOnlySlotRetirementPass` computes the
+greatest set of slot webs whose loads are only direct copies into another
+member of that same set. Bare constants, argument loads, local loads, and
+direct slot copies disappear because their evaluation has no effect. Every
+other store becomes an `ExpressionStatement` at the same position and carries
+its producer's exact assignment type as discard-target testimony. The printer
+renders that issued fact as `_ = (T)(producer);`, retaining evaluation order,
+exceptions, allocation, and target context for lambdas, conditionals,
+target-typed stackalloc arrays, and other contextual expressions without
+inventing a local.
+
+Admission requires every retained producer's assignment type to be complete
+and spellable in an explicit C# type position. Managed-reference producers are
+excluded: their reference identity is storage semantics, not a value that can
+be cast and discarded. Pointer-form `StackAllocate` remains in storage planning
+because valid C# requires the printer's dedicated stackalloc-local form rather
+than a generic cast-and-discard statement. Nested bodies remain independent
+scopes. Any load outside a direct copy into the retiring set keeps its entire
+upstream chain in storage planning. The Release invariant checks that no store
+or load from an issued retirement set survives the rewrite. Focused tests gate
+pure removal, evaluated and target-typed discards, direct-copy closure,
+external observers, managed-reference, pointer-stackalloc, and nested-scope
+exclusions, and the pinned Microsoft.CodeAnalysis 5.0.0
+`AnalyzerAssemblyLoader` constructor witness.
+
+On the fixed 14-assembly, 89,065-method corpus at base `243adb14a`, the pass
+changes 32 methods and retires 52 transitive slot webs. All 49 materialization
+decisions carrying `MissingLoad` disappear. Residual binding moves from
+143 webs / 209 locals / 98 methods to 94 / 160 / 67; split webs remain 51,
+late-decidable webs remain zero, and the same four pre-existing pass bugs remain
+visible. Render A/B over the 46,945 methods outside the known base
+Microsoft.CodeAnalysis.CSharp structural-projection failure reports 16 changed
+methods: one valid-to-valid and 15 invalid-to-invalid, with zero
+valid-to-invalid. Exact pass diffs account for the remaining 16 changed CSharp
+methods.
+
 ### Exact managed-reference slot storage
 
 A function-scope stack-slot web whose exact storage type is established as one
@@ -1902,8 +1982,50 @@ When an earlier honesty pass consumes every load while leaving the synthetic
 stores, unanimous complete managed-reference producers provide the same exact
 storage identity. Such a store-only web materializes from that producer
 testimony; differing, missing, or incomplete producer types remain undecided.
-This does not infer an observer or make producer-only testimony sufficient for
-any other storage family.
+This remains the producer-only exception: ordinary value producers are retired
+by `ProducerOnlySlotRetirementPass`, while managed-reference producers require
+the exact storage identity above.
+
+#### Value-type receiver aliases
+
+A value-type instance receiver has two simultaneous identities: C# names it at
+its declared type `T`, while IL `ldarg.0` carries the managed pointer to the
+receiver storage. The receiver binder keeps the declared type because that is
+the C# surface contract; storage planning must not therefore interpret an
+evaluation-stack spill of that binder as a `T` value copy. Before semantic
+raising, `ValueTypeReceiverAliasPass` retires a function-scope slot web when
+every store carries the exact receiver binder and every load carries the
+declaring type. Each load becomes a fresh read of that same binder and the
+synthetic stores disappear. The rewrite iterates so direct slot-copy chains
+whose sources become exact receiver binders retire under the same proof.
+
+Admission requires metadata proof that the declaring type derives from
+`System.ValueType` or `System.Enum`, and the receiver argument binding must have
+no direct write, increment/decrement target, address escape, or deconstruction
+assignment. Calls may mutate the receiver's target, but the slot alias and the
+direct receiver still name that same target; only rebinding argument zero could
+distinguish them. Reference-type and unresolved receivers, unbound argument-zero
+nodes, mixed producers, mismatched load types, and independently scoped nested
+bodies decline. This is stable-place substitution, not expression reordering,
+value copying, ref-local synthesis, or a printer repair; no side effect or
+control-flow edge moves.
+
+The compiler-produced `ValueTypeReceiverAlias` constructor fixture and the
+pinned Microsoft.CodeAnalysis.Common 5.0.0
+`FileLinePositionSpan::.ctor(string, LinePositionSpan)` witness gate the
+positive lowering. Synthetic controls cover an intervening call, an alias copy
+chain, mixed producers, receiver rebinding and address escape, a reference-type
+receiver, and an isolated nested slot namespace. The real witness must retain
+`Full` fidelity, write `this.Path`, and never declare a
+`FileLinePositionSpan` value local initialized from `this`.
+
+On the fixed 14-assembly, 89,065-method population, the pass changes 74
+methods. At the late-F2 boundary, stack-slot stores, loads, and distinct slots
+move from 43,842/61,148/37,517 to 43,742/61,045/37,444. Materialization then
+sees 36 fewer ordinary candidates and 37 fewer deferred candidates; its
+post-boundary residual population moves from 210 to 173 slots and from 155 to
+121 methods. This is a population result for those immutable inputs, not a
+claim that every future receiver spill is admissible.
 
 Metadata-name spellability is not a storage gate. Both the residual ref-slot
 path and the typed-local path render the same exact type through `TypeText`, and
@@ -2014,10 +2136,11 @@ metadata-proven user or compiler ref structs. Bare generic parameters,
 including parameters with `allows ref struct`, are not concrete byref-like
 types and remain under the existing generic-parameter boundary. Managed
 references, unknown type shapes, incomplete or unspellable types, non-exact
-producers, nested webs, producer-only webs, and independently deferred copy
-components remain outside admission. The compiler-generated-name and
-constructed-reference residuals are a separate presentation boundary and are
-not admitted by this slice.
+producers, nested webs, and independently deferred copy components remain
+outside admission. Producer-only webs retire through the upstream
+`ProducerOnlySlotRetirementPass` rather than enter byref-like admission. The
+compiler-generated-name and constructed-reference residuals are a separate
+presentation boundary and are not admitted by this slice.
 
 The motivating published witness is Microsoft.CodeAnalysis.Common 5.0.0
 `Roslyn.Utilities.PathUtilities.EnsureTrailingSeparator` (`0x060000E1`). Its

@@ -9,6 +9,7 @@ using ILInspector.Research;
 using Markout;
 using DotnetInspector.Queries;
 using TsJsExport;
+using static DotnetInspect.Web.BrowserOrdinaryWorkerJsonBudget;
 
 namespace DotnetInspect.Web.Interop.Source;
 
@@ -56,11 +57,15 @@ public static partial class SourceExports
         };
         string json = JsonSerializer.Serialize(wire, BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffResult);
         using var parsed = JsonDocument.Parse(json);
-        if (json.Length > 16_777_216 || CountEntries(parsed.RootElement) > 524_288)
+        long characters = JsonStringifyCharacters(parsed.RootElement) + 2;
+        long entries = CollectionEntries(parsed.RootElement) + OrdinaryWorkerResultTupleOverhead;
+        if (characters > MaxOrdinaryWorkerTransportJsonCharacters || entries > MaxOrdinaryWorkerTransportCollectionEntries)
         {
             if (wire.Inventory is { } inventory) MemberBodyInventories.Remove(inventory.Id);
             return JsonSerializer.Serialize(new BrowserMemberBodyDiffResult("TooComplex", null, null,
-                "The complete Member Body result exceeds the Worker transport limits."),
+                $"The complete Member Body result exceeds the Worker transport limits "
+                + $"({characters} characters and {entries} collection entries; "
+                + $"limits {MaxOrdinaryWorkerTransportJsonCharacters} and {MaxOrdinaryWorkerTransportCollectionEntries})."),
                 BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffResult);
         }
         return json;
@@ -97,10 +102,10 @@ public static partial class SourceExports
         var afterScope = afterLease.Scope;
         var oldCoordinate = beforeScope.Coordinates[0];
         var newCoordinate = afterScope.Coordinates[0];
-        var oldAsset = oldCoordinate.Selection.FindAsset(request.CompileAssetId)
-            ?? throw new ArgumentException("The exact Before compile asset is unavailable.");
         var newAsset = newCoordinate.Selection.FindAsset(request.CompileAssetId)
             ?? throw new ArgumentException("The exact After compile asset is unavailable.");
+        var oldAsset = oldCoordinate.Selection.FindComparisonAsset(newAsset)
+            ?? throw new ArgumentException("The Before endpoint has no unique selected compile counterpart.");
         var oldSurface = beforeScope.SurfaceParticipant(oldCoordinate, oldAsset);
         var newSurface = afterScope.SurfaceParticipant(newCoordinate, newAsset);
         var oldImplementation = beforeScope.ImplementationParticipant(oldSurface);
@@ -150,7 +155,7 @@ public static partial class SourceExports
                 [.. group.Select(member =>
                     new BrowserMemberBodyMember(member.Subject.Id, member.Subject.Display, member.Outcome,
                         [.. member.Implementation.SelectMany(item => item.Evidence).Select(evidence => evidence.Mechanism.ToString()).Distinct()],
-                        member.After?.Anchor.Fingerprint, member.After?.Selector.NormalizedSelector,
+                        member.After?.ProjectedAnchor.Fingerprint, member.After?.Selector.NormalizedSelector,
                         member.After?.MethodToken, member.IdentityFailure, member.After?.Type.ToEscapedFullName()))])).ToList();
         foreach (var removed in inventory.Api.Comparison.Subjects.Where(type => type.Comparison.After is null))
         {
@@ -166,7 +171,7 @@ public static partial class SourceExports
                     coverage.IncompleteSubjectCount, coverage.FailedSubjectCount))], [.. types],
             [.. inventory.Destinations.Where(member => member.After is not null).Select(member =>
                 new BrowserMemberBodyMember(member.Subject.Id, member.Subject.Display, member.Outcome, [],
-                    member.After!.Anchor.Fingerprint, member.After.Selector.NormalizedSelector,
+                    member.After!.ProjectedAnchor.Fingerprint, member.After.Selector.NormalizedSelector,
                     member.After.MethodToken, member.IdentityFailure, member.After.Type.ToEscapedFullName()))]);
     }
 
@@ -196,10 +201,4 @@ public static partial class SourceExports
         })], document.Before.Outcome.ToString(), document.After.Outcome.ToString(),
             document.Before.Detail, document.After.Detail);
 
-    static long CountEntries(JsonElement value) => value.ValueKind switch
-    {
-        JsonValueKind.Array => value.GetArrayLength() + value.EnumerateArray().Sum(CountEntries),
-        JsonValueKind.Object => value.EnumerateObject().Sum(property => 1 + CountEntries(property.Value)),
-        _ => 0,
-    };
 }

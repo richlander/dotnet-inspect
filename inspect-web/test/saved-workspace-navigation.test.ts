@@ -332,6 +332,7 @@ function packageLoadResult(
     },
     documents: surface.documents,
     surface,
+    defaultLibraryId: surface.defaultAssemblyId,
   };
 }
 
@@ -348,7 +349,7 @@ function sharedState(): BrowserWorkspaceShareState {
     selectedContextId: "both",
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [], sourceView: null,
+      section: null, libraries: [], sourceView: null, comparison: null,
     },
   };
 }
@@ -1413,7 +1414,7 @@ test("saved Platform Open commits its staged URL after Platform selection comple
     selectedContextId: "platform-context",
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [], sourceView: null,
+      section: null, libraries: [], sourceView: null, comparison: null,
     },
   };
   h.location.href = "https://inspect.test/demos";
@@ -2474,7 +2475,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
     ],
     activeTabId: "t1", selectedContextId: "g1",
     view: { lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: [], sourceView: null },
+      section: null, libraries: [], sourceView: null, comparison: null },
   });
   assert.equal(h.location.pathname, "/");
   assert.equal(h.location.hash, "#workspace");

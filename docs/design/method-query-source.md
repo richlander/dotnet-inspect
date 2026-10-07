@@ -28,17 +28,27 @@ instead of rendering the ordinary whole-scope section. The source owns
 resource-free planning, exact subject binding, serial reference execution,
 source-receipt translation, and detached publication.
 
+Exact-member `Calls --count` is the first body-producing CLI consumer. Direct
+invocation Count and Calls-row Count each use one Body-only producer over exact
+MethodDef breadth plus authenticated generated execution bodies. Their scalar
+path decodes call opcodes without module lookup, target resolution, signature
+enrichment, canonical method context, or `DirectCall` row construction. The
+two superseded `LibraryBodyAnalysis` Count request branches are deleted.
+
 Compatible all-definition request sets now execute as one physical MethodDef
 traversal with independent terminal-specialized lanes. Each lane retains its
 own gate, optional module lookup, traversal ordinal, Producer Planning work,
-completion, and exact source coverage. A settled lane keeps its result when a
-later lane aborts or encounters source failure, and source failure reaches only
-active lanes whose type scope required the failed enumeration. Sparse breadth
-and incompatible requests remain separate groups. Exact-method and exact-type
-requests may opt into bounded generated execution-body expansion. The source
-uses targeted nested metadata for state-machine bodies and the existing lifted
-ownership authority for bounded body-dependent discovery; its receipt separates
-candidate definitions, probe bodies and bytes, relationship nodes, and
+completion, exact source coverage, and terminal body and encoded-IL bounds.
+Bound exhaustion is source-incomplete for that lane and its receipt preserves
+the admitted work; another shared lane continues under its own limits. A
+settled lane keeps its result when a later lane aborts or encounters source
+failure, and source failure reaches only active lanes whose type scope required
+the failed enumeration. Sparse breadth and incompatible requests remain
+separate groups. Exact-method and exact-type requests may opt into bounded
+generated execution-body expansion. The source uses targeted nested metadata
+for state-machine bodies and the existing lifted ownership authority for
+bounded body-dependent discovery; its receipt separates candidate definitions,
+probe bodies and bytes, relationship nodes, and
 authenticated origins from terminal work. Metadata-predicate breadth, body
 packets, and collapsed sparse request groups remain **unverified**.
 
@@ -423,6 +433,12 @@ source-support work. A critical safety bound aborts under Producer Planning's
 critical-failure contract. A consumer-selected completeness bound publishes
 source incomplete.
 
+Terminal body admission retains normalized ordered ranges during forward
+traversal rather than one identity per MethodDef. A multipass request may
+revisit an earlier MethodDef, so admission materializes unordered membership
+only at that transition to preserve distinct-MethodDef body and byte
+accounting.
+
 Cancellation is optional operation policy. It is observed before source
 binding and at physical-unit boundaries, never inside a producer visit or
 decoder. A settled terminal remains settled; unsettled requests publish
@@ -511,11 +527,16 @@ Migration is incremental:
    in relationship-node work. Both targeted paths retain their acquired
    evidence per TypeDef, so sibling sources reuse it without hiding the work
    charged by the first lookup.
-6. Add referenced-body expansion only with a consumer that requires it.
-7. Let the host-neutral request-set planner from #8574 group compatible
+6. Add request-owned terminal body and encoded-IL bounds before migrating a
+   body-producing consumer. This slice is implemented with exact per-lane
+   receipts and typed source-incomplete exhaustion. Exact-member direct-call
+   and Calls-row Count now implement its first body-producing CLI adoption.
+7. Add referenced-body expansion only with a consumer that requires it.
+8. Let the host-neutral request-set planner from #8574 group compatible
    requests. Method Classification implements the first mixed-terminal CLI
-   operation; a body-producer CLI adoption and Browser/Wasm operation remain.
-8. Move remaining producers and delete each superseded legacy scan and index
+   operation, and exact-member Calls Count implements a direct body-producer
+   CLI operation. Grouped body-producer and Browser/Wasm operations remain.
+9. Move remaining producers and delete each superseded legacy scan and index
    when its final consumer moves.
 
 Wrapping `LibraryBodyAnalysisBuilder.Build`, constructing every legacy result
@@ -544,6 +565,27 @@ The exact-breadth slice is gated in Release:
 - `MethodQuerySource_ExactTypeBreadthVisitsOnlyDeclaredMethods`
 - `MethodQuerySource_ReceiptSeparatesExaminedSelectedAndAcquiredWork`
 - `MethodQuerySource_ExactExistsPublishesVisitedSparsePrefix`
+
+Terminal work bounds are gated in Release:
+
+- `Execute_TerminalBodyBoundIsLaneLocal`
+- `Execute_TerminalBodyBoundInCountKernelIsSourceIncomplete`
+- `Execute_TerminalBodyBoundThroughBodyUseProducerIsSourceIncomplete`
+- `Execute_TerminalEncodedIlByteBoundPublishesPartialWork`
+- `TerminalWorkBudget_OrderedAdmissionsUseCompactRetention`
+- `TerminalWorkBudget_MultipassRevisitIsNotChargedTwice`
+
+Exact-member scalar Count adoption is gated in Release:
+
+- `Execute_CountsExactLogicalMemberWithoutRows`
+- `Execute_SumsGeneratedPhysicalBodiesForLogicalMember`
+- `Execute_BodilessMethodCompletesWithZero`
+- `Execute_CallSiteCountIncludesFunctionLoads`
+- `Execute_AttributionExhaustionWithholdsCallSiteCount`
+- `Execute_TerminalBodyExhaustionWithholdsCount`
+- `MethodCallCountProducer_DoesNotResolveMalformedTarget`
+- `MethodCallCountProducer_DiscoveryFailureIsVisible`
+- `MethodCallCountProducer_DoesNotDecodeDamagedSignature`
 
 The first production adoption is gated in Release:
 

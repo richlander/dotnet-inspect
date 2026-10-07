@@ -270,6 +270,11 @@ owner-certified relationship. That relationship binds:
 - the completion evidence that admits the projection; and
 - cardinality preservation when Count is derived.
 
+A covering path keeps a structural property such as exact cardinality only
+when its provision and every edge on the path establish it. An edge's property
+states what its projection preserves, so it cannot create a property its
+source lacks.
+
 Coverage is a directed relation, not a numeric level. A producer may declare
 `Signature -> Name` for one Type and `complete Names -> Count` for one
 population without claiming that Signature rows always establish population
@@ -398,10 +403,28 @@ Each result association records:
 - shared work identity when applicable.
 
 Shared work is recorded once. Per-requirement settlement remains visible. A
-producer failure affects every unsettled requirement whose chosen path depends
-on that provision. Independent settled requirements retain their results under
-the request-set rules. Failure never becomes zero, empty Rows, false, omitted
-association, or an unplanned fallback.
+provision failure affects every requirement whose chosen path depends on that
+provision, including one that settled before the failure, and that
+requirement reports a failure of a provision on its path. When several
+provisions fail, a requirement that depends on more than one may name any of
+them. A producer that must preserve an early-settled result through a later
+failure gives that requirement its own provision. Requirements that do not
+depend on a failed provision retain their results under the request-set rules.
+Failure never becomes zero, empty Rows, false, omitted association, or an
+unplanned fallback.
+
+The
+[producer-capability demand Lean model](models/producer-capability-demand/ProducerCapabilityDemand/FailureRouting.lean)
+proves this rule sound and complete for result validation. `any_sound` shows
+a dependent of any reported failure never reports success. `any_complete`
+shows that any result set in which each dependent names a failure on its path
+is accepted; such a report always exists, so an execution that fails several
+provisions is representable. The previous exact-match rule rejected every
+outcome when two failures shared a dependent
+([#9484](https://github.com/richlander/dotnet-inspect/issues/9484)). This
+provision-level rule does not change the settled-request rules in
+[Open and closed queries](open-and-closed-queries.md), which concern failures
+inside one execution's shared work, not a provision reported as failed.
 
 ## Type example
 
@@ -493,17 +516,16 @@ introduce no concurrent or long-lived state machine, so ordinary Release gates
 are the appropriate design evidence.
 
 The
-[producer-capability demand Lean pilot](../../prototypes/producer-capability-demand/)
+[producer-capability demand Lean pilot](models/producer-capability-demand/)
 adds prototype proof evidence for every requirement set: demand-join laws,
 Method-body source selection, and shared-traversal result and charge
-preservation. Covering-path validation is proven sound only when an edge's
-`ExactCardinality` certifies its target unconditionally; under the documented
-"preserves" reading it is unsound, while a rule that conjoins the provision's
-and every edge's properties is sound under either reading. The pilot's open
-findings are
-[#9483](https://github.com/richlander/dotnet-inspect/issues/9483) and
-[#9484](https://github.com/richlander/dotnet-inspect/issues/9484). Its
-[validator check classification](../../prototypes/producer-capability-demand/README.md#validator-check-classification)
+preservation. Covering-path validation conjoins the provision's and every
+edge's properties, which the model proves sound whether an edge's
+`ExactCardinality` certifies its target outright or preserves its source's
+cardinality. The previous rule took properties from the last edge alone and
+was unsound under the documented "preserves" reading
+([#9483](https://github.com/richlander/dotnet-inspect/issues/9483)). Its
+[validator check classification](models/producer-capability-demand/README.md#validator-check-classification)
 proves that `MissingDependency` and `DependencyOrder` exclude every dependency
 cycle, and that the satisfaction checks imply known capabilities and the
 requirement identity domains. The validator relies on those proofs instead of

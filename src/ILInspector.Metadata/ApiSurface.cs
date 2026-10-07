@@ -390,6 +390,8 @@ public sealed record ApiSurfaceInspectionFailure(
     AssemblyReferenceIdentity? SubjectAssembly = null,
     AssemblyReferenceIdentity? DependencyAssembly = null)
 {
+    public string MechanismName => Mechanism.ToString();
+
     public const string
         GenericParameterConstraintResolutionOperation =
             "resolve generic parameter constraints";

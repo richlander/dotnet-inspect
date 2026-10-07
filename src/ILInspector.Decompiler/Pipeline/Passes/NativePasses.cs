@@ -29,6 +29,8 @@ internal static class NativePasses
     // ───────── EmitArtifact — inverse of codegen/spilling, not a LocalRewriter ─────────
     [Native(NativeCategory.EmitArtifact, "inverse of expression spilling — fold single-use temps back into their use")]
     public static ExpressionInliningPass ExpressionInlining => new();
+    [Native(NativeCategory.EmitArtifact, "exact evaluation-stack aliases of value-type `this` forwarded to the stable receiver binder before storage planning can materialize a value copy")]
+    public static ValueTypeReceiverAliasPass ValueTypeReceiverAlias => new();
     [Native(NativeCategory.EmitArtifact, "reused evaluation-stack slot live ranges split into distinct typed synthetic carriers")]
     public static StackSlotLiveRangePass StackSlotLiveRange => new();
     [Native(NativeCategory.EmitArtifact, "canonical I4 zero/one stores recovered as Boolean after every producer and observer in the split carrier agrees")]
@@ -141,6 +143,8 @@ internal static class NativePasses
     public static SlotMaterializationPass SlotMaterialization => new();
     [Native(NativeCategory.EmitArtifact, "reference assignment testimony refreshed immediately before stack-slot storage consumes it")]
     public static ReferenceSlotTargetBindingPass ReferenceSlotTargetBinding => new();
+    [Native(NativeCategory.EmitArtifact, "unobserved evaluation-stack storage retired to pure removal or exact target-typed evaluation discards before storage planning")]
+    public static ProducerOnlySlotRetirementPass ProducerOnlySlotRetirement => new();
     [Native(NativeCategory.EmitArtifact, "reference-coalesce assignment testimony and no-IL object argument conversions decided before emission")]
     public static ReferenceCoalesceBindingPass ReferenceCoalesceBinding => new();
     [Native(NativeCategory.EmitArtifact, "reference-conditional arm assignment targets refreshed after final rewrites for emission")]

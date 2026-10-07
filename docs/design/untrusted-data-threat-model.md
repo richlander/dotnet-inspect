@@ -1511,9 +1511,10 @@ and
 Every product consumer that renders or derives output from fetched source
 requires the portable-PDB checksum before using network content.
 `VerifiedSourceTextFetch` supplies that composition directly for IL-offset
-source lines and within `PdbSourceHouse`; SourceHouse supplies the same
-owner-issued predicate through its fetch capability. PDB Source, printed Source
-Files and Source Locations, and documentation/sample enrichment preserve that
+source lines; SourceHouse supplies the same owner-issued predicate through its
+fetch capability, including Query-owned certification sessions. PDB Source, printed
+Source Files and Source Locations, and documentation/sample enrichment preserve
+that
 same requirement.
 `SourceAvailabilityService` and
 `SourceIntegrityService` retain the final-origin check before recording
@@ -1530,7 +1531,7 @@ Checksum evidence follows the portable-PDB document row rather than a display
 or canonical path. Direct member, type, and IL-offset projections join on row
 identity and verify the PDB document path; path-only heuristic projections
 attach a checksum only when that path names one document row. This is gated by
-`PdbSourceHouseTests.SelectMappedDocument_UsesDocumentRowWhenPathsAreDuplicated`,
+`PdbSourceInspectionTests.SelectMappedDocument_UsesDocumentRowWhenPathsAreDuplicated`,
 `...SelectMappedDocument_RejectsAMismatchedRowPathPair`, and
 `MetadataSourceFindingsTests.DocumentChecksumIndexes_PreserveRowsAndRejectAmbiguousPathFallback`.
 
@@ -1540,7 +1541,7 @@ The fetch-origin grammar is gated by
 `...FetchOrigin_UnknownSourceLinkHostCarriesNoOriginClaim`. The Services gate
 exercises selected-source redirect admission, pre-fix cache invalidation, and
 the availability/integrity projections in
-`PdbSourceHouseTests.FetchSourceBytes_AcceptsChecksumVerifiedBodyAfterRedirect`,
+`PdbSourceInspectionTests.FetchSourceBytes_AcceptsChecksumVerifiedBodyAfterRedirect`,
 `...FetchSourceBytes_IgnoresPreOriginValidationCache`,
 `HttpRetryHelperTests.HeaderFirstBodyRead_TimesOutAndRetriesAStalledBody`,
 `...HeaderFirstBodyRead_CapsAChunkedBodyByDecodedBytes`,
@@ -1589,8 +1590,8 @@ portable-PDB checksum. A requested destination outside the initial host set is
 a PDB-source acquisition limitation and may fall back to decompilation; it is
 never probed directly. The shared `SourceFetch` applies that host policy before
 its memory or content-store caches and before creating the request.
-`PdbSourceHouseTests.FetchSourceBytes_PolicyRejectsDestinationBeforeDispatch`,
-`PdbSourceHouseTests.FetchSourceBytes_AcceptsChecksumVerifiedBodyAfterRedirect`,
+`PdbSourceInspectionTests.FetchSourceBytes_PolicyRejectsDestinationBeforeDispatch`,
+`PdbSourceInspectionTests.FetchSourceBytes_AcceptsChecksumVerifiedBodyAfterRedirect`,
 and
 `BrowserEngineBoundaryTests.SourceFetchPolicy_OmitsCredentialsAndFollowsRedirects`
 gate those rules.
@@ -1701,7 +1702,7 @@ Limit exhaustion is a visible extraction failure, not an absent declaration.
 token emission boundary, while
 `DeclarationIndexTests.LineLimit_StopsLineDenseInputBeforeSplitting` gates the
 pre-allocation line boundary, and
-`PdbSourceHouseTests.FromContent_TokenDenseSourceProducesVisibleFailedEvidence`
+`PdbSourceInspectionTests.FromContent_TokenDenseSourceProducesVisibleFailedEvidence`
 gates the Findings-facing result, while
 `CommandExecutionTests.PdbSource_TokenDenseInputCarriesAVisibleFailureState`
 gates the member-command result.

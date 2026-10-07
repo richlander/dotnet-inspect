@@ -125,7 +125,7 @@ public partial class PackageQueryTests
         Assert.All(
             anyTools,
             item => Assert.Equal(
-                "true",
+                "DotnetTool",
                 Assert.Single(item.Answers).Value));
         Assert.All(
             anyTools,
@@ -219,6 +219,9 @@ public partial class PackageQueryTests
             EvidenceProperty(
                 bothVersions[0].Evidence[^1],
                 "settings-version"));
+        Assert.Equal(
+            ["v1", "v2"],
+            bothVersions.Select(item => Assert.Single(item.Answers).Value));
         Assert.Equal(
             "2",
             EvidenceProperty(

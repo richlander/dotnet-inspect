@@ -2770,14 +2770,16 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_TreeRequiresReferenceHierarchySelection()
+    public async Task LibraryCommand_SectionTreeRequiresReferenceHierarchySelection()
     {
+        // Bare --tree selects the Library Type hierarchy; with a section
+        // selection, --tree keeps the Reference Hierarchy requirement.
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json", "--tree");
+            "library", "System.Text.Json", "--tree", "-S", "References");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("--tree requires exactly '-S \"Reference Hierarchy\"'", error);
+        Assert.Contains("'-S \"Reference Hierarchy\" --tree'", error);
     }
 
     [Fact]

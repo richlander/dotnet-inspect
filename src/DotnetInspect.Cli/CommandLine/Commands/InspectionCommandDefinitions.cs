@@ -2,6 +2,7 @@ using System.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Planning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -845,7 +846,7 @@ public static class InspectionCommandDefinitions
             {
                 CommandError.Write(
                     "Body Shapes composition accepts Performance Triage filters, "
-                    + "but not --top or --order-by. Use --rows to limit rendered matches.");
+                    + "but not --top or --order-by. Use -n or --rows to limit matches.");
                 return 1;
             }
             if ((cloneCandidateQuery.HasPredicates
@@ -909,6 +910,24 @@ public static class InspectionCommandDefinitions
                         targets = kinds;
                 }
                 select = [.. select ?? [], .. targets];
+            }
+            RowSelectionIntent<string>? bodyShapeRowSelection = null;
+            if (BodyShapeRowSelectionAdoption.IsActiveForLibrary(
+                    parseResult,
+                    opts,
+                    referencesOption,
+                    asmTfmOption,
+                    typeFilterOption,
+                    select ?? [])
+                && !CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        "Body Shapes",
+                        out bodyShapeRowSelection,
+                        out string? bodyShapeRowSelectionError))
+            {
+                CommandError.Write(bodyShapeRowSelectionError!);
+                return 1;
             }
             RowSelectionIntent<string>? referenceRowSelection = null;
             if (LibraryReferenceRowSelectionAdoption.IsActive(
@@ -1100,6 +1119,7 @@ public static class InspectionCommandDefinitions
                 PrintRow = opts.ParsePrintRow(parseResult),
                 ProjectionRow = opts.ParsePrintRow(parseResult),
                 Rows = cloneCandidateRowSelection is null
+                    && bodyShapeRowSelection is null
                     && referenceRowSelection is null
                     && ecosystemDependencyRowSelection is null
                     && nameFamilyRowSelection is null
@@ -1108,6 +1128,7 @@ public static class InspectionCommandDefinitions
                     : null,
                 CloneCandidateRowSelection =
                     cloneCandidateRowSelection,
+                BodyShapeRowSelection = bodyShapeRowSelection,
                 ReferenceRowSelection =
                     referenceRowSelection,
                 EcosystemDependencyRowSelection =
@@ -1131,6 +1152,44 @@ public static class InspectionCommandDefinitions
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };
 
+            Option[] typeHierarchyAdmittedOptions =
+            [
+                asmPlatformOption,
+                asmPackageOption,
+                namesakeLibraryOption,
+                asmPrereleaseOption,
+                asmFrameworkOption,
+                asmVersionOption,
+                asmTfmOption,
+                opts.Source,
+                opts.AddSource,
+                opts.NuGetConfig,
+                opts.Tree,
+                opts.Mermaid,
+                opts.Verbosity,
+                opts.Verbose,
+            ];
+            bool onlyTypeHierarchyOptions =
+                assemblyCommand.Options.All(option =>
+                    typeHierarchyAdmittedOptions.Contains(option)
+                    || parseResult.GetResult(option)
+                        is not { Implicit: false });
+            switch (LibraryCommandPlanner.Plan(
+                        options,
+                        onlyTypeHierarchyOptions,
+                        mermaidExplicitlySet:
+                            parseResult.GetResult(opts.Mermaid)
+                                is { Implicit: false }
+                            && parseResult.GetValue(opts.Mermaid)))
+            {
+                case LibraryCommandPlanningResult.Rejected rejected:
+                    CommandError.Write(rejected.Error);
+                    return 1;
+                case LibraryCommandPlanningResult.Planned planned:
+                    options = options with { CommandPlan = planned.Plan };
+                    break;
+            }
+
             return await LibraryCommand.ExecuteAsync(options, ct);
         });
 
@@ -1151,6 +1210,30 @@ public static class InspectionCommandDefinitions
             result => CloneCandidateRowSelectionAdoption.IsActive(
                 result,
                 opts),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            assemblyCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => BodyShapeRowSelectionAdoption.IsActiveForLibrary(
+                result,
+                opts,
+                referencesOption,
+                asmTfmOption,
+                typeFilterOption),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),

@@ -261,6 +261,238 @@ public sealed class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void Execute_TerminalBodyBoundIsLaneLocal()
+    {
+        var boundedLimits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies: 1,
+            maximumEncodedIlBytes: long.MaxValue);
+        var completeLimits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies: int.MaxValue,
+            maximumEncodedIlBytes: long.MaxValue);
+        MethodDefinitionSourceAssociation bounded =
+            Association(
+                BodyReadingProducer.Instance,
+                ProducerTerminal.Count,
+                terminalWorkLimits: boundedLimits);
+        MethodDefinitionSourceAssociation complete =
+            Association(
+                BodyReadingProducer.Instance,
+                ProducerTerminal.Count,
+                terminalWorkLimits: completeLimits);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(AcceptedPlan([bounded, complete]));
+
+        MethodDefinitionSourceReceipt boundedReceipt =
+            execution.ResultOf(bounded).SourceReceipt;
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            boundedReceipt.Completion);
+        Assert.Same(boundedLimits, boundedReceipt.TerminalWorkLimits);
+        Assert.Contains(
+            "terminal physical-body limit",
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                    boundedReceipt.SourceFailure)
+                .Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            boundedReceipt.Coverage.TerminalWork.BodiesAdmitted);
+        Assert.Equal(
+            MethodDefinitionTerminalWorkLimitKind.Bodies,
+            boundedReceipt.Coverage.TerminalWork.ReachedLimit);
+        Assert.NotNull(
+            boundedReceipt.Coverage.TerminalWork
+                .ReachedAtMethodToken);
+        Assert.Equal(
+            1,
+            boundedReceipt.Coverage.BodiesAcquired.Count);
+
+        MethodDefinitionSourceReceipt completeReceipt =
+            execution.ResultOf(complete).SourceReceipt;
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.Exhausted,
+            completeReceipt.Completion);
+        Assert.Null(completeReceipt.SourceFailure);
+        Assert.True(
+            completeReceipt.Coverage.TerminalWork.BodiesAdmitted > 1);
+        Assert.Null(
+            completeReceipt.Coverage.TerminalWork.ReachedLimit);
+    }
+
+    [Fact]
+    public void Execute_TerminalBodyBoundInCountKernelIsSourceIncomplete()
+    {
+        var limits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies: 1,
+            maximumEncodedIlBytes: long.MaxValue);
+        MethodDefinitionSourceAssociation association =
+            Association(
+                UnsafeEvidencePresenceProducer.Instance,
+                ProducerTerminal.Count,
+                terminalWorkLimits: limits);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(AcceptedPlan([association]));
+
+        Assert.Equal(
+            ProducerOutcome.Failed,
+            ResultOf<int>(execution, association).Outcome);
+        MethodDefinitionSourceReceipt receipt =
+            execution.ResultOf(association).SourceReceipt;
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            receipt.Completion);
+        Assert.Contains(
+            "terminal physical-body limit",
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                    receipt.SourceFailure)
+                .Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            receipt.Coverage.TerminalWork.BodiesAdmitted);
+        Assert.Equal(
+            MethodDefinitionTerminalWorkLimitKind.Bodies,
+            receipt.Coverage.TerminalWork.ReachedLimit);
+    }
+
+    [Fact]
+    public void
+        Execute_TerminalBodyBoundThroughBodyUseProducerIsSourceIncomplete()
+    {
+        var producer = new AnalysisLibraryBodyUseProducer(
+            new AnalysisLibraryBodyUseLimits(),
+            TestContext.Current.CancellationToken);
+        var limits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies: 1,
+            maximumEncodedIlBytes: long.MaxValue);
+        MethodDefinitionSourceAssociation association =
+            Association(
+                producer,
+                ProducerTerminal.Count,
+                terminalWorkLimits: limits);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(AcceptedPlan([association]));
+
+        Assert.Equal(
+            ProducerOutcome.Failed,
+            ResultOf<AnalysisLibraryBodyUseProducer.Result>(
+                    execution,
+                    association)
+                .Outcome);
+        MethodDefinitionSourceReceipt receipt =
+            execution.ResultOf(association).SourceReceipt;
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            receipt.Completion);
+        Assert.Contains(
+            "terminal physical-body limit",
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                    receipt.SourceFailure)
+                .Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            receipt.Coverage.TerminalWork.BodiesAdmitted);
+        Assert.Equal(
+            MethodDefinitionTerminalWorkLimitKind.Bodies,
+            receipt.Coverage.TerminalWork.ReachedLimit);
+    }
+
+    [Fact]
+    public void Execute_TerminalEncodedIlByteBoundPublishesPartialWork()
+    {
+        var limits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies: int.MaxValue,
+            maximumEncodedIlBytes: 1);
+        MethodDefinitionSourceAssociation association =
+            Association(
+                BodyReadingProducer.Instance,
+                ProducerTerminal.Count,
+                terminalWorkLimits: limits);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(AcceptedPlan([association]));
+
+        MethodDefinitionSourceReceipt receipt =
+            execution.ResultOf(association).SourceReceipt;
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            receipt.Completion);
+        Assert.Contains(
+            "terminal encoded-IL-byte limit",
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                    receipt.SourceFailure)
+                .Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            MethodDefinitionTerminalWorkLimitKind.EncodedIlBytes,
+            receipt.Coverage.TerminalWork.ReachedLimit);
+        Assert.InRange(
+            receipt.Coverage.TerminalWork.EncodedIlBytes,
+            0,
+            1);
+        Assert.True(
+            receipt.Coverage.BodiesAcquired.Count
+            > receipt.Coverage.TerminalWork.BodiesAdmitted);
+    }
+
+    [Fact]
+    public void TerminalWorkBudget_OrderedAdmissionsUseCompactRetention()
+    {
+        const int MethodCount = 10_000;
+        var limits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies: MethodCount,
+            maximumEncodedIlBytes: long.MaxValue);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var budget = new MethodDefinitionTerminalWorkBudget(limits);
+        for (int row = 1; row <= MethodCount; row++)
+        {
+            MethodDefinitionHandle method =
+                MetadataTokens.MethodDefinitionHandle(row);
+            budget.RequireBodyCapacity(method);
+            budget.Admit(method, encodedIlBytes: 1);
+        }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        MethodDefinitionTerminalWorkCoverage coverage = budget.Build();
+        Assert.Equal(MethodCount, coverage.BodiesAdmitted);
+        Assert.Equal(MethodCount, coverage.EncodedIlBytes);
+        Assert.True(
+            allocated < 4_096,
+            $"Ordered terminal admission allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void TerminalWorkBudget_MultipassRevisitIsNotChargedTwice()
+    {
+        var budget = new MethodDefinitionTerminalWorkBudget(
+            new MethodDefinitionTerminalWorkLimits(
+                maximumBodies: 2,
+                maximumEncodedIlBytes: 2));
+        MethodDefinitionHandle first =
+            MetadataTokens.MethodDefinitionHandle(1);
+        MethodDefinitionHandle second =
+            MetadataTokens.MethodDefinitionHandle(2);
+
+        budget.RequireBodyCapacity(first);
+        budget.Admit(first, encodedIlBytes: 1);
+        budget.RequireBodyCapacity(second);
+        budget.Admit(second, encodedIlBytes: 1);
+        budget.RequireBodyCapacity(first);
+        budget.Admit(first, encodedIlBytes: 1);
+
+        MethodDefinitionTerminalWorkCoverage coverage = budget.Build();
+        Assert.Equal(2, coverage.BodiesAdmitted);
+        Assert.Equal(2, coverage.EncodedIlBytes);
+        Assert.Null(coverage.ReachedLimit);
+    }
+
+    [Fact]
     public void Execute_SourceFailureAffectsOnlyRequestsInFailedTypeScope()
     {
         ImmutableArray<byte> image =
@@ -582,7 +814,8 @@ public sealed class MethodDefinitionRequestSetTests
     static MethodDefinitionSourceAssociation Association<TResult>(
         ProducerDeclaration<TResult> producer,
         ProducerTerminal terminal,
-        MethodDefinitionSourceBreadth? breadth = null)
+        MethodDefinitionSourceBreadth? breadth = null,
+        MethodDefinitionTerminalWorkLimits? terminalWorkLimits = null)
     {
         WorkDescription work =
             Assert.IsType<ProducerPlanResult.Accepted>(
@@ -594,7 +827,8 @@ public sealed class MethodDefinitionRequestSetTests
                 QueryRequest(terminal),
                 work,
                 producer,
-                breadth ?? MethodDefinitionSourceBreadth.AllDefinitions);
+                breadth ?? MethodDefinitionSourceBreadth.AllDefinitions,
+                terminalWorkLimits);
         return MethodDefinitionSourceAssociation.Create(request);
     }
 

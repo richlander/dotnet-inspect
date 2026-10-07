@@ -221,12 +221,14 @@ not IL semantics:
    transports without owning SourceLink or PDB semantics.
 5. `VerifiedSourceTextFetch` composes one remote source fetch with the
    owner-issued PDB checksum and decoded-text result.
-6. `PdbSourceHouse` currently composes local, repository, and remote candidate
-   ordering and settles visible PDB-source outcomes.
-7. `AssemblyContextSourceQuery` currently composes verified PDB source with the
-   distinct decompiler fallback.
-8. The target [SourceHouse](source-house.md) transfers those product
-   composition responsibilities into one `DotnetInspector` owner that invokes
+6. [SourceHouse](source-house.md) composes local, repository, and remote
+   product candidates and settles visible PDB-source outcomes.
+7. `AssemblyContextSourceQuery` consumes SourceHouse, including one reusable
+   authored-member session that retains a Library for certification
+   populations, and retains only explicit host timing and presentation
+   composition.
+8. SourceHouse keeps those product composition responsibilities in one
+   `DotnetInspector` owner that invokes
    `SourceLinkService`, `CSharpDecompilerService`, and authorized transport
    capabilities without moving network policy into `ILInspector.SourceLink`.
 
@@ -251,7 +253,9 @@ That retired `SourceLinkFetch` project was not the peer of `NuGetFetch`: it
 parsed SourceLink maps and provenance but did not fetch source bytes. The
 existing `SourceFetch` implementation is the transport peer. Its contract is
 useful at multiple source-acquisition composition points and is independent of
-the PDB-specific ordering and checksum policy owned by `PdbSourceHouse`.
+the PDB-specific ordering and checksum policy owned by SourceHouse. The narrow
+diagnostic adapter composes the same owner-issued verifier without moving that
+policy into the transport root.
 
 ## Placement test
 
@@ -368,9 +372,9 @@ components move to the
 [PackageHouse Composition](package-house.md) owner, platform components to the
 [`PlatformHouse`](platform-house-reference-processing.md) owner above the lower
 [Platform Target Currency](platform-target-currency.md), source-byte transport
-to the independent `SourceFetch` root, PDB-specific source composition to the
-current `PdbSourceHouse` owner and then the target
-[SourceHouse](source-house.md) composition under #6512, and
+to the independent `SourceFetch` root, PDB-specific product source composition
+to [SourceHouse](source-house.md) under #6512, reusable certification
+acquisition to `AssemblyContextSourceQuery`, and
 compiled and authored-source documentation composition to
 [DocumentationHouse](documentation-house.md) under #6579, and
 assembly-set or dependency-resolution components to their workspace or

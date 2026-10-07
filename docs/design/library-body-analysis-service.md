@@ -825,6 +825,12 @@ fallback converts them to zero metrics or a successful empty result.
 
 ### Discovery-native direct-call Count adoption for #8945
 
+This production adoption now executes through Method Query Source and
+Assembly Analysis Operation. The legacy service's explicit direct-invocation
+and Calls-row Count request constructors and focused projections are retired;
+the remaining implementation-metric compatibility work does not serve
+exact-member `Calls --count`.
+
 The prototype established that direct-invocation Count belongs below canonical
 context and target resolution. One exact NativeAOT head binary produced the
 same answers from discovery and complete rich rows over both measured corpora:
@@ -854,13 +860,36 @@ The first production consumer is exact-member `Calls --count`. After source
 acquisition, an explicit `--all` request allows the CLI to ask the metadata
 owner to resolve an exact MethodDef before public API extraction. An omitted
 method ordinal, or ordinal one on a unique method family, resolves only when
-the canonical case-insensitive member name is unambiguous. Overloaded method
-ordinals continue through the ordinary resolver because its displayed-signature
-order is not metadata order. An explicit property or event ordinal resolves
-over the accessors that are present, in getter/adder then setter/remover order.
-Ordinary public-surface admission, ambiguous names, forwarded types, qualified
-selectors, and selectors outside that exact metadata subset continue through
-the ordinary public-surface resolver. Once a MethodDef is selected, the CLI
+the canonical case-insensitive member name is unambiguous. An explicit
+property or event ordinal resolves over the accessors that are present, in
+getter/adder then setter/remover order.
+
+Overloaded method ordinals and ordinary public-surface admission use the
+ordinary `MemberTargetResolver`. They resolve over the selected Type's own
+declarations, which `MethodBodySource.ExtractDeclaredType` decodes without
+decoding any other Type, so the displayed-signature order and scope match the
+complete route without building the assembly's API surface. These cases keep
+the complete public-surface route:
+
+- an image that declares a same-named extension method, which the complete
+  surface would project onto receiver Types;
+- a wildcard member name or an unselected overload set;
+- a Type the metadata owner cannot find by full name, such as a forwarded
+  Type;
+- a resolver diagnostic, such as a missing member or an out-of-range ordinal,
+  so that the complete route reports it.
+
+Qualified, digest, and generic-arity selectors also keep the ordinary route.
+Count reports failures of the work it performs: Type selection, body
+acquisition, and decode. It does not report diagnostics of an API-surface
+extraction it no longer runs. These include unbound type forwarders elsewhere
+in the image, and incomplete generic-constraint classification, which Count
+does not consume, even for the selected member. Over 7,964
+exact-member requests in five shared-framework assemblies, in both scopes, the
+Count values match the complete route exactly. Only System.Text.Json requests
+change, from a rejected-row warning and exit 1 to exit 0.
+
+Once a MethodDef is selected, the CLI
 lowers the terminal to Calls-row Count before ordinary call-row Analysis. It
 sums the authenticated physical-body entries for the selected logical member.
 An identity-decode failure that cannot publish a `MethodIdentity` remains an

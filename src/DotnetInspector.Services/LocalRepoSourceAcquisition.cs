@@ -11,14 +11,16 @@ namespace DotnetInspector.Services;
 /// Reads a single PDB-mapped source file from a user-specified local git clone, keyed on the
 /// SourceLink commit + repo-relative path and authenticated against the portable-PDB checksum.
 ///
-/// This is the opt-in local-repository counterpart to <see cref="PdbSourceHouse"/>'s
-/// remote SourceLink fetch. For a reproducible (published) build the PDB records a normalized,
-/// non-local document path plus a raw.githubusercontent URL that encodes the commit SHA and the
-/// repo-relative path. When the user names one or more local clones (<c>--repo</c>), we read the
-/// committed blob at that exact SHA from the git object store — the committed object, not the
-/// working tree — and accept it only when its bytes match the PDB checksum. A wrong repo, commit,
-/// or path therefore self-rejects and the caller falls back to the network. The checksum is the
-/// arbiter, so no repo-URL matching is required.
+/// This is the opt-in local-repository counterpart to
+/// SourceHouse's remote SourceLink fetch. For a
+/// reproducible (published) build the PDB records a normalized, non-local
+/// document path plus a raw.githubusercontent URL that encodes the commit SHA
+/// and the repo-relative path. When the user names one or more local clones
+/// (<c>--repo</c>), we read the committed blob at that exact SHA from the git
+/// object store — the committed object, not the working tree — and accept it
+/// only when its bytes match the PDB checksum. A wrong repo, commit, or path
+/// therefore self-rejects and the caller falls back to the network. The
+/// checksum is the arbiter, so no repo-URL matching is required.
 /// </summary>
 public static partial class LocalRepoSourceAcquisition
 {

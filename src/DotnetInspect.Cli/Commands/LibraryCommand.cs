@@ -746,7 +746,7 @@ public partial class LibraryCommand
             {
                 CommandError.Write(
                     "Body Shapes composition accepts Performance Triage filters, "
-                    + "but not --top or --order-by. Use --rows to limit rendered matches.");
+                    + "but not --top or --order-by. Use -n or --rows to limit matches.");
                 return 1;
             }
             if (options.BodyKindQuery.HasFilter
@@ -934,7 +934,9 @@ public partial class LibraryCommand
         if (!ValidateMultiTfmOutput(options))
             return 1;
 
-        if (options.Tree && options.Discover == null)
+        bool typeHierarchy =
+            options.CommandPlan is LibraryCommandPlan.TypeHierarchy;
+        if (options.Tree && options.Discover == null && !typeHierarchy)
         {
             if (!LibraryOutputCapabilities.Catalog.Supports(
                     DiscoveryOutputMode.Tree,
@@ -953,6 +955,7 @@ public partial class LibraryCommand
         if (options.Format == OutputFormat.Mermaid
             && options.Discover == null
             && !options.Count
+            && !typeHierarchy
             && !LibraryOutputCapabilities.Catalog.Supports(
                 DiscoveryOutputMode.Mermaid,
                 options.IncludeSections))
@@ -966,7 +969,7 @@ public partial class LibraryCommand
             return 1;
         }
 
-        if (options.Tree && options.Discover == null)
+        if (options.Tree && options.Discover == null && !typeHierarchy)
         {
             if (options.Print
                 || options.Value
@@ -1292,6 +1295,15 @@ public partial class LibraryCommand
                         CancellationToken.None);
                 }
 
+                if (options.CommandPlan
+                    is LibraryCommandPlan.TypeHierarchy platformHierarchy)
+                {
+                    return await LibraryTypeHierarchyCommand.ExecuteAsync(
+                        resolvedPath!,
+                        platformHierarchy,
+                        cancellationToken);
+                }
+
                 AssemblyResolutionProvenance inspectionProvenance =
                     AssemblyResolutionProvenance.Platform(
                         framework!,
@@ -1437,6 +1449,8 @@ public partial class LibraryCommand
                         documentInspection: documentInspection);
                 if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
                     return 1;
+                if (!TrySelectBodyShapes(inspection, options.BodyShapeRowSelection))
+                    return 1;
                 if (!TrySelectLibraryEcosystemDependencies(
                         inspection,
                         options.EcosystemDependencyRowSelection))
@@ -1557,6 +1571,24 @@ public partial class LibraryCommand
                         assemblyPaths[0],
                         options,
                         CancellationToken.None);
+                }
+
+                if (options.CommandPlan
+                    is LibraryCommandPlan.TypeHierarchy packageHierarchy)
+                {
+                    if (assemblyPaths.Count == 1)
+                    {
+                        return await LibraryTypeHierarchyCommand.ExecuteAsync(
+                            assemblyPaths[0],
+                            packageHierarchy,
+                            cancellationToken);
+                    }
+                    if (packageHierarchy.Explicit)
+                    {
+                        CommandError.Write(
+                            LibraryCommandPlanner.OneLibraryError);
+                        return 1;
+                    }
                 }
 
                 if (options.AddressRequest
@@ -1785,6 +1817,13 @@ public partial class LibraryCommand
                 {
                     return 1;
                 }
+                if (!inspections.All(inspection =>
+                        TrySelectBodyShapes(
+                            inspection,
+                            options.BodyShapeRowSelection)))
+                {
+                    return 1;
+                }
                 if (inspections.Count == 1
                     && !TrySelectLibraryEcosystemDependencies(
                         inspections[0],
@@ -1947,6 +1986,15 @@ public partial class LibraryCommand
                         CancellationToken.None);
                 }
 
+                if (options.CommandPlan
+                    is LibraryCommandPlan.TypeHierarchy fileHierarchy)
+                {
+                    return await LibraryTypeHierarchyCommand.ExecuteAsync(
+                        assemblyPath,
+                        fileHierarchy,
+                        cancellationToken);
+                }
+
                 AssemblyResolutionProvenance inspectionProvenance =
                     AssemblyResolutionProvenance.Local("library path");
                 if (options.AddressRequest
@@ -2104,6 +2152,8 @@ public partial class LibraryCommand
                         inspectedContentHash: inspectedContentHash,
                         documentInspection: documentInspection);
                 if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
+                    return 1;
+                if (!TrySelectBodyShapes(inspection, options.BodyShapeRowSelection))
                     return 1;
                 if (!TrySelectLibraryEcosystemDependencies(
                         inspection,
@@ -3014,6 +3064,33 @@ public partial class LibraryCommand
         inspection.AssemblyReferenceDisplayOrder = selected;
         if (inspection.AssemblyInfo is not null)
             inspection.AssemblyInfo.References = [.. selected];
+        return true;
+    }
+
+    /// <summary>
+    /// Selects the lone Body Shapes view's rows once, before any format or
+    /// Count renders them, so every lowering observes the same rows.
+    /// </summary>
+    internal static bool TrySelectBodyShapes(
+        LibraryInspection inspection,
+        RowSelectionIntent<string>? intent)
+    {
+        if (intent is null
+            || inspection.EffectiveBodyShapeSearchResult is not { } result)
+        {
+            return true;
+        }
+
+        if (!BodyShapeRowSelection.TrySelect(
+                intent,
+                inspection.BodyShapeSections,
+                result.Matches,
+                out BodyShapeRowSelection? selection))
+        {
+            return false;
+        }
+
+        inspection.BodyShapeRowSelection = selection;
         return true;
     }
 

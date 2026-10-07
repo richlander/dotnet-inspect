@@ -1068,8 +1068,8 @@ public static partial class PackageQuery
         },
         new(
             ToolFormatTermKey,
-            ".NET tool format",
-            "Downloads the package and matches its .NET tool CLI format.",
+            "DotNetCliTool",
+            "Downloads the package and matches the DotNetCliTool format version in its DotnetToolSettings.xml.",
             510,
             PackageQueryAcquisitionTier.PackageContent,
             PackageQueryExecutionClass.PackageContent,
@@ -1081,8 +1081,8 @@ public static partial class PackageQuery
         {
             Options =
             [
-                new("v1", "v1", "Portable .NET tool format."),
-                new("v2", "v2", "RID-specific .NET tool format."),
+                new("v1", "v1", "Portable DotNetCliTool format (Version=\"1\")."),
+                new("v2", "v2", "RID-specific DotNetCliTool format (Version=\"2\")."),
             ],
             SelectionGroupId = PackageQueryVocabulary.ToolFormatFamily,
             CombinesWithinSelectionGroup = true,
@@ -2914,6 +2914,13 @@ public static partial class PackageQuery
         return preview with { Count = matches.Count };
     }
 
+    static string ToolPackageType(PackageManifestFacts manifest) =>
+        manifest.PackageTypes.FirstOrDefault(static type =>
+            type.Equals("DotnetToolRidPackage", StringComparison.OrdinalIgnoreCase))
+        ?? manifest.PackageTypes.FirstOrDefault(static type =>
+            type.Equals("DotnetTool", StringComparison.OrdinalIgnoreCase))
+        ?? "DotnetTool";
+
     static PackageQueryTermResult CreateTermResult(
         BoundPackageQueryTerm term,
         PackageQueryPackage package,
@@ -2962,8 +2969,13 @@ public static partial class PackageQuery
                                 "License answers require a bound identity."),
                         },
                     PackageQueryPredicateKind.Readme => "true",
-                    PackageQueryPredicateKind.Tool => "true",
-                    PackageQueryPredicateKind.ToolFormat => term.Term.Value,
+                    PackageQueryPredicateKind.Tool =>
+                        ToolPackageType(package.RequiredManifest),
+                    PackageQueryPredicateKind.ToolFormat =>
+                        "v"
+                        + (content?.ToolSettingsVersion
+                            ?? throw new InvalidOperationException(
+                                "DotNetCliTool format answers require package-content facts.")),
                     PackageQueryPredicateKind.AssemblyReference =>
                         term.Predicate.Text
                         ?? throw new InvalidOperationException(
@@ -3077,7 +3089,12 @@ public static partial class PackageQuery
             PackageQueryPredicateKind.Tool =>
                 new PackageQueryEvidence(term.Descriptor.Key)
                 {
-                    Properties = [Property("package-type", "DotnetTool")],
+                    Properties =
+                    [
+                        Property(
+                            "package-type",
+                            ToolPackageType(package.RequiredManifest)),
+                    ],
                 },
             PackageQueryPredicateKind.ToolFormat =>
                 new PackageQueryEvidence(term.Descriptor.Key)
@@ -3088,7 +3105,7 @@ public static partial class PackageQuery
                             "settings-version",
                             content?.ToolSettingsVersion
                             ?? throw new InvalidOperationException(
-                                ".NET tool format evidence requires package-content facts.")),
+                                "DotNetCliTool format evidence requires package-content facts.")),
                     ],
                 },
             PackageQueryPredicateKind.AssemblyReference =>

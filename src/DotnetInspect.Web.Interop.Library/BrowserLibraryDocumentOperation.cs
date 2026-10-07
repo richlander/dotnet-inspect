@@ -6,7 +6,6 @@ using DotnetInspector.Libraries;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
-using ILInspector.Metadata;
 using TsJsExport;
 
 using DotnetInspect.Web;
@@ -55,15 +54,6 @@ internal static class BrowserLibraryDocumentOperation
 {
     private const long MaxAssemblyImageBytes = 64L * 1024 * 1024;
 
-    private static readonly ApiSurfaceExtractionBounds s_bounds =
-        new(
-            maxTypes: BrowserApiSurfacePolicy.MaxTypes,
-            maxMembers: BrowserApiSurfacePolicy.MaxMembers,
-            maxInspectionFailures: BrowserApiSurfacePolicy.MaxInspectionFailures,
-            maxTypeForwarders: BrowserApiSurfacePolicy.MaxTypeForwarders,
-            maxMetadataRows: BrowserApiSurfacePolicy.MaxMetadataRows,
-            maxRetainedTextCharacters: BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
-
     private static readonly AssemblyContextLibraryMaterializationLimits s_limits =
         new(MaxAssemblyImageBytes, MaxAssemblyImageBytes);
 
@@ -80,10 +70,11 @@ internal static class BrowserLibraryDocumentOperation
             case { Kind: BrowserLibrarySelectorKind.Package, Package: { } package }:
             {
                 await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-                    await BrowserPackageWorkspace.OpenScopeAsync(
+                    await BrowserPackageWorkspace.OpenRealizedScopeAsync(
                         package.PackageId,
                         package.Version,
-                        package.TargetFramework).ConfigureAwait(false);
+                        package.TargetFramework,
+                        cancellationToken).ConfigureAwait(false);
                 return await InspectPackageAsync(
                         scopeLease.Scope,
                         package.AssemblyId,
@@ -175,7 +166,7 @@ internal static class BrowserLibraryDocumentOperation
     internal static LibraryInspectionPlan Plan(BrowserLibraryInspectionPlan plan) =>
         new(
             types: null,
-            s_bounds,
+            BrowserApiSurfacePolicy.LibraryBounds,
             plan.Enablements ? new LibraryEnablementsRequest() : null);
 
     private static async Task<BrowserLibraryDocumentInspection> InspectAsync(

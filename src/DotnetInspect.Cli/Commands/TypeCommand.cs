@@ -8,6 +8,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
@@ -25,7 +26,7 @@ namespace DotnetInspect.Cli.Commands;
 /// <summary>
 /// Discovers types in a package or library (compact table, no docs by default).
 /// </summary>
-public static class TypeCommand
+public static partial class TypeCommand
 {
     public const string Name = "type";
 
@@ -62,6 +63,17 @@ public static class TypeCommand
         TypeOptions options,
         ResolvedMemberInspectionPlan plan)
         => ExecuteCoreAsync(options, plan);
+
+    internal static Task<int> ExecuteAsync(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan plan,
+        TypeCommandPlan commandPlan,
+        CancellationToken cancellationToken)
+        => ExecuteCoreAsync(
+            options,
+            plan,
+            commandPlan: commandPlan,
+            cancellationToken: cancellationToken);
 
     internal static Task<int> ExecuteAsync(
         TypeOptions options,
@@ -154,6 +166,7 @@ public static class TypeCommand
             Schema = options.Schema,
             Count = options.Count,
             Rows = options.Rows,
+            BodyShapeRowSelection = options.BodyShapeRowSelection,
             JsonArray = options.JsonArray,
             PerformanceTriage = options.PerformanceTriage,
             BodyKindQuery = options.BodyKindQuery,
@@ -176,12 +189,17 @@ public static class TypeCommand
         ApiServices.LoadedApiSurface? loadedSurface = null,
         ApiType? preselectedType = null,
         WorkspaceContextLoadOptions? exactTypeCapabilities = null,
+        TypeCommandPlan? commandPlan = null,
         CancellationToken cancellationToken = default)
     {
         if (plan.Intent.Surface != InspectionSurface.Type)
             throw new ArgumentException(
                 "A type command requires a type inspection plan.",
                 nameof(plan));
+
+        commandPlan ??= new TypeCommandPlan.Standard();
+        TypeCommandPlan.ExactTypeOverview? exactTypeOverview =
+            commandPlan as TypeCommandPlan.ExactTypeOverview;
 
         if (!PerformanceTriageOptions.TryValidate(
                 options.PerformanceTriage,
@@ -229,13 +247,28 @@ public static class TypeCommand
                 cancellationToken).ConfigureAwait(false);
         }
 
+        if (resolvedSource is null && loadedSurface is null)
+        {
+            int? directLibraryDiscovery =
+                TryExecuteDirectLibraryEffectiveDiscovery(
+                    options,
+                    memberPipeline,
+                    cancellationToken);
+            if (directLibraryDiscovery is { } directLibraryExitCode)
+                return directLibraryExitCode;
+        }
+
         if (!options.EnvelopeOutput)
         {
             try
             {
-                if (await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
+                if (exactTypeOverview?.Format
+                        is not TypeOverviewHierarchyPresentationFormat.Mermaid
+                    && await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
                     return prefixBrowseExitCode;
-                if (!options.RouterCompletedPlatformLookup
+                if (exactTypeOverview?.Format
+                        is not TypeOverviewHierarchyPresentationFormat.Mermaid
+                    && !options.RouterCompletedPlatformLookup
                     && await TryExecuteFindIfMissAsync(options)
                         is { } findIfMissExitCode)
                     return findIfMissExitCode;
@@ -328,6 +361,25 @@ public static class TypeCommand
         bool inspectionIncomplete = false;
         try
         {
+            if (exactTypeOverview is { Format: var hierarchyFormat })
+            {
+                int? hierarchyExitCode =
+                    await TypeOverviewHierarchyCommand.TryExecuteAsync(
+                        source,
+                        options,
+                        hierarchyFormat,
+                        cancellationToken);
+                if (hierarchyExitCode is not null)
+                    return hierarchyExitCode.Value;
+                if (hierarchyFormat
+                    == TypeOverviewHierarchyPresentationFormat.Mermaid)
+                {
+                    CommandError.Write(
+                        "--mermaid requires an available compact exact Type hierarchy.");
+                    return 1;
+                }
+            }
+
             if (loadedSurface is null
                 && preselectedType is null
                 && !options.EffectiveDiscovery
@@ -1474,16 +1526,16 @@ public static class TypeCommand
         {
             using WorkspaceTypeAssemblyPath assemblyPath =
                 WorkspaceTypeAssemblyPath.Create(target);
+            string renderedAssemblyPath =
+                renderSource.SelectedLibraryPath
+                ?? assemblyPath.Value;
             ApiSurface api = target.Surface;
             api.Name = renderSource.Name;
             api.Version = renderSource.Version;
             api.Source = renderSource.Source;
             api.Tfm = renderSource.TargetFramework;
             api.Library =
-                target.Assembly.AssetFileName
-                ?? (target.AssemblyPath is { } materializedPath
-                    ? Path.GetFileName(materializedPath)
-                    : target.Assembly.Identity.Name + ".dll");
+                Path.GetFileName(renderedAssemblyPath);
 
             var sourceAssemblies =
                 new Dictionary<ApiType, ResolvedAssemblyReference>(
@@ -1502,16 +1554,16 @@ public static class TypeCommand
                 };
             var loaded = new ApiServices.LoadedApiSurface(
                 api,
-                assemblyPath.Value,
+                renderedAssemblyPath,
                 assemblyPath.Value,
                 sourceAssemblies,
                 RootBindingContext: bindingContext,
                 BindingContexts: bindingContexts);
             var source = new ApiSourceResult(
-                SearchPath: assemblyPath.Value,
+                SearchPath: renderedAssemblyPath,
                 RuntimeAssemblyPath:
                     renderSource.Source == SourceKind.Platform
-                        ? assemblyPath.Value
+                        ? renderedAssemblyPath
                         : null,
                 PackageName: renderSource.PackageName,
                 PackageVersion: renderSource.PackageVersion,
@@ -1757,7 +1809,8 @@ public static class TypeCommand
     string? PackageName,
     string? PackageVersion,
     string? ResolvedPackagePath,
-    string? PlatformFramework)
+    string? PlatformFramework,
+    string? SelectedLibraryPath)
     {
         internal static ExactTypeRenderSource From(
             ExactTypeInspectionRequest request) =>
@@ -1769,7 +1822,8 @@ public static class TypeCommand
                 request.PackageId,
                 request.Version,
                 $"{request.PackageId}@{request.Version}",
-                PlatformFramework: null);
+                PlatformFramework: null,
+                SelectedLibraryPath: null);
 
         internal static ExactTypeRenderSource From(
             SelectedContextExactTypeSource source)
@@ -1785,7 +1839,8 @@ public static class TypeCommand
                         package.PackageId,
                         package.Version,
                         $"{package.PackageId}@{package.Version}",
-                        PlatformFramework: null),
+                        PlatformFramework: null,
+                        SelectedLibraryPath: null),
                 TypeDeclarationLocatorRealization.PlatformRealization platform =>
                     new(
                         platform.Family,
@@ -1795,7 +1850,8 @@ public static class TypeCommand
                         PackageName: null,
                         PackageVersion: null,
                         ResolvedPackagePath: null,
-                        PlatformFramework: platform.Framework),
+                        PlatformFramework: platform.Framework,
+                        SelectedLibraryPath: null),
                 _ => new(
                     source.Library.LibraryIdentity.Name,
                     source.Library.LibraryIdentity.Version?.ToString(),
@@ -1813,7 +1869,8 @@ public static class TypeCommand
                     PackageName: null,
                     PackageVersion: null,
                     ResolvedPackagePath: null,
-                    PlatformFramework: null),
+                    PlatformFramework: null,
+                    SelectedLibraryPath: null),
             };
         }
 
@@ -1828,7 +1885,13 @@ public static class TypeCommand
                 source.PackageName,
                 source.PackageVersion,
                 source.ResolvedPackagePath,
-                source.PlatformFramework);
+                source.PlatformFramework,
+                string.Equals(
+                    source.ApiSource,
+                    SourceKind.Platform,
+                    StringComparison.Ordinal)
+                        ? source.SearchPath
+                        : null);
     }
 
     sealed class WorkspaceTypeAssemblyPath : IDisposable
@@ -1970,7 +2033,7 @@ public static class TypeCommand
         }
     }
 
-    static void WriteInspectionDiagnostics(
+    internal static void WriteInspectionDiagnostics(
         IEnumerable<InspectionDiagnostic> diagnostics)
     {
         foreach (InspectionDiagnostic diagnostic in diagnostics)
@@ -2404,10 +2467,34 @@ public static class TypeCommand
         {
             var match = resolution.Match!;
             CommandError.WriteNote($"Type '{query}' resolved via platform find to {match.FullName} in {match.Library}.");
-            return await ExecuteAsync(resolution.ApplyTo(options));
+            // The resolved exact Type is planned like its exact spelling, so
+            // the default reaches the same Type hierarchy.
+            TypeOptions resolved = resolution.ApplyTo(options);
+            ResolvedMemberInspectionPlan resolvedPlan =
+                ResolvedMemberInspectionPlan
+                    .FromCompatibilityOptions(resolved);
+            return TypeCommandPlanner.Plan(resolved, resolvedPlan) switch
+            {
+                TypeCommandPlanningResult.Planned planned =>
+                    await ExecuteAsync(
+                        resolved,
+                        resolvedPlan,
+                        planned.Plan,
+                        CancellationToken.None),
+                TypeCommandPlanningResult.Rejected rejected =>
+                    WritePlanningError(rejected.Error),
+                _ => throw new InvalidOperationException(
+                    "Unknown Type command planning result."),
+            };
         }
 
         return resolution.WriteAmbiguousError();
+    }
+
+    private static int WritePlanningError(string error)
+    {
+        CommandError.Write(error);
+        return 1;
     }
 
     internal static async Task<int?> TryExecutePlatformPrefixBrowseAsync(

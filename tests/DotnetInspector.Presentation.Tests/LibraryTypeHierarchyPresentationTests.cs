@@ -25,12 +25,12 @@ public class LibraryTypeHierarchyPresentationTests
         Assert.Equal(tree.Types, mermaid.Types);
         Assert.Equal(tree.Hierarchy, mermaid.Hierarchy);
         Assert.NotEqual(tree.Format, mermaid.Format);
-        Assert.NotNull(tree.Types.Rows!.MemberCount);
+        Assert.Null(tree.Types.Rows!.MemberCount);
         Assert.Null(tree.Types.Rows.Continuation);
     }
 
     [Fact]
-    public void Tree_StreamsNamespacesAndTypesWithMemberCounts()
+    public void Tree_StreamsNamespacesAndLeafTypesByDefault()
     {
         LibraryTypeHierarchyPresentationPlan plan =
             LibraryTypeHierarchyPresentation.CreateDefaultPlan(
@@ -46,10 +46,10 @@ public class LibraryTypeHierarchyPresentationTests
             """
             Example 1.2.3.4
             ├─ (global namespace) (1 type)
-            │  └─ struct Loose (1 member)
+            │  └─ struct Loose
             ├─ Example (2 types)
-            │  ├─ class Widget<T> (3 members)
-            │  └─ interface Zeta (0 members)
+            │  ├─ class Widget<T>
+            │  └─ interface Zeta
             └─ Example.Moved (1 type)
                └─ Gadget (forwarded)
 
@@ -98,7 +98,7 @@ public class LibraryTypeHierarchyPresentationTests
         Assert.StartsWith("graph TD", result, StringComparison.Ordinal);
         Assert.Contains("Example 1.2.3.4", result, StringComparison.Ordinal);
         Assert.Contains(
-            "class Widget&lt;T&gt; (3 members)",
+            "class Widget&lt;T&gt;",
             result,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -108,6 +108,65 @@ public class LibraryTypeHierarchyPresentationTests
         Assert.Equal(
             7,
             result.Split(" --> ", StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public void ExplicitMemberCountProfile_AddsCountsToTypeLines()
+    {
+        LibraryTypeHierarchyPresentationPlan defaults =
+            LibraryTypeHierarchyPresentation.CreateDefaultPlan(
+                LibraryTypeHierarchyPresentationFormat.Tree);
+        var plan =
+            new LibraryTypeHierarchyPresentationPlan(
+                LibraryTypeHierarchyPresentationFormat.Tree,
+                new LibraryTypePopulationRequest(
+                    LibraryTypeAccessibility.Public,
+                    count: null,
+                    rows: new LibraryTypePopulationRowsRequest(
+                        defaults.Types.Rows!.MaximumRows,
+                        memberCount: new LibraryTypeMemberCountRequest())),
+                new(
+                    defaults.Hierarchy.Topology,
+                    defaults.Hierarchy.RootSpelling,
+                    new InspectionHierarchyPopulationRequest.Rows(
+                        InspectionHierarchyNodeSpelling.Name,
+                        new InspectionHierarchyPopulationRequest.Rows(
+                            InspectionHierarchyNodeSpelling.Name,
+                            new InspectionHierarchyPopulationRequest
+                                .Count()))));
+        using var output = new StringWriter();
+
+        LibraryTypeHierarchyPresentation.Write(
+            Document(counted: true),
+            plan,
+            output);
+
+        Assert.Contains(
+            "class Widget<T> (3 members)",
+            output.ToString(),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "struct Loose (1 member)",
+            output.ToString(),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Gadget (forwarded)",
+            output.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DefaultPlan_RejectsCountedRowsBeforeAnyOutput()
+    {
+        using var output = new StringWriter();
+
+        Assert.Throws<InvalidOperationException>(
+            () => LibraryTypeHierarchyPresentation.Write(
+                Document(counted: true),
+                LibraryTypeHierarchyPresentation.CreateDefaultPlan(
+                    LibraryTypeHierarchyPresentationFormat.Tree),
+                output));
+        Assert.Empty(output.ToString());
     }
 
     [Theory]
@@ -138,6 +197,47 @@ public class LibraryTypeHierarchyPresentationTests
                 LibraryTypeHierarchyPresentation.CreateDefaultPlan(format),
                 output));
         Assert.Empty(output.ToString());
+    }
+
+    [Theory]
+    [InlineData(LibraryTypeHierarchyPresentationFormat.Tree)]
+    [InlineData(LibraryTypeHierarchyPresentationFormat.Mermaid)]
+    public void EmptyPopulation_RendersAsEmpty(
+        LibraryTypeHierarchyPresentationFormat format)
+    {
+        LibraryDocument document = Document();
+        var rows =
+            (LibraryTypePopulationRowsOutcome.Read)document.Types!.Rows!;
+        LibraryDocument empty =
+            document with
+            {
+                Types = document.Types with
+                {
+                    Rows = rows with { Items = [] },
+                },
+            };
+        using var output = new StringWriter();
+
+        LibraryTypeHierarchyPresentation.Write(
+            empty,
+            LibraryTypeHierarchyPresentation.CreateDefaultPlan(format),
+            output);
+
+        string result = output.ToString();
+        Assert.Contains(
+            "Example 1.2.3.4 (no public types)",
+            result,
+            StringComparison.Ordinal);
+        if (format == LibraryTypeHierarchyPresentationFormat.Tree)
+        {
+            Assert.Equal(
+                "Example 1.2.3.4 (no public types)" + Environment.NewLine,
+                result);
+        }
+        else
+        {
+            Assert.DoesNotContain(" --> ", result, StringComparison.Ordinal);
+        }
     }
 
     [Fact]
@@ -172,7 +272,7 @@ public class LibraryTypeHierarchyPresentationTests
         Assert.Empty(output.ToString());
     }
 
-    private static LibraryDocument Document() =>
+    private static LibraryDocument Document(bool counted = false) =>
         new(
             new(Text("Example"), new Version(1, 2, 3, 4), null, null),
             s_mvid,
@@ -192,20 +292,20 @@ public class LibraryTypeHierarchyPresentationTests
                             "Zeta",
                             "Example.Zeta",
                             ApiTypeInventoryKind.Interface,
-                            0),
-                        Forwarder("Example.Moved", "Gadget"),
+                            counted ? 0 : null),
+                        Forwarder("Example.Moved", "Gadget", counted),
                         Definition(
                             "Example",
                             "Widget`1",
                             "Example.Widget<T>",
                             ApiTypeInventoryKind.Class,
-                            3),
+                            counted ? 3 : null),
                         Definition(
                             "",
                             "Loose",
                             "Loose",
                             ApiTypeInventoryKind.Struct,
-                            1),
+                            counted ? 1 : null),
                     ],
                     Continuation: null)),
             new(
@@ -226,7 +326,7 @@ public class LibraryTypeHierarchyPresentationTests
         string name,
         string displayName,
         ApiTypeInventoryKind kind,
-        int memberCount) =>
+        int? memberCount) =>
         new(
             Name(@namespace, name),
             Text(displayName),
@@ -236,12 +336,14 @@ public class LibraryTypeHierarchyPresentationTests
             LibraryTypeDefinitionAccessibility.Public,
             isPublicSurface: true,
             forwarding: null,
-            memberCount: new LibraryTypeMemberCountOutcome.Counted(
-                memberCount));
+            memberCount: memberCount is { } value
+                ? new LibraryTypeMemberCountOutcome.Counted(value)
+                : null);
 
     private static LibraryTypeShape Forwarder(
         string @namespace,
-        string name) =>
+        string name,
+        bool counted) =>
         new(
             Name(@namespace, name),
             Text($"{@namespace}.{name}"),
@@ -254,8 +356,10 @@ public class LibraryTypeHierarchyPresentationTests
                 s_mvid,
                 ImmutableArray.Create(default(ExportedTypeToken)),
                 new(Text("Example.Target"), new Version(1, 0), null, null)),
-            memberCount: new LibraryTypeMemberCountOutcome.NotApplicable(
-                LibraryTypeMemberCountNotApplicableReason.Forwarder));
+            memberCount: counted
+                ? new LibraryTypeMemberCountOutcome.NotApplicable(
+                    LibraryTypeMemberCountNotApplicableReason.Forwarder)
+                : null);
 
     private static MetadataTypeDefinitionName Name(
         string @namespace,

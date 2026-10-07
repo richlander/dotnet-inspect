@@ -11,6 +11,77 @@ public sealed class BrowserMemberBodyDiffTests
 {
     [Fact]
     [Trait("Speed", "Slow")]
+    public async Task CrossFrameworkBaseline_OpensAddedMemberFromRetainedInventory()
+    {
+        var request = new BrowserMemberBodyDiffRequest("System.Text.Json", "10.0.0", "11.0.0-rc.1.26425.128",
+            "net11.0", "compile:lib/net11.0/System.Text.Json.dll", Guid.NewGuid().ToString());
+        string json = await SourceExports.QueryMemberBodyDiff(Guid.NewGuid().ToString(),
+            JsonSerializer.Serialize(request, BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffRequest));
+        var inventory = JsonSerializer.Deserialize(json, BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffResult)!;
+        Assert.True(inventory.Kind == "Available", $"{inventory.Kind}: {inventory.Detail}");
+        Assert.NotNull(inventory.Inspection);
+        var added = inventory.Inventory!.Types.SelectMany(type => type.Members)
+            .First(member => member.Outcome == "Added" && member.Selector is not null);
+
+        string memberJson = await SourceExports.QueryMemberBodyDiff(Guid.NewGuid().ToString(),
+            JsonSerializer.Serialize(request with { InventoryId = inventory.Inventory.Id, MemberId = added.Id },
+                BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffRequest));
+        var result = JsonSerializer.Deserialize(memberJson, BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffResult)!;
+        Assert.True(result.Kind == "Available", $"{result.Kind}: {result.Detail}");
+        Assert.Equal("Absent", result.Document!.BeforeOutcome);
+        Assert.Equal("Present", result.Document.AfterOutcome);
+        Assert.Equal(["CSharp", "Il"], result.Document.Media.Select(medium => medium.Medium));
+        Assert.All(result.Document.Media, medium => Assert.NotEmpty(medium.Diff!.Changes));
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task AspireHosting_MemberBodyInventoryResolvesPublicPopulation()
+    {
+        var request = new BrowserMemberBodyDiffRequest("Aspire.Hosting", "13.6.0", "13.6.1",
+            "net8.0", "compile:lib/net8.0/Aspire.Hosting.dll", Guid.NewGuid().ToString());
+        string json = await SourceExports.QueryMemberBodyDiff(Guid.NewGuid().ToString(),
+            JsonSerializer.Serialize(request, BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffRequest));
+        var result = JsonSerializer.Deserialize(json, BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffResult)!;
+        Assert.True(result.Kind == "Available", $"{result.Kind}: {result.Detail}");
+        Assert.NotNull(result.Inventory);
+        Assert.NotNull(result.Inspection);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task JsonDocumentOptionsAddedProperty_FitsWorkerTransport()
+    {
+        var request = new BrowserMemberBodyDiffRequest("System.Text.Json", "9.0.20", "10.0.12",
+            "netstandard2.0", "compile:lib/netstandard2.0/System.Text.Json.dll", Guid.NewGuid().ToString());
+        string json = await SourceExports.QueryMemberBodyDiff(Guid.NewGuid().ToString(),
+            JsonSerializer.Serialize(request, BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffRequest));
+        var inventory = JsonSerializer.Deserialize(json, BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffResult)!;
+        Assert.True(inventory.Kind == "Available", $"{inventory.Kind}: {inventory.Detail}");
+        Assert.NotNull(inventory.Inspection);
+        Assert.True(inventory.Inspection.Content.TryGetProperty("implementation", out _));
+        Assert.True(inventory.Inspection.Content.TryGetProperty("api", out _));
+        using var wire = JsonDocument.Parse(json);
+        long characters = BrowserOrdinaryWorkerJsonBudget.JsonStringifyCharacters(wire.RootElement) + 2;
+        long entries = BrowserOrdinaryWorkerJsonBudget.CollectionEntries(wire.RootElement) + 2;
+        Assert.True(characters > 16_777_216 || entries > 524_288);
+        Assert.InRange(characters, 0, BrowserOrdinaryWorkerJsonBudget.MaxOrdinaryWorkerTransportJsonCharacters);
+        Assert.InRange(entries, 0, BrowserOrdinaryWorkerJsonBudget.MaxOrdinaryWorkerTransportCollectionEntries);
+        var type = Assert.Single(inventory.Inventory!.Types, type =>
+            type.Identity == "System.Text.Json.JsonDocumentOptions");
+        var property = Assert.Single(type.Members, member => member.Display.Contains("AllowDuplicateProperties", StringComparison.Ordinal)
+            && member.Selector!.EndsWith(":1", StringComparison.Ordinal));
+        string memberJson = await SourceExports.QueryMemberBodyDiff(Guid.NewGuid().ToString(),
+            JsonSerializer.Serialize(request with { InventoryId = inventory.Inventory.Id, MemberId = property.Id },
+                BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffRequest));
+        var result = JsonSerializer.Deserialize(memberJson, BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffResult)!;
+        Assert.True(result.Kind == "Available", $"{result.Kind}: {result.Detail}");
+        Assert.Equal("Absent", result.Document!.BeforeOutcome);
+        Assert.All(result.Document.Media, medium => Assert.NotEmpty(medium.Diff!.Changes));
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public async Task JsonOptionsCopyConstructor_OpensBothMediaFromRetainedInventory()
     {
         const string package = "System.Text.Json";

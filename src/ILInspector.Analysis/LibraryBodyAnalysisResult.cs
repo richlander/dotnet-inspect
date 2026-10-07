@@ -57,7 +57,9 @@ internal sealed record SafetyAnalysisResult(
     ImmutableArray<MethodIdentity> LeverageMethods,
     MemorySafetyRulesResult Rules,
     UnsafeModeBreakdown Modes,
-    IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> Occurrences);
+    IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> Occurrences,
+    ImmutableArray<UnsafeMemberUse> MemberUses,
+    UnsafeMemberCensus? MemberCensus = null);
 
 internal sealed record AllocationAnalysisResult(
     IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> Occurrences);

@@ -8,6 +8,7 @@ import {
   assemblyDescriptorForType,
   callGraphAssemblyIdentityMatches,
   callGraphTargetPackageCoordinate,
+  callGraphTargetPlatformCoordinate,
   callGraphTargetTypeId,
   combinedGraphTargetNavigationDisposition,
   graphTargetBlockedReason,
@@ -542,7 +543,7 @@ test("selector-only accessors use body-aware implementation queries", () => {
     /member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name/);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "event" }, false, true),
-    ["overview", "call-graph", "facts", "compare"]);
+    ["overview", "call-graph", "facts", "resource-triage", "compare"]);
 });
 
 test("platform graph borders reflect actual resident lookup", () => {
@@ -557,7 +558,7 @@ test("platform graph borders reflect actual resident lookup", () => {
   assert.match(binding, /else \{[\s\S]*startPlatformDrill\(target\)/);
   assert.match(
     packageBinding,
-    /runtimePackForFramework\(\s*runtimePackPackage\(\),\s*platformCatalogFramework\(state\.package\?\.activeFramework \|\| ""\)\)/);
+    /runtimePackForFramework\(\s*runtimePackPackage\(\),\s*platformCoordinate\?\.framework\s*\?\? platformCatalogFramework\(state\.package\?\.activeFramework \|\| ""\)\)/);
   assert.match(
     packageBinding,
     /const runtimeCandidate = !packageAvailable[\s\S]*?&& \(candidate\.status === "missing"[\s\S]*?\|\| candidate\.status === "skew"\) && pack\s*\? resolveRuntimeGraphTargetCandidate\(pack, target\)/);
@@ -1899,6 +1900,7 @@ test("call graph navigation rejects ambiguous loaded package coordinates", () =>
   const packageTarget = {
     ...target,
     assemblyVersion: "1.0.0.0",
+    ownerKind: "package",
     packageId: "dependency.package",
     packageVersion: "2.0.0",
     packageFramework: "net9.0",
@@ -1909,6 +1911,92 @@ test("call graph navigation rejects ambiguous loaded package coordinates", () =>
       id: "dependency.package",
       version: "2.0.0",
       framework: "net9.0",
+    });
+
+    test("call graph ownership uses typed package and exact Platform coordinates", () => {
+      const platformTarget = {
+        ownerKind: "platform",
+        platformFamily: "runtime",
+        platformFramework: "net11.0",
+        platformVersion: "11.0.0-rc.1.26425.128",
+        platformPack: "netcore.app",
+      };
+      assert.deepEqual(
+        callGraphTargetPlatformCoordinate(platformTarget),
+        {
+          family: "runtime",
+          framework: "net11.0",
+          version: "11.0.0-rc.1.26425.128",
+          pack: "netcore.app",
+        });
+      assert.equal(
+        callGraphTargetPlatformCoordinate({
+          ...platformTarget,
+          ownerKind: null,
+        }),
+        null);
+      assert.equal(
+        callGraphTargetPlatformCoordinate({
+          ...platformTarget,
+          platformPack: "aspnetcore.app",
+        }),
+        null);
+      assert.equal(
+        callGraphTargetPackageCoordinate({
+          packageId: "dependency.package",
+          packageVersion: "2.0.0",
+          packageFramework: "net9.0",
+        }),
+        null);
+      const platformConnector = {
+        ...target,
+        ...platformTarget,
+        assemblyVersion: "11.0.0.0",
+        kind: "connector",
+      };
+      assert.equal(
+        graphTargetNavigationDisposition(
+          { status: "missing" },
+          platformConnector),
+        "platform");
+      assert.equal(
+        combinedGraphTargetNavigationDisposition(
+          { status: "missing" },
+          { status: "unique", pkg: null, type: null },
+          platformConnector,
+          true),
+        "resident");
+      assert.equal(
+        graphTargetNavigationDisposition(
+          { status: "missing" },
+          { ...platformConnector, ownerKind: null }),
+        "none");
+
+      const binding =
+        appSource.match(/function callGraphTargetBinding\([\s\S]*?\n}(?=\n\nasync function openPackageGraphMember)/)?.[0]
+        ?? "";
+      assert.match(
+        binding,
+        /const platformCoordinate = callGraphTargetPlatformCoordinate\(target\)/);
+      assert.match(
+        binding,
+        /const candidate = platformCoordinate\s*\?\s*\{ status: "missing" \}/);
+      assert.match(
+        binding,
+        /if \(platformCoordinate && pack\?\.version !== platformCoordinate\.version\)\s*pack = null/);
+
+      const navigation =
+        appSource.match(/async function navigateOrDrillPlatform[\s\S]*?\n\}/)?.[0]
+        ?? "";
+      assert.match(
+        navigation,
+        /const coordinate = callGraphTargetPlatformCoordinate\(node\)/);
+      assert.match(
+        navigation,
+        /coordinate\?\.version \?\? retainedPlatform\?\.version/);
+      assert.match(
+        navigation,
+        /coordinate\?\.version \?\? pack\.version/);
     });
   assert.equal(
     graphTargetNavigationDisposition(
@@ -2661,16 +2749,16 @@ test("graph-first platform acquisition preserves catalog family and physical fil
     2);
   assert.match(
     navigation,
-    /const framework = platformCatalogFramework\(\s*state\.package\?\.activeFramework \|\| ""\)/);
+    /const coordinate = callGraphTargetPlatformCoordinate\(node\);[\s\S]*const framework = coordinate\?\.framework\s*\?\? platformCatalogFramework\(\s*state\.package\?\.activeFramework \|\| ""\)/);
   assert.match(
     drill,
-    /const framework = platformCatalogFramework\(currentPackage\(\)\.activeFramework\)[\s\S]*resolvedPlatformTargetVersion\([\s\S]*framework\)[\s\S]*platformPackForGraphAssembly\([\s\S]*framework\) \?\? ""/);
+    /const coordinate = callGraphTargetPlatformCoordinate\(node\);[\s\S]*const framework = coordinate\?\.framework\s*\?\? platformCatalogFramework\(currentPackage\(\)\.activeFramework\)[\s\S]*const platformVersion = coordinate\?\.version\s*\?\? resolvedPlatformTargetVersion\([\s\S]*framework\)[\s\S]*pack: coordinate\?\.pack\s*\?\? platformPackForGraphAssembly\([\s\S]*framework\)\s*\?\? ""/);
   assert.match(
     navigation,
-    /loadRuntimeGraphAssembly\(\s*framework,\s*retainedPlatform\?\.version \?\? "",\s*node\.assembly,\s*targetPack,\s*navigationIsCurrent\)/);
+    /loadRuntimeGraphAssembly\(\s*framework,\s*coordinate\?\.version \?\? retainedPlatform\?\.version \?\? "",\s*node\.assembly,\s*targetPack,\s*navigationIsCurrent\)/);
   assert.match(
     navigation,
-    /loadRuntimeGraphAssembly\(\s*framework,\s*pack\.version,\s*node\.assembly,\s*targetPack,\s*navigationIsCurrent\)/);
+    /loadRuntimeGraphAssembly\(\s*framework,\s*coordinate\?\.version \?\? pack\.version,\s*node\.assembly,\s*targetPack,\s*navigationIsCurrent\)/);
   assert.doesNotMatch(navigation, /\bloadRuntimePackAssembly\(/);
 });
 

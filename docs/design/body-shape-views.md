@@ -62,8 +62,10 @@ members, or at different extents in one member, contribute separately.
 Group order is the order of each group's first occurrence.
 
 The selected inspection and existing method predicates bound the input before
-grouping. Each independent inspection retains its own groups. Row windows
-then select summary groups without reducing their Count values.
+grouping. Each independent inspection retains its own groups. Row selection
+(`-n`, `--tail`, and `--rows`, under the
+[Body Shapes adoption](cli-row-selection.md#body-shapes-adoption)) then
+selects occurrences or summary groups without reducing a group's Count.
 `--count` counts the selected view's surviving rows: groups for the summary,
 occurrences for `Body Shapes`. It never sums the summary's Count column.
 Projection only removes columns, even when remaining cells are identical.

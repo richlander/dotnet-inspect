@@ -1,3 +1,5 @@
+import { memberFactsFixture } from "../test/member-facts-fixture.ts";
+import { memberFindingCensusFixture } from "../test/member-finding-census-fixture.ts";
 import { expect, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
@@ -587,6 +589,10 @@ async function installFacades(
         packageId: null,
         packageVersion: null,
         packageFramework: null,
+        ownerKind: null,
+        platformFamily: null,
+        platformFramework: null,
+        platformVersion: null,
       }
     : null;
   const graphTargetNode = graphTarget
@@ -2017,6 +2023,15 @@ async function installFacades(
         };
       }`,
     analysis: `
+      export async function queryMemberFacts(...args) {
+        document.documentElement.dataset.memberFactsRequest = JSON.stringify(args);
+        return ${JSON.stringify(memberFactsFixture())};
+      }
+      export async function queryPackageResourceTriage(id, version, framework, asset) {
+        const selected = surfaceFor(id).assemblies.find(item => item.id === asset);
+        const type = surfaceFor(id).types.find(item => item.assemblyId === selected.id);
+        return { outcome: "available", candidates: [{ candidateId: "fixture-resource", findingId: "analysis.resource-lifecycle", provenance: "exact", assembly: selected.name + ".dll", method: type.definitionId + ".Run", methodToken: 100663297, moduleVersionId: "00000000-0000-0000-0000-000000000001", typeId: type.definitionId, stableSelector: "Run", bodyTypeId: type.definitionId, bodyMemberName: "Run", resource: "ArrayPool<byte>", shape: "pool-churn-on-exception", acquireOffset: 7, boundaries: [{ ilOffset: 18, operation: "System.IO.Stream.Read", kind: "ExternalInput" }], actionability: "UntrustedActionable", reason: "ExternalInputBoundaryBeforeCleanup", impact: "PoolChurnOnException", remediation: "EnsureExceptionalCleanup", confidence: "Medium" }], limitations: [], inspectionError: null, share: null, diagnostics: [] };
+      }
       ${surfaceLookup}
       const diagnosticsOptions = ${JSON.stringify(diagnostics)};
       let implementationProfileRequestCount = 0;
@@ -2825,6 +2840,7 @@ async function installFacades(
           memberName,
           stableSelector: "Run",
           bodyTokens: [100663297],
+          bodyTargets: [{ typeId: selectedType.definitionId, memberName, selectorKey: "Run", methodToken: 100663297, issueOffsets: null }],
           opportunityCount,
           inLoopCount,
           shapes,
@@ -2967,6 +2983,10 @@ async function installFacades(
           surface, selected, version, framework, selected.id));
       }`,
     source: `
+      export async function queryMemberFindingCensus(...args) {
+        document.documentElement.dataset.memberFindingCensusRequest = JSON.stringify(args);
+        return ${JSON.stringify(memberFindingCensusFixture())};
+      }
       export async function queryPlatformMemberSource(
         framework,
         version,

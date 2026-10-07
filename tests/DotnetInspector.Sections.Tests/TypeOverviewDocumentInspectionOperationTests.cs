@@ -17,20 +17,29 @@ public sealed partial class TypeOverviewDocumentInspectionOperationTests
             maxRetainedTextCharacters: 20_000_000);
 
     [Fact]
-    public void PlanRequiresNestedExactMemberCounts()
+    public async Task LeafOverviewRequestsAndReturnsNoExactMemberCounts()
     {
-        ArgumentException exception =
-            Assert.Throws<ArgumentException>(
-                () => new TypeOverviewDocumentInspectionPlan(
-                    Name(
-                        "System.Text.Json",
-                        "JsonSerializer"),
-                    new(
-                        maximumRows: 10,
-                        includeExactMemberCount: false),
-                    s_bounds));
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
 
-        Assert.Equal("rows", exception.ParamName);
+        TypeOverviewDocument document =
+            Available(
+                Execute(
+                    library,
+                    rows: new(
+                        maximumRows: int.MaxValue,
+                        includeExactMemberCount: false)));
+        TypeMemberGroupRowsOutcome.Read rows =
+            Assert.IsType<TypeMemberGroupRowsOutcome.Read>(
+                document.Members.Rows);
+
+        Assert.NotEmpty(rows.Items);
+        Assert.All(rows.Items, row => Assert.Null(row.ExactMemberCount));
+        Assert.Null(rows.Continuation);
     }
 
     [Fact]
@@ -311,6 +320,48 @@ public sealed partial class TypeOverviewDocumentInspectionOperationTests
         Assert.Equal(
             TypeOverviewDocumentInspectionRejection.TypeNotFound,
             rejected.Reason);
+        await library.RetireAsync();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task
+        RootAdjacencyFailureIsOwnerIssuedBeforePresentation(
+            bool malformedAssemblyReference)
+    {
+        byte[] content =
+            LibraryInspectionTestLibrary
+                .BuildMalformedRootAdjacencyImage(
+                    malformedAssemblyReference);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>
+            inspection =
+                Execute(
+                    library,
+                    new(maximumRows: int.MaxValue),
+                    type: Name("N", "Healthy"));
+
+        _ = Available(inspection);
+        InspectionDiagnostic diagnostic =
+            Assert.Single(inspection.Diagnostics);
+        Assert.Equal(
+            "type-document.root-adjacency-incomplete",
+            diagnostic.Code);
+        Assert.Equal(
+            InspectionDiagnosticSeverity.Error,
+            diagnostic.Severity);
+        Assert.Contains(
+            malformedAssemblyReference
+                ? "AssemblyRef"
+                : "forwarder",
+            diagnostic.Summary.ToString(),
+            StringComparison.OrdinalIgnoreCase);
+
         await library.RetireAsync();
     }
 

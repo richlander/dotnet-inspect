@@ -132,13 +132,14 @@ The checked-in rules provide full gate coverage for these dependency claims:
 7. The Inspect Web CallGraph facade depends directly only on the .NET
    platform, Web Core, Queries, and Sections.
 8. The Inspect Web Package facade cannot expand beyond its current nine
-   evaluated project edges or its current sixteen repository assembly edges.
+   evaluated project edges or its current fifteen repository assembly edges.
    The direct-reference path consumes detached rows from Queries rather than
    projecting Metadata identities in the host, and the exact-Library path
-   consumes a detached Queries-owned identity value. Separate graph rules
-   prevent the retired Metadata and Networking project edges from returning
-   while preserving the wider compiled closure for the focused
-   Platform-forwarder successor.
+   consumes a detached Queries-owned identity value. Web Core also projects
+   Platform-forwarder display and route evidence without exposing Metadata
+   values to the facade. Separate graph rules prevent the retired Metadata and
+   Networking project edges, and the retired compiled Metadata edge, from
+   returning.
 9. The Inspect Web Library facade cannot expand beyond its current five
    evaluated project edges or its current ten repository assembly edges.
    The separate graph rules preserve those different ceilings while focused
@@ -150,6 +151,14 @@ The checked-in rules provide full gate coverage for these dependency claims:
    assembly edges. Its home-demo call-graph path reaches the host-neutral
    projection through Web Core, so both graph rules reject a direct
    `ILInspector.Analysis` dependency.
+11. The Inspect Web Source facade cannot expand beyond its current thirteen
+    evaluated project edges or its current twenty-four repository and external
+    assembly edges. Services projects detached resolved and attributable browse
+    URLs from typed PDB source inspections, so both graph rules reject the
+    retired direct `ILInspector.SourceLink` dependency. Metadata, Decompiler,
+    Queries, and Research project logical-member and physical-MethodDef values
+    before the facade boundary, so the assembly rule also rejects the retired
+    `ILInspector.MetadataPrimitives` dependency.
 
 Claims not represented by a JSON rule remain unverified by this gate. Changing
 an allowed set requires changing the rule's cited owner contract or showing

@@ -1441,7 +1441,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Diff_StringLiterals_ContainsRetainsCompleteLiteralRows()
+    public async Task Diff_StringLiterals_ContainsRetainsCompleteChangedLiteralRows()
     {
         string oldPath =
             FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
@@ -1468,7 +1468,7 @@ public partial class CommandExecutionTests
             "https://new.example and https://shared.example",
             output,
             StringComparison.Ordinal);
-        Assert.Contains(
+        Assert.DoesNotContain(
             "prefix https://embedded.example",
             output,
             StringComparison.Ordinal);
@@ -1508,10 +1508,10 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("Literal contains https://", "https://", 3)]
+    [InlineData("Literal contains https://", "https://", 2)]
     [InlineData("Literal contains https:// ", "https:// ", 0)]
-    [InlineData("Literal contains  https://", " https://", 3)]
-    [InlineData("Literal contains  ", " ", 3)]
+    [InlineData("Literal contains  https://", " https://", 2)]
+    [InlineData("Literal contains  ", " ", 2)]
     public async Task Diff_StringLiterals_JsonRetainsExactPredicateContext(
         string expression,
         string expectedValue,

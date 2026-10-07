@@ -2,7 +2,9 @@ using System.Collections.Immutable;
 using System.Reflection;
 
 using DotnetInspector.Presentation;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using InertText;
 
@@ -10,6 +12,95 @@ namespace DotnetInspector.Presentation.Tests;
 
 public class TypeOverviewHierarchyPresentationTests
 {
+    [Fact]
+    public async Task CompactInspection_ResolvesAndInspectsExactType()
+    {
+        AssemblyDescriptorSelectionResult selection =
+            ResolvedAssemblyReference.SelectFromPath(
+                typeof(TypeOverviewHierarchyPresentationTests)
+                    .Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    "Type overview hierarchy presentation test"));
+        ResolvedAssemblyReference assembly =
+            Assert.IsType<AssemblyDescriptorSelectionResult.Ready>(
+                selection).Reference;
+
+        TypeOverviewHierarchyInspectionExecution execution =
+            await TypeOverviewHierarchyInspection.ExecuteAsync(
+                assembly,
+                NoResolverAssemblyBindingPolicy.Instance,
+                typeof(TypeOverviewHierarchyPresentationTests).FullName!,
+                TypeOverviewHierarchyPresentationFormat.Tree,
+                includeNonPublic: false,
+                new(
+                    maxTypes: 10_000,
+                    maxMembers: 100_000,
+                    maxInspectionFailures: 1_000,
+                    maxTypeForwarders: 10_000,
+                    maxMetadataRows: 1_000_000,
+                    maxRetainedTextCharacters: 1_000_000),
+                new(
+                    maxCapturedImageBytes: 64 * 1024 * 1024,
+                    maxRetainedArtifactBytes: 64 * 1024 * 1024),
+                TestContext.Current.CancellationToken);
+
+        Assert.Null(execution.Failure);
+        Assert.Empty(execution.CleanupFailures);
+        TypeOverviewDocumentInspectionOutcome.Available available =
+            Assert.IsType<
+                TypeOverviewDocumentInspectionOutcome.Available>(
+                    execution.Inspection!.Content);
+        using var output = new StringWriter();
+
+        TypeOverviewHierarchyPresentation.Write(
+            available.Document,
+            execution.Presentation,
+            output);
+
+        Assert.Contains(
+            nameof(TypeOverviewHierarchyPresentationTests),
+            output.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CompactInspection_AllResolvesNonPublicExactType()
+    {
+        AssemblyDescriptorSelectionResult selection =
+            ResolvedAssemblyReference.SelectFromPath(
+                typeof(TypeOverviewHierarchyInternalFixture)
+                    .Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    "Type overview hierarchy presentation test"));
+        ResolvedAssemblyReference assembly =
+            Assert.IsType<AssemblyDescriptorSelectionResult.Ready>(
+                selection).Reference;
+
+        TypeOverviewHierarchyInspectionExecution execution =
+            await TypeOverviewHierarchyInspection.ExecuteAsync(
+                assembly,
+                NoResolverAssemblyBindingPolicy.Instance,
+                typeof(TypeOverviewHierarchyInternalFixture).FullName!,
+                TypeOverviewHierarchyPresentationFormat.Tree,
+                includeNonPublic: true,
+                new(
+                    maxTypes: 10_000,
+                    maxMembers: 100_000,
+                    maxInspectionFailures: 1_000,
+                    maxTypeForwarders: 10_000,
+                    maxMetadataRows: 1_000_000,
+                    maxRetainedTextCharacters: 1_000_000),
+                new(
+                    maxCapturedImageBytes: 64 * 1024 * 1024,
+                    maxRetainedArtifactBytes: 64 * 1024 * 1024),
+                TestContext.Current.CancellationToken);
+
+        Assert.Null(execution.Failure);
+        Assert.Empty(execution.CleanupFailures);
+        Assert.IsType<TypeOverviewDocumentInspectionOutcome.Available>(
+            execution.Inspection!.Content);
+    }
+
     [Fact]
     public void CompactPlans_SeparateFormatFromSemanticRequest()
     {
@@ -25,9 +116,17 @@ public class TypeOverviewHierarchyPresentationTests
         Assert.Equal(tree.Members, mermaid.Members);
         Assert.Equal(tree.Hierarchy, mermaid.Hierarchy);
         Assert.NotEqual(tree.Format, mermaid.Format);
-        Assert.IsType<InspectionHierarchyPopulationRequest.Rows>(
-            tree.Hierarchy.Children);
+        var categories =
+            Assert.IsType<InspectionHierarchyPopulationRequest.Rows>(
+                tree.Hierarchy.Children);
+        var memberGroups =
+            Assert.IsType<InspectionHierarchyPopulationRequest.Rows>(
+                categories.Children);
+        Assert.Null(memberGroups.Children);
+        Assert.False(tree.Members.Rows!.IncludeExactMemberCount);
     }
+
+    internal sealed class TypeOverviewHierarchyInternalFixture;
 
     [Fact]
     public void Tree_StreamsCompactHierarchy()
@@ -48,12 +147,78 @@ public class TypeOverviewHierarchyPresentationTests
         Assert.Equal(
             """
             class Example.Widget<T>
-            └─ Methods (2 logical, 3 overloads)
-               ├─ Second (2 overloads)
+            └─ Methods (2)
+               ├─ Second
                └─ First
 
             """.ReplaceLineEndings(),
             output.ToString());
+    }
+
+    [Theory]
+    [InlineData(TypeOverviewHierarchyPresentationFormat.Tree)]
+    [InlineData(TypeOverviewHierarchyPresentationFormat.Mermaid)]
+    public void ExplicitCountProfile_AddsOverloadCounts(
+        TypeOverviewHierarchyPresentationFormat format)
+    {
+        TypeOverviewDocument document =
+            Document("Widget`1", genericParameter: "T", counted: true);
+        using var output = new StringWriter();
+
+        TypeOverviewHierarchyPresentation.Write(
+            document,
+            CountPlan(format),
+            output);
+
+        string result = output.ToString();
+        Assert.Contains(
+            "Methods (2 logical, 3 overloads)",
+            result,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Second (2 overloads)",
+            result,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(TypeOverviewHierarchyPresentationFormat.Tree)]
+    [InlineData(TypeOverviewHierarchyPresentationFormat.Mermaid)]
+    public void DefaultPlan_RejectsCountedRowsBeforeOutput(
+        TypeOverviewHierarchyPresentationFormat format)
+    {
+        TypeOverviewDocument document =
+            Document("Widget", counted: true);
+        using var output = new StringWriter();
+
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(
+                () => TypeOverviewHierarchyPresentation.Write(
+                    document,
+                    TypeOverviewHierarchyPresentation.CreateCompactPlan(
+                        format,
+                        includeNonPublic: false),
+                    output));
+
+        Assert.Contains(
+            "without exact-Member Counts",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Empty(output.ToString());
+    }
+
+    [Fact]
+    public void CountProfile_RejectsLeafRowsBeforeOutput()
+    {
+        TypeOverviewDocument document = Document("Widget");
+        using var output = new StringWriter();
+
+        Assert.Throws<InvalidOperationException>(
+            () => TypeOverviewHierarchyPresentation.Write(
+                document,
+                CountPlan(TypeOverviewHierarchyPresentationFormat.Tree),
+                output));
+        Assert.Empty(output.ToString());
     }
 
     [Fact]
@@ -119,14 +284,12 @@ public class TypeOverviewHierarchyPresentationTests
             result,
             StringComparison.Ordinal);
         Assert.Contains(
-            "Methods (2 logical, 3 overloads)",
+            "Methods (2)",
             result,
             StringComparison.Ordinal);
         Assert.Contains("First", result, StringComparison.Ordinal);
-        Assert.Contains(
-            "Second (2 overloads)",
-            result,
-            StringComparison.Ordinal);
+        Assert.Contains("Second", result, StringComparison.Ordinal);
+        Assert.DoesNotContain("overloads", result, StringComparison.Ordinal);
         Assert.Equal(
             3,
             result.Split(
@@ -228,7 +391,8 @@ public class TypeOverviewHierarchyPresentationTests
         bool partial = false,
         TypeMemberGroupAccessibilityFilter accessibility =
             TypeMemberGroupAccessibilityFilter.Public,
-        bool includeHidden = false)
+        bool includeHidden = false,
+        bool counted = false)
     {
         MetadataTypeDefinitionName type =
             Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
@@ -266,6 +430,8 @@ public class TypeOverviewHierarchyPresentationTests
                 new TypeDocumentDeclarationSignature(parameters),
                 MetadataTypeDeclarationCategory.Class,
                 TypeAttributes.Public,
+                isHidden: false,
+                isCompilerGenerated: false,
                 isByRefLike: false,
                 isReadOnly: false,
                 definesCoreLibraryRoot: false,
@@ -291,7 +457,7 @@ public class TypeOverviewHierarchyPresentationTests
                     MemberGroupRole.Declared),
                 BaselineOrdinal: 1,
                 MemberGroupReceiverForms.This,
-                ExactMemberCount: 2),
+                ExactMemberCount: counted ? 2 : null),
             new(
                 new(
                     binding,
@@ -300,7 +466,7 @@ public class TypeOverviewHierarchyPresentationTests
                     MemberGroupRole.Declared),
                 BaselineOrdinal: 0,
                 MemberGroupReceiverForms.This,
-                ExactMemberCount: 1),
+                ExactMemberCount: counted ? 1 : null),
         ];
         var population =
             new TypeMemberGroupPopulationResult(
@@ -313,7 +479,7 @@ public class TypeOverviewHierarchyPresentationTests
                         ? new TypeMemberGroupContinuation(
                             binding,
                             nextOrdinal: 3,
-                            includeExactMemberCount: true)
+                            includeExactMemberCount: counted)
                         : null),
                 Composition: null,
                 SelectorCounts: null);
@@ -321,6 +487,34 @@ public class TypeOverviewHierarchyPresentationTests
             subject,
             population,
             assemblyBytes: 1);
+    }
+
+    private static TypeOverviewHierarchyPresentationPlan CountPlan(
+        TypeOverviewHierarchyPresentationFormat format)
+    {
+        TypeOverviewHierarchyPresentationPlan leaf =
+            TypeOverviewHierarchyPresentation.CreateCompactPlan(
+                format,
+                includeNonPublic: false);
+        return new(
+            format,
+            new TypeMemberGroupPopulationRequest(
+                count: null,
+                rows: new TypeMemberGroupRowsRequest(
+                    leaf.Members.Rows!.MaximumRows,
+                    includeExactMemberCount: true),
+                spelling: leaf.Members.Spelling,
+                accessibility: leaf.Members.Accessibility,
+                includeHidden: leaf.Members.IncludeHidden),
+            new InspectionHierarchyRequest<TypeOverviewHierarchyTopology>(
+                leaf.Hierarchy.Topology,
+                leaf.Hierarchy.RootSpelling,
+                new InspectionHierarchyPopulationRequest.Rows(
+                    InspectionHierarchyNodeSpelling.Name,
+                    new InspectionHierarchyPopulationRequest.Rows(
+                        InspectionHierarchyNodeSpelling.Name,
+                        new InspectionHierarchyPopulationRequest
+                            .Count()))));
     }
 
     private static InertString Text(string value) =>

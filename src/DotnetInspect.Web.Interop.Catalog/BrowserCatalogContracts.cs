@@ -215,7 +215,16 @@ public sealed record BrowserCallGraphTarget(
     string? SurfaceAssemblyId,
     string? PackageId = null,
     string? PackageVersion = null,
-    string? PackageFramework = null);
+    string? PackageFramework = null)
+{
+    public string? OwnerKind { get; init; }
+
+    public string? PlatformFamily { get; init; }
+
+    public string? PlatformFramework { get; init; }
+
+    public string? PlatformVersion { get; init; }
+}
 
 public sealed record BrowserCallGraphNode(
     string Label,
@@ -565,7 +574,14 @@ public sealed record BrowserWorkspaceShareView(
     string? MemberSignature,
     string? Section,
     string[] Libraries,
-    string? SourceView);
+    string? SourceView,
+    BrowserWorkspaceDiffShare? Comparison = null);
+
+public sealed record BrowserWorkspaceDiffShare(
+    string Baseline, string Content, string Asset, string Medium, string? Body,
+    string LibraryName, string LibraryVersion, string? LibraryCulture,
+    string? LibraryPublicKeyToken,
+    string? PredicateOperator = null, string? PredicateValue = null);
 
 /// <summary>
 /// Long-form Browser transport for one canonical packet-local scenario.

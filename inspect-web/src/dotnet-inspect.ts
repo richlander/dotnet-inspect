@@ -1,3 +1,4 @@
+import { createSubjectIconLoader } from "./subject-icon.ts";
 import {
   createPackagePublicationDates,
   platformPublicationCoordinate,
@@ -12,6 +13,7 @@ import {
   callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
   callGraphTargetPackageCoordinate,
+  callGraphTargetPlatformCoordinate,
   callGraphTargetMatchesType,
   callGraphTargetTypeId,
   combinedGraphTargetNavigationDisposition,
@@ -180,6 +182,7 @@ import {
   resolvePackagePerformanceMember,
   workspaceDependencyKey,
   type PackagePerformance,
+  type PackageResourceTriage,
 } from "./package-inspection.ts";
 import {
   bindPackageDependencyList,
@@ -364,6 +367,8 @@ import {
   isAnalysisMode,
   restoreAnalysisTabFocus,
 } from "./analysis-inspector.ts";
+import { bindTriageCode, singlePerformanceBodyTarget, triageIssuePreview } from "./triage-code.ts";
+import { renderLibraryResourceTriageSurface, renderMemberResourceTriageSurface } from "./library-resource-triage.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   bindLibraryMetricsInteractions,
@@ -607,6 +612,7 @@ import {
   visibleSpotlightPackageHits,
   type SpotlightPackageSearchResultState,
 } from "./spotlight-package-search.ts";
+import { createPlatformSpotlightSuggestions } from "./spotlight-platform-suggestions.ts";
 import { createPackageRemoval } from "./package-removal.ts";
 import {
   replaceChildrenPreservingRenderedInteractions,
@@ -950,6 +956,7 @@ let inspectLibraryApiDiff:
   EngineClient["metadata"]["queryLibraryApiDiff"];
 let inspectCloneCandidates:
   EngineClient["analysis"]["queryCloneCandidates"];
+let renderTriageCaret: EngineClient["analysis"]["renderTriageCaret"];
 let inspectMemberFacts: EngineClient["analysis"]["queryMemberFacts"];
 let inspectPackageIntegrations:
   EngineClient["analysis"]["queryPackageIntegrations"];
@@ -957,6 +964,8 @@ let inspectPackageOpportunities:
   EngineClient["analysis"]["queryPackageOpportunities"];
 let inspectPackagePerformance:
   EngineClient["analysis"]["queryPackagePerformance"];
+let inspectPackageResourceTriage:
+  EngineClient["analysis"]["queryPackageResourceTriage"];
 let inspectPackageLibraryDependencyStructure:
   EngineClient["analysis"]["queryPackageLibraryDependencyStructure"];
 let inspectPackageLibraryMetrics:
@@ -983,6 +992,8 @@ let inspectPlatformOpportunities:
   EngineClient["analysis"]["queryPlatformOpportunities"];
 let inspectPlatformPerformance:
   EngineClient["analysis"]["queryPlatformPerformance"];
+let inspectPlatformResourceTriage:
+  EngineClient["analysis"]["queryPlatformResourceTriage"];
 let cancelSourceInspection: EngineClient["source"]["cancelSourceQuery"];
 let cancelTypeSourceInspection:
   EngineClient["source"]["cancelTypeSourceQuery"];
@@ -1156,10 +1167,12 @@ async function loadEngineModule() {
     } = engineClient.metadata);
     ({
       queryCloneCandidates: inspectCloneCandidates,
+      renderTriageCaret,
       queryMemberFacts: inspectMemberFacts,
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
+      queryPackageResourceTriage: inspectPackageResourceTriage,
       queryPackageLibraryDependencyStructure:
         inspectPackageLibraryDependencyStructure,
       queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
@@ -1181,6 +1194,7 @@ async function loadEngineModule() {
       queryPlatformIntegrations: inspectPlatformIntegrations,
       queryPlatformOpportunities: inspectPlatformOpportunities,
       queryPlatformPerformance: inspectPlatformPerformance,
+      queryPlatformResourceTriage: inspectPlatformResourceTriage,
     } = engineClient.analysis);
     ({
       cancelSourceQuery: cancelSourceInspection,
@@ -1282,6 +1296,8 @@ function loadRecentPackages() {
         id: entry.id,
         version: typeof entry.version === "string" && entry.version ? entry.version : "latest",
         framework: typeof entry.framework === "string" ? entry.framework : "",
+        ...(typeof entry.highestFramework === "string"
+          ? { highestFramework: entry.highestFramework } : {}),
         nugetOrg: entry.nugetOrg === true,
       }))
       .slice(0, RECENT_PACKAGES_MAX);
@@ -1359,6 +1375,7 @@ interface PendingGraphMemberDeepLink {
 }
 
 interface RecentPackage {
+  highestFramework?: string;
   nugetOrg?: boolean;
   id: string;
   version: string;
@@ -1497,6 +1514,10 @@ const initialState = {
   packagePerformanceLoading: false,
   packagePerformanceError: "",
   packagePerformanceKey: "",
+  packageResourceTriage: null,
+  packageResourceTriageLoading: false,
+  packageResourceTriageError: "",
+  packageResourceTriageKey: "",
   packageLibraryMetrics: null,
   packageLibraryMetricsLoading: false,
   packageLibraryMetricsError: "",
@@ -1670,6 +1691,7 @@ interface StateOverrides {
   packageIntegrations: BrowserPackageIntegrations | null;
   packageOpportunities: BrowserPackageOpportunities | null;
   packagePerformance: PackagePerformance | null;
+  packageResourceTriage: PackageResourceTriage | null;
   packageMetadata: PackageMetadata | null;
   explorer: AppExplorerState | null;
   memberCallGraph: InspectedCallGraph | null;
@@ -1871,6 +1893,7 @@ CanonicalWorkspaceRestoreSnapshot {
     catalogRequests.copyPackage(original, copy);
   }
   packageComparisonTargets.copyPackages(copies);
+  memberBodyDiff.copyPackages(copies);
   const uploadedLibrary = state.uploadedLibrary
     ? structuredClone(state.uploadedLibrary)
     : null;
@@ -1954,6 +1977,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   const packageIntegrationsLoading = snapshotState.packageIntegrationsLoading;
   const packageOpportunitiesLoading = snapshotState.packageOpportunitiesLoading;
   const packagePerformanceLoading = snapshotState.packagePerformanceLoading;
+  const packageResourceTriageLoading = snapshotState.packageResourceTriageLoading;
   const packageMetadataLoading = snapshotState.packageMetadataLoading;
   const memberCallGraphLoading = snapshotState.memberCallGraphLoading;
   const memberCallGraphExpanding = snapshotState.memberCallGraphExpanding;
@@ -1971,6 +1995,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.packageIntegrationsLoading = false;
   snapshotState.packageOpportunitiesLoading = false;
   snapshotState.packagePerformanceLoading = false;
+  snapshotState.packageResourceTriageLoading = false;
   snapshotState.packageMetadataLoading = false;
   snapshotState.memberCallGraphLoading = false;
   snapshotState.memberCallGraphExpanding = false;
@@ -2021,6 +2046,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   if (packageIntegrationsLoading) snapshotState.packageIntegrationsKey = "";
   if (packageOpportunitiesLoading) snapshotState.packageOpportunitiesKey = "";
   if (packagePerformanceLoading) snapshotState.packagePerformanceKey = "";
+  if (packageResourceTriageLoading) snapshotState.packageResourceTriageKey = "";
   if (packageMetadataLoading) snapshotState.packageMetadataKey = "";
   if (memberCallGraphLoading || memberCallGraphExpanding) {
     snapshotState.memberCallGraphKey = "";
@@ -2115,6 +2141,7 @@ function cloneCanonicalWorkspaceSnapshotForRetention(
     catalogRequests.copyPackage(original, copy);
   }
   packageComparisonTargets.copyPackages(copies);
+  memberBodyDiff.copyPackages(copies);
   return {
     state: retainedState,
     hasWorkspace: snapshot.hasWorkspace,
@@ -4907,6 +4934,29 @@ function renderInspectedSubjectIcon(pkg: AppPackage): string {
   </span>`;
 }
 
+const loadInspectedSubjectIcon = createSubjectIconLoader({
+  afterPaint: () => new Promise<void>(resolve => {
+    requestAnimationFrame(() => setTimeout(resolve, 0));
+  }),
+  current: () => state.package,
+  query: (id, version) => inspectPackageIcon(id, version),
+  apply: icon => {
+    for (const image of document.querySelectorAll<HTMLImageElement>(
+      ".subject-icon [data-package-icon]")) {
+      image.src = `data:${icon.mediaType};base64,${icon.base64}`;
+    }
+  },
+});
+
+function scheduleInspectedSubjectIcon() {
+  const pkg = state.package;
+  if (!pkg || pkg.icon || pkg.source.kind !== "nuget.org"
+    || pkg.isRuntimePack || state.rootKind === "library"
+    || scope() === "workspace"
+    || !document.querySelector(".subject-icon [data-package-icon]")) return;
+  void loadInspectedSubjectIcon(pkg);
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (isRecord(error) && typeof error.message === "string") return error.message;
@@ -5101,6 +5151,7 @@ const spotlight = createSpotlight({
     spotlightPackageSearchIsLoading(state.spotlightPackageSearch),
   packageSearchError: () =>
     spotlightPackageSearchError(state.spotlightPackageSearch),
+  openPackageQuery: query => { openPackageQueryRoute(query); },
   packageSearchNotice: () => state.spotlightQuery.includes("*")
     ? `Package prefix search · up to ${SPOTLIGHT_PACKAGE_PREFIX_LIMIT} matches` : "",
   typeSearchLoading: () => spotlightTypeFind.loading(),
@@ -5992,9 +6043,11 @@ function selectedTypeMetadataLibraryIdentity() {
 function selectDefaultPackageSubject(pkg: AppPackage) {
   state.workspaceSubjectOpen = false;
   state.atLibraryRoot =
-    pkg.assemblies.length > 0 && Boolean(pkg.assemblyId);
+    packageLibrariesForModel(pkg).some(library => library.id === pkg.assemblyId);
   state.atPackageRoot = !state.atLibraryRoot;
-  state.libraryScope = null;
+  state.libraryScope = state.atLibraryRoot
+    ? new Set([pkg.assemblyId])
+    : null;
   state.packageLens = "overview";
   state.libraryLens = "overview";
 }
@@ -6260,9 +6313,16 @@ function finishPackageRemoval(removed: AppPackage): void {
   }
 }
 
+const platformSpotlightSuggestions = createPlatformSpotlightSuggestions({
+  getItem: key => localStorage.getItem(key),
+  setItem: (key, value) => localStorage.setItem(key, value),
+});
+
 function removeSpotlightPackage(result: RemovableSpotlightResult): boolean {
   try {
-    if (result.kind === "pkg-recent") {
+    if (result.kind === "framework-lib") {
+      platformSpotlightSuggestions.dismiss(result);
+    } else if (result.kind === "pkg-recent") {
       packageRemoval.forgetRecent(result.entry.id);
     } else {
       packageRemoval.removeLoaded(workspacePackageRemovalKey({
@@ -6272,7 +6332,7 @@ function removeSpotlightPackage(result: RemovableSpotlightResult): boolean {
     }
     return true;
   } catch (error) {
-    showToast(`Could not remove package: ${errorMessage(error)}`);
+    showToast(`Could not remove Spotlight item: ${errorMessage(error)}`);
     return false;
   }
 }
@@ -7786,7 +7846,8 @@ function currentMemberBodyDiffContext(): MemberBodyDiffContext | null {
     typeIdentity: subject.kind === "library" ? null : typeIdentifierOf(subject.type),
     memberFingerprint: subject.kind === "member" ? subject.overload?.anchorDigest ?? null : null,
     methodToken: subject.kind === "member" ? state.selectedBodyTarget?.metadataToken ?? subject.overload?.metadataToken ?? null : null,
-    tools: renderLibraryDiffTools(subject),
+    bodySelector: subject.kind === "member" ? memberBodyDiff.restoredBodySelector(subject.pkg,
+      typeIdentifierOf(subject.type), subject.overload?.anchorDigest ?? null) : null,
   };
 }
 
@@ -7818,7 +7879,7 @@ function renderCompareSurface(): string {
   if (packageComparisonTargets.get(subject.pkg).diffContent.kind === "member-body") {
     const body = memberBodyDiff.render();
     if (body) return body;
-    return renderCompareFrame({ subjectKind, subjectLabel, mode, targetText, tools: renderLibraryDiffTools(subject),
+    return renderCompareFrame({ subjectKind, subjectLabel, mode, targetText, externalToolbar: true,
       status: "Member Body unavailable", content: "<p>Select an available Gallery comparison target.</p>", escapeHtml });
   }
   const options = libraryApiDiffRenderOptions(subject);
@@ -7831,7 +7892,7 @@ function renderCompareSurface(): string {
     resultSummaryInDataBar: currentDataBarResult() !== null,
     subjectLabel,
     targetText,
-    tools: renderLibraryDiffTools(subject),
+    tools: "",
     ...(memberContext === null
       ? {}
       : { memberDiffSection: memberDiffExplorer.renderInline(memberContext) }),
@@ -7933,7 +7994,8 @@ function memberSourceHasConcreteOverload() {
 function memberSectionUsesWorkingSurface(section: MemberSection) {
   return section === "overview"
     || section === "call-graph"
-    || section === "facts";
+    || section === "facts"
+    || section === "resource-triage";
 }
 
 function typeAnalysisWorkspaceGeneration(pkg: AppPackage) {
@@ -8358,8 +8420,8 @@ function loadMemberSectionContent(id: MemberSection) {
     observeAsync(loadSelectedMemberSource(), "Loading member source");
   else if (id === "call-graph")
     observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
-  else if (id === "facts")
-    observeAsync(loadSelectedMemberFactsSurface(), "Loading member facts");
+  else if (id === "facts" || id === "resource-triage")
+    observeAsync(loadSelectedMemberAnalysisSurface(), "Loading member analysis");
   else if (id === "overview")
     observeAsync(loadSelectedMemberOverview(), "Loading member overview");
   else if (id === "compare")
@@ -9229,12 +9291,17 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     activeScope === "package" && state.packageLens === "vulnerabilities";
   const libraryMetadataWorkingSurface =
     activeScope === "library" && state.libraryLens === "metadata";
-  const compareWorkingSurface = currentCompareSubject() !== null;
+  const compareSubject = currentCompareSubject();
+  const compareWorkingSurface = compareSubject !== null;
+  const memberBodyWorkingSurface = compareSubject !== null && currentCompareMode() === "diff"
+    && packageComparisonTargets.get(compareSubject.pkg).diffContent.kind === "member-body";
   const memberDiffExploreTarget = currentMemberDiffExploreContext();
   const libraryReferencesWorkingSurface =
     activeScope === "library" && state.libraryLens === "references";
   const libraryAnalysisWorkingSurface =
     activeScope === "library" && state.libraryLens === "analysis";
+  const memberAnalysisWorkingSurface = activeScope === "member"
+    && (state.memberSection === "facts" || state.memberSection === "resource-triage");
   const memberOverloadPicker =
     currentMember !== undefined
     && (currentMember.sourceOverloadCount
@@ -9261,7 +9328,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
         ? "Libraries"
       : navMode() === "member" && current ? "Members" : "Types";
   const contentNavigationIntegrated =
-    apiWorkingSurface
+    !memberBodyWorkingSurface && (apiWorkingSurface
     || metadataWorkingSurface
     || overviewWorkingSurface
     || packageDependenciesWorkingSurface
@@ -9269,7 +9336,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     || libraryMetadataWorkingSurface
     || libraryReferencesWorkingSurface
     || libraryAnalysisWorkingSurface
-    || memberWorkingSurface;
+    || memberWorkingSurface);
 
   if (scopeBarOwnsFocus) {
     app.tabIndex = -1;
@@ -9280,8 +9347,11 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   replaceChildrenPreservingRenderedInteractions(app, `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
-        contextualActionsHtml: !loadingPackageContent && (memberDiffExploreTarget || sourcePageKind || packageDependenciesWorkingSurface || metadataWorkingSurface)
-          ? `<div class="working-surface-actions" role="group" aria-label="${memberDiffExploreTarget ? "Member Diff actions" : metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : sourcePageKind ? "Source actions" : "Member actions"}">
+        contextualActionsHtml: !loadingPackageContent && (compareWorkingSurface || memberDiffExploreTarget || sourcePageKind || packageDependenciesWorkingSurface || metadataWorkingSurface || memberAnalysisWorkingSurface)
+          ? `<div class="working-surface-actions" role="group" aria-label="${compareWorkingSurface ? "Compare actions" : memberDiffExploreTarget ? "Member Diff actions" : metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : sourcePageKind ? "Source actions" : "Member actions"}">
+              ${compareSubject !== null && currentCompareMode() === "diff"
+                ? `<div class="compare-page-actions">${renderLibraryDiffTools(compareSubject)}${memberBodyWorkingSurface
+                  ? memberBodyDiff.renderActions() : ""}</div>` : ""}
               ${memberDiffExploreTarget
                 ? '<button type="button" id="member-diff-explore" data-member-diff-explore>Explore</button>'
                 : ""}
@@ -9291,6 +9361,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
               ${packageDependenciesWorkingSurface
                 ? `<button type="button" id="dependency-graph-explore" data-graph-explore${dependencyGraphAvailable() ? "" : " disabled"}>Explore</button>`
                 : ""}
+              ${memberAnalysisWorkingSurface
+                ? `<button type="button" id="explore-source" data-annotated-action="explore"${state.memberAnnotated ? "" : " disabled"}>Explore</button>` : ""}
               ${sourcePageKind
                 ? renderSourcePageActions({
                     source: sourcePageSource,
@@ -9383,6 +9455,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     ${renderAnnotatedSourceModal()}`);
 
   bindPackageIconFallbacks(document);
+  scheduleInspectedSubjectIcon();
   bindEvents();
   bindLibraryOpenEvents();
   if (loadingPackageContent) {
@@ -9455,6 +9528,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     maybeAutoLoadPackageVulnerabilities();
     maybeAutoLoadPackageIntegrations();
     maybeAutoLoadPackagePerformance();
+    maybeAutoLoadPackageResourceTriage();
     maybeAutoLoadPackageLibraryMetrics();
     maybeAutoLoadPackageLibraryDependencyStructure();
     maybeAutoLoadTypeLeverage();
@@ -10604,6 +10678,7 @@ function libraryLensBody() {
         case "dependencies":
           return renderPackageLibraryDependencyStructure();
         case "performance": return renderPackagePerformance();
+        case "resource-triage": return renderPackageResourceTriage();
         case "integrations": return renderPackageIntegrations();
         default: return assertNever(state.analysisMode, "analysis mode");
       }
@@ -11009,6 +11084,11 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.version,
     packageModel.activeFramework,
     library),
+  queryPackageResourceTriage: (packageModel, library) => inspectPackageResourceTriage(
+    packageModel.id,
+    packageModel.version,
+    packageModel.activeFramework,
+    library),
   queryPackageLibraryDependencyStructure: (packageModel, library) =>
     inspectPackageLibraryDependencyStructure(
       packageModel.id,
@@ -11033,6 +11113,17 @@ const packageInspection = createPackageInspectionCoordinator({
         platformVersion,
         assemblyFileName,
         pack)),
+  queryPlatformResourceTriage: async (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
+    inspectPlatformResourceTriage(
+        framework,
+        platformVersion,
+        assemblyFileName,
+        pack),
   queryPlatformLibraryDependencyStructure: (
     framework,
     platformVersion,
@@ -11251,6 +11342,31 @@ function renderPackagePerformance() {
   });
 }
 
+function renderPackageResourceTriage() {
+  const pkg = currentPackage();
+  const library = selectedLibrary();
+  const scopedLib = scopedPlatformLibrary();
+  const current = packageScopeSignature();
+  return renderLibraryResourceTriageSurface({
+    libraryName: library?.name ?? "",
+    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
+    assetPath: library?.asset ?? "",
+    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
+    requireLibrary: pkg.isRuntimePack && !scopedLib,
+    pickerHtml: pkg.isRuntimePack
+      ? platformLibrarySelectHtml({
+          dataAttr: "data-platform-analysis-library",
+          selected: scopedLib || "",
+        })
+      : "",
+    fresh: state.packageResourceTriageKey === current,
+    loading: state.packageResourceTriageLoading,
+    error: state.packageResourceTriageError,
+    data: state.packageResourceTriage,
+    escapeHtml,
+  });
+}
+
 function packageLibraryAnalysisOptions(): LibraryAnalysisOptions {
   const pkg = currentPackage();
   const library = selectedLibrary();
@@ -11334,6 +11450,23 @@ function maybeAutoLoadPackagePerformance() {
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packagePerformanceKey === packageScopeSignature()) return;
   observeAsync(loadPackagePerformance(), "Loading package analysis");
+}
+async function loadPackageResourceTriage() {
+  const pkg = currentPackage();
+  const scopedLib = selectedLibraryRequest() || null;
+  return packageInspection.loadResourceTriage(
+    pkg,
+    packageScopeSignature(),
+    scopedLib);
+}
+
+function maybeAutoLoadPackageResourceTriage() {
+  if (!state.atLibraryRoot || state.libraryLens !== "analysis") return;
+  if (aggregateLibrarySubjectIsActive()) return;
+  if (state.analysisMode !== "resource-triage") return;
+  if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
+  if (state.packageResourceTriageKey === packageScopeSignature()) return;
+  observeAsync(loadPackageResourceTriage(), "Loading resource triage");
 }
 
 function loadPackageLibraryMetrics() {
@@ -11834,6 +11967,7 @@ function drillToPerfMember(
   stableSelector: string,
   assembly: string,
   typeId: string,
+  resourceMethodToken?: number,
 ) {
   const pkg = currentPackage();
   const target = resolvePackagePerformanceMember(pkg, {
@@ -11866,7 +12000,7 @@ function drillToPerfMember(
       stableSelector,
       expectedView,
       expectedPopulationKey,
-      expectedPopulationIntent),
+      expectedPopulationIntent, resourceMethodToken),
     "Loading the ranked Member");
 }
 
@@ -11875,6 +12009,7 @@ async function selectPerformanceMember(
   expectedView: string,
   expectedPopulationKey: string,
   expectedPopulationIntent: number,
+  resourceMethodToken?: number,
 ) {
   const populationReceipt = await loadSelectedTypeMemberPopulation();
   if (viewSignature() !== expectedView) return;
@@ -11895,7 +12030,19 @@ async function selectPerformanceMember(
     state.selectedMemberKey = group.key;
     state.selectedOverloadIndex = overloadIndex;
     render();
-    await loadSelectedMemberDocumentation();
+    const ranked = state.packagePerformanceKey === packageScopeSignature()
+      ? state.packagePerformance?.members.find(candidate => candidate.stableSelector === stableSelector
+          && candidate.typeId === type.definitionId && candidate.assembly === type.assembly)
+      : null;
+    const body = resourceMethodToken === undefined ? singlePerformanceBodyTarget(ranked) : null;
+    state.selectedBodyTarget = body ? { memberName: body.memberName, selectorKey: body.selectorKey, metadataToken: body.methodToken } : null;
+    if (resourceMethodToken !== undefined) {
+      const selector = group.overloads[overloadIndex]?.bodySelectors.find(candidateBody => candidateBody.token === resourceMethodToken);
+      if (selector) state.selectedBodyTarget = { memberName: selector.memberName, selectorKey: selector.selectorKey, metadataToken: selector.token };
+    }
+    state.memberSection = resourceMethodToken === undefined ? "facts" : "resource-triage";
+    render();
+    await loadSelectedMemberAnalysisSurface();
     return;
   }
   showToast("That ranked Member is no longer loaded in the selected Type.");
@@ -12098,6 +12245,7 @@ function maybeAutoLoadPackageSurfaceForLibraryNavigation() {
   const pkg = state.package;
   if (!pkg
     || !state.atLibraryRoot
+    || (state.libraryLens === "overview" && state.libraryScope?.size === 1)
     || !packageSurfaceCanLoadTypes(pkg)) {
     return;
   }
@@ -12714,6 +12862,11 @@ function renderApiLens(item: AppTypeSurface) {
 
 function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   const selectedOverload = selectedMemberOverload(type, member);
+  const resourceCandidates = state.packageResourceTriageKey === packageScopeSignature()
+    ? (state.packageResourceTriage?.candidates ?? []).filter(candidate => candidate.assembly === type.assembly
+        && candidate.typeId === type.definitionId && candidate.stableSelector === selectedOverload?.stableSelector
+        && (!state.selectedBodyTarget?.metadataToken || candidate.methodToken === state.selectedBodyTarget.metadataToken))
+    : [];
   const hasSelectedOverload =
     state.selectedOverloadIndex != null
     && selectedOverload !== undefined;
@@ -12983,8 +13136,15 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
           </section>`
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
     content = `<div data-call-graph-surface>${content}</div>`;
-  } else if (state.memberSection === "facts") {
-    content = renderMemberFacts(state);
+  } else if (state.memberSection === "facts" || state.memberSection === "resource-triage") {
+    content = (state.memberSection === "resource-triage"
+      ? renderMemberResourceTriageSurface({
+          fresh: state.packageResourceTriageKey === packageScopeSignature(),
+          loading: state.packageResourceTriageLoading, error: state.packageResourceTriageError,
+          data: state.packageResourceTriage, escapeHtml,
+        }, resourceCandidates)
+      : "")
+      + renderMemberFacts(state, !currentPackage().isRuntimePack);
   } else if (state.memberSection === "source") {
     content = renderMemberSourceHtml();
   } else if (state.memberSection === "compare") {
@@ -13006,7 +13166,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   return `
     <section class="member-surface" aria-labelledby="member-surface-title">
       <header class="api-surface-head member-surface-head">
-        <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+        <h1 id="member-surface-title">${escapeHtml(state.memberSection === "resource-triage" ? (resourceCandidates.length ? "Pool churn on exception" : "Resource Triage") : member.name)}</h1>
         <div class="member-surface-meta">
           <p>${escapeHtml(member.kind)} <span>· ${sourceOverloadIndex + 1} of ${sourceOverloadCount}</span></p>
           ${callGraphExplore}
@@ -13210,7 +13370,7 @@ const packageViewActions: PackageViewBindingActions = {
     drillToPerfMember(
       target.stableSelector,
       target.assembly,
-      target.typeId);
+      target.typeId, target.resourceMethodToken);
   },
 };
 
@@ -13355,7 +13515,8 @@ async function openPlatformLensLibrary(
   state.typeTraitFilter = "";
   normalizeLibrarySelection();
   if (lens === "analysis") {
-    if (state.analysisMode === "performance") await loadPackagePerformance();
+    if (state.analysisMode === "resource-triage") await loadPackageResourceTriage();
+    else if (state.analysisMode === "performance") await loadPackagePerformance();
     else if (state.analysisMode === "integrations")
       await loadPackageIntegrations();
     else if (state.analysisMode === "complexity"
@@ -14432,6 +14593,32 @@ function bindPlatformForwarderEvents() {
   });
 }
 
+function bindTriageCodeEvents() {
+  const triagePackage = state.package;
+  if (triagePackage) {
+    const triagePlatformLibrary = document.querySelector("[data-triage-code]")
+      && triagePackage.isRuntimePack && selectedLibrary()
+      ? platformLibraryForRequest(triagePackage, selectedLibrary()!.id) : null;
+    const triageTaste = JSON.stringify(state.taste);
+    bindTriageCode(document, async target => {
+      await waitForLibraryEngineReady();
+      if (!target.issueOffsets?.length) return null;
+      const census = triagePlatformLibrary
+        ? await inspectPlatformMemberFindingCensus(triagePackage.activeFramework, triagePackage.version,
+            target.assembly, triagePlatformLibrary.pack, target.typeId, target.typeId,
+            target.memberName, "", target.selector, target.methodToken, triageTaste, null)
+        : await inspectMemberFindingCensus(triagePackage.id, triagePackage.version, triagePackage.activeFramework,
+            target.assembly, target.typeId, target.typeId, target.memberName, "",
+            target.selector, target.methodToken, triageTaste);
+      const preview = triageIssuePreview(census.annotatedSource.document, target.issueOffsets);
+      if (!preview) return null;
+      const carets: string[] = [];
+      for (const focus of preview.focus) carets.push(await renderTriageCaret(preview.code, focus.column, focus.length));
+      return { code: preview.code, carets };
+    }, highlightCSharp);
+  }
+}
+
 function bindEvents() {
   packageControls.bind(document);
   bindWorkspaceSubjectEvents();
@@ -14441,6 +14628,7 @@ function bindEvents() {
   bindMetadataViewerEvents();
   bindAnalysisInspectorEvents();
   bindPackageOpportunitiesEvents();
+  bindTriageCodeEvents();
   bindGraphSourceEvents();
   bindDocViewerEvents();
   bindMemberFactsEvents();
@@ -15210,6 +15398,11 @@ function recordPlatformRecent(assembly: string, pack: string | null) {
     : pack === "netcore.app" ? "netcore.app"
     : platformPackForAssembly(key);
   if (!normPack) return;
+  try {
+    platformSpotlightSuggestions.remember({ assembly: key, pack: normPack });
+  } catch (error) {
+    showToast(`Could not restore Spotlight suggestion: ${errorMessage(error)}`);
+  }
   const rest = (state.platformRecent || []).filter(entry => entry.assembly !== key);
   state.platformRecent = [{ assembly: key, pack: normPack }, ...rest].slice(0, PLATFORM_RECENT_MAX);
   persistPlatformRecent();
@@ -15227,12 +15420,12 @@ function persistPlatformRecent() {
 // deduped by id, capped) and persist it, so the Home listing survives a refresh. Called
 // only from a successful open, never from search hits or prefetches. The resident runtime
 // pseudo-package has no nupkg and is excluded.
-function recordRecentPackage(id: string, version: string, framework: string, nugetOrg: boolean) {
+function recordRecentPackage(id: string, version: string, framework: string, nugetOrg: boolean, highestFramework?: string) {
   if (!id || isRuntimePackId(id)) return;
   const rest = (state.recentPackages || []).filter(entry => entry.id.toLowerCase() !== id.toLowerCase());
   state.recentPackages = [
     { id, version: version || "latest", framework: framework || "",
-      nugetOrg },
+      ...(highestFramework ? { highestFramework } : {}), nugetOrg },
     ...rest,
   ].slice(0, RECENT_PACKAGES_MAX);
   persistRecentPackages();
@@ -15249,7 +15442,8 @@ function persistRecentPackages() {
 function frameworkLibrarySpotlightResults(query: string, includeApiResults = true): SpotlightResult[] {
   const results: SpotlightResult[] = [];
   const roster = platformLibraryRoster(query);
-  for (const lib of roster.filter(row => row.hasImplementation).slice(0, 200)) {
+  for (const lib of roster.filter(row => row.hasImplementation
+    && (query.trim() || !platformSpotlightSuggestions.isDismissed(row))).slice(0, 200)) {
     results.push({ ...lib, kind: "framework-lib" });
   }
   if (includeApiResults && platformSurfaceLoaded()
@@ -15275,10 +15469,11 @@ const packagePublicationDates = createPackagePublicationDates(fetch, coordinate 
     && state.package.version.toLowerCase() === coordinate.version.toLowerCase()) render();
 });
 
-function annotateSpotlightPublicationDates(results: SpotlightResult[]): SpotlightResult[] {
+function annotateSpotlightPackageMetadata(results: SpotlightResult[]): SpotlightResult[] {
   if (!state.home && !state.spotlightOpen) return results;
   return results.map(result => {
     let coordinate = null;
+    let highestFramework: string | undefined;
     switch (result.kind) {
       case "pkg-nuget":
         if (result.hit.version && result.hit.version !== "latest")
@@ -15286,6 +15481,9 @@ function annotateSpotlightPublicationDates(results: SpotlightResult[]): Spotligh
         break;
       case "pkg-loaded": {
         const pkg = state.packages.find(candidate => candidate === result.pkg);
+        // The Package owner orders this measured inventory highest first; the
+        // selected framework alone is not evidence of the highest framework.
+        highestFramework = pkg?.packageInfo?.content.availableTargetFrameworks?.[0];
         if (pkg?.source.kind === "nuget.org")
           coordinate = { id: pkg.id, version: pkg.version };
         break;
@@ -15300,7 +15498,9 @@ function annotateSpotlightPublicationDates(results: SpotlightResult[]): Spotligh
         break;
       default: return result;
     }
-    return coordinate ? { ...result, publication: packagePublicationDates.get(coordinate) } : result;
+    const annotated = result.kind === "pkg-loaded" && highestFramework
+      ? { ...result, highestFramework } : result;
+    return coordinate ? { ...annotated, publication: packagePublicationDates.get(coordinate) } : annotated;
   });
 }
 
@@ -15359,7 +15559,7 @@ function spotlightResults(): SpotlightResult[] {
         results.push(pkg ? { kind: "pkg-loaded", pkg, ranges: [] }
           : { kind: "pkg-nuget", hit, ranges: [] });
       }
-      return annotateSpotlightPublicationDates(annotateSpotlightEcosystems(results));
+      return annotateSpotlightPackageMetadata(annotateSpotlightEcosystems(results));
     }
     const parsedPackageQuery = parsePackageQuery(query);
     if (parsedPackageQuery?.explicitVersion) {
@@ -15381,7 +15581,7 @@ function spotlightResults(): SpotlightResult[] {
           ranges: [[0, parsedPackageQuery.packageId.length]],
         });
       }
-      return annotateSpotlightPublicationDates(annotateSpotlightEcosystems(results));
+      return annotateSpotlightPackageMetadata(annotateSpotlightEcosystems(results));
     }
     const loaded = spotlightLoadedPackageMatches(query).slice(0, all ? 3 : 20);
     for (const match of loaded) results.push({ kind: "pkg-loaded", pkg: match.pkg, ranges: match.ranges });
@@ -15454,7 +15654,7 @@ function spotlightResults(): SpotlightResult[] {
     results.push(...(all ? libraries.slice(0, 5)
       : libraries.filter(result => result.kind === "framework-lib")));
   }
-  return annotateSpotlightPublicationDates(annotateSpotlightEcosystems(results));
+  return annotateSpotlightPackageMetadata(annotateSpotlightEcosystems(results));
 }
 
 interface NugetSearchResult {
@@ -17017,6 +17217,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
         "The selected overload has no portable product identity and cannot be shared.");
     }
     if (state.memberSection !== "overview"
+      && state.memberSection !== "compare"
       && overload.bodySelectors.length > 1) {
       throw new Error(
         "This accessor-specific section cannot be shared until workspace packets carry portable body identity.");
@@ -17028,6 +17229,28 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     && state.libraryScope.size > 1) {
     throw new Error(
       "Select one library before sharing this Browser workspace.");
+  }
+  const compare = currentCompareSubject();
+  let comparison: BrowserWorkspaceShareState["view"]["comparison"] = null;
+  if (compare !== null) {
+    if (currentCompareMode() !== "diff") throw new Error("Clone comparisons cannot yet be shared.");
+    if (compare.pkg.source.kind !== "nuget.org") throw new Error("Shared Diff requires a Gallery Package.");
+    const settings = packageComparisonTargets.get(compare.pkg);
+    const baseline = resolveEffectiveDiffTarget(settings.diff, catalogRequests.packageVersions(compare.pkg));
+    if (baseline.kind !== "available") throw new Error(baseline.message);
+    const body = settings.diffContent.kind === "member-body" && compare.kind === "member"
+      ? memberBodyDiff.captureBodySelector() : null;
+    if (settings.diffContent.kind === "member-body" && compare.kind === "member" && !body)
+      throw new Error("Select one exact Member body before sharing this Diff.");
+    comparison = {
+      baseline: baseline.version, content: settings.diffContent.kind, asset: compare.library.id,
+      medium: settings.diffContent.kind === "member-body" ? memberBodyDiff.captureMedium() : "CSharp",
+      body,
+      libraryName: compare.library.name, libraryVersion: compare.library.version,
+      libraryCulture: compare.library.culture || null, libraryPublicKeyToken: compare.library.publicKeyToken || null,
+      predicateOperator: settings.diffContent.kind === "string-literals" ? settings.diffContent.operator : null,
+      predicateValue: settings.diffContent.kind === "string-literals" ? settings.diffContent.value : null,
+    };
   }
   const library = selectedLibraryShareKey();
   const libraries =
@@ -17051,13 +17274,16 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
             : state.lens,
       type: structuralRootOpen
         ? null
-        : state.selectedTypeId || null,
+        : comparison && compare && compare.kind !== "library"
+          ? typeIdentifierOf(compare.type)
+          : state.selectedTypeId || null,
       memberAnchor,
       memberSignature,
       section: member && state.memberSection !== "overview"
         ? state.memberSection
         : null,
       libraries,
+      comparison,
       sourceView: member
         && state.memberSection === "source"
         && state.memberSourceRequestedView === "decompiler-source"
@@ -17630,7 +17856,8 @@ async function loadSelectionData() {
   switch (state.memberSection) {
     case "source": await loadSelectedMemberSource(); return;
     case "call-graph": await loadSelectedMemberCallGraph(); return;
-    case "facts": await loadSelectedMemberFactsSurface(); return;
+    case "facts":
+    case "resource-triage": await loadSelectedMemberAnalysisSurface(); return;
     case "compare": return;
     default: return assertNever(state.memberSection, "member section");
   }
@@ -22482,6 +22709,7 @@ function callGraphTargetBinding(
     ...state.packages.filter(item => item !== state.package),
   ].filter((pkg): pkg is AppPackage => pkg != null);
   const packageCoordinate = callGraphTargetPackageCoordinate(target);
+  const platformCoordinate = callGraphTargetPlatformCoordinate(target);
   const coordinatePackages = packageCoordinate
     ? packages.filter(pkg =>
         pkg.id.toLowerCase() === packageCoordinate.id.toLowerCase()
@@ -22495,10 +22723,11 @@ function callGraphTargetBinding(
       failureSurface);
   }
   const coordinatePackage = coordinatePackages[0] ?? null;
-  const candidate =
-    resolveLoadedGraphTargetCandidate<AppPackage, AppTypeSurface>(
-      coordinatePackage ? [coordinatePackage] : packages,
-      target);
+  const candidate = platformCoordinate
+    ? { status: "missing" } as const
+    : resolveLoadedGraphTargetCandidate<AppPackage, AppTypeSurface>(
+        coordinatePackage ? [coordinatePackage] : packages,
+        target);
   if (candidate.status === "resident"
       && (coordinatePackage !== null || destination !== "default")) {
     const residentPackage =
@@ -22526,9 +22755,12 @@ function callGraphTargetBinding(
   }
   const packageAvailable =
     packageCoordinate !== null && coordinatePackage === null;
-  const pack = runtimePackForFramework(
+  let pack = runtimePackForFramework(
     runtimePackPackage(),
-    platformCatalogFramework(state.package?.activeFramework || ""));
+    platformCoordinate?.framework
+      ?? platformCatalogFramework(state.package?.activeFramework || ""));
+  if (platformCoordinate && pack?.version !== platformCoordinate.version)
+    pack = null;
   const runtimeCandidate = !packageAvailable
     && (candidate.status === "missing"
       || candidate.status === "skew") && pack
@@ -23301,25 +23533,30 @@ async function drillPlatformNode(
       "the target does not carry a complete navigable identity");
     return;
   }
-  const framework = platformCatalogFramework(currentPackage().activeFramework);
+  const coordinate = callGraphTargetPlatformCoordinate(node);
+  const framework = coordinate?.framework
+    ?? platformCatalogFramework(currentPackage().activeFramework);
   const runtimePack = runtimePackForFramework(
     runtimePackPackage(),
     framework);
   const captured = capturedShareTabs();
-  const platformVersion = resolvedPlatformTargetVersion(
-    captured.resolvedTabs,
-    runtimePack,
-    framework);
+  const platformVersion = coordinate?.version
+    ?? resolvedPlatformTargetVersion(
+      captured.resolvedTabs,
+      runtimePack,
+      framework);
   return callGraphInspection.drill({
     contextId: platformDemoContextIdFor(state.package),
     framework,
     platformVersion,
     assembly: node.assembly,
-    pack: platformPackForGraphAssembly(
-      node.assembly,
-      node.platformPack,
-      runtimePackPackage(),
-      framework) ?? "",
+    pack: coordinate?.pack
+      ?? platformPackForGraphAssembly(
+        node.assembly,
+        node.platformPack,
+        runtimePackPackage(),
+        framework)
+      ?? "",
     assemblyVersion: node.assemblyVersion,
     assemblyCulture: node.assemblyCulture,
     assemblyPublicKeyToken: node.assemblyPublicKeyToken,
@@ -23391,11 +23628,15 @@ async function navigateOrDrillPlatform(
       failureSurface);
     return;
   }
-  const framework = platformCatalogFramework(
-    state.package?.activeFramework || "");
+  const coordinate = callGraphTargetPlatformCoordinate(node);
+  const framework = coordinate?.framework
+    ?? platformCatalogFramework(
+      state.package?.activeFramework || "");
   let pack = runtimePackForFramework(
     runtimePackPackage(),
     framework);
+  if (coordinate && pack?.version !== coordinate.version)
+    pack = null;
   if (!pack) {
     const retainedPlatform = retainedMissingPlatformTarget(
       state.workspaceShareBasis?.tabs,
@@ -23405,14 +23646,15 @@ async function navigateOrDrillPlatform(
     state.platformDrillError = "";
     const preservedFocus = renderPreservingMemberFocus();
     const targetPack =
-      platformPackForGraphAssembly(
+      coordinate?.pack
+      ?? platformPackForGraphAssembly(
         node.assembly,
         node.platformPack,
         runtimePackPackage(),
         framework);
     const runtimeResult = await loadRuntimeGraphAssembly(
       framework,
-      retainedPlatform?.version ?? "",
+      coordinate?.version ?? retainedPlatform?.version ?? "",
       node.assembly,
       targetPack,
       navigationIsCurrent);
@@ -23459,14 +23701,15 @@ async function navigateOrDrillPlatform(
     state.platformDrillError = "";
     const preservedFocus = renderPreservingMemberFocus();
     const targetPack =
-      platformPackForGraphAssembly(
+      coordinate?.pack
+      ?? platformPackForGraphAssembly(
         node.assembly,
         node.platformPack,
         runtimePackPackage(),
         framework);
     const runtimeResult = await loadRuntimeGraphAssembly(
       framework,
-      pack.version,
+      coordinate?.version ?? pack.version,
       node.assembly,
       targetPack,
       navigationIsCurrent);
@@ -24155,6 +24398,7 @@ function navigateToMember(
   bodyTarget: BodyTarget | null = null,
   section: "overview" | "source" | "compare" = "overview",
 ) {
+  memberBodyDiff.clearRestoredBodySelector(pkg);
   closeGraphExplorerForNavigation();
   invalidateGraphMemberNavigation();
   const preserveAggregate = navigationPreservesAggregateLibraryScope(pkg);
@@ -24229,9 +24473,17 @@ async function loadSelectedMemberFacts() {
   });
 }
 
+async function loadSelectedMemberAnalysisSurface() {
+  await Promise.all([
+    loadSelectedMemberFactsSurface(),
+    state.memberSection === "resource-triage" && state.packageResourceTriageKey !== packageScopeSignature()
+      ? loadPackageResourceTriage() : Promise.resolve(),
+  ]);
+}
+
 async function loadSelectedMemberFactsSurface() {
   await Promise.all([
-    loadSelectedMemberFacts(),
+    currentPackage().isRuntimePack ? Promise.resolve() : loadSelectedMemberFacts(),
     loadSelectedMemberAnnotatedSource(),
   ]);
 }
@@ -24745,7 +24997,8 @@ function installPackageHomeDemoSource(
       packageModel.id,
       packageModel.version,
       packageModel.activeFramework,
-      packageModel.source.kind === "nuget.org");
+      packageModel.source.kind === "nuget.org",
+      packageModel.packageInfo?.content.availableTargetFrameworks?.[0]);
   }
   if (state.packages.length !== source.packages.length
     || !state.packages.every((packageModel, index) =>
@@ -24881,6 +25134,7 @@ function retainPackageHomeDemoShareBasis(
       section: selection.member ? "call-graph" : null,
       libraries: [],
       sourceView: null,
+      comparison: null,
     },
   };
 }
@@ -25282,6 +25536,34 @@ async function restoreWorkspaceFromLocation(
         failRestore(libraryFailure);
         return;
       }
+    }
+    const comparison = loc.shareState?.view.comparison;
+    if (comparison) {
+      const library = selectedLibrary();
+      if (!library || library.id !== comparison.asset || library.name !== comparison.libraryName
+        || library.version !== comparison.libraryVersion || (library.culture || null) !== comparison.libraryCulture
+        || (library.publicKeyToken || null) !== comparison.libraryPublicKeyToken) {
+        failRestore("The shared Diff Library identity does not match the acquired asset."); return;
+      }
+      if (deep.type) {
+        const types = targetModel.types.filter(candidate => typeIdentifierOf(candidate) === deep.type
+          && libraryKey(candidate) === comparison.asset);
+        if (types.length !== 1) { failRestore("The shared Diff Type is unavailable or ambiguous in its Library."); return; }
+        deep = { ...deep, type: types[0]!.id };
+      }
+      if (comparison.body !== null) {
+        if (!deep.type || !deep.memberAnchor) {
+          failRestore("The shared Diff body requires an exact Member anchor."); return;
+        }
+        memberBodyDiff.restoreBodySelector(targetModel,
+          loc.shareState!.view.type!,
+          deep.memberAnchor, comparison.body);
+      }
+      packageComparisonTargets.restoreExactDiff(targetModel, comparison.baseline,
+        comparison.content === "string-literals"
+          ? { kind: "string-literals", operator: comparison.predicateOperator === "starts-with" ? "starts-with" : "contains", value: comparison.predicateValue! }
+          : comparison.content === "member-body" ? { kind: "member-body" } : { kind: "api" });
+      memberBodyDiff.restoreMedium(targetModel, comparison.medium === "Il" ? "Il" : "CSharp");
     }
     applyLocationView(loc);
     const viewFailure = loc.shareState

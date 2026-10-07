@@ -122,6 +122,7 @@ public partial class LibraryCommand
             TypeNamespace = options.TypeNamespace,
             IncludeNamespaceChildren =
                 options.IncludeNamespaceChildren,
+            LibraryCommandPlan = options.CommandPlan,
             PackageLibrary = selection switch
             {
                 PackageLibraryTarget.Namesake => "",
@@ -171,6 +172,7 @@ public partial class LibraryCommand
                 : null,
             CloneCandidateRowSelection =
                 options.CloneCandidateRowSelection,
+            BodyShapeRowSelection = options.BodyShapeRowSelection,
             ReferenceRowSelection = options.ReferenceRowSelection,
             EcosystemDependencyRowSelection =
                 options.EcosystemDependencyRowSelection,

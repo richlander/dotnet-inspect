@@ -129,7 +129,7 @@ jobs:
           fi
           jq -e '
             type == "object"
-            and .schemaVersion == 7
+            and .schemaVersion == 8
             and .status == "planned"
           ' <<< "$plan" > /dev/null
           printf 'plan=%s\n' "$plan" >> "$GITHUB_OUTPUT"
@@ -303,8 +303,58 @@ jobs:
           export TLA_CHECK_TIMEOUT_SECONDS=120
           eng/run-tla-checks.sh --changed-files0 < "$scope_file"
 
-  # Keep focused Browser/Wasm platform probes in PR CI. Deep Inspect owns
-  # complete engine, facade, canary, browser, and published-application checks.
+  # Upholds the build bar in docs/lean-methodology.md for every Lean model:
+  # the pinned toolchain, no package dependencies, ignored .lake output, a
+  # clean build with no warnings, and no axioms beyond Lean's standard three.
+  # All models are checked because the set is small and each builds in seconds.
+  lean:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.plan).validations.lean
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache Lean toolchain archive
+        id: cache-lean
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/lean/lean-4.34.1-linux.tar.zst
+          # Include the asset digest so a later pin cannot reuse cached bytes
+          # from a different build.
+          key: lean-4.34.1-linux-47bf4bbd78f70c2e
+
+      - name: Download Lean toolchain archive
+        if: steps.cache-lean.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.cache/lean
+          curl -fLo ~/.cache/lean/lean-4.34.1-linux.tar.zst \
+            https://github.com/leanprover/lean4/releases/download/v4.34.1/lean-4.34.1-linux.tar.zst
+
+      # Verify on every run, cache hits included, before any byte executes.
+      - name: Install Lean toolchain
+        run: |
+          set -euo pipefail
+          echo "47bf4bbd78f70c2e9670598ab7124d92b6efb7330ff33e5fbb4030f6fd72e4e4  $HOME/.cache/lean/lean-4.34.1-linux.tar.zst" \
+            | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/lean"
+          tar --zstd -xf ~/.cache/lean/lean-4.34.1-linux.tar.zst -C "$RUNNER_TEMP/lean"
+          lean_bin=$(dirname "$(find "$RUNNER_TEMP/lean" -maxdepth 3 -path '*/bin/lake' -type f -print -quit)")
+          "$lean_bin/lean" --version | grep -F 'version 4.34.1'
+          echo "$lean_bin" >> "$GITHUB_PATH"
+
+      - name: Self-test Lean runner
+        shell: bash
+        run: eng/test-lean-checks.sh
+
+      - name: Run Lean checks
+        shell: bash
+        run: eng/run-lean-checks.sh
+
+  # Keep focused Browser/Wasm platform probes and the generated-facade drift
+  # check in PR CI. Deep Inspect owns complete engine, canary, browser, and
+  # published-application checks.
   inspect-web-platform:
     name: inspect-web platform probes
     needs: changes
@@ -326,6 +376,41 @@ jobs:
 
       - name: Run local-path admission Browser/Wasm platform probe
         run: eng/run-local-path-admission-platform-probe.sh browser
+
+  inspect-web-facades:
+    name: inspect-web facades
+    needs: changes
+    if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verify generated facade digests
+        run: eng/generate-inspect-web-engine-facade.sh --verify-digest
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.100-rc.1.26425.128'
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: inspect-web/package-lock.json
+
+      - name: Install browser Wasm workload
+        run: dotnet workload install wasm-experimental
+
+      - name: Build browser frontend
+        working-directory: inspect-web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Check generated facades are current
+        run: eng/generate-inspect-web-engine-facade.sh --fast-check
 
   inspect-web-msdl-tests:
     name: inspect-web managed API tests
@@ -380,6 +465,7 @@ jobs:
     needs:
       - changes
       - inspect-web-platform
+      - inspect-web-facades
       - inspect-web-msdl-tests
     if: >-
       always() &&
@@ -393,7 +479,7 @@ jobs:
         run: |
           jq -e '
             [to_entries[] | select(.key != "changes") | .value.result] as $results
-            | ($results | length) == 2
+            | ($results | length) == 3
             and all($results[]; . == "success")
           ' <<< "$RESULTS"
 
@@ -457,6 +543,20 @@ jobs:
           --filter-class 'DotnetInspector.Queries.Tests.IntegrationCensusTests'
           --filter-class 'DotnetInspector.Queries.Tests.ViewFacetRegistryTests'
           --filter-not-trait "Speed=Slow" --minimum-expected-tests 300
+
+      - name: Run portable query tests
+        run: >-
+          dotnet run --project tests/DotnetInspector.PortableQueries.Tests -c Release
+          --no-build --
+          --filter-not-trait "Speed=Slow" --minimum-expected-tests 1300
+
+      - name: Run producer-capability adopter tests
+        run: >-
+          dotnet run --project tests/DotnetInspector.Sections.Tests -c Release
+          --no-build --
+          --filter-class 'DotnetInspector.Sections.Tests.PackageChildrenInspectionTests'
+          --filter-class 'DotnetInspector.Sections.Tests.QuerySpaceSectionRowCompositionTests'
+          --filter-not-trait "Speed=Slow" --minimum-expected-tests 22
 
       - name: Run InertText tests
         run: dotnet run --project tests/InertText.Tests -c Release --no-build
@@ -850,11 +950,13 @@ jobs:
       - changes
       - provenance
       - inspect-web-platform
+      - inspect-web-facades
       - inspect-web-msdl-tests
       - inspect-web
       - test
       - dependency-policy
       - tla-plus
+      - lean
       # Path-gated jobs report `skipped` when their input class is absent; all
       # expensive jobs except inspect-web and dependency-policy skip on pushes
       # to main. The host-analysis guard step also skips on pushes. That

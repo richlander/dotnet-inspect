@@ -128,14 +128,24 @@ static class AuthoredRebuildFidelity
             using (compilationClosure)
             {
                 SourceLinkService? source = null;
+                AuthoredSourceQuerySession? sourceQuery = null;
                 Exception? pdbAcquisitionFailure = null;
                 try
                 {
+                    IPdbStore effectivePdbStore =
+                        pdbStore
+                        ?? new InMemoryPdbStore();
+                    sourceQuery =
+                        AuthoredSourceQuerySession.Open(
+                            assemblyPath,
+                            httpClient,
+                            fetcher,
+                            pdbStore: effectivePdbStore);
                     source = SourceLinkService.Open(assemblyPath);
                     await AcquirePdbAsync(
                         source,
                         httpClient,
-                        pdbStore: pdbStore);
+                        pdbStore: effectivePdbStore);
                 }
                 catch (Exception ex) when (IsPdbAcquisitionFailure(ex))
                 {
@@ -156,6 +166,7 @@ static class AuthoredRebuildFidelity
                                 source.Context,
                                 subject));
 
+                await using (sourceQuery)
                 using (source)
                 {
                     foreach (var decompilerResult in decompilerResults)
@@ -189,15 +200,15 @@ static class AuthoredRebuildFidelity
                         }
                         else
                         {
-                            if (source is null)
+                            if (source is null
+                                || sourceQuery is null)
                             {
                                 throw new InvalidOperationException(
-                                    "PDB acquisition completed without a source context or failure.");
+                                    "PDB acquisition completed without source contexts or a failure.");
                             }
 
                             evaluated = await EvaluateAsync(
-                                source,
-                                fetcher,
+                                sourceQuery,
                                 decompilerResult,
                                 buildContext);
                         }
@@ -220,13 +231,11 @@ static class AuthoredRebuildFidelity
     }
 
     internal static async Task<AuthoredRebuildFidelityResult> EvaluateAsync(
-        SourceLinkService source,
-        SourceFetch fetcher,
+        AuthoredSourceQuerySession source,
         ReturnToSender.Result decompilerResult,
         RecordedBuildContext buildContext)
     {
         ArgumentNullException.ThrowIfNull(source);
-        ArgumentNullException.ThrowIfNull(fetcher);
         ArgumentNullException.ThrowIfNull(decompilerResult);
         ArgumentNullException.ThrowIfNull(buildContext);
 
@@ -241,16 +250,8 @@ static class AuthoredRebuildFidelity
                 MemberComparison: null);
         }
 
-        var subject = new FindingSubject(
-            decompilerResult.MemberAnchor?.StableSelector
-                ?? $"{request.FullType}.{request.MethodName}",
-            $"{request.FullType}.{request.MethodName}");
-        var authored = await PdbSourceHouse.AcquireMemberAsync(
-            source,
-            MetadataTokens.GetToken(request.TargetMethod),
-            request.MethodName,
-            subject,
-            fetcher);
+        var authored = await source.AcquireAsync(
+            MetadataTokens.GetToken(request.TargetMethod));
         if (authored.Lines.Value is FindingInspection<string>.Absent absent)
         {
             return new AuthoredRebuildFidelityResult(
@@ -1030,21 +1031,36 @@ static class AuthoredRebuildFidelity
         using var failureScope =
             FeedFailureTelemetry.Scope(mergeIntoParent: false);
         FeedFailureCollector failures = FeedFailureTelemetry.Current!;
-        var downloader = pdbStore is null
-            ? new SymbolPackageDownloader(httpClient)
-            : new SymbolPackageDownloader(httpClient, pdbStore);
-        var result = await downloader.DownloadPdbAsync(
+        IPdbStore effectivePdbStore =
+            pdbStore
+            ?? new InMemoryPdbStore();
+        var downloader =
+            new SymbolPackageDownloader(
+                httpClient,
+                effectivePdbStore);
+        PortablePdbAcquisitionResult result =
+            await downloader.AcquirePdbAsync(
             pdb.Guid,
             pdb.Age,
             pdb.PdbFileName,
             pdb.IsPortable,
-            source.Context.AssemblyPath,
+            Path.GetFileNameWithoutExtension(
+                source.Context.AssemblyPath),
             packageName,
             packageVersion,
             portablePdbStamp: pdb.Stamp);
-        if (result.PdbFilePath is not null)
+        if (result
+            is PortablePdbAcquisitionResult.Acquired acquired)
         {
-            source.LoadPdb(result.PdbFilePath, "Symbol Package", result.SymbolServer);
+            await using Stream pdbContent =
+                await acquired.Pdb.OpenReadAsync();
+            source.LoadPdbFromStream(
+                pdbContent,
+                pdbLocation: "Symbol Package",
+                symbolServer:
+                    acquired.Pdb.SymbolServer,
+                portablePdbPath:
+                    acquired.Pdb.LocalPath);
             return;
         }
 

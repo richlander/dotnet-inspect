@@ -30,6 +30,10 @@ public static class IrPasses
     IrPassComposition.Validate("default",
     [
         new TypedConstantsPass(),
+        // A value-type `this` is a managed pointer in IL. Retire exact stack-slot
+        // aliases before raising so later storage planning cannot turn one into
+        // a value local and silently redirect writes to a copy.
+        new ValueTypeReceiverAliasPass(),
         // Drop identity conversions (the ldlen/conv.i4 array-length idiom)
         // before structuring so loop conditions match on clean lengths.
         new IdentityConvertPass(),
@@ -435,6 +439,11 @@ public static class IrPasses
         // Refresh reference assignment testimony immediately before storage
         // consumes it. Final binding still runs after later rewrites.
         new ReferenceSlotTargetBindingPass(),
+        // A function-scope slot component with no surviving observer has no
+        // storage identity. Remove pure producer loads and direct copies; keep
+        // every other producer evaluation in place as an explicitly typed
+        // discard so contextual expressions such as lambdas remain valid.
+        new ProducerOnlySlotRetirementPass(),
         // A decided slot (one testified type, every store exact, renderably
         // coercible, or carrying issued assignment testimony) is a finished
         // variable: materialize it as a
@@ -558,7 +567,9 @@ public static class IrPasses
     /// <summary>
     /// The sub-pipeline for cross-method reconstruction imports (async and
     /// iterator <c>MoveNext</c> bodies): <see cref="Default"/> without the
-    /// requesting pass and without <see cref="SlotMaterializationPass"/>.
+    /// requesting pass and without
+    /// <see cref="ProducerOnlySlotRetirementPass"/> or
+    /// <see cref="SlotMaterializationPass"/>.
     /// Reconstruction pattern-matches structural slot nodes (the state
     /// machine's spilled stores/loads), so materializing them inside the
     /// sub-pipeline breaks the match — and it buys nothing: the transplanted
@@ -570,7 +581,7 @@ public static class IrPasses
     public static ImmutableArray<IIrPass> ForReconstruction<TPass>() where TPass : IIrPass =>
         IrPassComposition.Validate(
             $"reconstruction for {typeof(TPass).Name}",
-            [.. Default.Where(p => p is not (TPass or ReferenceSlotTargetBindingPass or ReferenceCoalesceBindingPass or ReferenceConditionalBindingPass or PrimitiveJoinBindingPass or SlotMaterializationPass or ResidualSlotBindingPass or PdbScopeEntryLocalPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass or DefiniteAssignmentPass))],
+            [.. Default.Where(p => p is not (TPass or ReferenceSlotTargetBindingPass or ReferenceCoalesceBindingPass or ReferenceConditionalBindingPass or PrimitiveJoinBindingPass or ProducerOnlySlotRetirementPass or SlotMaterializationPass or ResidualSlotBindingPass or PdbScopeEntryLocalPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass or DefiniteAssignmentPass))],
             IrPassPipelineProfile.Reconstruction,
             typeof(TPass));
 

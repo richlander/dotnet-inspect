@@ -6,6 +6,7 @@ using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using DotnetInspect.Cli.Planning;
 
 namespace DotnetInspect.Cli.Options;
 
@@ -99,6 +100,13 @@ public record InspectionOptions : IProjectionOptions
 
     internal bool IncludeNamespaceChildren { get; init; }
 
+    /// <summary>
+    /// The <c>library</c> command plan carried through package-sourced
+    /// Library selection.
+    /// </summary>
+    internal LibraryCommandPlan LibraryCommandPlan { get; init; } =
+        new LibraryCommandPlan.Standard();
+
     internal WorkspaceLibrarySelection? WorkspaceLibrarySelection { get; init; }
 
     internal string[]? WorkspaceLibraryAssetPaths { get; init; }
@@ -137,16 +145,8 @@ public record InspectionOptions : IProjectionOptions
 
     public string? ExtractResources { get; init; }
 
-    /// <summary>
-    /// Show the package file tree (lib/tools structure).
-    /// </summary>
-    public bool ListLayout { get; init; }
-
-    /// <summary>
-    /// The caller explicitly supplied <c>--layout</c>, including in discovery
-    /// mode where layout rendering itself is suppressed.
-    /// </summary>
-    public bool ListLayoutExplicitlySet { get; init; }
+    /// <summary>The caller supplied the Files section shortcut.</summary>
+    public bool FilesExplicitlySet { get; init; }
 
     /// <summary>
     /// Scope the file listing to one or more selectors: a file, a directory
@@ -167,16 +167,6 @@ public record InspectionOptions : IProjectionOptions
     /// In multi-package row output, omit packages whose selected Files section is empty.
     /// </summary>
     public bool SkipEmpty { get; init; }
-
-    /// <summary>
-    /// Scope to lib/ folder (use with --layout).
-    /// </summary>
-    public bool ScopeLib { get; init; }
-
-    /// <summary>
-    /// Scope to tools/ folder (use with --layout).
-    /// </summary>
-    public bool ScopeTools { get; init; }
 
     /// <summary>
     /// List target frameworks in the package, one per line.
@@ -273,10 +263,12 @@ public record InspectionOptions : IProjectionOptions
     /// </summary>
     public RowSelectionIntent<string>? PackageFileRowSelection { get; init; }
 
+    public IReadOnlyList<QuerySpace.PortableQueryTerm> PackageFilePredicates { get; init; } = [];
+
+
     /// <summary>
     /// Semantic row selection for one package layout's scoped file paths.
     /// </summary>
-    public RowSelectionIntent<string>? PackageLayoutRowSelection { get; init; }
 
     /// <summary>
     /// Semantic row selection for one package's target-framework listing.
@@ -294,6 +286,11 @@ public record InspectionOptions : IProjectionOptions
     /// Semantic row selection for Clone Candidates on a delegated Library route.
     /// </summary>
     public RowSelectionIntent<string>? CloneCandidateRowSelection { get; init; }
+
+    /// <summary>
+    /// Semantic row selection for Body Shapes on a delegated Library route.
+    /// </summary>
+    public RowSelectionIntent<string>? BodyShapeRowSelection { get; init; }
 
     /// <summary>
     /// Output as JSON instead of MDF.
@@ -463,7 +460,7 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => EnvelopeOutput || Raw || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || Roots || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => EnvelopeOutput || Raw || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListTfms || ListVersions || Print || Value || Urls || Paths || Roots || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.

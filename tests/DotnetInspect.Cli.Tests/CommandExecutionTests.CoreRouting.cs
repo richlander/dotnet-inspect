@@ -367,9 +367,14 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync("System.Text.Json");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("# System.Text.Json.dll", output);
-        Assert.Contains("## Library Info", output);
+        Assert.Contains(
+            "Note: Routing to platform library 'System.Text.Json'",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
+        Assert.StartsWith("System.Text.Json ", output, StringComparison.Ordinal);
+        Assert.Contains("─ System.Text.Json (", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Library Info", output, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2016,7 +2021,30 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, routed);
         Assert.Equal(1, routed.Exit);
-        Assert.Contains("Unrecognized option '--mermaid'", routed.Error);
+        Assert.Empty(routed.Output);
+        Assert.Contains(
+            "--mermaid requires a standalone exact Type",
+            routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_DeferredExactTypeUsesStandaloneMermaid()
+    {
+        var target = typeof(SampleGenericClass<>).FullName!
+            .Replace("`1", "<T>", StringComparison.Ordinal);
+        string[] tail =
+        [
+            "--library",
+            TestAssemblyPath,
+            "--mermaid",
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.StartsWith("graph TD\n", routed.Output);
+        Assert.Empty(routed.Error);
     }
 
     [Theory]

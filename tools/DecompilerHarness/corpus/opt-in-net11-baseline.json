@@ -1,7 +1,7 @@
 {
   "schemaVersion": 7,
   "description": "#2766 net11 opt-in compiler-feature corpus: pinned runtime-async, union, and memory-safety fixtures.",
-  "generatedUtc": "2026-10-07T06:20:20.2906278+00:00",
+  "generatedUtc": "2026-10-07T10:47:12.5646056+00:00",
   "validityCompileCap": 25,
   "fidelityCompileCap": 25,
   "methodCap": null,
@@ -23,37 +23,37 @@
       "assembly": "ILInspector.Decompiler.Fixtures.LegacyUnsafe",
       "path": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll",
       "totalMethods": 419,
-      "moduleVersionId": "67f20454-5a48-4611-83fc-47bed59e0a86"
+      "moduleVersionId": "ef4fb3ab-7115-442c-bd3f-75c3e385b8e9"
     },
     {
       "assembly": "ILInspector.Decompiler.Fixtures.NewUnsafe",
       "path": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.NewUnsafe.dll",
       "totalMethods": 420,
-      "moduleVersionId": "71626d65-fc85-4e8a-9285-769c6b589fe8"
+      "moduleVersionId": "fdb7941d-c9d5-431c-9382-ecbd66cef689"
     },
     {
       "assembly": "ILInspector.Decompiler.Fixtures.OptInNet11",
       "path": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.OptInNet11.dll",
       "totalMethods": 48,
-      "moduleVersionId": "407ae30d-f95c-4bbf-93bc-6e271d9e3634"
+      "moduleVersionId": "f381bffe-3739-435c-84b3-5d8075902f20"
     },
     {
       "assembly": "ILInspector.Decompiler.Fixtures.UnsafeChainA",
       "path": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.UnsafeChainA.dll",
       "totalMethods": 23,
-      "moduleVersionId": "a977663e-c3a6-41cc-b61b-615fdb420b16"
+      "moduleVersionId": "bbc046df-8a27-4770-b88a-8b41c3830bf9"
     },
     {
       "assembly": "ILInspector.Decompiler.Fixtures.UnsafeChainB",
       "path": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.UnsafeChainB.dll",
       "totalMethods": 24,
-      "moduleVersionId": "a92528b3-3fd1-4902-a9e5-09df33282dc8"
+      "moduleVersionId": "d1eaa0b9-381d-42c0-b772-ef559e0e2b99"
     },
     {
       "assembly": "ILInspector.Decompiler.Fixtures.UnsafeChainC",
       "path": "artifacts/corpus/opt-in-net11/pinned/ILInspector.Decompiler.Fixtures.UnsafeChainC.dll",
       "totalMethods": 2,
-      "moduleVersionId": "76aa6741-8f31-425d-851e-1c58b4eee895"
+      "moduleVersionId": "9b504b30-adff-4f3b-8872-058c715b2b63"
     }
   ],
   "methods": [
@@ -14407,7 +14407,7 @@
       }
     },
     "fidelity": {
-      "contractVersion": 4,
+      "contractVersion": 5,
       "checkedMethods": 116,
       "exactMethods": 105,
       "opcodeDiffMethods": 10,

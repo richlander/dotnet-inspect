@@ -8,12 +8,14 @@ internal static partial class WorkflowContract
     private static readonly string[] InspectWebLeafJobs =
     [
         "inspect-web-platform",
+        "inspect-web-facades",
         "inspect-web-msdl-tests",
     ];
 
     private static readonly string[] InspectWebDotnetJobs =
     [
         "inspect-web-platform",
+        "inspect-web-facades",
         "inspect-web-msdl-tests",
     ];
 
@@ -79,6 +81,7 @@ internal static partial class WorkflowContract
         ValidateInspectWebSdk(jobs);
         ValidatePackageManifestVerifierBuild(jobs);
         ValidateTlaJob(jobs);
+        ValidateLeanJob(jobs);
 
         YamlSequenceNode steps = GetRequiredSequence(
             changes,
@@ -295,6 +298,16 @@ internal static partial class WorkflowContract
             "inspect-web-platform",
             "Run local-path admission Browser/Wasm platform probe",
             "eng/run-local-path-admission-platform-probe.sh browser");
+        ValidateRequiredRunStep(
+            jobs,
+            "inspect-web-facades",
+            "Verify generated facade digests",
+            "eng/generate-inspect-web-engine-facade.sh --verify-digest");
+        ValidateRequiredRunStep(
+            jobs,
+            "inspect-web-facades",
+            "Check generated facades are current",
+            "eng/generate-inspect-web-engine-facade.sh --fast-check");
         ValidateRequiredRunStep(
             jobs,
             "inspect-web-msdl-tests",
@@ -640,6 +653,101 @@ internal static partial class WorkflowContract
                 "jobs.tla-plus must verify and consume the planner-produced " +
                 "scope without independent provenance or a whole-repository " +
                 "fallback.");
+        }
+    }
+
+    private static void ValidateLeanJob(YamlMappingNode jobs)
+    {
+        YamlMappingNode lean = GetRequiredMapping(jobs, "lean", "jobs");
+        RequireScalarValue(lean, "needs", "changes", "jobs.lean");
+        RequireScalarValue(
+            lean,
+            "if",
+            "fromJSON(needs.changes.outputs.plan).validations.lean",
+            "jobs.lean");
+        RequireAbsent(lean, "continue-on-error", "jobs.lean");
+        RequireAbsent(lean, "defaults", "jobs.lean");
+        RequireAbsent(lean, "env", "jobs.lean");
+
+        YamlSequenceNode steps = GetRequiredSequence(
+            lean,
+            "steps",
+            "jobs.lean");
+        if (steps.Children.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "jobs.lean must contain steps.");
+        }
+
+        YamlMappingNode checkout = RequireMapping(
+            steps.Children[0],
+            "jobs.lean checkout step");
+        RequireExactKeys(checkout, ["uses"], "jobs.lean checkout step");
+        RequireScalarValue(
+            checkout,
+            "uses",
+            "actions/checkout@v7",
+            "jobs.lean checkout step");
+
+        // The toolchain archive must be verified, on every run, before it is
+        // extracted or executed; then the self-test must precede the checks.
+        int verified = -1;
+        int selfTest = -1;
+        int checks = -1;
+        for (int index = 0; index < steps.Children.Count; index++)
+        {
+            YamlMappingNode step = RequireMapping(
+                steps.Children[index],
+                "jobs.lean step");
+            string? run = GetOptionalScalar(step, "run");
+            if (run is null)
+            {
+                continue;
+            }
+
+            if (run.Contains("sha256sum -c -", StringComparison.Ordinal))
+            {
+                int check = run.IndexOf(
+                    "sha256sum -c -",
+                    StringComparison.Ordinal);
+                int extract = run.IndexOf("tar ", StringComparison.Ordinal);
+                if (GetOptionalScalar(step, "if") is not null
+                    || extract < check)
+                {
+                    throw new InvalidOperationException(
+                        "jobs.lean must verify the Lean archive " +
+                        "unconditionally before extracting it.");
+                }
+
+                verified = index;
+            }
+            else if (run.Trim() == "eng/test-lean-checks.sh")
+            {
+                selfTest = index;
+            }
+            else if (run.Trim() == "eng/run-lean-checks.sh")
+            {
+                checks = index;
+            }
+        }
+
+        if (verified < 0 || selfTest <= verified || checks <= selfTest)
+        {
+            throw new InvalidOperationException(
+                "jobs.lean must verify the toolchain, then self-test the " +
+                "runner, then run eng/run-lean-checks.sh.");
+        }
+
+        foreach (YamlNode stepNode in steps.Children)
+        {
+            YamlMappingNode step = RequireMapping(stepNode, "jobs.lean step");
+            if (step.Children.ContainsKey(new YamlScalarNode("if"))
+                && GetOptionalScalar(step, "run") is { } run
+                && (run.Contains("lean-checks.sh", StringComparison.Ordinal)))
+            {
+                throw new InvalidOperationException(
+                    "jobs.lean runner steps must not be conditional.");
+            }
         }
     }
 

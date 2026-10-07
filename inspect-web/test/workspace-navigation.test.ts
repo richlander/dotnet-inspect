@@ -94,7 +94,7 @@ function workspaceState(
       memberSignature: null,
       section: "facts",
       libraries: ["Example.Second"],
-      sourceView: null,
+      sourceView: null, comparison: null,
     },
     ...overrides,
   };
@@ -401,7 +401,7 @@ test("decompiled member source view survives workspace URL projection", () => {
     view: {
       ...baseline.view,
       section: "source",
-      sourceView: "decompiler-source",
+      sourceView: "decompiler-source", comparison: null,
     },
   });
   const encodedStates: BrowserWorkspaceShareState[] = [];
@@ -444,7 +444,7 @@ test("workspace-subject URLs preserve retained coordinates and restore Workspace
       memberSignature: null,
       section: null,
       libraries: [],
-      sourceView: null,
+      sourceView: null, comparison: null,
     },
   });
   const url = buildWorkspaceStateUrl(
@@ -508,6 +508,42 @@ test("canonical forwarded-Type Overview is distinct from Package Overview", () =
   assert.equal(parsed.lens, "overview");
   assert.equal(parsed.type, "System.Xml:System.Xml.XmlReader");
   assert.equal(parsed.library, "System.Xml");
+});
+
+test("canonical Type Compare restores the reported Type and exact compile asset", () => {
+  const initial = workspaceState();
+  const state = workspaceState({
+    tabs: [{ id: "t0", kind: "package", source: "System.Text.Json",
+      version: "11.0.0-rc.1.26425.128", framework: "net11.0", runtimeIdentifier: null }],
+    contexts: [{ id: "g0", tabIds: ["t0"] }], activeTabId: "t0", selectedContextId: "g0",
+    view: { ...initial.view, lens: "compare",
+      type: "System.Text.Json.Serialization.JsonPolymorphicAttribute",
+      memberAnchor: null, memberSignature: null, section: null,
+      libraries: ["compile:lib/net11.0/System.Text.Json.dll"] },
+  });
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot("https://dotnet-inspect.ca/?package=System.Text.Json&w=canonical"),
+    () => decoded(state));
+  assert.equal(parsed.workspaceNotice, "");
+  assert.equal(parsed.atPackageRoot, false);
+  assert.equal(parsed.atLibraryRoot, false);
+  assert.equal(parsed.lens, "compare");
+  assert.equal(parsed.type, state.view.type);
+  assert.equal(parsed.library, state.view.libraries[0]);
+  assert.equal(parsed.version, "11.0.0-rc.1.26425.128");
+  assert.equal(parsed.framework, "net11.0");
+});
+
+test("canonical Package Compare remains a Package view without a Type selection", () => {
+  const initial = workspaceState();
+  const state = workspaceState({ view: { ...initial.view, lens: "compare", type: null,
+    memberAnchor: null, memberSignature: null, section: null, libraries: [] } });
+  const parsed = parseWorkspaceLocation(locationSnapshot("https://inspect.example/?w=canonical"),
+    () => decoded(state));
+  assert.equal(parsed.workspaceNotice, "");
+  assert.equal(parsed.atPackageRoot, true);
+  assert.equal(parsed.packageLens, "compare");
+  assert.equal(parsed.type, null);
 });
 
 test("canonical package views reject contradictory structural selection", () => {
@@ -595,7 +631,7 @@ test("canonical context capture does not broaden a selected subset for Call Grap
       memberSignature: null,
       section: "Call Graph",
       libraries: [],
-      sourceView: null,
+      sourceView: null, comparison: null,
     },
   };
 
@@ -1254,7 +1290,7 @@ test("history signatures distinguish captured library scope", () => {
       tabs: [{ id: "p", kind: "group", source: ":Platform", version: "11.0.0-preview.7.26381.103",
         framework: "net11.0", runtimeIdentifier: null }],
       contexts: [{ id: "g", tabIds: ["p"] }], activeTabId: "p", selectedContextId: "g",
-      view: { lens: null, type: null, memberAnchor: null, memberSignature: null, section: null, libraries: [], sourceView: null },
+      view: { lens: null, type: null, memberAnchor: null, memberSignature: null, section: null, libraries: [], sourceView: null, comparison: null },
     });
     for (const library of [null, '["aspnetcore.app","Microsoft.AspNetCore.dll"]']) {
       const state = { ...root, view: { ...root.view,

@@ -231,6 +231,12 @@ public sealed record AssemblyMemberSourceRequest
 
     public MetadataTypeDefinitionName Type { get; }
     public MemberAnchor Member { get; }
+    public ProjectedMemberAnchor ProjectedMember => new(
+        Member.StableSelector,
+        Member.CanonicalSignature,
+        Member.Fingerprint,
+        Member.TypeFullName,
+        Member.MemberName);
     public int MetadataToken { get; }
     public PrinterOptions? PrinterOptions { get; }
     public bool IncludeAuthoredParts { get; private init; }
@@ -1175,48 +1181,10 @@ public static partial class AssemblyContextSourceQuery
                     retainedOperationLimits:
                         context.MemberDecompilationLimits)
                 .ConfigureAwait(false);
-        if (pdb.Inspection.IsComplete
-            && pdb.Inspection.Text is { } pdbText
-            && pdb.Provenance is { } provenance)
-        {
-            return new AssemblyMemberSourceEntry.Available(
-                subject,
-                request,
-                new AssemblyMemberSource.Pdb(
-                    pdbText,
-                    pdb.Inspection,
-                    provenance)
-                {
-                    MemberDocument =
-                        (pdb.HouseOutcome
-                            as SourceHouseOutcome.Available)
-                        ?.Source.MemberDocument,
-                })
-            {
-                HouseOutcome = pdb.HouseOutcome,
-                LibraryFailure = pdb.LibraryFailure,
-            };
-        }
-
-        AssemblySourceFailure failure =
-            request.IncludeAuthoredParts
-                ? new(
-                    AssemblySourceFailureKind
-                        .AuthoredMemberPartsUnavailable,
-                    "The requested verified authored member parts are unavailable.")
-                : new(
-                    AssemblySourceFailureKind
-                        .AuthoredMemberUnavailable,
-                    "The requested verified authored member source is unavailable.");
-        return new AssemblyMemberSourceEntry.Unavailable(
+        return CreateMemberSourceEntry(
             subject,
             request,
-            failure,
-            pdb.Inspection)
-        {
-            HouseOutcome = pdb.HouseOutcome,
-            LibraryFailure = pdb.LibraryFailure,
-        };
+            pdb);
     }
 
     internal static async Task<AssemblyMemberSourceComparisonEntry>
@@ -2159,6 +2127,11 @@ public static partial class AssemblyContextSourceQuery
         public AssemblyContextLibraryAdapterResult.Completed?
             RetainedLibrary
         { get; init; }
+        public DotnetInspector.SourceHouse.SourceHouse
+            .AuthoredSession?
+            RetainedAuthoredSession
+        { get; init; }
+        public Exception? AcquisitionFailure { get; init; }
 
         public AssemblyMemberPdbSourceAttempt ToAttempt()
         {
