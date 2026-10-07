@@ -664,6 +664,11 @@ export interface CallGraphTarget {
   packageId?: string | null;
   packageVersion?: string | null;
   packageFramework?: string | null;
+  ownerKind?: string | null;
+  platformFamily?: string | null;
+  platformFramework?: string | null;
+  platformVersion?: string | null;
+  platformPack?: string | null;
 }
 
 export interface CallGraphPackageCoordinate {
@@ -675,12 +680,49 @@ export interface CallGraphPackageCoordinate {
 export function callGraphTargetPackageCoordinate(
   target: CallGraphTarget | null | undefined,
 ): CallGraphPackageCoordinate | null {
-  if (!target?.packageId || !target.packageVersion || !target.packageFramework)
+  if (target?.ownerKind !== "package"
+    || !target.packageId
+    || !target.packageVersion
+    || !target.packageFramework) {
     return null;
+  }
   return {
     id: target.packageId,
     version: target.packageVersion,
     framework: target.packageFramework,
+  };
+}
+
+export interface CallGraphPlatformCoordinate {
+  family: string;
+  framework: string;
+  version: string;
+  pack: PlatformPack;
+}
+
+export function callGraphTargetPlatformCoordinate(
+  target: CallGraphTarget | null | undefined,
+): CallGraphPlatformCoordinate | null {
+  const pack = platformPackToken(target?.platformPack);
+  const family = target?.platformFamily;
+  const expectedPack = family === "runtime"
+    ? "netcore.app"
+    : family === "aspnetcore"
+      ? "aspnetcore.app"
+      : null;
+  if (target?.ownerKind !== "platform"
+    || !family
+    || !target.platformFramework
+    || !target.platformVersion
+    || !pack
+    || pack !== expectedPack) {
+    return null;
+  }
+  return {
+    family,
+    framework: target.platformFramework,
+    version: target.platformVersion,
+    pack,
   };
 }
 

@@ -84,7 +84,13 @@ internal static class BrowserCallGraphWireProjection
             target.SurfaceAssemblyId,
             target.PackageId,
             target.PackageVersion,
-            target.PackageFramework);
+            target.PackageFramework)
+        {
+            OwnerKind = target.OwnerKind,
+            PlatformFamily = target.PlatformFamily,
+            PlatformFramework = target.PlatformFramework,
+            PlatformVersion = target.PlatformVersion,
+        };
 
     static BrowserCallGraphBoundary Project(
         BrowserCallGraphBoundaryInfo boundary) =>
