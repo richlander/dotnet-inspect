@@ -49,6 +49,29 @@ public sealed class UnresolvedBaseOverrideCaller : TextWriter
     }
 }
 
+public class ProtectedSiblingBase
+{
+    protected static Task EmitAsync() => Task.CompletedTask;
+}
+
+public sealed class ProtectedSiblingTarget : ProtectedSiblingBase
+{
+    public static void Emit()
+    {
+    }
+}
+
+public sealed class UnresolvedBaseProtectedCaller : TextWriter
+{
+    public override Encoding Encoding => Encoding.UTF8;
+
+    public override async Task WriteLineAsync()
+    {
+        ProtectedSiblingTarget.Emit();
+        await Task.Yield();
+    }
+}
+
 public class AsyncSiblingProducerTests
 {
     static readonly string FixturePath =
@@ -219,6 +242,47 @@ public class AsyncSiblingProducerTests
             d => d.Method == nameof(UnresolvedBaseOverrideCaller.FlushAsync)
                 && d.Message.Contains(
                     "'Write'",
+                    StringComparison.Ordinal)
+                && d.Message.Contains(
+                    "could not be resolved",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Producer_ReportsUnresolvedCallerBaseWhenAccessibilitySkipsSibling()
+    {
+        var operation = CreateOperation();
+        using var session = AssemblyInspectionSession.Open(FixturePath);
+        var binding = new AssemblyReferenceBindingAccess(
+            ResolvedAssemblyReference.CreateFromPath(
+                FixturePath,
+                AssemblyResolutionProvenance.Local("async sibling test")),
+            new AssemblyReferenceBindingPolicy(new NoResolver()));
+
+        AsyncSiblingProducerResult result = session.SnapshotOperation(
+            operation,
+            binding,
+            access =>
+            {
+                var completed = Assert.IsType<
+                    AssemblyAnalysisServiceResult<AsyncSiblingProducerResult>
+                        .Completed>(
+                    AssemblyAnalysisService.Instance.Execute(
+                        operation,
+                        access));
+                return completed.Execution.ResultOf(
+                    AsyncSiblingProducer.Instance).Value!;
+            });
+
+        Assert.DoesNotContain(
+            result.Rows,
+            row => row.Callee.Name == "Emit");
+        Assert.Contains(
+            result.Diagnostics,
+            d => d.Method == nameof(
+                    UnresolvedBaseProtectedCaller.WriteLineAsync)
+                && d.Message.Contains(
+                    "'Emit'",
                     StringComparison.Ordinal)
                 && d.Message.Contains(
                     "could not be resolved",

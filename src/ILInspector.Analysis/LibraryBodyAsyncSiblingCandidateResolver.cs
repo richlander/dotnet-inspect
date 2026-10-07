@@ -170,10 +170,16 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
             in lookup.Candidates)
         {
             if (prepared.SameAssembly
-                    && MetadataTokens.GetToken(
-                        prepared.Handle)
-                        == asyncSource.MetadataToken
-                || !_accessibilityAnalyzer
+                && MetadataTokens.GetToken(prepared.Handle)
+                    == asyncSource.MetadataToken)
+            {
+                continue;
+            }
+
+            int failuresBefore =
+                LibraryBodyAsyncSiblingDispatchAnalyzer
+                    .FailedResolutionCount;
+            if (!_accessibilityAnalyzer
                     .IsCallableAsyncSibling(
                     prepared.Definition,
                     prepared.SameAssembly,
@@ -182,15 +188,8 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
                     asyncSource,
                     lookup.SynchronousAttributes,
                     prepared.Reader,
-                    prepared.DeclaringType))
-            {
-                continue;
-            }
-
-            int failuresBefore =
-                LibraryBodyAsyncSiblingDispatchAnalyzer
-                    .FailedResolutionCount;
-            if (_dispatchAnalyzer
+                    prepared.DeclaringType)
+                || _dispatchAnalyzer
                     .IsPotentialVirtualSelfDispatch(
                         prepared.Reader,
                         prepared.DeclaringType,
