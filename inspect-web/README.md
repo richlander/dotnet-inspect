@@ -138,12 +138,16 @@ allow-list entry when the host does not consume them.
    rejected-operation contract. Settlement evidence is not stored on a
    reusable exact workspace.
 2. **Select and realize typed roles.** The ordinary package-open path requests
-   one PackageHouse compile realization. Its payload acquisition downloads and
-   admits the package from the Gallery package CDN through the shared typed
-   source, transport, archive, and Browser reservation policy. The Gallery
-   payload carries its advertised length into that policy before body
-   materialization. `PackageInfoMeasurementInspection` projects the retained
-   archive and selected slice from that realization, while
+   one PackageHouse compile realization. Acquisition applies the shared
+   1,000,000-byte size cut: small archives are acquired complete; larger
+   archives use Range reads for the selected surface and implementation
+   folders and package evidence. Sparse entries are charged before
+   materialization, including entry-cache hits, and retained under the same
+   bounded Browser cache. Matching realizations reuse their content generation;
+   complete-acquisition callers never receive sparse archives. The handoff is
+   owned by [Package payload capacity](../docs/design/package-payload-capacity.md).
+   `PackageInfoMeasurementInspection` projects the validated archive length and
+   selected slice from that realization, while
    `PackageHouseRootContributionAdapter` creates the exact package Root used by
    the Browser workspace without another acquisition or selection.
    `PackageAssemblyContextSelection` applies
