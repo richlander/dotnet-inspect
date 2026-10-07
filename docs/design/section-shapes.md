@@ -206,11 +206,17 @@ alone or composed. A Hierarchy has no Markdown-table form. A tree node that is
 only context is never a row: Count, `-n`, `--rows`, and every flat lowering
 see the same rows the tree shows as leaves or as rows of their own.
 
-Mermaid is not a Hierarchy lowering. A result whose identity is the union of
-nodes and typed edges is a Graph, not a Hierarchy;
-[Relationship Section Naming](relationship-section-naming.md) owns that
-distinction, and the Graph shape, with its diagram formats, remains with its
-Graph owners.
+Mermaid is a permitted Hierarchy lowering, never the native one. It draws
+the nodes and owner-issued parent edges the tree shows, in the same order, so
+it adds no node, edge, or row. [Host-neutral hierarchy
+projection](host-neutral-hierarchy-projection.md) owns the shared Tree and
+Mermaid lowerings of one owner-issued hierarchy, and [Relationship Section
+Naming](relationship-section-naming.md#projections-do-not-rename-results)
+already holds that a Mermaid rendering of `Dependency Hierarchy` does not
+become `Dependency Graph`. The diagram does not change the shape: a result
+whose identity is the union of nodes and typed edges — several parents,
+cycles, or edge kinds — is a Graph, not a Hierarchy, and the Graph shape,
+with its own diagram formats, remains with its Graph owners.
 
 ### Text
 
@@ -354,6 +360,7 @@ evaluates a complete selection against those capabilities.
 | Shape ladder, projection, complete-selection capability evaluation | [Output Shapes](output-shapes.md) | Narrows a selected shape and evaluates a selection; supported modes derive from the declared shape |
 | Format spellings, admission, defaults, destination | [CLI Output Format and Destination](cli-output-format-and-destination.md) | Spells formats; admits or rejects a command-format pair using the shape's lowerings |
 | Relationship section names, Hierarchy versus Graph | [Relationship Section Naming](relationship-section-naming.md) | Names the result; this document presents it |
+| Streaming Tree and Mermaid lowering of an owner-issued hierarchy | [Host-neutral hierarchy projection](host-neutral-hierarchy-projection.md) | Lowers without a second retained tree; this document admits the lowerings |
 | Typed JSON representability | [Projected JSON](projected-json.md) | Decides when a lowered JSON shape is representable |
 | Text completeness | [Source Document Cardinality](source-document-cardinality.md) for type and member Source; each other Text owner for its own payloads | Owns `Lines`, exact Count, and continuation for Source; other owners supply their own incomplete-page and complete-transfer behavior |
 | Discovery surface | [Schema Query](schema-query.md) | Exposes shape beside name and kind |
@@ -436,8 +443,9 @@ unchanged.
 2. **Library owner.** Classifies the `library` sections, including the Type
    inventory and `Library Info`, under the same three shapes (#9511). Every
    section is a Table except `Reference Hierarchy`, a Hierarchy of rooted
-   reference occurrences, and `Dependency Structure`, a Graph of namespace
-   nodes and edges that keeps its diagram formats. The library catalog has
+   reference occurrences whose Mermaid format is its explicit diagram
+   lowering, and `Dependency Structure`, a Graph of namespace nodes and edges
+   that keeps its diagram formats. The library catalog has
    no Text. Its field-set records — single-Library `Library Info`, the
    SourceLink availability and integrity records, `Symbols`, and
    `Metadata: Image` — are scalar Tables; every other section is an
@@ -448,7 +456,14 @@ unchanged.
    `Allocation`, `Safety`, and `Cost` list the regions or facts at the
    coordinate, one row each, and `Metadata: Heap` rows are heap entries.
 3. **Type owner.** Classifies the `type` sections, including the member tree
-   and the `Source` family.
+   and the `Source` family. The default Type overview is a Hierarchy: the
+   Type, its categories as context, and its MemberGroups as rows, each
+   carrying its exact Member Count.
+   [Type and member inspection documents](type-member-inspection-documents.md#hierarchy-projection)
+   owns that topology. Its native lowering is the tree and Mermaid is its
+   explicit diagram lowering. It is the command's unselected overview rather
+   than a cataloged section, so the CLI adoption that streams it (#9478)
+   carries its shape declaration.
 4. **Member owner.** Classifies the `member` sections, including overload
    inventories, call relationships, and source and decompiler Texts.
 

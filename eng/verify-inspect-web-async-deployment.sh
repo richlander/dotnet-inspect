@@ -109,6 +109,7 @@ graph="$scratch/browser-engine-restore-graph.json"
 graph_result="$scratch/async-project-graph.json"
 smoke_result="$scratch/published-smoke.json"
 context_output="$scratch/context-facades"
+domain_rows="$scratch/facade-domain.tsv"
 declarations="$scratch/declarations"
 compiled_sources="$scratch/compiled-sources"
 version_prefix=$(
@@ -170,20 +171,10 @@ TMPDIR="$repo_root/artifacts" \
   --contract \
   "$assembly" \
   "$declarations" \
-  "$version_prefix"
+  "$version_prefix" \
+  "$context_output"
 
 assembly_directory="$(dirname "$assembly")"
-TMPDIR="$repo_root/artifacts" \
-  "$dotnet" run \
-  --project "$repo_root/src/ts-jsexport" \
-  -c Release \
-  -p:VersionPrefix="$version_prefix" \
-  -- \
-  "$assembly" \
-  --context DotnetInspect.Web.InspectWebJsExportContext \
-  --assembly-search-path "$assembly_directory" \
-  --runtime-module ./runtime-loader.js \
-  --output "$context_output"
 
 runtime_pack_directory=$(
   "$dotnet" msbuild \
@@ -216,35 +207,33 @@ cp "$repo_root/inspect-web/DotnetInspect.Web/wwwroot/runtime-loader.js" \
   "$compiled_sources/runtime-loader.js"
 "$node" --input-type=module - \
   "$domain" \
-  "$context_output" \
-  "$compiled_sources" \
-  "$repo_root/inspect-web/DotnetInspect.Web/facades" <<'JS'
+  "$context_output" <<'JS'
 import assert from "node:assert/strict";
 import {
-  copyFileSync,
   readFileSync,
   readdirSync,
 } from "node:fs";
-import { resolve } from "node:path";
 
-const [domainPath, contextOutput, compiledSources, checkedInSources] =
-  process.argv.slice(2);
+const [domainPath, contextOutput] = process.argv.slice(2);
 const domain = JSON.parse(readFileSync(domainPath, "utf8"));
 const expected = domain.map(entry => `${entry.assembly}.ts`).sort();
 assert.deepEqual(
   readdirSync(contextOutput).sort(),
   expected,
   "context generation output does not match the compiled facade domain");
-for (const entry of domain) {
-  const generated = resolve(contextOutput, `${entry.assembly}.ts`);
-  const checkedIn = resolve(checkedInSources, `${entry.module}.ts`);
-  assert.deepEqual(
-    readFileSync(generated),
-    readFileSync(checkedIn),
-    `${entry.module}.ts differs from its freshly generated context source`);
-  copyFileSync(generated, resolve(compiledSources, `${entry.module}.ts`));
-}
 JS
+
+jq -r '.[] | [.assembly, .module] | @tsv' "$domain" > "$domain_rows"
+while IFS=$'\t' read -r assembly_name module; do
+  generated="$context_output/$assembly_name.ts"
+  checked_in="$repo_root/inspect-web/DotnetInspect.Web/facades/$module.ts"
+  if ! cmp -s "$generated" "$checked_in"; then
+    echo "$module.ts differs from its freshly generated context source" >&2
+    diff -u "$checked_in" "$generated" >&2 || true
+    exit 1
+  fi
+  cp "$generated" "$compiled_sources/$module.ts"
+done < "$domain_rows"
 
 "$node" --input-type=module - "$domain" "$compiled_sources/tsconfig.json" <<'JS'
 import { readFileSync, writeFileSync } from "node:fs";
@@ -283,13 +272,11 @@ fi
 "$node" --input-type=module - \
   "$domain" \
   "$compiled_sources/out" \
-  "$declarations" \
-  "$site" <<'JS'
+  "$declarations" <<'JS'
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { resolve } from "node:path";
 
-const [domainPath, compiled, contract, site] = process.argv.slice(2);
+const [domainPath, compiled, contract] = process.argv.slice(2);
 const domain = JSON.parse(readFileSync(domainPath, "utf8"));
 const expectedDeclarations = domain.map(entry => `${entry.module}.d.ts`).sort();
 const expectedModules = domain.map(entry => `${entry.module}.js`).sort();
@@ -305,19 +292,22 @@ assert.deepEqual(
   readdirSync(compiled).filter(name => name.endsWith(".js")).sort(),
   [...expectedModules, "runtime-loader.js"].sort(),
   "pinned TypeScript compilation emitted an unexpected JavaScript set");
-for (const entry of domain) {
-  const declaration = `${entry.module}.d.ts`;
-  const javascript = `${entry.module}.js`;
-  assert.deepEqual(
-    readFileSync(resolve(compiled, declaration)),
-    readFileSync(resolve(contract, declaration)),
-    `${declaration} differs from the generator contract`);
-  assert.deepEqual(
-    readFileSync(resolve(compiled, javascript)),
-    readFileSync(resolve(site, javascript)),
-    `${javascript} differs from the freshly compiled context source`);
-}
 JS
+
+while IFS=$'\t' read -r _ module; do
+  declaration="$module.d.ts"
+  javascript="$module.js"
+  if ! cmp -s "$compiled_sources/out/$declaration" "$declarations/$declaration"; then
+    echo "$declaration differs from the generator contract" >&2
+    diff -u "$declarations/$declaration" "$compiled_sources/out/$declaration" >&2 || true
+    exit 1
+  fi
+  if ! cmp -s "$compiled_sources/out/$javascript" "$site/$javascript"; then
+    echo "$javascript differs from the freshly compiled context source" >&2
+    diff -u "$site/$javascript" "$compiled_sources/out/$javascript" >&2 || true
+    exit 1
+  fi
+done < "$domain_rows"
 
 "$node" \
   "$repo_root/inspect-web/scripts/verify-published-engine-facades.ts" \
