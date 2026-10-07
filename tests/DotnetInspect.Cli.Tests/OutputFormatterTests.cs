@@ -709,7 +709,7 @@ public partial class OutputFormatterTests
         var expected = new StringWriter { NewLine = "\n" };
         OutputFormatter.WriteVersionListings(versions, options, expected);
 
-        var actual = new StringWriter();
+        var actual = new StringWriter { NewLine = "\r\n" };
         OutputFormatter.WriteVersionListings(
             versions,
             options,
