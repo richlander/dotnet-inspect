@@ -265,7 +265,7 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
         content = `<section class="member-body-reader"><header class="section-title"><h2>Member Body</h2>${reader ? `${mediaControls(reader)}<button type="button" data-member-body-explore>Explore</button>` : ""}</header><div class="member-body-scroll" data-member-body-scroll>${reader
           ? renderMemberBodyReader(reader, escape)
           : pending ? '<p role="status">Loading exact Member diff…</p>'
-            : inventory.isComplete ? '<p role="status">No implementation changes found for this Member.</p>'
+            : inventory.isComplete ? '<p role="status">No exact body comparison destination is available for this Member.</p>'
               : '<p role="status">Member comparison is incomplete. No complete result is available.</p>'}</div></section>`;
       } else {
         const types = context.subject === "type"

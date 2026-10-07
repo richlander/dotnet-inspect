@@ -55,7 +55,11 @@ public static class MemberBodyDiffInspection
                 var document = ImplementationDiffDocumentQuery.Execute(new(
                     [new(oldBinding.Assembly, oldBinding.Resolver, oldBinding.MethodPopulation)],
                     [new(newBinding.Assembly, newBinding.Resolver, newBinding.MethodPopulation)],
-                    null, new ImplementationComparisonPopulation.Selected(selections),
+                    null, new ImplementationComparisonPopulation.Selected(selections,
+                        [.. ApiBodyPairs(available.Document, oldBodies, newBodies)
+                            .Where(pair => pair.Before is not null && pair.After is not null)
+                            .Select(pair => new ComparisonMemberPairSelection(
+                                new(pair.Before!.Type, pair.Before.Selector), new(pair.After!.Type, pair.After.Selector)))]),
                     ImplementationDiffMechanism.CSharp | ImplementationDiffMechanism.IlBody));
                 var oldIndex = Index(oldBodies, oldBinding);
                 var newIndex = Index(newBodies, newBinding);
@@ -69,22 +73,19 @@ public static class MemberBodyDiffInspection
                             : newBody is null && oldBody is not null ? "Removed" : "Changed",
                         oldBody is null && newBody is null ? "Exact body identity unavailable." : null));
                 }
-                foreach (var relation in available.Document.Comparison.Subjects
-                    .SelectMany(type => type.Comparison.Members)
-                    .Select(member => member.Relation).DistinctBy(relation => relation.Identifier))
+                foreach (var pair in ApiBodyPairs(available.Document, oldBodies, newBodies))
                 {
-                    var oldBody = Find(oldBodies, relation.Before);
-                    var newBody = Find(newBodies, relation.After);
+                    var relation = pair.Relation;
+                    var oldBody = pair.Before;
+                    var newBody = pair.After;
                     if (oldBody is null && newBody is null) continue;
                     var binding = newBody is not null ? newBinding : oldBinding;
                     var body = newBody ?? oldBody!;
                     var subject = Subject(body, binding);
-                    var evidence = new List<ImplementationDiffDocumentMember>();
-                    if (rows.TryGetValue(subject.Id, out var existing)) evidence.AddRange(existing.Implementation);
-                    if (oldBody is not null && rows.TryGetValue(Subject(oldBody, oldBinding).Id, out var previous)
-                        && previous != existing) evidence.AddRange(previous.Implementation);
-                    rows.Remove(subject.Id);
-                    if (oldBody is not null) rows.Remove(Subject(oldBody, oldBinding).Id);
+                    var matched = rows.Values.Where(row =>
+                        oldBody is not null && row.Before == oldBody || newBody is not null && row.After == newBody).ToArray();
+                    var evidence = matched.SelectMany(row => row.Implementation).Distinct().ToList();
+                    foreach (var row in matched) rows.Remove(row.Subject.Id);
                     rows[subject.Id] = new(subject, oldBody, newBody, relation, evidence,
                         relation.PairKind.ToString(), null);
                 }
@@ -113,6 +114,8 @@ public static class MemberBodyDiffInspection
     {
         if (member.After is not { } current)
             throw new ArgumentException("A deleted Member has no current destination.", nameof(member));
+        if (member.Before is { } priorEndpoint && priorEndpoint.Role != current.Role)
+            throw new ArgumentException("The exact body endpoints must have the same API member role.", nameof(member));
         if (member.ApiRelation is { } relation
             && (relation.Before?.Anchor != member.Before?.Anchor
                 || relation.After?.Anchor != current.Anchor
@@ -179,10 +182,25 @@ public static class MemberBodyDiffInspection
     }
 
     static AnnotatedSourceDiffBodyEndpoint? Find(IEnumerable<AnnotatedSourceDiffBodyEndpoint> bodies,
-        LibraryApiMemberIdentity? member)
-        => member is null || member.AnchorKind != ApiMemberAnchorKind.Method ? null
+        LibraryApiMemberIdentity? member, ResearchTargetRelationshipRole role)
+        => member is null ? null
             : bodies.SingleOrDefault(body => body.Type.Equals(member.DeclaringType.DefinitionName)
-                && body.Anchor == member.Anchor);
+                && body.Anchor == member.Anchor && body.Role == role);
+
+    static IEnumerable<(LibraryApiMemberRelation Relation, AnnotatedSourceDiffBodyEndpoint? Before,
+        AnnotatedSourceDiffBodyEndpoint? After)> ApiBodyPairs(LibraryApiDiffDocument document,
+        AnnotatedSourceDiffBodyEndpoint[] before, AnnotatedSourceDiffBodyEndpoint[] after)
+    {
+        foreach (var relation in document.Comparison.Subjects.SelectMany(type => type.Comparison.Members)
+            .Select(member => member.Relation).DistinctBy(relation => relation.Identifier))
+        foreach (var role in new[] { ResearchTargetRelationshipRole.Method, ResearchTargetRelationshipRole.Getter,
+            ResearchTargetRelationshipRole.Setter, ResearchTargetRelationshipRole.Adder, ResearchTargetRelationshipRole.Remover })
+        {
+            var oldBody = Find(before, relation.Before, role);
+            var newBody = Find(after, relation.After, role);
+            if (oldBody is not null || newBody is not null) yield return (relation, oldBody, newBody);
+        }
+    }
 
     static ResearchSubjectKey Subject(AnnotatedSourceDiffBodyEndpoint body, ImplementationComparisonBinding binding)
     {
@@ -193,6 +211,12 @@ public static class MemberBodyDiffInspection
 
     static Dictionary<string, AnnotatedSourceDiffBodyEndpoint> Index(
         IEnumerable<AnnotatedSourceDiffBodyEndpoint> bodies, ImplementationComparisonBinding binding)
-        => bodies.GroupBy(body => Subject(body, binding).Id, StringComparer.Ordinal)
-            .Where(group => group.Count() == 1).ToDictionary(group => group.Key, group => group.Single(), StringComparer.Ordinal);
+        => bodies.SelectMany(body =>
+            {
+                var method = binding.MethodPopulation.DeclaredMethods.SingleOrDefault(method => method.MetadataToken == body.MethodToken);
+                return new[] { Subject(body, binding).Id, method is null ? Subject(body, binding).Id
+                    : ResearchMemberIdentity.SubjectFromMethod(method, includeReturnType: true).Id }
+                    .Distinct().Select(id => (Id: id, Body: body));
+            }).GroupBy(item => item.Id, StringComparer.Ordinal)
+            .Where(group => group.Count() == 1).ToDictionary(group => group.Key, group => group.Single().Body, StringComparer.Ordinal);
 }

@@ -113,7 +113,7 @@ public static class AnnotatedSourceDiffExactPairQuery
         AnnotatedSourceSpan Shift(AnnotatedSourceSpan span) => new(span.Start + prefix.Length, span.Length);
         var nodes = document.Nodes.Select(node => new AnnotatedSourceNode(node.Id, node.Kind, node.Medium,
             node.Spans.Select(Shift).ToArray(), node.IlOffset, node.Provenance)).ToList();
-        nodes.Add(new(nodes.Count, "MemberDeclaration", SourceLineKind.CSharp, [new(0, csharp.Length - 1)]));
+        nodes.Add(new(nodes.Count, AnnotatedSourceNodeKinds.MemberDeclaration, SourceLineKind.CSharp, [new(0, csharp.Length - 1)]));
         return new(prefix + document.Text, nodes,
             document.Regions.Select(region => new AnnotatedSourceRegion(region.Role, region.Spans.Select(Shift).ToArray())).ToArray(),
             document.Facts, document.Targets, document.Source);

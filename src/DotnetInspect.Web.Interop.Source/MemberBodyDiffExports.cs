@@ -145,7 +145,9 @@ public static partial class SourceExports
         var types = inventory.Members.GroupBy(member => (member.After ?? member.Before)?.Type.ToEscapedFullName()
                 ?? member.Subject.Id, StringComparer.Ordinal)
             .Select(group => new BrowserMemberBodyType(group.Key, group.First().Subject.TypeName ?? group.Key,
-                group.Any(member => member.After is not null), [.. group.Select(member =>
+                group.Any(member => member.After is not null)
+                    || inventory.Api.Comparison.Subjects.Any(type => type.Comparison.After?.Identifier == group.Key),
+                [.. group.Select(member =>
                     new BrowserMemberBodyMember(member.Subject.Id, member.Subject.Display, member.Outcome,
                         [.. member.Implementation.SelectMany(item => item.Evidence).Select(evidence => evidence.Mechanism.ToString()).Distinct()],
                         member.After?.Anchor.Fingerprint, member.After?.Selector.NormalizedSelector,

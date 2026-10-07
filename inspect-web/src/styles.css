@@ -6417,3 +6417,8 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
   .member-body-explore { width: 100vw; height: 100dvh; }
   .member-body-reader .source-diff-viewer { max-width: 100%; }
 }
+.compare-panel:has(> .member-body-reader) { grid-template-rows: minmax(0, 1fr); overflow: hidden; }
+.compare-panel:has(> .member-body-inventory) { grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
+.member-body-reader { min-height: 0; }
+.member-body-reader > .member-body-scroll { min-height: 0; flex: 1; max-height: none; }
+.member-body-inventory.member-body-scroll { max-height: none; }

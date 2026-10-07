@@ -8407,8 +8407,8 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
   const replacementAuthority = captureContentFrameReplacementAuthority();
   if (entry.kind === "member") {
     if (entry.group.key === state.selectedMemberKey) {
-      if (ordinaryMethodGroup(entry.group)) {
-        state.memberSection = "overview";
+      if (ordinaryMethodGroup(entry.group) || state.memberSection === "compare") {
+        if (state.memberSection !== "compare") state.memberSection = "overview";
         openMemberGroup(entry.group.key);
       } else if (selectMemberFamilyParent(state, entry.group)) {
         clearMemberContentCache();

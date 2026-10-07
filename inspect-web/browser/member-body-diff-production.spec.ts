@@ -7,8 +7,7 @@ test("Member Body opens inline and retains the document through media and Explor
   test.skip(!site, "Set INSPECT_WEB_SOURCE_DIFF_URL to the published Wasm site.");
   test.setTimeout(300_000);
   await page.goto(`${new URL(site!).origin}/?package=System.Text.Json&version=11.0.0-preview.7.26381.103&framework=net10.0#pkg`);
-  await page.locator('[data-package-lens="compare"][role="tab"]').click({ timeout: 120_000 });
-  await page.locator("#package-diff-target").selectOption("exact:11.0.0-preview.6.26359.118");
+  await page.locator("#package-diff-target").selectOption("exact:11.0.0-preview.6.26359.118", { timeout: 120_000 });
   await chooseSubject(page, "library");
   await selectFirstExactLibrary(page);
   await page.locator('[data-navigation-id="compare"][role="tab"]').click();
@@ -27,4 +26,13 @@ test("Member Body opens inline and retains the document through media and Explor
   await page.locator("[data-member-body-close]").click();
   await expect(page.locator(".member-body-reader .source-diff-viewer")).toContainText("IL_");
   await expect(page.locator("[data-member-body-explore]")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.locator("#compare-diff-content")).toHaveValue("member-body");
+  await page.keyboard.press("ArrowUp");
+  await expect(page.locator('.member-body-reader [data-member-body-medium="Il"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".member-body-reader .source-diff-viewer")).toContainText("IL_");
+  await page.setViewportSize({ width: 640, height: 800 });
+  await page.locator('[data-source-diff-mode="side-by-side"]').click();
+  await expect(page.locator(".member-body-reader .source-diff-viewer")).toHaveAttribute("data-mode", "side-by-side");
+  expect(await page.locator(".compare-surface").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
 });
