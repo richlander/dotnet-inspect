@@ -766,6 +766,66 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task
+        TypeProjection_ShareRejectsAmbiguousPackageAssetReplay()
+    {
+        const string packageId =
+            "Browser.TypeHierarchy.ShareIdentity";
+        const string firstAssemblyName =
+            "Browser.TypeHierarchy.ShareIdentity.First";
+        const string selectedAssemblyName =
+            "Browser.TypeHierarchy.ShareIdentity.Selected";
+        const string typeName =
+            "Browser.TypeHierarchy.ShareIdentity.Consumer";
+
+        _ = await Coordinate(
+            packageId,
+            PackageEntries(
+                (
+                    $"lib/net11.0/{firstAssemblyName}.dll",
+                    BuildTypeDependencyImage(
+                        firstAssemblyName,
+                        typeName,
+                        typeof(IDisposable))),
+                (
+                    $"lib/net11.0/{selectedAssemblyName}.dll",
+                    BuildTypeDependencyImage(
+                        selectedAssemblyName,
+                        typeName,
+                        typeof(IAsyncDisposable)))));
+
+        BrowserTypeMetadata metadata = await QueryTypeProjection(
+            packageId,
+            $"{selectedAssemblyName}.dll",
+            typeName,
+            $$"""
+            [
+              {
+                "package": "{{packageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """);
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Available,
+            metadata.ExactTypeInspection.Content.Outcome);
+        Assert.Equal(
+            selectedAssemblyName,
+            metadata.ExactTypeInspection.Content.RequestedAssembly?
+                .Identity.Name);
+        InspectionShare.NonProjectable share =
+            Assert.IsType<InspectionShare.NonProjectable>(
+                metadata.ExactTypeInspection.Share);
+        Assert.Equal("exact-type/share", share.Path);
+        Assert.Contains(
+            "exact selected Type occurrence",
+            share.Reason.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task QueryTypeProjection_UsesSelectedNestedDefinitionIdentity()
     {
         const string packageId =

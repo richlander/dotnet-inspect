@@ -1,6 +1,9 @@
 import { assertNever, pdbSourceLimitationHtml } from "./data.ts";
 import { renderContentNavigationCloseButton } from "./content-frame.ts";
-import type { BrowserTypeMetadata } from "./facades/inspect-web-metadata.d.ts";
+import type {
+  BrowserTypeHierarchyRow,
+  BrowserTypeMetadata,
+} from "./facades/inspect-web-metadata.d.ts";
 import { typeGraphLegendHtml } from "./graph-legends.ts";
 import type { KeybindingRegistry } from "./keybinding-registry.ts";
 import {
@@ -1002,7 +1005,10 @@ export interface RenderTypeMetadataOptions {
   metadataState: TypeMetadataStateSlice;
   memberCompositionHtml: string;
   escapeHtml: EscapeHtml;
-  relatedTypeChip: (name: string) => string;
+  relatedTypeChip: (
+    name: string,
+    occurrence?: BrowserTypeHierarchyRow,
+  ) => string;
   factRows: (rows: readonly (readonly [string, string])[]) => string;
 }
 
@@ -1129,7 +1135,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
         const rows = hierarchy.rows.length
           ? `<div class="type-chip-list">${
               hierarchy.rows
-                .map(row => relatedTypeChip(row.type))
+                .map(row => relatedTypeChip(row.type, row))
                 .join("")
             }</div>`
           : `<p>${hierarchy.status === "available"

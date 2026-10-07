@@ -354,10 +354,45 @@ public static class SelectedContextExactTypeInspectionOperation
             ? result
             : new(
                 result.Content,
-                ExactTypeInspectionOperation.ProjectShare(
+                ProjectSelectedContextShare(
+                    workspace,
+                    context,
+                    definingRegistration,
                     shareRequest,
-                    result.Content.Inspection),
+                    result.Content.Inspection,
+                    projectionLimits),
                 result.Diagnostics);
+    }
+
+    static InspectionShare ProjectSelectedContextShare(
+        InspectionWorkspace workspace,
+        WorkspaceDeclarationContext context,
+        AssemblyAcquisitionRegistration definingRegistration,
+        ExactTypeInspectionRequest request,
+        ExactTypeInspectionResult selected,
+        ApiSurfaceProjectionLimits? projectionLimits)
+    {
+        ExactTypeInspectionExecution portable =
+            ExactTypeInspectionQuery.ExecutePackageContext(
+                workspace,
+                context,
+                request,
+                projectionLimits);
+        if (!selected.IsAvailable
+            || portable.Target is not { } target
+            || !ReferenceEquals(
+                target.Occurrence.Assembly.Registration,
+                definingRegistration))
+        {
+            return new InspectionShare.NonProjectable(
+                "exact-type/share",
+                "The portable package coordinate cannot restore the exact "
+                    + "selected Type occurrence.");
+        }
+
+        return ExactTypeInspectionOperation.ProjectShare(
+            request,
+            selected);
     }
 
     static InspectionEnvelope<SelectedContextExactTypeInspectionResult>

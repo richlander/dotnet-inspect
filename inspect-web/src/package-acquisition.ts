@@ -325,6 +325,38 @@ export function packageLibrariesForModel(
   }));
 }
 
+export interface WorkspaceTypeOccurrenceCoordinate {
+  packageId: string;
+  version: string;
+  framework: string;
+  asset: string;
+  typeId: string;
+}
+
+export function workspaceTypeByOccurrence(
+  packages: readonly AppPackage[],
+  coordinate: WorkspaceTypeOccurrenceCoordinate,
+): { pkg: AppPackage; type: AppTypeSurface } | null {
+  const matches = packages.flatMap(pkg => {
+    if (pkg.id.toLowerCase() !== coordinate.packageId.toLowerCase()
+      || pkg.version !== coordinate.version
+      || pkg.activeFramework.toLowerCase()
+        !== coordinate.framework.toLowerCase()) {
+      return [];
+    }
+
+    const libraries = packageLibrariesForModel(pkg)
+      .filter(library => library.asset === coordinate.asset);
+    return libraries.flatMap(library =>
+      pkg.types
+        .filter(type =>
+          (type.queryId ?? type.id) === coordinate.typeId
+          && type.assemblyId === library.id)
+        .map(type => ({ pkg, type })));
+  });
+  return matches.length === 1 ? matches[0] ?? null : null;
+}
+
 export interface PackageLibrarySelectionIdentity {
   id: string | null;
   name: string | null;

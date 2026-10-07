@@ -1633,7 +1633,15 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
         <button data-member-jump-kind="method"><strong>3</strong><span>method</span></button>
       </div>`,
     escapeHtml,
-    relatedTypeChip: name => `<button data-graph-type="${escapeHtml(name)}">${escapeHtml(name)}</button>`,
+    relatedTypeChip: (name, occurrence) =>
+      `<button data-graph-type="${escapeHtml(name)}"${
+        occurrence
+          ? ` data-graph-package="${escapeHtml(occurrence.packageId)}"`
+            + ` data-graph-version="${escapeHtml(occurrence.version)}"`
+            + ` data-graph-framework="${escapeHtml(occurrence.framework)}"`
+            + ` data-graph-asset="${escapeHtml(occurrence.asset)}"`
+          : ""
+      }>${escapeHtml(name)}</button>`,
     factRows,
   });
 
@@ -1644,6 +1652,12 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
   assert.match(html, /data-graph-type="System\.IDisposable"/);
   assert.match(html, /Derived types/);
   assert.match(html, /1 total/);
+  assert.match(html, /data-graph-package="System\.Text\.Json"/);
+  assert.match(html, /data-graph-version="9\.0\.0"/);
+  assert.match(html, /data-graph-framework="net9\.0"/);
+  assert.match(
+    html,
+    /data-graph-asset="lib\/net9\.0\/System\.Text\.Json\.dll"/);
   assert.match(html, /Members/);
   assert.match(html, /data-member-jump-kind="method"/);
 });

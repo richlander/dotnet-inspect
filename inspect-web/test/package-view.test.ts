@@ -61,7 +61,10 @@ function recordingActions(calls: string[]): PackageViewBindingActions {
     onDependencyLoad: (id, version) =>
       calls.push(`dependency-load:${id}@${version}`),
     onDependencyOpen: value => calls.push(`dependency-open:${value}`),
-    onGraphTypeSelect: value => calls.push(`graph-type:${value}`),
+    onGraphTypeSelect: target => calls.push(
+      `graph-type:${target.typeId}:${target.packageId ?? ""}:`
+        + `${target.version ?? ""}:${target.framework ?? ""}:`
+        + `${target.asset ?? ""}`),
     onKindJump: value => calls.push(`kind:${value}`),
     onLibraryScopeSelect: (library, kind) =>
       calls.push(`library:${library}:${kind}`),
@@ -94,7 +97,13 @@ test("package view bindings decode navigation controls without eager work", () =
     libKind: "class",
   });
   const defaultLibrary = new FakeElement();
-  const graphType = new FakeElement({ graphType: "System.String" });
+  const graphType = new FakeElement({
+    graphType: "System.String",
+    graphPackage: "System.Runtime",
+    graphVersion: "10.0.0",
+    graphFramework: "net10.0",
+    graphAsset: "lib/net10.0/System.Runtime.dll",
+  });
   const defaultGraphType = new FakeElement();
   const performance = new FakeElement({
     perfSelector: "M:Example.Type.Run",
@@ -169,8 +178,8 @@ test("package view bindings decode navigation controls without eager work", () =
     "namespace:",
     "library:System.Text.Json:class",
     "library:undefined:",
-    "graph-type:System.String",
-    "graph-type:",
+    "graph-type:System.String:System.Runtime:10.0.0:net10.0:lib/net10.0/System.Runtime.dll",
+    "graph-type:::::",
     "performance:M:Example.Type.Run:Example.dll:Example.Type",
     "performance:::",
   ]);
