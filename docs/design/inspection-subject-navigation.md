@@ -1360,7 +1360,7 @@ The preferred semantic roles are:
 | Package | Package overview |
 | Type | Type API |
 | Member | Member overview |
-| Library | Library references |
+| Library | Library types |
 
 The existing Compare descriptors require a separate target-aware applicability
 decision before non-Package subjects are exposed. Navigation requires the

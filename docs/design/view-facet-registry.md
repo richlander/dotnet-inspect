@@ -321,6 +321,37 @@ there is no execution binding. Both descriptors retain their issued identities,
 structural kinds, and purpose statements. The compatibility manifest is
 unchanged; Browser tab selection does not mint or alias a Registry ID.
 
+## Library Types and Info facets
+
+Issue [#9640](https://github.com/richlander/dotnet-inspect/issues/9640),
+under [#9547](https://github.com/richlander/dotnet-inspect/issues/9547),
+issues the Library default facet and the Library facts facet:
+
+| ID | Title | Summary and stable purpose | Kind | Order | Role |
+| --- | --- | --- | --- | ---: | --- |
+| `library.types` | Types | Public Type declarations of the active Library, by namespace. | Library | 50 | Library types |
+| `library.info` | Info | Identity, image, description, and enablement facts for the active Library. | Library | 75 | — |
+
+`library.types` identifies the Content of the Library hierarchy projection in
+[Library inspection documents](library-inspection-document.md#hierarchy-projection):
+Library, namespaces, public Type declarations, and Member Counts. `library.info`
+identifies the Library facts that the CLI `Library Info` section composes under
+[Library Info composition](library-info-composition.md). Relative names
+`.types` and `.info` resolve to these IDs only in a Library context.
+
+The Library types role moves the Library default from `library.references`,
+which keeps its ID, kind, purpose, and order 100 but no longer carries a role.
+The `Library references` role is removed rather than left unassigned. Order 50
+and 75 place both new descriptors before References without renumbering any
+issued descriptor, so registry fallback after an unavailable Types facet is
+Info, then References.
+
+Both descriptors have private execution bindings and no executor in this
+slice; hosts that report every active entry as executable on demand carry the
+identities through Navigation, sharing, and restoration unchanged. The CLI
+and Browser adopt the Content in later #9547 slices, and the compatibility
+manifest records both IDs from issuance.
+
 ## Compare facet extension
 
 Issue [#6494](https://github.com/richlander/dotnet-inspect/issues/6494)

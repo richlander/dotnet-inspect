@@ -625,12 +625,12 @@ public sealed class NavigationLensRecommendationTests
             ViewFacetRole.PackageOverview);
         yield return (
             StructuralSubjectIdentity.ForAllLibraries(context.Subject),
-            ViewFacetRole.LibraryReferences);
+            ViewFacetRole.LibraryTypes);
         yield return (
             StructuralSubjectIdentity.ForLibrary(
                 context.Subject,
                 Library(context.Subject.Coordinate)),
-            ViewFacetRole.LibraryReferences);
+            ViewFacetRole.LibraryTypes);
         yield return (TypeSubject("Widget"), ViewFacetRole.TypeApi);
         yield return (MemberSubject(), ViewFacetRole.MemberOverview);
     }

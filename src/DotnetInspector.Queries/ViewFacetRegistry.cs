@@ -109,7 +109,7 @@ public enum ViewFacetRole
     WorkspaceOverview,
     EcosystemOverview,
     PackageOverview,
-    LibraryReferences,
+    LibraryTypes,
     TypeApi,
     MemberOverview,
 }
