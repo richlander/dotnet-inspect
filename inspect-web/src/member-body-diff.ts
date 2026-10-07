@@ -186,6 +186,7 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
     root.querySelectorAll<HTMLButtonElement>("[data-member-body-medium]").forEach(button =>
       button.addEventListener("click", () => {
         reader.medium = button.dataset.memberBodyMedium === "Il" ? "Il" : "CSharp";
+        if (context) restoredMedia.set(context.packageModel, reader.medium);
         if (expanded) paintExplore(reader);
         else { savePosition(); dependencies.render(); }
       }));
