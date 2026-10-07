@@ -44,6 +44,25 @@ public sealed class BrowserWorkspaceShareOperationsTests
     }
 
     [Fact]
+    public void OversizedExactDiffValue_ReturnsTypedRefusal()
+    {
+        string asset = "compile:" + new string('a', 300);
+        var state = new BrowserWorkspaceShareState(
+            [new("t0", "package", "System.Text.Json", "10.0.12", "netstandard2.0", null)],
+            [new("g0", ["t0"])], "t0", "g0",
+            new("library:compare", null, null, null, null, [asset], null,
+                new("9.0.20", "api", asset, "CSharp", null,
+                    "System.Text.Json", "10.0.0.0", null, "cc7b13ffcd2ddd51")));
+
+        BrowserWorkspaceShareEncodeResult result = BrowserWorkspaceShareOperations.Encode(state);
+
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Packet);
+        Assert.Equal("InvalidBrowserState", result.Failure!.Kind);
+        Assert.Contains("256", result.Failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CanonicalPacket_RoundTripsThroughLongFormBrowserTransport()
     {
         BrowserWorkspaceShareDecodeResult decoded =

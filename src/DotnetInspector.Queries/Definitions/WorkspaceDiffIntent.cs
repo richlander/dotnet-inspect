@@ -67,7 +67,14 @@ public sealed record WorkspaceDiffIntent(
         if (PredicateValue is not null) terms.Add(new("predicate-value", PortableQueryOperator.Equal, PredicateValue));
         var intent = PortableQueryIntent.Create(terms, [], [], []);
         _ = FromIntent(intent);
-        return PortableQueryIdentity.Create(QueryId, intent);
+        try
+        {
+            return PortableQueryIdentity.Create(QueryId, intent);
+        }
+        catch (PortableQueryPayloadException ex)
+        {
+            throw new ArgumentException(ex.Message, nameof(intent), ex);
+        }
     }
 
     public static WorkspaceDiffIntent FromIntent(PortableQueryIntent intent)

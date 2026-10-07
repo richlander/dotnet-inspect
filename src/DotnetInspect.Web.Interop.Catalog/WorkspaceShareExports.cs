@@ -2,7 +2,6 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries.Definitions;
-using QuerySpace;
 
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Catalog;
@@ -227,10 +226,6 @@ namespace DotnetInspect.Web.Interop.Catalog
                         ex.Kind.ToString(),
                         "state",
                         ex.Message));
-            }
-            catch (PortableQueryPayloadException ex)
-            {
-                return new(false, null, new("NonProjectable", "view.comparison", ex.Message));
             }
             catch (InspectionDefinitionException ex)
             {
