@@ -101,6 +101,38 @@ The existing **API differences** navigation cue becomes a Fast Diff cue; the
 cue contract change is a Compare experience owner edit made in that adoption
 slice, not here.
 
+## Caching and speculative Member diffs
+
+Inputs are immutable, so results are cacheable. Fast Diff results are cached
+by exact pair identity, scope, and subject. The Library result is reused when
+the same Compare reopens. It does not seed the Type pass: early exit stops at
+the first difference per Type, so Member states are a separate computation.
+Completed Member diffs are cached in a bounded LRU keyed by exact Member
+identity. A cache is an optimization; a miss recomputes and never changes a
+result.
+
+When a Type opens, a host runs the Type pass and marks Members. It may then
+speculatively stream complete Member diffs, subject to all of these:
+
+- only body-changed Members are prefetched; API-only Members take the API diff
+  path and need no prefetch;
+- prefetch starts only when the host is idle, in priority order: the hovered or
+  focused Member, then the remaining list, up to a fixed cap;
+- user-initiated work preempts prefetch, and navigation cancels it. Cancellation
+  must reach the computation, not only the publication loop, because a
+  single-threaded Wasm worker held by prefetch delays the user's next action;
+  and
+- each completed Member diff is one independent event, so streaming delivers
+  real incremental results rather than replaying a finished array.
+
+Speculative streaming is not part of the first Browser slices. It is adopted
+only when measurement shows it helps: member-open latency without prefetch is
+noticeable, and with prefetch the user's next Member open is served from cache
+at a materially lower time-to-first-diff, at an acceptable idle compute cost.
+The measured quantities are time-to-first-diff on Member open with and without
+prefetch, prefetch hit rate (the user opens a Member that was prefetched), and
+compute spent on Members never opened.
+
 ## Member compare hybrid
 
 On Member Compare, the default becomes a hybrid: show the full body diff when
@@ -129,14 +161,17 @@ Each step is independently mergeable under #9716.
    NativeAOT numbers against the complete diff for the same pairs.
 2. **Browser Library pass.** Operation, Compare frame status, and Type list
    cues; updates the Compare experience owner.
-3. **Browser Type pass.** Member list cues on opening a Type.
+3. **Browser Type pass.** Member list cues on opening a Type, plus the Fast
+   Diff and Member-diff caches.
 4. **Member hybrid.** Default Member Compare presentation; updates the Member
    Body Diff owner.
 5. **CLI.** Expose the producer through `diff`.
+6. **Speculative Member streaming.** Only if the measurement gate above is met;
+   requires cancellation that reaches the computation.
 
 ## Open design questions
 
-- Whether the Library pass memoizes Type results so the Type pass reuses them.
+- The prefetch cap and the idle-time definition for a Wasm host.
 - Whether `Indeterminate` should offer a one-step promotion to the Complete
   pass in the list, or only at the Member boundary.
 - Whether added and removed Types and Members are reported as `Changed` with an
@@ -153,3 +188,7 @@ Each step is independently mergeable under #9716.
 4. A decode failure yields `Indeterminate`, never `Unchanged`.
 5. Across the corpus, no subject reported `Unchanged` appears in the complete
    diff.
+6. Reopening a Compare or Type serves Fast Diff from cache with an identical
+   result.
+7. Navigating away cancels in-flight prefetch before the next user-initiated
+   Member diff starts.
