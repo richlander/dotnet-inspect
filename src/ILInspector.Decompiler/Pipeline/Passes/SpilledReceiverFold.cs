@@ -28,9 +28,15 @@ static class SpilledReceiverFold
     /// <c>ExpressionInliningPass.WritesNode</c>'s argument cases.
     /// </summary>
     public static HashSet<int> OrderSensitiveArguments(IrFunction function)
+        => OrderSensitiveArguments(function.Descendants);
+
+    public static HashSet<int> OrderSensitiveArgumentsInScope(IrNode scope)
+        => OrderSensitiveArguments(CoercionSinks.ScopeNodes(scope));
+
+    static HashSet<int> OrderSensitiveArguments(IEnumerable<IrNode> nodes)
     {
         var arguments = new HashSet<int>();
-        foreach (var node in function.Descendants)
+        foreach (var node in nodes)
         {
             switch (node)
             {

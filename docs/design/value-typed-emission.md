@@ -1905,6 +1905,47 @@ testimony; differing, missing, or incomplete producer types remain undecided.
 This does not infer an observer or make producer-only testimony sufficient for
 any other storage family.
 
+#### Value-type receiver aliases
+
+A value-type instance receiver has two simultaneous identities: C# names it at
+its declared type `T`, while IL `ldarg.0` carries the managed pointer to the
+receiver storage. The receiver binder keeps the declared type because that is
+the C# surface contract; storage planning must not therefore interpret an
+evaluation-stack spill of that binder as a `T` value copy. Before semantic
+raising, `ValueTypeReceiverAliasPass` retires a function-scope slot web when
+every store carries the exact receiver binder and every load carries the
+declaring type. Each load becomes a fresh read of that same binder and the
+synthetic stores disappear. The rewrite iterates so direct slot-copy chains
+whose sources become exact receiver binders retire under the same proof.
+
+Admission requires metadata proof that the declaring type derives from
+`System.ValueType` or `System.Enum`, and the receiver argument binding must have
+no direct write, increment/decrement target, address escape, or deconstruction
+assignment. Calls may mutate the receiver's target, but the slot alias and the
+direct receiver still name that same target; only rebinding argument zero could
+distinguish them. Reference-type and unresolved receivers, unbound argument-zero
+nodes, mixed producers, mismatched load types, and independently scoped nested
+bodies decline. This is stable-place substitution, not expression reordering,
+value copying, ref-local synthesis, or a printer repair; no side effect or
+control-flow edge moves.
+
+The compiler-produced `ValueTypeReceiverAlias` constructor fixture and the
+pinned Microsoft.CodeAnalysis.Common 5.0.0
+`FileLinePositionSpan::.ctor(string, LinePositionSpan)` witness gate the
+positive lowering. Synthetic controls cover an intervening call, an alias copy
+chain, mixed producers, receiver rebinding and address escape, a reference-type
+receiver, and an isolated nested slot namespace. The real witness must retain
+`Full` fidelity, write `this.Path`, and never declare a
+`FileLinePositionSpan` value local initialized from `this`.
+
+On the fixed 14-assembly, 89,065-method population, the pass changes 74
+methods. At the late-F2 boundary, stack-slot stores, loads, and distinct slots
+move from 43,842/61,148/37,517 to 43,742/61,045/37,444. Materialization then
+sees 36 fewer ordinary candidates and 37 fewer deferred candidates; its
+post-boundary residual population moves from 210 to 173 slots and from 155 to
+121 methods. This is a population result for those immutable inputs, not a
+claim that every future receiver spill is admissible.
+
 Metadata-name spellability is not a storage gate. Both the residual ref-slot
 path and the typed-local path render the same exact type through `TypeText`, and
 the existing fidelity diagnostic independently reports the compiler-generated
