@@ -621,54 +621,17 @@ internal static class MetadataHierarchyRelationAnalysis
         failure = null;
         try
         {
-            if (definition.Kind == HandleKind.TypeDefinition)
-            {
-                assembly =
-                    AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
-                return true;
-            }
-            if (definition.Kind != HandleKind.TypeReference)
+            if (definition.Kind != HandleKind.TypeDefinition)
             {
                 failure =
-                    "The hierarchy target is not a TypeDef or TypeRef.";
+                    "The assembly-qualified hierarchy target is not a "
+                        + "TypeDef.";
                 return false;
             }
 
-            EntityHandle scope =
-                reader.GetTypeReference(
-                    (TypeReferenceHandle)definition).ResolutionScope;
-            for (int depth = 0;
-                depth < MetadataSafetyPolicy.MaxRelationshipNodes;
-                depth++)
-            {
-                switch (scope.Kind)
-                {
-                    case HandleKind.AssemblyReference:
-                        assembly = AssemblyReferenceIdentity.From(
-                            reader,
-                            (AssemblyReferenceHandle)scope);
-                        return true;
-                    case HandleKind.ModuleDefinition:
-                    case HandleKind.ModuleReference:
-                        assembly = AssemblyReferenceIdentity
-                            .FromAssemblyDefinition(reader);
-                        return true;
-                    case HandleKind.TypeReference:
-                        scope = reader.GetTypeReference(
-                            (TypeReferenceHandle)scope).ResolutionScope;
-                        continue;
-                    default:
-                        failure =
-                            "The hierarchy TypeRef has an unsupported "
-                                + "resolution scope.";
-                        return false;
-                }
-            }
-
-            failure =
-                "The hierarchy TypeRef resolution scope exceeds the "
-                    + "relationship-node budget.";
-            return false;
+            assembly =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+            return true;
         }
         catch (Exception exception)
             when (exception is BadImageFormatException

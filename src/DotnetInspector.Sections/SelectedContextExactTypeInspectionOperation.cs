@@ -338,18 +338,18 @@ public static class SelectedContextExactTypeInspectionOperation
 
         InspectionEnvelope<SelectedContextExactTypeInspectionResult> result =
             Complete(
-            ExactTypeInspectionQuery.ExecuteSelectedContext(
-                workspace,
+                ExactTypeInspectionQuery.ExecuteSelectedContext(
+                    workspace,
+                    context,
+                    request,
+                    definingRegistration,
+                    scope,
+                    projectionLimits),
                 context,
                 request,
-                definingRegistration,
-                scope,
-                projectionLimits),
-            context,
-            request,
-            activation,
-            facet,
-            liveTargetConsumer);
+                activation,
+                facet,
+                liveTargetConsumer);
         return shareRequest is null
             ? result
             : new(
