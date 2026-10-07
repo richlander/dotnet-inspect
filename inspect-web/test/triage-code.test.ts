@@ -1,88 +1,76 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { inertStringFixture } from "./inert-string-fixture.ts";
 import { bindTriageCode, renderTriageCode, triageIssueLine } from "../src/triage-code.ts";
-import type { BrowserMemberSourceResult } from "../src/facades/inspect-web-source.d.ts";
+import Prism from "prismjs";
+import "prismjs/components/prism-clike.js";
+import "prismjs/components/prism-csharp.js";
 
-class Preview extends EventTarget {
-  open = false;
+class Preview {
+  hidden = true;
   isConnected = true;
-  dataset = { triageAssembly: "Fixture.dll", triageType: "Fixture.Private", triageMember: "Read", triageSelector: "triage", triageToken: "100663297" };
-  code = { textContent: "" };
+  dataset = { triageAssembly: "Fixture.dll", triageType: "Fixture.Private", triageMember: "Read", triageSelector: "triage", triageToken: "100663297", triageOffsets: "7", triageBound: "" };
+  code = { innerHTML: "" };
   querySelector() { return this.code; }
-  toggle(open: boolean) { this.open = open; this.dispatchEvent(new Event("toggle")); }
 }
-// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Minimal DOM stand-in for the interaction test.
-const root = (preview: Preview) => ({ querySelectorAll: () => [preview] }) as unknown as ParentNode;
-const success = (text: string): BrowserMemberSourceResult => ({ value: {
-  source: { provider: "decompiled", provenance: inertStringFixture("fixture"), url: null, pdbSourceLimitation: null, text },
-  parts: [], diagnostics: [],
-}, error: null, diagnostics: [] });
+// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Minimal DOM stand-in for interaction tests.
+const root = (...previews: Preview[]) => ({ querySelectorAll: () => previews }) as unknown as ParentNode;
+const highlight = (text: string) => Prism.highlight(text, Prism.languages.csharp!, "csharp");
 const settle = async () => { await Promise.resolve(); await Promise.resolve(); };
 
-test("triage decompilation is explicit and targets a private implementation method", async () => {
+test("an attributed code line appears automatically with escaped Prism syntax", async () => {
   const preview = new Preview();
-  let calls = 0;
   bindTriageCode(root(preview), async target => {
-    calls++;
-    assert.deepEqual(target, { assembly: "Fixture.dll", typeId: "Fixture.Private", memberName: "Read", selector: "triage", methodToken: 0x06000001 });
-    return success("void Read() { /* <inert> */ }");
-  });
-  preview.toggle(false);
-  assert.equal(calls, 0);
-  preview.toggle(true);
+    assert.deepEqual(target, { assembly: "Fixture.dll", typeId: "Fixture.Private", memberName: "Read", selector: "triage", methodToken: 0x06000001, issueOffsets: [7] });
+    return 'string value = "<inert>";';
+  }, highlight);
   await settle();
-  assert.equal(preview.code.textContent, "void Read() { /* <inert> */ }");
-  preview.toggle(false);
-  preview.toggle(true);
-  assert.equal(calls, 1);
+  assert.equal(preview.hidden, false);
+  assert.match(preview.code.innerHTML, /token keyword/);
+  assert.match(preview.code.innerHTML, /&lt;inert>/);
+  assert.doesNotMatch(preview.code.innerHTML, /<inert>/);
 });
 
-test("an obsolete preview cannot publish a late decompilation", async () => {
+test("an obsolete line cannot publish a late result", async () => {
   const preview = new Preview();
-  let complete!: (result: BrowserMemberSourceResult) => void;
-  bindTriageCode(root(preview), () => new Promise(resolve => { complete = resolve; }));
-  preview.toggle(true);
+  let complete!: (value: string | null) => void;
+  bindTriageCode(root(preview), () => new Promise(resolve => { complete = resolve; }), highlight);
   preview.isConnected = false;
-  complete(success("obsolete source"));
+  complete("obsolete source");
   await settle();
-  assert.equal(preview.code.textContent, "Decompiling…");
+  assert.equal(preview.hidden, true);
+  assert.equal(preview.code.innerHTML, "");
 });
 
-test("source failures stay visible and can be retried by expanding again", async () => {
-  const preview = new Preview();
-  let calls = 0;
-  bindTriageCode(root(preview), async () => ++calls === 1
-    ? { value: null, error: "Unavailable", diagnostics: [] } : success("retry source"));
-  preview.toggle(true);
-  await settle();
-  assert.equal(preview.code.textContent, "Unavailable");
-  preview.toggle(false);
-  preview.toggle(true);
-  await settle();
-  assert.equal(preview.code.textContent, "retry source");
+test("unattributed and multi-line results show no code", async () => {
+  for (const value of [null, "one\ntwo", "one\rtwo"]) {
+    const preview = new Preview();
+    bindTriageCode(root(preview), async () => value, highlight);
+    await settle();
+    assert.equal(preview.hidden, true);
+    assert.equal(preview.code.innerHTML, "");
+  }
 });
 
-test("triage source controls escape their metadata attributes", () => {
-  const html = renderTriageCode({ assembly: '"<Fixture>', typeId: "Private", memberName: "Read", selector: "triage", methodToken: 1 }, value => value.replaceAll('"', "&quot;").replaceAll("<", "&lt;"));
+test("automatic code acquisition permits at most two concurrent requests", async () => {
+  const previews = [new Preview(), new Preview(), new Preview()];
+  const completions: ((value: string | null) => void)[] = [];
+  bindTriageCode(root(...previews), () => new Promise(resolve => completions.push(resolve)), highlight);
+  assert.equal(completions.length, 2);
+  completions[0]!(null);
+  await settle();
+  assert.equal(completions.length, 3);
+  completions[1]!(null);
+  completions[2]!(null);
+  await settle();
+});
+
+test("triage line slots have no disclosure control and require issue coordinates", () => {
+  const target = { assembly: '"<Fixture>', typeId: "Private", memberName: "Read", selector: "triage", methodToken: 1, issueOffsets: [7] };
+  const html = renderTriageCode(target, value => value.replaceAll('"', "&quot;").replaceAll("<", "&lt;"));
   assert.match(html, /data-triage-assembly="&quot;&lt;Fixture>"/);
-  assert.match(html, /<summary>Code<\/summary>/);
-  assert.doesNotMatch(html, /data-(?:type|member|selector|assembly|token)=/);
+  assert.doesNotMatch(html, /details|summary|data-(?:type|member|selector|assembly|token)=/);
+  assert.equal(renderTriageCode({ ...target, issueOffsets: null }, String), "");
 });
-
-test("the preview uses owner-issued member spans rather than neighboring declarations", async () => {
-  const preview = new Preview();
-  bindTriageCode(root(preview), async () => {
-    const result = success("prefixRead()suffix");
-    return { ...result, value: { ...result.value!, parts: [{ kind: "Member", spans: [
-      { start: 6, length: 6, end: 12, startLine: 1, endLine: 1, leadingIndentation: "" },
-    ] }] } };
-  });
-  preview.toggle(true);
-  await settle();
-  assert.equal(preview.code.textContent, "Read()");
-});
-
 
 const mappedDocument = {
   text: "void Run() {\n    object boxed = 42;\n    Send(boxed);\n}",
@@ -109,12 +97,4 @@ test("ambiguous nearest provenance does not pick a line arbitrarily", () => {
     { id: 3, kind: "Statement", medium: "CSharp", spans: [{ start: 36, length: 18 }], provenance: { il_offsets: [3] } },
   ] };
   assert.equal(triageIssueLine(document, [3]), null);
-});
-
-test("an attributed line is published as inert text", async () => {
-  const preview = new Preview();
-  bindTriageCode(root(preview), async () => ({ kind: "line", text: "Send(<inert>);" }));
-  preview.toggle(true);
-  await settle();
-  assert.equal(preview.code.textContent, "Send(<inert>);");
 });

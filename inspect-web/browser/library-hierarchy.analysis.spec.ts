@@ -1125,16 +1125,11 @@ test("Library navigation exposes the complete long Library name on hover", async
   await expect(page).toHaveURL(location);
 });
 
-test("triage code expansion keeps the selected Library analysis view", async ({ page }) => {
+test("triage rows have no collapsed code control and preserve Library Analysis", async ({ page }) => {
   await installFacades(page);
   await openAnalysis(page);
-  const preview = page.locator(".library-performance-surface [data-triage-code]").first();
-  await expect(preview).toBeVisible();
-  const location = page.url();
-  await preview.locator("summary").click();
-  await expect(preview).toHaveJSProperty("open", true);
-  await expect(page.locator(".library-performance-surface")).toBeVisible();
+  await expect(page.locator(".library-performance-surface details")).toHaveCount(0);
+  await expect(page.locator(".library-performance-surface [data-triage-code]")).toHaveCount(0);
   await expect(inspectorTab(page, "data-library-lens", "analysis"))
     .toHaveAttribute("aria-selected", "true");
-  expect(page.url()).toBe(location);
 });

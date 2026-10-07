@@ -1,5 +1,4 @@
 import { buildLines, validateDocument } from "./document-model.ts";
-import type { BrowserMemberSourceResult } from "./facades/inspect-web-source.d.ts";
 
 export interface TriageCodeTarget {
   assembly: string;
@@ -18,8 +17,9 @@ export function triageMemberLabel(typeId: string, memberName: string): string {
   return short ? `${short}.${memberName}` : memberName;
 }
 
-export function renderTriageCode(target: TriageCodeTarget, escape: (value: string) => string, memberLabel?: string): string {
-  return `<details class="triage-code" data-triage-code data-triage-assembly="${escape(target.assembly)}" data-triage-type="${escape(target.typeId)}" data-triage-member="${escape(target.memberName)}" data-triage-selector="${escape(target.selector)}" data-triage-token="${target.methodToken}" data-triage-offsets="${(target.issueOffsets ?? []).join(",")}"><summary>Code${memberLabel ? ` · ${escape(memberLabel)}` : ""}</summary><pre><code>Expand to inspect the affected code.</code></pre></details>`;
+export function renderTriageCode(target: TriageCodeTarget, escape: (value: string) => string): string {
+  if (!target.issueOffsets?.length) return "";
+  return `<pre hidden class="triage-code language-csharp" data-triage-code data-triage-assembly="${escape(target.assembly)}" data-triage-type="${escape(target.typeId)}" data-triage-member="${escape(target.memberName)}" data-triage-selector="${escape(target.selector)}" data-triage-token="${target.methodToken}" data-triage-offsets="${target.issueOffsets.join(",")}"><code class="language-csharp"></code></pre>`;
 }
 
 /** Returns one line only when all issue offsets have a unique nearest C# location. */
@@ -53,53 +53,70 @@ export function triageIssueLine(document: unknown, offsets: readonly number[]): 
   return selectedLine === null ? null : lines[selectedLine]!.text.trim();
 }
 
-export type TriageCodeResult = BrowserMemberSourceResult | { kind: "line"; text: string };
-
 export function bindTriageCode(
   root: ParentNode,
-  load: (target: TriageCodeTarget) => Promise<TriageCodeResult>,
+  load: (target: TriageCodeTarget) => Promise<string | null>,
+  highlight: (source: string) => string,
 ): void {
-  root.querySelectorAll<HTMLDetailsElement>("[data-triage-code]").forEach(details => {
-    let pending = false;
-    let loaded = false;
-    const loadCode = async () => {
-      if (!details.open || pending || loaded) return;
-      const code = details.querySelector("code");
-      if (!code) return;
-      pending = true;
-      code.textContent = "Decompiling…";
-      try {
-        const offsets = (details.dataset.triageOffsets ?? "").split(",")
-          .filter(Boolean).map(Number);
-        const result = await load({
-          assembly: details.dataset.triageAssembly ?? "",
-          typeId: details.dataset.triageType ?? "",
-          memberName: details.dataset.triageMember ?? "",
-          selector: details.dataset.triageSelector ?? "",
-          methodToken: Number(details.dataset.triageToken),
-          ...(offsets.length ? { issueOffsets: offsets } : {}),
-        });
-        if (!details.isConnected) return;
-        if ("kind" in result) {
-          code.textContent = result.text;
-          loaded = true;
-          return;
+  const queue: HTMLElement[] = [];
+  const offered = new Set<HTMLElement>();
+  let active = 0;
+  const run = () => {
+    while (active < 2 && queue.length) {
+      const element = queue.shift()!;
+      if (!element.isConnected) continue;
+      active++;
+      void (async () => {
+        try {
+          const text = await load({
+            assembly: element.dataset.triageAssembly ?? "",
+            typeId: element.dataset.triageType ?? "",
+            memberName: element.dataset.triageMember ?? "",
+            selector: element.dataset.triageSelector ?? "",
+            methodToken: Number(element.dataset.triageToken),
+            issueOffsets: (element.dataset.triageOffsets ?? "").split(",").filter(Boolean).map(Number),
+          });
+          const code = element.querySelector("code");
+          if (!element.isConnected || !code || !text || /[\r\n]/.test(text)) return;
+          code.innerHTML = highlight(text);
+          element.hidden = false;
+        } catch (error) {
+          // This view permits only an attributed line; failed acquisition leaves no code.
+          console.warn("Triage code line unavailable", error);
+        } finally {
+          active--;
+          run();
         }
-        const source = result.value;
-        const memberSpans = source?.parts.filter(part => part.kind === "Member")
-          .flatMap(part => part.spans) ?? [];
-        code.textContent = source
-          ? memberSpans.length
-            ? memberSpans.map(span => source.source.text.slice(span.start, span.start + span.length)).join("\n\n")
-            : source.source.text
-          : result.error ?? "Decompiled source unavailable.";
-        loaded = Boolean(result.value);
-      } catch (error) {
-        if (details.isConnected) code.textContent = error instanceof Error ? error.message : "Decompilation failed.";
-      } finally {
-        pending = false;
+      })();
+    }
+  };
+  const offer = (element: HTMLElement) => {
+    if (offered.has(element)) return;
+    offered.add(element);
+    queue.push(element);
+    run();
+  };
+  const elements = [...root.querySelectorAll<HTMLElement>("[data-triage-code]")]
+    .filter(element => !element.dataset.triageBound);
+  if (elements.length === 0) return;
+  for (const element of elements) element.dataset.triageBound = "true";
+  if (typeof IntersectionObserver === "undefined") {
+    elements.forEach(offer);
+    return;
+  }
+  const byRow = new Map<Element, HTMLElement>();
+  for (const element of elements) byRow.set(element.closest(".triage-item") ?? element, element);
+  const observer = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      const element = byRow.get(entry.target);
+      if (!element) continue;
+      if (entry.isIntersecting && element.isConnected) offer(element);
+      if (entry.isIntersecting || !element.isConnected) {
+        observer.unobserve(entry.target);
+        byRow.delete(entry.target);
       }
-    };
-    details.addEventListener("toggle", () => { void loadCode(); });
+    }
+    if (byRow.size === 0) observer.disconnect();
   });
+  for (const row of byRow.keys()) observer.observe(row);
 }

@@ -63,10 +63,10 @@ export function renderLibraryAnalysisSurface(options: LibraryAnalysisOptions): s
         const loopBadge = member.inLoopCount > 0
           ? `<span class="perf-loop" title="${member.inLoopCount} in a loop">&#x21BB; ${member.inLoopCount}</span>`
           : "";
-        const previews = (member.bodyTargets ?? []).map(body => renderTriageCode({
+        const previews = (member.bodyTargets?.length === 1 ? member.bodyTargets : []).map(body => renderTriageCode({
           assembly: member.assembly, typeId: body.typeId, memberName: body.memberName,
           selector: body.selectorKey, methodToken: body.methodToken, issueOffsets: body.issueOffsets ?? null,
-        }, escapeHtml, body.memberName)).join("");
+        }, escapeHtml)).join("");
         return `<article class="triage-item"><button class="perf-row" data-perf-selector="${escapeHtml(member.stableSelector)}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} &mdash; open member">
           <span class="perf-count">${member.opportunityCount}</span>
           <span class="perf-member"><span class="perf-name">${escapeHtml(display)}</span><span class="perf-shapes">${shapes}</span></span>

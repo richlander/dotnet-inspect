@@ -1,7 +1,7 @@
 import type { BrowserResourceTriage } from "./facades/inspect-web-analysis.d.ts";
 import { renderAnalysisInspector, type AnalysisInspectorContext } from "./analysis-inspector.ts";
 
-import { renderTriageCode, triageMemberLabel } from "./triage-code.ts";
+import { triageMemberLabel } from "./triage-code.ts";
 
 interface ResourceTriageOptions extends AnalysisInspectorContext {
   libraryName: string;
@@ -58,14 +58,9 @@ export function renderLibraryResourceTriageSurface(options: ResourceTriageOption
         : `<strong title="${escape(candidate.method)}">${escape(display)}</strong>`;
       const boundaries = candidate.boundaries.map(boundary =>
         `<li><code>${il(boundary.ilOffset)}</code> ${escape(boundary.operation)} <span>${escape(boundaryLabels[boundary.kind] ?? boundary.kind)}</span></li>`).join("");
-      const code = candidate.bodyTypeId && candidate.bodyMemberName
-        ? renderTriageCode({ assembly: candidate.assembly, typeId: candidate.bodyTypeId,
-            memberName: candidate.bodyMemberName, selector: candidate.stableSelector ?? "triage",
-            methodToken: candidate.methodToken, issueOffsets: null }, escape) : "";
       return `<article class="triage-item resource-triage-candidate">
         <div class="perf-row"><span class="perf-count" aria-hidden="true">△</span><span class="perf-member"><span class="perf-name">${link}</span><span class="perf-shapes">${escape(candidate.resource)} · ${escape(actionabilityLabels[candidate.actionability] ?? candidate.actionability)} · Acquire <code>${il(candidate.acquireOffset)}</code></span></span><span class="perf-meta"><span class="perf-confidence">${escape(candidate.confidence.toLowerCase())}</span></span></div>
         <ul class="triage-boundaries">${boundaries}</ul>
-        ${code}
       </article>`;
     }).join("");
     const empty = data.candidates.length ? "" : `<section class="document-section empty-document"><h2>${partial ? "No candidates in the available evidence" : "No ArrayPool exception-cleanup candidates found"}</h2><p>${partial ? "The census is incomplete; absence cannot be established." : "No candidates were found within the supported ArrayPool analysis."}</p></section>`;

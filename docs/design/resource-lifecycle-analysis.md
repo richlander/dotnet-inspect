@@ -316,22 +316,22 @@ and an explicit non-projectable Share outcome until canonical Share projection
 is adopted. Browser transport preserves that Share and envelope diagnostics.
 
 The browser presents Performance Triage and Resource Triage as peer Analysis
-tabs, using compact rows and the same explicitly expanded code preview.
-The preview consumes the existing member Source API and exact implementation
-method identity, including private methods. Performance rows retain their public
+tabs, using compact rows and at most one automatically shown code line per row.
+Code lines consume existing Annotated Source through exact implementation
+method identity. Performance rows retain their public
 navigation anchors separately from owner-issued implementation body targets;
-property and event rows offer each contributing accessor separately. The
+rows spanning multiple implementation bodies have no code line. The
 implementation surface is acquired under the existing browser API bounds.
-Performance body targets also retain the contributing issue IL offsets. When
-all offsets map unambiguously to one line through the existing Annotated Source
-node provenance, the preview displays that line. It considers the smallest
-C# node spans carrying each offset and requires all equally small matches to
-occupy the same line. Multiple lines, missing offsets,
-and ambiguous attribution fall back to the complete decompiled member. Resource
+Performance body targets retain the contributing issue IL offsets. When all
+issue offsets map unambiguously to one line through existing Annotated Source
+node provenance, that line is shown with the app's C# syntax highlighter. The
+smallest C# node spans carrying each offset must all occupy the same line.
+Missing, aggregate, ambiguous, multi-line, and multi-body attribution produce
+no code. There are no disclosure controls or whole-member fallbacks. Resource
 cleanup findings concern control flow across acquisition, execution, and cleanup,
-so they retain the member code rather than claiming that one acquisition line
-is the violation. This view does not invent source correspondence. Module/Finding IDs
-and detailed limitations remain in the transport but are omitted from this view;
+so this view does not attribute them to one isolated line. Code acquisition
+starts for visible rows and permits at most two concurrent requests; results
+for disconnected rows are discarded. Module/Finding IDs and detailed limitations remain in the transport but are omitted from this view;
 the incomplete-analysis warning remains visible. Unknown actionability means
 the model cannot classify the operation's impact; the user must inspect the code.
 
