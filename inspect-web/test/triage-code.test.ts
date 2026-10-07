@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { inertStringFixture } from "./inert-string-fixture.ts";
-import { bindTriageCode, renderTriageCode } from "../src/triage-code.ts";
+import { bindTriageCode, renderTriageCode, triageIssueLine } from "../src/triage-code.ts";
 import type { BrowserMemberSourceResult } from "../src/facades/inspect-web-source.d.ts";
 
 class Preview extends EventTarget {
@@ -66,7 +66,7 @@ test("source failures stay visible and can be retried by expanding again", async
 test("triage source controls escape their metadata attributes", () => {
   const html = renderTriageCode({ assembly: '"<Fixture>', typeId: "Private", memberName: "Read", selector: "triage", methodToken: 1 }, value => value.replaceAll('"', "&quot;").replaceAll("<", "&lt;"));
   assert.match(html, /data-triage-assembly="&quot;&lt;Fixture>"/);
-  assert.match(html, /Decompiled method/);
+  assert.match(html, /<summary>Code<\/summary>/);
   assert.doesNotMatch(html, /data-(?:type|member|selector|assembly|token)=/);
 });
 
@@ -81,4 +81,40 @@ test("the preview uses owner-issued member spans rather than neighboring declara
   preview.toggle(true);
   await settle();
   assert.equal(preview.code.textContent, "Read()");
+});
+
+
+const mappedDocument = {
+  text: "void Run() {\n    object boxed = 42;\n    Send(boxed);\n}",
+  nodes: [
+    { id: 0, kind: "Statement", medium: "CSharp", spans: [{ start: 17, length: 18 }], provenance: { il_offsets: [3, 4] } },
+    { id: 1, kind: "Statement", medium: "CSharp", spans: [{ start: 40, length: 12 }], provenance: { il_offsets: [8] } },
+    { id: 2, kind: "Body", medium: "CSharp", spans: [{ start: 11, length: 43 }], provenance: { il_offsets: [3, 4, 8] } },
+  ], regions: [], facts: [], targets: [],
+};
+
+test("one attributed line replaces the whole method, including multiple offsets on that line", () => {
+  assert.equal(triageIssueLine(mappedDocument, [3, 4]), "object boxed = 42;");
+});
+
+test("multi-line and unmapped issues retain the code fallback", () => {
+  assert.equal(triageIssueLine(mappedDocument, [3, 8]), null);
+  assert.equal(triageIssueLine(mappedDocument, [99]), null);
+  assert.equal(triageIssueLine(mappedDocument, []), null);
+});
+
+test("ambiguous nearest provenance does not pick a line arbitrarily", () => {
+  const document = { ...mappedDocument, nodes: [
+    ...mappedDocument.nodes,
+    { id: 3, kind: "Statement", medium: "CSharp", spans: [{ start: 36, length: 18 }], provenance: { il_offsets: [3] } },
+  ] };
+  assert.equal(triageIssueLine(document, [3]), null);
+});
+
+test("an attributed line is published as inert text", async () => {
+  const preview = new Preview();
+  bindTriageCode(root(preview), async () => ({ kind: "line", text: "Send(<inert>);" }));
+  preview.toggle(true);
+  await settle();
+  assert.equal(preview.code.textContent, "Send(<inert>);");
 });

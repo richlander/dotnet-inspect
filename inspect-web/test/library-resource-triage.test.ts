@@ -42,7 +42,7 @@ test("an incomplete empty census does not claim absence", () => {
 
 test("non-public candidates retain evidence without fabricated navigation", () => {
   const html = renderLibraryResourceTriageSurface({ ...options, data: result({ candidates: [{ ...candidate, typeId: null, stableSelector: null }] }) });
-  assert.match(html, /Decompiled method/);
+  assert.match(html, /<summary>Code<\/summary>/);
   assert.match(html, /IL_0007/);
   assert.doesNotMatch(html, /data-perf-selector=/);
 });

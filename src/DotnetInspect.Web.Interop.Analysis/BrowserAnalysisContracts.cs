@@ -451,7 +451,8 @@ public sealed record BrowserPerformanceMember(
     BrowserPerformanceBodyTarget[]? BodyTargets = null);
 
 public sealed record BrowserPerformanceBodyTarget(
-    string TypeId, string MemberName, string SelectorKey, int MethodToken);
+    string TypeId, string MemberName, string SelectorKey, int MethodToken,
+    int[]? IssueOffsets = null);
 
 public sealed record BrowserMemberFacts(
     int MetadataToken,

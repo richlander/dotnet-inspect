@@ -2854,7 +2854,7 @@ browser engine and the NativeAOT decision.
 
 ## Resource Triage
 
-Library → Analysis → Triage → Resources exposes the existing shared ArrayPool
+Library → Analysis → Resource Triage exposes the existing shared ArrayPool
 exception-cleanup candidates. Selecting the tab requests whole-library analysis;
 package analysis also requests runtime context acquisition to resolve the
 shipped resource model. Acquisition and producer failures remain visible.

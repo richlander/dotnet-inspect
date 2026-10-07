@@ -52,7 +52,8 @@ test("Analysis opens on Relationships as its first tab", async ({ page }) => {
     "Relationships",
     "Dependencies",
     "Complexity",
-    "Triage",
+    "Performance Triage",
+    "Resource Triage",
     "Integrations",
   ]);
   await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
@@ -113,7 +114,8 @@ async function expectCompactAnalysisHeader(page: Page) {
     "Relationships",
     "Dependencies",
     "Complexity",
-    "Triage",
+    "Performance Triage",
+    "Resource Triage",
     "Integrations",
   ]) {
     const tab = tabs.getByRole("tab", { name, exact: true });
@@ -142,7 +144,7 @@ for (const width of [1440, 390, 320]) {
     await openIntegrations(page);
     const frame = page.locator(".analysis-inspector");
     const integrations = frame.getByRole("tab", { name: "Integrations", exact: true });
-    const performance = frame.getByRole("tab", { name: "Triage", exact: true });
+    const performance = frame.getByRole("tab", { name: "Performance Triage", exact: true });
     await expect(page.locator('[data-library-lens="opportunities"]')).toHaveCount(0);
     await expect(frame.getByRole("tab", { name: "Opportunities", exact: true }))
       .toHaveCount(0);

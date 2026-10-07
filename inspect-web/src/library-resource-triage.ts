@@ -61,7 +61,7 @@ export function renderLibraryResourceTriageSurface(options: ResourceTriageOption
       const code = candidate.bodyTypeId && candidate.bodyMemberName
         ? renderTriageCode({ assembly: candidate.assembly, typeId: candidate.bodyTypeId,
             memberName: candidate.bodyMemberName, selector: candidate.stableSelector ?? "triage",
-            methodToken: candidate.methodToken }, escape) : "";
+            methodToken: candidate.methodToken, issueOffsets: null }, escape) : "";
       return `<article class="triage-item resource-triage-candidate">
         <div class="perf-row"><span class="perf-count" aria-hidden="true">△</span><span class="perf-member"><span class="perf-name">${link}</span><span class="perf-shapes">${escape(candidate.resource)} · ${escape(actionabilityLabels[candidate.actionability] ?? candidate.actionability)} · Acquire <code>${il(candidate.acquireOffset)}</code></span></span><span class="perf-meta"><span class="perf-confidence">${escape(candidate.confidence.toLowerCase())}</span></span></div>
         <ul class="triage-boundaries">${boundaries}</ul>

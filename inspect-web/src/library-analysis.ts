@@ -65,7 +65,7 @@ export function renderLibraryAnalysisSurface(options: LibraryAnalysisOptions): s
           : "";
         const previews = (member.bodyTargets ?? []).map(body => renderTriageCode({
           assembly: member.assembly, typeId: body.typeId, memberName: body.memberName,
-          selector: body.selectorKey, methodToken: body.methodToken,
+          selector: body.selectorKey, methodToken: body.methodToken, issueOffsets: body.issueOffsets ?? null,
         }, escapeHtml, body.memberName)).join("");
         return `<article class="triage-item"><button class="perf-row" data-perf-selector="${escapeHtml(member.stableSelector)}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} &mdash; open member">
           <span class="perf-count">${member.opportunityCount}</span>

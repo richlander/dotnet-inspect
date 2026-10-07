@@ -31,7 +31,8 @@ const modes = [
   [defaultAnalysisMode, "Relationships"],
   ["dependencies", "Dependencies"],
   ["complexity", "Complexity"],
-  ["performance", "Triage"],
+  ["performance", "Performance Triage"],
+  ["resource-triage", "Resource Triage"],
   ["integrations", "Integrations"],
 ] as const satisfies readonly (readonly [AnalysisMode, string])[];
 
@@ -42,9 +43,7 @@ export function renderAnalysisInspector(
   content: string,
 ): string {
   const { pickerHtml, escapeHtml } = context;
-  const triage = mode === "performance" || mode === "resource-triage";
-  const tabs = modes.map(([baseValue, label]) => {
-    const value = baseValue === "performance" && triage ? mode : baseValue;
+  const tabs = modes.map(([value, label]) => {
     return `<button type="button" role="tab" id="analysis-mode-${value}" data-analysis-mode="${value}" aria-selected="${value === mode}" aria-controls="analysis-results" tabindex="${value === mode ? 0 : -1}">${label}</button>`
   }).join("");
   return `<section class="analysis-inspector library-analysis-surface library-${mode}-surface${pickerHtml ? ` library-analysis-with-controls library-${mode}-with-controls` : ""}" aria-labelledby="library-analysis-title">
@@ -54,7 +53,7 @@ export function renderAnalysisInspector(
       <div class="analysis-mode-tabs" role="tablist" aria-label="Analysis views">${tabs}</div>
     </header>
     ${pickerHtml ? `<section class="library-analysis-controls library-${mode}-controls" aria-label="Analysis library">${pickerHtml}</section>` : ""}
-    <div id="analysis-results" role="tabpanel" aria-labelledby="analysis-mode-${mode}" tabindex="0" class="library-analysis-scroll library-${mode}-scroll">${triage ? `<nav class="triage-kinds" aria-label="Triage kind"><button type="button" data-triage-mode="performance" aria-pressed="${mode === "performance"}">Performance</button><button type="button" data-triage-mode="resource-triage" aria-pressed="${mode === "resource-triage"}">Resources</button></nav>` : ""}${content}</div>
+    <div id="analysis-results" role="tabpanel" aria-labelledby="analysis-mode-${mode}" tabindex="0" class="library-analysis-scroll library-${mode}-scroll">${content}</div>
   </section>`;
 }
 
@@ -62,11 +61,6 @@ export function bindAnalysisTabs(
   root: ParentNode,
   onSelect: (mode: AnalysisMode) => void,
 ): void {
-  root.querySelectorAll<HTMLButtonElement>("[data-triage-mode]").forEach(button =>
-    button.addEventListener("click", () => {
-      const mode = button.dataset.triageMode;
-      if (isAnalysisMode(mode)) onSelect(mode);
-    }));
   const tabs = [...root.querySelectorAll<HTMLButtonElement>("[data-analysis-mode]")];
   for (const [index, tab] of tabs.entries()) {
     tab.addEventListener("click", () => {

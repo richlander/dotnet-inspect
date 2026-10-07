@@ -291,7 +291,7 @@ establish:
 
 [#9607](https://github.com/richlander/dotnet-inspect/issues/9607) tracks one
 adoption slice: participant-scoped query execution, detached inspection
-composition, browser transport, and Library → Analysis → Triage → Resources.
+composition, browser transport, and Library → Analysis → Resource Triage.
 The CLI already consumes `ResourceTriageQuery`; the browser uses that same
 query with the shipped ArrayPool model. The motivating assets and retained
 oracle remain those in [Real assets and oracle](#real-assets-and-oracle).
@@ -315,15 +315,22 @@ selected intrinsic core library, and bounds retained images to 64 MiB.
 and an explicit non-projectable Share outcome until canonical Share projection
 is adopted. Browser transport preserves that Share and envelope diagnostics.
 
-The browser presents Performance and Resources under one Triage tab, using
-compact rows and the same explicitly expanded decompiled-method preview.
+The browser presents Performance Triage and Resource Triage as peer Analysis
+tabs, using compact rows and the same explicitly expanded code preview.
 The preview consumes the existing member Source API and exact implementation
 method identity, including private methods. Performance rows retain their public
 navigation anchors separately from owner-issued implementation body targets;
 property and event rows offer each contributing accessor separately. The
 implementation surface is acquired under the existing browser API bounds.
-The preview displays the complete decompiled
-method, not an asserted IL-to-source block correspondence. Module/Finding IDs
+Performance body targets also retain the contributing issue IL offsets. When
+all offsets map unambiguously to one line through the existing Annotated Source
+node provenance, the preview displays that line. It considers the smallest
+C# node spans carrying each offset and requires all equally small matches to
+occupy the same line. Multiple lines, missing offsets,
+and ambiguous attribution fall back to the complete decompiled member. Resource
+cleanup findings concern control flow across acquisition, execution, and cleanup,
+so they retain the member code rather than claiming that one acquisition line
+is the violation. This view does not invent source correspondence. Module/Finding IDs
 and detailed limitations remain in the transport but are omitted from this view;
 the incomplete-analysis warning remains visible. Unknown actionability means
 the model cannot classify the operation's impact; the user must inspect the code.

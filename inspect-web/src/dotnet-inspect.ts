@@ -366,7 +366,7 @@ import {
   isAnalysisMode,
   restoreAnalysisTabFocus,
 } from "./analysis-inspector.ts";
-import { bindTriageCode } from "./triage-code.ts";
+import { bindTriageCode, triageIssueLine } from "./triage-code.ts";
 import { renderLibraryResourceTriageSurface } from "./library-resource-triage.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
@@ -14513,6 +14513,21 @@ function bindTriageCodeEvents() {
     const triageTaste = JSON.stringify(state.taste);
     bindTriageCode(document, async target => {
       await waitForLibraryEngineReady();
+      if (target.issueOffsets?.length) {
+        try {
+          const census = triagePlatformLibrary
+            ? await inspectPlatformMemberFindingCensus(triagePackage.activeFramework, triagePackage.version,
+                target.assembly, triagePlatformLibrary.pack, target.typeId, target.typeId,
+                target.memberName, "", target.selector, target.methodToken, triageTaste, null)
+            : await inspectMemberFindingCensus(triagePackage.id, triagePackage.version, triagePackage.activeFramework,
+                target.assembly, target.typeId, target.typeId, target.memberName, "",
+                target.selector, target.methodToken, triageTaste);
+          const line = triageIssueLine(census.annotatedSource.document, target.issueOffsets);
+          if (line) return { kind: "line", text: line };
+        } catch {
+          // Missing line attribution falls back to the same exact member's code.
+        }
+      }
       return triagePlatformLibrary
         ? inspectPlatformMemberSource(triagePackage.activeFramework, triagePackage.version,
             target.assembly, triagePlatformLibrary.pack, target.typeId, target.memberName,

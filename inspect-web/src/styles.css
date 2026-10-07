@@ -6506,9 +6506,6 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 
 .triage-item { border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
 .triage-item .perf-row { border-bottom: 0; }
-.triage-kinds { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
-.triage-kinds button { padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); background: transparent; }
-.triage-kinds button[aria-pressed="true"] { color: var(--fg); background: var(--panel-active); border-color: var(--accent); }
 .triage-boundaries { margin: 0; padding: 0 16px 8px 60px; font-size: 12px; color: var(--muted); }
 .triage-code { padding: 0 16px 12px 60px; font-size: 12px; }
 .triage-code summary { cursor: pointer; color: var(--accent); }

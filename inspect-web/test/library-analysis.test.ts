@@ -35,7 +35,7 @@ function member(overrides: Partial<BrowserPerformanceMember> = {}): BrowserPerfo
     memberName: "Run",
     stableSelector: "Run",
     bodyTokens: [0x06000001],
-    bodyTargets: [{ typeId: "Test.Namespace.Widget", memberName: "Run", selectorKey: "body-Run", methodToken: 0x06000001 }],
+    bodyTargets: [{ typeId: "Test.Namespace.Widget", memberName: "Run", selectorKey: "body-Run", methodToken: 0x06000001, issueOffsets: [7] }],
     opportunityCount: 3,
     inLoopCount: 1,
     shapes: ["box-value-type", "string-concat"],
@@ -187,13 +187,13 @@ test("property previews use each owner-issued accessor instead of the public nav
   const html = renderLibraryAnalysisSurface({ ...baseOptions, data: result({ members: [member({
     memberName: "Value", stableSelector: "public-Value", bodyTokens: [1, 2],
     bodyTargets: [
-      { typeId: "Test.Namespace.Widget", memberName: "get_Value", selectorKey: "body-get", methodToken: 1 },
-      { typeId: "Test.Namespace.Widget", memberName: "set_Value", selectorKey: "body-set", methodToken: 2 },
+      { typeId: "Test.Namespace.Widget", memberName: "get_Value", selectorKey: "body-get", methodToken: 1, issueOffsets: [7] },
+      { typeId: "Test.Namespace.Widget", memberName: "set_Value", selectorKey: "body-set", methodToken: 2, issueOffsets: [9] },
     ],
   })] }) });
   assert.match(html, /data-perf-selector="public-Value"/);
-  assert.match(html, /data-triage-member="get_Value" data-triage-selector="body-get" data-triage-token="1"/);
-  assert.match(html, /data-triage-member="set_Value" data-triage-selector="body-set" data-triage-token="2"/);
+  assert.match(html, /data-triage-member="get_Value" data-triage-selector="body-get" data-triage-token="1" data-triage-offsets="7"/);
+  assert.match(html, /data-triage-member="set_Value" data-triage-selector="body-set" data-triage-token="2" data-triage-offsets="9"/);
   assert.doesNotMatch(html, /data-triage-member="Value"/);
 });
 

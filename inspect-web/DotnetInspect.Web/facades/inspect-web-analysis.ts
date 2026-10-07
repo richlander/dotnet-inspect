@@ -789,6 +789,7 @@ export interface BrowserPerformanceBodyTarget {
   readonly memberName: string;
   readonly selectorKey: string;
   readonly methodToken: number;
+  readonly issueOffsets: ReadonlyArray<number> | null;
 }
 
 export interface BrowserPerformanceMember {

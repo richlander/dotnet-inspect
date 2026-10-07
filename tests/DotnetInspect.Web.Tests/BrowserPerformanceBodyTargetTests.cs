@@ -28,13 +28,32 @@ public sealed class BrowserPerformanceBodyTargetTests
         {
             var member = row.Member.PublicMember!;
             var targets = AnalysisExports.PerformanceBodyTargets(surface,
-                member.Type, member.StableSelector, member.BodyTokens);
+                member.Type, member.StableSelector, member.BodyTokens, row.Member.Ranking.Opportunities);
             Assert.Equal(member.Member == "AccessorBoxedValue" ? 2 : 1, targets.Length);
             foreach (var target in targets)
             {
                 Assert.Contains(target.MethodToken, member.BodyTokens);
+                Assert.NotNull(target.IssueOffsets);
+                Assert.NotEmpty(target.IssueOffsets);
+                var projected = Assert.IsType<AssemblyContextEntry<AssemblyMemberProjection>.Available>(
+                    AssemblyContextMemberProjectionQuery.ExecuteParticipant(group, participant,
+                        new(target.TypeId, target.MemberName, MethodToken: target.MethodToken, SourceDocument: true)))
+                    .Value.Projection.SourceDocument;
+                Assert.NotNull(projected);
+                Assert.Contains(projected.Nodes, node => node.Medium == ILInspector.Decompiler.SourceLineKind.CSharp
+                    && node.Provenance?.IlOffsets.Any(offset => target.IssueOffsets.Contains(offset)) == true);
                 Assert.NotNull(CallGraphMemberResolver.ResolveDefinitionIdentity(surface,
                     target.TypeId, target.MemberName, target.SelectorKey, target.MethodToken));
+            }
+            var opportunity = row.Member.Ranking.Opportunities[0];
+            foreach (var unavailable in new[] {
+                opportunity with { ILOffset = null },
+                opportunity with { Provenance = PerformanceTriageProvenance.Aggregate },
+            })
+            {
+                var incompleteTargets = AnalysisExports.PerformanceBodyTargets(surface,
+                    member.Type, member.StableSelector, member.BodyTokens, [unavailable]);
+                Assert.All(incompleteTargets, target => Assert.Null(target.IssueOffsets));
             }
             if (member.Member != "Method")
                 Assert.All(targets, target => Assert.NotEqual(member.Member, target.MemberName));
