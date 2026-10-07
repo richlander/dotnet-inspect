@@ -26,8 +26,10 @@ bugs, but it is an assumption. A Lean proof needs no such assumption because it
 covers every instance of the model.
 
 Both tools prove facts about **the model**, not the C#. The gap between the
-model and the code is the same for both. Close it with explicit correspondence:
-name the modeled commit, map each model symbol to its C# counterpart, and add
+model and the code is the same for both. When a model mirrors existing code,
+close the gap with explicit correspondence: name the modeled commit and map
+each model symbol to its C# counterpart. When a model explores a design before
+code exists, say which implementation claims it leaves open. Either way, add
 the implementation gates that
 [Asserted properties name their gate](evidence-and-validation.md#asserted-properties-name-their-gate)
 requires.
@@ -77,11 +79,15 @@ result, so the code can drop it. Classify each piece of work as:
 - **Redundant**: another check, or the shape of the code, already guarantees
   it.
 - **Derivable**: its value equals something the code already keeps.
+- **Narrowed**: it is needed only on part of its current domain.
 - **Diagnostic**: it changes only which error is reported, never what is
   accepted.
 - **Loosenable**: a weaker check is sound under a stated condition.
 - **Policy**: it enforces a design rule, not result soundness.
 - **Structural**: a better input type would make it unrepresentable.
+
+Qualify a label when the classification depends on a condition or a call site,
+for example "Redundant; removed" or "Diagnostic, given plan-object executors".
 
 Name the theorem for each classification. When a classification depends on
 facts about the platform, such as ECMA-335 table limits, state them as explicit
@@ -91,15 +97,15 @@ the call sites the model mirrors.
 A proof that work is removable is a code-reduction claim. A speedup claim still
 needs the NativeAOT measurement that
 [NativeAOT before/after](evidence-and-validation.md#nativeaot-beforeafter-for-modernization)
-describes. The measurement must remove the work from the path the measured
-command actually runs, and it must include an A/A control. A null or
-unresolved result is evidence too, so record it.
+describes. When measuring a proof-backed removal, check that the variant removes
+the work from the path the measured command actually runs. A rebuilt baseline
+with an unrelated change (an A/A control) shows how much of a small difference
+is noise. A null or unresolved result is evidence too, so record it.
 
 ## Placement and gates
 
-Each model lives in its own directory under the owning design's `models/`
-directory, normally `docs/design/models/<name>/`, with a README that names its
-owner, claims, and limits. Runnable companion probes, such as C# NativeAOT
+Each model lives in its own directory, as its tool's methodology directs, with
+a README that names its owner, claims, and limits. Runnable companion probes, such as C# NativeAOT
 experiments, stay under `prototypes/` and link to the model both ways.
 
 The per-PR TLA+ gate checks changed TLA+ models and their consumers. Lean

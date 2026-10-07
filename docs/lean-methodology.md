@@ -27,11 +27,12 @@ the two READMEs. Each Lean model is one self-contained Lake project:
 
 | File | Role |
 | --- | --- |
-| `lakefile.toml` | Project and library declaration; the default target is the model library |
+| `lakefile.toml` | Project and library declaration; the default target is the model library, or an executable that imports it |
 | `lean-toolchain` | The pinned Lean release |
 | `lake-manifest.json` | The resolved dependency set |
-| `.gitignore` | Contains `.lake/`, which keeps build output out of the tree |
+| `.gitignore` | Ignores `.lake`, which keeps build output out of the tree |
 | `<Model>.lean`, or a root module with a `<Model>/` folder | The definitions and theorems |
+| `Main.lean` (optional) | An executable that prints a worked example |
 | `README.md` | Owner, claims, correspondence, assumptions, limits, and build command |
 
 Keep models dependency-free. Core Lean covers the list, natural-number, and
@@ -47,13 +48,21 @@ Commit and push a model as soon as it builds, as
 [TLA+ methodology](tla-plus-methodology.md#compose-models-along-product-boundaries)
 also requires for TLA+ models. An uncommitted model is not reviewable evidence.
 
-## Model the code, then prove the claim
+## Model the code or the design
 
-Mirror the C# at one named commit. Write one Lean definition for each C#
-operation whose behavior the claim depends on. Keep its control flow, guards,
-and failure points in the same order, even when a shorter definition would
-prove more easily. If the model simplifies representation, for example a list
-standing for a set builder, say so in the README.
+A Lean model is one of two kinds:
+
+- **Code model:** it mirrors existing C# at one named commit, typically to
+  classify checks or prove that a shipped plan is equivalent to another. Write
+  one Lean definition for each C# operation whose behavior the claim depends
+  on. Keep its control flow, guards, and failure points in the same order, even
+  when a shorter definition would prove more easily. If the model simplifies
+  representation, for example a list standing for a set builder, say so in the
+  README.
+- **Design model:** it proves an abstract law or compares mechanisms before
+  code exists. It names no commit. Its README states which implementation
+  claims the proof leaves open, such as correspondence with code written
+  later.
 
 State outside facts as explicit theorem hypotheses, not as `axiom`
 declarations. Facts such as "a MethodDef table has fewer than `2^24` rows" or
@@ -71,13 +80,16 @@ Every model README states:
 - **Claims:** a table mapping each owner claim to the theorem that proves it.
   When the model classifies checks, give each one's classification as well, per
   [Proving that work can be removed](proof-methodology.md#proving-that-work-can-be-removed).
-- **Correspondence:** a table mapping each Lean definition to its C# symbol at
-  the modeled commit.
+- **Correspondence:** for a code model, a table mapping each Lean definition
+  to its C# symbol at the modeled commit. For a design model, the
+  implementation claims the proof leaves open.
 - **Assumptions:** every hypothesis that stands for an outside fact.
 - **Limits:** what the model does not cover.
 - **Build:** the command, run from the model directory.
 
-When the modeled code changes, update the correspondence and re-run the build,
+Models that predate this contract meet it when they are next changed.
+
+When a code model's C# changes, update the correspondence and re-run the build,
 or mark the README stale. A proof about an outdated model is not evidence about
 current code. Statements about the code must be checked against every
 production caller; reviewers check them like any other claim.
