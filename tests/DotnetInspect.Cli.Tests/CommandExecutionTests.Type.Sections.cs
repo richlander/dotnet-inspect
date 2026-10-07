@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Sections;
 using System.Globalization;
+using System.IO.Compression;
 using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspect.Cli.Commands;
@@ -100,6 +101,52 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Equal("0", output.Trim());
         Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Type_HierarchyRetainsRuntimeOnlyPackageSelection()
+    {
+        string directory =
+            Directory.CreateTempSubdirectory(
+                "type-hierarchy-runtime-package-test").FullName;
+        string package =
+            Path.Combine(directory, "runtime-only.1.0.0.nupkg");
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(
+                       package,
+                       ZipArchiveMode.Create))
+            {
+                archive.CreateEntryFromFile(
+                    assembly,
+                    "runtimes/any/lib/net11.0/"
+                        + Path.GetFileName(assembly));
+            }
+
+            var (exit, output, error) = await RunAppAsync(
+                "type",
+                typeof(IWorkspaceImplementationMarker).FullName!,
+                "--package",
+                package,
+                "--library",
+                Path.GetFileName(assembly),
+                "--tfm",
+                "net11.0",
+                "-S",
+                SectionNames.Implementers,
+                "--count");
+
+            Assert.Equal(0, exit);
+            Assert.Equal("4", output.Trim());
+            Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]

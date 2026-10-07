@@ -744,6 +744,11 @@ internal static class TypeHierarchyRelationsInspectionExecutor
             Tfm = options.Tfm ?? source.SelectedTfm,
             SourceOptions = options.SourceOptions,
             TempDirPrefix = "inspect-type-hierarchy",
+            IncludePackageRuntimeAssemblies =
+                PackageRelativePath(source) is { } packageAsset
+                && packageAsset.StartsWith(
+                    "runtimes/",
+                    StringComparison.OrdinalIgnoreCase),
             CancellationToken = cancellationToken,
         };
     }
