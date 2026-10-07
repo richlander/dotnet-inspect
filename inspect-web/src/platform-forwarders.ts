@@ -44,25 +44,26 @@ export function renderForwardedTypeOverview(
   escapeHtml: (value: unknown) => string,
 ): string {
   const e = escapeHtml;
-  return `<section class="overview-surface forwarded-type-overview" aria-labelledby="forwarded-type-title">
-    <header class="api-surface-head overview-surface-head"><span class="overview-surface-label">Overview</span><p>Forwarded Type</p></header>
-    <div class="overview-scroll">
-      <header class="overview-identity">
-        <div class="overview-identity-text">
-          <p class="type-namespace">${e(row.namespace)}</p>
-          <h1 id="forwarded-type-title">${e(row.name)}</h1>
-          <p class="overview-identity-detail">Declared by ${e(assembly)}</p>
-        </div>
-      </header>
-      <section class="document-section">
-        <h2>Type forwarding</h2>
-        <p>Forwarded to ${row.action && status.available !== false
-          ? `<button type="button" class="type-chip" data-platform-forwarder="${e(row.id)}"${status.pending ? ' disabled aria-busy="true"' : ""}>${e(row.targetAssembly)}</button>`
-          : `<span>${e(row.targetAssembly)}</span>`}</p>
-        <p>This declaration forwards the Type to another Library; it does not define members here.</p>
-        ${status.pending ? '<p role="status">Opening the forwarded Type...</p>' : ""}
-        ${status.error ? `<p role="alert">${e(status.error)}</p>` : ""}
+  const destination = row.action && status.available !== false
+    ? `<button type="button" class="forwarder-destination" data-platform-forwarder="${e(row.id)}" aria-label="${e(`Open ${row.name} in ${row.targetAssembly}`)}"${status.pending ? ' disabled aria-busy="true"' : ""}>${e(row.targetAssembly)} <span aria-hidden="true">→</span></button>`
+    : `<code>${e(row.targetAssembly)}</code>`;
+  return `<section class="metadata-surface forwarded-type-overview" aria-labelledby="forwarded-type-title">
+    <header class="metadata-surface-head">
+      <h1 id="forwarded-type-title">Type forwarder</h1>
+      <p>ExportedType <span>· ECMA-335 metadata</span></p>
+    </header>
+    <div class="metadata-surface-scroll">
+      <section class="document-section metadata-shape-section">
+        <div class="section-title"><h2>Declaration</h2><span>Type forwarding</span></div>
+        <dl class="fact-rows">
+          <div><dt>Type</dt><dd><code>${e(row.name)}</code></dd></div>
+          <div><dt>Namespace</dt><dd><code>${e(row.namespace || "global")}</code></dd></div>
+          <div><dt>Declaring assembly</dt><dd><code>${e(assembly)}</code></dd></div>
+          <div><dt>Implementation</dt><dd>${destination}</dd></div>
+        </dl>
       </section>
+      ${status.pending ? '<p class="forwarder-status" role="status">Opening the forwarded Type…</p>' : ""}
+      ${status.error ? `<p class="forwarder-status" role="alert">${e(status.error)}</p>` : ""}
     </div>
   </section>`;
 }
