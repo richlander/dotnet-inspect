@@ -1622,6 +1622,10 @@ canaries:
   bounds, and issues caller-shaped hits without acquiring or inspecting an
   artifact. Browser-Wasm supplies its existing transport records but does not
   execute the semantic ranking.
+- `ExactLibraryApiInspectionResult` carries its exact assembly identity through
+  a Queries-owned detached value with the same metadata fields. Browser-Wasm
+  losslessly adapts that value without referencing Metadata identity types;
+  Queries retains the semantic projection from the selected participant.
 - `AssemblyContextTypeDependencyQuery` retains the admitted descriptors for one
   binding-consistent group and invokes the Metadata-owned population scan once.
   Ordinary population lookup scans the committed participant order. Its

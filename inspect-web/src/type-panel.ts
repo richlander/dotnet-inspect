@@ -621,6 +621,7 @@ export interface TypeNavOptions {
   accessibilityOptions: readonly TypeSelectorOption[];
   traitOptions: readonly TypeSelectorOption[];
   library: string;
+  navigationScrollScope?: string;
   parentSubject: "package" | "platform" | "library" | null;
   filtersExpanded: boolean;
   filterSummary: string;
@@ -716,7 +717,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
         </div>
       </details>
       ${statusHtml ? `<div class="type-browser-status">${statusHtml}</div>` : ""}
-      <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
+      <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-scroll-scope="${escapeHtml(options.navigationScrollScope ?? "types")}" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
         ${[...typeGroups].map(([namespace, types]) => {
           const namespaceLeverage = types.some(
             type => !isForwardedType(type),

@@ -22,11 +22,11 @@ Type:
 - **surface leverage** is the Research signature-evidence pole; and
 - **implementation leverage** is the Research body-use-evidence pole.
 
-A Type shows zero, one, or two pole glyphs. When both evidence modes issue a
-pole, Inspect Web shows both. This includes two poles in the same direction and
-opposing poles. Agreement is not collapsed into one stronger cue, and
-disagreement is not suppressed or demoted. The two results answer different
-questions and their co-occurrence is itself useful evidence.
+A Type reserves exactly two ordered icon slots: API differences first,
+structural salience second. Structural salience uses the implementation pole
+when one is issued, otherwise the surface pole. The tooltip and accessible
+label preserve both evidence modes, including agreement and disagreement,
+without duplicating the visible icon.
 
 The Browser never derives a pole, degree, role, cohort, or eligibility decision.
 It joins owner-issued results to visible Types by exact Type-definition
@@ -196,21 +196,21 @@ its settled cache entry to remain associated with its own key.
 
 ## Presentation
 
-Leverage is an automatic icon-only Type-row affordance:
+Leverage is an automatic icon-only Type-row affordance. One wave means sea
+level and one mountain means mountain peak; both evidence modes use the same
+shape. Color continues to distinguish the two poles. The tooltip and accessible
+label name every issued mode and pole.
 
-- an outline wave or mountain glyph means a surface pole;
-- a filled wave or mountain glyph means an implementation pole; and
-- color continues to distinguish sea level from mountain peak.
+The API-difference slot stays first and the structural-salience slot stays
+second even when either is empty. The namespace top-leverage cue belongs to
+namespace headings, while method Top Leverage and Implementation Hub belong
+to Member rows rather than consuming Type slots.
 
-Shape/fill distinguishes evidence mode without relying on color. The accessible
-label and tooltip name both mode and pole, for example `surface sea level` or
-`implementation mountain peak`.
-
-When both channels issue a pole, the surface glyph precedes the implementation
-glyph. An API-difference glyph, when present, follows them. This fills the
-existing three-slot Type achievement rail without overflow. Same-direction
-poles use distinct achievement kinds, so the rail retains both rather than
-rejecting them as duplicates.
+Markout 0.38.0, net10.0, with `Markout.MarkoutField` selected in Type Compare
+on dotnet-inspect.ca motivates this presentation: aligned surface and body poles
+looked like duplicate icons, and outline/filled variants obscured the intended
+two-slot inventory. Deterministic browser cases retain aligned and opposing
+poles and assert one salience icon with both facts in its accessible description.
 
 Pole cues add no row tint, badge, section, summary count, control, or filter.
 The existing namespace top-leverage glyph remains a surface namespace cue.
@@ -254,8 +254,8 @@ The contract is gated at four boundaries:
 - TypeScript unit tests prove independent channel validation, same-direction
   and opposing dual poles, cache replacement, retry, and stale-publication
   suppression.
-- Browser tests prove automatic post-paint acquisition, outline/filled icon
-  presentation, accessible mode-plus-pole labels, two leverage glyphs plus an
+- Browser tests prove automatic post-paint acquisition, single-icon
+  presentation, accessible mode-plus-pole labels, one leverage glyph plus an
   API-difference glyph, qualified/failure status, and the absence of salience
   controls or filters.
 
