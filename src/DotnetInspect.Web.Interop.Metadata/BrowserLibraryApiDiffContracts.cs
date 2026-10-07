@@ -6,7 +6,7 @@ namespace DotnetInspect.Web.Interop.Metadata;
 
 internal static class BrowserLibraryApiDiffSchema
 {
-    internal const int Version = 3;
+    internal const int Version = 4;
 }
 
 public sealed record BrowserLibraryApiDiffRequest(
@@ -146,7 +146,12 @@ public sealed record BrowserLibraryApiDiffAggregate(
     int ChangedMemberCount,
     int BreakingCount,
     int AdditiveCount,
-    int PotentiallyBreakingCount);
+    int PotentiallyBreakingCount,
+    int ApiAdditionCount = 0,
+    int ApiDeletionCount = 0,
+    int ApiChangeCount = 0,
+    int MethodBodyChangeCount = 0,
+    int UnavailableMethodBodyCount = 0);
 
 public sealed record BrowserLibraryApiDiffType(
     string DocumentIdentifier,
@@ -160,7 +165,8 @@ public sealed record BrowserLibraryApiDiffType(
     BrowserLibraryApiDiffTypeIdentity? Before,
     BrowserLibraryApiDiffTypeIdentity? After,
     BrowserLibraryApiDiffMember[] Members,
-    BrowserLibraryApiDiffChange[] Changes);
+    BrowserLibraryApiDiffChange[] Changes,
+    BrowserLibraryDiffCategory[] Categories = null!);
 
 public sealed record BrowserLibraryApiDiffTypeIdentity(
     string Identifier,
@@ -176,7 +182,17 @@ public sealed record BrowserLibraryApiDiffMember(
     BrowserLibraryApiDiffMemberIdentity? After,
     BrowserLibraryApiDiffChange[] Changes,
     BrowserLibraryApiDiffMatch? Match,
-    BrowserLibraryApiDiffMemberExploreDestination? Explore);
+    BrowserLibraryApiDiffMemberExploreDestination? Explore,
+    BrowserLibraryDiffCategory[] Categories = null!);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryDiffCategory>))]
+public enum BrowserLibraryDiffCategory
+{
+    ApiAddition,
+    ApiDeletion,
+    ApiChange,
+    MethodBodyChange,
+}
 
 /// <summary>
 /// The Findings-issued correspondence provenance behind a changed relation: the

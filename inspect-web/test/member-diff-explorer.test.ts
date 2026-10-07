@@ -105,6 +105,7 @@ function context(
     }],
     match: null,
     explore,
+    categories: [],
   };
   const type: BrowserLibraryApiDiffType = {
     documentIdentifier: "Example.Widget",
@@ -129,6 +130,7 @@ function context(
     },
     members: [member],
     changes: [],
+    categories: [],
   };
   const document: BrowserLibraryApiDiffSucceeded = {
     libraryIdentifier: "Example",
@@ -153,13 +155,18 @@ function context(
       breakingCount: 1,
       additiveCount: 0,
       potentiallyBreakingCount: 0,
+      apiAdditionCount: 0,
+      apiDeletionCount: 0,
+      apiChangeCount: 1,
+      methodBodyChangeCount: 0,
+      unavailableMethodBodyCount: 0,
     },
     types: [type],
   };
   const result: BrowserLibraryApiDiffResult = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     request: {
-      schemaVersion: 3,
+      schemaVersion: 4,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",

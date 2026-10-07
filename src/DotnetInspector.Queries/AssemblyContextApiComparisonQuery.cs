@@ -83,7 +83,8 @@ public static class AssemblyContextApiComparisonQuery
         AssemblyContextGroup afterGroup,
         AssemblyContextParticipant afterParticipant,
         ApiSurfaceScope scope,
-        ApiSurfaceProjectionLimits perEndpointLimits)
+        ApiSurfaceProjectionLimits perEndpointLimits,
+        ApiDiffScope diffScope = ApiDiffScope.Signature)
     {
         ArgumentNullException.ThrowIfNull(beforeGroup);
         ArgumentNullException.ThrowIfNull(beforeParticipant);
@@ -92,6 +93,11 @@ public static class AssemblyContextApiComparisonQuery
         ArgumentNullException.ThrowIfNull(perEndpointLimits);
         if (!Enum.IsDefined(scope))
             throw new ArgumentOutOfRangeException(nameof(scope));
+        if (!Enum.IsDefined(diffScope) && diffScope
+            != (ApiDiffScope.Signature | ApiDiffScope.Attributes))
+        {
+            throw new ArgumentOutOfRangeException(nameof(diffScope));
+        }
 
         AssemblyContextApiComparisonEndpoint before =
             Project(beforeGroup, beforeParticipant, scope, perEndpointLimits);
@@ -101,7 +107,10 @@ public static class AssemblyContextApiComparisonQuery
         ApiFindingComparison? comparison =
             before.CompleteSurface is { } beforeSurface
             && after.CompleteSurface is { } afterSurface
-                ? ApiComparisonQuery.Execute(beforeSurface, afterSurface)
+                ? ApiComparisonQuery.Execute(
+                    beforeSurface,
+                    afterSurface,
+                    diffScope)
                 : null;
 
         return new(scope, before, after, comparison);

@@ -11,14 +11,13 @@ Complete baseline delivery is tracked by
 
 The normative claim is:
 
-> Explicitly opening Compare for one selected Gallery Package Library uses
-> that retained Package model's effective Diff target to publish one
-> request-associated generic Diff document and its complete service envelope.
-> Public API is the default Library content; an explicit string-literal choice
-> instead projects complete matching literal Transitions from the same
-> host-neutral operation. The owner-issued Library API presentation inside that
-> document preserves exact endpoint, Type, and Type-local changed-Member
-> identity and every typed non-success outcome.
+> Public API Compare at Library and Type publishes one request-associated
+> shallow summary containing only API addition, API deletion, API change, and
+> method-body change categories with exact drill-down identities. It does not
+> construct or serialize the complete Library API Diff document. Member is the
+> first detailed-result boundary and requests complete API evidence on demand.
+> Explicit string-literal comparison continues to publish its complete generic
+> Diff document and service envelope.
 
 This document owns only the Browser request, operation association, bounded
 wire projection, and Library-root presentation. It does not own package
@@ -33,7 +32,7 @@ drill-down lists, and Member is the first detail boundary.
 
 ## Consumer and basis
 
-The The consumer is a person inspecting one Library from a Gallery Package who
+The consumer is a person inspecting one Library from a Gallery Package who
 wants to see how its complete public API or selected decoded string literals
 differ from the Package-owned baseline without leaving the Library context or
 acquiring Source.
@@ -58,8 +57,9 @@ slice does not create a host-neutral abstraction waiting for a future adopter.
 | [Compare experience](inspect-web-compare-experience.md) | Package owns targets; Library Diff is one quiet flat changed-Type inventory. |
 | [Diff targets](inspect-web-diff-targets.md) | Previous/exact target intent and authoritative Gallery version ordering. |
 | [Selected-Library query](../inspection-space.md#selected-library-api-comparison) | Independently projected Before and After endpoints and Metadata-owned API comparison. |
-| [Generic Diff](command-transition-model.md#content-and-failure) | One validated analysis set, ordered per-analysis outcomes, selected views, host-resolved unavailability, and `InspectionEnvelope<DiffAnalysisDocument>`. |
-| [Library API Diff Presentation](library-api-diff-presentation.md) | Complete Library-root document, exact Type identities, aggregate counts, and typed Available/Unavailable/Rejected outcomes. |
+| [Generic Diff](command-transition-model.md#content-and-failure) | Complete generic evidence for string literals and Member detail. |
+| [Library API Diff Presentation](library-api-diff-presentation.md) | Complete Member-detail API evidence and typed Available/Unavailable/Rejected outcomes. |
+| Library Diff summary | Exact Type and Member identities, high-level API/body categories, endpoint evidence, and typed outcomes for Library and Type. |
 | [Inspection envelope](inspection-envelope.md#same-baseline-broader-clients) | One shared baseline containing Content, Share, and ordered diagnostics; lossless Browser transport projection is permitted. |
 | Browser package Workspace | Exact Gallery package, framework, compile-asset identity, acquisition, and protected scope lifetime. |
 | [Operation authority](inspect-web-operation-authority.md) | Current-context publication, supersession, cancellation, disposal, and quiescence. |
@@ -151,33 +151,30 @@ admission. Only an admitted request proceeds. For each endpoint, it then:
 2. resolves the exact compile asset;
 3. projects `ApiSurfaceScope.Public` with the fixed
    `BrowserApiSurfacePolicy.Limits`; and
-4. passes both participants to `DiffAnalysisLibraryInspection.Execute`, the
-   shared generic-Diff and Library-presentation terminal.
+4. for Public API at Library or Type, passes both participants to
+   `LibraryDiffSummaryInspection.Execute`; otherwise, passes them to
+   `DiffAnalysisLibraryInspection.Execute` for string literals or Member
+   detail.
 
 Before is the target version and After is the current version. Each scope is
 released after the shared comparison and wire projection complete.
 
-Both hosts consume the same host-neutral `DiffAnalysisInspection` operation.
-The selected-Library composition returns
-`InspectionEnvelope<DiffAnalysisDocument>` and derives its generic API outcome
-and `LibraryApiDiffOutcome` from one `AssemblyContextApiComparisonResult`.
-The Browser's request-associated result contains that complete baseline as
-`inspection`, alongside its existing changed-Type view. It neither introduces
-another comparison service nor makes the displayed inventory stand in for
-Content.
+The summary operation retains API correspondence but projects only exact
+identities, endpoint evidence, and high-level categories. For already
+corresponded public method bodies it performs one linear canonical IL equality
+check, including normalized branch and exception-region topology and catch
+types; it does not decompile, align instruction sequences, allocate detailed
+diff rows, construct `LibraryApiDiffDocument`, or serialize generic Diff
+Content. Its Browser result therefore has a null `inspection` field.
 
-Content crosses the Browser JSON boundary through
-`DiffAnalysisInspectionJsonContext`. The transport uses
-`InspectionEnvelope<JsonElement>`: Content retains the complete generic Diff
-document, while Share and ordered diagnostics retain their service-issued
-values. The nested `libraryApi` property retains
-`LibraryApiDiffJsonContext`'s owner-issued schema, including the canonical
-snake_case `ComparisonDocument`; no TypeScript or Browser wire projection
-reconstructs correspondence. Browser envelope properties remain camelCase and
-diagnostic severities numeric; CLI framing remains governed by
-[Output Shapes](output-shapes.md).
+Member and string-literal requests continue through the complete generic Diff
+operation. Their Content crosses the Browser boundary through
+`DiffAnalysisInspectionJsonContext` as
+`InspectionEnvelope<JsonElement>`, preserving Share and ordered diagnostics.
+Exact Member API comparison includes signature and attribute facets so every
+Member row offered by Type Compare retains detailed evidence at drill-down.
 
-The Browser request contract is schema version 3. The production Compare call
+The Browser request contract is schema version 4. The production Compare call
 defaults to Library surface, `api`, and Changes. The Library content picker can
 instead select `string-literals`, Transitions, and one exact `Literal`
 `Contains` or `StartsWith` predicate. All eight Diff analyses remain in the
@@ -190,6 +187,11 @@ Browser-visible catalog at their declared surfaces:
 - `allocation`, `call-site`, `unsafety`, `csharp`, and `il` validate at Member
   but return typed `Unavailable` because Browser/Wasm does not construct their
   method-body comparison inputs.
+
+The summary's method-body category is independent of those detailed body
+analyses: it compares canonical IL only to answer whether an already
+corresponded public method body changed. One-sided accessor or method bodies
+remain API additions or deletions and are not also method-body changes.
 
 The literal producer is independent of API projection completeness. An
 incomplete API surface remains typed endpoint evidence but does not suppress a
@@ -214,28 +216,32 @@ The Browser wire result retains:
 - endpoint package, version, framework, exact asset, assembly identity, scope,
   completeness, and bounded issues, including the shared terminal's contained
   Metadata inspection-failure evidence;
-- aggregate changed-Type, changed-member, and compatibility counts;
+- aggregate changed-Type, changed-member, API-category, body-category, and
+  unavailable-body counts; API-category counts include direct Type facets plus
+  distinct changed-Member relations without recounting Member-derived Type
+  categories;
 - every producer-ordered changed Type;
 - exact nullable Before and After Type identities;
 - every Type-local changed-Member relation, preserving its global pair kind,
   local Before/After/Both role, exact nullable endpoint identities, and
   complete member anchors; and
-- type-definition and compact compatibility counts.
+- high-level categories on every changed Type and Member.
 
 The wire projection is all-or-nothing. The Browser inventory admits at most
-10,000 changed Types and a 6,000,000-character retained Type-and-Member-text
-budget. The **entire result**, including native Content, Share, and
-diagnostics, must fit the ordinary Worker's 16,777,216-character and
-524,288-collection-entry limits, reserving its one-element result tuple.
+10,000 changed Types. The entire result must fit the ordinary Worker's
+16,777,216-character and 524,288-collection-entry limits, reserving its
+one-element result tuple.
 Collection accounting follows the serialized value: each object contributes
 its property count plus one, each array its length plus one, and contained
 objects and arrays contribute recursively. Character accounting uses the
-Worker's `JSON.stringify` representation, not managed JSON escaping. The
-complete baseline is admitted before the repeated Browser inventory is built,
-so an oversized producer result rejects without first duplicating every member
-identity. A baseline that fits can still produce a final result that rejects
-after view projection. Exceeding any bound produces typed `Rejected`; it never
-returns a truncated successful inventory or baseline.
+Worker's `JSON.stringify` representation, not managed JSON escaping. Detailed
+requests admit their complete baseline before building the Browser inventory;
+summary requests have no duplicate baseline. Exceeding any bound produces
+typed `Rejected`; it never returns a truncated successful inventory.
+
+When a narrowed Type has no confirmed category row but one or more method
+bodies could not be compared, the Browser presents an incomplete-comparison
+state rather than claiming that the Type is unchanged.
 
 A Browser transport rejection omits both `inspection` and endpoint evidence
 from its rejection arm, retains the accepted bounded request and exact
@@ -296,10 +302,10 @@ Rows retain exact Before and After Type identifiers in the DOM projection.
 This first Library adopter does not make them interactive because Type Compare
 is not yet delivered. It does not fake sticky drill-down by mutating Type and
 lens state independently, and it does not open an in-place detail region.
-The generated Browser contract also retains each row's complete Type-local
-changed-Member inventory so the later Type Compare adopter can render and
-activate exact members without parsing display text or re-running the Library
-comparison.
+The generated Browser contract retains each changed Type's shallow
+changed-Member inventory so Type Compare can render and activate exact members
+without parsing display text. Type entry reruns the summary narrowed to the
+exact Type rather than retaining or filtering a complete Library document.
 The later Type Compare slice consumes the product-owned atomic descendant
 subject-and-lens activation from
 [#6490](https://github.com/richlander/dotnet-inspect/issues/6490).
@@ -325,8 +331,7 @@ The published Browser demo uses the deterministic `LibraryApiDiff.V1` and
 1. inspect the V2 package and its exact fixture Library;
 2. keep the default previous-release Diff target;
 3. open Library Compare;
-4. show the complete changed-Type inventory and aggregate compatibility
-   counts;
+4. show the changed-Type inventory and aggregate API/body category counts;
 5. choose String literals, search for values containing `https://`, and show
    complete matching literals as rows;
 6. switch to `starts-with` and exclude an embedded-only fixture literal;
@@ -337,7 +342,7 @@ The published Browser demo uses the deterministic `LibraryApiDiff.V1` and
 
 | Gate | Adoption evidence |
 | --- | --- |
-| Release `BrowserLibraryApiDiffOperationTests` | Real V1-to-V2 and same-version results, exact Type-local changed-Member identities and moved-member roles, `api-attribute` and `string-literals` execution, typed body-analysis unavailability, pre-acquisition predicate rejection, exact asset mismatch, typed non-success, member-heavy bounds, cancellation, and generated JSON shape. |
+| Release `BrowserLibraryApiDiffOperationTests` | Real V1-to-V2 and same-version summaries, exact Type-local changed-Member identities, high-level API/body categories, on-demand Member detail, `api-attribute` and `string-literals` execution, typed non-success, bounds, cancellation, and generated JSON shape. |
 | Release `BrowserLibraryApiDiffEnvelopeParityTests` (Slow) | Authentic System.Text.Json 9.0.0-to-10.0.0 Library comparison: Browser generic Diff Content, Share, and diagnostics agree with the shared terminal. |
 | Release `ProductionFacadeContextTests`, `generated-facade-contract.test.ts`, and `generate-inspect-web-engine-facade.sh --check` | Existing Metadata facade exports and compiler-derived TypeScript transport. |
 | Node Library API Diff tests | Target resolution, predicate request association, complete API and string-literal row rendering, API-independent literal presentation, exact identities, non-success, and stale completion suppression. |
@@ -355,12 +360,12 @@ network-dependent real-package case runs as a focused pre-merge gate.
 This slice lands independently of retained Workspace Definition restoration
 and the heavy-inspection multi-part-document work in
 [#6980](https://github.com/richlander/dotnet-inspect/issues/6980). It consumes
-the existing portable Library document and request-associated live Package
-context.
+the request-associated live Package context and retains the portable complete
+document only for Member detail.
 
 It adds one closed Library content choice, not a generalized analysis selector.
 It does not add Source comparison, new Clone execution, platform/local package
 comparison, portable comparison settings, a second live Workspace, a new
 Worker, a new facade, a new matching algorithm, or a generalized comparison
-session. Type and Member Compare continue to project from the one complete
-Library-root presentation retained in `DiffAnalysisDocument.LibraryApi`.
+session. Library and Type consume the shallow summary; Member and string
+literals retain their complete owner-issued evidence paths.

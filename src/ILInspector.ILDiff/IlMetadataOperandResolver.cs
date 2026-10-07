@@ -41,6 +41,29 @@ public static partial class IlBodyDiff
             }
         }
 
+        public bool TryResolveType(
+            EntityHandle handle,
+            out string? identity,
+            out string? failure)
+        {
+            try
+            {
+                identity = FormatType(handle);
+                failure = null;
+                return true;
+            }
+            catch (Exception ex) when (ex is BadImageFormatException
+                or ArgumentException
+                or InvalidOperationException)
+            {
+                identity = null;
+                failure =
+                    $"exception-region catch type could not be resolved: "
+                    + ex.Message;
+                return false;
+            }
+        }
+
         string ResolveString(int token)
         {
             var handle = MetadataTokens.UserStringHandle(token);

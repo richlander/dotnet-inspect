@@ -32,9 +32,10 @@ libraries, compare API surfaces, classify compatibility, define browser
 transport or interaction, render a text diff, acquire source, or detect clones.
 The first implementation belongs in `DotnetInspector.Presentation`. Its
 immediate adopter is the separately owned
-[Inspect Web Compare Experience](inspect-web-compare-experience.md), which uses
-the flat changed-Type inventory for Library drill-down rather than rendering
-selected-Type detail in place.
+[Inspect Web Compare Experience](inspect-web-compare-experience.md). Inspect
+Web uses a separate host-neutral shallow summary for Library and Type and
+requests this complete document only at the Member detailed-result boundary.
+The CLI and other complete-document consumers remain unchanged.
 
 The shared projection and terminal have CLI and Browser consumers. The
 content-kind adoption tracked by
@@ -60,7 +61,7 @@ inventory with enough nested evidence for a later Type-scoped projection.
 Markout becomes directly relevant only after an action opens a declaration or
 source comparison.
 
-The intended Browser consumer can present the portable document like this:
+The complete document can support a detailed consumer like this:
 
 ```text
 Library Compare · Diff
@@ -72,11 +73,10 @@ Breaking  BodyStateSample
 ```
 
 This is a presentation mockup, not a page-layout or wording contract. The
-important point is that Library can render the flat inventory without
-reparsing messages or requesting an eager source diff for every Type. The
-document's nested Type and Member evidence remains available to the
-Type-scoped projection after exact navigation; it does not require an in-place
-Library detail pane.
+important point is that a complete-document consumer never reparses messages
+or requests an eager source diff for every Type. Inspect Web no longer
+constructs this nested document for Library or Type; it requests the exact
+Member detail after navigation.
 
 ## Browser replacement requirement
 

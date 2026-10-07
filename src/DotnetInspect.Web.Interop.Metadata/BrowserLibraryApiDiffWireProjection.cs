@@ -49,7 +49,8 @@ internal static class BrowserLibraryApiDiffWireProjection
         BrowserLibraryApiDiffRequest request,
         InspectionEnvelope<DiffAnalysisDocument> inspection,
         BrowserLibraryApiDiffEndpointContext target,
-        BrowserLibraryApiDiffEndpointContext current)
+        BrowserLibraryApiDiffEndpointContext current,
+        InspectionEnvelope<LibraryDiffSummaryOutcome>? summary = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(inspection);
@@ -74,8 +75,12 @@ internal static class BrowserLibraryApiDiffWireProjection
                 "The selected-Library Diff inspection omitted Library API evidence.");
         BrowserLibraryApiDiffResult projected = libraryApi switch
         {
-            LibraryApiDiffOutcome.Available available =>
-                ProjectAvailable(request, available.Document, target, current),
+            LibraryApiDiffOutcome.Available apiAvailable =>
+                ProjectAvailable(
+                    request,
+                    apiAvailable.Document,
+                    target,
+                    current),
             LibraryApiDiffOutcome.Unavailable unavailable =>
                 new BrowserLibraryApiDiffResult(
                     BrowserLibraryApiDiffSchema.Version,
@@ -100,9 +105,341 @@ internal static class BrowserLibraryApiDiffWireProjection
             _ => throw new InvalidOperationException(
                 "Unknown Library API diff outcome."),
         };
-        return AdmitTransport(
+        projected = projected with { Inspection = wireInspection };
+        if (summary?.Content
+            is LibraryDiffSummaryOutcome.Available summaryAvailable)
+        {
+            projected = MergeSummary(
+                projected,
+                summaryAvailable.Summary,
+                target,
+                current);
+        }
+        return AdmitTransport(request, projected);
+    }
+
+    static BrowserLibraryApiDiffResult MergeSummary(
+        BrowserLibraryApiDiffResult result,
+        DotnetInspector.ResearchSections.LibraryDiffSummary summary,
+        BrowserLibraryApiDiffEndpointContext target,
+        BrowserLibraryApiDiffEndpointContext current)
+    {
+        if (result.Value is not { } value)
+            return result;
+
+        BrowserLibraryApiDiffEndpoint targetEndpoint =
+            Project(target, summary.Before);
+        BrowserLibraryApiDiffEndpoint currentEndpoint =
+            Project(current, summary.After);
+        var summaryTypes = summary.Types.ToDictionary(
+            type => type.Identifier,
+            type => Project(
+                type,
+                targetEndpoint,
+                currentEndpoint),
+            StringComparer.Ordinal);
+        List<BrowserLibraryApiDiffType> types = [];
+        foreach (BrowserLibraryApiDiffType type in value.Types)
+        {
+            string identifier =
+                type.After?.Identifier ?? type.Before!.Identifier;
+            if (!summaryTypes.Remove(
+                    identifier,
+                    out BrowserLibraryApiDiffType? summaryType))
+            {
+                types.Add(type);
+                continue;
+            }
+
+            var summaryMembers =
+                summaryType.Members.ToDictionary(
+                    MemberMergeKey,
+                    StringComparer.Ordinal);
+            List<BrowserLibraryApiDiffMember> members = [];
+            foreach (BrowserLibraryApiDiffMember member
+                in type.Members)
+            {
+                members.Add(
+                    summaryMembers.Remove(
+                        MemberMergeKey(member),
+                        out BrowserLibraryApiDiffMember?
+                            summaryMember)
+                        ? member with
+                        {
+                            Categories =
+                                summaryMember.Categories,
+                        }
+                        : member);
+            }
+            members.AddRange(summaryMembers.Values);
+            types.Add(
+                type with
+                {
+                    ChangedMemberCount = members.Count,
+                    Members = [.. members],
+                    Categories = summaryType.Categories,
+                });
+        }
+        types.AddRange(summaryTypes.Values);
+
+        LibraryDiffSummaryCounts counts = summary.Counts;
+        BrowserLibraryApiDiffAggregate aggregate =
+            value.Aggregate with
+            {
+                ChangedTypeCount = types.Count,
+                ChangedMemberCount =
+                    Math.Max(
+                        value.Aggregate.ChangedMemberCount,
+                        counts.ChangedMemberCount),
+                ApiAdditionCount = counts.ApiAdditionCount,
+                ApiDeletionCount = counts.ApiDeletionCount,
+                ApiChangeCount = counts.ApiChangeCount,
+                MethodBodyChangeCount =
+                    counts.MethodBodyChangeCount,
+                UnavailableMethodBodyCount =
+                    counts.UnavailableMethodBodyCount,
+            };
+        return result with
+        {
+            Value = value with
+            {
+                Aggregate = aggregate,
+                Types = [.. types],
+            },
+        };
+    }
+
+    static string MemberMergeKey(BrowserLibraryApiDiffMember member) =>
+        string.Join(
+            "|",
+            member.Before?.DeclaringTypeIdentifier ?? "",
+            member.Before?.StableSelector ?? "",
+            member.After?.DeclaringTypeIdentifier ?? "",
+            member.After?.StableSelector ?? "");
+
+    internal static BrowserLibraryApiDiffResult Project(
+        BrowserLibraryApiDiffRequest request,
+        InspectionEnvelope<LibraryDiffSummaryOutcome> inspection,
+        BrowserLibraryApiDiffEndpointContext target,
+        BrowserLibraryApiDiffEndpointContext current)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(inspection);
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(current);
+
+        BrowserLibraryApiDiffResult projected = inspection.Content switch
+        {
+            LibraryDiffSummaryOutcome.Available available =>
+                ProjectAvailable(request, available.Summary, target, current),
+            LibraryDiffSummaryOutcome.Unavailable unavailable =>
+                new BrowserLibraryApiDiffResult(
+                    BrowserLibraryApiDiffSchema.Version,
+                    request,
+                    BrowserLibraryApiDiffResultKind.Unavailable,
+                    Value: null,
+                    new BrowserLibraryApiDiffUnavailable(
+                        Project(unavailable.Kind),
+                        Project(target, unavailable.Before),
+                        Project(current, unavailable.After)),
+                    Rejected: null,
+                    FailureKind: null,
+                    Error: null,
+                    Diagnostic: null,
+                    Reason: null),
+            LibraryDiffSummaryOutcome.Rejected rejected =>
+                Rejected(
+                    request,
+                    Project(rejected.Kind),
+                    Project(target, rejected.Before),
+                    Project(current, rejected.After)),
+            _ => throw new InvalidOperationException(
+                "Unknown Library diff summary outcome."),
+        };
+        return AdmitTransport(request, projected);
+    }
+
+    static BrowserLibraryApiDiffResult ProjectAvailable(
+        BrowserLibraryApiDiffRequest request,
+        DotnetInspector.ResearchSections.LibraryDiffSummary summary,
+        BrowserLibraryApiDiffEndpointContext target,
+        BrowserLibraryApiDiffEndpointContext current)
+    {
+        BrowserLibraryApiDiffEndpoint targetEndpoint =
+            Project(target, summary.Before);
+        BrowserLibraryApiDiffEndpoint currentEndpoint =
+            Project(current, summary.After);
+        if (summary.Types.Length > MaxChangedTypes)
+        {
+            return Rejected(
+                request,
+                BrowserLibraryApiDiffRejectionKind
+                    .ChangedTypeCountLimitExceeded,
+                targetEndpoint,
+                currentEndpoint,
+                MaxChangedTypes,
+                summary.Types.Length);
+        }
+
+        BrowserLibraryApiDiffType[] types =
+        [
+            .. summary.Types.Select(
+                type => Project(type, targetEndpoint, currentEndpoint)),
+        ];
+        LibraryDiffSummaryCounts counts = summary.Counts;
+        int addedTypes = summary.Types.Count(
+            type => type.Before is null);
+        int removedTypes = summary.Types.Count(
+            type => type.After is null);
+        var aggregate = new BrowserLibraryApiDiffAggregate(
+            counts.ChangedTypeCount,
+            addedTypes,
+            removedTypes,
+            counts.ChangedMemberCount,
+            BreakingCount: 0,
+            AdditiveCount: 0,
+            PotentiallyBreakingCount: 0)
+        {
+            ApiAdditionCount = counts.ApiAdditionCount,
+            ApiDeletionCount = counts.ApiDeletionCount,
+            ApiChangeCount = counts.ApiChangeCount,
+            MethodBodyChangeCount = counts.MethodBodyChangeCount,
+            UnavailableMethodBodyCount =
+                counts.UnavailableMethodBodyCount,
+        };
+        return new BrowserLibraryApiDiffResult(
+            BrowserLibraryApiDiffSchema.Version,
             request,
-            projected with { Inspection = wireInspection });
+            BrowserLibraryApiDiffResultKind.Succeeded,
+            new BrowserLibraryApiDiffSucceeded(
+                summary.LibraryIdentifier,
+                summary.LibraryDisplay,
+                targetEndpoint,
+                currentEndpoint,
+                aggregate,
+                types),
+            Unavailable: null,
+            Rejected: null,
+            FailureKind: null,
+            Error: null,
+            Diagnostic: null,
+            Reason: null);
+    }
+
+    static BrowserLibraryApiDiffType Project(
+        LibraryDiffSummaryType type,
+        BrowserLibraryApiDiffEndpoint target,
+        BrowserLibraryApiDiffEndpoint current)
+    {
+        BrowserLibraryDiffCategory[] categories =
+            Project(type.Categories);
+        return new BrowserLibraryApiDiffType(
+            type.Identifier,
+            type.Display,
+            type.Before is null
+                ? BrowserLibraryApiDiffTypeState.Addition
+                : type.After is null
+                    ? BrowserLibraryApiDiffTypeState.Deletion
+                    : BrowserLibraryApiDiffTypeState.Diff,
+            TypeDefinitionChanged: null,
+            type.Members.Length,
+            BreakingCount: 0,
+            AdditiveCount: 0,
+            PotentiallyBreakingCount: 0,
+            type.Before is null ? null : Project(type.Before),
+            type.After is null ? null : Project(type.After),
+            [
+                .. type.Members.Select(
+                    member => Project(
+                        member,
+                        type.Identifier,
+                        target,
+                        current)),
+            ],
+            Changes: [])
+        {
+            Categories = categories,
+        };
+    }
+
+    static BrowserLibraryApiDiffMember Project(
+        LibraryDiffSummaryMember member,
+        string containingTypeIdentifier,
+        BrowserLibraryApiDiffEndpoint target,
+        BrowserLibraryApiDiffEndpoint current)
+    {
+        BrowserLibraryApiDiffMemberIdentity? before =
+            member.Before is null ? null : Project(member.Before);
+        BrowserLibraryApiDiffMemberIdentity? after =
+            member.After is null ? null : Project(member.After);
+        return new BrowserLibraryApiDiffMember(
+            member.Identifier,
+            before is null
+                ? BrowserLibraryApiDiffMemberPairKind.Added
+                : after is null
+                    ? BrowserLibraryApiDiffMemberPairKind.Removed
+                    : BrowserLibraryApiDiffMemberPairKind.Changed,
+            Role(member, containingTypeIdentifier),
+            before,
+            after,
+            Changes: [],
+            Match: null,
+            HasTextMode(member)
+                ? Explore(target, current, before, after)
+                : null)
+        {
+            Categories = Project(member.Categories),
+        };
+    }
+
+    static BrowserLibraryApiDiffMemberRelationRole Role(
+        LibraryDiffSummaryMember member,
+        string containingTypeIdentifier)
+    {
+        if (member.Before is null)
+            return BrowserLibraryApiDiffMemberRelationRole.After;
+        if (member.After is null)
+            return BrowserLibraryApiDiffMemberRelationRole.Before;
+        if (member.Before.DeclaringType.Identifier
+            == member.After.DeclaringType.Identifier)
+        {
+            return BrowserLibraryApiDiffMemberRelationRole.Both;
+        }
+        if (member.Before.DeclaringType.Identifier
+            == containingTypeIdentifier)
+        {
+            return BrowserLibraryApiDiffMemberRelationRole.Before;
+        }
+        if (member.After.DeclaringType.Identifier
+            == containingTypeIdentifier)
+        {
+            return BrowserLibraryApiDiffMemberRelationRole.After;
+        }
+        throw new InvalidOperationException(
+            "A summary Member was projected outside both declaring Types.");
+    }
+
+    static bool HasTextMode(LibraryDiffSummaryMember member) =>
+        (member.Before is null || SupportsTextMode(member.Before))
+        && (member.After is null || SupportsTextMode(member.After));
+
+    static BrowserLibraryDiffCategory[] Project(
+        LibraryDiffCategory categories)
+    {
+        List<BrowserLibraryDiffCategory> projected = [];
+        if (categories.HasFlag(LibraryDiffCategory.ApiAddition))
+            projected.Add(BrowserLibraryDiffCategory.ApiAddition);
+        if (categories.HasFlag(LibraryDiffCategory.ApiDeletion))
+            projected.Add(BrowserLibraryDiffCategory.ApiDeletion);
+        if (categories.HasFlag(LibraryDiffCategory.ApiChange))
+            projected.Add(BrowserLibraryDiffCategory.ApiChange);
+        if (categories.HasFlag(
+                LibraryDiffCategory.MethodBodyChange))
+        {
+            projected.Add(
+                BrowserLibraryDiffCategory.MethodBodyChange);
+        }
+        return [.. projected];
     }
 
     static BrowserLibraryApiDiffResult ProjectAvailable(
@@ -412,7 +749,7 @@ internal static class BrowserLibraryApiDiffWireProjection
         BrowserLibraryApiDiffEndpoint current)
     {
         LibraryApiTypeDiff type = subject.Comparison;
-        return new(
+        return new BrowserLibraryApiDiffType(
             subject.Identifier,
             subject.Display,
             subject.Change switch
@@ -443,7 +780,10 @@ internal static class BrowserLibraryApiDiffWireProjection
                     .Where(change =>
                         change.Subject.Kind == ApiChangeSubjectKind.Type)
                     .Select(Project),
-            ]);
+            ])
+        {
+            Categories = [],
+        };
     }
 
     // A member-level change belongs to the relation whose Before or After
@@ -536,7 +876,7 @@ internal static class BrowserLibraryApiDiffWireProjection
             member.Relation.After is null
                 ? null
                 : Project(member.Relation.After);
-        return new(
+        return new BrowserLibraryApiDiffMember(
             member.Relation.Identifier,
             member.Relation.PairKind switch
             {
@@ -578,7 +918,10 @@ internal static class BrowserLibraryApiDiffWireProjection
                     member.Relation.Match.Confidence),
             HasTextMode(member.Relation)
                 ? Explore(target, current, before, after)
-                : null);
+                : null)
+        {
+            Categories = [],
+        };
     }
 
     static bool HasTextMode(LibraryApiMemberRelation relation) =>

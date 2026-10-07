@@ -685,9 +685,9 @@ public static class LibraryApiDiffPresentationAdapter
         ArgumentNullException.ThrowIfNull(result);
 
         LibraryApiDiffEndpointSummary before =
-            ProjectEndpoint(result.Before, result.Scope);
+            CreateEndpointSummary(result.Before, result.Scope);
         LibraryApiDiffEndpointSummary after =
-            ProjectEndpoint(result.After, result.Scope);
+            CreateEndpointSummary(result.After, result.Scope);
         if (!before.IsComplete || !after.IsComplete)
         {
             LibraryApiDiffUnavailableKind kind =
@@ -933,10 +933,14 @@ public static class LibraryApiDiffPresentationAdapter
         LibraryApiDiffEndpointSummary after)
         => new(kind, before, after);
 
-    static LibraryApiDiffEndpointSummary ProjectEndpoint(
+    public static LibraryApiDiffEndpointSummary CreateEndpointSummary(
         AssemblyContextApiComparisonEndpoint endpoint,
         ApiSurfaceScope scope)
     {
+        ArgumentNullException.ThrowIfNull(endpoint);
+        if (!Enum.IsDefined(scope))
+            throw new ArgumentOutOfRangeException(nameof(scope));
+
         var issues = ImmutableArray.CreateBuilder<LibraryApiDiffEndpointIssue>();
         if (endpoint.Projection.Truncation is { } truncation)
             issues.Add(new LibraryApiDiffEndpointIssue.Truncated(truncation));

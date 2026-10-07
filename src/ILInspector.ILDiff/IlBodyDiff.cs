@@ -71,6 +71,24 @@ public enum IlBodyDiffOutcome
     OpcodeDiff,
 }
 
+public enum IlBodyChangeSummaryOutcome
+{
+    Unavailable = 0,
+    Exact,
+    Changed,
+}
+
+public sealed record IlBodyChangeSummary(
+    IlBodyChangeSummaryOutcome Outcome,
+    string? Failure)
+{
+    public bool IsAvailable =>
+        Outcome != IlBodyChangeSummaryOutcome.Unavailable;
+
+    public bool IsChanged =>
+        Outcome == IlBodyChangeSummaryOutcome.Changed;
+}
+
 public sealed record IlOperandIdentity(IlOperandIdentityKind Kind, string Value);
 
 public sealed record CanonicalIlOperation(
@@ -187,6 +205,386 @@ public static partial class IlBodyDiff
             new MetadataOperandResolver(oldReader, normalization, oldCorrespondence),
             new MetadataOperandResolver(newReader, normalization, newCorrespondence),
             normalization);
+    }
+
+    /// <summary>
+    /// Determines whether two bodies differ under the same canonicalization as
+    /// <see cref="Compare(MetadataReader, MethodBodyBlock, MetadataReader, MethodBodyBlock, IlBodyDiffNormalization)"/>
+    /// without constructing an alignment or diff rows.
+    /// </summary>
+    public static IlBodyChangeSummary CompareSummary(
+        MethodInstructions oldBody,
+        MethodInstructions newBody,
+        IlBodyDiffNormalization normalization =
+            IlBodyDiffNormalization.None)
+        => CompareSummary(
+            oldBody,
+            newBody,
+            oldResolver: null,
+            newResolver: null,
+            normalization,
+            oldExceptionRegions: default,
+            newExceptionRegions: default);
+
+    /// <inheritdoc cref="CompareSummary(MethodInstructions, MethodInstructions, IlBodyDiffNormalization)"/>
+    public static IlBodyChangeSummary CompareSummary(
+        MetadataReader oldReader,
+        MethodBodyBlock oldBody,
+        MetadataReader newReader,
+        MethodBodyBlock newBody,
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
+    {
+        ArgumentNullException.ThrowIfNull(oldReader);
+        ArgumentNullException.ThrowIfNull(oldBody);
+        ArgumentNullException.ThrowIfNull(newReader);
+        ArgumentNullException.ThrowIfNull(newBody);
+        if ((normalization & ~SupportedNormalizations) != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(normalization),
+                normalization,
+                "Unsupported IL body diff normalization.");
+        }
+
+        var (oldCorrespondence, newCorrespondence) =
+            (normalization
+                & IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals)
+            != 0
+                ? CompilerGeneratedOrdinalCorrespondence.Build(
+                    oldReader,
+                    newReader,
+                    normalization)
+                : (
+                    CompilerGeneratedOrdinalCorrespondence.Empty,
+                    CompilerGeneratedOrdinalCorrespondence.Empty);
+
+        return CompareSummary(
+            MethodInstructions.Decode(oldBody),
+            MethodInstructions.Decode(newBody),
+            new MetadataOperandResolver(
+                oldReader,
+                normalization,
+                oldCorrespondence),
+            new MetadataOperandResolver(
+                newReader,
+                normalization,
+                newCorrespondence),
+            normalization,
+            oldBody.ExceptionRegions.ToImmutableArray(),
+            newBody.ExceptionRegions.ToImmutableArray());
+    }
+
+    static IlBodyChangeSummary CompareSummary(
+        MethodInstructions oldInstructions,
+        MethodInstructions newInstructions,
+        MetadataOperandResolver? oldResolver,
+        MetadataOperandResolver? newResolver,
+        IlBodyDiffNormalization normalization,
+        ImmutableArray<ExceptionRegion> oldExceptionRegions,
+        ImmutableArray<ExceptionRegion> newExceptionRegions)
+    {
+        ArgumentNullException.ThrowIfNull(oldInstructions);
+        ArgumentNullException.ThrowIfNull(newInstructions);
+        if ((normalization & ~SupportedNormalizations) != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(normalization),
+                normalization,
+                "Unsupported IL body diff normalization.");
+        }
+
+        if (!oldInstructions.IsComplete)
+        {
+            return new(
+                IlBodyChangeSummaryOutcome.Unavailable,
+                oldInstructions.Blocks.IncompleteReason
+                    ?? "old body decode failed");
+        }
+        if (!newInstructions.IsComplete)
+        {
+            return new(
+                IlBodyChangeSummaryOutcome.Unavailable,
+                newInstructions.Blocks.IncompleteReason
+                    ?? "new body decode failed");
+        }
+
+        if (!TryBuildOperations(
+                oldInstructions.Instructions,
+                oldResolver,
+                "old",
+                normalization,
+                out ImmutableArray<CanonicalIlOperation> oldOperations,
+                out string? oldFailure))
+        {
+            return new(
+                IlBodyChangeSummaryOutcome.Unavailable,
+                oldFailure ?? "old body token resolution failed");
+        }
+        if (!TryBuildOperations(
+                newInstructions.Instructions,
+                newResolver,
+                "new",
+                normalization,
+                out ImmutableArray<CanonicalIlOperation> newOperations,
+                out string? newFailure))
+        {
+            return new(
+                IlBodyChangeSummaryOutcome.Unavailable,
+                newFailure ?? "new body token resolution failed");
+        }
+
+        if (oldOperations.Length != newOperations.Length)
+        {
+            return new(
+                IlBodyChangeSummaryOutcome.Changed,
+                Failure: null);
+        }
+
+        Dictionary<int, int> oldInstructionIndices =
+            InstructionIndices(oldInstructions.Instructions);
+        Dictionary<int, int> newInstructionIndices =
+            InstructionIndices(newInstructions.Instructions);
+        if (!oldExceptionRegions.IsDefault
+            || !newExceptionRegions.IsDefault)
+        {
+            if (oldExceptionRegions.IsDefault
+                || newExceptionRegions.IsDefault
+                || oldResolver is null
+                || newResolver is null)
+            {
+                return new(
+                    IlBodyChangeSummaryOutcome.Unavailable,
+                    "exception-region comparison inputs were incomplete");
+            }
+            if (!TryBuildExceptionRegions(
+                    oldExceptionRegions,
+                    oldInstructions.Instructions,
+                    oldInstructionIndices,
+                    oldResolver,
+                    "old",
+                    out ImmutableArray<CanonicalExceptionRegion>
+                        oldRegions,
+                    out string? oldRegionFailure))
+            {
+                return new(
+                    IlBodyChangeSummaryOutcome.Unavailable,
+                    oldRegionFailure);
+            }
+            if (!TryBuildExceptionRegions(
+                    newExceptionRegions,
+                    newInstructions.Instructions,
+                    newInstructionIndices,
+                    newResolver,
+                    "new",
+                    out ImmutableArray<CanonicalExceptionRegion>
+                        newRegions,
+                    out string? newRegionFailure))
+            {
+                return new(
+                    IlBodyChangeSummaryOutcome.Unavailable,
+                    newRegionFailure);
+            }
+            if (!oldRegions.SequenceEqual(newRegions))
+            {
+                return new(
+                    IlBodyChangeSummaryOutcome.Changed,
+                    Failure: null);
+            }
+        }
+        for (int index = 0; index < oldOperations.Length; index++)
+        {
+            if (!CanonicalEquals(oldOperations[index], newOperations[index])
+                || !SummaryBranchTargetsMatch(
+                    oldInstructions.Instructions[index],
+                    newInstructions.Instructions[index],
+                    oldInstructionIndices,
+                    newInstructionIndices))
+            {
+                return new(
+                    IlBodyChangeSummaryOutcome.Changed,
+                    Failure: null);
+            }
+        }
+
+        return new(
+            IlBodyChangeSummaryOutcome.Exact,
+            Failure: null);
+    }
+
+    static Dictionary<int, int> InstructionIndices(
+        ImmutableArray<DecodedInstruction> instructions)
+    {
+        var indices = new Dictionary<int, int>(
+            instructions.Length);
+        for (int index = 0; index < instructions.Length; index++)
+            indices.Add(instructions[index].Offset, index);
+        return indices;
+    }
+
+    static bool TryBuildExceptionRegions(
+        ImmutableArray<ExceptionRegion> regions,
+        ImmutableArray<DecodedInstruction> instructions,
+        IReadOnlyDictionary<int, int> instructionIndices,
+        MetadataOperandResolver resolver,
+        string side,
+        out ImmutableArray<CanonicalExceptionRegion> result,
+        out string? failure)
+    {
+        var builder =
+            ImmutableArray.CreateBuilder<CanonicalExceptionRegion>(
+                regions.Length);
+        foreach (ExceptionRegion region in regions)
+        {
+            if (!TryInstructionBoundary(
+                    region.TryOffset,
+                    instructions,
+                    instructionIndices,
+                    out int tryStart)
+                || !TryInstructionBoundary(
+                    RegionEnd(region.TryOffset, region.TryLength),
+                    instructions,
+                    instructionIndices,
+                    out int tryEnd)
+                || !TryInstructionBoundary(
+                    region.HandlerOffset,
+                    instructions,
+                    instructionIndices,
+                    out int handlerStart)
+                || !TryInstructionBoundary(
+                    RegionEnd(
+                        region.HandlerOffset,
+                        region.HandlerLength),
+                    instructions,
+                    instructionIndices,
+                    out int handlerEnd))
+            {
+                result = [];
+                failure =
+                    $"{side} exception region does not align with "
+                    + "instruction boundaries";
+                return false;
+            }
+
+            int? filterStart = null;
+            if (region.Kind == ExceptionRegionKind.Filter)
+            {
+                if (!TryInstructionBoundary(
+                        region.FilterOffset,
+                        instructions,
+                        instructionIndices,
+                        out int filterIndex))
+                {
+                    result = [];
+                    failure =
+                        $"{side} exception filter does not align with "
+                        + "an instruction boundary";
+                    return false;
+                }
+                filterStart = filterIndex;
+            }
+
+            string? catchType = null;
+            if (region.Kind == ExceptionRegionKind.Catch
+                && !resolver.TryResolveType(
+                    region.CatchType,
+                    out catchType,
+                    out string? catchFailure))
+            {
+                result = [];
+                failure = $"{side} {catchFailure}";
+                return false;
+            }
+            builder.Add(
+                new(
+                    region.Kind,
+                    tryStart,
+                    tryEnd,
+                    handlerStart,
+                    handlerEnd,
+                    filterStart,
+                    catchType));
+        }
+        result = builder.MoveToImmutable();
+        failure = null;
+        return true;
+
+        static int RegionEnd(int offset, int length)
+        {
+            long end = (long)offset + length;
+            return end is >= 0 and <= int.MaxValue
+                ? (int)end
+                : -1;
+        }
+    }
+
+    static bool TryInstructionBoundary(
+        int offset,
+        ImmutableArray<DecodedInstruction> instructions,
+        IReadOnlyDictionary<int, int> instructionIndices,
+        out int index)
+    {
+        int bodyEnd =
+            instructions.IsEmpty ? 0 : instructions[^1].NextOffset;
+        if (offset == bodyEnd)
+        {
+            index = instructions.Length;
+            return true;
+        }
+        return instructionIndices.TryGetValue(offset, out index);
+    }
+
+    sealed record CanonicalExceptionRegion(
+        ExceptionRegionKind Kind,
+        int TryStart,
+        int TryEnd,
+        int HandlerStart,
+        int HandlerEnd,
+        int? FilterStart,
+        string? CatchType);
+
+    static bool SummaryBranchTargetsMatch(
+        DecodedInstruction oldInstruction,
+        DecodedInstruction newInstruction,
+        IReadOnlyDictionary<int, int> oldInstructionIndices,
+        IReadOnlyDictionary<int, int> newInstructionIndices)
+    {
+        if (oldInstruction.Operand is not (
+            OperandKind.ShortInlineBrTarget
+            or OperandKind.InlineBrTarget
+            or OperandKind.InlineSwitch))
+        {
+            return true;
+        }
+        if (oldInstruction.BranchTargets.Length
+            != newInstruction.BranchTargets.Length)
+        {
+            return false;
+        }
+
+        for (int index = 0;
+            index < oldInstruction.BranchTargets.Length;
+            index++)
+        {
+            int oldTarget = oldInstruction.BranchTargets[index];
+            int newTarget = newInstruction.BranchTargets[index];
+            bool hasOldIndex =
+                oldInstructionIndices.TryGetValue(
+                    oldTarget,
+                    out int oldTargetIndex);
+            bool hasNewIndex =
+                newInstructionIndices.TryGetValue(
+                    newTarget,
+                    out int newTargetIndex);
+            if (hasOldIndex != hasNewIndex)
+                return false;
+            if (hasOldIndex
+                ? oldTargetIndex != newTargetIndex
+                : oldTarget != newTarget)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     /// <summary>

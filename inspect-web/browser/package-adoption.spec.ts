@@ -1015,6 +1015,7 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
     },
     members: [],
     changes: [],
+    categories: [],
   });
   const share: InspectionShare = {
     kind: "nonProjectable",
@@ -1024,9 +1025,9 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
     packet: null,
   };
   const result: BrowserLibraryApiDiffResult = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     request: {
-      schemaVersion: 3,
+      schemaVersion: 4,
       packageId: input.packageId,
       currentVersion: input.currentVersion,
       targetVersion: input.targetVersion,
@@ -1053,6 +1054,11 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
         breakingCount: 0,
         additiveCount: 0,
         potentiallyBreakingCount: 0,
+        apiAdditionCount: 0,
+        apiDeletionCount: 0,
+        apiChangeCount: 0,
+        methodBodyChangeCount: 0,
+        unavailableMethodBodyCount: 0,
       },
       types: [type("Example.A\rB"), type("Example.A\nB")],
     },

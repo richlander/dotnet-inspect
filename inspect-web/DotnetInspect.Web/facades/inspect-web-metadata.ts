@@ -60,6 +60,8 @@ export type BrowserLibraryApiDiffTypeState = "Diff" | "Addition" | "Deletion" | 
 
 export type BrowserLibraryApiDiffUnavailableKind = "TargetIncomplete" | "CurrentIncomplete" | "BothIncomplete" | number;
 
+export type BrowserLibraryDiffCategory = "ApiAddition" | "ApiDeletion" | "ApiChange" | "MethodBodyChange" | number;
+
 export type BrowserMemberDocumentOutcome = "Available" | "Rejected" | "Incomplete" | "Failed" | number;
 
 export type BrowserMemberGroupDocumentOutcome = "Available" | "Rejected" | "Incomplete" | "Failed" | number;
@@ -97,8 +99,6 @@ export type ExactTypeInspectionFailureKind = number;
 export type ExactTypeInspectionOutcome = number;
 
 export type InspectionDiagnosticSeverity = number;
-
-export type JsonValueKind = number;
 
 export type MetadataRootMalformedReason = number;
 
@@ -191,6 +191,11 @@ export interface BrowserLibraryApiDiffAggregate {
   readonly breakingCount: number;
   readonly additiveCount: number;
   readonly potentiallyBreakingCount: number;
+  readonly apiAdditionCount: number;
+  readonly apiDeletionCount: number;
+  readonly apiChangeCount: number;
+  readonly methodBodyChangeCount: number;
+  readonly unavailableMethodBodyCount: number;
 }
 
 export interface BrowserLibraryApiDiffAssemblyIdentity {
@@ -265,6 +270,7 @@ export interface BrowserLibraryApiDiffMember {
   readonly changes: ReadonlyArray<BrowserLibraryApiDiffChange>;
   readonly match: BrowserLibraryApiDiffMatch | null;
   readonly explore: BrowserLibraryApiDiffMemberExploreDestination | null;
+  readonly categories: ReadonlyArray<BrowserLibraryDiffCategory>;
 }
 
 export interface BrowserLibraryApiDiffMemberExploreDestination {
@@ -364,6 +370,7 @@ export interface BrowserLibraryApiDiffType {
   readonly after: BrowserLibraryApiDiffTypeIdentity | null;
   readonly members: ReadonlyArray<BrowserLibraryApiDiffMember>;
   readonly changes: ReadonlyArray<BrowserLibraryApiDiffChange>;
+  readonly categories: ReadonlyArray<BrowserLibraryDiffCategory>;
 }
 
 export interface BrowserLibraryApiDiffTypeIdentity {

@@ -9,6 +9,7 @@ import type {
   BrowserLibraryApiDiffResult,
   BrowserLibraryApiDiffSucceeded,
   BrowserLibraryApiDiffType,
+  BrowserLibraryDiffCategory,
 } from "./facades/inspect-web-metadata.d.ts";
 import {
   renderCompareEmpty,
@@ -276,14 +277,20 @@ export function libraryApiDiffDataBarResult(
     context: `${value.target.version} → ${value.current.version}`,
     facts: [
       { value: aggregate.changedTypeCount, label: "changed Types" },
-      { value: aggregate.addedTypeCount, label: "added Types" },
-      { value: aggregate.removedTypeCount, label: "removed Types" },
-      { value: aggregate.changedMemberCount, label: "changed Members" },
-      { value: aggregate.breakingCount, label: "breaking" },
-      { value: aggregate.additiveCount, label: "additive" },
-      { value: aggregate.potentiallyBreakingCount, label: "potentially breaking" },
+      { value: aggregate.apiAdditionCount, label: "API additions" },
+      { value: aggregate.apiDeletionCount, label: "API deletions" },
+      { value: aggregate.apiChangeCount, label: "API changes" },
+      { value: aggregate.methodBodyChangeCount, label: "body changes" },
     ],
-    ...(notices > 0 ? { qualification: `${notices} inspection ${notices === 1 ? "notice" : "notices"}` } : {}),
+    ...(aggregate.unavailableMethodBodyCount > 0
+      ? {
+        qualification: `${aggregate.unavailableMethodBodyCount.toLocaleString()} method ${
+          aggregate.unavailableMethodBodyCount === 1 ? "body was" : "bodies were"
+        } unavailable`,
+      }
+      : notices > 0
+        ? { qualification: `${notices} inspection ${notices === 1 ? "notice" : "notices"}` }
+        : {}),
   };
 }
 
@@ -292,7 +299,7 @@ function createRequest(
 ): BrowserLibraryApiDiffRequest {
   const query = effectiveInputQuery(input);
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     packageId: input.packageId,
     currentVersion: input.currentVersion,
     targetVersion: input.targetVersion,
@@ -328,6 +335,19 @@ function requireString(value: unknown, description: string): void {
 function requireInteger(value: unknown, description: string): void {
   if (!Number.isSafeInteger(value) || Number(value) < 0)
     throw new Error(`${description} must be a non-negative integer.`);
+}
+
+function validateCategories(value: unknown, description: string): void {
+  if (!Array.isArray(value))
+    throw new Error(`${description} must be an array.`);
+  for (const [index, category] of value.entries()) {
+    requireEnum(category, `${description}[${index}]`, [
+      "ApiAddition",
+      "ApiDeletion",
+      "ApiChange",
+      "MethodBodyChange",
+    ]);
+  }
 }
 
 function requireNullableString(value: unknown, description: string): void {
@@ -642,6 +662,10 @@ function validateMembers(
       validateMemberIdentity(after, `${description}[${index}].after`);
     if (before === null && after === null)
       throw new Error(`${description}[${index}] has no side.`);
+    validateCategories(
+      member.categories,
+      `${description}[${index}].categories`,
+    );
     validateChanges(member.changes, `${description}[${index}].changes`);
     if (member.match !== null) {
       const match = requireRecord(member.match, `${description}[${index}].match`);
@@ -778,6 +802,11 @@ function validateSucceeded(value: unknown): void {
     "breakingCount",
     "additiveCount",
     "potentiallyBreakingCount",
+    "apiAdditionCount",
+    "apiDeletionCount",
+    "apiChangeCount",
+    "methodBodyChangeCount",
+    "unavailableMethodBodyCount",
   ]) {
     requireInteger(
       aggregate[property],
@@ -816,6 +845,10 @@ function validateSucceeded(value: unknown): void {
       validateTypeIdentity(type.before, "Library API Diff before Type");
     if (type.after !== null)
       validateTypeIdentity(type.after, "Library API Diff after Type");
+    validateCategories(
+      type.categories,
+      `Library API Diff success.types[${index}].categories`,
+    );
     validateMembers(
       type.members,
       `Library API Diff success.types[${index}].members`,
@@ -827,6 +860,24 @@ function validateSucceeded(value: unknown): void {
       `Library API Diff success.types[${index}].changes`,
     );
   }
+}
+
+function validateOptionalInspection(
+  value: unknown,
+  expectedOutcome: "available" | "unavailable" | "rejected",
+  query: LibraryApiDiffQuerySelection,
+): void {
+  if (value === null) {
+    if (query.surface === "Member"
+      || query.analyses.some(analysis =>
+        analysis !== "api" && analysis !== "api-attribute")) {
+      throw new Error(
+        "Detailed Library API Diff results require inspection evidence.",
+      );
+    }
+    return;
+  }
+  validateInspection(value, expectedOutcome, query);
 }
 
 function validateInspection(
@@ -965,14 +1016,14 @@ function validateResult(
   input: LibraryApiDiffOperationInput,
 ): asserts result is BrowserLibraryApiDiffResult {
   const record = requireRecord(result, "Library API Diff result");
-  if (record.schemaVersion !== 3)
+  if (record.schemaVersion !== 4)
     throw new Error("Unsupported Library API Diff result schema.");
   const request = requireRecord(
     record.request,
     "Library API Diff result request",
   );
   const query = effectiveInputQuery(input);
-  if (request.schemaVersion !== 3
+  if (request.schemaVersion !== 4
     || request.packageId !== input.packageId
     || request.currentVersion !== input.currentVersion
     || request.targetVersion !== input.targetVersion
@@ -1021,7 +1072,11 @@ function validateResult(
   }
   switch (record.kind) {
     case "Succeeded":
-      validateInspection(record.inspection, "available", query);
+      validateOptionalInspection(
+        record.inspection,
+        "available",
+        query,
+      );
       validateSucceeded(record.value);
       requireNull(
         record,
@@ -1034,7 +1089,11 @@ function validateResult(
       );
       return;
     case "Unavailable":
-      validateInspection(record.inspection, "unavailable", query);
+      validateOptionalInspection(
+        record.inspection,
+        "unavailable",
+        query,
+      );
       {
         const unavailable = requireRecord(
           record.unavailable,
@@ -1089,7 +1148,7 @@ function validateResult(
           requireNull(record, "inspection");
           requireNull(rejected, "target", "current");
         } else {
-          validateInspection(
+          validateOptionalInspection(
             record.inspection,
             rejected.kind === "ChangedTypeCountLimitExceeded"
               || rejected.kind === "TypeTextLimitExceeded"
@@ -1418,10 +1477,29 @@ function typeMetrics(type: BrowserLibraryApiDiffType): string {
     compactCount(type.changedMemberCount, type.changedMemberCount === 1
       ? "member"
       : "members"),
-    compactCount(type.breakingCount, "breaking"),
-    compactCount(type.additiveCount, "additive"),
-    compactCount(type.potentiallyBreakingCount, "potentially breaking"),
+    ...type.categories.map(categoryLabel),
   ].filter(Boolean).join(" · ");
+}
+
+function categoryLabel(category: BrowserLibraryDiffCategory): string {
+  switch (category) {
+    case "ApiAddition": return "API addition";
+    case "ApiDeletion": return "API deletion";
+    case "ApiChange": return "API change";
+    case "MethodBodyChange": return "Method body change";
+    default: return String(category);
+  }
+}
+
+function renderCategoryChips(
+  categories: readonly BrowserLibraryDiffCategory[],
+  escapeHtml: (value: unknown) => string,
+): string {
+  if (categories.length === 0) return "";
+  return `<span class="library-api-diff-change-chips">${categories.map(category =>
+    `<span class="library-api-diff-change-chip">${escapeHtml(
+      categoryLabel(category),
+    )}</span>`).join("")}</span>`;
 }
 
 function attributeText(
@@ -1467,9 +1545,6 @@ function renderTypeRow(
   const after = type.after?.identifier ?? "";
   const beforeAttribute = attributeText(before, escapeHtml);
   const afterAttribute = attributeText(after, escapeHtml);
-  const definition = type.typeDefinitionChanged === true
-    ? '<span class="library-api-diff-definition">Type definition changed</span>'
-    : "";
   const activatable =
     type.after !== null && activatableTypes?.has(after) === true;
   const inertReason = type.after === null
@@ -1479,8 +1554,8 @@ function renderTypeRow(
       : "Not joined to a loaded Type";
   const copy = `<span class="library-api-diff-type-copy">
       <strong>${escapeHtml(type.display)}</strong>
+      ${renderCategoryChips(type.categories, escapeHtml)}
       <span>${escapeHtml(typeMetrics(type))}</span>
-      ${definition}
       ${inertReason ? `<span class="library-api-diff-inert">${escapeHtml(inertReason)}</span>` : ""}
     </span>`;
   const state = `<span class="library-api-diff-state library-api-diff-state-${String(type.state).toLowerCase()}">${escapeHtml(type.state)}</span>`;
@@ -1621,6 +1696,7 @@ function renderMemberRow(
     : "";
   const copy = `<span class="library-api-diff-type-copy">
       <strong>${escapeHtml(display)}</strong>
+      ${renderCategoryChips(member.categories, escapeHtml)}
       ${renderLibraryApiDiffChangeChips(member.changes, escapeHtml)}
       ${movedFrom}
       ${signatures}
@@ -1937,19 +2013,34 @@ function renderLibrarySubject(
     `${aggregate.changedTypeCount.toLocaleString()} changed ${
       aggregate.changedTypeCount === 1 ? "Type" : "Types"
     }`,
-    compactCount(aggregate.addedTypeCount, "added"),
-    compactCount(aggregate.removedTypeCount, "removed"),
-    compactCount(aggregate.changedMemberCount, "changed members"),
-    compactCount(aggregate.breakingCount, "breaking"),
-    compactCount(aggregate.additiveCount, "additive"),
-    compactCount(aggregate.potentiallyBreakingCount, "potentially breaking"),
+    compactCount(aggregate.apiAdditionCount, "API additions"),
+    compactCount(aggregate.apiDeletionCount, "API deletions"),
+    compactCount(aggregate.apiChangeCount, "API changes"),
+    compactCount(
+      aggregate.methodBodyChangeCount,
+      "method body changes",
+    ),
   ].filter(Boolean);
   if (value.types.length === 0) {
+    if (aggregate.unavailableMethodBodyCount > 0) {
+      return {
+        status: "Comparison incomplete.",
+        content: renderCompareEmpty(
+          "Method body comparison unavailable",
+          `${aggregate.unavailableMethodBodyCount.toLocaleString()} ${
+            aggregate.unavailableMethodBodyCount === 1
+              ? "method body could"
+              : "method bodies could"
+          } not be compared. No API or method body changes were confirmed.`,
+          escapeHtml,
+        ),
+      };
+    }
     return {
       status: options.resultSummaryInDataBar ? "" : "Comparison complete. No changed Types.",
       content: renderCompareEmpty(
-        "No public API changes",
-        "The selected Library is unchanged between these versions.",
+        "No API or method body changes",
+        "The selected Library has no public API or method body changes between these versions.",
         escapeHtml,
       ),
     };
@@ -1973,11 +2064,25 @@ function renderTypeSubject(
 ): RenderedContent {
   const type = findType(value, typeIdentifier);
   if (type === undefined) {
+    if (value.aggregate.unavailableMethodBodyCount > 0) {
+      return {
+        status: "Comparison incomplete.",
+        content: renderCompareEmpty(
+          "Method body comparison unavailable",
+          `${value.aggregate.unavailableMethodBodyCount.toLocaleString()} ${
+            value.aggregate.unavailableMethodBodyCount === 1
+              ? "method body could"
+              : "method bodies could"
+          } not be compared for this Type. No API or method body changes were confirmed.`,
+          escapeHtml,
+        ),
+      };
+    }
     return {
       status: "Comparison complete. No changed Members.",
       content: renderCompareEmpty(
-        "No public API changes",
-        "This Type is unchanged between these versions.",
+        "No API or method body changes",
+        "This Type has no public API or method body changes between these versions.",
         escapeHtml,
       ),
     };
@@ -1986,13 +2091,7 @@ function renderTypeSubject(
     `${type.changedMemberCount.toLocaleString()} changed ${
       type.changedMemberCount === 1 ? "Member" : "Members"
     }`,
-    compactCount(type.breakingCount, "breaking"),
-    compactCount(type.additiveCount, "additive"),
-    compactCount(type.potentiallyBreakingCount, "potentially breaking"),
-    type.typeDefinitionChanged === true ? "Type definition changed" : "",
-    type.state === "Addition"
-      ? "Added Type"
-      : type.state === "Deletion" ? "Removed Type" : "",
+    ...type.categories.map(categoryLabel),
   ].filter(Boolean);
   // Type-level compatibility changes (kind, base type, interfaces, generic
   // parameters, attributes) precede the Member inventory.
@@ -2010,8 +2109,8 @@ function renderTypeSubject(
         `<span>${escapeHtml(metric)}</span>`).join("")}</div>${typeChanges}${
         renderCompareEmpty(
           "No changed Members",
-          type.typeDefinitionChanged === true
-            ? "Only the Type definition changed between these versions."
+          type.categories.length > 0
+            ? `Only ${type.categories.map(categoryLabel).join(", ").toLowerCase()} was reported for this Type.`
             : "No Member-level changes were reported for this Type.",
           escapeHtml,
         )}`,
@@ -2083,6 +2182,11 @@ function renderLibraryApiDiffMemberChanges(
 ): string {
   if (member.changes.length > 0) {
     return renderChangeRows(member.changes, escapeHtml, "What changed");
+  }
+  if (member.categories.length > 0) {
+    return `<p class="library-api-diff-note">${escapeHtml(
+      member.categories.map(categoryLabel).join(" · "),
+    )}</p>`;
   }
   const carriedByType = type.state === "Addition" || type.state === "Deletion";
   return `<p class="library-api-diff-note">${escapeHtml(carriedByType

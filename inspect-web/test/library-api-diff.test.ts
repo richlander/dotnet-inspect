@@ -64,9 +64,9 @@ function succeeded(
   compileAssetId = "lib/net11.0/Example.dll",
 ): BrowserLibraryApiDiffResult {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     request: {
-      schemaVersion: 3,
+      schemaVersion: 4,
       packageId: "Example.Package",
       currentVersion,
       targetVersion,
@@ -93,6 +93,11 @@ function succeeded(
         breakingCount: 1,
         additiveCount: 2,
         potentiallyBreakingCount: 0,
+        apiAdditionCount: 2,
+        apiDeletionCount: 0,
+        apiChangeCount: 1,
+        methodBodyChangeCount: 0,
+        unavailableMethodBodyCount: 0,
       },
       types: [
         {
@@ -118,6 +123,7 @@ function succeeded(
           },
           members: [],
           changes: [],
+          categories: ["ApiChange"],
         },
         {
           documentIdentifier: "Example.Options",
@@ -137,6 +143,7 @@ function succeeded(
           },
           members: [],
           changes: [],
+          categories: ["ApiAddition"],
         },
       ],
     },
@@ -305,7 +312,7 @@ test("subject-scoped selections drive the generic Diff request", async () => {
   await Promise.resolve();
 
   assert.deepEqual(observed, {
-    schemaVersion: 3,
+    schemaVersion: 4,
     packageId: "Example.Package",
     currentVersion: "2.0.0",
     targetVersion: "1.0.0",
@@ -424,7 +431,7 @@ test("replacement Package contexts cancel old work and suppress late publication
   assert.deepEqual(cancellations, ["one"]);
   assert.deepEqual(requests, [
     {
-      schemaVersion: 3,
+      schemaVersion: 4,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
@@ -438,7 +445,7 @@ test("replacement Package contexts cancel old work and suppress late publication
       predicate: null,
     },
     {
-      schemaVersion: 3,
+      schemaVersion: 4,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.5.0",
@@ -527,12 +534,11 @@ test("malformed success is recoverable and cannot enter ready rendering", async 
   assert.equal(state.libraryApiDiff.status, "ready");
 });
 
-test("missing or contradictory baselines cannot publish a successful comparison", async () => {
+test("missing or contradictory detailed baselines cannot publish a successful comparison", async () => {
   const result = succeeded("1.0.0");
   const { inspection: _omitted, ...withoutInspection } = result;
   for (const malformed of [
     withoutInspection,
-    { ...result, inspection: null },
     {
       ...result,
       inspection: inspection({
@@ -825,7 +831,7 @@ test("successful empty results stay distinct from target and endpoint unavailabi
     },
     result,
   }, String);
-  assert.match(html, /No public API changes/);
+  assert.match(html, /No API or method body changes/);
   assert.match(html, /Comparison complete/);
   assert.doesNotMatch(html, /unavailable/i);
 });
@@ -983,6 +989,7 @@ function withMembers(): BrowserLibraryApiDiffResult {
               after: changedAfter,
               match: null,
               explore: explore(changedBefore, changedAfter),
+              categories: [],
               changes: [
                 {
                   kind: "MemberSignatureChanged",
@@ -1010,6 +1017,7 @@ function withMembers(): BrowserLibraryApiDiffResult {
               after: addedAfter,
               match: null,
               explore: explore(null, addedAfter),
+              categories: [],
               changes: [{
                 kind: "MemberAdded",
                 classification: "Additive",
@@ -1027,6 +1035,7 @@ function withMembers(): BrowserLibraryApiDiffResult {
               after: null,
               match: null,
               explore: explore(removedBefore, null),
+              categories: [],
               changes: [],
             },
           ],
@@ -1121,6 +1130,69 @@ test("Member Diff renders each producer change once with its useful values", () 
   });
   assert.match(carried, /No classified compatibility change is recorded for this Member\./);
   assert.doesNotMatch(carried, /<li class="library-api-diff-change">/);
+});
+
+test("body-only Member Diff retains its category and detailed section", () => {
+  const result = withMembers();
+  const widget = result.value?.types[0];
+  assert.ok(widget);
+  const member = widget.members[0];
+  assert.ok(member);
+  const bodyOnly = {
+    ...result,
+    value: {
+      ...result.value!,
+      types: [{
+        ...widget,
+        members: [{
+          ...member,
+          changes: [],
+          categories: ["MethodBodyChange" as const],
+        }],
+      }],
+    },
+  };
+
+  const html = renderLibraryApiDiff(readyState(bodyOnly), String, {
+    subject: {
+      kind: "member",
+      typeIdentifier: "after-widget",
+      memberFingerprint: "digest-run",
+    },
+    memberDiffSection: "<section>Detailed body diff</section>",
+  });
+
+  assert.match(html, /Method body change/);
+  assert.match(html, /Detailed body diff/);
+  assert.doesNotMatch(html, /This Member is unchanged/);
+});
+
+test("Type Diff does not claim unchanged when body comparison is unavailable", () => {
+  const result = withMembers();
+  const unavailable = {
+    ...result,
+    value: {
+      ...result.value!,
+      aggregate: {
+        ...result.value!.aggregate,
+        changedTypeCount: 0,
+        changedMemberCount: 0,
+        unavailableMethodBodyCount: 1,
+      },
+      types: [],
+    },
+  };
+
+  const html = renderLibraryApiDiff(readyState(unavailable), String, {
+    subject: {
+      kind: "type",
+      typeIdentifier: "LibraryApiDiffFixture.UnavailableBody",
+    },
+  });
+
+  assert.match(html, /Method body comparison unavailable/);
+  assert.match(html, /1 method body could not be compared/);
+  assert.doesNotMatch(html, /This Type has no public API or method body changes/);
 });
 
 test("Member Diff contains only the API and Source comparison documents", () => {
@@ -1501,7 +1573,7 @@ test("Type Diff projects the exact Type's Members from the Library-root document
   assert.match(html, /compare-surface-type/);
   assert.match(html, /Comparison complete\. 3 changed Members\./);
   assert.match(html, /2 changed Members<\/span>/);
-  assert.match(html, /Type definition changed/);
+  assert.match(html, /API change/);
   const rows = [...html.matchAll(/<li class="library-api-diff-member([^"]*)"/g)]
     .map(match => match[1]);
   assert.deepEqual(rows, ["", "", " library-api-diff-member-inert"]);
@@ -1519,7 +1591,10 @@ test("Type Diff on an unchanged Type is a successful empty result inside the sam
     subject: { kind: "type", typeIdentifier: "after-unrelated" },
   });
   assert.match(html, /Comparison complete\. No changed Members\./);
-  assert.match(html, /This Type is unchanged between these versions\./);
+  assert.match(
+    html,
+    /This Type has no public API or method body changes between these versions\./,
+  );
   assert.match(html, /data-compare-mode="clone"/);
 });
 
@@ -1696,6 +1771,7 @@ function withMovedMember(): BrowserLibraryApiDiffResult {
     changes: [],
     match: { tier: "signature", confidence: 80 },
     explore: null,
+    categories: [],
   });
   return {
     ...result,
@@ -1833,7 +1909,7 @@ test("data-bar pilot uses issued totals only for the matching complete Library c
   const summary = libraryApiDiffDataBarResult(state, active);
   assert.equal(summary?.subject, "Example");
   assert.equal(summary?.context, "1.0.0 → 2.0.0");
-  assert.deepEqual(summary?.facts.map(fact => fact.value), [2, 1, 0, 3, 1, 2, 0]);
+  assert.deepEqual(summary?.facts.map(fact => fact.value), [2, 2, 0, 1, 0]);
   assert.equal(libraryApiDiffDataBarResult(state, null), null);
   assert.equal(libraryApiDiffDataBarResult({ status: "idle" }, active), null);
   assert.equal(libraryApiDiffDataBarResult({ status: "loading", input: state.input }, active), null);

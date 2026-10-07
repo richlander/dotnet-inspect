@@ -154,7 +154,10 @@ public sealed class BrowserLibraryApiDiffOperationTests
             BrowserLibraryApiDiffTypeState.Deletion,
             removed.State);
         Assert.Equal(3, removed.ChangedMemberCount);
-        Assert.Equal(1, removed.BreakingCount);
+        Assert.Equal(0, removed.BreakingCount);
+        Assert.Equal(
+            [BrowserLibraryDiffCategory.ApiDeletion],
+            removed.Categories);
         Assert.Null(removed.TypeDefinitionChanged);
         Assert.Null(removed.After);
         Assert.Equal(
@@ -173,6 +176,9 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 Assert.Equal(
                     BrowserLibraryApiDiffMemberRelationRole.Before,
                     member.Role);
+                Assert.Equal(
+                    [BrowserLibraryDiffCategory.ApiDeletion],
+                    member.Categories);
                 Assert.NotNull(member.Before);
                 Assert.Null(member.After);
                 Assert.Equal(
@@ -189,7 +195,10 @@ public sealed class BrowserLibraryApiDiffOperationTests
             BrowserLibraryApiDiffTypeState.Addition,
             added.State);
         Assert.Equal(3, added.ChangedMemberCount);
-        Assert.Equal(1, added.AdditiveCount);
+        Assert.Equal(0, added.AdditiveCount);
+        Assert.Equal(
+            [BrowserLibraryDiffCategory.ApiAddition],
+            added.Categories);
         Assert.Null(added.TypeDefinitionChanged);
         Assert.Null(added.Before);
         Assert.Equal(
@@ -206,6 +215,9 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 Assert.Equal(
                     BrowserLibraryApiDiffMemberRelationRole.After,
                     member.Role);
+                Assert.Equal(
+                    [BrowserLibraryDiffCategory.ApiAddition],
+                    member.Categories);
                 Assert.Null(member.Before);
                 Assert.NotNull(member.After);
                 Assert.Equal(
@@ -222,7 +234,10 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.Equal(
             BrowserLibraryApiDiffTypeState.Diff,
             definitionOnly.State);
-        Assert.True(definitionOnly.TypeDefinitionChanged);
+        Assert.Null(definitionOnly.TypeDefinitionChanged);
+        Assert.Equal(
+            [BrowserLibraryDiffCategory.ApiChange],
+            definitionOnly.Categories);
         Assert.Equal(0, definitionOnly.ChangedMemberCount);
         Assert.NotNull(definitionOnly.Before);
         Assert.NotNull(definitionOnly.After);
@@ -238,10 +253,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 == "LibraryApiDiffFixture.ProjectionExtensions");
         Assert.Equal(1, receiver.ChangedMemberCount);
         Assert.Equal(1, extensions.ChangedMemberCount);
-        BrowserLibraryApiDiffMember receiverMoved = Assert.Single(
-            receiver.Members,
-            member => member.Role
-                == BrowserLibraryApiDiffMemberRelationRole.After);
+        BrowserLibraryApiDiffMember receiverMoved =
+            Assert.Single(receiver.Members);
         BrowserLibraryApiDiffMember extensionMoved = Assert.Single(
             extensions.Members,
             member => member.DocumentIdentifier
@@ -252,6 +265,9 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.Equal(
             BrowserLibraryApiDiffMemberRelationRole.Before,
             extensionMoved.Role);
+        Assert.Equal(
+            BrowserLibraryApiDiffMemberRelationRole.After,
+            receiverMoved.Role);
         Assert.Equal(receiverMoved.Before, extensionMoved.Before);
         Assert.Equal(receiverMoved.After, extensionMoved.After);
         Assert.Equal(receiverMoved.Explore, extensionMoved.Explore);
@@ -286,9 +302,34 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.NotEmpty(receiverMoved.After.StableSelector);
         Assert.NotEmpty(receiverMoved.After.CanonicalSignature);
         Assert.Equal(10, receiverMoved.After.Fingerprint.Length);
+        BrowserLibraryApiDiffType bodyOnly = Assert.Single(
+            value.Types,
+            type => type.Display
+                == "LibraryApiDiffFixture.BodyOnlyChange");
         Assert.Equal(
-            new BrowserLibraryApiDiffAggregate(8, 1, 1, 10, 5, 3, 0),
-            value.Aggregate);
+            [BrowserLibraryDiffCategory.MethodBodyChange],
+            bodyOnly.Categories);
+        Assert.Equal(
+            [BrowserLibraryDiffCategory.MethodBodyChange],
+            Assert.Single(bodyOnly.Members).Categories);
+        BrowserLibraryApiDiffType memberAddition =
+            Assert.Single(
+                value.Types,
+                type => type.Display
+                    == "LibraryApiDiffFixture.MemberAdditionContainer");
+        Assert.Equal(
+            BrowserLibraryApiDiffTypeState.Diff,
+            memberAddition.State);
+        Assert.NotNull(memberAddition.Before);
+        Assert.NotNull(memberAddition.After);
+        Assert.Contains(
+            BrowserLibraryDiffCategory.ApiAddition,
+            memberAddition.Categories);
+        Assert.Equal(1, value.Aggregate.AddedTypeCount);
+        Assert.True(value.Aggregate.ApiAdditionCount > 0);
+        Assert.True(value.Aggregate.ApiDeletionCount > 0);
+        Assert.True(value.Aggregate.ApiChangeCount > 0);
+        Assert.True(value.Aggregate.MethodBodyChangeCount > 0);
     }
 
     [Fact]
@@ -305,8 +346,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 == "LibraryApiDiffFixture.ProjectionReceiver");
         BrowserLibraryApiDiffMember changedMember = Assert.Single(
             changedType.Members,
-            member => member.Role
-                == BrowserLibraryApiDiffMemberRelationRole.After);
+            member => member.After is not null);
         BrowserLibraryApiDiffMemberIdentity selectedMember =
             changedMember.After ?? changedMember.Before!;
         BrowserLibraryApiDiffRequest request = fixture.Request() with
@@ -369,6 +409,47 @@ public sealed class BrowserLibraryApiDiffOperationTests
     }
 
     [Fact]
+    public async Task BodyOnlyMemberRequestRetainsSummaryCategory()
+    {
+        await using Fixture fixture = await Fixture.Open();
+        BrowserLibraryApiDiffSucceeded library =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(
+                (await fixture.Query(fixture.Request())).Value);
+        BrowserLibraryApiDiffType bodyType =
+            Assert.Single(
+                library.Types,
+                type => type.Display
+                    == "LibraryApiDiffFixture.BodyOnlyChange");
+        BrowserLibraryApiDiffMember bodyMember =
+            Assert.Single(bodyType.Members);
+        BrowserLibraryApiDiffRequest request = fixture.Request() with
+        {
+            Surface = BrowserDiffAnalysisSurface.Member,
+            Analyses = ["api"],
+            TypeNames = [bodyMember.After!.DeclaringTypeIdentifier],
+            MemberTargetIdentities =
+                [bodyMember.After.StableSelector],
+        };
+
+        BrowserLibraryApiDiffResult result =
+            await fixture.Query(request);
+
+        Assert.NotNull(result.Inspection);
+        BrowserLibraryApiDiffType detailType =
+            Assert.Single(
+                Assert.IsType<BrowserLibraryApiDiffSucceeded>(
+                    result.Value).Types,
+                type => type.Display
+                    == "LibraryApiDiffFixture.BodyOnlyChange");
+        BrowserLibraryApiDiffMember detailMember =
+            Assert.Single(detailType.Members);
+        Assert.Equal(
+            [BrowserLibraryDiffCategory.MethodBodyChange],
+            detailMember.Categories);
+        Assert.Empty(detailMember.Changes);
+    }
+
+    [Fact]
     public async Task TypeUiSelectionExecutesApiAndApiAttributeInBrowser()
     {
         await using Fixture fixture = await Fixture.Open();
@@ -396,22 +477,97 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.Equal(
             BrowserLibraryApiDiffResultKind.Succeeded,
             result.Kind);
-        JsonElement content = Assert.IsType<
-            InspectionEnvelope<JsonElement>>(result.Inspection).Content;
-        JsonElement[] outcomes =
-        [
-            .. content.GetProperty("outcomes").EnumerateArray(),
-        ];
-        Assert.Equal(request.Analyses, outcomes.Select(outcome =>
-            outcome.GetProperty("analysis").GetString()));
-        Assert.All(
-            outcomes,
-            outcome => Assert.Equal(
-                "Compared",
-                outcome.GetProperty("kind").GetString()));
-        Assert.DoesNotContain(
-            result.Inspection!.Diagnostics,
-            diagnostic => diagnostic.Code == "diff-analysis.unavailable");
+        Assert.Null(result.Inspection);
+        BrowserLibraryApiDiffSucceeded value =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(
+                result.Value);
+        BrowserLibraryApiDiffType type = Assert.Single(value.Types);
+        Assert.Equal(changedType.After.Identifier, type.After!.Identifier);
+        Assert.Contains(
+            BrowserLibraryDiffCategory.ApiChange,
+            type.Categories);
+    }
+
+    [Fact]
+    public async Task TypeUiSelectionIncludesAttributeOnlyChange()
+    {
+        await using Fixture fixture = await Fixture.Open();
+        const string typeName =
+            "LibraryApiDiffFixture.AttributeOnlyChange";
+        BrowserLibraryApiDiffRequest request = fixture.Request() with
+        {
+            Surface = BrowserDiffAnalysisSurface.Type,
+            Analyses = ["api", "api-attribute"],
+            Views =
+                BrowserDiffAnalysisViews.Changes
+                | BrowserDiffAnalysisViews.Summary
+                | BrowserDiffAnalysisViews.Transitions,
+            TypeNames = [typeName],
+        };
+
+        BrowserLibraryApiDiffResult result =
+            await fixture.Query(request);
+
+        Assert.Null(result.Inspection);
+        BrowserLibraryApiDiffType type =
+            Assert.Single(
+                Assert.IsType<BrowserLibraryApiDiffSucceeded>(
+                    result.Value).Types);
+        Assert.Equal(typeName, type.After!.Identifier);
+        Assert.Equal(
+            [BrowserLibraryDiffCategory.ApiChange],
+            type.Categories);
+    }
+
+    [Fact]
+    public async Task AttributeOnlyMemberRetainsDetailedEvidence()
+    {
+        await using Fixture fixture = await Fixture.Open();
+        const string typeName =
+            "LibraryApiDiffFixture.MemberAttributeOnlyChange";
+        BrowserLibraryApiDiffRequest typeRequest = fixture.Request() with
+        {
+            Surface = BrowserDiffAnalysisSurface.Type,
+            Analyses = ["api", "api-attribute"],
+            Views =
+                BrowserDiffAnalysisViews.Changes
+                | BrowserDiffAnalysisViews.Summary
+                | BrowserDiffAnalysisViews.Transitions,
+            TypeNames = [typeName],
+        };
+        BrowserLibraryApiDiffSucceeded typeValue =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(
+                (await fixture.Query(typeRequest)).Value);
+        BrowserLibraryApiDiffMember member =
+            Assert.Single(Assert.Single(typeValue.Types).Members);
+        Assert.Equal(
+            [BrowserLibraryDiffCategory.ApiChange],
+            member.Categories);
+
+        BrowserLibraryApiDiffRequest memberRequest =
+            typeRequest with
+            {
+                Surface = BrowserDiffAnalysisSurface.Member,
+                Analyses = ["api"],
+                TypeNames = [typeName],
+                MemberTargetIdentities =
+                    [member.After!.StableSelector],
+            };
+
+        BrowserLibraryApiDiffResult result =
+            await fixture.Query(memberRequest);
+
+        Assert.NotNull(result.Inspection);
+        BrowserLibraryApiDiffMember detailedMember =
+            Assert.Single(
+                Assert.Single(
+                    Assert.IsType<BrowserLibraryApiDiffSucceeded>(
+                        result.Value).Types,
+                    type => type.Display == typeName).Members);
+        Assert.Equal(
+            [BrowserLibraryDiffCategory.ApiChange],
+            detailedMember.Categories);
+        Assert.NotEmpty(detailedMember.Changes);
     }
 
     [Fact]
@@ -621,16 +777,38 @@ public sealed class BrowserLibraryApiDiffOperationTests
     {
         await using Fixture fixture = await Fixture.Open();
 
-        BrowserLibraryApiDiffResult result =
+        BrowserLibraryApiDiffResult library =
             await fixture.Query(fixture.Request());
+        BrowserLibraryApiDiffSucceeded summary =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(
+                library.Value);
+        BrowserLibraryApiDiffType hardSummary =
+            Assert.Single(
+                summary.Types,
+                type => type.Display
+                    == "LibraryApiDiffFixture.HardChangedType");
+        BrowserLibraryApiDiffMember hardMember =
+            Assert.Single(hardSummary.Members);
+        BrowserLibraryApiDiffRequest hardRequest =
+            fixture.Request() with
+            {
+                Surface = BrowserDiffAnalysisSurface.Member,
+                Analyses = ["api"],
+                TypeNames =
+                    [hardMember.After!.DeclaringTypeIdentifier],
+                MemberTargetIdentities =
+                    [hardMember.After.StableSelector],
+            };
         BrowserLibraryApiDiffSucceeded value =
-            Assert.IsType<BrowserLibraryApiDiffSucceeded>(result.Value);
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(
+                (await fixture.Query(hardRequest)).Value);
 
         // Member-level changes land on the Member relation they describe, with
         // the producer's classification and message; the Type keeps none of them.
         BrowserLibraryApiDiffType hard = Assert.Single(
             value.Types,
-            type => type.Display == "LibraryApiDiffFixture.HardChangedType");
+            type => type.Display
+                == "LibraryApiDiffFixture.HardChangedType");
         Assert.Empty(hard.Changes);
         BrowserLibraryApiDiffMember first = Assert.Single(hard.Members);
         BrowserLibraryApiDiffChange virtualRemoved = Assert.Single(
@@ -644,11 +822,29 @@ public sealed class BrowserLibraryApiDiffOperationTests
             BrowserLibraryApiDiffChangeCategory.Signature,
             virtualRemoved.Category);
 
-        BrowserLibraryApiDiffType constraintChange = Assert.Single(
-            value.Types,
+        BrowserLibraryApiDiffType constraintSummary = Assert.Single(
+            summary.Types,
             type => type.Display
                 == "LibraryApiDiffFixture.MethodConstraintChange");
-        Assert.Empty(constraintChange.Changes);
+        BrowserLibraryApiDiffMember constraintMember =
+            Assert.Single(constraintSummary.Members);
+        BrowserLibraryApiDiffRequest constraintRequest =
+            fixture.Request() with
+            {
+                Surface = BrowserDiffAnalysisSurface.Member,
+                Analyses = ["api"],
+                TypeNames =
+                    [constraintMember.After!.DeclaringTypeIdentifier],
+                MemberTargetIdentities =
+                    [constraintMember.After.StableSelector],
+            };
+        BrowserLibraryApiDiffType constraintChange =
+            Assert.Single(
+                Assert.IsType<BrowserLibraryApiDiffSucceeded>(
+                    (await fixture.Query(constraintRequest)).Value)
+                    .Types,
+                type => type.Display
+                    == "LibraryApiDiffFixture.MethodConstraintChange");
         BrowserLibraryApiDiffMember constrainedMethod =
             Assert.Single(constraintChange.Members);
         Assert.Collection(
@@ -675,45 +871,6 @@ public sealed class BrowserLibraryApiDiffOperationTests
             });
         Assert.NotEmpty(virtualRemoved.Message);
         Assert.Equal(hard.BreakingCount, first.Changes.Length);
-
-        // A definition-only change is a fact without a classified change row; the
-        // Browser must show it from TypeDefinitionChanged, not from Changes.
-        BrowserLibraryApiDiffType definitionOnly = Assert.Single(
-            value.Types,
-            type => type.Display
-                == "LibraryApiDiffFixture.TypeDefinitionOnly");
-        Assert.True(definitionOnly.TypeDefinitionChanged);
-        Assert.Empty(definitionOnly.Changes);
-        Assert.Empty(definitionOnly.Members);
-
-        // Whole-Type additions and removals are Type-level changes: the Type
-        // entry carries the one classified change and its Members carry none.
-        BrowserLibraryApiDiffType added = Assert.Single(
-            value.Types,
-            type => type.Display == "LibraryApiDiffFixture.AddedType");
-        BrowserLibraryApiDiffChange typeAdded = Assert.Single(added.Changes);
-        Assert.Equal(BrowserLibraryApiDiffChangeKind.TypeAdded, typeAdded.Kind);
-        Assert.Equal(
-            BrowserLibraryApiDiffChangeClassification.Additive,
-            typeAdded.Classification);
-        Assert.All(added.Members, member => Assert.Empty(member.Changes));
-        BrowserLibraryApiDiffType removed = Assert.Single(
-            value.Types,
-            type => type.Display == "LibraryApiDiffFixture.RemovedType");
-        BrowserLibraryApiDiffChange typeRemoved = Assert.Single(removed.Changes);
-        Assert.Equal(
-            BrowserLibraryApiDiffChangeKind.TypeRemoved,
-            typeRemoved.Kind);
-        Assert.Equal(
-            BrowserLibraryApiDiffChangeClassification.Breaking,
-            typeRemoved.Classification);
-        Assert.All(removed.Members, member => Assert.Empty(member.Changes));
-        int placed = value.Types.Sum(type =>
-            type.Changes.Length
-            + type.Members.Sum(member => member.Changes.Length));
-        int issued = value.Types.Sum(type =>
-            type.BreakingCount + type.AdditiveCount + type.PotentiallyBreakingCount);
-        Assert.Equal(issued, placed);
     }
 
     [Fact]
@@ -1378,12 +1535,6 @@ public sealed class BrowserLibraryApiDiffOperationTests
             result.Rejected!.Kind);
         Assert.Null(result.Value);
         Assert.NotNull(result.Inspection);
-        Assert.Equal(
-            "available",
-            result.Inspection.Content
-                .GetProperty("libraryApi")
-                .GetProperty("outcome")
-                .GetString());
     }
 
     [Fact]
@@ -1540,13 +1691,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.Equal(
             BrowserLibraryApiDiffResultKind.Succeeded,
             result.Kind);
-        Assert.NotNull(result.Inspection);
-        Assert.Equal(
-            "available",
-            result.Inspection.Content
-                .GetProperty("libraryApi")
-                .GetProperty("outcome")
-                .GetString());
+        Assert.Null(result.Inspection);
 
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement root = document.RootElement;
@@ -1563,6 +1708,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 "after",
                 "before",
                 "breakingCount",
+                "categories",
                 "changedMemberCount",
                 "changes",
                 "display",
@@ -1586,6 +1732,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
             [
                 "after",
                 "before",
+                "categories",
                 "changes",
                 "documentIdentifier",
                 "explore",

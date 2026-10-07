@@ -26,7 +26,8 @@ public sealed record DiffAnalysisLibraryInspectionRequest(
         PrepareBodySignals,
     Func<ImplementationDiffResult>? PrepareImplementation,
     IReadOnlyList<DiffAnalysisHostUnavailability> HostUnavailability,
-    StringLiteralComparisonQueryPlan? StringLiteralQuery = null);
+    StringLiteralComparisonQueryPlan? StringLiteralQuery = null,
+    ApiDiffScope ApiDiffScope = ApiDiffScope.Signature);
 
 /// <summary>
 /// Completes one selected-Library comparison once, retaining both generic Diff
@@ -52,7 +53,8 @@ public static class DiffAnalysisLibraryInspection
                 afterGroup,
                 after,
                 scope,
-                perEndpointLimits);
+                perEndpointLimits,
+                request.ApiDiffScope);
         LibraryApiDiffOutcome libraryApi =
             LibraryApiDiffPresentationAdapter.Create(comparison);
         DiffAnalysisInput input = CreateInput(

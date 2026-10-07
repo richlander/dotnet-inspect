@@ -118,6 +118,42 @@ public class IlBodyDiffNormalizationTests
     }
 
     [Fact]
+    public void CompareSummary_UsesTheSameCanonicalEqualityWithoutDiffRows()
+    {
+        byte[] oldImage = BuildCallImage("Old", "System.Runtime");
+        byte[] newImage = BuildCallImage("New", "System.Private.CoreLib");
+
+        IlBodyChangeSummary changed = CompareSummaryImages(
+            oldImage,
+            newImage);
+        IlBodyChangeSummary exact = CompareSummaryImages(
+            oldImage,
+            newImage,
+            IlBodyDiffNormalization.NormalizePlatformAssemblyScope);
+
+        Assert.Equal(IlBodyChangeSummaryOutcome.Changed, changed.Outcome);
+        Assert.True(changed.IsChanged);
+        Assert.Null(changed.Failure);
+        Assert.Equal(IlBodyChangeSummaryOutcome.Exact, exact.Outcome);
+        Assert.False(exact.IsChanged);
+        Assert.Null(exact.Failure);
+    }
+
+    [Fact]
+    public void CompareSummary_PreservesBranchTargetChanges()
+    {
+        MethodInstructions oldBody = Decode(
+            [0x2b, 0x03, 0x00, 0x2a, 0x00, 0x2a]);
+        MethodInstructions newBody = Decode(
+            [0x2b, 0x01, 0x00, 0x2a, 0x00, 0x2a]);
+
+        IlBodyChangeSummary summary =
+            IlBodyDiff.CompareSummary(oldBody, newBody);
+
+        Assert.Equal(IlBodyChangeSummaryOutcome.Changed, summary.Outcome);
+    }
+
+    [Fact]
     public void CompareStreams_AggregatesOperandDiffOutcome()
     {
         using var oldStream = new MemoryStream(BuildCallImage("Old", "Library.One"));
@@ -427,6 +463,29 @@ public class IlBodyDiffNormalizationTests
             newReader,
             newMethod,
             normalization: normalization).Diff;
+    }
+
+    static IlBodyChangeSummary CompareSummaryImages(
+        byte[] oldImage,
+        byte[] newImage,
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
+    {
+        using var oldPe = new PEReader(new MemoryStream(oldImage));
+        using var newPe = new PEReader(new MemoryStream(newImage));
+        MetadataReader oldReader = oldPe.GetMetadataReader();
+        MetadataReader newReader = newPe.GetMetadataReader();
+        MethodDefinition oldMethod =
+            oldReader.GetMethodDefinition(
+                MetadataTokens.MethodDefinitionHandle(1));
+        MethodDefinition newMethod =
+            newReader.GetMethodDefinition(
+                MetadataTokens.MethodDefinitionHandle(1));
+        return IlBodyDiff.CompareSummary(
+            oldReader,
+            oldPe.GetMethodBody(oldMethod.RelativeVirtualAddress),
+            newReader,
+            newPe.GetMethodBody(newMethod.RelativeVirtualAddress),
+            normalization);
     }
 
     static void AssertArrayOperandDiff(byte[] oldSignature, byte[] newSignature)

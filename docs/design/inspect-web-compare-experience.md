@@ -36,7 +36,7 @@ This owner defines:
   descriptor at Library, Type, and Member;
 - the explicit Diff and Clone mode state within that inspector;
 - Browser-specific Library Type rows and Type Member rows projected from
-  complete owner-issued comparison or clone-search evidence;
+  owner-issued shallow Diff summaries or complete clone-search evidence;
 - the rule that Library and Type rows navigate rather than select an in-place
   detail pane;
 - retention of the active Compare mode through Compare-owned drill-down;
@@ -71,9 +71,12 @@ Compare consumes, without redefining:
 - the Package-owned Diff baseline and Clone scope described by
   [Browser Diff targets](inspect-web-diff-targets.md) and
   [Structural Clone Search Scope](structural-clone-search-scope.md);
-- the complete Library-root Diff result owned by
-  [Library API Diff Presentation](library-api-diff-presentation.md), including
-  its exact nested Type and Member evidence;
+- the host-neutral Library Diff summary for Library and Type, containing exact
+  Type and Member identities plus only API addition, API deletion, API change,
+  and method-body change categories;
+- the complete Library-root API Diff result owned by
+  [Library API Diff Presentation](library-api-diff-presentation.md), requested
+  only at the Member detailed-result boundary;
 - complete Library, Type, or Member clone-search results projected through
   [Clone Candidates Presentation](clone-candidate-presentation.md);
 - exact Type and Member inventory identities and activation descriptors from
@@ -244,9 +247,10 @@ Type Compare contains Member rows and no selected-Member detail pane.
 
 ### Type Diff
 
-Type Diff obtains the complete Library-root Diff document for the containing
-Library and projects the exact Type entry. Direct entry at Type uses the same
-root query; it does not construct an independent `TypeDiff` input.
+Type Diff requests the shallow Library Diff summary narrowed to the exact Type.
+It does not construct or serialize the complete Library-root API Diff document.
+Direct entry at Type uses the same summary operation and exact Type identity;
+it does not construct an independent `TypeDiff` input.
 
 The successful result begins with one **Whole type diff** row when an
 owner-issued immersive destination is available. It represents the complete
@@ -255,9 +259,10 @@ Unavailable or failed destination construction remains visible and does not
 remove the changed-Member inventory.
 
 The remaining rows represent changed Members using exact owner-issued Member
-identity and compact change classification. Activating a Member row moves to
-that exact Member with Compare Diff retained. It does not select Member detail
-inside Type.
+identity and one or more high-level categories: API addition, API deletion,
+API change, or method-body change. Activating a Member row moves to that exact
+Member with Compare Diff retained. It does not select Member detail inside
+Type.
 
 A removed Member has no current-Type Navigation subject. Its row remains
 visible with complete Before-side change evidence but is not activatable.
@@ -279,10 +284,11 @@ view of the Type query's bounded candidate rows.
 Member is the first subject that presents detailed comparison evidence in the
 Compare working surface.
 
-For **Public API** content, Member Diff projects the exact Member entry from the
-containing Library-root Diff document. It summarizes correspondence,
-compatibility, and the complete API-change evidence carried there, in this
-order:
+For **Public API** content, Member Diff requests the complete API Diff evidence
+for the exact Member. This is the first point where the Browser constructs and
+serializes compatibility details rather than a shallow category summary. It
+summarizes correspondence, compatibility, and the complete API-change evidence
+in this order:
 
 ```text
 <Member>                                                 Diff | Clone

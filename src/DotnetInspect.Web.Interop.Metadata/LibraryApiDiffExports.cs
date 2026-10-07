@@ -7,6 +7,7 @@ using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using DotnetInspect.Web;
+using ILInspector.Metadata;
 using NuGet.Versioning;
 using QuerySpace;
 
@@ -232,14 +233,56 @@ public static partial class MetadataExports
             currentScope.SurfaceParticipant(currentCoordinate, currentAsset);
 
         cancellationToken.ThrowIfCancellationRequested();
-        InspectionEnvelope<DiffAnalysisDocument> inspection =
+        if (request.Surface is not BrowserDiffAnalysisSurface.Member
+            && stringLiteralQuery is null)
+        {
+            InspectionEnvelope<LibraryDiffSummaryOutcome> summary =
+                targetScope.UseSurfaceParticipant(
+                    targetParticipant,
+                    (targetGroup, target) =>
+                        currentScope.UseSurfaceParticipant(
+                            currentParticipant,
+                            (currentGroup, current) =>
+                                LibraryDiffSummaryInspection.Execute(
+                                    targetGroup,
+                                    target,
+                                    currentGroup,
+                                    current,
+                                    BrowserApiSurfacePolicy.Limits,
+                                    new HashSet<string>(
+                                        request.TypeNames,
+                                        StringComparer.Ordinal),
+                                    request.Surface
+                                        is BrowserDiffAnalysisSurface.Type
+                                            ? ApiDiffScope.Signature
+                                                | ApiDiffScope.Attributes
+                                            : ApiDiffScope.Signature)));
+            cancellationToken.ThrowIfCancellationRequested();
+            return BrowserLibraryApiDiffWireProjection.Project(
+                request,
+                summary,
+                Context(targetParticipant),
+                Context(currentParticipant));
+        }
+
+        (
+            InspectionEnvelope<DiffAnalysisDocument> Detail,
+            InspectionEnvelope<LibraryDiffSummaryOutcome>? Summary)
+            inspections =
             targetScope.UseSurfaceParticipant(
                 targetParticipant,
                 (targetGroup, target) =>
                     currentScope.UseSurfaceParticipant(
                         currentParticipant,
                         (currentGroup, current) =>
-                            DiffAnalysisLibraryInspection.Execute(
+                        {
+                            var typeFilters =
+                                new HashSet<string>(
+                                    request.TypeNames,
+                                    StringComparer.Ordinal);
+                            InspectionEnvelope<
+                                DiffAnalysisDocument> detail =
+                                DiffAnalysisLibraryInspection.Execute(
                                 targetGroup,
                                 target,
                                 currentGroup,
@@ -253,9 +296,7 @@ public static partial class MetadataExports
                                     DiffAnalysisCapabilities,
                                     selection,
                                     ViewsOf(request.Views),
-                                    new HashSet<string>(
-                                        request.TypeNames,
-                                        StringComparer.Ordinal),
+                                    typeFilters,
                                     request.TypeNames,
                                     selection.Surface
                                         == AnalysisReportSurfaceKind.Member
@@ -270,14 +311,37 @@ public static partial class MetadataExports
                                     HostUnavailability:
                                         BrowserHostUnavailability(selection),
                                     StringLiteralQuery:
-                                        stringLiteralQuery))));
+                                        stringLiteralQuery,
+                                    ApiDiffScope:
+                                        request.Surface
+                                            is BrowserDiffAnalysisSurface.Member
+                                                ? ApiDiffScope.Signature
+                                                    | ApiDiffScope.Attributes
+                                                : ApiDiffScope.Signature));
+                            InspectionEnvelope<
+                                LibraryDiffSummaryOutcome>? summary =
+                                request.Surface
+                                    is BrowserDiffAnalysisSurface.Member
+                                        ? LibraryDiffSummaryInspection.Execute(
+                                            targetGroup,
+                                            target,
+                                            currentGroup,
+                                            current,
+                                            BrowserApiSurfacePolicy.Limits,
+                                            typeFilters,
+                                            ApiDiffScope.Signature
+                                                | ApiDiffScope.Attributes)
+                                        : null;
+                            return (detail, summary);
+                        }));
         cancellationToken.ThrowIfCancellationRequested();
 
         return BrowserLibraryApiDiffWireProjection.Project(
             request,
-            inspection,
+            inspections.Detail,
             Context(targetParticipant),
-            Context(currentParticipant));
+            Context(currentParticipant),
+            inspections.Summary);
     }
 
     static BrowserLibraryApiDiffEndpointContext Context(

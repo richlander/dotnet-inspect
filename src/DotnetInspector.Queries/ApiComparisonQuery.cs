@@ -12,16 +12,24 @@ public static class ApiComparisonQuery
     public static InspectionQuery<ApiFindingComparison> Definition { get; } =
         new("API comparison", InspectionCost.NetworkFree);
 
-    public static ApiFindingComparison Execute(ApiSurface oldSurface, ApiSurface newSurface)
+    public static ApiFindingComparison Execute(
+        ApiSurface oldSurface,
+        ApiSurface newSurface,
+        ApiDiffScope scope = ApiDiffScope.Signature)
     {
         ArgumentNullException.ThrowIfNull(oldSurface);
         ArgumentNullException.ThrowIfNull(newSurface);
+        if (!Enum.IsDefined(scope) && scope
+            != (ApiDiffScope.Signature | ApiDiffScope.Attributes))
+        {
+            throw new ArgumentOutOfRangeException(nameof(scope));
+        }
 
         return MetadataFindings.CompareApi(
             oldSurface,
             newSurface,
             new FindingSubject("api", "API surface"),
-            new ApiDiffOptions(ApiDiffScope.Signature),
+            new ApiDiffOptions(scope),
             memberAcceptanceThreshold: MetadataFindings.ExtensionInstanceMatchTier.Confidence);
     }
 }
