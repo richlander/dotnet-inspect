@@ -1,5 +1,6 @@
 import { packageIdentityKey } from "../src/data.ts";
 import { KeybindingRegistry } from "../src/keybinding-registry.ts";
+import { createPlatformSpotlightSuggestions } from "../src/spotlight-platform-suggestions.ts";
 import { createPackageRemoval } from "../src/package-removal.ts";
 import type { PackageControlPackage } from "../src/package-controls.ts";
 import { createSpotlight, type SpotlightResult, type SpotlightState } from "../src/spotlight.ts";
@@ -55,6 +56,16 @@ const removal = createPackageRemoval({
     if (params.has("refresh")) queueMicrotask(render);
   },
 });
+const suggestions = createPlatformSpotlightSuggestions({
+  getItem: key => localStorage.getItem(key),
+  setItem: (key, value) => {
+    if (params.has("storage-failure")) throw new Error("Storage is unavailable");
+    localStorage.setItem(key, value);
+  },
+});
+const platformRow = { kind: "framework-lib" as const, assembly: "System.Runtime", pack: "netcore.app", publicTypes: 1,
+  version: "11.0.0-rc.1.26425.128", tfm: "net11.0", ranges: [],
+  publication: { status: "available" as const, date: "2026-09-08" } };
 const spotlight = createSpotlight({
   state: search, keybindings: keys, lenses: () => [],
   escapeHtml, highlightRanges: value => escapeHtml(value), kindIcon: () => "T",
@@ -65,15 +76,21 @@ const spotlight = createSpotlight({
       entry.id.toLowerCase().includes(query)
       && !state.packages.some(pkg => pkg.id === entry.id));
     return [
+      ...(params.has("platform") && platformRow.assembly.toLowerCase().includes(query)
+        && (query || !suggestions.isDismissed(platformRow)) ? [platformRow] : []),
       ...loaded.map(pkg => ({ kind: "pkg-loaded" as const, pkg, ranges: [] })),
       ...recent.map(entry => ({ kind: "pkg-recent" as const, entry, ranges: [] })),
       ...(query ? [{ kind: "pkg-nuget" as const, hit: { id: "System.Text.Json" }, ranges: [] }] : []),
     ];
   },
-  pickResult: () => { status.textContent = "Activated"; },
+  pickResult: result => {
+    if (result.kind === "framework-lib") suggestions.remember(result);
+    status.textContent = "Activated";
+  },
   removeResult: result => {
     try {
-      if (result.kind === "pkg-recent") removal.forgetRecent(result.entry.id);
+      if (result.kind === "framework-lib") suggestions.dismiss(result);
+      else if (result.kind === "pkg-recent") removal.forgetRecent(result.entry.id);
       else removal.removeLoaded(packageIdentityKey({
         ...result.pkg, activeFramework: result.pkg.activeFramework ?? "",
       }));

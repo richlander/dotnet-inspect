@@ -1284,3 +1284,24 @@ test("Libraries is beside Packages and admits only Library observations", () => 
   assert.match(html, /data-sl-scope="packages"[^>]*>Packages<\/button>\s*<button[^>]*data-sl-scope="libraries"/);
   assert.doesNotMatch(html, /data-sl-pkg-load|data-sl-package-activity/);
 });
+
+test("platform suggestions dismiss by keyboard without activation and remain searchable", () => {
+  const row: SpotlightResult = { kind: "framework-lib", assembly: "System.Runtime", pack: "netcore.app", publicTypes: 1, ranges: [] };
+  let dismissed = false;
+  let activated = 0;
+  const harness = createHarness({
+    searchResults: () => !harness.state.spotlightQuery && dismissed ? [] : [row],
+    removeResult: () => { dismissed = true; return true; },
+    pickResult: () => { activated++; },
+  });
+  assert.match(harness.spotlight.inlineHtml(false), /aria-label="Dismiss System.Runtime from Spotlight suggestions"/);
+  withBoundSpotlight(harness, dom => {
+    assert.equal(dom.press("Delete", true), true);
+    assert.equal(activated, 0);
+    assert.doesNotMatch(harness.spotlight.inlineHtml(false), /data-sl-framework-lib/);
+  });
+  harness.state.spotlightQuery = "System.Runtime";
+  const search = harness.spotlight.inlineHtml(false);
+  assert.match(search, /data-sl-framework-lib/);
+  assert.doesNotMatch(search, /data-sl-remove=/);
+});

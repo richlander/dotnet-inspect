@@ -213,6 +213,50 @@ public sealed class ProducerCapabilityPlanningTests
     }
 
     [Fact]
+    public void ProducerCapabilityCoveringPathKeepsOnlyPropertiesEveryStepEstablishes()
+    {
+        var fixture = new CapabilityFixture();
+        ProducerCapabilityProvisionDeclaration inexactRows =
+            ProducerCapabilityProvisionDeclaration.Create(
+                ProducerCapabilityProvisionIdentity.Create(fixture.Domain),
+                fixture.Scope,
+                fixture.Rows,
+                fixture.Complete,
+                fixture.RowsOutcome,
+                fixture.BorrowedResource,
+                fixture.DetachedResult,
+                ProducerCapabilityProperties.None);
+        ProducerCapabilityPlanCandidate CountThroughRows(
+            ProducerCapabilityProvisionDeclaration rows) =>
+            ProducerCapabilityPlanCandidate.Create(
+                fixture.Strategy,
+                [rows.Identity],
+                [
+                    ProducerCapabilitySatisfactionCandidate.Create(
+                        fixture.CountAssociation,
+                        rows.Identity,
+                        [fixture.RowsCoverCount.Identity]),
+                ]);
+
+        // An edge that preserves exact cardinality cannot create it from a
+        // provision that lacks it.
+        AssertRejected(
+            fixture.Validate(
+                [fixture.RequireCount(fixture.CountAssociation)],
+                [inexactRows],
+                [fixture.RowsCoverCount],
+                CountThroughRows(inexactRows)),
+            ProducerCapabilityPlanRejectionReason.RequiredPropertiesMissing);
+
+        // An exact provision through an exact edge still satisfies Count.
+        Accept(fixture.Validate(
+            [fixture.RequireCount(fixture.CountAssociation)],
+            [fixture.RowsProvision],
+            [fixture.RowsCoverCount],
+            CountThroughRows(fixture.RowsProvision)));
+    }
+
+    [Fact]
     public void ProducerCapabilityPlanChecksResourceOfSelectedProvisionsOnly()
     {
         var fixture = new CapabilityFixture();

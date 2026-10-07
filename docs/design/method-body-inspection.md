@@ -894,6 +894,10 @@ field-focused operation roles, and additional reconstructed operation families
 remain focused successors; callers must not interpret their absence as a
 whole-closure negative claim.
 
+The inventory is keyed by physical body.
+[Unsafe member findings](unsafe-member-findings.md) own its attribution to
+source-declared members, their exposure, and census completeness.
+
 ### `ILInspector.Research`
 
 Owns offset-keyed overlays that join Analysis (R1) and Decompiler (R2):
