@@ -1776,17 +1776,28 @@ test("package acquisition publishes only current results", async () => {
     version: "1.0.0",
   }));
   const acquisition = createPackageAcquisition(acquisitionDependencies({
+    queryPackageSummary: async (...args) => {
+      const summary = await acquisitionDependencies().queryPackageSummary(...args);
+      assert.ok(summary.packageInfo);
+      return {
+        ...summary,
+        packageInfo: { ...summary.packageInfo, content: {
+          ...summary.packageInfo.content, selectedTargetFramework: "net8.0",
+        } },
+        surface: packageSurface({ activeFramework: "net8.0" }),
+      };
+    },
     retainPackage: (packageModel, replaced) =>
       events.push(`retain:${packageModel.id}/${replaced?.id ?? "none"}`),
-    recordRecentPackage: (id, version, framework) =>
-      events.push(`recent:${id}@${version}/${framework}`),
+    recordRecentPackage: (id, version, framework, _nugetOrg, highestFramework) =>
+      events.push(`recent:${id}@${version}/${framework}/highest=${highestFramework}`),
     refreshPackageStats: () => events.push("stats"),
   }));
 
   const stale = await acquisition.loadPackage({
     packageId: "Example.Package",
     version: "1.2.3",
-    framework: "net10.0",
+    framework: "net8.0",
     isCurrent: () => false,
   });
   assert.equal(stale, null);
@@ -1795,14 +1806,14 @@ test("package acquisition publishes only current results", async () => {
   const current = await acquisition.loadPackage({
     packageId: "Example.Package",
     version: "1.2.3",
-    framework: "net10.0",
+    framework: "net8.0",
     replacePackage: replacedPackage,
   });
   assert.equal(current?.id, "Example.Package");
   assert.deepEqual(events, [
     "stats",
     "retain:Example.Package/Example.Old",
-    "recent:Example.Package@1.2.3/net10.0",
+    "recent:Example.Package@1.2.3/net8.0/highest=net10.0",
   ]);
 });
 

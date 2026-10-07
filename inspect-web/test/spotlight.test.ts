@@ -1189,7 +1189,7 @@ test("same-named Package and Library share one Ecosystem group with independent 
   assert.equal((html.match(/class="spotlight-svg-icon spotlight-pruned"/g) ?? []).length, 1);
   assert.match(html, /Supplied by net10.0 @ 10.0.12/);
   assert.match(html, /class="spotlight-item-ns" title="nuget.org">4\.3\.0<\/span>/);
-  assert.match(html, /title="\.NET Runtime · net10\.0 · 10\.0\.12 · 1 type">10\.0\.12<\/span>/);
+  assert.match(html, /title="\.NET Runtime · net10\.0 · 10\.0\.12 · 1 type">10\.0\.12 · net10\.0<\/span>/);
   assert.notEqual(spotlightResultIdentity(packageResult), spotlightResultIdentity(libraryResult));
   assert.deepEqual(spotlight.results(), [libraryResult, packageResult, external]);
 });
@@ -1254,13 +1254,23 @@ test("unavailable version comparison preserves pair order and unrelated hits sta
 test("Spotlight artifact rows show date-only metadata without changing activation identity", () => {
   const results: SpotlightResult[] = [
     { kind: "pkg-nuget", hit: { id: "System.Text.Json", version: "9.0.0" }, ranges: [], publication: { status: "available", date: "2024-11-12" } },
-    { kind: "framework-lib", assembly: "System.Text.Json", pack: "netcore.app", publicTypes: 1, ranges: [], version: "10.0.12", publication: { status: "available", date: "2026-09-08" } },
+    { kind: "framework-lib", assembly: "System.Text.Json", pack: "netcore.app", publicTypes: 1, ranges: [], version: "10.0.12", tfm: "net10.0", publication: { status: "available", date: "2026-09-08" } },
   ];
+  results.push(
+    { kind: "pkg-loaded", pkg: { id: "Example.Loaded", version: "1.0.0", activeFramework: "net8.0" }, highestFramework: "net10.0", ranges: [] },
+    { kind: "pkg-recent", entry: { id: "Example.Recent", version: "2.0.0", framework: "net8.0", highestFramework: "net10.0" }, ranges: [] },
+    { kind: "pkg-recent", entry: { id: "Example.Legacy", version: "3.0.0", framework: "net8.0" }, ranges: [] },
+  );
   const identities = results.map(spotlightResultIdentity);
   const { spotlight } = createHarness({ searchResults: () => results });
   const html = spotlight.inlineHtml(false);
   assert.match(html, /<time datetime="2024-11-12" aria-label="Published 2024-11-12" title="Published 2024-11-12">2024-11-12<\/time>/);
   assert.match(html, /<time datetime="2026-09-08" aria-label="Published 2026-09-08" title="Published 2026-09-08">2026-09-08<\/time>/);
+  assert.match(html, /class="spotlight-item-ns">1\.0\.0 · net10\.0<\/span>/);
+  assert.match(html, /class="spotlight-item-ns">2\.0\.0 · net10\.0<\/span>/);
+  assert.match(html, /class="spotlight-item-ns">3\.0\.0<\/span>/);
+  assert.match(html, /title="[^"\n]+">10\.0\.12 · net10\.0<\/span>/);
+  assert.doesNotMatch(html, />[^<]*net8\.0/);
   assert.deepEqual(spotlight.results().map(spotlightResultIdentity).sort((a, b) => a.localeCompare(b)), identities.sort((a, b) => a.localeCompare(b)));
 });
 

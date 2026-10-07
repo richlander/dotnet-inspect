@@ -45,6 +45,7 @@ export interface SpotlightEcosystemAnnotation {
 }
 
 interface PackageLoadedResult {
+  highestFramework?: string;
   publication?: PublicationDate;
   ecosystem?: SpotlightEcosystemAnnotation;
   kind: "pkg-loaded";
@@ -70,7 +71,7 @@ interface PackageRecentResult {
   publication?: PublicationDate;
   ecosystem?: SpotlightEcosystemAnnotation;
   kind: "pkg-recent";
-  entry: { id: string; version?: string; framework?: string; nugetOrg?: boolean };
+  entry: { id: string; version?: string; framework?: string; highestFramework?: string; nugetOrg?: boolean };
   ranges: readonly HighlightRange[];
 }
 
@@ -537,7 +538,7 @@ export function createSpotlight(options: SpotlightOptions) {
       return withRemoveButton(result, `<button ${base} data-sl-pkg-open="${escapeHtml(result.pkg.id)}">
         ${packageIcon(result)}
         <span class="spotlight-item-name">${options.highlightRanges(result.pkg.id, result.ranges)}</span>
-        <span class="spotlight-item-ns">${escapeHtml(result.pkg.version)}${packageAddition ? " · already in Workspace" : ""}</span>
+        <span class="spotlight-item-ns">${escapeHtml(result.pkg.version)}${result.highestFramework ? ` · ${escapeHtml(result.highestFramework)}` : ""}${packageAddition ? " · already in Workspace" : ""}</span>
         ${dateHtml}
       </button>`);
     }
@@ -559,7 +560,7 @@ export function createSpotlight(options: SpotlightOptions) {
       return withRemoveButton(result, `<button ${base} data-sl-pkg-recent="${escapeHtml(result.entry.id)}">
         ${packageIcon(result)}
         <span class="spotlight-item-name">${options.highlightRanges(result.entry.id, result.ranges)}</span>
-        <span class="spotlight-item-ns">${escapeHtml(version)}</span>
+        <span class="spotlight-item-ns">${escapeHtml(version)}${result.entry.highestFramework ? `${version ? " · " : ""}${escapeHtml(result.entry.highestFramework)}` : ""}</span>
         ${dateHtml}
       </button>`);
     }
@@ -595,7 +596,7 @@ export function createSpotlight(options: SpotlightOptions) {
               title: result.pack === "aspnetcore.app" ? "ASP.NET Core" : ".NET Runtime" }
           : undefined, undefined)}
         <span class="spotlight-item-name">${options.highlightRanges(result.assembly, result.ranges)}</span>
-        <span class="spotlight-item-ns" title="${escapeHtml(meta)}">${escapeHtml(result.version || "")}</span>
+        <span class="spotlight-item-ns" title="${escapeHtml(meta)}">${escapeHtml([result.version, result.tfm].filter(Boolean).join(" · "))}</span>
         ${dateHtml}
       </button>`;
     }
