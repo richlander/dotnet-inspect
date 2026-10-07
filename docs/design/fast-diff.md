@@ -37,8 +37,8 @@ are unchanged, and proving that is far cheaper than describing a change.
 
 | Pass | Scope | Returns | Cost bound |
 | --- | --- | --- | --- |
-| Fast | Library | State and `Api`/`Body` flags per Type | One equality check per member, early exit once both flags are set |
-| Fast | Type | State and `Api`/`Body` flags per Member | One equality check per member, early exit once both flags are set |
+| Fast | Library | One state per Type | One equality check per member, stop at the first sign of change |
+| Fast | Type | One state per Member | One equality check per member, stop at the first sign of change |
 | Complete | Member | Full API and body diff for one exact Member | Existing [Annotated Source diff](annotated-source-diff-document.md) cost |
 
 Scopes nest. A Type is `Changed` when its definition or any member differs, so
@@ -77,7 +77,7 @@ Equality is decided per paired subject:
   producer cannot compare, or that canonicalization does not define, makes the
   method `Indeterminate`, never `Unchanged`. String operands compare as
   resolved user-string values, never heap tokens, so a literal that only moved
-  is equal and a changed literal is a `Body` difference.
+  is equal and a changed literal is a difference.
 - **One-sided methods.** The complete Implementation Diff compares the union of
   declared methods, so the producer also takes a census of methods present on
   only one side, including non-public ones. A one-sided method makes its Type
@@ -89,15 +89,11 @@ side. Equal token numbers never prove equal targets across assemblies. Length
 alone proves a change only if canonicalization does not normalize encodings.
 This changes how early the walk stops, not what counts as equal.
 
-A `Changed` subject reports **API change and/or body change** as two separate
-flags, `Api` and `Body`, plus an occupied-side marker for an added or removed
-subject. The flags are independent of the state, so the three-state contract is
-unchanged, and they are the whole change contract: no counts, classifications,
-or text. A paired member's body comparison runs even when an API difference was
-found, so `Body` is never unknown for a decided member. A Type or Library
-subject carries the union of its members' flags, and the pass stops as soon as
-both flags are set or every compared fact has been checked. A host that needs
-more than the two flags requests the Complete pass.
+The contract is **presence means change**. Fast Diff takes the first sign of
+change, of any kind (added, removed, API, or implementation), and stops. It
+does not say which kind of change was found, does not keep looking, and
+produces no flags, counts, classifications, or text. A host that needs more
+requests the Complete pass.
 
 Compared facts and early exit mean the result is an existence proof, not an
 inventory. No row counts, classifications, or text are produced.
@@ -118,13 +114,12 @@ same producer rather than a second implementation.
 
 Browser adoption, owned by [Compare experience](inspect-web-compare-experience.md):
 
-- the Library pass runs when Compare opens and advertises changed Types, with
-  their API and/or body change flags, in the Type list and the Compare frame.
-  Library Compare no longer renders complete rows and counts on open; the
-  result contract is "API change and/or body change, no counts", and complete
-  rows are computed only on demand;
-- the Type pass runs when a Type opens and advertises changed Members, with
-  their flags, in the Member list; and
+- the Library pass runs when Compare opens and advertises changed Types in the
+  Type list and the Compare frame. Library Compare no longer renders complete
+  rows and counts on open; the result contract is "changed or not, no counts",
+  and complete rows are computed only on demand;
+- the Type pass runs when a Type opens and advertises changed Members in the
+  Member list; and
 - the Complete pass runs only at the Member boundary.
 
 The existing **API differences** navigation cue becomes a Fast Diff cue, and the
@@ -146,18 +141,17 @@ adoption slices.
 
 Host caching, speculative Member-diff prefetch, streaming, and cancellation are
 host policy, not producer behavior, and are outside this document. A separate
-Browser owner will define them. This document supplies only the typed flags
+Browser owner will define them. This document supplies only the per-subject state
 that policy consumes.
 
 ## Member compare hybrid
 
 On Member Compare, the default becomes a hybrid: show the full body diff when
 the implementation changed, and otherwise show the API diff, as the type
-printer diff. The Fast Diff Member flags select between them (`Body` shows the body
-diff; `Api` without `Body` shows the API diff) without
-running the complete body diff for an API-only change. The presentation contract
-belongs to [Member Body Diff](inspect-web-member-body-diff.md) and is its own
-slice; this document supplies only the Member flags it consumes.
+printer diff. Fast Diff does not choose between them. The Member boundary runs the Complete
+pass, so the hybrid selects from that complete result. The presentation
+contract belongs to [Member Body Diff](inspect-web-member-body-diff.md) and is
+its own slice; Fast Diff supplies only the Member `Changed` marker in the list.
 
 ## Non-claims
 
@@ -177,8 +171,8 @@ Each step is independently mergeable under #9716.
    typed states, early exit, and the soundness corpus gate. Includes
    NativeAOT numbers against the complete diff for the same pairs.
 2. **Browser Library pass.** Operation, Compare frame status, and Type list
-   cues; changes the Compare experience owner's Library result contract to API
-   and/or body change with no counts.
+   cues; changes the Compare experience owner's Library result contract to
+   changed-or-not with no counts.
 3. **Browser Type pass.** Member list cues on opening a Type.
 4. **Member hybrid.** Default Member Compare presentation; updates the Member
    Body Diff owner.
@@ -195,18 +189,16 @@ Each step is independently mergeable under #9716.
 
 ## Acceptance scenarios
 
-1. Opening Compare for a version pair marks only changed Types with their API
-   and/or body change flags, and shows no counts and no complete rows until
+1. Opening Compare for a version pair marks only changed Types, and shows no counts and no complete rows until
    requested.
 2. Opening a changed Type marks only its changed Members; an unchanged Member
    is never marked.
-3. A Member with `Api` only shows the API diff by default; a Member with
-   `Body` set shows the body diff. A Member with both flags set is reported with
-   both, even when the API difference was found first.
+3. A Member the Fast Diff marks `Changed` opens the Complete pass; the hybrid
+   shows the body diff when the implementation changed, otherwise the API diff.
 4. A decode failure yields `Indeterminate`, never `Unchanged`.
 5. Across the corpus, no subject reported `Unchanged` appears in the complete
    diff.
-6. A method whose only change is a string literal is `Changed` with `Body`; a method whose literal only moved heap offsets is `Unchanged`.
+6. A method whose only change is a string literal is `Changed`; a method whose literal only moved heap offsets is `Unchanged`.
 7. A Type whose only change is an added private method is `Changed`.
 8. A method whose only change is an exception-handler catch type is `Changed`
     or `Indeterminate`, never `Unchanged`.
