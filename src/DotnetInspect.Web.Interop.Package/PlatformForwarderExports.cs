@@ -2,7 +2,6 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using DotnetInspector.PlatformHouse;
 
 namespace DotnetInspect.Web.Interop.Package;
 
@@ -88,31 +87,22 @@ public static partial class PackageExports
     internal static BrowserPlatformForwarderResult ProjectForwarderResult(
         BrowserPlatformForwarderNavigationResult result)
     {
-        PlatformTypeDefinitionResolutionResult? resolution = result switch
-        {
-            BrowserPlatformForwarderNavigationResult.Opened opened => opened.Resolution,
-            BrowserPlatformForwarderNavigationResult.Blocked blocked => blocked.Resolution,
-            _ => throw new InvalidOperationException("Unknown forwarding navigation result."),
-        };
-        BrowserPlatformForwardingHop[] hops = resolution is null
-            ? []
-            : [.. resolution.Hops.Select(hop =>
-                new BrowserPlatformForwardingHop(
-                    hop.SourceAssembly.Assembly.Identity.Name,
-                    hop.TargetReference.Name))];
+        BrowserPlatformForwarderResolutionProjection<BrowserPlatformForwardingHop> resolution =
+            BrowserPlatformForwarderNavigation.ProjectResolution(
+                result,
+                static (sourceAssembly, targetAssembly) =>
+                    new BrowserPlatformForwardingHop(sourceAssembly, targetAssembly));
         return result switch
         {
             BrowserPlatformForwarderNavigationResult.Opened opened =>
                 new(
-                    BrowserPlatformForwarderStatus.Opened, null, ProjectForwarderView(opened.View), hops,
-                    resolution?.GetType().Name,
-                    resolution?.TerminalAssemblyIdentity?.Name,
+                    BrowserPlatformForwarderStatus.Opened, null, ProjectForwarderView(opened.View),
+                    resolution.Hops, resolution.Kind, resolution.TerminalAssembly,
                     null, null),
             BrowserPlatformForwarderNavigationResult.Blocked blocked =>
                 new(
-                    ForwarderStatus(blocked.Status), blocked.Message, null, hops,
-                    resolution?.GetType().Name,
-                    resolution?.TerminalAssemblyIdentity?.Name,
+                    ForwarderStatus(blocked.Status), blocked.Message, null,
+                    resolution.Hops, resolution.Kind, resolution.TerminalAssembly,
                     blocked.Receipt?.SettlementKind.ToString(),
                     blocked.Contribution?.Kind.ToString()),
             _ => throw new InvalidOperationException("Unknown forwarding navigation result."),
@@ -142,10 +132,10 @@ public static partial class PackageExports
                 ?? throw new InvalidOperationException("A forwarding view requires one selected Library."),
             [.. view.Forwarders.Select(row =>
                 new BrowserPlatformForwarderRow(
-                    $"{view.Coordinate.Assembly}:{row.Declaration.Identity.ToEscapedFullName()}",
-                    row.Declaration.DisplayName.ToString(),
-                    row.Declaration.Namespace.ToString(),
-                    row.Declaration.Forwarding!.TargetAssembly.Name.ToString(),
+                    $"{view.Coordinate.Assembly}:{row.EscapedDefinitionId}",
+                    row.Name,
+                    row.Namespace,
+                    row.TargetAssembly,
                     row.Action))],
             view.SelectedTypeId);
 }

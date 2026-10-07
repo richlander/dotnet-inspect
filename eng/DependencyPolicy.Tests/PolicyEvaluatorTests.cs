@@ -1258,7 +1258,6 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Services",
                 "DotnetInspector.SourceSelection",
                 "ILInspector.Analysis",
-                "ILInspector.Metadata",
                 "InertText",
                 "NuGetFetch",
                 "QuerySpace",
@@ -1280,6 +1279,18 @@ public sealed class PolicyEvaluatorTests
             assemblyRule.Id,
             target[0],
             "DotnetInspector.Networking",
+            DependencyGraphKind.Assembly,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            projectRule.Id,
+            target[0],
+            "ILInspector.Metadata",
+            DependencyGraphKind.Project,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            assemblyRule.Id,
+            target[0],
+            "ILInspector.Metadata",
             DependencyGraphKind.Assembly,
             projectPath[0]);
     }

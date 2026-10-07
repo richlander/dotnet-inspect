@@ -37,12 +37,17 @@ public sealed class MethodDefinitionExecution
     MethodDefinitionExecution(
         WorkDescription description,
         MethodDefinitionSourceBreadth breadth,
+        MethodDefinitionTerminalWorkLimits terminalWorkLimits,
         bool tracksSourceCoverage)
     {
         _description = description;
         _breadth = breadth;
         _sourceCoverage =
-            new MethodDefinitionSourceCoverageBuilder(tracksSourceCoverage);
+            new MethodDefinitionSourceCoverageBuilder(
+                tracksSourceCoverage,
+                tracksSourceCoverage
+                    ? terminalWorkLimits
+                    : null);
         _states = new ProducerState[description.Producers.Length];
     }
 
@@ -81,18 +86,21 @@ public sealed class MethodDefinitionExecution
             sourceName,
             peReader,
             MethodDefinitionSourceBreadth.AllDefinitions,
+            MethodDefinitionTerminalWorkLimits.Unbounded,
             tracksSourceCoverage: false);
 
     internal static MethodDefinitionExecution Execute(
         WorkDescription description,
         string sourceName,
         PEReader peReader,
-        MethodDefinitionSourceBreadth breadth)
+        MethodDefinitionSourceBreadth breadth,
+        MethodDefinitionTerminalWorkLimits terminalWorkLimits)
         => Execute(
             description,
             sourceName,
             peReader,
             breadth,
+            terminalWorkLimits,
             tracksSourceCoverage: true);
 
     static MethodDefinitionExecution Execute(
@@ -100,17 +108,20 @@ public sealed class MethodDefinitionExecution
         string sourceName,
         PEReader peReader,
         MethodDefinitionSourceBreadth breadth,
+        MethodDefinitionTerminalWorkLimits terminalWorkLimits,
         bool tracksSourceCoverage)
     {
         ArgumentNullException.ThrowIfNull(description);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
         ArgumentNullException.ThrowIfNull(peReader);
         ArgumentNullException.ThrowIfNull(breadth);
+        ArgumentNullException.ThrowIfNull(terminalWorkLimits);
 
         MethodDefinitionExecution execution =
             CreateExecution(
                 description,
                 breadth,
+                terminalWorkLimits,
                 tracksSourceCoverage);
         if (!peReader.HasMetadata)
         {
@@ -283,11 +294,13 @@ public sealed class MethodDefinitionExecution
     static MethodDefinitionExecution CreateExecution(
         WorkDescription description,
         MethodDefinitionSourceBreadth breadth,
+        MethodDefinitionTerminalWorkLimits terminalWorkLimits,
         bool tracksSourceCoverage)
     {
         var execution = new MethodDefinitionExecution(
             description,
             breadth,
+            terminalWorkLimits,
             tracksSourceCoverage);
         ImmutableArray<ProducerDeclaration> producers = description.Producers;
         for (int i = 0; i < producers.Length; i++)
@@ -323,10 +336,13 @@ public sealed class MethodDefinitionExecution
 
     internal static MethodDefinitionSharedExecution ExecuteShared(
         IReadOnlyList<WorkDescription> descriptions,
+        IReadOnlyList<MethodDefinitionTerminalWorkLimits>
+            terminalWorkLimits,
         string sourceName,
         PEReader peReader)
     {
         ArgumentNullException.ThrowIfNull(descriptions);
+        ArgumentNullException.ThrowIfNull(terminalWorkLimits);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
         ArgumentNullException.ThrowIfNull(peReader);
         if (descriptions.Count < 2)
@@ -335,13 +351,22 @@ public sealed class MethodDefinitionExecution
                 "Shared Method-source execution requires at least two lanes.",
                 nameof(descriptions));
         }
+        if (terminalWorkLimits.Count != descriptions.Count)
+        {
+            throw new ArgumentException(
+                "Shared Method-source execution requires one terminal-work "
+                + "limit set per lane.",
+                nameof(terminalWorkLimits));
+        }
 
         var executions =
             ImmutableArray.CreateBuilder<MethodDefinitionExecution>(
                 descriptions.Count);
-        foreach (WorkDescription description in descriptions)
+        for (int i = 0; i < descriptions.Count; i++)
         {
+            WorkDescription description = descriptions[i];
             ArgumentNullException.ThrowIfNull(description);
+            ArgumentNullException.ThrowIfNull(terminalWorkLimits[i]);
             if (description.PassCount != 1)
             {
                 throw new ProducerContractException(
@@ -353,6 +378,7 @@ public sealed class MethodDefinitionExecution
                 CreateExecution(
                     description,
                     MethodDefinitionSourceBreadth.AllDefinitions,
+                    terminalWorkLimits[i],
                     tracksSourceCoverage: true));
         }
 
@@ -1104,6 +1130,14 @@ public sealed class MethodDefinitionExecution
                 state.Execution.Abort(abort.Failure);
                 return false;
             }
+            catch (MethodDefinitionTerminalWorkLimitExceededException ex)
+            {
+                state.UnitsFailed++;
+                FailActiveSource(
+                    MetadataTokens.GetToken(unit.MethodHandle),
+                    unit.Label,
+                    ex);
+            }
             anyActive |= state.IsActive;
         }
 
@@ -1235,7 +1269,11 @@ public sealed class MethodDefinitionExecution
             settled = state.Visit(new MethodDefinitionView(ref unit, state));
         }
         catch (Exception ex)
-            when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+            when (ex
+                    is not
+                        MethodDefinitionTerminalWorkLimitExceededException
+                && LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(ex))
         {
             state.UnitsFailed++;
             state.Outcome = ProducerOutcome.Failed;
@@ -1368,8 +1406,10 @@ public sealed class MethodDefinitionExecution
         PublishSourceCoverage();
     }
 
-    void PublishSourceCoverage() =>
+    void PublishSourceCoverage()
+    {
         SourceCoverage = _sourceCoverage.Build();
+    }
 
     /// <summary>How many times the execution's gate looked up a classifier's cache.</summary>
     internal int GateCacheLookups { get; private set; }

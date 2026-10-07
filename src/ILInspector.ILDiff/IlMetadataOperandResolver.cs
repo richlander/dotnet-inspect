@@ -373,27 +373,33 @@ public static partial class IlBodyDiff
             if (!reader.IsAssembly)
                 return identity;
 
-            ReadOnlySpan<char> identitySpan = identity;
-            int comma = identitySpan.IndexOf(',');
-            string name = comma >= 0 ? identity[..comma] : identity;
             string currentAssembly = reader.GetString(reader.GetAssemblyDefinition().Name);
-            return AssemblyScopeToken(name, currentAssembly, normalization) ?? identity;
+            return AssemblyScopeToken(identity, currentAssembly, normalization) ?? identity;
         }
 
     }
 
     /// <summary>
-    /// The shared scope token for a referenced assembly's simple name under the
-    /// requested scope normalization, or null when the reference keeps its exact
-    /// identity. Operand rendering and the compiler-generated ordinal correspondence key
-    /// share this one rule, so the key never distinguishes two references that operand
-    /// rendering shows as the same scope.
+    /// The shared scope token for an assembly reference under the requested scope
+    /// normalization, or null when the reference keeps its exact identity. Operand
+    /// rendering and the compiler-generated ordinal correspondence key share this one
+    /// rule, so the key distinguishes two references exactly when operand rendering does.
     /// </summary>
+    /// <param name="reference">
+    /// The reference's raw metadata name, or a display identity that begins with it.
+    /// Both callers reduce to the same text: the name up to its first comma.
+    /// </param>
+    /// <param name="currentAssemblyName">
+    /// The comparing reader's own assembly name. Callers only supply an assembly
+    /// reader; a module reader keeps exact identities on both paths.
+    /// </param>
     internal static string? AssemblyScopeToken(
-        string assemblyName,
+        string reference,
         string? currentAssemblyName,
         IlBodyDiffNormalization normalization)
     {
+        int comma = reference.IndexOf(',');
+        string assemblyName = comma >= 0 ? reference[..comma] : reference;
         bool isCurrent = currentAssemblyName is not null
             && assemblyName.Equals(currentAssemblyName, StringComparison.Ordinal);
         if ((normalization & IlBodyDiffNormalization.NormalizeCurrentAssemblyScope) != 0

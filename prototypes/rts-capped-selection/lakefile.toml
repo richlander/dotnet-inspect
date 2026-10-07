@@ -1,6 +1,0 @@
-name = "rts-capped-selection"
-version = "0.1.0"
-defaultTargets = ["RtsCappedSelection"]
-
-[[lean_lib]]
-name = "RtsCappedSelection"
