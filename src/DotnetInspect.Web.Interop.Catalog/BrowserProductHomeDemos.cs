@@ -214,9 +214,7 @@ internal static class BrowserProductHomeDemos
         }
 
         return new BrowserHomeDemoRunMember(
-            member.Name,
-            member.Kind,
-            memberAnchor,
+            member,
             MemberSection: "call-graph");
     }
 
@@ -349,7 +347,5 @@ internal abstract record BrowserHomeDemoRunRequest
 }
 
 internal sealed record BrowserHomeDemoRunMember(
-    string Name,
-    string? MemberKind,
-    string AnchorDigest,
+    ProductDemoMemberSelection Selection,
     string MemberSection);

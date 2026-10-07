@@ -220,6 +220,38 @@ public sealed partial class AssemblyContextSourceQueryTests
             null;
     }
 
+    sealed class CountingPdbStore
+        : IPdbStore
+    {
+        readonly InMemoryPdbStore _inner = new();
+        int _readAttempts;
+
+        internal int ReadAttempts =>
+            Volatile.Read(ref _readAttempts);
+
+        public ValueTask<Stream?> TryOpenAsync(
+            string key,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _readAttempts);
+            return _inner.TryOpenAsync(
+                key,
+                cancellationToken);
+        }
+
+        public ValueTask PutAsync(
+            string key,
+            Stream content,
+            CancellationToken cancellationToken = default) =>
+            _inner.PutAsync(
+                key,
+                content,
+                cancellationToken);
+
+        public string? TryGetLocalPath(string key) =>
+            null;
+    }
+
     sealed class StateChangingPdbStore(
         Action? afterLocalPath,
         ManualResetEventSlim? disposeEntered = null,

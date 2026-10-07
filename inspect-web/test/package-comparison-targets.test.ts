@@ -327,3 +327,13 @@ test("Compare mode is retained per Package model and discarded with it", () => {
   const stranger = pkg("Stranger");
   assert.throws(() => targets.selectMode(stranger, "clone"), /no longer in this Workspace/);
 });
+
+test("restored exact Diff keeps an unlisted baseline instead of applying previous-version policy", () => {
+  const packageModel = pkg();
+  const targets = createPackageComparisonTargets(() => [packageModel]);
+  targets.restoreExactDiff(packageModel, "0.9.0", { kind: "member-body" });
+  assert.deepEqual(targets.get(packageModel).diff, { kind: "exact", version: "0.9.0" });
+  assert.deepEqual(resolveEffectiveDiffTarget(targets.get(packageModel).diff, versions), { kind: "available", version: "0.9.0" });
+  assert.equal(targets.get(packageModel).diffContent.kind, "member-body");
+  assert.equal(targets.get(packageModel).mode, "diff");
+});

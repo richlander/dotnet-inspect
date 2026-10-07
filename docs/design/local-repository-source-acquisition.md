@@ -40,10 +40,9 @@ This is a consumed association, not a new PDB selection or identity contract.
 
 The production consumer is already shipped. Desktop `--repo` supplies clone
 paths to member PDB Source, printable type Source Files, printable member
-Source Locations, and implementation-diff PDB source. Product source paths
-reach the adapter through SourceHouse capabilities; the diagnostic
-`PdbMemberSourceAcquisition` adapter and CLI implementation-diff source
-resolver also invoke it directly.
+Source Locations, and implementation-diff PDB source. Product and
+certification source paths reach the adapter through SourceHouse capabilities;
+the CLI implementation-diff source resolver also invokes it directly.
 
 This preserves the host split owned by [PDB acquisition](../pdb-acquisition.md):
 desktop hosts can supply fully qualified filesystem clone paths; Browser/Wasm
@@ -172,10 +171,9 @@ This adapter uses the raw-content convention rather than recreating a checkout
 or borrowing working-tree conversion semantics. Git's object lookup supplies
 the candidate bytes, not their correspondence with a Portable PDB.
 
-The adjacent remote paths in SourceHouse and
-`PdbMemberSourceAcquisition` likewise gate fetched bytes through the shared
-verifier. Local lookup reuses that policy instead of inventing weaker checksum
-admission. Its deliberately different locator
+The adjacent remote path in SourceHouse likewise gates fetched bytes through
+the shared verifier. Local lookup reuses that policy instead of inventing
+weaker checksum admission. Its deliberately different locator
 admission is justified by the distinction between a local content probe and a
 network destination or immutable-origin claim.
 

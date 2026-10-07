@@ -36,8 +36,8 @@ cancellation at body EOF or backend failure timing reliably.
 
 `SourceFetch` is an existing host-neutral adapter used by CLI member, type,
 library, API, diff, and source-enrichment paths through
-`VerifiedSourceTextFetch` directly, through
-`PdbMemberSourceAcquisition` for certification, or through SourceHouse.
+`VerifiedSourceTextFetch` directly or through SourceHouse, including
+Query-owned certification sessions.
 Browser/Wasm supplies the same adapter with an in-memory content store and a
 host source policy.
 
@@ -74,8 +74,8 @@ The adapter consumes, but does not redefine, these owner-issued behaviors:
   best-effort read and write semantics.
 - SourceHouse owns product local/repository/remote ordering and settled
   PDB-source outcomes for shared type/member Source, member comparison, and
-  pairs. `PdbMemberSourceAcquisition` preserves that ordering for the
-  certification harness's already-open SourceLink context.
+  pairs. `AssemblyContextSourceQuery` preserves that ordering through one
+  reusable authored-member session for certification populations.
 - `SourceAvailabilityService` and `SourceIntegrityService` own their distinct
   endpoint and audit claims.
 

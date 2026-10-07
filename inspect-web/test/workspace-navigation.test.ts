@@ -94,7 +94,7 @@ function workspaceState(
       memberSignature: null,
       section: "facts",
       libraries: ["Example.Second"],
-      sourceView: null,
+      sourceView: null, comparison: null,
     },
     ...overrides,
   };
@@ -401,7 +401,7 @@ test("decompiled member source view survives workspace URL projection", () => {
     view: {
       ...baseline.view,
       section: "source",
-      sourceView: "decompiler-source",
+      sourceView: "decompiler-source", comparison: null,
     },
   });
   const encodedStates: BrowserWorkspaceShareState[] = [];
@@ -444,7 +444,7 @@ test("workspace-subject URLs preserve retained coordinates and restore Workspace
       memberSignature: null,
       section: null,
       libraries: [],
-      sourceView: null,
+      sourceView: null, comparison: null,
     },
   });
   const url = buildWorkspaceStateUrl(
@@ -595,7 +595,7 @@ test("canonical context capture does not broaden a selected subset for Call Grap
       memberSignature: null,
       section: "Call Graph",
       libraries: [],
-      sourceView: null,
+      sourceView: null, comparison: null,
     },
   };
 
@@ -1254,7 +1254,7 @@ test("history signatures distinguish captured library scope", () => {
       tabs: [{ id: "p", kind: "group", source: ":Platform", version: "11.0.0-preview.7.26381.103",
         framework: "net11.0", runtimeIdentifier: null }],
       contexts: [{ id: "g", tabIds: ["p"] }], activeTabId: "p", selectedContextId: "g",
-      view: { lens: null, type: null, memberAnchor: null, memberSignature: null, section: null, libraries: [], sourceView: null },
+      view: { lens: null, type: null, memberAnchor: null, memberSignature: null, section: null, libraries: [], sourceView: null, comparison: null },
     });
     for (const library of [null, '["aspnetcore.app","Microsoft.AspNetCore.dll"]']) {
       const state = { ...root, view: { ...root.view,

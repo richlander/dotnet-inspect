@@ -1,8 +1,6 @@
 using System.Text.Json;
 
 using DotnetInspector.Services;
-using Inspector.Findings;
-using ILInspector.Metadata;
 
 namespace ILInspector.DecompilerHarness;
 
@@ -95,13 +93,19 @@ static class AuthoredCorpusDrift
             if (!byAssembly.TryGetValue(name, out var group) || !matchedGroups.Add(name))
                 continue;
 
-            SourceLinkService? source = null;
             try
             {
-                source = SourceLinkService.Open(assemblyPath);
-                await AuthoredRebuildFidelity.AcquirePdbAsync(source, httpClient);
+                await using AuthoredSourceQuerySession source =
+                    AuthoredSourceQuerySession.Open(
+                        assemblyPath,
+                        httpClient,
+                        fetcher,
+                        repositoryPaths);
                 foreach (var record in group)
-                    results.Add(await EvaluateRowAsync(source, record, fetcher, repositoryPaths));
+                    results.Add(
+                        await EvaluateRowAsync(
+                            source,
+                            record));
             }
             catch (Exception ex) when (
                 AuthoredRebuildFidelity.IsPdbAcquisitionFailure(ex))
@@ -113,10 +117,6 @@ static class AuthoredCorpusDrift
                     $"Warning: drift check could not open '{assemblyPath}' ({ex.GetType().Name}: {ex.Message}).");
                 foreach (var record in group)
                     results.Add(new RowResult(record, Outcome.Unavailable, $"assembly-open: {ex.GetType().Name}"));
-            }
-            finally
-            {
-                source?.Dispose();
             }
         }
 
@@ -130,25 +130,14 @@ static class AuthoredCorpusDrift
     }
 
     static async Task<RowResult> EvaluateRowAsync(
-        SourceLinkService source,
-        AuthoredSourceHarvest.CorpusRecord record,
-        SourceFetch fetcher,
-        IReadOnlyList<string>? repositoryPaths)
+        AuthoredSourceQuerySession source,
+        AuthoredSourceHarvest.CorpusRecord record)
     {
-        var subject = new FindingSubject(
-            $"{record.Type}::{record.Method}#{record.Overload}",
-            $"{record.Type}.{record.Method}");
-
         PdbMemberSourceInspection authored;
         try
         {
-            authored = await PdbMemberSourceAcquisition.AcquireAsync(
-                source,
-                record.MetadataToken,
-                record.Method,
-                subject,
-                fetcher,
-                repositoryPaths);
+            authored = await source.AcquireAsync(
+                record.MetadataToken);
         }
         catch (Exception ex) when (ex is IOException
             or InvalidOperationException
