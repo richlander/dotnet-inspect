@@ -9,15 +9,6 @@ namespace DotnetInspect.Cli.Commands;
 
 internal static class TypeOverviewHierarchyCommand
 {
-    private static readonly ApiSurfaceExtractionBounds s_bounds =
-        new(
-            maxTypes: 250_000,
-            maxMembers: 2_000_000,
-            maxInspectionFailures: 4_096,
-            maxTypeForwarders: 250_000,
-            maxMetadataRows: 5_000_000,
-            maxRetainedTextCharacters: 20_000_000);
-
     internal static async Task<int?> TryExecuteAsync(
         ApiSourceResult source,
         TypeOptions options,
@@ -48,6 +39,8 @@ internal static class TypeOverviewHierarchyCommand
             return Unavailable(
                 format,
                 "A compact Type hierarchy requires a managed assembly descriptor.");
+        TypeInspectionPolicy policy =
+            TypeInspectionPolicies.CompactOverview;
         TypeOverviewHierarchyInspectionExecution execution =
             await TypeOverviewHierarchyInspection.ExecuteAsync(
                 ready.Reference,
@@ -55,10 +48,8 @@ internal static class TypeOverviewHierarchyCommand
                 source.TypeName!,
                 format,
                 options.IncludeAll,
-                s_bounds,
-                new(
-                    maxCapturedImageBytes: 512 * 1024 * 1024,
-                    maxRetainedArtifactBytes: 512 * 1024 * 1024),
+                policy.ExtractionBounds,
+                policy.MaterializationLimits,
                 cancellationToken)
             .ConfigureAwait(false);
         foreach (string cleanupFailure in execution.CleanupFailures)

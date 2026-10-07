@@ -262,7 +262,11 @@ public static class TypeOptionsParser
     /// </summary>
     public record Success(
         TypeOptions Options,
-        ResolvedMemberInspectionPlan Plan) : TypeParseResult;
+        ResolvedMemberInspectionPlan Plan) : TypeParseResult
+    {
+        internal TypeCommandPlan CommandPlan { get; init; } =
+            new TypeCommandPlan.Standard();
+    }
 
     /// <summary>
     /// Parses type command options asynchronously (due to source resolution).
@@ -278,6 +282,9 @@ public static class TypeOptionsParser
         bool hasProjectSource = !string.IsNullOrWhiteSpace(projectPath);
         bool hasNonProjectSource = sourceInputs.HasExplicitSource;
         var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
+        bool mermaidExplicitlySet =
+            parseResult.GetResult(opts.Mermaid) is { Implicit: false }
+            && parseResult.GetValue(opts.Mermaid);
         bool routerCompletedPlatformLookup =
             RouterCommandDefinition
                 .IsSuppressRuntimeTypeFallbackCapability(
@@ -294,6 +301,13 @@ public static class TypeOptionsParser
             && !hasProjectSource
             && workspacePacket is null)
         {
+            if (mermaidExplicitlySet)
+            {
+                return new VersionError(
+                    opts.IsDiscoveryMode(parseResult)
+                        ? TypeCommandPlanner.StandaloneMermaidError
+                        : TypeCommandPlanner.ExactTypeMermaidError);
+            }
             if (opts.IsDiscoveryMode(parseResult))
                 return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));
             return new ShowHelp();
@@ -470,11 +484,22 @@ public static class TypeOptionsParser
 
         bool envelopeOutput = parseResult.GetValue(opts.Envelope);
         bool tree = parseResult.GetValue(opts.Tree);
+        bool nonHierarchyFormatExplicitlySet =
+            parseResult.GetValue(opts.Json)
+            || parseResult.GetValue(opts.Markdown)
+            || parseResult.GetValue(opts.PlainText)
+            || parseResult.GetValue(opts.Table)
+            || parseResult.GetValue(opts.Tsv)
+            || parseResult.GetValue(opts.Jsonl)
+            || parseResult.GetResult(opts.Verbosity)
+                is { Implicit: false };
         bool treeOwnsFormat =
             tree && !opts.IsFormatFlagExplicitlySet(parseResult);
         OutputFormat outputFormat =
             envelopeOutput
                 ? OutputFormat.Json
+                : mermaidExplicitlySet
+                ? OutputFormat.Mermaid
                 : treeOwnsFormat
                 ? OutputFormat.Markdown
                 : opts.ResolveFormat(parseResult);
@@ -506,6 +531,9 @@ public static class TypeOptionsParser
             JsonOutput = !envelopeOutput && outputFormat == OutputFormat.Json,
             MermaidOutput = !envelopeOutput
                 && outputFormat == OutputFormat.Mermaid,
+            MermaidExplicitlySet = mermaidExplicitlySet,
+            NonHierarchyFormatExplicitlySet =
+                nonHierarchyFormatExplicitlySet,
             EnvelopeOutput = envelopeOutput,
             CompactJson = parseResult.GetValue(args.CompactOption),
             Tabular =
@@ -538,6 +566,32 @@ public static class TypeOptionsParser
             Paths = parseResult.GetValue(opts.Paths),
             JsonArray = parseResult.GetValue(opts.JsonArray),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
+            LineWindowExplicitlySet =
+                parseResult.GetResult(opts.Limit)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.Head)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.Tail)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.Lines)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.TailLines)
+                    is { Implicit: false },
+            ShapeOrDiscoveryControlExplicitlySet =
+                parseResult.GetResult(opts.Select)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.Discover)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.QueryHelp)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.Columns)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.Fields)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.Row)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.Details)
+                    is { Implicit: false },
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),
@@ -574,9 +628,22 @@ public static class TypeOptionsParser
             CompanionOutput = opts.ParseCompanionOutput(parseResult)
         };
 
-        return new Success(
-            options,
+        ResolvedMemberInspectionPlan inspectionPlan =
             ResolvedMemberInspectionPlan
-                .FromCompatibilityOptions(options));
+                .FromCompatibilityOptions(options);
+        return TypeCommandPlanner.Plan(options, inspectionPlan) switch
+        {
+            TypeCommandPlanningResult.Planned planned =>
+                new Success(
+                    options,
+                    inspectionPlan)
+                {
+                    CommandPlan = planned.Plan,
+                },
+            TypeCommandPlanningResult.Rejected rejected =>
+                new VersionError(rejected.Error),
+            _ => throw new InvalidOperationException(
+                "Unknown Type command planning result.")
+        };
     }
 }

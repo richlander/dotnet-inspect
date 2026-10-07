@@ -2,8 +2,10 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Planning;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
+using DotnetInspector.Presentation;
 
 namespace DotnetInspect.Cli.Tests.Parsers;
 
@@ -61,6 +63,7 @@ public class TypeOptionsParserTests
         typeCommand.Options.Add(opts.Details);
         typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(opts.PlainText);
+        typeCommand.Options.Add(opts.Mermaid);
         typeCommand.Options.Add(opts.Envelope);
         opts.AddOutputOptionsTo(typeCommand);
         opts.AddNuGetOptionsTo(typeCommand);
@@ -125,6 +128,10 @@ public class TypeOptionsParserTests
     }
 
     static async Task<TypeOptions> ParseSuccessAsync(params string[] args)
+        => (await ParsePlanSuccessAsync(args)).Options;
+
+    static async Task<TypeOptionsParser.Success> ParsePlanSuccessAsync(
+        params string[] args)
     {
         ArgumentPreprocessor.Reset();
         var (root, opts, cmdArgs) = CreateTestCommand();
@@ -132,8 +139,52 @@ public class TypeOptionsParserTests
         Assert.Empty(parseResult.Errors);
 
         var result = await TypeOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
-        var success = Assert.IsType<TypeOptionsParser.Success>(result);
-        return success.Options;
+        if (result is TypeOptionsParser.VersionError versionError)
+        {
+            Assert.Fail(versionError.Error.Message);
+        }
+        return Assert.IsType<TypeOptionsParser.Success>(result);
+    }
+
+    [Theory]
+    [InlineData(
+        TypeOverviewHierarchyPresentationFormat.Tree,
+        "type", "System.Math", "--platform", "System.Private.CoreLib")]
+    [InlineData(
+        TypeOverviewHierarchyPresentationFormat.Tree,
+        "type", "System.Math", "--platform", "System.Private.CoreLib", "--tree")]
+    [InlineData(
+        TypeOverviewHierarchyPresentationFormat.Mermaid,
+        "type", "System.Math", "--platform", "System.Private.CoreLib", "--mermaid")]
+    [InlineData(
+        TypeOverviewHierarchyPresentationFormat.Tree,
+        "type", "System.Math", "--platform", "System.Private.CoreLib", "--all")]
+    public async Task ExactTypePresentation_IsPlannedAfterParsing(
+        TypeOverviewHierarchyPresentationFormat expected,
+        params string[] args)
+    {
+        TypeOptionsParser.Success success =
+            await ParsePlanSuccessAsync(args);
+
+        var plan =
+            Assert.IsType<TypeCommandPlan.ExactTypeOverview>(
+                success.CommandPlan);
+        Assert.Equal(expected, plan.Format);
+    }
+
+    [Theory]
+    [InlineData("type", "System.*", "--platform", "System.Private.CoreLib")]
+    [InlineData("type", "System.Math", "--platform", "System.Private.CoreLib", "--json")]
+    [InlineData("type", "System.Math", "--platform", "System.Private.CoreLib", "-S", "Methods")]
+    [InlineData("type", "System.Math", "--platform", "System.Private.CoreLib", "-m", "M")]
+    [InlineData("type", "System.Math", "--platform", "System.Private.CoreLib", "-n", "2")]
+    public async Task CompetingTypeRequests_KeepStandardPlan(
+        params string[] args)
+    {
+        TypeOptionsParser.Success success =
+            await ParsePlanSuccessAsync(args);
+
+        Assert.IsType<TypeCommandPlan.Standard>(success.CommandPlan);
     }
 
     [Fact]

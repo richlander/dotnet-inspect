@@ -75,6 +75,11 @@ public partial class CommandExecutionTests
     [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--rows", "1..2")]
     [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "-n", "2")]
     [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "-S", "Methods")]
+    [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--details")]
+    [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "-Q")]
+    [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--columns", "Name")]
+    [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--fields", "Name")]
+    [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--row", "1")]
     [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "-t", "System.*")]
     public async Task TypeHierarchy_Mermaid_RejectsOtherRoutesBeforeOutput(
         params string[] args)
