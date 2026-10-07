@@ -2014,12 +2014,32 @@ public partial class CommandExecutionTests
         var direct = await RunAppAsync(["type", target, .. tail]);
         var routed = await RunAppAsync([target, .. tail]);
 
-        Assert.Equal(1, direct.Exit);
-        Assert.Empty(direct.Output);
-        Assert.Contains("--mermaid requires a standalone exact Type", direct.Error);
+        Assert.Equal(direct, routed);
         Assert.Equal(1, routed.Exit);
         Assert.Empty(routed.Output);
-        Assert.Contains("Unrecognized option '--mermaid'", routed.Error);
+        Assert.Contains(
+            "--mermaid requires a standalone exact Type",
+            routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_DeferredExactTypeUsesStandaloneMermaid()
+    {
+        var target = typeof(SampleGenericClass<>).FullName!
+            .Replace("`1", "<T>", StringComparison.Ordinal);
+        string[] tail =
+        [
+            "--library",
+            TestAssemblyPath,
+            "--mermaid",
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.StartsWith("graph TD\n", routed.Output);
+        Assert.Empty(routed.Error);
     }
 
     [Theory]

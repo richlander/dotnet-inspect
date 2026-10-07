@@ -200,7 +200,10 @@ internal static class LibraryTypeListingCommand
                 s_bounds);
         InspectionEnvelope<LibraryInspectionOutcome>? envelope =
             session.Execute(plan, cancellationToken);
-        if (!TryGetDocument(envelope, out LibraryDocument document))
+        if (!TryGetDocument(
+                envelope,
+                writeFailures: true,
+                out LibraryDocument document))
             return null;
         if (document.Types!.Count
             is not LibraryTypePopulationCountOutcome.Counted)
@@ -219,7 +222,8 @@ internal static class LibraryTypeListingCommand
         string? @namespace = null,
         MetadataNamespaceMatch namespaceMatch =
             MetadataNamespaceMatch.Exact,
-        int maximumRows = int.MaxValue)
+        int maximumRows = int.MaxValue,
+        bool writeFailures = true)
     {
         var rows = ImmutableArray.CreateBuilder<LibraryTypeShape>();
         LibraryDocument? firstDocument = null;
@@ -248,6 +252,7 @@ internal static class LibraryTypeListingCommand
                 session.Execute(plan, cancellationToken);
             if (!TryGetDocument(
                     envelope,
+                    writeFailures,
                     out LibraryDocument document))
             {
                 return null;
@@ -296,13 +301,17 @@ internal static class LibraryTypeListingCommand
 
     private static bool TryGetDocument(
         InspectionEnvelope<LibraryInspectionOutcome>? envelope,
+        bool writeFailures,
         out LibraryDocument document)
     {
         document = null!;
         if (envelope is null)
             return false;
 
-        bool hasErrors = WriteDiagnostics(envelope.Diagnostics);
+        bool hasErrors =
+            HasErrorDiagnostics(envelope.Diagnostics);
+        if (writeFailures)
+            WriteDiagnostics(envelope.Diagnostics);
         switch (envelope.Content)
         {
             case LibraryInspectionOutcome.Available available:
@@ -351,6 +360,13 @@ internal static class LibraryTypeListingCommand
 
         return hasErrors;
     }
+
+    private static bool HasErrorDiagnostics(
+        IEnumerable<InspectionDiagnostic> diagnostics) =>
+        diagnostics.Any(
+            static diagnostic =>
+                diagnostic.Severity
+                    == InspectionDiagnosticSeverity.Error);
 
     private static void WriteCountFailure(
         LibraryTypePopulationCountOutcome? outcome)

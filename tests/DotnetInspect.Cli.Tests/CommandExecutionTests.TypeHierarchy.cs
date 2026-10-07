@@ -135,7 +135,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task TypeHierarchy_MalformedRootAdjacency_RejectsMermaidWithoutOutput()
+    public async Task TypeHierarchy_MalformedRootAdjacency_FailsMermaidWithoutOutput()
     {
         string directory = Path.Combine(
             Environment.CurrentDirectory,
@@ -153,7 +153,8 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("metadata failures", error);
+            Assert.Contains("--mermaid", error);
+            Assert.Contains("invalid AssemblyRef", error);
         }
         finally
         {

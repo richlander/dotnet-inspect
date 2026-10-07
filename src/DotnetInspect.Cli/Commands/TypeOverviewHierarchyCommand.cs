@@ -1,5 +1,3 @@
-using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -52,12 +50,6 @@ internal static class TypeOverviewHierarchyCommand
             return Unavailable(
                 format,
                 "A compact Type hierarchy requires a managed assembly descriptor.");
-        // Root adjacency failures belong to the legacy API diagnostic path.
-        if (HasUnrepresentedRootFailures(path))
-            return Unavailable(
-                format,
-                "The Type library has metadata failures outside the compact hierarchy.");
-
         TypeOverviewHierarchyPresentationPlan presentation =
             TypeOverviewHierarchyPresentation.CreateCompactPlan(
                 format,
@@ -74,7 +66,8 @@ internal static class TypeOverviewHierarchyCommand
                                 LibraryTypeDeclarationSelection.Definitions,
                                 ApiTypeInventoryKinds.All),
                             cancellationToken,
-                            maximumRows: maximumInventoryRows);
+                            maximumRows: maximumInventoryRows,
+                            writeFailures: false);
                     if (listing is null)
                         return null;
 
@@ -122,26 +115,24 @@ internal static class TypeOverviewHierarchyCommand
                 });
         }
 
+        if (envelope.Diagnostics.Any(diagnostic =>
+                diagnostic.Severity
+                    == InspectionDiagnosticSeverity.Error))
+        {
+            if (format == TypeOverviewHierarchyPresentationFormat.Mermaid)
+                TypeCommand.WriteInspectionDiagnostics(envelope.Diagnostics);
+            return Unavailable(
+                format,
+                "The compact Type hierarchy inspection reported errors.");
+        }
+
         try
         {
-            // Stage the complete lowering before publishing any stdout.
-            using var output = new StringWriter { NewLine = "\n" };
+            TypeCommand.WriteInspectionDiagnostics(envelope.Diagnostics);
             TypeOverviewHierarchyPresentation.Write(
                 available.Document,
                 presentation,
-                output);
-            if (envelope.Diagnostics.Any(diagnostic =>
-                    diagnostic.Severity
-                        == InspectionDiagnosticSeverity.Error))
-            {
-                if (format == TypeOverviewHierarchyPresentationFormat.Mermaid)
-                    TypeCommand.WriteInspectionDiagnostics(envelope.Diagnostics);
-                return Unavailable(
-                    format,
-                    "The compact Type hierarchy inspection reported errors.");
-            }
-            TypeCommand.WriteInspectionDiagnostics(envelope.Diagnostics);
-            Console.Out.Write(output.ToString());
+                Console.Out);
             return 0;
         }
         catch (InvalidOperationException failure)
@@ -156,35 +147,9 @@ internal static class TypeOverviewHierarchyCommand
     {
         if (format == TypeOverviewHierarchyPresentationFormat.Tree)
             return null;
-        CommandError.Write(message);
+        CommandError.Write(
+            $"--mermaid could not produce the compact exact Type hierarchy. {message}");
         return 1;
     }
 
-    private static bool HasUnrepresentedRootFailures(string path)
-    {
-        try
-        {
-            using var stream = File.OpenRead(path);
-            using var image = new PEReader(stream);
-            MetadataReader metadata = image.GetMetadataReader();
-            foreach (AssemblyReferenceHandle reference in metadata.AssemblyReferences)
-                _ = AssemblyReferenceIdentity.From(metadata, reference);
-            foreach (ExportedTypeHandle handle in metadata.ExportedTypes)
-            {
-                ExportedType type = metadata.GetExportedType(handle);
-                if (!type.IsForwarder
-                    && type.Implementation.Kind == HandleKind.AssemblyReference)
-                    return true;
-            }
-            return false;
-        }
-        catch (Exception failure)
-            when (failure is BadImageFormatException
-                or ArgumentOutOfRangeException
-                or IOException
-                or UnauthorizedAccessException)
-        {
-            return true;
-        }
-    }
 }

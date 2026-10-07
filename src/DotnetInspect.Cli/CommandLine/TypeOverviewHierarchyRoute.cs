@@ -4,7 +4,6 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Services;
 using DotnetInspector.Presentation;
-using DotnetInspector.Services;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.CommandLine;
@@ -104,30 +103,6 @@ internal static class TypeOverviewHierarchyRoute
                     sourceOptions: null,
                     allowPlatformPrefixFallback: false)
                     is { Kind: SourceResolver.LocalSourceKind.Platform };
-        }
-        if (exact
-            && mermaid
-            && !result.GetValue(args.AllOption)
-            && result.GetValue(args.PlatformOption) is { } platform)
-        {
-            var (assemblyPath, _, _, _) =
-                PlatformResolver.ResolveAssembly(platform);
-            if (assemblyPath is not null)
-            {
-                try
-                {
-                    exact = AssemblyReader.FindUniquePublicType(
-                        assemblyPath,
-                        target!) is not null;
-                }
-                catch (Exception failure)
-                    when (failure is IOException
-                        or UnauthorizedAccessException
-                        or BadImageFormatException)
-                {
-                    exact = false;
-                }
-            }
         }
 
         if (!exact)

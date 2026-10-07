@@ -234,10 +234,12 @@ public static class TypeCommand
         {
             try
             {
-                if (options.HierarchyFormat is null
+                if (options.HierarchyFormat
+                        is not TypeOverviewHierarchyPresentationFormat.Mermaid
                     && await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
                     return prefixBrowseExitCode;
-                if (options.HierarchyFormat is null
+                if (options.HierarchyFormat
+                        is not TypeOverviewHierarchyPresentationFormat.Mermaid
                     && !options.RouterCompletedPlatformLookup
                     && await TryExecuteFindIfMissAsync(options)
                         is { } findIfMissExitCode)
