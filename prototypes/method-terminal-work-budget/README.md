@@ -13,14 +13,24 @@ product contract or runtime path.
 ## Why Lean here
 
 PR #9364 adds a `MethodDefinitionTerminalWorkBudget` to every
-`MethodDefinitionExecution`. Each acquired body makes three membership
+`MethodDefinitionExecution`. A body's first acquisition makes three membership
 checks against the budget's admitted-method set, then one insertion and one
-`GetILReader().Length` read. Every production caller at #9364's head uses
-the untracked, `Unbounded` overload:
+`GetILReader().Length` read. A repeat acquisition makes two checks. No
+production caller at #9364's head passes finite limits, so every production
+execution is `Unbounded`, and it runs in one of two modes.
 
-- `MethodClassificationQuery`
+Untracked, through `MethodDefinitionExecution.Execute(description,
+sourceName, peReader)`:
+
+- `MethodClassificationQuery`'s direct executions
 - `AnalysisLibraryBodyUseService`
 - `UnsafeEvidencePresence`
+
+Tracked, through `MethodQuerySource.Execute`:
+
+- `MethodClassificationQuery.Execute(prepared)` request sets, including
+  shared multi-lane executions
+- `UnsafeEvidencePresenceQuery` through `AssemblyAnalysisOperation`
 
 The question is which parts of that accounting can change an observable
 result. Each classification below is proved over every acquisition sequence
@@ -43,6 +53,9 @@ These results allow the budget to be simplified without changing what it
 publishes:
 
 - Omit the budget for untracked `Unbounded` executions.
+- Drop the limit checks for tracked `Unbounded` lanes, which can never fail.
+  Those lanes still publish `TerminalWork.EncodedIlBytes`, which cannot be
+  derived from `BodiesAcquired`, so they must keep a byte counter.
 - Take a tracked lane's admitted set from `BodiesAcquired`.
 - Drop `Admit`'s repeated check.
 
@@ -50,18 +63,20 @@ That is a code reduction, not a measured speedup. #9364's own result for
 `type System.Text.StringBuilder --library <CoreLib> --discover @Audit --tsv`
 is a +6 to +9 ms median on Linux x64. The NativeAOT comparisons below ran on
 osx-arm64 against RC1 CoreLib, with interleaved paired samples and identical
-output.
+output. Each cell is the paired median against base `1a3cc7ab0` in one run.
 
-| Variant | Paired median versus base `1a3cc7ab0` |
-| --- | ---: |
-| A/A control: base plus one unused method | -1.0 to +2.0 ms |
-| #9364 head `11890aaf1` | +4.1 to +5.0 ms |
-| #9364 without the budget in untracked `Unbounded` executions | +3.6 to +4.7 ms |
-| The same without the new terminal-limit `catch` | +2.6 ms |
+| Variant | Run 1 (40) | Run 2 (50) | Run 3 (50) | Run 4 (50) |
+| --- | ---: | ---: | ---: | ---: |
+| A/A control: base plus one unused method | — | -1.0 ms | +2.0 ms | -1.0 ms |
+| #9364 head `11890aaf1` | +4.9 ms | +4.1 ms | +4.7 ms | +0.7 ms |
+| No budget in untracked `Unbounded` executions | +4.5 ms | +4.7 ms | +3.6 ms | -6.4 ms |
+| No budget in any `Unbounded` execution, which is every execution at this head | — | — | — | -0.0 ms |
 
-The cost is real but small, about 0.5% of a roughly 790 ms command. It
-appears in #9364's first commit. Removing the budget recovers at most about
-1 ms, which is within the A/A spread.
+- **#9364's cost is small and depends on the host.** On a quiet host it was
+  +4 to +5 ms, about 0.5% of a roughly 790 ms command. It did not reproduce in
+  run 4, when the host was busier and medians were near 890 ms.
+- **The budget is not a resolvable part of that cost.** Removing it from
+  every `Unbounded` execution leaves the result inside the A/A spread.
 
 ## Model correspondence
 
@@ -72,7 +87,7 @@ appears in #9364's first commit. Removing the budget recovers at most about
 | `Budget.admitted` | `_admittedMethods` (`MethodDefinitionHandleCoverageBuilder`) |
 | `Budget.bytes` | `_encodedIlBytes` |
 | `require` | `RequireBodyCapacity` |
-| `admit` | `Admit`; the byte test `il > max - bytes` is `bytes + il > max` under the retained `bytes ≤ max` |
+| `admit` | `Admit`; the byte test `il > max - bytes` is `bytes + il > max` under the retained `bytes ≤ max`, which every successful admission preserves (assumed, not a proved lemma) |
 | `getBody` | the budget calls in `MethodDefinitionUnit.GetBody`, for both the cached and newly read body |
 | `Lane.acquired`, `record` | `_requestSourceCoverage.RecordBodyAcquired` into `_bodiesAcquired` |
 | `published` | `PublishSourceCoverage` through `RecordTerminalWork`, which a disabled builder ignores |
@@ -84,6 +99,8 @@ appears in #9364's first commit. Removing the budget recovers at most about
 - `GetILReader().Length` is a nonnegative `int`.
 
 The bound therefore holds even when several MethodDefs share one body RVA.
+It has large slack: `(2^24 - 1) * (2^31 - 1)` is about `2^55`, far below
+`long.MaxValue`.
 
 The model does not cover:
 
