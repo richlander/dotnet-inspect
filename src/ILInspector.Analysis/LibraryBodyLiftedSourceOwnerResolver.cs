@@ -865,6 +865,11 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             foreach (TypeDefinitionHandle nested
                 in type.GetNestedTypes())
             {
+                // A lifted body keys to the nearest declaring Type that is
+                // not a closure Type, so only closure Types can hold bodies
+                // owned by ownerType. Other nested Types own their own groups.
+                if (!IsLiftedClosureType(nested))
+                    continue;
                 _generatedExpansionWork?.RecordRelationshipNode(nested);
                 pending.Enqueue(nested);
             }
@@ -1024,15 +1029,18 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
     {
         int ownerIndex = chain.Length - 1;
         while (ownerIndex > 0
-            && _reader.GetString(
-                    _reader.GetTypeDefinition(chain[ownerIndex]).Name)
-                .StartsWith("<>", StringComparison.Ordinal))
+            && IsLiftedClosureType(chain[ownerIndex]))
         {
             ownerIndex--;
         }
 
         return new(chain[ownerIndex], ownerName);
     }
+
+    bool IsLiftedClosureType(TypeDefinitionHandle type) =>
+        _reader.StringComparer.StartsWith(
+            _reader.GetTypeDefinition(type).Name,
+            "<>");
 
     TargetedLiftedDeclaringTypeChain
         GetTargetedLiftedDeclaringTypeChain(
