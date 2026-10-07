@@ -1,11 +1,156 @@
 using CSharpText.MemberSlicing;
 using DotnetInspector.Libraries;
 using ILInspector.Decompiler;
+using ILInspector.SourceLink;
 
 namespace DotnetInspector.SourceHouse.Tests;
 
 public sealed partial class AuthoredSourceHouseTests
 {
+    [Fact]
+    public async Task
+        BestAvailable_TypeAuthoredSuccessSkipsDecompilation()
+    {
+        var asset = PartialTypeAsset();
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                asset.AssemblyPath,
+                Path.ChangeExtension(
+                    asset.AssemblyPath,
+                    ".pdb"));
+        LibraryOperationLease operation =
+            library.IssueOperation();
+        byte[]? selectedBytes = null;
+
+        SourceHouseBestAvailableOutcome.Available available =
+            Assert.IsType<
+                SourceHouseBestAvailableOutcome.Available>(
+                await SourceHouse.ExecuteBestAvailableAsync(
+                    BestAvailableRequest(
+                        library,
+                        asset.Target,
+                        asset.AssemblyPath,
+                        [
+                            Capability(
+                                "type-document",
+                                SourceHouseCapabilityCategory
+                                    .Local,
+                                (candidate, maximumBytes, _) =>
+                                {
+                                    selectedBytes =
+                                        ReadCandidateSource(
+                                            candidate);
+                                    Assert.True(
+                                        selectedBytes.Length
+                                        <= maximumBytes);
+                                    return ValueTask.FromResult<
+                                        SourceHouseCapabilityOutcome>(
+                                        new SourceHouseCapabilityOutcome
+                                            .Available(
+                                                selectedBytes));
+                                }),
+                        ]),
+                    operation,
+                    TestContext.Current
+                        .CancellationToken));
+
+        Assert.Equal(
+            SourceHouseSelectedSource.Authored,
+            available.Selected);
+        Assert.NotNull(selectedBytes);
+        Assert.Equal(
+            SourceLinkService.DecodeSourceText(
+                selectedBytes),
+            available.Text);
+        Assert.IsType<SourceHouseOutcome.Available>(
+            available.AuthoredOutcome);
+        Assert.Null(available.DecompilationOutcome);
+        Assert.Equal(
+            asset.Target.Type,
+            Assert.IsType<SourceHouseTarget.TypeTarget>(
+                available.Request.Target).Type);
+        AssertOperationSettled(
+            operation,
+            library.Reference.ApiAssembly);
+    }
+
+    [Fact]
+    public async Task
+        BestAvailable_TypeAuthoredUnavailableFallsBackToDecompilation()
+    {
+        RealAsset asset = MemberSlicingAsset();
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                asset.AssemblyPath);
+        LibraryOperationLease operation =
+            library.IssueOperation();
+        var target = new SourceHouseTarget.TypeTarget(
+            asset.MemberTarget.Type);
+
+        SourceHouseBestAvailableOutcome.Available available =
+            Assert.IsType<
+                SourceHouseBestAvailableOutcome.Available>(
+                await SourceHouse.ExecuteBestAvailableAsync(
+                    BestAvailableRequest(
+                        library,
+                        target,
+                        asset.AssemblyPath,
+                        [],
+                        authoredPrecondition:
+                            SourceHouseBestAvailableAuthoredPrecondition
+                                .PortablePdbUnavailable),
+                    operation,
+                    TestContext.Current
+                        .CancellationToken));
+
+        Assert.Equal(
+            SourceHouseSelectedSource.Decompiled,
+            available.Selected);
+        Assert.Contains(
+            "MemberTextSlicer",
+            available.Text);
+        Assert.IsType<SourceHouseOutcome.Unavailable>(
+            available.AuthoredOutcome);
+        SourceHouseDecompilationOutcome.Completed decompiled =
+            Assert.IsType<
+                SourceHouseDecompilationOutcome.Completed>(
+                available.DecompilationOutcome);
+        Assert.Equal(
+            target.Type,
+            Assert.IsType<SourceHouseTarget.TypeTarget>(
+                decompiled.Request.Target).Type);
+        Assert.Equal(
+            SourceHouseBestAvailableAuthoredPrecondition
+                .PortablePdbUnavailable,
+            available.Request.AuthoredPrecondition);
+        AssertOperationSettled(
+            operation,
+            library.Reference.ApiAssembly);
+    }
+
+    [Fact]
+    public async Task
+        BestAvailable_TypeDocumentSelectionIsRejected()
+    {
+        var asset = PartialTypeAsset();
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                asset.AssemblyPath,
+                Path.ChangeExtension(
+                    asset.AssemblyPath,
+                    ".pdb"));
+
+        Assert.Throws<ArgumentException>(
+            "target",
+            () => BestAvailableRequest(
+                library,
+                new SourceHouseTarget.TypeTarget(
+                    asset.Target.Type,
+                    asset.Additional.FilePath),
+                asset.AssemblyPath,
+                []));
+    }
+
     [Fact]
     public async Task
         BestAvailable_AuthoredSuccessSkipsDecompilation()
@@ -302,16 +447,38 @@ public sealed partial class AuthoredSourceHouseTests
                 authoredPrecondition =
                     SourceHouseBestAvailableAuthoredPrecondition
                         .Attempt)
+        => BestAvailableRequest(
+            library,
+            asset.MemberTarget,
+            asset.AssemblyPath,
+            capabilities,
+            maximumBodyProjections,
+            authoredPrecondition);
+
+    private static SourceHouseBestAvailableRequest
+        BestAvailableRequest(
+            LibraryFixture library,
+            SourceHouseTarget target,
+            string assemblyPath,
+            IReadOnlyList<ISourceHouseSourceCapability>
+                capabilities,
+            int maximumBodyProjections =
+                CSharpDecompilerService
+                    .DefaultMaxBodyProjections,
+            SourceHouseBestAvailableAuthoredPrecondition
+                authoredPrecondition =
+                    SourceHouseBestAvailableAuthoredPrecondition
+                        .Attempt)
     {
         SourceHouseAuthoredRequest authored = Request(
             library,
-            asset.MemberTarget,
+            target,
             capabilities);
         SourceHouseDecompilationRequest decompiled =
             DecompilationRequest(
                 library,
-                asset.MemberTarget,
-                asset.AssemblyPath,
+                target,
+                assemblyPath,
                 maximumBodyProjections:
                     maximumBodyProjections);
         SourceHouseDecompilationPlan plan =
@@ -327,7 +494,7 @@ public sealed partial class AuthoredSourceHouseTests
                 "test-best-available"),
             library.Reference,
             library.Reference.ApiAssembly,
-            asset.MemberTarget,
+                target,
             authored.Plan,
             plan,
             authoredPrecondition);

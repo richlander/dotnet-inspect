@@ -15,7 +15,7 @@ public sealed class SourceHouseBestAvailableRequest
         SourceHouseRequestIdentity identity,
         LibraryReference library,
         LibraryContentReference selectedAssembly,
-        SourceHouseTarget.MemberTarget target,
+        SourceHouseTarget target,
         SourceHouseOperationPlan authoredPlan,
         SourceHouseDecompilationPlan decompilationPlan,
         SourceHouseBestAvailableAuthoredPrecondition
@@ -29,6 +29,15 @@ public sealed class SourceHouseBestAvailableRequest
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(authoredPlan);
         ArgumentNullException.ThrowIfNull(decompilationPlan);
+        if (target is SourceHouseTarget.TypeTarget
+            {
+                OriginalDocumentPath: not null,
+            })
+        {
+            throw new ArgumentException(
+                "An authored document selection is not a best-available target.",
+                nameof(target));
+        }
         if (!Enum.IsDefined(authoredPrecondition))
         {
             throw new ArgumentOutOfRangeException(
@@ -59,7 +68,7 @@ public sealed class SourceHouseBestAvailableRequest
     public SourceHouseRequestIdentity Identity { get; }
     public LibraryReference Library { get; }
     public LibraryContentReference SelectedAssembly { get; }
-    public SourceHouseTarget.MemberTarget Target { get; }
+    public SourceHouseTarget Target { get; }
     public SourceHouseOperationPlan AuthoredPlan { get; }
     public SourceHouseDecompilationPlan DecompilationPlan { get; }
     public SourceHouseBestAvailableAuthoredPrecondition
@@ -84,7 +93,7 @@ public sealed record SourceHouseBestAvailableRequestEvidence
     public SourceHouseRequestIdentity Identity { get; }
     public LibraryReference Library { get; }
     public LibraryContentReference SelectedAssembly { get; }
-    public SourceHouseTarget.MemberTarget Target { get; }
+    public SourceHouseTarget Target { get; }
     public SourceHouseOperationPlanIdentity OperationPlan { get; }
     public SourceHousePolicyGeneration PolicyGeneration { get; }
     public SourceHouseBestAvailableAuthoredPrecondition
