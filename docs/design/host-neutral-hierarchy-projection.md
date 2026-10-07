@@ -18,6 +18,13 @@ Type (FullSpelling)
       -> exact Members (Count)
 ```
 
+This profile predates the work bound in
+[Primary subject views](primary-subject-views.md#authority-and-exact-claim),
+which removes per-MemberGroup and per-category overload Counts from the Type
+default. The Type document owner adopts that change in its own slice by making
+MemberGroup Rows leaves by default and counting only MemberGroup rows in
+category nodes; the Count profile above remains an explicit request.
+
 It can be lowered as Tree or Mermaid without changing the semantic request.
 An expanded Type-to-MemberGroup-to-exact-Member Rows profile waits for the
 complete `TypeDocument`; this design does not manufacture exact-Member rows
@@ -119,6 +126,14 @@ Every parent-to-child population closes independently as Rows or Count.
 Count does not require or imply Rows. Rows do not become Count by host-side
 enumeration. The adopting owner maps each requested closing to its existing
 typed population request and publishes the corresponding outcome.
+
+The vocabulary can express nested populations, but a subject's default view
+does not request them.
+[Primary subject views](primary-subject-views.md#authority-and-exact-claim)
+owns that rule: one row population per default view, with owner-issued groups
+derived from those rows and deeper levels reached through the next command.
+A Rows level that only groups the same population, such as a Library's
+namespaces or a Type's categories, is not a second population.
 
 ### Name or FullSpelling
 
