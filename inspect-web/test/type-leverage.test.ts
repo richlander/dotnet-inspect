@@ -136,6 +136,7 @@ const bodyCoverage = {
   bodiesConsidered: 8,
   bodiesExamined: 8,
   bodiesPhysicalOnly: 0,
+  bodiesRejectedOwnership: 0,
   bodiesUnavailable: 0,
   bodiesLimited: 0,
   operandsConsidered: 16,
@@ -158,7 +159,7 @@ const bodyToolsShard: BrowserLibraryTypeLeverageShard = {
 };
 
 const document: BrowserLibraryStructuralSalience = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   surface: {
     outcome: "available",
     methodologyVersion: "structural-salience.v3",
@@ -266,6 +267,31 @@ test("aligned and opposing evidence modes retain two independent poles", () => {
   assert.equal(projection.mountainPeakCount, 1);
 });
 
+test("physical-only implementation evidence keeps surface salience complete", () => {
+  const detail = "Compiler-generated body retained as physical-only evidence; its Type uses are excluded from logical-owner relationships.";
+  const projection = projectTypeLeverage({
+    ...document,
+    implementation: {
+      ...document.implementation,
+      typeLeverageShards: [bodyShard, bodyToolsShard].map(value => ({
+        ...value,
+        disposition: "qualified",
+        bodyCoverage: { ...bodyCoverage, bodiesExamined: 7, bodiesPhysicalOnly: 1 },
+        diagnostics: [detail, detail],
+      })),
+    },
+  });
+
+  assert.equal(projection.disposition, "complete");
+  assert.deepEqual(projection.diagnostics, []);
+  assert.equal(
+    projection.byType.get("Example.Core.Sea")?.[0]?.evidenceMode,
+    "surface",
+  );
+  assert.deepEqual(projection.warnings, []);
+  assert.deepEqual(projection.implementationDiagnostics, [detail]);
+});
+
 test("implementation unavailability retains surface cues and warning", () => {
   const projection = projectTypeLeverage({
     ...document,
@@ -325,11 +351,11 @@ test("malformed exact-identity orders fail visibly", () => {
   );
 });
 
-test("the exhaustive wire shape requires schema version two", () => {
+test("the exhaustive wire shape requires schema version three", () => {
   assert.throws(
     () => projectTypeLeverage({
       ...document,
-      schemaVersion: 3,
+      schemaVersion: 2,
     }),
     /Unsupported structural-salience schema version/,
   );
@@ -580,7 +606,7 @@ test("pre-retry document completion cannot repopulate caches", async () => {
 });
 
 
-test("physical-only qualification supplies feedback without losing cues", () => {
+test("physical-only qualification retains evidence without databar feedback", () => {
   const projection = projectTypeLeverage({
     ...document,
     implementation: {
@@ -593,14 +619,57 @@ test("physical-only qualification supplies feedback without losing cues", () => 
           bodiesExamined: 7,
           bodiesPhysicalOnly: 1,
         },
-        diagnostics: ["The physical body has no authenticated logical owner."],
+        diagnostics: ["Compiler-generated body retained as physical-only evidence; its Type uses are excluded from logical-owner relationships."],
       })),
     },
   });
-  assert.deepEqual(typeLeverageFeedback(projection), {
-    message: "Structural salience has qualified evidence: The physical body has no authenticated logical owner.",
-    retry: "type-leverage",
-  });
+  assert.equal(typeLeverageFeedback(projection), null);
   assert.deepEqual(projection.byType, projectTypeLeverage(document).byType);
   assert.equal(typeLeverageFeedback(projectTypeLeverage(document)), null);
+});
+
+test("physical-only bodies do not hide incomplete operand evidence", () => {
+  const projection = projectTypeLeverage({
+    ...document,
+    implementation: {
+      ...document.implementation,
+      typeLeverageShards: [{
+        ...bodyShard,
+        disposition: "partial",
+        bodyCoverage: {
+          ...bodyCoverage,
+          bodiesExamined: 7,
+          bodiesPhysicalOnly: 1,
+          operandsExamined: 15,
+          operandsUnavailable: 1,
+        },
+        diagnostics: ["An operand could not be resolved."],
+      }, bodyToolsShard],
+    },
+  });
+  assert.match(typeLeverageFeedback(projection)?.message ?? "", /operand could not be resolved/);
+  assert.equal(projection.disposition, "complete");
+});
+
+test("typed ownership rejection stays visible without Retry or surface qualification", () => {
+  const detail = "Generated-body ownership evidence was rejected.";
+  const projection = projectTypeLeverage({
+    ...document,
+    implementation: {
+      ...document.implementation,
+      typeLeverageShards: [{
+        ...bodyShard,
+        disposition: "qualified",
+        bodyCoverage: { ...bodyCoverage, bodiesExamined: 7,
+          bodiesPhysicalOnly: 1, bodiesRejectedOwnership: 1 },
+        diagnostics: [detail],
+      }, bodyToolsShard],
+    },
+  });
+  const feedback = typeLeverageFeedback(projection);
+  assert.match(feedback?.message ?? "", /ownership evidence was rejected/);
+  assert.equal(feedback?.retry, undefined);
+  assert.equal(projection.disposition, "complete");
+  assert.deepEqual(projection.implementationDiagnostics, [detail]);
+  assert.deepEqual(projection.byType, projectTypeLeverage(document).byType);
 });

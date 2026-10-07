@@ -28,7 +28,7 @@ namespace DotnetInspect.Web.Interop.Analysis;
 [SupportedOSPlatform("browser")]
 public static partial class AnalysisExports
 {
-    private const int BrowserLibraryStructuralSalienceSchemaVersion = 2;
+    private const int BrowserLibraryStructuralSalienceSchemaVersion = 3;
     private const int BrowserDependencyStructureEdgeLimit = 64;
 
     /// <summary>
@@ -1302,7 +1302,10 @@ public static partial class AnalysisExports
                 coverage.OperandsConsidered,
                 coverage.OperandsExamined,
                 coverage.OperandsUnavailable,
-                coverage.OperandsLimited),
+                coverage.OperandsLimited,
+                document.BodyUse.Diagnostics.Count(
+                    static diagnostic => diagnostic.Kind
+                        == ILAnalysis.AnalysisLibraryBodyUseDiagnosticKind.RejectedLogicalOwner)),
             [
                 .. document.Rows.Select(row =>
                     new BrowserLibraryTypeLeverageRow(

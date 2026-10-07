@@ -1546,11 +1546,17 @@ transient inspection feedback, the active inspector's result summary, and
 default product information, in that order of precedence. Its grid row remains
 allocated in every state; long messages scroll horizontally without wrapping or expansion.
 
-Optional enrichment failures and qualifications must not consume inventory or
-inspector space or obstruct the core inspection journey. Structural salience
-is the first consumer: its diagnostic and existing Retry action replace the
-data bar's default content, while Type rows and owner-issued cues remain
-available. Feedback clears on subject or inspector traversal, including back
+The data bar has two feedback purposes: useful information for the user and
+genuine assertion-style errors that a dotnet-inspect maintainer should fix.
+Routine implementation details are neither. Expected compiler-generated
+physical-only ownership coverage stays in retained diagnostic evidence; it
+does not replace the bar's content or offer Retry.
+
+Optional enrichment feedback must not consume inventory or inspector space or
+obstruct the core inspection journey. Structural salience is the first
+consumer: actionable feedback replaces the data bar's default content, while
+Type rows and owner-issued cues remain available. Feedback clears on subject
+or inspector traversal, including back
 and forward navigation. Rerendering the same view retains feedback; a late
 result started in a preceding view cannot restore cleared feedback. Clearing
 presentation does not clear retained evidence or automatically retry work.
@@ -1584,7 +1590,8 @@ The motivating asset is
 [System.Text.Json 7.0.0](https://www.nuget.org/packages/System.Text.Json/7.0.0),
 `net7.0`, entered through a shared workspace at
 `System.Text.Json.JsonCommentHandling`. Its physical-only body qualification
-was printed above Type rows and reduced the inventory's available space.
+was printed above Type rows and reduced the inventory's available space;
+that routine coverage now produces no transient feedback.
 Data-bar rendering and lifecycle tests plus Browser journeys at desktop and
 narrow widths gate feedback precedence, invariant geometry, traversal clearing,
 stale-result suppression, and Retry. The published real-package journey is
