@@ -2674,6 +2674,128 @@ text escaping.
 
 ## Deploy
 
+### Measure package Library opening
+
+The earlier `measure-inspect-web-package-open.cs` probe measured the broad
+`QueryPackage` export, not the website's initial summary-to-Library sequence.
+Reduced transfer alone did not remove broad metadata extraction. This follow-up
+measures entering Library Overview after summary acquisition:
+`QueryPackageSummary`, exact
+`QueryLibraryApi`, and `InspectLibrary` with Enablements. The legacy sequence
+also launches `QueryPackage`; single-Library Overview omits that request.
+
+Measurements on 2026-10-07 compare base `46fb3137a7752d9553ec32d2920a5b9dc82398a2`
+with candidate `d85a41e4f` (production changes in `d98171a75`). Both use the same
+corrected harness in
+[`eng/measure-inspect-web-library-open.cs`](../eng/measure-inspect-web-library-open.cs).
+They are Linux x64 NativeAOT Release publications with SDK
+`11.0.100-rc.1.26425.128`, on an AMD Ryzen 9 9900X, Linux `7.0.0-38-generic`.
+Builds and test runs had finished before measurement. CDN state is uncontrolled;
+"cold" means a fresh process and empty Browser cache, not a cold CDN.
+
+Publish the harness separately from each worktree:
+
+```bash
+dotnet publish eng/measure-inspect-web-library-open.cs -c Release \
+  -p:IsPublishable=true -o /tmp/library-open-before
+# In the candidate worktree, use -o /tmp/library-open-after.
+/tmp/library-open-before/measure-inspect-web-library-open \
+  Avalonia 12.1.2 net10.0 legacy compile:ref/net10.0/Avalonia.Base.dll
+/tmp/library-open-after/measure-inspect-web-library-open \
+  Avalonia 12.1.2 net10.0 overview compile:ref/net10.0/Avalonia.Base.dll
+```
+
+The baseline summary-only default did not activate Library navigation because
+its assembly surface was empty. These pairs compare entering Library Overview
+from that summary with the new Library-first opening. They do not claim that
+the previous automatic Package landing made these extra requests. The baseline
+summary-only cold medians were 381.6 ms for the Avalonia.Base control,
+398.8 ms for Roslyn, and 116.3 ms for Dapper; the new default adds actual Library
+inspection and presents a different landing view.
+
+Run seven fresh-process pairs, alternating before/after ordering each pair.
+Each process performs one cold and one warm open, without an excluded warmup.
+Pinned fixtures are Avalonia 12.1.2/net10.0 (explicit Base and default selection),
+Microsoft.CodeAnalysis.CSharp 4.11.0/net8.0, Dapper 2.1.66/net8.0, and
+Microsoft.NETCore.Platforms 7.0.0/net8.0 (zero Libraries).
+The native executable SHA-256 identities are:
+
+```text
+before: 7550ce41d61d2c5c51df96b2c6b302d48c752b5061d4e7891f49de334430b564
+after:  5ffaed9ff39da4b573d643f641e2a1285ad9c37e56a76665c36e7ac8987a6a25
+```
+
+Export-sequence milliseconds, median / empirical p95 (maximum with seven
+samples), including acquisition, inspection, JSON serialization and summary
+consumption, but excluding process startup and browser rendering:
+
+<!-- markdownlint-disable MD013 -->
+
+| Fixture | Before cold | After cold | Before warm | After warm |
+| --- | ---: | ---: | ---: | ---: |
+| avalonia-base | 1288.6 / 8439.6 | 617.7 / 1745.9 | 767.1 / 778.8 | 157.6 / 162.7 |
+| avalonia-default | 1358.0 / 3019.5 | 431.3 / 527.1 | 767.8 / 773.0 | 0.4 / 0.4 |
+| roslyn | 1445.6 / 3119.0 | 468.3 / 1012.7 | 863.2 / 884.8 | 48.6 / 49.7 |
+| dapper | 144.7 / 175.1 | 119.1 / 149.0 | 21.3 / 23.2 | 8.7 / 9.5 |
+| zero | 76.0 / 219.5 | 75.1 / 96.1 | 0.2 / 0.5 | 0.2 / 0.2 |
+
+The full native process includes startup, both opens, output consumption and
+shutdown. Wall-clock milliseconds, median / empirical p95:
+
+| Fixture | Before process | After process |
+| --- | ---: | ---: |
+| avalonia-base | 2086.4 / 9224.8 | 791.4 / 1916.1 |
+| avalonia-default | 2158.1 / 3795.6 | 442.6 / 538.9 |
+| roslyn | 2325.4 / 3995.9 | 529.6 / 1074.8 |
+| dapper | 176.5 / 205.5 | 137.0 / 166.2 |
+| zero | 84.4 / 228.0 | 83.2 / 105.0 |
+
+<!-- markdownlint-enable MD013 -->
+
+Avalonia.Base returns the same available API result in every paired sample:
+962 public Types, 6,741 public Members and an identical SHA-256. Dapper likewise
+returns the same available result: 22 Types and 270 Members. The zero-Library
+fixture launches no Library or broad request. Avalonia's default changes from
+the first inventory entry, Avalonia.Base.dll, to the product-selected
+Avalonia.dll facade, which has zero public Types and Members; its default-row
+gain includes changed work and must not substitute for the Base control.
+Roslyn returns the same unavailable, truncated result in every run: the exact
+API hits the existing 32,000,000 RetainedTextCharacters limit. Its timing is
+for that bounded failure, not successful full API rendering. This slice does
+not resolve that pre-existing projection limit.
+
+One separate strace run per side measured successful TCP read bytes, including
+TLS and HTTP overhead, across both opens. Count IPv4 and IPv6 reads and resumed
+syscalls; exclude MSG_PEEK. Do not use traced timings. Avalonia.Base falls from
+14,985,970 to 4,823,861 bytes; Roslyn from 21,086,632 to 4,136,928; Dapper stays
+446,592. Browser-retained bytes fall from 26,618,595 to 16,475,372 for Avalonia,
+and 29,512,357 to 12,593,086 for Roslyn. Dapper stays 437,579. These are cache
+charges, not total process memory.
+
+The research-only `web-range-stage-profile` branch at `d3cbe40a8` instruments
+the native operations; its stderr instrumentation and analyzer suppressions
+must not ship. A single diagnostic Overview run measured Avalonia's central
+directory at 56.2 ms, entry batches at 199.2 ms wall time, and entry expansion
+and checks at 59.9 ms summed work; Library scope and inspection took 157.7 ms,
+and API serialization 0.3 ms. Roslyn measured 55.3 ms, 243.7 ms, 39.4 ms,
+51.9 ms, and 0.2 ms respectively. Expansion is included in batch wall time;
+parallel spans and entry work must not be summed into end-to-end latency.
+A legacy-demand run on that research candidate measured broad requests at
+about 600 ms warm for Avalonia and 780 ms for Roslyn. Avalonia's broad JSON
+serialization alone took 36.4 ms warm; Roslyn's 0.04 ms reflects its bounded
+result. Broad extraction remains the main avoided CPU work.
+
+Raw evidence:
+[`opens`](../eng/inspect-web-library-open-evidence.tsv),
+[`traffic`](../eng/inspect-web-library-open-traffic.tsv), and
+[`diagnostic stages`](../eng/inspect-web-library-open-stages.tsv).
+This is native-host evidence for the same website exports, not a Browser/Wasm
+render-time comparison. Local validation: Release engine build with zero
+warnings/errors, 345 Browser boundary tests passing, frontend typecheck
+passing, and 2,406 of 2,411 frontend tests passing with the same five inherited
+failures tracked in #9659 and #9663. CI and independent review remain pending
+while GitHub operations are paused.
+
 ### Compare deployed runtime performance
 
 [`docs/inspect-web-runtime-performance.md`](../docs/inspect-web-runtime-performance.md)
