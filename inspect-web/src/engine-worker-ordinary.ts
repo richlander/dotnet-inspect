@@ -54,6 +54,7 @@ type PackageOperationName =
   | "packageCacheStats"
   | "prefetchPlatformPacks"
   | "queryPackage"
+  | "queryPackageIcon"
   | "queryPackageRoot"
   | "queryPackageSummary"
   | "loadRuntimePack"
@@ -1198,6 +1199,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryPackageDependencies"]>
       ) => facades.package.queryPackageDependencies(...args),
     ),
+    queryPackageIcon: valueOperation(
+      "ordinary-package-query-icon",
+      2,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryPackageIcon"]>
+      ) => facades.package.queryPackageIcon(...args),
+    ),
     queryPackageVulnerabilities: valueOperation(
       "ordinary-package-query-vulnerabilities",
       2,
@@ -2297,6 +2306,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryPackageDependencies: bind(
         engineWorkerOrdinaryOperations.package.queryPackageDependencies,
+      ),
+      queryPackageIcon: bind(
+        engineWorkerOrdinaryOperations.package.queryPackageIcon,
       ),
       queryPackageVulnerabilities: bind(
         engineWorkerOrdinaryOperations.package.queryPackageVulnerabilities,

@@ -824,7 +824,10 @@ subject-specific identity details and content
 Package Overview starts directly with its identity and content rather than
 reserving a quiet `Overview` header row. The Package navigation pane lists target frameworks first, then
 versions in owner-issued release order, with the active version selected,
-text filtering, and a prerelease toggle. The list headings identify the pane
+text filtering, and an `Include:` group with independent Prerelease and Unlisted
+checkboxes, both unchecked initially. Listing flags come from the existing
+owner-issued version inventory; the host does not infer them from version text.
+Async inventory refresh preserves both checkbox selections. The list headings identify the pane
 without an additional Package Navigation row.
 The active coordinate remains visible regardless of filters. Loading and
 failed inventory states retain that coordinate; failure offers explicit retry.
@@ -873,6 +876,12 @@ the package icon or name, and owns that work area; Library,
 Type, and Member **Change target** actions return there. Choosing settings
 continues to configure the existing session-local comparison state.
 
+`System.Text.Json@1.0.0` (unlisted) and
+`System.Text.Json@10.0.0-preview.1.25080.5` (listed prerelease), observed through
+nuget.org Registration, motivate independent inclusion controls. Focused gates
+cover their listing projection and both independent checkbox combinations;
+remote observations remain reproducible through Registration rather than a
+mutable live assertion.
 `System.Text.Json@10.0.0` motivates the version inventory, net10.0/net9.0
 framework choices, Library inventory, and README placement. The existing
 `library-hierarchy.package-loading.spec.ts` production-composition gate exercises
@@ -985,6 +994,16 @@ target-framework selector, dependency graph, package dependency list, assembly
 references, and partial workspace warning. Selecting another manifest group
 patches its list and graph in place without changing the surface frame or
 resetting the package coordinate.
+
+Each direct NuGet dependency row begins with the package's embedded icon when
+the exact dependency version can be resolved and the icon is admitted by
+[Package icon range inspection](package-icon-range-inspection.md). Icon reads
+are range-only and asynchronous: row navigation becomes available after the
+existing package-coordinate match, without waiting for its icon. Missing,
+unavailable, refused, or failed icon reads use the existing NuGet default
+package icon and do not trigger a complete package download. A late icon result
+cannot update another Package, target framework, dependency group, or
+replacement row.
 
 The inline graph is a bounded structural preview so the selected group's direct
 NuGet dependency rows enter the initial result viewport. At wide inspector

@@ -85,6 +85,7 @@ public sealed class ProductionFacadeContextTests
             "QueryPlatformMemberDocumentation",
             "QueryPackage",
             "QueryPackageDependencies",
+            "QueryPackageIcon",
             "QueryPackageRoot",
             "QueryPackageSummary",
             "QueryPackageVulnerabilities",

@@ -127,6 +127,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformMemberDocumentation"),
     queryPackageDependencies: () =>
       unexpected("queryPackageDependencies"),
+    queryPackageIcon: () => unexpected("queryPackageIcon"),
     queryPackageVulnerabilities: () =>
       unexpected("queryPackageVulnerabilities"),
     queryPackageVersions: () => unexpected("queryPackageVersions"),
@@ -2320,6 +2321,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformMemberDocumentation",
       "queryPackage",
       "queryPackageDependencies",
+      "queryPackageIcon",
       "queryPackageVulnerabilities",
       "queryPackageRoot",
       "queryPackageSummary",
