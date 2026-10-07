@@ -27,6 +27,8 @@ internal static class IrPassComposition
             pipelineName,
             passes,
             static pass => pass.SlotsOnly);
+        int producerOnlyRetirement =
+            SingleIndex<ProducerOnlySlotRetirementPass>(pipelineName, passes);
         int materialization = SingleIndex<SlotMaterializationPass>(pipelineName, passes);
         int coercion = SingleIndex<CoercionInsertionPass>(pipelineName, passes);
         int residualBinding = SingleIndex<ResidualSlotBindingPass>(pipelineName, passes);
@@ -42,6 +44,13 @@ internal static class IrPassComposition
                 pipelineName,
                 slotsOnlyInlining < materialization,
                 $"the slots-only {nameof(ExpressionInliningPass)} must precede {nameof(SlotMaterializationPass)}");
+            if (producerOnlyRetirement >= 0)
+            {
+                Require(
+                    pipelineName,
+                    producerOnlyRetirement < materialization,
+                    $"{nameof(ProducerOnlySlotRetirementPass)} must precede {nameof(SlotMaterializationPass)}");
+            }
         }
 
         if (materialization >= 0 && coercion >= 0)
@@ -91,6 +100,7 @@ internal static class IrPassComposition
                 RequireStorageTail(
                     pipelineName,
                     slotsOnlyInlining,
+                    producerOnlyRetirement,
                     materialization,
                     coercion,
                     residualBinding,
@@ -102,6 +112,7 @@ internal static class IrPassComposition
                     passes,
                     static pass => pass.SlotsOnly,
                     "the slots-only expression-inlining tail");
+                Exclude<ProducerOnlySlotRetirementPass>(pipelineName, passes);
                 Exclude<SlotMaterializationPass>(pipelineName, passes);
                 Exclude<CoercionInsertionPass>(pipelineName, passes);
                 Exclude<ResidualSlotBindingPass>(pipelineName, passes);
@@ -110,8 +121,11 @@ internal static class IrPassComposition
             case IrPassPipelineProfile.IntermediateBody:
                 Require(
                     pipelineName,
-                    slotsOnlyInlining >= 0 && materialization >= 0 && coercion >= 0,
-                    "the intermediate-body pipeline requires slots-only inlining, materialization, and coercion insertion");
+                    slotsOnlyInlining >= 0
+                        && producerOnlyRetirement >= 0
+                        && materialization >= 0
+                        && coercion >= 0,
+                    "the intermediate-body pipeline requires slots-only inlining, producer-only retirement, materialization, and coercion insertion");
                 Exclude<ResidualSlotBindingPass>(pipelineName, passes);
                 Exclude<DefiniteAssignmentPass>(pipelineName, passes);
                 break;
@@ -128,6 +142,7 @@ internal static class IrPassComposition
     static void RequireStorageTail(
         string pipelineName,
         int slotsOnlyInlining,
+        int producerOnlyRetirement,
         int materialization,
         int coercion,
         int residualBinding,
@@ -137,6 +152,10 @@ internal static class IrPassComposition
             pipelineName,
             slotsOnlyInlining >= 0,
             $"the complete pipeline requires the slots-only {nameof(ExpressionInliningPass)}");
+        Require(
+            pipelineName,
+            producerOnlyRetirement >= 0,
+            $"the complete pipeline requires {nameof(ProducerOnlySlotRetirementPass)}");
         Require(
             pipelineName,
             materialization >= 0,
@@ -173,6 +192,7 @@ internal static class IrPassComposition
                 or ReferenceCoalesceBindingPass
                 or ReferenceConditionalBindingPass
                 or PrimitiveJoinBindingPass
+                or ProducerOnlySlotRetirementPass
                 or SlotMaterializationPass
                 or ResidualSlotBindingPass
                 or PdbScopeEntryLocalPass

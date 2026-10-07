@@ -1464,6 +1464,105 @@ public sealed class PolicyEvaluatorTests
             projectPath[0]);
     }
 
+    [Fact]
+    public void CheckedInInspectWebSourceRulesMatchCapabilityRatchet()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule projectRule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "inspect-web-source-facade-project-dependencies-"
+                    + "stay-within-capability-ratchet");
+        DependencyRule assemblyRule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "inspect-web-source-facade-assembly-dependencies-"
+                    + "stay-within-capability-ratchet");
+        string[] target = ["DotnetInspect.Web.Interop.Source"];
+        string[] projectPath =
+        [
+            "src/DotnetInspect.Web.Interop.Source/"
+                + "DotnetInspect.Web.Interop.Source.csproj",
+        ];
+
+        Assert.Equal([DependencyGraphKind.Project], projectRule.Graphs);
+        Assert.Equal(target, projectRule.Targets);
+        Assert.Equal(projectPath, projectRule.ProjectPaths);
+        Assert.Equal(
+            [
+                "DotnetInspect.Web.Core",
+                "DotnetInspector.Packages",
+                "DotnetInspector.Presentation",
+                "DotnetInspector.Queries",
+                "DotnetInspector.ResearchQueries",
+                "DotnetInspector.ResearchSections",
+                "DotnetInspector.Sections",
+                "DotnetInspector.Services",
+                "ILInspector.Analysis",
+                "ILInspector.CSharp",
+                "ILInspector.Decompiler",
+                "ILInspector.Metadata",
+                "TsJsExport.Contracts",
+            ],
+            Assert.IsType<string[]>(projectRule.AllowOnly));
+        Assert.Null(projectRule.Deny);
+        Assert.Empty(projectRule.ExcludeTargets);
+        Assert.Empty(projectRule.ExcludeProjectPaths);
+        Assert.Empty(projectRule.Except);
+
+        Assert.Equal([DependencyGraphKind.Assembly], assemblyRule.Graphs);
+        Assert.Equal(target, assemblyRule.Targets);
+        Assert.Equal(projectPath, assemblyRule.ProjectPaths);
+        Assert.Equal(
+            [
+                "$platform",
+                "CSharpText",
+                "DotnetInspect.Web.Core",
+                "DotnetInspector.Packages",
+                "DotnetInspector.Presentation",
+                "DotnetInspector.Queries",
+                "DotnetInspector.ResearchQueries",
+                "DotnetInspector.ResearchSections",
+                "DotnetInspector.Sections",
+                "DotnetInspector.Services",
+                "DotnetInspector.SourceHouse",
+                "ILInspector.Analysis",
+                "ILInspector.CallGraph",
+                "ILInspector.CSharp",
+                "ILInspector.Decompiler",
+                "ILInspector.ILDiff",
+                "ILInspector.Metadata",
+                "ILInspector.MetadataPrimitives",
+                "ILInspector.Research",
+                "InertText",
+                "Inspector.Findings",
+                "Inspector.Text",
+                "Markout",
+                "NuGet.Versioning",
+                "TsJsExport.Contracts",
+            ],
+            Assert.IsType<string[]>(assemblyRule.AllowOnly));
+        Assert.Null(assemblyRule.Deny);
+        Assert.Empty(assemblyRule.ExcludeTargets);
+        Assert.Empty(assemblyRule.ExcludeProjectPaths);
+        Assert.Empty(assemblyRule.Except);
+
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            projectRule.Id,
+            target[0],
+            "ILInspector.SourceLink",
+            DependencyGraphKind.Project,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            assemblyRule.Id,
+            target[0],
+            "ILInspector.SourceLink",
+            DependencyGraphKind.Assembly,
+            projectPath[0]);
+    }
+
     private static ProjectDependencyNode Node(
         string name,
         string? projectPath = null,

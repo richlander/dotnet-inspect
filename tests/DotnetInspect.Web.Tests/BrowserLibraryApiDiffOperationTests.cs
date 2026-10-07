@@ -459,12 +459,10 @@ public sealed class BrowserLibraryApiDiffOperationTests
             transitions,
             row => row.GetProperty("new").GetString()
                 == "https://new.example and https://shared.example");
-        Assert.Contains(
+        Assert.DoesNotContain(
             transitions,
-            row => row.GetProperty("old").GetString()
-                    == "prefix https://embedded.example"
-                && row.GetProperty("new").GetString()
-                    == "prefix https://embedded.example");
+            row => row.GetProperty("transition").GetString()
+                == "PairFinding.Present");
     }
 
     [Fact]

@@ -278,10 +278,93 @@ establish:
 
 - No Research ownership-path migration.
 - No ArrayPool legacy analyzer retirement.
-- No new CLI section, option, renderer, wire shape, or Browser/Wasm surface.
+- No new CLI section, option, renderer, or wire shape. Browser/Wasm adoption
+  is scoped separately below.
 - No actionability-policy change.
 - No complete CLR alias, indirect-dispatch, reflection, unsafe, interop,
   aggregate, field-reachability, or async-state-machine claim.
 - No non-terminal exclusive-mutable ownership support.
 - No interprocedural proof that storage, return, or a direct call transferred
   an obligation.
+
+## Browser Resource Triage adoption
+
+[#9607](https://github.com/richlander/dotnet-inspect/issues/9607) tracks one
+adoption slice: participant-scoped query execution, detached inspection
+composition, browser transport, and Library → Analysis → Resource Triage.
+The CLI already consumes `ResourceTriageQuery`; the browser uses that same
+query with the shipped ArrayPool model. The motivating assets and retained
+oracle remain those in [Real assets and oracle](#real-assets-and-oracle).
+
+The browser displays the complete assessed candidate population, including
+external-input, in-memory, and unclassified actionability, rather than applying
+the CLI's external-input display selection. Candidate and Finding identities,
+acquisition and boundary IL offsets, method tokens, confidence, and typed
+limitations remain owner-issued. An incomplete empty census does not establish
+absence. Non-public or otherwise unnavigable candidates retain their evidence.
+
+`AssemblyContextResourceTriageQuery` owns execution over the selected admitted
+participant and does not inspect neighboring participants. API body selectors
+provide optional public-member navigation; navigation does not define the
+Finding population. Selecting either package or platform triage explicitly
+expands the platform context to admit the selected framework's complete runtime
+population; acquiring its archive or selecting CoreLib alone is insufficient.
+Package analysis borrows its admitted images alongside the package context. The combined analysis retains exact roots, uses the runtime's
+selected intrinsic core library, and bounds retained images to 64 MiB.
+`AssemblyResourceTriageInspection` returns detached Content
+and an explicit non-projectable Share outcome until canonical Share projection
+is adopted. Browser transport preserves that Share and envelope diagnostics.
+
+The browser presents Performance Triage and Resource Triage as peer Analysis
+tabs, using compact member-FQN rows with issue chips and at most one automatically
+shown code line per row. Resource Library rows omit introductory explanation;
+both triage lists omit IL offsets. Selecting a navigable Resource row opens the
+exact overload's member Resource Triage view, reusing the existing member Facts
+inspection. Performance rows open the member Analysis view. The member keeps a peer
+Resource Triage tab and uses the violation name as its H1. Explore appears in
+the shell's inspector action row; the detail body has no Resource cleanup title. Resource acquisition and
+boundary evidence is shown there only for matching current-library candidates.
+Member Resource Triage offers Explore through the existing Annotated Source viewer.
+Platform members use their existing Finding census and Annotated Source rather
+than invoking the package-only method-Facts operation. Unrelated member navigation does not inherit the selected row's evidence.
+Code lines consume existing Annotated Source through exact implementation
+method identity. Performance rows retain their public
+navigation anchors separately from owner-issued implementation body targets;
+rows spanning multiple implementation bodies have no code line. A preview requires
+exactly one contributing body token and one resolved target with that token;
+a partial target projection does not establish single-body attribution. The
+implementation surface is acquired under the existing browser API bounds.
+Performance body targets retain the contributing issue IL offsets. When all
+issue offsets map unambiguously to one line through existing Annotated Source
+node provenance, that line is shown with the app's C# syntax highlighter. Exact nearest source
+spans feed the existing managed `AnnotationCaret` printer through the worker
+bridge. Its comment underline follows the single C# line, with a shared gutter
+and no new caret geometry in the browser. Ambiguous nearest extents show no code. The
+smallest C# node spans carrying each offset must all occupy the same line.
+Missing, aggregate, ambiguous, multi-line, and multi-body attribution produce
+no code. There are no disclosure controls or whole-member fallbacks. Resource
+cleanup findings concern control flow across acquisition, execution, and cleanup,
+so this view does not attribute them to one isolated line. Code acquisition
+starts for visible rows and permits at most two concurrent requests; results
+for disconnected rows are discarded. Module/Finding IDs and detailed limitations remain in the transport but are omitted from this view;
+the incomplete-analysis warning remains visible in both Library and member views.
+Member views preserve failed and unavailable producer outcomes and errors;
+incomplete empty evidence never establishes absence. Unknown actionability means
+the model cannot classify the operation's impact; the user must inspect the code.
+
+The browser uses an HTML renderer rather than Markout because the tab needs
+interactive member navigation inside its existing Analysis frame. Its typed
+input is `BrowserResourceTriage`, a projection of the shared inspection; the
+renderer adds no lifecycle facts. Analysis starts only when the tab is selected.
+Package and platform Library selections use the existing worker transport and
+request-generation suppression. Uploaded Library analysis remains outside this
+adoption slice, consistent with the existing browser analysis admission.
+
+The Release `AssemblyContextResourceTriageQueryTests` gate checks parity with
+the existing query, catch-path controls, retained limitations, and isolation
+from an unrelated participant. `BrowserResourceTriageProjectionTests` gates
+transport identity, partial evidence, Share, and failure distinctions.
+`library-resource-triage.test.ts`, `analysis-inspector.test.ts`, and
+`package-inspection.test.ts` gate presentation, tab navigation, and stale-result
+suppression. Generic lifecycle outcomes outside the current Resource Triage
+projection remain out of scope.

@@ -256,6 +256,7 @@ public static partial class MetadataExports
                     ],
                     new(
                         population.SelectorCounts.Traits.All,
+                        population.SelectorCounts.Traits.BodyBacked,
                         population.SelectorCounts.Traits.Static,
                         population.SelectorCounts.Traits.Instance,
                         population.SelectorCounts.Traits.Virtual,

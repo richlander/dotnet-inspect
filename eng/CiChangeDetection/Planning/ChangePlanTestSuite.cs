@@ -211,6 +211,7 @@ internal static class ChangePlanTestSuite
             ("eng/decompiler-gate-skip-projects.txt", "decompiler,docs"),
             ("eng/restore-ilassembler.sh", "code"),
             ("inspect-web/README.md", "docs"),
+            ("inspect-web/DotnetInspect.Web/facades/facades.sha256", "web"),
             ("inspect-web/index.html", "web"),
             ("prototypes/annotated-source-viewer/app.js",
                 "web"),

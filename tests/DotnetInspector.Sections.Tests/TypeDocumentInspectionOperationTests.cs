@@ -50,6 +50,10 @@ public sealed class TypeDocumentInspectionOperationTests
         Assert.Equal(
             MetadataTypeDeclarationCategory.Class,
             document.Subject.Category);
+        Assert.Equal(
+            MetadataTypeDeclarationBaseKind.Object,
+            document.BaseKind);
+        Assert.Equal(0, document.InterfaceCount);
         Assert.True(
             document.Subject.Attributes.HasFlag(
                 TypeAttributes.Public));
@@ -63,6 +67,86 @@ public sealed class TypeDocumentInspectionOperationTests
         Assert.Contains("\"namespace\":\"System.Text.Json\"", json);
 
         await library.RetireAsync();
+    }
+
+    [Fact]
+    public void DirectAssembly_SubjectOnlyReturnsTheSharedTypeDocument()
+    {
+        string path =
+            typeof(System.Text.Json.JsonSerializer).Assembly.Location;
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "Type document direct-assembly test"));
+
+        InspectionEnvelope<TypeDocumentInspectionOutcome> envelope =
+            TypeDocumentInspectionOperation.Execute(
+                assembly,
+                new(
+                    Name(
+                        "System.Text.Json",
+                        "JsonSerializer"),
+                    s_bounds),
+                TestContext.Current.CancellationToken);
+
+        TypeDocumentInspectionContent document = Available(envelope);
+        Assert.Null(document.Subject.LibraryCorrespondence);
+        Assert.IsType<TypeDocumentDeclarations.NotRequested>(
+            document.Declarations);
+        Assert.Equal(
+            Name("System.Text.Json", "JsonSerializer"),
+            document.Subject.Type);
+    }
+
+    [Theory]
+    [InlineData(
+        "System.Collections.Generic",
+        "List`1",
+        false,
+        true)]
+    [InlineData(
+        "System.Text",
+        "StringBuilder",
+        false,
+        false)]
+    [InlineData(
+        "System",
+        "Delegate",
+        false,
+        false)]
+    [InlineData(
+        "System",
+        "Delegate",
+        true,
+        true)]
+    public void DirectAssembly_ExtensionPresenceUsesContextualRelations(
+        string @namespace,
+        string type,
+        bool includeNonPublic,
+        bool expectedExtensions)
+    {
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(System.Text.StringBuilder).Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    "Type extension Count test"));
+
+        TypeDocumentExtensionPresenceInspectionResult result =
+            TypeDocumentInspectionOperation.ExecuteWithExtensionPresence(
+                assembly,
+                new(
+                    Name(@namespace, type),
+                    s_bounds),
+                includeNonPublic,
+                TestContext.Current.CancellationToken);
+
+        _ = Available(result.Document);
+        var available =
+            Assert.IsType<
+                TypeExtensionMethodPresenceInspectionOutcome.Available>(
+                    result.ExtensionPresence);
+        Assert.Equal(expectedExtensions, available.Exists);
     }
 
     [Fact]
@@ -270,6 +354,8 @@ public sealed class TypeDocumentInspectionOperationTests
             source.Signature,
             source.Category,
             source.Attributes,
+            source.IsHidden,
+            source.IsCompilerGenerated,
             source.IsByRefLike,
             source.IsReadOnly,
             source.DefinesCoreLibraryRoot,
@@ -280,7 +366,9 @@ public sealed class TypeDocumentInspectionOperationTests
                 () => new TypeDocumentInspectionContent(
                     mismatched,
                     document.Declarations,
-                    document.AssemblyBytes));
+                    document.AssemblyBytes,
+                    document.BaseKind,
+                    document.InterfaceCount));
         Assert.Equal("declarations", exception.ParamName);
 
         await library.RetireAsync();

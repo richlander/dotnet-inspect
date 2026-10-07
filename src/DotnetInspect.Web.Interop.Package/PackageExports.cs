@@ -109,7 +109,8 @@ public static partial class PackageExports
                         BrowserPackageWireProjection.Project(
                             packageChildren),
                         BrowserPackageWireProjection.Project(
-                            coordinate.Package.Documents()));
+                            coordinate.Package.Documents()),
+                        coordinate.DefaultAsset?.Id);
                 },
                 BrowserPackageWorkspace.PackageOperationTimeout);
         return JsonSerializer.Serialize(
@@ -169,7 +170,10 @@ public static partial class PackageExports
             BrowserPackageWireProjection.Project(packageChildren),
             BrowserPackageWireProjection.Project(
                 realization.Coordinate.Package.Documents()),
-            surface);
+            surface)
+        {
+            DefaultLibraryId = realization.Coordinate.DefaultAsset?.Id,
+        };
     }
 
     private static async ValueTask<
@@ -439,7 +443,7 @@ public static partial class PackageExports
         string assemblyId)
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-            await BrowserPackageWorkspace.OpenScopeAsync(
+            await BrowserPackageWorkspace.OpenRealizedScopeAsync(
                 packageId,
                 version,
                 targetFramework);

@@ -28,8 +28,10 @@ Library occurrence in that population.
 
 When a package-grain question depends on library evidence, it uses aggregate
 scope. A library-grain or coordinate-sensitive question uses exact scope.
-A primary, namesake, or first-Library recommendation may help a host enter an
-exact-only operation, but it is not an implicit package-grain scope.
+A namesake or First Library request, owned by
+[Inspection Subject Navigation](inspection-subject-navigation.md#initial-aggregate-and-package),
+may help a host enter an exact-only operation. It selects one exact
+occurrence; it is not an implicit package-grain scope.
 
 This is a semantic classification, not a performance mode. Execution may be
 sparse, sequential, streamed, short-circuited where the result contract
@@ -212,8 +214,8 @@ keeps the legacy `DefaultAsset` convenience outside its aggregate projection
 claim.
 
 [Inspection Subject Navigation](inspection-subject-navigation.md) owns the
-target aggregate-first Package subject and exact or namesake narrowing for
-structural inspection. Its recommendation behavior is a consumer of this
+target aggregate-first Package subject and exact, namesake, or First Library
+narrowing for structural inspection. Its recommendation behavior is a consumer of this
 policy, not its authority.
 
 [Package Query assembly evaluation](package-query-assembly-evaluation.md)
