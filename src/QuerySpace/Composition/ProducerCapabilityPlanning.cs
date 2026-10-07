@@ -981,7 +981,10 @@ public enum ProducerCapabilityResultRejectionReason
     /// <summary>The requirement does not depend on the failed provision.</summary>
     UnrelatedProvisionFailure,
 
-    /// <summary>Dependent requirements disagree about a provision failure.</summary>
+    /// <summary>
+    /// A requirement depends on a failed provision but reports no provision
+    /// failure.
+    /// </summary>
     SharedProvisionFailureMismatch,
 }
 
@@ -1191,34 +1194,39 @@ public static class ProducerCapabilityResultSetValidator
             }
         }
 
-        foreach (ProducerCapabilityProvisionIdentity failedProvision
-            in failedProvisions)
+        if (failedProvisions.Count == 0)
+            return;
+
+        // A requirement whose chosen path depends on any failed provision
+        // reports a provision failure, settled or not. When several provisions
+        // fail, it may name any one of them; UnrelatedProvisionFailure already
+        // requires that it names a provision it depends on.
+        for (int index = 0; index < results.Count; index++)
         {
-            for (int index = 0; index < results.Count; index++)
+            ProducerCapabilityResultAssociation<TValue, TFailure> result =
+                results[index];
+            if (result.Outcome
+                    is ProducerCapabilityOutcome<
+                        TValue,
+                        TFailure>.ProvisionFailed)
             {
-                ProducerCapabilityResultAssociation<TValue, TFailure>
-                    result = results[index];
-                if (!DependsOn(
+                continue;
+            }
+            foreach (ProducerCapabilityProvisionIdentity failedProvision
+                in failedProvisions)
+            {
+                if (DependsOn(
                         result.Satisfaction.Provision.Identity,
                         failedProvision,
                         provisions,
                         []))
-                {
-                    continue;
-                }
-                if (result.Outcome
-                        is not ProducerCapabilityOutcome<
-                            TValue,
-                            TFailure>.ProvisionFailed failed
-                    || !ReferenceEquals(
-                        failed.Provision,
-                        failedProvision))
                 {
                     rejections.Add(new(
                         index,
                         result.Satisfaction.Requirement.Association,
                         ProducerCapabilityResultRejectionReason
                             .SharedProvisionFailureMismatch));
+                    break;
                 }
             }
         }

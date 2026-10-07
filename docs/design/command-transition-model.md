@@ -84,6 +84,10 @@ Related docs:
 
 ## Independent axes
 
+The CLI normalizes an exact `type` request before choosing its presentation:
+the default compact Tree, explicit Tree, and explicit Mermaid forms retain the
+same Type subject and inspection operation.
+
 | Axis | Question | Examples | CLI shape |
 | --- | --- | --- | --- |
 | Source context | Where is the subject acquired from? | package, platform, local library, restored project, TFM | Named options such as `--package`, `--platform`, `--library`, `--project`, `--tfm` |

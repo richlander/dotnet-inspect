@@ -195,6 +195,7 @@ public static class LibraryInspectionOperation
                 ImmutableArray<InspectionDiagnostic> countDiagnostics) =
                 Count(
                     correspondence.Inventory,
+                    request.Plan.Types!.Accessibility,
                     request.Plan.Types!.DeclarationSelection,
                     request.Plan.Types!.DefinitionKinds,
                     request.Plan.Types!.Namespace,
@@ -632,6 +633,7 @@ public static class LibraryInspectionOperation
         ImmutableArray<InspectionDiagnostic> Diagnostics)
         Count(
             AssemblyTypeDeclarationInventory inventory,
+            LibraryTypeAccessibility accessibility,
             LibraryTypeDeclarationSelection selection,
             ApiTypeInventoryKinds definitionKinds,
             string? @namespace,
@@ -647,7 +649,8 @@ public static class LibraryInspectionOperation
         int delegates = 0;
         foreach (
             AssemblyTypeDeclaration declaration
-            in inventory.GetDeclarations())
+            in inventory.GetDeclarations(
+                accessibility == LibraryTypeAccessibility.All))
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (@namespace is not null
@@ -839,7 +842,10 @@ public static class LibraryInspectionOperation
                 @namespace:
                     population.Namespace,
                 namespaceMatch:
-                    population.NamespaceMatch);
+                    population.NamespaceMatch,
+                includeNonPublic:
+                    population.Accessibility
+                        == LibraryTypeAccessibility.All);
     }
 
     private static LibraryTypePopulationRowsRejection?

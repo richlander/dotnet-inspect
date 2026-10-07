@@ -6,8 +6,8 @@ This document is the normative design for **Host-neutral hierarchy
 projection**. The substrate is tracked by
 [#9458](https://github.com/richlander/dotnet-inspect/issues/9458).
 Type Overview and shared presentation are the first adopters under
-[#8430](https://github.com/richlander/dotnet-inspect/issues/8430), whose
-counted transport-host adoption will reach both the CLI and Inspect Web.
+[#8430](https://github.com/richlander/dotnet-inspect/issues/8430). The CLI
+adopts the compact profile; Inspect Web adoption remains separate.
 
 The first shared presentation profile is the compact Type hierarchy:
 
@@ -268,11 +268,22 @@ Shared presentation owns both initial lowerings:
 - Mermaid writes the same semantic nodes and edges with format-local stable
   identifiers and Mermaid escaping.
 
-The shared presentation API accepts only Tree or Mermaid intent,
-accessibility policy, the completed owner document, and the destination. A
-focused CLI adoption will pass those values without owning Markout, node
-formatting, or hierarchy formation. Inspect Web may request either format or
-a later Browser transport without duplicating hierarchy formation.
+`TypeOverviewHierarchyInspection` accepts the host-selected assembly, exact
+Type query, Tree or Mermaid intent, accessibility policy, and operation
+bounds. It owns direct-Library materialization, exact Type identity
+resolution, and construction of the owner-issued `TypeOverviewDocument`
+request. Exact-Type identity resolution and the document request use the same
+accessibility policy, so an all-declarations request admits both the non-public
+Type and its non-public Members. `TypeOverviewHierarchyPresentation.Write`
+then accepts only the completed owner document, admitted presentation plan,
+and destination.
+
+The CLI exact-Type hierarchy route selects the source, format, policy, and
+destination without owning Library Type enumeration, exact-Type matching,
+Markout, node formatting, or hierarchy formation. Inspect Web may use the same
+inspection API with its selected assembly, or supply an already completed
+document to a later Browser transport, without duplicating hierarchy
+formation.
 
 The expanded Mermaid example
 `JsonSerializer -> DeserializeAsync -> exact DeserializeAsync overloads`

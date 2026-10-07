@@ -240,7 +240,7 @@ public static class TypeDocumentInspectionOperation
                     document.Declarations,
                     document.Subject.Type.ModuleVersionId,
                     startOrdinal);
-        return Envelope(
+        var outcome =
             new TypeDocumentInspectionOutcome.Available(
                 new(
                     ProjectSubject(
@@ -249,7 +249,19 @@ public static class TypeDocumentInspectionOperation
                         document.Subject,
                         assembly),
                     declarations,
-                    correspondence.AssemblyBytes)));
+                    correspondence.AssemblyBytes));
+        return correspondence.RootAdjacency
+                is MetadataRootAdjacencyInspectionOutcome.Invalid invalid
+            ? Envelope(
+                outcome,
+                [
+                    new InspectionDiagnostic(
+                        "type-document.root-adjacency-incomplete",
+                        InspectionDiagnosticSeverity.Error,
+                        invalid.Detail,
+                        assembly.Name.ToString()),
+                ])
+            : Envelope(outcome);
     }
 
     internal static TypeSubject ProjectSubject(
@@ -355,10 +367,13 @@ public static class TypeDocumentInspectionOperation
         Envelope(new TypeDocumentInspectionOutcome.Failed(reason));
 
     private static InspectionEnvelope<TypeDocumentInspectionOutcome>
-        Envelope(TypeDocumentInspectionOutcome outcome) =>
+        Envelope(
+            TypeDocumentInspectionOutcome outcome,
+            IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
         new(
             outcome,
             new InspectionShare.NonProjectable(
                 SharePath,
-                ShareReason));
+                ShareReason),
+            diagnostics);
 }

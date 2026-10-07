@@ -51,6 +51,7 @@ public class SourceResolverTests
         Assert.Equal(expectedTypeName, source.TypeName);
         Assert.Null(source.PackagePath);
         Assert.Null(source.AssemblyPath);
+        Assert.False(source.UsedPlatformPrefixFallback);
     }
 
     [Fact]
@@ -128,6 +129,7 @@ public class SourceResolverTests
         Assert.Equal("System.Text.Json", source.PlatformAssembly);
         Assert.Equal("JsonSerializizer", source.TypeName);
         Assert.Null(source.PackagePath);
+        Assert.True(source.UsedPlatformPrefixFallback);
     }
 
     [Fact]
@@ -171,6 +173,7 @@ public class SourceResolverTests
         Assert.Equal(expectedAssembly, probe.SourceName);
         Assert.Equal(typeName, probe.Remainder);
         Assert.Equal(SourceResolver.LocalSourceKind.Platform, probe.Kind);
+        Assert.False(probe.IsPlatformPrefixFallback);
     }
 
     [Fact]
