@@ -213,8 +213,9 @@ Type    + .info        -> type.info
 The Registry owns the fixed kind-to-prefix mapping, validates the resulting
 complete View Facet ID grammar, and performs ordinary exact resolution. The
 CLI host never concatenates, parses, or rewrites an ID. Neither boundary trims,
-case-folds, slugs, abbreviates, title-matches, or searches for a suffix. If
-`library.info` is not registered, `-Q .info` in a Library context is Unknown.
+case-folds, slugs, abbreviates, title-matches, or searches for a suffix. A
+relative name with no registered canonical ID for the subject kind, such as
+`-Q .nonexistent` in a Library context, is Unknown.
 It never falls back to another subject kind or similarly titled facet.
 
 Dot notation is a contextual CLI spelling, not:
