@@ -62,7 +62,9 @@ public sealed class ProducerOnlySlotRetirementPass : IIrPass
                 continue;
             }
 
-            TypeRef target = store.Value.ResultType!;
+            TypeRef target = store.Value.AssignmentType
+                ?? throw new InvalidOperationException(
+                    $"Producer-only slot {store.Slot} lost its discard target testimony.");
             var value = (IrExpression)store.DetachChildren()[0];
             var discard = new ExpressionStatement(value, target);
             discard.InheritSourceOffset(store);
@@ -95,11 +97,12 @@ public sealed class ProducerOnlySlotRetirementPass : IIrPass
     {
         if (store.Parent is not Block)
             return false;
-        if (store.Value.ResultType?.Kind == TypeRefKind.ByRef)
+        if (store.Value.ResultType?.Kind == TypeRefKind.ByRef
+            || store.Value.AssignmentType?.Kind == TypeRefKind.ByRef)
             return false;
         if (CanDropWithoutEvaluation(store.Value))
             return true;
-        return store.Value.ResultType is { } type
+        return store.Value.AssignmentType is { } type
             && type is not { Namespace: "System", Name: "Void" }
             && CSharpSpellability.CanSpellExplicitParameterType(
                 type,

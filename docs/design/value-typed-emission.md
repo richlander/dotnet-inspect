@@ -1934,19 +1934,19 @@ greatest set of slot webs whose loads are only direct copies into another
 member of that same set. Bare constants, argument loads, local loads, and
 direct slot copies disappear because their evaluation has no effect. Every
 other store becomes an `ExpressionStatement` at the same position and carries
-its producer's exact result type as discard-target testimony. The printer
+its producer's exact assignment type as discard-target testimony. The printer
 renders that issued fact as `_ = (T)(producer);`, retaining evaluation order,
 exceptions, allocation, and target context for lambdas, conditionals,
 stackalloc, and other contextual expressions without inventing a local.
 
-Admission requires every retained producer type to be complete and spellable
-in an explicit C# type position. Managed-reference producers are excluded:
-their reference identity is storage semantics, not a value that can be cast
-and discarded. Nested bodies remain independent scopes. Any load outside a
-direct copy into the retiring set keeps its entire upstream chain in storage
-planning. The Release invariant checks that no store or load from an issued
-retirement set survives the rewrite. Focused tests gate pure removal, evaluated
-and target-typed discards, direct-copy closure, external observers,
+Admission requires every retained producer's assignment type to be complete
+and spellable in an explicit C# type position. Managed-reference producers are
+excluded: their reference identity is storage semantics, not a value that can
+be cast and discarded. Nested bodies remain independent scopes. Any load
+outside a direct copy into the retiring set keeps its entire upstream chain in
+storage planning. The Release invariant checks that no store or load from an
+issued retirement set survives the rewrite. Focused tests gate pure removal,
+evaluated and target-typed discards, direct-copy closure, external observers,
 managed-reference and nested-scope exclusions, and the pinned
 Microsoft.CodeAnalysis 5.0.0 `AnalyzerAssemblyLoader` constructor witness.
 

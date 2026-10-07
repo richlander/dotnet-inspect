@@ -10,6 +10,8 @@ public class ProducerOnlySlotRetirementPassTests
 {
     static readonly TypeRef Action = TypeRef.CoreLib("System", "Action");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
+    static readonly TypeRef String = TypeRef.CoreLib("System", "String");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef Owner =
         TypeRef.Definition("Synthetic", "Samples", "Owner");
@@ -92,6 +94,46 @@ public class ProducerOnlySlotRetirementPassTests
         string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("_ = (Action)(", output);
         Assert.Contains("() =>", output);
+        function.CheckInvariant(includeSemantics: true);
+    }
+
+    [Fact]
+    public void WiderReferenceCoalesceKeepsItsAssignmentType()
+    {
+        var coalesce = new Coalesce(
+            new LoadArgument(0, "text", String),
+            new LoadArgument(1, "fallback", Object));
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(
+                Void,
+                [
+                    new Parameter("text", String),
+                    new Parameter("fallback", Object),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            Body(
+                new StoreStackSlot(0, coalesce),
+                new Return(null)));
+
+        new ReferenceSlotTargetBindingPass().Run(
+            function,
+            PassContext.None);
+        Assert.Equal(String, coalesce.ResultType);
+        Assert.Equal(Object, coalesce.AssignmentType);
+
+        new ProducerOnlySlotRetirementPass().Run(
+            function,
+            PassContext.None);
+
+        var statement = Assert.IsType<ExpressionStatement>(
+            Entry(function).Children[0]);
+        Assert.Equal(Object, statement.DiscardTargetType);
+        string output = DecidedPrint.Print(function).Output!;
+        Assert.Contains("_ = (object)(text ?? fallback);", output);
         function.CheckInvariant(includeSemantics: true);
     }
 
