@@ -196,6 +196,38 @@ public sealed class MetadataTypeDeclarationEvidenceTests
             MetadataTypeDeclarationCategory.Struct,
             posted.Evidence.Category);
         Assert.True(posted.Evidence.IsByRefLike);
+        Assert.False(posted.Evidence.IsReadOnly);
+    }
+
+    [Theory]
+    [InlineData(typeof(TypeDeclarationReadonlyStruct), false)]
+    [InlineData(typeof(TypeDeclarationReadonlyRefStruct), true)]
+    public void CompilerProducedReadonlyStructPostsModifierEvidence(
+        Type type,
+        bool isByRefLike)
+    {
+        string path = type.Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle handle = FindType(
+            reader,
+            "ILInspector.Metadata.Tests",
+            type.Name);
+
+        var posted = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                Run(
+                    path,
+                    MetadataTypeDefinitionAddress.FromHandle(
+                        reader,
+                        handle)));
+
+        Assert.Equal(
+            MetadataTypeDeclarationCategory.Struct,
+            posted.Evidence.Category);
+        Assert.Equal(isByRefLike, posted.Evidence.IsByRefLike);
+        Assert.True(posted.Evidence.IsReadOnly);
     }
 
     [Fact]
@@ -2161,6 +2193,14 @@ public sealed class TypeDeclarationGenericOuter<T>
 }
 
 public ref struct TypeDeclarationRefStruct
+{
+}
+
+public readonly struct TypeDeclarationReadonlyStruct
+{
+}
+
+public readonly ref struct TypeDeclarationReadonlyRefStruct
 {
 }
 
