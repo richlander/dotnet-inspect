@@ -10,8 +10,9 @@ producer that Inspect Web's Unsafe view
 **ILInspector.Analysis owns unsafe member findings.** One finding states that
 one source-declared member has positive compiled unsafe-member evidence under
 the updated memory-safety semantics, in its own body or in compiler-generated
-bodies it owns. The finding retains every contributing role and the physical
-body each came from.
+bodies it owns. The finding retains every contributing role that was inspected
+and the physical body each came from, and marks its evidence partial when an
+attributed body could not be inspected.
 
 Admission is exactly the
 [unsafe-member inventory](method-body-inspection.md#updated-semantics-unsafe-member-uses)
@@ -57,15 +58,17 @@ Each finding's payload is a member-level record, since the inventory's
 - whether that member carries an explicit updated-model caller-unsafe
   contract;
 - every contributing evidence item with its role, physical body, and IL offset
-  when the role has one; and
+  when the role has one;
+- whether its evidence is partial, with the uninspected attributed bodies; and
 - the member's exposure.
 
 Evidence order is semantic only within one physical body. Finding enumeration
-is an identity set. The identity key is the declared member's signature: its
-assembly name, declaring type, metadata name, generic arity, parameter types,
+is an identity set. The identity key reuses Analysis's shared member-identity
+fragment for the declared member: its assembly, declaring type, metadata name,
+generic arity, calling convention, instance or static form, parameter types,
 and return type. The module version ID, metadata token, and caller-unsafe mode
-are excluded, as are physical tokens, IL offsets, and generated names, which
-are provenance. A recompilation that renames a closure class or adds an
+are not identity, nor are physical tokens, IL offsets, and generated names,
+which are provenance. A recompilation that renames a closure class or adds an
 explicit contract therefore does not change the finding's identity.
 
 ## Attribution
@@ -75,7 +78,9 @@ authenticated declared-owner resolution for async state machines, iterators,
 lambdas, and local functions, followed to its ultimate source owner. The
 authority is that typed resolution, not a flattened physical-to-source map
 that cannot distinguish an ordinary body from an unresolved generated one. A body
-that is not compiler-generated is its own declared member.
+that is not compiler-generated, or a compiler-generated body that the
+resolution establishes has no source owner, such as a
+`<PrivateImplementationDetails>` helper, is its own declared member.
 
 A generated body whose owner cannot be authenticated is not guessed. It does
 not join any member's finding; it is reported as an unattributed generated
@@ -89,11 +94,12 @@ calls; they never confer or remove the owner's contract.
 
 ## Exposure
 
-Exposure is `Public` exactly when the declared member is in Metadata's public
-MethodDef root inventory for the analyzed image, and `NonPublic` when that
-inventory completed without it. When the inventory reached a bound or failed,
-exposure is `Unknown` for every finding and the census records that limitation;
-a partial root prefix never classifies a member as `NonPublic`. Exposure is a
+Exposure is `Public` exactly when the declared member is among the exact roots
+Metadata's public MethodDef root inventory retained for the analyzed image, and
+`NonPublic` only when that inventory completed without it. When the inventory
+reached a bound or failed, members it did not retain have `Unknown` exposure and
+the census records that limitation; a partial root prefix proves `Public` but
+never `NonPublic`. Exposure is a
 declaration fact. It does not claim call-graph reachability from public
 API, and protected or internal-visible-to access is not public exposure.
 
@@ -125,7 +131,8 @@ outcomes:
   one is a complete negative within the declared scope.
 - **Incomplete:** the sound findings produced so far, as a
   `FindingInspection<T>` complete over those findings, together with typed
-  limitations. A limitation names the affected physical body when it has one.
+  limitations. A limitation names the affected physical body when it has one,
+  and the declared member when that body's owner was authenticated.
 - **Failed:** an inspection failure, not an observation.
 
 The census is incomplete when the body-analysis receipt lacks full
@@ -133,11 +140,20 @@ method-evidence scope, a body's analysis failed or its managed body was
 unavailable, a generated body's owner could not be authenticated or attribution
 exhausted its bound, or the public root inventory was bounded or failed.
 
-A finding is sound when produced, because admission and attribution are
-positive and per member. A limitation never removes or weakens one. An
-incomplete census is never offered to Finding comparison as a complete census;
-the comparison consumer decides how to present an incomplete side, and must not
-report a member as removed because the newer side could not inspect it.
+A limitation stays with the part it affects. When a body that could not be
+inspected has an authenticated owner, that owner's finding is marked partial
+and names the body; the finding's existence remains sound, because admission and
+attribution are positive, but its evidence is not presented as complete. Only
+an unattributed body's limitation is census-wide.
+
+Unlike the Resource Lifecycle projection, a scoped receipt or a census with no
+findings and some limitations is Incomplete rather than Failed: both carry
+sound positive information, and neither is ever presented as complete.
+
+An incomplete census or a partial finding is never offered to Finding
+comparison as complete. The comparison consumer decides how to present it, and
+must not report a member as added or removed, or its evidence as changed,
+because either side could not inspect a body.
 
 ## Non-claims
 
@@ -150,6 +166,10 @@ report a member as removed because the newer side could not inspect it.
 - **Severity or ranking.** Findings are ungraded.
 - **Hosts.** This document defines no CLI section, Browser contract, or
   rendering.
+- **Existing body-level families.** The IL-ordered `analysis.unsafety`
+  operations and the legacy unsafe-evidence rows keep their own units and
+  admission rules. This family does not change them; step 3 decides how they
+  coexist in `diff --analysis` and when the legacy rows retire.
 
 ## Adoption and gates
 
@@ -181,4 +201,5 @@ Focused Release gates cover, in both legacy and updated-model fixtures:
 - a bounded or failed public root inventory yielding `Unknown` exposure and an
   incomplete census; and
 - scoped, failed, and unavailable bodies producing an incomplete census rather
-  than a complete empty one.
+  than a complete empty one, and an uninspected attributed body marking its
+  owner's finding partial rather than reading as complete evidence.
