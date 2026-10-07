@@ -337,7 +337,7 @@ exclusions and exact candidate/eligibility counters; the QuerySpace Count path
 remains the complete-breadth, zero-row terminal. Sharing must not widen capped
 target selection back into either complete plan.
 
-The [rank-first capped selection Lean proof](../../prototypes/rts-capped-selection/)
+The [rank-first capped selection Lean proof](models/rts-capped-selection/)
 adds prototype evidence for every scoped population, eligibility decision, and
 cap. It proves that the capped plan selects the complete pre-cap plan's prefix,
 provided both rankings order eligible bodies the same way. It also proves that

@@ -1,10 +1,10 @@
 # Decompiler pass analysis lifetime Lean proof
 
-This Lean 4 prototype is proof evidence for
+This Lean 4 model is proof evidence for
 [#9519](https://github.com/richlander/dotnet-inspect/issues/9519).
 The normative owner remains
-[`decompiler-pass-analysis-lifetime.md`](../../docs/design/decompiler-pass-analysis-lifetime.md).
-The prototype changes no product contract or runtime path.
+[`decompiler-pass-analysis-lifetime.md`](../../decompiler-pass-analysis-lifetime.md).
+The model changes no product contract or runtime path.
 
 ## Why Lean here
 
@@ -61,10 +61,10 @@ offsets.
 
 ## Run
 
-The prototype pins Lean 4.34.1 and has no package dependencies:
+The model pins Lean 4.34.1 and has no package dependencies:
 
 ```bash
-cd prototypes/decompiler-pass-analysis-lifetime
+cd docs/design/models/decompiler-pass-analysis-lifetime
 lake build
 ```
 
