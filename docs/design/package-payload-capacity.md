@@ -89,7 +89,6 @@ The existing `TransferPolicy_ReservesBeforeBodyReadAndCompletesAfterCommit`,
 `TransferPolicy_CanRequireContentLengthBeforeBodyRead` cases retain the
 synchronous-policy and rejected-payload evidence.
 
-
 ### Website package-open measurements
 
 The [probe](../../eng/measure-inspect-web-package-open.cs) calls the production
