@@ -493,7 +493,7 @@ introduce no concurrent or long-lived state machine, so ordinary Release gates
 are the appropriate design evidence.
 
 The
-[producer-capability demand Lean pilot](../../prototypes/producer-capability-demand/)
+[producer-capability demand Lean pilot](models/producer-capability-demand/)
 adds prototype proof evidence for every requirement set: demand-join laws,
 Method-body source selection, and shared-traversal result and charge
 preservation. Covering-path validation is proven sound only when an edge's
@@ -503,7 +503,7 @@ and every edge's properties is sound under either reading. The pilot's open
 findings are
 [#9483](https://github.com/richlander/dotnet-inspect/issues/9483) and
 [#9484](https://github.com/richlander/dotnet-inspect/issues/9484). Its
-[validator check classification](../../prototypes/producer-capability-demand/README.md#validator-check-classification)
+[validator check classification](models/producer-capability-demand/README.md#validator-check-classification)
 proves that `MissingDependency` and `DependencyOrder` exclude every dependency
 cycle, and that the satisfaction checks imply known capabilities and the
 requirement identity domains. The validator relies on those proofs instead of
