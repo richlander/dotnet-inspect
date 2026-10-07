@@ -17,20 +17,29 @@ public sealed partial class TypeOverviewDocumentInspectionOperationTests
             maxRetainedTextCharacters: 20_000_000);
 
     [Fact]
-    public void PlanRequiresNestedExactMemberCounts()
+    public async Task LeafOverviewRequestsAndReturnsNoExactMemberCounts()
     {
-        ArgumentException exception =
-            Assert.Throws<ArgumentException>(
-                () => new TypeOverviewDocumentInspectionPlan(
-                    Name(
-                        "System.Text.Json",
-                        "JsonSerializer"),
-                    new(
-                        maximumRows: 10,
-                        includeExactMemberCount: false),
-                    s_bounds));
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
 
-        Assert.Equal("rows", exception.ParamName);
+        TypeOverviewDocument document =
+            Available(
+                Execute(
+                    library,
+                    rows: new(
+                        maximumRows: int.MaxValue,
+                        includeExactMemberCount: false)));
+        TypeMemberGroupRowsOutcome.Read rows =
+            Assert.IsType<TypeMemberGroupRowsOutcome.Read>(
+                document.Members.Rows);
+
+        Assert.NotEmpty(rows.Items);
+        Assert.All(rows.Items, row => Assert.Null(row.ExactMemberCount));
+        Assert.Null(rows.Continuation);
     }
 
     [Fact]

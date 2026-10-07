@@ -92,8 +92,6 @@ public static class TypeOverviewHierarchyInspection
                         count: null,
                         new LibraryTypePopulationRowsRequest(
                             TypeSegmentSize,
-                            memberCount:
-                                new LibraryTypeMemberCountRequest(),
                             continuation: continuation),
                         LibraryTypeDeclarationSelection.Definitions,
                         ApiTypeInventoryKinds.All),

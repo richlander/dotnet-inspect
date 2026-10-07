@@ -11,10 +11,15 @@ public abstract record TypeOverviewHierarchyNode
     {
     }
 
+    /// <summary>
+    /// A category of MemberGroup rows. <paramref name="LogicalCount"/> is the
+    /// number of MemberGroup rows; <paramref name="ExactMemberCount"/> is set
+    /// only by the explicit exact-Member Count profile.
+    /// </summary>
     public sealed record Category(
         MemberGroupCategory Value,
         int LogicalCount,
-        int ExactMemberCount)
+        int? ExactMemberCount)
         : TypeOverviewHierarchyNode;
 
     public sealed record Member(TypeMemberGroupShape Value)
@@ -43,6 +48,7 @@ public static class TypeOverviewHierarchyProjection
         ArgumentNullException.ThrowIfNull(sink);
         TypeMemberGroupRowsOutcome.Read rows =
             GetValidatedRows(document, request);
+        bool countsMembers = RequestsExactMemberCount(request);
 
         int categoryCount = 0;
         foreach (MemberGroupCategory category in s_categoryOrder)
@@ -58,7 +64,10 @@ public static class TypeOverviewHierarchyProjection
             if (logicalCount == 0)
                 continue;
 
-            int exactMemberCount = CountExactMembers(rows.Items, category);
+            int? exactMemberCount =
+                countsMembers
+                    ? CountExactMembers(rows.Items, category)
+                    : null;
             sink.WriteNode(
                 new TypeOverviewHierarchyNode.Category(
                     category,
@@ -122,11 +131,14 @@ public static class TypeOverviewHierarchyProjection
             throw new InvalidOperationException(
                 "A Type overview hierarchy requires complete member-group Rows from the population origin.");
         }
+        bool countsMembers = RequestsExactMemberCount(request);
         if (rows.Items.Any(
-                static row => !row.ExactMemberCount.HasValue))
+                row => row.ExactMemberCount.HasValue != countsMembers))
         {
             throw new InvalidOperationException(
-                "A Type overview hierarchy requires exact-member Counts for every member group.");
+                countsMembers
+                    ? "A Type overview hierarchy with exact-Member Counts requires a Count for every member group."
+                    : "A Type overview hierarchy with leaf member groups requires Rows without exact-Member Counts.");
         }
 
         return rows;
@@ -151,10 +163,17 @@ public static class TypeOverviewHierarchyProjection
                 "A Type overview hierarchy requires a member-group Rows request.",
                 parameterName);
         }
-        if (!rows.IncludeExactMemberCount)
+        bool countsMembers = RequestsExactMemberCount(request);
+        if (countsMembers && !rows.IncludeExactMemberCount)
         {
             throw new ArgumentException(
-                "A compact Type overview hierarchy requires exact-Member Counts for every member-group Row.",
+                "A Type overview hierarchy with exact-Member Counts requires a Count for every member-group Row.",
+                parameterName);
+        }
+        if (!countsMembers && rows.IncludeExactMemberCount)
+        {
+            throw new ArgumentException(
+                "A Type overview hierarchy with leaf member groups does not request exact-Member Counts it cannot present.",
                 parameterName);
         }
         if (rows.Continuation is not null)
@@ -199,15 +218,34 @@ public static class TypeOverviewHierarchyProjection
                         Spelling:
                             InspectionHierarchyNodeSpelling.Name,
                         Children:
-                            InspectionHierarchyPopulationRequest.Count,
+                            null
+                            or InspectionHierarchyPopulationRequest.Count,
                     },
             })
         {
             throw new ArgumentException(
-                "The compact Type overview hierarchy requires category Rows by Name, MemberGroup Rows by Name, and exact-Member Count.",
+                "The compact Type overview hierarchy requires category Rows by Name and MemberGroup Rows by Name, as leaves or with exact-Member Count.",
                 parameterName);
         }
     }
+
+    /// <summary>
+    /// The default profile lists MemberGroups as leaves; an explicit Count
+    /// terminal beneath them requests exact-Member Counts.
+    /// </summary>
+    private static bool RequestsExactMemberCount(
+        InspectionHierarchyRequest<TypeOverviewHierarchyTopology>
+            request) =>
+        request.Children
+            is InspectionHierarchyPopulationRequest.Rows
+            {
+                Children:
+                    InspectionHierarchyPopulationRequest.Rows
+                    {
+                        Children:
+                            InspectionHierarchyPopulationRequest.Count,
+                    },
+            };
 
     static bool HasCategory(
         IReadOnlyList<TypeMemberGroupShape> rows,
