@@ -60,6 +60,7 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("System.Text", "--mermaid")]
+    [InlineData("System.Private.CoreLib.DefinitelyNotAType9620", "--mermaid")]
     [InlineData("System.Text", "--platform", "System.Private.CoreLib", "--mermaid")]
     [InlineData("System.Text.Json.Serialization", "--platform", "System.Text.Json", "--mermaid")]
     [InlineData("System.Math", "--mermaid", "--member", "Abs")]

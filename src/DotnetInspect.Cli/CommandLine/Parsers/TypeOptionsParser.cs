@@ -507,6 +507,8 @@ public static class TypeOptionsParser
         var options = routePolicy.ApplyTo(new TypeOptions
         {
             TypeName = source.TypeName,
+            TypeTargetUsedPlatformPrefixFallback =
+                source.UsedPlatformPrefixFallback,
             RouterCompletedPlatformLookup =
                 routerCompletedPlatformLookup,
             WorkspacePacket = workspacePacket,

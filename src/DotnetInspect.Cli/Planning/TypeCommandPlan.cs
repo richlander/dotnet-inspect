@@ -55,7 +55,8 @@ internal static class TypeCommandPlanner
         bool exactType =
             inspectionPlan.Selection.Catalog
                 == InspectionCatalogIdentity.ApiMember
-            && !string.IsNullOrWhiteSpace(options.TypeName);
+            && !string.IsNullOrWhiteSpace(options.TypeName)
+            && !options.TypeTargetUsedPlatformPrefixFallback;
         if (!exactType)
         {
             return mermaid

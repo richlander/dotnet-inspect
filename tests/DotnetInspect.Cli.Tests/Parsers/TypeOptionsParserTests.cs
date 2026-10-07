@@ -190,6 +190,52 @@ public class TypeOptionsParserTests
     }
 
     [Fact]
+    public void ImplicitPlatformPrefixFallback_IsNotAnExactTypePlan()
+    {
+        var options = new TypeOptions
+        {
+            TypeName = "DefinitelyNotAType9620",
+            PlatformAssembly = "System.Private.CoreLib",
+            TypeTargetUsedPlatformPrefixFallback = true,
+        };
+        ResolvedMemberInspectionPlan inspectionPlan =
+            ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options);
+
+        var planned =
+            Assert.IsType<TypeCommandPlanningResult.Planned>(
+                TypeCommandPlanner.Plan(
+                    options,
+                    inspectionPlan));
+        Assert.IsType<TypeCommandPlan.Standard>(planned.Plan);
+    }
+
+    [Fact]
+    public void ImplicitPlatformPrefixFallback_MermaidIsRejected()
+    {
+        var options = new TypeOptions
+        {
+            TypeName = "DefinitelyNotAType9620",
+            PlatformAssembly = "System.Private.CoreLib",
+            MermaidExplicitlySet = true,
+            MermaidOutput = true,
+            TypeTargetUsedPlatformPrefixFallback = true,
+        };
+        ResolvedMemberInspectionPlan inspectionPlan =
+            ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options);
+
+        var rejected =
+            Assert.IsType<TypeCommandPlanningResult.Rejected>(
+                TypeCommandPlanner.Plan(
+                    options,
+                    inspectionPlan));
+        Assert.Equal(
+            TypeCommandPlanner.ExactTypeMermaidError,
+            rejected.Error);
+    }
+
+    [Fact]
     public async Task PackageSource_WithEnvironmentJson_SetsJsonOutput()
     {
         var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
