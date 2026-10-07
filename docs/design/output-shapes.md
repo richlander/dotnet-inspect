@@ -823,8 +823,10 @@ knobs handle remaining cell narrowing and formatting:
 For the CLI Markout-dependency migration in #9579, a shared presentation
 adapter may accept settled version-feed, version-listing, and string-list rows
 with a host-neutral Table/TSV/JSONL choice, then construct the existing
-`TableFormatter` and Markout writer. The CLI retains row acquisition, JSON
-array output, and destination handling. This adapter's approved consumer is the
+`TableFormatter` and Markout writer. It writes the rendered result to the
+destination in one call so destination-specific line limits do not enter the
+CLI's table-rendering path. The CLI retains row acquisition, JSON array output,
+and destination handling. This adapter's approved consumer is the
 CLI; Browser/Wasm continues using its existing presentation paths and has no
 planned adoption of this text-table adapter. The user approved this exact
 CLI-only scope on 2026-10-07 by replying "proceed" to the explicit request for

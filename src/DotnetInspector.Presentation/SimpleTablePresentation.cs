@@ -21,9 +21,12 @@ public static class SimpleTablePresentation
         string[] stableColumns,
         IEnumerable<string[]> rows)
     {
-        var writer = CreateWriter(output, showHeader, format);
-        writer.WriteTable(displayColumns, stableColumns, rows);
-        writer.Flush();
+        WriteComplete(output, writer =>
+        {
+            var table = CreateWriter(writer, showHeader, format);
+            table.WriteTable(displayColumns, stableColumns, rows);
+            table.Flush();
+        });
     }
 
     public static void WriteList(
@@ -34,12 +37,22 @@ public static class SimpleTablePresentation
         IEnumerable<string> values)
     {
         string[] items = values.ToArray();
-        var writer = CreateWriter(output, showHeader: false, format);
-        if (format == SimpleTableFormat.Jsonl)
-            writer.WriteTable([displayName], [stableName], items.Select(value => new[] { value }).ToArray());
-        else
-            writer.WriteList(items);
-        writer.Flush();
+        WriteComplete(output, writer =>
+        {
+            var table = CreateWriter(writer, showHeader: false, format);
+            if (format == SimpleTableFormat.Jsonl)
+                table.WriteTable([displayName], [stableName], items.Select(value => new[] { value }).ToArray());
+            else
+                table.WriteList(items);
+            table.Flush();
+        });
+    }
+
+    private static void WriteComplete(TextWriter output, Action<TextWriter> render)
+    {
+        using var buffer = new StringWriter { NewLine = output.NewLine };
+        render(buffer);
+        output.Write(buffer.ToString());
     }
 
     private static MarkoutWriter CreateWriter(

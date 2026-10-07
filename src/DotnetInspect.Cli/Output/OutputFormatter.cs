@@ -347,26 +347,24 @@ public static class OutputFormatter
                 : new[] { v.Version, v.Feed })
             .ToArray();
 
-        WriteSimpleTable(output, writer =>
-            SimpleTablePresentation.WriteTable(
-                writer,
-                showHeader: !options.NoHeader,
-                SimpleFormat(options.Tsv, options.Jsonl),
-                display,
-                stable,
-                rows));
+        SimpleTablePresentation.WriteTable(
+            output,
+            showHeader: !options.NoHeader,
+            SimpleFormat(options.Tsv, options.Jsonl),
+            display,
+            stable,
+            rows);
     }
 
     public static void WriteStringList(IEnumerable<string> values, string displayName, string stableName,
         bool tsv, bool jsonl, TextWriter output)
     {
-        WriteSimpleTable(output, writer =>
-            SimpleTablePresentation.WriteList(
-                writer,
-                SimpleFormat(tsv, jsonl),
-                displayName,
-                stableName,
-                values));
+        SimpleTablePresentation.WriteList(
+            output,
+            SimpleFormat(tsv, jsonl),
+            displayName,
+            stableName,
+            values);
     }
 
     /// <summary>
@@ -395,31 +393,17 @@ public static class OutputFormatter
         }
 
         var rows = items.Select(v => new[] { v.Version, v.Listed ? "listed" : "unlisted" }).ToArray();
-        WriteSimpleTable(output, writer =>
-            SimpleTablePresentation.WriteTable(
-                writer,
-                showHeader: !options.NoHeader,
-                SimpleFormat(options.Tsv, options.Jsonl),
-                ["Version", "Listing"],
-                ["version", "listing"],
-                rows));
+        SimpleTablePresentation.WriteTable(
+            output,
+            showHeader: !options.NoHeader,
+            SimpleFormat(options.Tsv, options.Jsonl),
+            ["Version", "Listing"],
+            ["version", "listing"],
+            rows);
     }
 
     private static SimpleTableFormat SimpleFormat(bool tsv, bool jsonl) =>
         jsonl ? SimpleTableFormat.Jsonl : tsv ? SimpleTableFormat.Tsv : SimpleTableFormat.Table;
-
-    private static void WriteSimpleTable(TextWriter output, Action<TextWriter> serialize)
-    {
-        if (output is not (LineLimitingTextWriter or TailLineLimitingTextWriter))
-        {
-            serialize(output);
-            return;
-        }
-
-        var buffer = new StringWriter { NewLine = "\n" };
-        serialize(buffer);
-        output.Write(buffer.ToString());
-    }
 
     /// <summary>
     /// The ordered sections a <c>--count</c> map should report, or <c>null</c> when the selection
