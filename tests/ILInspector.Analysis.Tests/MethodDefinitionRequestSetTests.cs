@@ -246,6 +246,34 @@ public sealed class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void
+        Execute_RejectsScopeGuardOnPendingFusedInstructionFact()
+    {
+        FusedClassificationProducer classifier =
+            FusedClassificationProducer.Instance;
+        var guarded = new GuardedCountProducer(classifier);
+        MethodDefinitionSourceAssociation guardedAssociation =
+            Association(
+                guarded,
+                ProducerTerminal.Count);
+        MethodDefinitionSourceAssociation callSites =
+            Association(
+                MethodCallCountProducer.CallSites,
+                ProducerTerminal.Count);
+
+        ProducerContractException exception =
+            Assert.Throws<ProducerContractException>(
+                () => Execute(
+                    AcceptedPlan(
+                        [guardedAssociation, callSites])));
+
+        Assert.Contains(
+            "before the shared instruction stream completes",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Execute_RetainedInstructionFailureReceiptsCompletedPrefix()
     {
         MethodDefinitionSourceAssociation retained =
@@ -1463,6 +1491,176 @@ public sealed class MethodDefinitionRequestSetTests
         internal override int Seed() => 0;
 
         internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + fact;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+    }
+
+    sealed class FusedClassificationProducer
+        : MethodDefinitionProducer<int, int, int>
+    {
+        FusedClassificationProducer()
+            : base(
+                "Test.FusedInstructionClassifier",
+                version: 1,
+                tier: 0,
+                MethodDefinitionLayers.Body)
+        {
+        }
+
+        public static FusedClassificationProducer Instance { get; } =
+            new();
+
+        internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
+            InstructionAnalyzers =>
+            [MethodBodyAnalyzerDeclarations.ThrowPresence];
+
+        internal override MethodDefinitionExecution.ProducerState
+            CreateState(
+                MethodDefinitionExecution execution,
+                ProducerTerminal terminal,
+                int? rowLimit,
+                ImmutableArray<int> dependencies,
+                UnitFactRetention retention) =>
+            new FusedState(
+                this,
+                execution,
+                terminal,
+                rowLimit,
+                dependencies,
+                retention);
+
+        internal override int Visit(
+            scoped MethodDefinitionView view)
+        {
+            if (!view.HasManagedBody)
+                return 1;
+
+            int ignored = 0;
+            view.VisitInstructionShapes(
+                ref ignored,
+                static (
+                    ref int state,
+                    ILOpCode opcode,
+                    int encodedLength) =>
+                {
+                    _ = state;
+                    _ = opcode;
+                    _ = encodedLength;
+                    return true;
+                });
+            return 0;
+        }
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(
+            int accumulator,
+            int fact) =>
+            accumulator + 1;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+
+        internal override bool ClassifiesUnits => true;
+
+        internal override int UnitClass(int fact) => fact;
+
+        sealed class FusedState : State
+        {
+            int _methodToken;
+
+            public FusedState(
+                FusedClassificationProducer producer,
+                MethodDefinitionExecution execution,
+                ProducerTerminal terminal,
+                int? rowLimit,
+                ImmutableArray<int> dependencies,
+                UnitFactRetention retention)
+                : base(
+                    producer,
+                    execution,
+                    terminal,
+                    rowLimit,
+                    dependencies,
+                    retention)
+            {
+            }
+
+            public override bool SupportsFusedInstructionShapes =>
+                true;
+
+            public override bool TryBeginInstructionShapes(
+                scoped MethodDefinitionView view,
+                out MethodBodyBlock? body,
+                out bool settled)
+            {
+                _methodToken = view.Token;
+                if (!view.HasManagedBody)
+                {
+                    body = null;
+                    settled = AcceptFact(view.Token, 1);
+                    return false;
+                }
+
+                body = view.GetBody();
+                settled = false;
+                return true;
+            }
+
+            public override bool VisitInstructionShape(
+                ILOpCode opcode,
+                int encodedLength)
+            {
+                _ = opcode;
+                _ = encodedLength;
+                return true;
+            }
+
+            public override bool CompleteInstructionShapes(
+                Exception? failure)
+            {
+                if (failure is not null)
+                    throw failure;
+                return AcceptFact(_methodToken, 0);
+            }
+        }
+    }
+
+    sealed class GuardedCountProducer
+        : MethodDefinitionProducer<int, int, int>
+    {
+        public GuardedCountProducer(
+            FusedClassificationProducer classifier)
+            : base(
+                "Test.GuardedFusedInstructionCount",
+                version: 1,
+                tier: 0,
+                MethodDefinitionLayers.Declaration,
+                () =>
+                [
+                    new ProducerDependency(
+                        classifier,
+                        ProducerDependencyKind.VisitNeedsVisit,
+                        AcceptedUnitClasses: 1),
+                ])
+        {
+        }
+
+        internal override int Visit(
+            scoped MethodDefinitionView view) =>
+            1;
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(
+            int accumulator,
+            int fact) =>
             accumulator + fact;
 
         internal override int Complete(

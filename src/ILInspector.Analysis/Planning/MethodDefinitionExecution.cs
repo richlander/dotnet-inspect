@@ -1252,9 +1252,27 @@ public sealed class MethodDefinitionExecution
             if (!state.IsActive)
                 continue;
 
-            if (!state.TypeInScopeNow
-                || (state.GuardStates.Length != 0
-                    && !InScope(state, unitToken)))
+            if (!state.TypeInScopeNow)
+            {
+                anyActive = true;
+                continue;
+            }
+
+            if (fusedInstructionVisits is not null
+                && DependsOnPendingInstructionVisit(
+                    state,
+                    fusedInstructionVisits,
+                    fusedInstructionVisitCount,
+                    laneIndex))
+            {
+                throw new ProducerContractException(
+                    $"Producer '{state.Producer.Identity}' reads a "
+                    + "same-unit fact from a fused Method-body analyzer "
+                    + "before the shared instruction stream completes.");
+            }
+
+            if (state.GuardStates.Length != 0
+                && !InScope(state, unitToken))
             {
                 anyActive = true;
                 continue;
@@ -1273,19 +1291,6 @@ public sealed class MethodDefinitionExecution
                         anyActive = true;
                         continue;
                     }
-                }
-
-                if (fusedInstructionVisits is not null
-                    && DependsOnPendingInstructionVisit(
-                        state,
-                        fusedInstructionVisits,
-                        fusedInstructionVisitCount,
-                        laneIndex))
-                {
-                    throw new ProducerContractException(
-                        $"Producer '{state.Producer.Identity}' reads a "
-                        + "same-unit fact from a fused Method-body analyzer "
-                        + "before the shared instruction stream completes.");
                 }
 
                 if (fusedInstructionVisits is not null

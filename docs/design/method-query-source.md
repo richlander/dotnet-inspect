@@ -631,6 +631,7 @@ gated in Release:
 - `MethodBodyAnalyzerPlanner_PreservesRealClassifierResults`
 - `Plan_JoinsInstructionDemandWithoutWideningIndividualLanes`
 - `Execute_FusesNoRetentionInstructionSourceAcrossLanes`
+- `Execute_RejectsScopeGuardOnPendingFusedInstructionFact`
 - `Execute_SharesRetainedInstructionSourceAcrossLanes`
 - `Execute_RetainedInstructionFailureReceiptsCompletedPrefix`
 - `Execute_CallCountBodyBoundDoesNotOpenUnacquiredInstructionSource`
