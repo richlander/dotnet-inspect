@@ -868,20 +868,23 @@ Overloaded method ordinals and ordinary public-surface admission use the
 ordinary `MemberTargetResolver`. They resolve over the selected Type's own
 declarations, which `MethodBodySource.ExtractDeclaredType` decodes without
 decoding any other Type, so the displayed-signature order and scope match the
-complete route without building the assembly's API surface. Three cases keep
+complete route without building the assembly's API surface. These cases keep
 the complete public-surface route:
 
 - an image that declares a same-named extension method, which the complete
   surface would project onto receiver Types;
 - a wildcard member name or an unselected overload set;
 - a Type the metadata owner cannot find by full name, such as a forwarded
-  Type.
+  Type;
+- a resolver diagnostic, such as a missing member or an out-of-range ordinal,
+  so that the complete route reports it.
 
 Qualified, digest, and generic-arity selectors also keep the ordinary route.
 Count reports failures of the work it performs: Type selection, body
 acquisition, and decode. It does not report diagnostics of an API-surface
-extraction it no longer runs, such as unbound type forwarders or incomplete
-generic-constraint classification elsewhere in the image. Over 7,964
+extraction it no longer runs. These include unbound type forwarders elsewhere
+in the image, and incomplete generic-constraint classification, which Count
+does not consume, even for the selected member. Over 7,964
 exact-member requests in five shared-framework assemblies, in both scopes, the
 Count values match the complete route exactly. Only System.Text.Json requests
 change, from a rejected-row warning and exit 1 to exit 0.
