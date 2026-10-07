@@ -424,6 +424,120 @@ public sealed class ProducerCapabilityPlanningTests
     }
 
     [Fact]
+    public void ProducerCapabilityResultsRouteSeveralProvisionFailures()
+    {
+        var fixture = new CapabilityFixture();
+        QuerySpaceRequestAssociationIdentity combinedAssociation =
+            QuerySpaceRequestAssociationIdentity.Create();
+        ProducerCapabilityProvisionDeclaration combinedProvision =
+            ProducerCapabilityProvisionDeclaration.Create(
+                ProducerCapabilityProvisionIdentity.Create(fixture.Domain),
+                fixture.Scope,
+                fixture.Count,
+                fixture.Complete,
+                fixture.CountOutcome,
+                fixture.BorrowedResource,
+                fixture.DetachedResult,
+                ProducerCapabilityProperties.ExactCardinality,
+                [
+                    fixture.RowsProvision.Identity,
+                    fixture.CountProvision.Identity,
+                ]);
+        ProducerCapabilityPlan plan =
+            Accept(fixture.Validate(
+                [
+                    fixture.RequireRows(fixture.RowsAssociation),
+                    fixture.RequireCount(fixture.CountAssociation),
+                    fixture.RequireCount(combinedAssociation),
+                ],
+                [
+                    fixture.RowsProvision,
+                    fixture.CountProvision,
+                    combinedProvision,
+                ],
+                [],
+                ProducerCapabilityPlanCandidate.Create(
+                    fixture.Strategy,
+                    [
+                        fixture.RowsProvision.Identity,
+                        fixture.CountProvision.Identity,
+                        combinedProvision.Identity,
+                    ],
+                    [
+                        ProducerCapabilitySatisfactionCandidate.Create(
+                            fixture.RowsAssociation,
+                            fixture.RowsProvision.Identity),
+                        ProducerCapabilitySatisfactionCandidate.Create(
+                            fixture.CountAssociation,
+                            fixture.CountProvision.Identity),
+                        ProducerCapabilitySatisfactionCandidate.Create(
+                            combinedAssociation,
+                            combinedProvision.Identity),
+                    ])));
+        var failure = new CapabilityFailure("decode failed");
+
+        ProducerCapabilityResultSetResult<string, CapabilityFailure> Validate(
+            ProducerCapabilityOutcome<string, CapabilityFailure> combined) =>
+            ProducerCapabilityResultSetValidator.Validate<
+                string,
+                CapabilityFailure>(
+                plan,
+                [
+                    new(
+                        fixture.RowsAssociation,
+                        new ProducerCapabilityOutcome<
+                            string,
+                            CapabilityFailure>.ProvisionFailed(
+                                failure,
+                                fixture.RowsProvision.Identity)),
+                    new(
+                        fixture.CountAssociation,
+                        new ProducerCapabilityOutcome<
+                            string,
+                            CapabilityFailure>.ProvisionFailed(
+                                failure,
+                                fixture.CountProvision.Identity)),
+                    new(combinedAssociation, combined),
+                ]);
+
+        // Two independent provisions fail; their common dependent may name
+        // either one.
+        foreach (ProducerCapabilityProvisionIdentity named in new[]
+        {
+            fixture.RowsProvision.Identity,
+            fixture.CountProvision.Identity,
+        })
+        {
+            Assert.IsType<
+                ProducerCapabilityResultSetResult<
+                    string,
+                    CapabilityFailure>.Accepted>(
+                Validate(
+                    new ProducerCapabilityOutcome<
+                        string,
+                        CapabilityFailure>.ProvisionFailed(failure, named)));
+        }
+
+        // A dependent of a failed provision never reports success, even if it
+        // settled first.
+        var rejected = Assert.IsType<
+            ProducerCapabilityResultSetResult<
+                string,
+                CapabilityFailure>.Rejected>(
+            Validate(
+                new ProducerCapabilityOutcome<
+                    string,
+                    CapabilityFailure>.Completed("2", fixture.Complete)));
+        ProducerCapabilityResultRejection reason = Assert.Single(
+            rejected.Reasons);
+        Assert.Same(combinedAssociation, reason.Association);
+        Assert.Equal(
+            ProducerCapabilityResultRejectionReason
+                .SharedProvisionFailureMismatch,
+            reason.Reason);
+    }
+
+    [Fact]
     public void ProducerCapabilityPlanIsResourceFree()
     {
         AssertResourceFree(
