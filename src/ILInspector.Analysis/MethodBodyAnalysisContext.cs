@@ -22,7 +22,8 @@ internal sealed class MethodBodyAnalysisContext
         ImmutableArray<TypeRef> localTypes,
         MethodExceptionRegionCatalog? exceptionCatalog = null,
         int? localCount = null,
-        string? localTypesIncompleteReason = null)
+        string? localTypesIncompleteReason = null,
+        bool localVariablesInitialized = true)
     {
         ArgumentNullException.ThrowIfNull(method);
         ArgumentNullException.ThrowIfNull(instructions);
@@ -34,6 +35,7 @@ internal sealed class MethodBodyAnalysisContext
         LocalTypes = localTypes.IsDefault ? [] : localTypes;
         LocalCount = localCount ?? LocalTypes.Length;
         LocalTypesIncompleteReason = localTypesIncompleteReason;
+        LocalVariablesInitialized = localVariablesInitialized;
         _exceptionCatalog = exceptionCatalog;
     }
 
@@ -43,13 +45,15 @@ internal sealed class MethodBodyAnalysisContext
     public ImmutableArray<TypeRef> LocalTypes { get; }
     public int LocalCount { get; }
     public string? LocalTypesIncompleteReason { get; }
+    public bool LocalVariablesInitialized { get; }
 
     internal static MethodBodyAnalysisContext Create(
         MethodIdentity method,
         MethodBodyData body,
         ImmutableArray<TypeRef> localTypes,
         int? localCount = null,
-        string? localTypesIncompleteReason = null)
+        string? localTypesIncompleteReason = null,
+        bool localVariablesInitialized = true)
     {
         ArgumentNullException.ThrowIfNull(method);
         ArgumentNullException.ThrowIfNull(body);
@@ -79,7 +83,8 @@ internal sealed class MethodBodyAnalysisContext
             localTypes,
             body.ExceptionRegionCatalog,
             localCount,
-            localTypesIncompleteReason);
+            localTypesIncompleteReason,
+            localVariablesInitialized);
     }
 
     /// <summary>The shared Layer-0 block graph for this body.</summary>
