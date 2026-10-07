@@ -103,6 +103,13 @@ Queries-owned portable identities detach retained and Platform Library
 identity fields. The Catalog facade therefore has no project or compiled
 reference to `ILInspector.Metadata`.
 
+The separate `inspect-web-source-facade-*-dependencies-stay-within-capability-ratchet`
+rules establish the Source facade's evaluated-project and compiled-assembly
+ceilings. Services projects resolved and attributable browse URLs from typed
+PDB source inspections, so the facade preserves its existing source and
+comparison wire fields without interpreting SourceLink documents. Neither
+Source dependency graph admits `ILInspector.SourceLink`.
+
 Web Core and the capability facades other than CallGraph still use the broader
 `src/DotnetInspect.Web/BannedSymbols.txt` while their positive component
 boundaries migrate under #8779. `BrowserEngineLayeringTests` pins both

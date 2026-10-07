@@ -82,9 +82,9 @@ export function renderMemberBodyReader(reader: Pick<Reader, "document" | "medium
   if (medium.limit) return `<p role="status">${escapeHtml(medium.limit)}</p>`;
   if (medium.diff) {
     const diff = decodeMemberBodyMappedDiff(medium.diff);
-    return `${diff.changes.length === 0
+    return diff.changes.length === 0
       ? '<p role="status">Identical</p>'
-      : renderSourceDiffViewer(diff, escapeHtml, { mode: reader.mode })}`;
+      : renderSourceDiffViewer(diff, escapeHtml, { mode: reader.mode });
   }
   return `<p role="status">Before: ${escapeHtml(document.beforeDetail ?? document.beforeOutcome)}<br>After: ${escapeHtml(document.afterDetail ?? document.afterOutcome)}</p>${medium.beforeText ? `<pre aria-label="Available Before text">${escapeHtml(medium.beforeText)}</pre>` : ""}${medium.afterText ? `<pre aria-label="Available After text">${escapeHtml(medium.afterText)}</pre>` : ""}`;
 }

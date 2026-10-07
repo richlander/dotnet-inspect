@@ -1246,20 +1246,13 @@ test("string literal Transitions render complete literals as full-width rows", (
 
   const html = renderLibraryApiDiff(readyState(result), String);
 
-  assert.match(html, /3 matching literals/);
+  assert.match(html, /2 changed literals/);
   assert.match(
     html,
     /<code>https:\/\/old\.example and https:\/\/shared\.example<\/code>/,
   );
   assert.match(html, /<code>https:\/\/new\.example<\/code>/);
-  assert.match(
-    html,
-    /<code>prefix https:\/\/embedded\.example<\/code>/,
-  );
-  assert.equal(
-    html.match(/prefix https:\/\/embedded\.example/g)?.length,
-    1,
-  );
+  assert.doesNotMatch(html, /embedded\.example/);
   assert.doesNotMatch(html, /<code>absent<\/code>/);
   assert.match(html, /data-transition="Removed"[\s\S]*>Removed<\/span>/);
   assert.match(html, /data-transition="Added"[\s\S]*>Added<\/span>/);
@@ -1297,12 +1290,12 @@ test("failed string literal inspection remains visible and incomplete", () => {
             detail: "String literal scan exceeded its work limit.",
           },
           {
-            transition: "PairFinding.Present",
+            transition: "PairFinding.Added",
             finding: "analysis.string-literal-use",
             target: "Example",
             from: "1.0.0",
             to: "2.0.0",
-            old: "https://example.test",
+            old: "absent",
             new: "https://example.test",
             detail: null,
           },
@@ -1315,7 +1308,7 @@ test("failed string literal inspection remains visible and incomplete", () => {
 
   assert.match(
     html,
-    /Comparison incomplete\. 1 matching literal; 1 literal inspection failure\./,
+    /Comparison incomplete\. 1 changed literal; 1 literal inspection failure\./,
   );
   assert.match(html, /String literal inspection incomplete/);
   assert.match(html, /String literal scan exceeded its work limit\./);
@@ -1352,12 +1345,12 @@ test("string literal presentation survives an unavailable API projection", () =>
           findings: ["analysis.string-literal-use"],
         }],
         transitions: [{
-          transition: "PairFinding.Present",
+          transition: "PairFinding.Added",
           finding: "analysis.string-literal-use",
           target: "Example",
           from: "1.0.0",
           to: "2.0.0",
-          old: "https://example.test",
+          old: "absent",
           new: "https://example.test",
           detail: null,
         }],
@@ -1368,7 +1361,7 @@ test("string literal presentation survives an unavailable API projection", () =>
   const html = renderLibraryApiDiff(readyState(result), String);
 
   assert.match(html, /https:\/\/example\.test/);
-  assert.match(html, /1 matching literal/);
+  assert.match(html, /1 changed literal/);
   assert.doesNotMatch(html, /Comparison unavailable/);
 });
 
