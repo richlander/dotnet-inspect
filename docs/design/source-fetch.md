@@ -24,7 +24,8 @@ dotnet-inspect member JsonSerializer \
 
 The command resolves one portable-PDB document, obtains its SourceLink URL,
 fetches or reuses candidate bytes through `SourceFetch`, and admits them only
-when `PdbSourceHouse` accepts the portable-PDB checksum.
+when `VerifiedSourceTextFetch` supplies and accepts the portable-PDB checksum
+predicate.
 
 The package is the reproducible production demonstration. Deterministic
 compiler-produced PDB fixtures and controlled HTTP/content-store seams remain
@@ -34,9 +35,10 @@ cancellation at body EOF or backend failure timing reliably.
 ## Consumers and status
 
 `SourceFetch` is an existing host-neutral adapter used by CLI member, type,
-library, API, diff, and source-enrichment paths through `PdbSourceHouse`.
-Browser/Wasm supplies the same adapter with an in-memory content store and a
-host source policy.
+library, API, diff, and source-enrichment paths through
+`VerifiedSourceTextFetch`, `PdbSourceHouse`, or SourceHouse. Browser/Wasm
+supplies the same adapter with an in-memory content store and a host source
+policy.
 
 Shared type/member Source and the selected-member source pair also consume the public
 `FetchVerifiedSourceBytesAsync`/`FetchSourceResult` boundary through a
@@ -61,6 +63,9 @@ The adapter consumes, but does not redefine, these owner-issued behaviors:
 - The caller-supplied validator owns semantic byte admission. Current product
   callers use `SourceLinkService.VerifyChecksum`, which owns portable-PDB checksum
   meaning and line-ending normalization.
+- `VerifiedSourceTextFetch` composes that checksum predicate with detached
+  SourceLink verification and decoding for one requested URL. It does not own
+  transport ordering or SourceLink semantics.
 - `ISourceContentStore` is the host persistence port. Its implementation owns
   its storage mechanics, whether backend failures are reported or treated as
   best-effort misses or acceptance, and cancellation before committing a
@@ -238,7 +243,8 @@ The contract-defining cases are:
   publish a process-memory candidate.
 
 `SourceFetchTests` gates ordering, reuse, cancellation, and validator/transport
-failure separation. `PdbSourceHouseTests` gates invalid-cache repair,
+failure separation. `PdbSourceHouseTests` gates the
+`VerifiedSourceTextFetch` checksum composition, invalid-cache repair,
 checksum-admitted redirect behavior, policy rejection, and old-category
 invalidation. `AssemblyContextSourceQueryTests` gates repeatable store failure,
 cancellation, and visible decompiler fallback. `HttpRetryHelperTests` owns the
