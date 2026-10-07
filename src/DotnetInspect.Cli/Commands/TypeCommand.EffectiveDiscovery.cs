@@ -265,6 +265,7 @@ public static partial class TypeCommand
             || options.ProjectPath is not null
             || options.ProjectAssetsPath is not null
             || options.UserVerbosity != Verbosity.Minimal
+            || options.Tree
             || options.IncludeSections is { Count: > 0 }
             || options.TypeFilter is not null
             || options.MemberFilter.Count > 0

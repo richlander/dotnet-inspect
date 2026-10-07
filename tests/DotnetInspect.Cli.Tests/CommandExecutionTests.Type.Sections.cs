@@ -1168,6 +1168,36 @@ public partial class CommandExecutionTests
 
     }
 
+    [Fact]
+    public async Task
+        Type_TreeDiscoveryMatchesPlatformProjection()
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                "type",
+                "System.IDisposable",
+                "--library",
+                assemblyPath,
+                "-D",
+                "--tree");
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(
+                "type",
+                "System.IDisposable",
+                "--platform",
+                "System.Private.CoreLib",
+                "-D",
+                "--tree");
+
+        Assert.Equal(platformExit, directExit);
+        Assert.Equal(platformOutput, directOutput);
+        Assert.Equal(platformError, directError);
+        Assert.Contains("Signature", directOutput);
+        Assert.Contains("Return Type", directOutput);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
