@@ -69,8 +69,21 @@ Equality is decided per paired subject:
   body-backed method, as defined by
   [IL diff canonicalization](il-diff-canonicalization.md) (tokens resolved to
   names, no decompilation). A method with no body on both sides is equal on
-  this axis. A member already `Changed` by an API difference, or added or removed,
-  needs no body comparison.
+  this axis. Canonical operations do not cover every body fact the complete
+  Implementation Diff renders, so the comparison also covers exception regions
+  (including catch types and filters) and local variable types. A body fact the
+  producer cannot compare, or that canonicalization does not define, makes the
+  method `Indeterminate`, never `Unchanged`. A member already `Changed` by an
+  API difference, or added or removed, needs no body comparison for the state.
+
+A `Changed` Member also carries a **cause**: `Api`, `Body`, or both, or
+`Added`/`Removed`. The cause is a separate field from the state, so the
+three-state contract is unchanged. `Body` is set when a paired method's
+implementation differs; it is `Api`-only only when the body comparison ran and
+found equality. When an API difference short-circuits the body comparison, the
+cause is `Api` and the body is unknown; a consumer that needs the body signal
+for such a Member (the hybrid, prefetch) requests a body check for that exact
+Member, which is cheap relative to the complete diff and does not decompile.
 
 Compared facts and early exit mean the result is an existence proof, not an
 inventory. No row counts, classifications, or text are produced.
@@ -114,8 +127,8 @@ result.
 When a Type opens, a host runs the Type pass and marks Members. It may then
 speculatively stream complete Member diffs, subject to all of these:
 
-- only body-changed Members are prefetched; API-only Members take the API diff
-  path and need no prefetch;
+- only Members whose cause includes a confirmed `Body` difference are
+  prefetched; API-only Members take the API diff path and need no prefetch;
 - prefetch starts only when the host is idle, in priority order: the hovered or
   focused Member, then the remaining list, up to a fixed cap;
 - user-initiated work preempts prefetch, and navigation cancels it. Cancellation
@@ -137,8 +150,9 @@ compute spent on Members never opened.
 
 On Member Compare, the default becomes a hybrid: show the full body diff when
 the implementation changed, and otherwise show the API diff, as the type
-printer diff. The Fast Diff Member state selects between them without running
-the complete body diff for an API-only change. The presentation contract
+printer diff. The Fast Diff Member cause selects between them (confirmed `Body`
+shows the body diff; `Api` with an equal body shows the API diff) without
+running the complete body diff for an API-only change. The presentation contract
 belongs to [Member Body Diff](inspect-web-member-body-diff.md) and is its own
 slice; this document supplies only the Member state it consumes.
 
