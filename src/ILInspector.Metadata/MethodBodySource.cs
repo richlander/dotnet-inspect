@@ -265,6 +265,17 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         return false;
     }
 
+    /// <summary>
+    /// Returns the TypeDef token of the Type whose full metadata name is
+    /// <paramref name="typeName"/>, or null when no Type has that name.
+    /// </summary>
+    public int? FindTypeToken(string typeName)
+    {
+        _ensureAlive();
+        TypeDefinitionHandle handle = FindType(typeName);
+        return handle.IsNil ? null : MetadataTokens.GetToken(handle);
+    }
+
     public bool ContainsType(string typeName)
     {
         _ensureAlive();

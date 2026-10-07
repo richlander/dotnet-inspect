@@ -224,7 +224,9 @@ public static class MemberCommand
                     : ApiServices.LoadFullApi(
                         searchPath, runtimeAssemblyPath, options.PackagePath,
                         packageName, apiSource, source.ApiVersion, selectedTfm,
-                        logger, options, source.PackageExtractPath));
+                        logger, options, source.PackageExtractPath,
+                        selectDeclaredType:
+                            SingleTypeSurfaceSelector(typeName, options)));
             if (loaded == null)
             {
                 CommandError.Write("Could not extract API from library.");
@@ -2196,6 +2198,58 @@ public static class MemberCommand
     private static bool NeedsMemberPipelinePdbPath(
         IReadOnlySet<string> sections)
         => sections.Overlaps(MemberPipelinePdbPathSectionNames);
+
+    // Sections that read only the selected member's own declaration, body,
+    // attributes, and source mapping. A request limited to these sections
+    // needs only the selected Type's declarations, not the assembly's API
+    // surface.
+    static readonly HashSet<string> SingleTypeSurfaceSections =
+    [
+        SectionNames.Signature,
+        SectionNames.IL,
+        SectionNames.CustomAttributes,
+        SectionNames.ExceptionRegions,
+        SectionNames.SourceLocations,
+        SectionNames.FidelityCauses,
+    ];
+
+    // Returns a selector that limits API extraction to the requested Type, or
+    // null when the request needs the complete surface. A same-image
+    // extension method with the member's name would be projected onto its
+    // receiver Type only by the complete surface, so it keeps that route; so
+    // does a Type the metadata owner cannot find by full name.
+    static Func<string, Func<TypeDefinitionHandle, bool>?>?
+        SingleTypeSurfaceSelector(
+            string? typeName,
+            MemberOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(typeName)
+            || options.RouterDeferredTypeOrMember
+            || options.EffectiveDiscovery
+            || options.HasCallerScope
+            || options.MemberFilter.Count != 1
+            || options.IncludeSections is not { Count: > 0 } sections
+            || !sections.All(SingleTypeSurfaceSections.Contains))
+        {
+            return null;
+        }
+
+        string memberName = options.MemberFilter.First();
+        if (memberName.AsSpan().IndexOfAny('*', '?') >= 0)
+            return null;
+
+        return assemblyPath =>
+        {
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.Open(assemblyPath);
+            if (session.MethodBodies.FindTypeToken(typeName) is not { } token
+                || session.MethodBodies.DeclaresExtensionMethod(memberName))
+            {
+                return null;
+            }
+            return handle => MetadataTokens.GetToken(handle) == token;
+        };
+    }
 
     private static List<ApiMember> GetCandidateMembers(
         ApiType apiType,

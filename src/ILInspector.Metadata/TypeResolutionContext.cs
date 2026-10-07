@@ -204,7 +204,9 @@ public sealed class TypeResolutionCatalog : IDisposable
         IAssemblyBindingPolicy bindingPolicy,
         bool includeAll = false,
         bool typesOnly = false,
-        bool includeCompilerGenerated = false)
+        bool includeCompilerGenerated = false,
+        Func<System.Reflection.Metadata.TypeDefinitionHandle, bool>?
+            includeType = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(bindingPolicy);
@@ -238,7 +240,8 @@ public sealed class TypeResolutionCatalog : IDisposable
                     bindingPolicy,
                     includeAll,
                     typesOnly,
-                    includeCompilerGenerated);
+                    includeCompilerGenerated,
+                    includeType);
         if (readyRegistration.InventoryFailure is { } inventoryFailure
             && !surface.InspectionFailures.Any(
                 failure =>
