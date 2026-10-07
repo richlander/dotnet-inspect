@@ -923,32 +923,11 @@ internal static class BrowserPackageWorkspace
             packageLease.Lease(key);
         }
 
-        BrowserPackageIconPayload? icon = null;
-        if (acquired.Payload.Content is RangedPackageContent)
-        {
-            try
-            {
-                icon = BrowserPackage.ProjectIcon(PackageIconQuery.Execute(
-                    acquired.Payload.Content, packageId, acquired.Payload.Coordinate.Version));
-            }
-            catch (PackageEntryNotMaterializedException)
-            {
-                if (source is IPackageArchiveRangeSource rangeSource)
-                {
-                    PackageIconRangeResult iconResult = await PackageIconRangeQuery.ExecuteAsync(
-                        rangeSource, settled.Result.Coordinate, PackageIconReadLimits,
-                        deadline.Token).ConfigureAwait(false);
-                    if (iconResult is PackageIconRangeResult.Completed completed)
-                        icon = BrowserPackage.ProjectIcon(completed.Icon);
-                }
-            }
-        }
         var package = new BrowserPackage(
             packageId,
             acquired.Payload,
             cached.Bytes,
-            store,
-            icon);
+            store);
         var coordinate = new BrowserPackageCoordinate(
             package,
             contributed.Contribution.Binding);

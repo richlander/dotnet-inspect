@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using DotnetInspect.Web.Interop.Package;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using NuGetFetch;
 
@@ -76,6 +77,11 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserPackageRealization full = Assert.IsType<BrowserPackageRealizationResult.Realized>(
             await BrowserPackageWorkspace.RealizeWithSettlementAsync(id, "1.0.0", "net11.0", source,
                 TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)).Realization;
+        Assert.Null(full.Coordinate.Package.Icon);
+        PackageIconRangeResult icon = await BrowserPackageWorkspace.ReadPackageIconAsync(
+            id, "1.0.0", source, TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        Assert.IsType<PackageIconResult.Available>(
+            Assert.IsType<PackageIconRangeResult.Completed>(icon).Icon);
         await using var broad = await BrowserPackageWorkspace.OpenScopeAsync(full,
             TestContext.Current.CancellationToken);
         Assert.NotSame(scope, broad.Scope);

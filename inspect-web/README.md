@@ -753,6 +753,14 @@ request the package-wide Type surface. All Libraries Overview, explicit Type
 navigation, and API browsing retain that broad request. Explicit links and
 restored subjects keep their requested selection.
 
+The initial package overview does not prefetch the package icon. The subject
+header displays its default icon immediately; after the initial render has had
+an opportunity to paint, the UI independently requests the embedded icon through
+`QueryPackageIcon`. Repeated renders share that request. A late result cannot
+update a different package's header; unavailable or failed icon requests retain
+the default. Complete archives below the shared size threshold can already
+contain the icon, but icon acquisition never gates the initial page.
+
 Package Metadata overview, table windows, and heap listings also reuse the
 admitted realization. They retain their exact Library selection and existing
 metadata bounds; visiting Metadata does not require another complete archive.
