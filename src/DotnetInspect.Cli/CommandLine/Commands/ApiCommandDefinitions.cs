@@ -181,20 +181,20 @@ public static class ApiCommandDefinitions
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
-            TypeOverviewHierarchyPresentationFormat? hierarchyFormat =
-                TypeOverviewHierarchyRoute.Select(
-                    parseResult,
-                    opts,
-                    commandArgs,
-                    matchOption,
-                    out string? hierarchyError);
-            if (hierarchyError is not null)
+            bool mermaidRequested =
+                parseResult.GetResult(opts.Mermaid)
+                    is { Implicit: false }
+                && parseResult.GetValue(opts.Mermaid);
+            if (mermaidRequested
+                && parseResult.GetValue(matchOption))
             {
-                CommandError.Write(hierarchyError);
+                CommandError.Write(
+                    TypeCommandPlanner.StandaloneMermaidError);
                 return 1;
             }
 
-            if (parseResult.GetValue(opts.Envelope)
+            if (!mermaidRequested
+                && parseResult.GetValue(opts.Envelope)
                 && parseResult.GetResult(opts.Verbosity)
                     is { Implicit: false }
                 && opts.ParseVerbosity(parseResult)
@@ -214,7 +214,8 @@ public static class ApiCommandDefinitions
                 return 1;
             }
 
-            if (parseResult.GetValue(compactOption)
+            if (!mermaidRequested
+                && parseResult.GetValue(compactOption)
                 && opts.ResolveFormat(parseResult) != OutputFormat.Json
                 && !parseResult.GetValue(opts.Envelope))
             {
@@ -240,7 +241,8 @@ public static class ApiCommandDefinitions
                 };
             }
 
-            if (opts.ResolveFormat(parseResult) == OutputFormat.Json
+            if (!mermaidRequested
+                && opts.ResolveFormat(parseResult) == OutputFormat.Json
                 && parseResult.GetValue(opts.Tree)
                 && parseResult.GetValue(opts.Discover) is null)
             {
@@ -249,7 +251,8 @@ public static class ApiCommandDefinitions
                 return 1;
             }
 
-            if (TypeOptionsParser.TryCreateStructuralPlan(
+            if (!mermaidRequested
+                && TypeOptionsParser.TryCreateStructuralPlan(
                     parseResult,
                     opts,
                     commandArgs,
@@ -319,8 +322,9 @@ public static class ApiCommandDefinitions
 
                 case TypeOptionsParser.Success success:
                     return await TypeCommand.ExecuteAsync(
-                        success.Options with { HierarchyFormat = hierarchyFormat },
+                        success.Options,
                         success.Plan,
+                        success.CommandPlan,
                         ct);
 
                 default:

@@ -60,6 +60,7 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("System.Text", "--mermaid")]
+    [InlineData("System.Private.CoreLib.DefinitelyNotAType9620", "--mermaid")]
     [InlineData("System.Text", "--platform", "System.Private.CoreLib", "--mermaid")]
     [InlineData("System.Text.Json.Serialization", "--platform", "System.Text.Json", "--mermaid")]
     [InlineData("System.Math", "--mermaid", "--member", "Abs")]
@@ -75,6 +76,12 @@ public partial class CommandExecutionTests
     [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--rows", "1..2")]
     [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "-n", "2")]
     [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "-S", "Methods")]
+    [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--details")]
+    [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "-Q")]
+    [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--columns", "Name")]
+    [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--fields", "Name")]
+    [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--row", "1")]
+    [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--top", "0")]
     [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "-t", "System.*")]
     public async Task TypeHierarchy_Mermaid_RejectsOtherRoutesBeforeOutput(
         params string[] args)
@@ -86,6 +93,40 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains("--mermaid", error);
         Assert.DoesNotContain("best-effort platform prefix", error);
+    }
+
+    [Theory]
+    [InlineData("--top", "0")]
+    [InlineData("--tree")]
+    public async Task TypeHierarchy_TargetFreeMermaidCompetingRequest_UsesStandaloneDiagnostic(
+        params string[] competingArgs)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            ["type", "--mermaid", .. competingArgs]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--mermaid requires a standalone exact Type",
+            error);
+    }
+
+    [Fact]
+    public async Task TypeHierarchy_ExplicitZeroTopKeepsOrdinaryTypeRoute()
+    {
+        var compact = await RunAppAsync(
+            "type", "System.Math",
+            "--platform", "System.Private.CoreLib");
+        var ordinary = await RunAppAsync(
+            "type", "System.Math",
+            "--platform", "System.Private.CoreLib",
+            "--top", "0");
+
+        Assert.Equal(0, ordinary.Exit);
+        Assert.Empty(ordinary.Error);
+        Assert.NotEqual(compact.Output, ordinary.Output);
+        Assert.Contains("Inherits", ordinary.Output);
+        Assert.Contains("double Acos(double d)", ordinary.Output);
     }
 
     [Fact]

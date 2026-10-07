@@ -67,6 +67,17 @@ public static class TypeCommand
     internal static Task<int> ExecuteAsync(
         TypeOptions options,
         ResolvedMemberInspectionPlan plan,
+        TypeCommandPlan commandPlan,
+        CancellationToken cancellationToken)
+        => ExecuteCoreAsync(
+            options,
+            plan,
+            commandPlan: commandPlan,
+            cancellationToken: cancellationToken);
+
+    internal static Task<int> ExecuteAsync(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan plan,
         CancellationToken cancellationToken)
         => ExecuteCoreAsync(
             options,
@@ -177,12 +188,17 @@ public static class TypeCommand
         ApiServices.LoadedApiSurface? loadedSurface = null,
         ApiType? preselectedType = null,
         WorkspaceContextLoadOptions? exactTypeCapabilities = null,
+        TypeCommandPlan? commandPlan = null,
         CancellationToken cancellationToken = default)
     {
         if (plan.Intent.Surface != InspectionSurface.Type)
             throw new ArgumentException(
                 "A type command requires a type inspection plan.",
                 nameof(plan));
+
+        commandPlan ??= new TypeCommandPlan.Standard();
+        TypeCommandPlan.ExactTypeOverview? exactTypeOverview =
+            commandPlan as TypeCommandPlan.ExactTypeOverview;
 
         if (!PerformanceTriageOptions.TryValidate(
                 options.PerformanceTriage,
@@ -234,11 +250,11 @@ public static class TypeCommand
         {
             try
             {
-                if (options.HierarchyFormat
+                if (exactTypeOverview?.Format
                         is not TypeOverviewHierarchyPresentationFormat.Mermaid
                     && await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
                     return prefixBrowseExitCode;
-                if (options.HierarchyFormat
+                if (exactTypeOverview?.Format
                         is not TypeOverviewHierarchyPresentationFormat.Mermaid
                     && !options.RouterCompletedPlatformLookup
                     && await TryExecuteFindIfMissAsync(options)
@@ -333,7 +349,7 @@ public static class TypeCommand
         bool inspectionIncomplete = false;
         try
         {
-            if (options.HierarchyFormat is { } hierarchyFormat)
+            if (exactTypeOverview is { Format: var hierarchyFormat })
             {
                 int? hierarchyExitCode =
                     await TypeOverviewHierarchyCommand.TryExecuteAsync(
