@@ -10,7 +10,7 @@ namespace DotnetInspector.Sections.Tests;
 
 public sealed class LibraryInspectionOperationTests
 {
-    private static readonly ApiSurfaceExtractionBounds s_bounds =
+    private static readonly LibraryInspectionBounds s_bounds =
         new(
             maxTypes: 5_000,
             maxMembers: 100_000,
@@ -1131,7 +1131,7 @@ public sealed class LibraryInspectionOperationTests
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
         LibraryDocument countOnly = Document(Execute(library));
-        var bounds = new ApiSurfaceExtractionBounds(
+        var bounds = new LibraryInspectionBounds(
             s_bounds.MaxTypes,
             s_bounds.MaxMembers,
             s_bounds.MaxInspectionFailures,
@@ -1177,7 +1177,7 @@ public sealed class LibraryInspectionOperationTests
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
-        var bounds = new ApiSurfaceExtractionBounds(
+        var bounds = new LibraryInspectionBounds(
             maxTypes: 1,
             maxMembers: 100_000,
             maxInspectionFailures: 1_000,
@@ -1252,7 +1252,7 @@ public sealed class LibraryInspectionOperationTests
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
-        var bounds = new ApiSurfaceExtractionBounds(
+        var bounds = new LibraryInspectionBounds(
             maxTypes: 5_000,
             maxMembers: 100_000,
             maxInspectionFailures: 1_000,
@@ -1286,7 +1286,7 @@ public sealed class LibraryInspectionOperationTests
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
-        var bounds = new ApiSurfaceExtractionBounds(
+        var bounds = new LibraryInspectionBounds(
             maxTypes: 5_000,
             maxMembers: 100_000,
             maxInspectionFailures: 1_000,
@@ -1324,7 +1324,7 @@ public sealed class LibraryInspectionOperationTests
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
-        var bounds = new ApiSurfaceExtractionBounds(
+        var bounds = new LibraryInspectionBounds(
             maxTypes: 0,
             maxMembers: 100_000,
             maxInspectionFailures: 1_000,
@@ -1363,7 +1363,7 @@ public sealed class LibraryInspectionOperationTests
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
-        var bounds = new ApiSurfaceExtractionBounds(
+        var bounds = new LibraryInspectionBounds(
             maxTypes: 5_000,
             maxMembers: 100_000,
             maxInspectionFailures: 1_000,
@@ -2053,7 +2053,7 @@ public sealed class LibraryInspectionOperationTests
 
     private static InspectionEnvelope<LibraryInspectionOutcome> Execute(
         LibraryInspectionTestLibrary library,
-        ApiSurfaceExtractionBounds bounds) =>
+        LibraryInspectionBounds bounds) =>
         LibraryInspectionOperation.Execute(
             new(
                 library.Reference,
@@ -2077,7 +2077,7 @@ public sealed class LibraryInspectionOperationTests
         LibraryInspectionTestLibrary library,
         bool count,
         LibraryTypePopulationRowsRequest rows,
-        ApiSurfaceExtractionBounds? bounds = null,
+        LibraryInspectionBounds? bounds = null,
         LibraryTypeDeclarationSelection declarationSelection =
             LibraryTypeDeclarationSelection.DefinitionsAndForwarders,
         ApiTypeInventoryKinds definitionKinds =
