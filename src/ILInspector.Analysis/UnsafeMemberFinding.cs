@@ -30,8 +30,6 @@ public enum UnsafeMemberLimitationReason
     ScopedReceipt,
     /// <summary>Acquisition, decode, or analysis of a body did not complete.</summary>
     BodyAnalysisFailed,
-    /// <summary>A managed IL declaration has no body.</summary>
-    BodyMissing,
     /// <summary>A generated body's owner could not be authenticated.</summary>
     UnattributedGeneratedBody,
     /// <summary>The image is a reference assembly.</summary>
@@ -218,6 +216,19 @@ public abstract record UnsafeMemberFindingInspection
         public FindingInspection<UnsafeMemberFinding>.Complete Inspection { get; }
 
         public ImmutableArray<UnsafeMemberLimitation> Limitations { get; }
+
+        public bool Equals(Incomplete? other)
+            => other is not null
+                && Equals(Inspection, other.Inspection)
+                && ImmutableArrayValueEquality.SequenceEqual(Limitations, other.Limitations);
+
+        public override int GetHashCode()
+        {
+            var hash = new HashCode();
+            hash.Add(Inspection);
+            ImmutableArrayValueEquality.AddToHash(ref hash, Limitations);
+            return hash.ToHashCode();
+        }
     }
 
     public sealed record Failed(InspectionError Error)

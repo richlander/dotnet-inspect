@@ -367,6 +367,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
             bodies.Add(new UnsafeMemberBodyFacts(
                 result.Token,
                 result.HasCaller ? result.Caller : null,
+                result.InScope,
                 result.BodyAvailability,
                 AnalysisFailed: result.Diagnostic is not null,
                 FailureDetail: result.Diagnostic?.Message,

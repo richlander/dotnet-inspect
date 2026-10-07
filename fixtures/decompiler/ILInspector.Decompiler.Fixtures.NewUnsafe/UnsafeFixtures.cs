@@ -956,4 +956,42 @@ public static class UnsafeFindingAttributionSamples
             return PrivateDereference(pointer) + InternalDereference(pointer);
         }
     }
+
+    public static int Sink;
+
+    static unsafe delegate*<int> s_reader = &ReadZero;
+
+    static int ReadZero() => 0;
+
+    // Roslyn lifts this finally into <IteratorFinallyCall>d__N.<>m__Finally1,
+    // which only an authenticated owner may claim.
+    public static System.Collections.Generic.IEnumerable<int> IteratorFinallyCall(int[] values)
+    {
+        try
+        {
+            foreach (int value in values)
+                yield return value;
+        }
+        finally
+        {
+            unsafe
+            {
+                Sink = s_reader();
+            }
+        }
+    }
+
+    // An extern UnsafeAccessor is an IL declaration without a body: no
+    // applicable input, not a gap.
+    [System.Runtime.CompilerServices.UnsafeAccessor(
+        System.Runtime.CompilerServices.UnsafeAccessorKind.StaticField,
+        Name = "s_value")]
+    safe static extern ref int TargetValue(UnsafeAccessorTarget? target);
+}
+
+public sealed class UnsafeAccessorTarget
+{
+    static int s_value = 1;
+
+    public static int Value => s_value;
 }

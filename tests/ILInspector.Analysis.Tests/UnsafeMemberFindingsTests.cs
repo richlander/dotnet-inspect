@@ -33,7 +33,10 @@ public sealed class UnsafeMemberFindingsTests
     {
         UnsafeMemberCensus census = OpenCensus(legacy);
 
-        Assert.DoesNotContain(census.Members, finding => finding.Member.Name.StartsWith('<'));
+        Assert.DoesNotContain(
+            census.Members,
+            finding => finding.Member.Name.Contains('<')
+                || finding.Member.DeclaringType.Name.Contains('<'));
 
         UnsafeMemberFinding lambdaOwner = Single(census, "PointerVariableUpdateSamples", "CaptureLocal");
         Assert.Contains(
@@ -94,6 +97,42 @@ public sealed class UnsafeMemberFindingsTests
             finding => finding.Member.Name == "IteratorDereference");
     }
 
+    // A lifted iterator helper is neither MoveNext nor a lambda, but its
+    // compiler-generated nested type still requires an authenticated owner.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LiftedIteratorHelperIsAnUnattributedLimitation(bool legacy)
+    {
+        UnsafeMemberCensus census = OpenCensus(legacy);
+
+        UnsafeMemberLimitation limitation = Assert.Single(
+            census.Limitations,
+            limitation => limitation.Body?.Name == "<>m__Finally1");
+        Assert.Equal(UnsafeMemberLimitationReason.UnattributedGeneratedBody, limitation.Reason);
+        Assert.Contains(
+            limitation.Evidence,
+            evidence => evidence.Kind == UnsafeMemberUseKind.IndirectCall);
+    }
+
+    // Only the two synchronous iterator bodies limit these fixtures: abstract,
+    // extern UnsafeAccessor, and other bodiless declarations are no
+    // applicable input.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BodilessDeclarationsDoNotLimitTheCensus(bool legacy)
+    {
+        UnsafeMemberCensus census = OpenCensus(legacy);
+
+        Assert.Equal(2, census.Limitations.Length);
+        Assert.All(
+            census.Limitations,
+            limitation => Assert.Equal(
+                UnsafeMemberLimitationReason.UnattributedGeneratedBody,
+                limitation.Reason));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -139,20 +178,32 @@ public sealed class UnsafeMemberFindingsTests
             finding => Assert.False(finding.PropagatesUnsafe));
     }
 
-    [Fact]
-    public void ScopedReceiptIsIncompleteRatherThanEmpty()
+    // A scoped census covers in-scope bodies only, so an out-of-scope
+    // generated body neither becomes its own finding nor confers its contract.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ScopedReceiptCoversOnlyInScopeBodies(bool legacy)
     {
-        string path = typeof(ClassicAsyncUnsafeFixtures).Assembly.Location;
-        LibraryBodyAnalysisExecution execution = BodyAnalysisTestExecution.Open(
-            path,
-            bodyScope: new HashSet<int>());
+        MethodIdentity selected =
+            Single(OpenCensus(legacy), "UnsafeFindingAttributionSamples", "PrivateDereference").Member;
+        string path = UnsafeFixturePath(legacy);
 
-        UnsafeMemberCensus census = execution.Safety.MemberCensus;
-        Assert.False(census.IsComplete);
-        Assert.Contains(
-            census.Limitations,
-            limitation => limitation.Reason == UnsafeMemberLimitationReason.ScopedReceipt
-                && limitation.Body is null);
+        UnsafeMemberCensus scoped = BodyAnalysisTestExecution
+            .Open(path, bodyScope: new HashSet<int> { selected.MetadataToken })
+            .Safety.MemberCensus;
+        Assert.Equal(selected, Assert.Single(scoped.Members).Member);
+        Assert.Equal(
+            UnsafeMemberLimitationReason.ScopedReceipt,
+            Assert.Single(scoped.Limitations).Reason);
+
+        UnsafeMemberCensus empty = BodyAnalysisTestExecution
+            .Open(path, bodyScope: new HashSet<int>())
+            .Safety.MemberCensus;
+        Assert.Empty(empty.Members);
+        UnsafeMemberLimitation receipt = Assert.Single(empty.Limitations);
+        Assert.Equal(UnsafeMemberLimitationReason.ScopedReceipt, receipt.Reason);
+        Assert.Null(receipt.Body);
     }
 
     [Fact]
@@ -242,6 +293,7 @@ public sealed class UnsafeMemberFindingsTests
             new(
                 body.MetadataToken,
                 body,
+                InScope: true,
                 availability,
                 failed,
                 failed ? "decode failed" : null,
@@ -382,22 +434,36 @@ public sealed class UnsafeMemberFindingsTests
         }
 
         [Fact]
-        public void MissingBodyAndTokenOnlyFailureAreLimitations()
+        public void TokenOnlyFailureIsALimitation()
         {
-            MethodIdentity missing = Method(0x06000001, "Missing");
-
             UnsafeMemberCensus census = Build(bodies:
-            [
-                Own(missing, MethodBodyAvailability.Missing),
-                new(0x06000002, null, MethodBodyAvailability.Present, true, "identity failed",
-                    false, DeclaredOwnerResolution.None, false, null, []),
-            ]);
+                new UnsafeMemberBodyFacts(0x06000002, null, InScope: false, MethodBodyAvailability.Present,
+                    true, "identity failed", false, DeclaredOwnerResolution.None, false, null, []));
 
+            UnsafeMemberLimitation limitation = Assert.Single(census.Limitations);
+            Assert.Equal(UnsafeMemberLimitationReason.BodyAnalysisFailed, limitation.Reason);
+            Assert.Equal(0x06000002, limitation.BodyToken);
+            Assert.Null(limitation.Body);
+        }
+
+        [Fact]
+        public void ScopedCensusSkipsOutOfScopeBodies()
+        {
+            MethodIdentity inScope = Method(0x06000001, "InScope");
+            MethodIdentity outOfScope = Method(0x06000002, "<Owner>g__Local|0_0", CallerUnsafeMode.Explicit);
+
+            UnsafeMemberCensus census = Build(
+                fullScope: false,
+                bodies:
+                [
+                    Own(inScope, roles: UnsafeMemberUseKind.PointerDereference),
+                    Own(outOfScope, roles: UnsafeMemberUseKind.ExplicitContract) with { InScope = false },
+                ]);
+
+            Assert.Equal(inScope, Assert.Single(census.Members).Member);
             Assert.Equal(
-                [UnsafeMemberLimitationReason.BodyMissing, UnsafeMemberLimitationReason.BodyAnalysisFailed],
-                census.Limitations.Select(limitation => limitation.Reason));
-            Assert.Equal(0x06000002, census.Limitations[1].BodyToken);
-            Assert.Null(census.Limitations[1].Body);
+                UnsafeMemberLimitationReason.ScopedReceipt,
+                Assert.Single(census.Limitations).Reason);
         }
 
         [Theory]

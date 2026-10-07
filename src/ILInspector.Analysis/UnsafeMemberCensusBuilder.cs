@@ -12,6 +12,7 @@ namespace ILInspector.Analysis;
 internal readonly record struct UnsafeMemberBodyFacts(
     int Token,
     MethodIdentity? Body,
+    bool InScope,
     MethodBodyAvailability Availability,
     bool AnalysisFailed,
     string? FailureDetail,
@@ -76,6 +77,10 @@ internal static class UnsafeMemberCensusBuilder
 
         foreach (UnsafeMemberBodyFacts body in bodies)
         {
+            // A scoped receipt does not classify bodies outside its scope;
+            // its one receipt-level limitation stands for them.
+            if (!hasFullMethodEvidenceScope && !body.InScope)
+                continue;
             if (body.Body is not { } physical)
             {
                 if (body.AnalysisFailed)
@@ -97,9 +102,7 @@ internal static class UnsafeMemberCensusBuilder
             UnsafeMemberLimitationReason? failure =
                 body.AnalysisFailed
                     ? UnsafeMemberLimitationReason.BodyAnalysisFailed
-                    : body.Availability == MethodBodyAvailability.Missing
-                        ? UnsafeMemberLimitationReason.BodyMissing
-                        : null;
+                    : null;
             ImmutableArray<UnsafeMemberFindingEvidence> evidence =
                 ProjectEvidence(body, physical, ownBody: owner == physical);
 

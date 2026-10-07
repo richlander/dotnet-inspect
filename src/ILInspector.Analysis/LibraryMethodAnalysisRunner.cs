@@ -171,7 +171,6 @@ internal enum MethodBodyAvailability
 {
     Present,
     NoApplicableInput,
-    Missing,
 }
 
 internal enum DeclaredOwnerResolution
@@ -198,6 +197,7 @@ internal sealed class LibraryMethodAnalysisResult
     // docs/design/unsafe-member-findings.md#body-availability.
     public MethodBodyAvailability BodyAvailability;
     public bool RequiresDeclaredOwner;
+    public bool InScope;
     public bool OwnerResolutionFailed;
     public DeclaredOwnerResolution OwnerResolution;
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence;
@@ -757,6 +757,14 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             result.HasCaller = true;
             result.Caller = caller;
             result.Token = caller.MetadataToken;
+            // A body needs an authenticated owner when its name is a lifted
+            // or state-machine body, or when it is declared in a
+            // compiler-generated type nested inside another type.
+            result.RequiresDeclaredOwner =
+                CompilerGeneratedNames.RequiresDeclaredOwner(caller)
+                || IsDeclaredInNestedCompilerGeneratedType(
+                    reader,
+                    typeDefinition);
             if (localExceptionTypes is not null)
             {
                 isReferenceAssembly = localExceptionTypes.IsReferenceAssembly;
@@ -787,6 +795,11 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             }
             if (!result.HasBody)
             {
+                result.InScope =
+                    (bodyScope is null
+                        || bodyScope.Contains(caller.MetadataToken))
+                    && (bodyTypeScope is null
+                        || bodyTypeScope(caller.DeclaringType));
                 SetLocalThrowUnavailable(LocalThrowUnavailableReason.NoManagedBody);
                 result.RequiresCompleteFieldAccessCensus =
                     false;
@@ -849,6 +862,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     return result;
                 }
             }
+            result.InScope = true;
             MethodIdentity? opportunityDeclaredMethod = null;
             MethodIdentity? unresolvedOpportunityOwner = null;
             AuthenticatedSourceOwner? immediateOwnerEvidence = null;
@@ -860,7 +874,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         .IsAuthenticatedAsyncStateMachineExecutionMethod(
                             methodHandle,
                             methodDefinition));
-            result.RequiresDeclaredOwner = requiresDeclaredOwner;
+            result.RequiresDeclaredOwner |= requiresDeclaredOwner;
             AsyncBodyAttribution? asyncBody = null;
             bool opportunityOwnershipResolved = true;
             DeclaredOwnerResolution ownerResolution =
@@ -2155,26 +2169,46 @@ internal sealed partial class LibraryMethodAnalysisRunner(
         };
     }
 
-    // A declaration that is abstract, a P/Invoke, or not a managed IL method
-    // has no body to inspect. A managed IL method without an RVA was expected
-    // to carry one, so its body is missing rather than inapplicable.
+    // Matches Member Body comparison: a declaration that is abstract, a
+    // P/Invoke, runtime-provided or internal-call, or an IL declaration without
+    // a body (such as an extern UnsafeAccessor) has no body to inspect.
     internal static MethodBodyAvailability ClassifyBodyAvailability(
         MethodDefinition method)
-    {
-        if ((method.Attributes
+        => (method.Attributes
                 & (MethodAttributes.Abstract
                     | MethodAttributes.PinvokeImpl))
                 != 0
             || !HasManagedIlBody(method.ImplAttributes)
             || (method.ImplAttributes
                 & MethodImplAttributes.InternalCall)
-                != 0)
+                != 0
+            || method.RelativeVirtualAddress == 0
+                ? MethodBodyAvailability.NoApplicableInput
+                : MethodBodyAvailability.Present;
+
+    // A compiler-generated type nested inside another type (closure, state
+    // machine, or lifted helper container) holds bodies that belong to a
+    // source owner; a top-level generated type has none.
+    bool IsDeclaredInNestedCompilerGeneratedType(
+        MetadataReader reader,
+        TypeDefinition type)
+    {
+        TypeDefinition current = type;
+        for (int depth = 0;
+            depth < MetadataSafetyPolicy.MaxRelationshipNodes;
+            depth++)
         {
-            return MethodBodyAvailability.NoApplicableInput;
+            TypeDefinitionHandle enclosing = current.GetDeclaringType();
+            if (enclosing.IsNil)
+                return false;
+            if (_infrastructure.HasCompilerGeneratedAttribute(
+                    current.GetCustomAttributes()))
+            {
+                return true;
+            }
+            current = reader.GetTypeDefinition(enclosing);
         }
-        return method.RelativeVirtualAddress == 0
-            ? MethodBodyAvailability.Missing
-            : MethodBodyAvailability.Present;
+        return true;
     }
 
     internal static bool HasManagedIlBody(
