@@ -73,7 +73,7 @@ internal static class BrowserPlatformSurfaceProjection
                                             LibraryTypeDeclarationSelection
                                                 .Forwarders),
                                         BrowserApiSurfacePolicy
-                                            .ExtractionBounds)),
+                                            .LibraryBounds)),
                                 lease,
                                 cancellationToken)),
                 cleanupFailures);

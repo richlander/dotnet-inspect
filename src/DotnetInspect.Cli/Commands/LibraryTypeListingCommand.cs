@@ -29,7 +29,7 @@ internal static class LibraryTypeListingCommand
             SectionNames.TypeForwarders,
         };
 
-    private static readonly ApiSurfaceExtractionBounds s_bounds =
+    private static readonly LibraryInspectionBounds s_bounds =
         new(
             maxTypes: 5_000,
             maxMembers: 100_000,
