@@ -490,8 +490,8 @@ export function createSpotlight(options: SpotlightOptions) {
     pruning: { traversalTfm: string; platformVersion: string | null } | undefined,
   ): string {
     if (kind === "Package" && pruning) {
-      const label = "Package pruned";
-      return `<span class="spotlight-svg-icon spotlight-pruned" role="img" aria-label="${label} for ${escapeHtml(pruning.traversalTfm)}" title="${escapeHtml(`Supplied by ${pruning.traversalTfm}${pruning.platformVersion ? ` @ ${pruning.platformVersion}` : ""}; eligible for package pruning`)}"></span>`;
+      const label = ecosystem ? `Package: ${ecosystem.title}; pruned` : "Package pruned";
+      return `<span class="spotlight-svg-icon spotlight-pruned" role="img" aria-label="${escapeHtml(label)} for ${escapeHtml(pruning.traversalTfm)}" title="${escapeHtml(`Supplied by ${pruning.traversalTfm}${pruning.platformVersion ? ` @ ${pruning.platformVersion}` : ""}; eligible for package pruning`)}"></span>`;
     }
     const classes: Readonly<Record<string, string>> = {
       "ecosystem.runtime": "sl-ecosystem-runtime",
@@ -500,9 +500,10 @@ export function createSpotlight(options: SpotlightOptions) {
       "ecosystem.aspire": "sl-ecosystem-aspire",
     };
     const icon = ecosystem ? classes[ecosystem.id] : undefined;
+    const label = escapeHtml(ecosystem ? `${kind}: ${ecosystem.title}` : kind);
     return icon
-      ? `<span class="spotlight-icon-slot spotlight-ecosystem-icon ${icon}" role="img" aria-label="${kind}: ${escapeHtml(ecosystem?.title)}" title="${escapeHtml(ecosystem?.title)}"></span>`
-      : `<span class="spotlight-svg-icon ${kind === "Package" ? "sl-package-icon" : "sl-library-icon"}" role="img" aria-label="${kind}"></span>`;
+      ? `<span class="spotlight-icon-slot spotlight-ecosystem-icon ${icon}" role="img" aria-label="${label}" title="${escapeHtml(ecosystem?.title)}"></span>`
+      : `<span class="spotlight-svg-icon ${kind === "Package" ? "sl-package-icon" : "sl-library-icon"}" role="img" aria-label="${label}"${ecosystem ? ` title="${escapeHtml(ecosystem.title)}"` : ""}></span>`;
   }
 
   function packageIcon(result: SpotlightPackageResult): string {
