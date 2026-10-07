@@ -57,6 +57,7 @@ internal static class BrowserTypeHierarchyInspectionOperation
                 cancellationToken));
     }
 
+    [SupportedOSPlatform("browser")]
     static BrowserTypeHierarchyInspection Execute(
         InspectionWorkspace workspace,
         WorkspaceDeclarationContext context,
@@ -74,7 +75,8 @@ internal static class BrowserTypeHierarchyInspectionOperation
                     typeDefinitionId,
                     ExactTypeSelectionKind.DefinitionIdentity),
                 static _ => { },
-                shareRequest);
+                shareRequest,
+                BrowserApiSurfacePolicy.Limits);
         if (exact.Content is not
             {
                 Inspection.Type: { } type,

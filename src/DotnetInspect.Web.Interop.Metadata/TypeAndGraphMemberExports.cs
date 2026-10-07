@@ -292,7 +292,11 @@ public static partial class MetadataExports
             Rows: [],
             IsComplete: false,
             HasMore: false,
-            ProjectHierarchyShare(exact.Share),
+            ProjectHierarchyShare(
+                new InspectionShare.NonProjectable(
+                    "type-hierarchy/share",
+                    "The retained Browser workspace cannot restore exact "
+                        + "hierarchy authority for this Type.")),
             [
                 new(
                     "type-hierarchy.retained-context-unavailable",

@@ -280,6 +280,46 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task
+        TypeProjection_RetainedExactTypeUsesBrowserProjectionLimits()
+    {
+        const string packageId = "Browser.ExactType.RetainedBounds";
+        const string assemblyName = "Browser.ExactType.RetainedBounds";
+        const string typeName = "N.T0";
+        _ = await Coordinate(
+            packageId,
+            Package(
+                BuildTransportAmplificationImage(
+                    assemblyName,
+                    BrowserApiSurfacePolicy.MaxTypes + 1,
+                    namespaceLength: 1),
+                $"lib/net11.0/{assemblyName}.dll"));
+
+        BrowserTypeMetadata metadata = await QueryTypeProjection(
+            packageId,
+            $"{assemblyName}.dll",
+            typeName,
+            $$"""
+            [
+              {
+                "package": "{{packageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """);
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Unavailable,
+            metadata.ExactTypeInspection.Content.Outcome);
+        Assert.Contains(
+            metadata.ExactTypeInspection.Diagnostics,
+            diagnostic => diagnostic.Code
+                == "exact-type.projection-truncated");
+        Assert.Null(metadata.Hierarchy);
+    }
+
+    [Fact]
     public async Task TypeProjection_RetainsTypedRelationshipRowSelection()
     {
         const string rootPackageId =
@@ -591,6 +631,18 @@ public sealed partial class BrowserEngineBoundaryTests
             rejection.Correspondence?.ToString());
         Assert.NotNull(metadata.Hierarchy);
         Assert.Equal("unavailable", metadata.Hierarchy.Status);
+        Assert.IsType<InspectionShare.Available>(
+            metadata.ExactTypeInspection.Share);
+        Assert.Equal(
+            "nonProjectable",
+            metadata.Hierarchy.Share.Kind);
+        Assert.Equal(
+            "type-hierarchy/share",
+            metadata.Hierarchy.Share.Path);
+        Assert.Contains(
+            "cannot restore exact hierarchy authority",
+            metadata.Hierarchy.Share.Reason,
+            StringComparison.Ordinal);
         Assert.Contains(
             metadata.Hierarchy.Diagnostics,
             diagnostic => diagnostic.Code
