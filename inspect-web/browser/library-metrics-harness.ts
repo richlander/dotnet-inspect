@@ -362,4 +362,9 @@ function render(
   });
 }
 
-render(null);
+if (mode === "dependencies") {
+  render(null, true);
+  setTimeout(() => render(selectedDependencyData), 0);
+} else {
+  render(null);
+}
