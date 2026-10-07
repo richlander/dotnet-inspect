@@ -621,11 +621,12 @@ public readonly ref struct MethodDefinitionView
             var visit = new MethodBodyInstructionShapeVisitState<TState>(
                 state,
                 visitor);
+            MethodBodyBlock streamBody = GetBody();
             int instructionsVisited = 0;
             try
             {
                 return InstructionDecoder.VisitWithProgress(
-                    GetBody(),
+                    streamBody,
                     ref visit,
                     static (
                         ref MethodBodyInstructionShapeVisitState<TState> current,

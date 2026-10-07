@@ -633,6 +633,7 @@ gated in Release:
 - `Execute_FusesNoRetentionInstructionSourceAcrossLanes`
 - `Execute_SharesRetainedInstructionSourceAcrossLanes`
 - `Execute_RetainedInstructionFailureReceiptsCompletedPrefix`
+- `Execute_CallCountBodyBoundDoesNotOpenUnacquiredInstructionSource`
 - `MethodCallCountProducer_DoesNotResolveMalformedTarget`
 - `MethodCallCountProducer_DiscoveryFailureIsVisible`
 

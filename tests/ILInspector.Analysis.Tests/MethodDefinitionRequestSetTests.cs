@@ -490,6 +490,36 @@ public sealed class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void
+        Execute_CallCountBodyBoundDoesNotOpenUnacquiredInstructionSource()
+    {
+        var limits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies: 1,
+            maximumEncodedIlBytes: long.MaxValue);
+        MethodDefinitionSourceAssociation association =
+            Association(
+                MethodCallCountProducer.DirectInvocations,
+                ProducerTerminal.Count,
+                terminalWorkLimits: limits);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(AcceptedPlan([association]));
+        MethodDefinitionSourceReceipt receipt =
+            execution.ResultOf(association).SourceReceipt;
+
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            receipt.Completion);
+        Assert.Equal(
+            1,
+            receipt.Coverage.TerminalWork.BodiesAdmitted);
+        Assert.Equal(
+            1,
+            receipt.Coverage.InstructionWork
+                .NoRetentionSourcesOpened);
+    }
+
+    [Fact]
     public void Execute_TerminalBodyBoundInCountKernelIsSourceIncomplete()
     {
         var limits = new MethodDefinitionTerminalWorkLimits(
