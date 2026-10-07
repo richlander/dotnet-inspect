@@ -838,12 +838,15 @@ derived-type edges. The exact selected participant remains the dependency root
 even when another package defines the same full type name; if that participant
 does not contribute the exact normalized dependency-scanner root, the query
 reports the type as uncertified rather than borrowing another definition or a
-fuzzy same-participant match. For example, a non-public type remains available
-in the type-shape projection, but the public dependency scanner cannot certify
-its root: base and interface graph edges are absent and the incompleteness
-notice remains visible. The Type Relationships graph therefore retains
-participant-local derived types while expanding base-class and interface chains
-through other loaded package participants. The managed operation constructs
+fuzzy same-participant match. The exact selected root is admitted regardless
+of accessibility, so internal types can report their base and interface edges.
+The existing dependency convention omits `System.Object`, `System.ValueType`,
+and `System.Enum`; `System.Text.ValueStringBuilder` therefore has a certified
+empty dependency graph. Ordinary dependency scans and ancestor
+expansion still use the public-type population. The Type Relationships graph
+therefore retains participant-local derived types while expanding base-class
+and interface chains through other loaded package participants. The managed
+operation constructs
 the same L2 type-dependency plan as the CLI. The current browser gesture
 supplies no traversal-depth bound and an empty relationship-row intent, while
 the managed boundary retains typed Head, Tail, and Window capability for
