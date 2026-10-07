@@ -889,10 +889,12 @@ that an `unsafe` block existed, distinguish block and expression forms, grade a
 finding, or infer a source modifier that metadata cannot preserve.
 
 The first publication slice resolves explicit call-target contracts only
-within the primary image. Cross-assembly explicit-contract consumption,
-field-focused operation roles, and additional reconstructed operation families
-remain focused successors; callers must not interpret their absence as a
-whole-closure negative claim.
+within the primary image.
+[Platform caller-unsafe contracts](platform-caller-unsafe-contracts.md) add
+.NET platform call targets from a committed reference-pack projection. General
+cross-assembly explicit-contract consumption, field-focused operation roles,
+and additional reconstructed operation families remain focused successors;
+callers must not interpret their absence as a whole-closure negative claim.
 
 The inventory is keyed by physical body.
 [Unsafe member findings](unsafe-member-findings.md) own its attribution to
