@@ -12002,7 +12002,7 @@ async function selectPerformanceMember(
     const body = resourceMethodToken === undefined && ranked?.bodyTargets?.length === 1 ? ranked.bodyTargets[0] : null;
     state.selectedBodyTarget = body ? { memberName: body.memberName, selectorKey: body.selectorKey, metadataToken: body.methodToken } : null;
     if (resourceMethodToken !== undefined) {
-      const selector = group.overloads[overloadIndex]?.bodySelectors.find(body => body.token === resourceMethodToken);
+      const selector = group.overloads[overloadIndex]?.bodySelectors.find(candidateBody => candidateBody.token === resourceMethodToken);
       if (selector) state.selectedBodyTarget = { memberName: selector.memberName, selectorKey: selector.selectorKey, metadataToken: selector.token };
     }
     state.memberSection = resourceMethodToken === undefined ? "facts" : "resource-triage";
