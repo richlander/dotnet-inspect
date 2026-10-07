@@ -198,7 +198,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                     BuildAssemblySetRequest(
                         options,
                         source,
-                        includeExactPlatformFocus: false,
+                        exactPlatformFocusPath: null,
                         cancellationToken),
                     source.Context.Logger.Log)
                 .ConfigureAwait(false);
@@ -226,17 +226,22 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                 object,
                 TypeHierarchyRelationCandidateSource>(
                     ReferenceEqualityComparer.Instance);
+        string? exactPlatformFocusPath =
+            SelectExactPlatformFocusPath(options, source);
         bool exactPlatformFocusMissing =
-            IsPlatformSource(options, source)
-            && File.Exists(source.SearchPath)
-            && SelectedPlatformAssemblyDefinesType(source)
+            exactPlatformFocusPath is not null
             && !assemblySet.Assemblies.Any(
-                entry => PathsEqual(entry.Path, source.SearchPath));
+                entry => PathsEqual(entry.Path, exactPlatformFocusPath));
         (int? preferredIndex, string? preferredError) =
-            SelectPreferredEntry(assemblySet.Assemblies, source);
+            SelectPreferredEntry(
+                assemblySet.Assemblies,
+                source,
+                exactPlatformFocusPath);
         if ((preferredIndex is null || exactPlatformFocusMissing)
             && IsPlatformSource(options, source)
-            && File.Exists(source.SearchPath))
+            && File.Exists(
+                exactPlatformFocusPath
+                    ?? source.SearchPath))
         {
             assemblySet.Dispose();
             assemblySet =
@@ -245,7 +250,8 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                         BuildAssemblySetRequest(
                             options,
                             source,
-                            includeExactPlatformFocus: true,
+                            exactPlatformFocusPath
+                                ?? source.SearchPath,
                             cancellationToken),
                         source.Context.Logger.Log)
                     .ConfigureAwait(false);
@@ -261,7 +267,10 @@ internal static class TypeHierarchyRelationsInspectionExecutor
             }
 
             (preferredIndex, preferredError) =
-                SelectPreferredEntry(assemblySet.Assemblies, source);
+                SelectPreferredEntry(
+                    assemblySet.Assemblies,
+                    source,
+                    exactPlatformFocusPath);
         }
         if (preferredIndex is null)
         {
@@ -760,7 +769,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
     private static AssemblySetRequest BuildAssemblySetRequest(
         TypeOptions options,
         ApiSourceResult source,
-        bool includeExactPlatformFocus,
+        string? exactPlatformFocusPath,
         CancellationToken cancellationToken)
     {
         if (options.PackageRangeAddress is not null)
@@ -787,9 +796,9 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                     && options.AssemblyPath is { } assembly
                     ? [assembly]
                     : isPlatform
-                        && includeExactPlatformFocus
-                        && File.Exists(source.SearchPath)
-                        ? [source.SearchPath]
+                        && exactPlatformFocusPath is not null
+                        && File.Exists(exactPlatformFocusPath)
+                        ? [exactPlatformFocusPath]
                     : isLocal && File.Exists(source.SearchPath)
                         ? [source.SearchPath]
                         : [],
@@ -823,36 +832,116 @@ internal static class TypeHierarchyRelationsInspectionExecutor
             AssemblySetSourceKind.PlatformAssembly,
             source.SelectedTfm);
 
-    private static bool SelectedPlatformAssemblyDefinesType(
+    private static string? SelectExactPlatformFocusPath(
+        TypeOptions options,
         ApiSourceResult source)
     {
-        if (string.IsNullOrWhiteSpace(source.TypeName))
-            return false;
-
-        using AssemblyInspectionSession session =
-            AssemblyInspectionSession.Open(source.SearchPath);
-        if (MetadataTypeDefinitionName.ParseSerialized(source.TypeName)
-            is MetadataTypeDefinitionNameResult.Valid parsed
-            && session.ProbeDeclaration(parsed.Name)
-                is TypeDeclarationResult.Defined
-                    or TypeDeclarationResult.DefinitionKindUnavailable)
+        if (!IsPlatformSource(options, source)
+            || string.IsNullOrWhiteSpace(source.TypeName))
         {
-            return true;
+            return null;
         }
 
-        return IsSimpleAsciiMetadataName(source.TypeName)
-            && session.FindTypeDefinitionsBySimpleName(source.TypeName)
-                is MetadataTypeDefinitionNameSearchResult.Found
-                {
-                    Names.IsEmpty: false,
-                };
+        if (source.RuntimeAssemblyPath is { } runtimePath
+            && File.Exists(runtimePath))
+        {
+            string? runtimeFocus =
+                ResolvePlatformFocusPath(
+                    options,
+                    source,
+                    runtimePath,
+                    source.TypeName);
+            if (runtimeFocus is not null)
+                return runtimeFocus;
+        }
+
+        if (!File.Exists(source.SearchPath))
+            return null;
+
+        return ResolvePlatformFocusPath(
+            options,
+            source,
+            source.SearchPath,
+            source.TypeName);
     }
 
-    private static bool IsSimpleAsciiMetadataName(string type) =>
-        type.Length > 0
-        && type.All(static character =>
-            char.IsAsciiLetterOrDigit(character)
-            || character is '_' or '`');
+    private static string? ResolvePlatformFocusPath(
+        TypeOptions options,
+        ApiSourceResult source,
+        string assemblyPath,
+        string typeName)
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(assemblyPath);
+        AssemblyTypeDeclarationInventory inventory =
+            session.TypeDeclarations() switch
+            {
+                AssemblyTypeDeclarationInventoryOutcome.Read read =>
+                    read.Inventory,
+                AssemblyTypeDeclarationInventoryOutcome.Rejected rejected =>
+                    throw new InvalidOperationException(
+                        "The selected Platform assembly declaration inventory "
+                            + $"could not be read ({rejected.Failure})."),
+                AssemblyTypeDeclarationInventoryOutcome.Incomplete incomplete =>
+                    throw new InvalidOperationException(
+                        "The selected Platform assembly declaration inventory "
+                            + $"exceeded {incomplete.Bound}."),
+                _ => throw new InvalidOperationException(
+                    "Unknown Platform assembly declaration inventory outcome."),
+            };
+        AssemblyTypeDeclaration[] declarations =
+        [
+            .. inventory.Declarations.Where(declaration =>
+                TypeMatcher.MatchesTypeFilter(
+                    declaration.Name,
+                    typeName)),
+        ];
+        AssemblyTypeDeclaration[] exactSpellingDeclarations =
+        [
+            .. declarations.Where(declaration =>
+                string.Equals(
+                    declaration.Name.ToEscapedFullName(),
+                    typeName,
+                    StringComparison.Ordinal)),
+        ];
+        if (exactSpellingDeclarations.Length > 0)
+            declarations = exactSpellingDeclarations;
+        if (declarations.Length != 1)
+            return null;
+
+        AssemblyTypeDeclaration selected = declarations[0];
+        if (selected.Kind == AssemblyTypeDeclarationKind.Definition)
+            return assemblyPath;
+        if (selected.Kind != AssemblyTypeDeclarationKind.Forwarder)
+            return null;
+
+        using var resolution =
+            new TypeDefinitionResolutionSession(
+                assemblyPath,
+                isPlatformAssembly: true,
+                source.ProjectAssetsPath,
+                options.Tfm ?? source.SelectedTfm,
+                source.PlatformFramework
+                    ?? options.PlatformFramework,
+                packageDirectory: null,
+                options.SourceOptions);
+        TypeResolutionOutcome outcome =
+            resolution.Resolve(selected.Name);
+        return outcome switch
+        {
+            TypeResolutionOutcome.Resolved
+            {
+                Definition.Assembly.Assembly.Path: { } path,
+            } => path,
+            TypeResolutionOutcome.Resolved =>
+                throw new InvalidOperationException(
+                    "The selected Platform Type definition has no filesystem "
+                        + "path."),
+            _ => throw new InvalidOperationException(
+                $"The selected Platform Type forwarder could not be resolved "
+                    + $"({outcome.GetType().Name})."),
+        };
+    }
 
     internal static IReadOnlyList<string> PlatformHierarchyFamilies(
         TypeOptions options)
@@ -944,8 +1033,21 @@ internal static class TypeHierarchyRelationsInspectionExecutor
 
     private static (int? Index, string? Error) SelectPreferredEntry(
         IReadOnlyList<AssemblySetEntry> entries,
-        ApiSourceResult source)
+        ApiSourceResult source,
+        string? exactPlatformFocusPath)
     {
+        if (exactPlatformFocusPath is not null)
+        {
+            int? exactPlatformFocus =
+                SelectUniqueEntry(
+                    entries,
+                    entry => PathsEqual(
+                        entry.Path,
+                        exactPlatformFocusPath));
+            if (exactPlatformFocus is not null)
+                return (exactPlatformFocus, null);
+        }
+
         int? exactPath =
             SelectUniqueEntry(
                 entries,

@@ -577,6 +577,40 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        Type_PlatformHierarchyKeepsForwardingSourceCoordinate()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.IO.Stream",
+            "--platform",
+            "System.Runtime",
+            "-S",
+            SectionNames.TypeInfo,
+            "-S",
+            SectionNames.DerivedTypes,
+            "--rows",
+            "100",
+            "--markdown");
+
+        Assert.Equal(0, exit);
+        string normalizedOutput = output.Replace('\\', '/');
+        Assert.Contains(
+            "/shared/Microsoft.NETCore.App/",
+            normalizedOutput);
+        Assert.Contains(
+            "/System.Runtime.dll",
+            normalizedOutput);
+        Assert.DoesNotContain(
+            "/packs/Microsoft.NETCore.App.Ref/",
+            normalizedOutput);
+        Assert.DoesNotContain(
+            "/System.Private.CoreLib.dll",
+            normalizedOutput);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task
         Type_PlatformHierarchyKeepsEqualIdentityImplementationFocus()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -595,6 +629,61 @@ public partial class CommandExecutionTests
         Assert.Contains("| Derived Types | 0 |", output);
         Assert.Contains("| Fields | 14 |", output);
         Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("ConcurrentDictionary")]
+    [InlineData(
+        "System.Collections.Concurrent.ConcurrentDictionary`2")]
+    public async Task
+        Type_PlatformHierarchyKeepsGenericImplementationFocus(
+            string typeName)
+    {
+        var (countExit, countOutput, countError) = await RunAppAsync(
+            "type",
+            typeName,
+            "--platform",
+            "System.Collections.Concurrent",
+            "--all",
+            "-S",
+            SectionNames.Fields,
+            "-S",
+            SectionNames.DerivedTypes,
+            "--count");
+
+        Assert.Equal(0, countExit);
+        Assert.Contains("| Fields | 5 |", countOutput);
+        Assert.Empty(countError);
+
+        var (infoExit, infoOutput, infoError) = await RunAppAsync(
+            "type",
+            typeName,
+            "--platform",
+            "System.Collections.Concurrent",
+            "--all",
+            "-S",
+            SectionNames.TypeInfo,
+            "-S",
+            SectionNames.DerivedTypes,
+            "--rows",
+            "10",
+            "--markdown");
+
+        Assert.Equal(0, infoExit);
+        string normalizedOutput = infoOutput.Replace('\\', '/');
+        Assert.Contains(
+            "/shared/Microsoft.NETCore.App/",
+            normalizedOutput);
+        Assert.Contains(
+            "/System.Collections.Concurrent.dll",
+            normalizedOutput);
+        Assert.DoesNotContain(
+            "/packs/Microsoft.NETCore.App.Ref/",
+            normalizedOutput);
+        Assert.DoesNotContain(
+            "/System.Private.CoreLib.dll",
+            normalizedOutput);
+        Assert.Empty(infoError);
     }
 
     [Fact]
