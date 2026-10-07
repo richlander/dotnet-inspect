@@ -70,9 +70,13 @@ The pattern has five obligations. An adopting command meets all of them:
    **One row population.** A default view presents exactly one row
    population: the subject's children. Owner-issued groups such as namespaces
    or Member categories are derived from those same rows and are not a second
-   population. A default view never nests a child's own population beneath
-   its row (no rows of rows): a package view does not list each Library's
-   namespaces or Types, and a Library view does not list each Type's Members.
+   population. The topology owner designates the one population edge; a
+   grouping edge partitions that population's rows, so its group counts sum
+   to the population Count (obligation 4). A default view never nests a
+   child's own population beneath its row (no rows of rows): a package view
+   does not list each Library's namespaces or Types, a Library view does not
+   list each Type's Members, and a Type view does not count each MemberGroup's
+   overloads.
    The deeper level belongs to the next command on the
    [containment ladder](#containment-ladder), so each row also previews the
    gesture that expands it.
@@ -150,9 +154,12 @@ edge, that adoption must not present its rows as copyable arguments.
   native default presentation, and [Output shapes](output-shapes.md) owns
   `--tree` as a presentation modifier over one admitted Tree shape. The
   existing exact-Type Tree is the reference shape for the compact view:
-  per-kind MemberGroup branches, collapsed overloads, labeled context
+  per-kind MemberGroup branches, one row per MemberGroup, labeled context
   (`Inherits`, `Implements`), and a distinguished group of attached extension
-  Members (`Extension Methods`).
+  Members (`Extension Methods`). Under the work bound, the Type default
+  carries no per-MemberGroup or per-category overload Count; a category
+  header counts its MemberGroup rows, and `member <Type> <Name>` lists the
+  overloads.
 - **Library children:**
   [Library inspection documents and populations](library-inspection-document.md)
   owns the Library Type declaration population, including first-class
@@ -391,8 +398,8 @@ presentation.
    selectors resolve exact Member leaf subjects and retain the Signature
    default. Exact-Member Info waits for the exact-Member facts section.
 2. **Exact `type`:** retain the existing native Type Tree as the reference
-   presentation, require exact Type resolution, and retire the Library-listing
-   fallback from `type`.
+   presentation without its overload Counts, require exact Type resolution,
+   and retire the Library-listing fallback from `type`.
 3. **Library subject and children:** exact Library subject resolution and
    selector, then the compact native `-v:m` Tree, `--namespace`, and exhaustive
    `-v:n`/`-v:d` inventories, consuming the Library Type declaration
@@ -428,6 +435,12 @@ against that adoption's motivating assets:
   children, and with forwarder rows (System.Text.Json) and attached extension
   rows (`JsonElement`'s five `JsonSerializer.Deserialize` extensions) counted
   as children and distinguished by row kind in every format;
+- obligation 2 work bound: for each adopted default, the population owner
+  shows from product outcomes that the default request asks for no deeper
+  terminal and that no returned row carries one, for example no Library
+  binary opened by `package`, no Member Count on `library` rows, and no
+  exact-Member Count on `type` MemberGroup rows; NativeAOT timing at the
+  command adoption measures the end-to-end effect;
 - obligation 4: at `-v:m`, a tree's grouped or collapsed counts sum to the
   population Count, forwarders included; at `-v:n` and `-v:d`, every format
   lists every child, for System.Text.Json and System.Private.CoreLib;
