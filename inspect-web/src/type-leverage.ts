@@ -50,6 +50,7 @@ export interface TypeLeveragePresentation {
   readonly disposition: string;
   readonly coverage: BrowserLibrarySignatureUseCoverage;
   readonly diagnostics: readonly string[];
+  readonly implementationDiagnostics: readonly string[];
   readonly warnings: readonly string[];
 }
 
@@ -268,6 +269,7 @@ export function projectTypeLeverage(
   }
 
   const warnings: string[] = [];
+  const implementationDiagnostics: string[] = [];
   const implementation = document.implementation;
   if (implementation.evidenceMode !== "body-use") {
     throw new Error(
@@ -304,15 +306,25 @@ export function projectTypeLeverage(
           `Implementation Type-leverage shard '${bodyShard.namespace}' has invalid coverage.`,
         );
       }
-      if (bodyShard.disposition.toLowerCase() !== "complete"
-        || bodyShard.diagnostics.length > 0) {
+      implementationDiagnostics.push(...bodyShard.diagnostics);
+      const coverage = bodyShard.bodyCoverage;
+      const expectedPhysicalOnly = bodyShard.disposition.toLowerCase() === "qualified"
+        && coverage.bodiesPhysicalOnly > 0
+        && coverage.bodiesUnavailable === 0
+        && coverage.bodiesLimited === 0
+        && coverage.operandsUnavailable === 0
+        && coverage.operandsLimited === 0
+        && bodyShard.signatureCoverage.unavailable === 0
+        && bodyShard.signatureCoverage.limited === 0;
+      if (!expectedPhysicalOnly && (bodyShard.disposition.toLowerCase() !== "complete"
+        || bodyShard.diagnostics.length > 0)) {
         warnings.push(
           `Implementation Type leverage has ${bodyShard.disposition.toLowerCase()} evidence; surface leverage is independent`,
         );
+        warnings.push(...bodyShard.diagnostics.map(
+          detail => `Implementation Type leverage: ${detail}`,
+        ));
       }
-      warnings.push(...bodyShard.diagnostics.map(
-        detail => `Implementation Type leverage: ${detail}`,
-      ));
       const rows = new Map<string, BrowserLibraryTypeLeverageRow>();
       for (const row of bodyShard.types) {
         if (rows.has(row.typeDefinitionId)
@@ -383,6 +395,7 @@ export function projectTypeLeverage(
     disposition,
     coverage: sumCoverage(coverages),
     diagnostics: [...new Set(diagnostics)],
+    implementationDiagnostics: [...new Set(implementationDiagnostics)],
     warnings: [...new Set(warnings)],
   };
 }

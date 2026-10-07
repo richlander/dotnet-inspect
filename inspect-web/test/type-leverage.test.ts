@@ -260,10 +260,8 @@ test("physical-only implementation evidence keeps surface salience complete", ()
     projection.byType.get("Example.Core.Sea")?.[0]?.evidenceMode,
     "surface",
   );
-  assert.deepEqual(projection.warnings, [
-    "Implementation Type leverage has qualified evidence; surface leverage is independent",
-    `Implementation Type leverage: ${detail}`,
-  ]);
+  assert.deepEqual(projection.warnings, []);
+  assert.deepEqual(projection.implementationDiagnostics, [detail]);
 });
 
 test("implementation unavailability retains surface cues and warning", () => {
@@ -580,7 +578,7 @@ test("pre-retry document completion cannot repopulate caches", async () => {
 });
 
 
-test("physical-only qualification supplies feedback without losing cues", () => {
+test("physical-only qualification retains evidence without databar feedback", () => {
   const projection = projectTypeLeverage({
     ...document,
     implementation: {
@@ -597,10 +595,30 @@ test("physical-only qualification supplies feedback without losing cues", () => 
       })),
     },
   });
-  assert.deepEqual(typeLeverageFeedback(projection), {
-    message: "Structural salience has qualified evidence: Implementation Type leverage has qualified evidence; surface leverage is independent; Implementation Type leverage: Compiler-generated body retained as physical-only evidence; its Type uses are excluded from logical-owner relationships.",
-    retry: "type-leverage",
-  });
+  assert.equal(typeLeverageFeedback(projection), null);
   assert.deepEqual(projection.byType, projectTypeLeverage(document).byType);
   assert.equal(typeLeverageFeedback(projectTypeLeverage(document)), null);
+});
+
+test("physical-only bodies do not hide incomplete operand evidence", () => {
+  const projection = projectTypeLeverage({
+    ...document,
+    implementation: {
+      ...document.implementation,
+      typeLeverageShards: [{
+        ...bodyShard,
+        disposition: "partial",
+        bodyCoverage: {
+          ...bodyCoverage,
+          bodiesExamined: 7,
+          bodiesPhysicalOnly: 1,
+          operandsExamined: 15,
+          operandsUnavailable: 1,
+        },
+        diagnostics: ["An operand could not be resolved."],
+      }, bodyToolsShard],
+    },
+  });
+  assert.match(typeLeverageFeedback(projection)?.message ?? "", /operand could not be resolved/);
+  assert.equal(projection.disposition, "complete");
 });

@@ -215,13 +215,16 @@ unavailability. Retry remains a failure-status action, not a salience control.
 
 Qualification messages identify the affected evidence mode. Implementation
 qualification does not change the surface presentation's disposition or
-diagnostics. Repeated implementation diagnostics are disclosed once.
+diagnostics. Expected physical-only body coverage produces no data-bar
+feedback or Retry action. The presentation retains deduplicated implementation
+diagnostics separately from actionable warnings; unavailable or limited body,
+operand, or signature evidence does not become routine coverage.
 
 Markout 0.38.0 (`net10.0`), opened at `Markout.BlockWriter`, motivates this
 boundary: compiler-generated physical-only bodies produce an implementation
 qualification while signature-based surface cues remain usable. A focused
-TypeScript regression retains the surface disposition and cues, labels the
-implementation qualification, and deduplicates repeated body diagnostics.
+TypeScript regression retains the surface disposition and cues, keeps the
+implementation diagnostics, and emits no feedback for routine body coverage.
 Running `AnalysisLibraryBodyUseService.ExecutePath` on the package's
 `lib/net10.0/Markout.dll` records 1,540 considered bodies, 820 logical-owner
 bodies, 720 physical-only bodies, and 9,139 examined typed operands, with zero
