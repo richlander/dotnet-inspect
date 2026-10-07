@@ -66,14 +66,14 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
         int bytes)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(bytes);
-        if (bytes > _limits.MaximumProbeEncodedIlBytes
-            - _probeEncodedIlBytes)
+        _probeEncodedIlBytes = checked(_probeEncodedIlBytes + bytes);
+        if (_probeEncodedIlBytes
+            > _limits.MaximumProbeEncodedIlBytes)
         {
             throw LimitExceeded(
                 handle,
                 "generated-discovery probe encoded-IL-byte");
         }
-        _probeEncodedIlBytes += bytes;
     }
 
     internal void RecordRelationshipNode(

@@ -1298,14 +1298,14 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         _generatedExpansionWork?.RecordProbeBody(methodHandle);
         MethodBodyBlock body =
             _peReader.GetMethodBody(method.RelativeVirtualAddress);
-        byte[] il = body.GetILBytes() ?? [];
+        int encodedIlBytes = body.GetILReader().Length;
         _implementationMetricWork
             ?.ReserveAttributionProbeIlBytes(
                 methodToken,
-                il.Length);
+                encodedIlBytes);
         _generatedExpansionWork?.RecordProbeEncodedIlBytes(
             methodHandle,
-            il.Length);
+            encodedIlBytes);
         var calledDefinitions = new HashSet<int>();
         var referencedDefinitions = new HashSet<int>();
         var referencedMembers = new HashSet<MethodReferenceKey>(
@@ -1319,26 +1319,27 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             method.GetDeclaringType());
         GenericScope scope =
             _primaryMetadataResolver.CreateScope(ownerType, method);
-        foreach (var instruction in InstructionDecoder.Decode(il))
+        InstructionDecoder.Visit(
+            body,
+            (opcode, operandToken, encodedLength) =>
         {
-            bool call = instruction.OpCode
+            _ = encodedLength;
+            bool call = opcode
                 is ILOpCode.Call or ILOpCode.Callvirt;
             if (!call
-                && instruction.OpCode is not (
+                && opcode is not (
                     ILOpCode.Ldftn or ILOpCode.Ldvirtftn))
             {
-                continue;
+                return true;
             }
 
-            int operandToken =
-                MethodInstructionFacts.OperandInt32(instruction);
             if (invalidDefinitionOperands.TryGetValue(
                     operandToken,
                     out ExceptionDispatchInfo? definitionFailure))
             {
                 if (call)
                     callFailure ??= definitionFailure;
-                continue;
+                return true;
             }
             try
             {
@@ -1370,7 +1371,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 referenceFailure ??= failure;
                 if (call)
                     callFailure ??= failure;
-                continue;
+                return true;
             }
 
             try
@@ -1383,7 +1384,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                         (MethodSpecificationHandle)handle).Method;
                 }
                 if (handle.Kind != HandleKind.MemberReference)
-                    continue;
+                    return true;
 
                 referencedMembers.Add(
                     _methodReferenceResolver.ResolveIdentity(
@@ -1397,7 +1398,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             {
                 referenceFailure ??= ExceptionDispatchInfo.Capture(ex);
             }
-        }
+            return true;
+        });
         attributionProbe?.Complete();
         return new(
             calledDefinitions,

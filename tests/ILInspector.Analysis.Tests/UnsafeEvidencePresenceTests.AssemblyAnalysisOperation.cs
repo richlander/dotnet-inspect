@@ -939,6 +939,56 @@ public partial class UnsafeEvidencePresenceTests
 
     [Fact]
     public void
+        MethodQuerySource_GeneratedExpansionIlByteBoundRetainsAttemptedWork()
+    {
+        string path =
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        TypeDefinitionHandle type = FindFixtureType(
+            path,
+            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "GeneratedUnsafeEvidenceSample");
+        var limits = new MethodDefinitionGeneratedExpansionLimits(
+            maximumCandidateDefinitions: 100,
+            maximumGeneratedMethods: 100,
+            maximumProbeBodies: 100,
+            maximumProbeEncodedIlBytes: 1,
+            maximumRelationshipNodes: 100);
+        AssemblyAnalysisOperation<int> operation = CreateOperation(
+            path,
+            MethodDefinitionSourceBreadth
+                .ExactTypes(type)
+                .IncludeGeneratedExecutionBodies(limits),
+            CompleteUnsafeEvidenceDescription());
+
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(context);
+        AssemblyAnalysisExecution<int> execution =
+            Execute(session, operation);
+
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            execution.SourceReceipt.Completion);
+        MethodDefinitionSourceFailure failure =
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                execution.SourceReceipt.SourceFailure);
+        Assert.Contains(
+            "encoded-IL-byte limit",
+            failure.Message,
+            StringComparison.Ordinal);
+        MethodDefinitionGeneratedExpansionCoverage expansion =
+            execution.SourceReceipt.Coverage.GeneratedExpansion;
+        Assert.Equal(1, expansion.ProbeBodiesAttempted.Count);
+        Assert.True(expansion.ProbeEncodedIlBytes > 1);
+        Assert.Equal(
+            ProducerOutcome.Failed,
+            execution.ResultOf(
+                    UnsafeEvidencePresenceProducer.Instance)
+                .Outcome);
+    }
+
+    [Fact]
+    public void
         MethodQuerySource_ReceiptSeparatesExaminedSelectedAndAcquiredWork()
     {
         ImmutableArray<byte> image = BuildSchedulingSensitiveAssembly();
