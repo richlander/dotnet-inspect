@@ -8,6 +8,7 @@ import {
   type PackageInspectionDependencies,
   type PackageInspectionState,
   type PackagePerformance,
+  type PackageResourceTriage,
 } from "../src/package-inspection.ts";
 import {
   packageQueryAssemblyId,
@@ -95,6 +96,10 @@ function inspectionState(
     packagePerformanceLoading: false,
     packagePerformanceError: "",
     packagePerformanceKey: "",
+    packageResourceTriage: null,
+    packageResourceTriageLoading: false,
+    packageResourceTriageError: "",
+    packageResourceTriageKey: "",
     packageLibraryMetrics: null,
     packageLibraryMetricsLoading: false,
     packageLibraryMetricsError: "",
@@ -313,6 +318,8 @@ function inspectionDependencies(
     queryPackageOpportunities: async () => opportunitiesResult(),
     queryPlatformOpportunities: async () => opportunitiesResult(),
     queryPackagePerformance: async () => performanceResult(),
+    queryPackageResourceTriage: async () => resourceTriageResult(),
+    queryPlatformResourceTriage: async () => resourceTriageResult(),
     queryPlatformPerformance: async () => performanceResult(),
     queryPackageLibraryDependencyStructure: async () =>
       libraryDependencyStructureResult(),
@@ -1021,6 +1028,23 @@ test("every package lens preserves its lifecycle and same-coordinate ownership a
     readError: state => state.packagePerformanceError,
     setKey: (state, key) => { state.packagePerformanceKey = key; },
     setError: (state, error) => { state.packagePerformanceError = error; },
+  });
+  await verifyPackageLensLifecycle({
+    name: "resource triage",
+    result: resourceTriageResult(),
+    createCoordinator: (state, query, render = () => {}) =>
+      createPackageInspectionCoordinator(
+        inspectionDependencies(state, {
+          queryPackageResourceTriage: async () => query(),
+          render,
+        })),
+    load: (coordinator, signature) =>
+      coordinator.loadResourceTriage(packageItem, signature, null),
+    readResult: state => state.packageResourceTriage,
+    readLoading: state => state.packageResourceTriageLoading,
+    readError: state => state.packageResourceTriageError,
+    setKey: (state, key) => { state.packageResourceTriageKey = key; },
+    setError: (state, error) => { state.packageResourceTriageError = error; },
   });
   await verifyPackageLensLifecycle({
     name: "metadata",
@@ -1969,4 +1993,38 @@ test("runtime package lenses wait for an explicit library scope", async () => {
   assert.equal(state.packageOpportunitiesKey, "");
   assert.equal(state.packagePerformanceKey, "");
   assert.equal(state.packageMetadataKey, "");
+});
+
+function resourceTriageResult(): PackageResourceTriage {
+  return { outcome: "available", candidates: [], limitations: [], inspectionError: null, share: null, diagnostics: [] };
+}
+
+test("resource triage routes the exact platform library and waits for selection", async () => {
+  const runtime = packageModel({ id: "Microsoft.NETCore.App", isRuntimePack: true, source: { kind: "platform" } });
+  const state = inspectionState();
+  const calls: string[][] = [];
+  const coordinator = createPackageInspectionCoordinator(inspectionDependencies(state, {
+    queryPlatformResourceTriage: async (...args) => { calls.push(args); return resourceTriageResult(); },
+    queryPackageResourceTriage: async () => { throw new Error("Platform selection must use the platform query"); },
+  }));
+  await coordinator.loadResourceTriage(runtime, "none", null);
+  assert.equal(calls.length, 0);
+  await coordinator.loadResourceTriage(runtime, "selected", "System.Text.Json");
+  assert.deepEqual(calls, [["net10.0", "1.2.3", "System.Text.Json.dll", "pack:System.Text.Json"]]);
+  assert.equal(state.packageResourceTriage?.outcome, "available");
+});
+
+test("resource triage retains incomplete candidates and reuses its exact request", async () => {
+  const pkg = packageModel();
+  const state = inspectionState();
+  const partial = { ...resourceTriageResult(), outcome: "incomplete", limitations: [{ kind: "ExceptionFlow", detail: "partial", method: null }] };
+  let calls = 0;
+  const coordinator = createPackageInspectionCoordinator(inspectionDependencies(state, {
+    queryPackageResourceTriage: async (_pkg, library) => { assert.equal(library, "Selected.dll"); calls++; return partial; },
+  }));
+  await coordinator.loadResourceTriage(pkg, "selected", "Selected.dll");
+  await coordinator.loadResourceTriage(pkg, "selected", "Selected.dll");
+  assert.equal(calls, 1);
+  assert.equal(state.packageResourceTriage, partial);
+  assert.equal(state.packageResourceTriageError, "");
 });

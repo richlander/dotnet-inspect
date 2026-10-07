@@ -606,6 +606,7 @@ public sealed record BrowserImplementationHeatRelationship(
 [JsonSerializable(typeof(BrowserPackageIntegrations))]
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
+[JsonSerializable(typeof(BrowserResourceTriage))]
 [JsonSerializable(typeof(BrowserLibraryMetrics))]
 [JsonSerializable(typeof(BrowserLibraryDependencyStructure))]
 [JsonSerializable(typeof(BrowserLibraryStructuralSalience))]

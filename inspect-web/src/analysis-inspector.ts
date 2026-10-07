@@ -3,6 +3,7 @@ export type AnalysisMode =
   | "dependencies"
   | "relationships"
   | "performance"
+  | "resource-triage"
   | "integrations";
 
 export const defaultAnalysisMode: AnalysisMode = "relationships";
@@ -14,6 +15,7 @@ export function isAnalysisMode(
     || value === "dependencies"
     || value === "relationships"
     || value === "performance"
+    || value === "resource-triage"
     || value === "integrations";
 }
 
@@ -30,6 +32,7 @@ const modes = [
   ["dependencies", "Dependencies"],
   ["complexity", "Complexity"],
   ["performance", "Performance"],
+  ["resource-triage", "Resource Triage"],
   ["integrations", "Integrations"],
 ] as const satisfies readonly (readonly [AnalysisMode, string])[];
 

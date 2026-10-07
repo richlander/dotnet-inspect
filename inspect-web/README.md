@@ -723,6 +723,8 @@ Release to `artifacts/inspect-web-publish`.
 | `QueryPackageIntegrations` | one exact library in a package/version/framework | `AssemblyContextIntegrationsQuery.ExecuteParticipant(...)` |
 | `QueryPackageOpportunities` | one exact library in a package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipant(...)` |
 | `QueryPackagePerformance` | one exact library in a package/version/framework | `AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(...)` |
+| `QueryPackageResourceTriage` | one selected package Library plus admitted runtime context | `AssemblyResourceTriageInspection.ExecuteWithRuntimeAsync(...)` |
+| `QueryPlatformResourceTriage` | one selected platform participant | `AssemblyResourceTriageInspection.Execute(...)` |
 | `QueryPackageMetadata` | one exact library in a package/version/framework | root-aware `AssemblyContextMetadataImageQuery.ExecuteParticipant(...)` plus `AssemblyContextReadyToRunImageQuery.ExecuteParticipant(...)` |
 | `QueryMemberCallGraph` | every open package coordinate, implementation group | `MemberCallGraphSession` |
 | `LoadRuntimePack`, `LoadRuntimePackAssembly` | selected platform assemblies accumulated per target framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
@@ -2846,3 +2848,19 @@ domains are public infrastructure and are not confidentiality boundaries.
 
 See [architecture-spike.md](architecture-spike.md) for the proposed .NET 11
 browser engine and the NativeAOT decision.
+
+## Resource Triage
+
+Library → Analysis → Resource Triage exposes the existing shared ArrayPool
+exception-cleanup candidates. Selecting the tab requests whole-library analysis;
+package analysis also requests runtime context acquisition to resolve the
+shipped resource model. Acquisition and producer failures remain visible.
+
+Each candidate retains its identity, resource, method token, acquisition and
+boundary IL offsets, actionability, and confidence. Public members have API
+navigation; candidates without a navigable public member retain their evidence.
+Partial findings appear beside their limitations, and an incomplete empty
+census never claims absence. This tab does not expose the other generic
+lifecycle outcomes. See the
+[owning contract](../docs/design/resource-lifecycle-analysis.md#browser-resource-triage-adoption)
+and [tracking issue #9607](https://github.com/richlander/dotnet-inspect/issues/9607).

@@ -6481,3 +6481,9 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 
 .spotlight-artifact.has-publication { grid-template-columns: 20px minmax(0, 1fr) minmax(0, auto) auto; }
 .spotlight-item-date { color: var(--muted); font: 11px var(--mono); white-space: nowrap; }
+
+.resource-triage-candidate { padding: 14px 16px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.resource-triage-candidate p { margin: 8px 0; }
+.resource-triage-member { color: var(--accent); background: transparent; border: 0; padding: 0; text-align: left; font: inherit; cursor: pointer; }
+.resource-triage-member:hover { text-decoration: underline; }
+.resource-triage-unlinked { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }

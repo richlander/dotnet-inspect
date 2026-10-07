@@ -107,6 +107,7 @@ type AnalysisOperationName =
   | "queryPackageOpportunities"
   | "queryPlatformOpportunities"
   | "queryPackagePerformance"
+  | "queryPackageResourceTriage"
   | "queryPackageLibraryDependencyStructure"
   | "queryPackageLibraryMetrics"
   | "queryPackageLibraryStructuralSalience"
@@ -117,7 +118,8 @@ type AnalysisOperationName =
   | "queryPlatformLibraryDependencyStructure"
   | "queryPlatformLibraryMetrics"
   | "queryPlatformLibraryStructuralSalience"
-  | "queryPlatformPerformance";
+  | "queryPlatformPerformance"
+  | "queryPlatformResourceTriage";
 
 type SourceOperationName =
   | "queryMemberSource"
@@ -1604,6 +1606,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<AnalysisFacade["queryPackagePerformance"]>
       ) => facades.analysis.queryPackagePerformance(...args),
     ),
+    queryPackageResourceTriage: valueOperation(
+      "ordinary-analysis-query-package-resource-triage",
+      4,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryPackageResourceTriage"]>
+      ) => facades.analysis.queryPackageResourceTriage(...args),
+    ),
     queryPackageLibraryDependencyStructure: valueOperation(
       "ordinary-analysis-query-package-library-dependency-structure",
       4,
@@ -1669,6 +1679,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<AnalysisFacade["queryPlatformPerformance"]>
       ) => facades.analysis.queryPlatformPerformance(...args),
+    ),
+    queryPlatformResourceTriage: valueOperation(
+      "ordinary-analysis-query-platform-resource-triage",
+      4,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryPlatformResourceTriage"]>
+      ) => facades.analysis.queryPlatformResourceTriage(...args),
     ),
   },
   source: {
@@ -2446,6 +2464,10 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.analysis
           .queryPackagePerformance,
       ),
+      queryPackageResourceTriage: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPackageResourceTriage,
+      ),
       queryPackageLibraryDependencyStructure: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPackageLibraryDependencyStructure,
@@ -2473,6 +2495,10 @@ export function bindEngineWorkerOrdinaryClient(
       queryPlatformPerformance: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPlatformPerformance,
+      ),
+      queryPlatformResourceTriage: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPlatformResourceTriage,
       ),
     },
     source: {

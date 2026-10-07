@@ -278,10 +278,55 @@ establish:
 
 - No Research ownership-path migration.
 - No ArrayPool legacy analyzer retirement.
-- No new CLI section, option, renderer, wire shape, or Browser/Wasm surface.
+- No new CLI section, option, renderer, or wire shape. Browser/Wasm adoption
+  is scoped separately below.
 - No actionability-policy change.
 - No complete CLR alias, indirect-dispatch, reflection, unsafe, interop,
   aggregate, field-reachability, or async-state-machine claim.
 - No non-terminal exclusive-mutable ownership support.
 - No interprocedural proof that storage, return, or a direct call transferred
   an obligation.
+
+## Browser Resource Triage adoption
+
+[#9607](https://github.com/richlander/dotnet-inspect/issues/9607) tracks one
+adoption slice: participant-scoped query execution, detached inspection
+composition, browser transport, and Library → Analysis → Resource Triage.
+The CLI already consumes `ResourceTriageQuery`; the browser uses that same
+query with the shipped ArrayPool model. The motivating assets and retained
+oracle remain those in [Real assets and oracle](#real-assets-and-oracle).
+
+The browser displays the complete assessed candidate population, including
+external-input, in-memory, and unclassified actionability, rather than applying
+the CLI's external-input display selection. Candidate and Finding identities,
+acquisition and boundary IL offsets, method tokens, confidence, and typed
+limitations remain owner-issued. An incomplete empty census does not establish
+absence. Non-public or otherwise unnavigable candidates retain their evidence.
+
+`AssemblyContextResourceTriageQuery` owns execution over the selected admitted
+participant and does not inspect neighboring participants. API body selectors
+provide optional public-member navigation; navigation does not define the
+Finding population. Package analysis explicitly acquires the selected framework's
+complete runtime population and borrows its admitted images alongside the
+package context. The combined analysis retains exact roots, uses the runtime's
+selected intrinsic core library, and bounds retained images to 64 MiB.
+`AssemblyResourceTriageInspection` returns detached Content
+and an explicit non-projectable Share outcome until canonical Share projection
+is adopted. Browser transport preserves that Share and envelope diagnostics.
+
+The browser uses an HTML renderer rather than Markout because the tab needs
+interactive member navigation inside its existing Analysis frame. Its typed
+input is `BrowserResourceTriage`, a projection of the shared inspection; the
+renderer adds no lifecycle facts. Analysis starts only when the tab is selected.
+Package and platform Library selections use the existing worker transport and
+request-generation suppression. Uploaded Library analysis remains outside this
+adoption slice, consistent with the existing browser analysis admission.
+
+The Release `AssemblyContextResourceTriageQueryTests` gate checks parity with
+the existing query, catch-path controls, retained limitations, and isolation
+from an unrelated participant. `BrowserResourceTriageProjectionTests` gates
+transport identity, partial evidence, Share, and failure distinctions.
+`library-resource-triage.test.ts`, `analysis-inspector.test.ts`, and
+`package-inspection.test.ts` gate presentation, tab navigation, and stale-result
+suppression. Generic lifecycle outcomes outside the current Resource Triage
+projection remain out of scope.

@@ -176,6 +176,7 @@ import {
   resolvePackagePerformanceMember,
   workspaceDependencyKey,
   type PackagePerformance,
+  type PackageResourceTriage,
 } from "./package-inspection.ts";
 import {
   bindPackageDependencyList,
@@ -359,6 +360,7 @@ import {
   isAnalysisMode,
   restoreAnalysisTabFocus,
 } from "./analysis-inspector.ts";
+import { renderLibraryResourceTriageSurface } from "./library-resource-triage.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   bindLibraryMetricsInteractions,
@@ -947,6 +949,8 @@ let inspectPackageOpportunities:
   EngineClient["analysis"]["queryPackageOpportunities"];
 let inspectPackagePerformance:
   EngineClient["analysis"]["queryPackagePerformance"];
+let inspectPackageResourceTriage:
+  EngineClient["analysis"]["queryPackageResourceTriage"];
 let inspectPackageLibraryDependencyStructure:
   EngineClient["analysis"]["queryPackageLibraryDependencyStructure"];
 let inspectPackageLibraryMetrics:
@@ -973,6 +977,8 @@ let inspectPlatformOpportunities:
   EngineClient["analysis"]["queryPlatformOpportunities"];
 let inspectPlatformPerformance:
   EngineClient["analysis"]["queryPlatformPerformance"];
+let inspectPlatformResourceTriage:
+  EngineClient["analysis"]["queryPlatformResourceTriage"];
 let cancelSourceInspection: EngineClient["source"]["cancelSourceQuery"];
 let cancelTypeSourceInspection:
   EngineClient["source"]["cancelTypeSourceQuery"];
@@ -1150,6 +1156,7 @@ async function loadEngineModule() {
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
+      queryPackageResourceTriage: inspectPackageResourceTriage,
       queryPackageLibraryDependencyStructure:
         inspectPackageLibraryDependencyStructure,
       queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
@@ -1171,6 +1178,7 @@ async function loadEngineModule() {
       queryPlatformIntegrations: inspectPlatformIntegrations,
       queryPlatformOpportunities: inspectPlatformOpportunities,
       queryPlatformPerformance: inspectPlatformPerformance,
+      queryPlatformResourceTriage: inspectPlatformResourceTriage,
     } = engineClient.analysis);
     ({
       cancelSourceQuery: cancelSourceInspection,
@@ -1486,6 +1494,10 @@ const initialState = {
   packagePerformanceLoading: false,
   packagePerformanceError: "",
   packagePerformanceKey: "",
+  packageResourceTriage: null,
+  packageResourceTriageLoading: false,
+  packageResourceTriageError: "",
+  packageResourceTriageKey: "",
   packageLibraryMetrics: null,
   packageLibraryMetricsLoading: false,
   packageLibraryMetricsError: "",
@@ -1659,6 +1671,7 @@ interface StateOverrides {
   packageIntegrations: BrowserPackageIntegrations | null;
   packageOpportunities: BrowserPackageOpportunities | null;
   packagePerformance: PackagePerformance | null;
+  packageResourceTriage: PackageResourceTriage | null;
   packageMetadata: PackageMetadata | null;
   explorer: AppExplorerState | null;
   memberCallGraph: InspectedCallGraph | null;
@@ -1941,6 +1954,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   const packageIntegrationsLoading = snapshotState.packageIntegrationsLoading;
   const packageOpportunitiesLoading = snapshotState.packageOpportunitiesLoading;
   const packagePerformanceLoading = snapshotState.packagePerformanceLoading;
+  const packageResourceTriageLoading = snapshotState.packageResourceTriageLoading;
   const packageMetadataLoading = snapshotState.packageMetadataLoading;
   const memberCallGraphLoading = snapshotState.memberCallGraphLoading;
   const memberCallGraphExpanding = snapshotState.memberCallGraphExpanding;
@@ -1958,6 +1972,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.packageIntegrationsLoading = false;
   snapshotState.packageOpportunitiesLoading = false;
   snapshotState.packagePerformanceLoading = false;
+  snapshotState.packageResourceTriageLoading = false;
   snapshotState.packageMetadataLoading = false;
   snapshotState.memberCallGraphLoading = false;
   snapshotState.memberCallGraphExpanding = false;
@@ -2008,6 +2023,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   if (packageIntegrationsLoading) snapshotState.packageIntegrationsKey = "";
   if (packageOpportunitiesLoading) snapshotState.packageOpportunitiesKey = "";
   if (packagePerformanceLoading) snapshotState.packagePerformanceKey = "";
+  if (packageResourceTriageLoading) snapshotState.packageResourceTriageKey = "";
   if (packageMetadataLoading) snapshotState.packageMetadataKey = "";
   if (memberCallGraphLoading || memberCallGraphExpanding) {
     snapshotState.memberCallGraphKey = "";
@@ -9395,6 +9411,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     maybeAutoLoadPackageVulnerabilities();
     maybeAutoLoadPackageIntegrations();
     maybeAutoLoadPackagePerformance();
+    maybeAutoLoadPackageResourceTriage();
     maybeAutoLoadPackageLibraryMetrics();
     maybeAutoLoadPackageLibraryDependencyStructure();
     maybeAutoLoadTypeLeverage();
@@ -10544,6 +10561,7 @@ function libraryLensBody() {
         case "dependencies":
           return renderPackageLibraryDependencyStructure();
         case "performance": return renderPackagePerformance();
+        case "resource-triage": return renderPackageResourceTriage();
         case "integrations": return renderPackageIntegrations();
         default: return assertNever(state.analysisMode, "analysis mode");
       }
@@ -10949,6 +10967,11 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.version,
     packageModel.activeFramework,
     library),
+  queryPackageResourceTriage: (packageModel, library) => inspectPackageResourceTriage(
+    packageModel.id,
+    packageModel.version,
+    packageModel.activeFramework,
+    library),
   queryPackageLibraryDependencyStructure: (packageModel, library) =>
     inspectPackageLibraryDependencyStructure(
       packageModel.id,
@@ -10973,6 +10996,17 @@ const packageInspection = createPackageInspectionCoordinator({
         platformVersion,
         assemblyFileName,
         pack)),
+  queryPlatformResourceTriage: async (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
+    inspectPlatformResourceTriage(
+        framework,
+        platformVersion,
+        assemblyFileName,
+        pack),
   queryPlatformLibraryDependencyStructure: (
     framework,
     platformVersion,
@@ -11191,6 +11225,31 @@ function renderPackagePerformance() {
   });
 }
 
+function renderPackageResourceTriage() {
+  const pkg = currentPackage();
+  const library = selectedLibrary();
+  const scopedLib = scopedPlatformLibrary();
+  const current = packageScopeSignature();
+  return renderLibraryResourceTriageSurface({
+    libraryName: library?.name ?? "",
+    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
+    assetPath: library?.asset ?? "",
+    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
+    requireLibrary: pkg.isRuntimePack && !scopedLib,
+    pickerHtml: pkg.isRuntimePack
+      ? platformLibrarySelectHtml({
+          dataAttr: "data-platform-analysis-library",
+          selected: scopedLib || "",
+        })
+      : "",
+    fresh: state.packageResourceTriageKey === current,
+    loading: state.packageResourceTriageLoading,
+    error: state.packageResourceTriageError,
+    data: state.packageResourceTriage,
+    escapeHtml,
+  });
+}
+
 function packageLibraryAnalysisOptions(): LibraryAnalysisOptions {
   const pkg = currentPackage();
   const library = selectedLibrary();
@@ -11274,6 +11333,23 @@ function maybeAutoLoadPackagePerformance() {
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packagePerformanceKey === packageScopeSignature()) return;
   observeAsync(loadPackagePerformance(), "Loading package analysis");
+}
+async function loadPackageResourceTriage() {
+  const pkg = currentPackage();
+  const scopedLib = selectedLibraryRequest() || null;
+  return packageInspection.loadResourceTriage(
+    pkg,
+    packageScopeSignature(),
+    scopedLib);
+}
+
+function maybeAutoLoadPackageResourceTriage() {
+  if (!state.atLibraryRoot || state.libraryLens !== "analysis") return;
+  if (aggregateLibrarySubjectIsActive()) return;
+  if (state.analysisMode !== "resource-triage") return;
+  if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
+  if (state.packageResourceTriageKey === packageScopeSignature()) return;
+  observeAsync(loadPackageResourceTriage(), "Loading resource triage");
 }
 
 function loadPackageLibraryMetrics() {
@@ -13295,7 +13371,8 @@ async function openPlatformLensLibrary(
   state.typeTraitFilter = "";
   normalizeLibrarySelection();
   if (lens === "analysis") {
-    if (state.analysisMode === "performance") await loadPackagePerformance();
+    if (state.analysisMode === "resource-triage") await loadPackageResourceTriage();
+    else if (state.analysisMode === "performance") await loadPackagePerformance();
     else if (state.analysisMode === "integrations")
       await loadPackageIntegrations();
     else if (state.analysisMode === "complexity"
