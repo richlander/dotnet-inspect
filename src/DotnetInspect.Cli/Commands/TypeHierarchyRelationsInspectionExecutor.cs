@@ -708,7 +708,8 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                     ? [package]
                     : [],
             Assemblies =
-                options.AssemblyPath is { } assembly
+                options.PackagePath is null
+                    && options.AssemblyPath is { } assembly
                     ? [assembly]
                     : isLocal && File.Exists(source.SearchPath)
                         ? [source.SearchPath]

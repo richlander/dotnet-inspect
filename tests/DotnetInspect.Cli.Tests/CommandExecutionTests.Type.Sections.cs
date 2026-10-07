@@ -76,6 +76,33 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        Type_HierarchyRetainsPackageInternalLibrarySelection()
+    {
+        string package = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "fixtures",
+            "services",
+            "signatures",
+            "system.text.json.9.0.4.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Text.Json.Serialization.JsonConverter",
+            "--package",
+            package,
+            "--library",
+            "System.Text.Json.dll",
+            "-S",
+            SectionNames.Implementers,
+            "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("0", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Type_DerivedTypesUsesTheSameLocalPopulation()
     {
         string assembly = typeof(SampleBaseClass).Assembly.Location;
