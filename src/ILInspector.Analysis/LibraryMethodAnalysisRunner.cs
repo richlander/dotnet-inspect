@@ -167,6 +167,13 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinition method);
 }
 
+internal enum ExtensionDeclarationShape
+{
+    None,
+    Skeleton,
+    Unconfirmed,
+}
+
 internal enum MethodBodyAvailability
 {
     Present,
@@ -198,6 +205,9 @@ internal sealed class LibraryMethodAnalysisResult
     public MethodBodyAvailability BodyAvailability;
     public bool RequiresDeclaredOwner;
     public bool InScope;
+    // A C# extension block's declaration copy in its grouping type; the
+    // implementation method on the enclosing static class is the member.
+    public bool IsExtensionDeclarationSkeleton;
     public bool OwnerResolutionFailed;
     public DeclaredOwnerResolution OwnerResolution;
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence;
@@ -760,11 +770,19 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             // A body needs an authenticated owner when its name is a lifted
             // or state-machine body, or when it is declared in a
             // compiler-generated type nested inside another type.
+            ExtensionDeclarationShape extensionShape =
+                ClassifyExtensionDeclaration(
+                    reader,
+                    typeDefinition,
+                    methodDefinition);
+            result.IsExtensionDeclarationSkeleton =
+                extensionShape == ExtensionDeclarationShape.Skeleton;
             result.RequiresDeclaredOwner =
                 CompilerGeneratedNames.RequiresDeclaredOwner(caller)
                 || IsDeclaredInNestedCompilerGeneratedType(
                     reader,
-                    typeDefinition);
+                    typeDefinition)
+                || extensionShape == ExtensionDeclarationShape.Unconfirmed;
             if (localExceptionTypes is not null)
             {
                 isReferenceAssembly = localExceptionTypes.IsReferenceAssembly;
@@ -2185,6 +2203,48 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             || method.RelativeVirtualAddress == 0
                 ? MethodBodyAvailability.NoApplicableInput
                 : MethodBodyAvailability.Present;
+
+    // Roslyn emits each extension-block member twice: an implementation on the
+    // [Extension] static class, and a declaration copy with a throwing body in
+    // a nested SpecialName [Extension] grouping type. Every method of a
+    // confirmed grouping type is such a copy. An [ExtensionMarker] method
+    // outside that shape is unconfirmed and must not stand as its own member.
+    static ExtensionDeclarationShape ClassifyExtensionDeclaration(
+        MetadataReader reader,
+        TypeDefinition type,
+        MethodDefinition method)
+    {
+        try
+        {
+            TypeDefinitionHandle enclosing = type.GetDeclaringType();
+            bool groupingType =
+                !enclosing.IsNil
+                && (type.Attributes & TypeAttributes.SpecialName) != 0
+                && AttributeReader.HasAttribute(
+                    reader,
+                    type.GetCustomAttributes(),
+                    ExtensionAttributeName)
+                && AttributeReader.HasAttribute(
+                    reader,
+                    reader.GetTypeDefinition(enclosing).GetCustomAttributes(),
+                    ExtensionAttributeName);
+            if (groupingType)
+                return ExtensionDeclarationShape.Skeleton;
+            return AttributeReader.TryGetExtensionMarkerName(
+                    reader,
+                    method.GetCustomAttributes(),
+                    out _)
+                ? ExtensionDeclarationShape.Unconfirmed
+                : ExtensionDeclarationShape.None;
+        }
+        catch (BadImageFormatException)
+        {
+            return ExtensionDeclarationShape.Unconfirmed;
+        }
+    }
+
+    const string ExtensionAttributeName =
+        "System.Runtime.CompilerServices.ExtensionAttribute";
 
     // A compiler-generated type nested inside another type (closure, state
     // machine, or lifted helper container) holds bodies that belong to a

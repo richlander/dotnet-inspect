@@ -53,6 +53,39 @@ public sealed class UnsafeMemberFindingsTests
                 && evidence.Body.Name.Contains("g__Read", StringComparison.Ordinal));
     }
 
+    // The grouping-type declaration copy duplicates the implementation's
+    // contract and has a throwing body, so it is ignored.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExtensionMemberIsOneFindingOnItsImplementation(bool legacy)
+    {
+        UnsafeMemberCensus census = OpenCensus(legacy);
+
+        UnsafeMemberFinding dereference =
+            Single(census, "UnsafeExtensionMembers", "ExtensionDereference");
+        Assert.Contains(
+            dereference.Evidence,
+            evidence => evidence.Kind == UnsafeMemberUseKind.PointerDereference);
+        Assert.DoesNotContain(
+            census.Members,
+            finding => finding.Member.Name == "ExtensionDereference"
+                && finding.Member.DeclaringType.Name != "UnsafeExtensionMembers");
+        Assert.DoesNotContain(
+            census.Limitations,
+            limitation => limitation.Body?.Name.StartsWith("Extension", StringComparison.Ordinal) == true);
+
+        if (!legacy)
+        {
+            UnsafeMemberFinding contract =
+                Single(census, "UnsafeExtensionMembers", "ExtensionContract");
+            Assert.True(contract.HasExplicitUnsafeContract);
+            Assert.Equal(
+                2,
+                census.Members.Count(finding => finding.Member.Name.StartsWith("Extension", StringComparison.Ordinal)));
+        }
+    }
+
     [Fact]
     public void ClassicAsyncMoveNextFoldsIntoTheAsyncMethod()
     {
@@ -294,6 +327,7 @@ public sealed class UnsafeMemberFindingsTests
                 body.MetadataToken,
                 body,
                 InScope: true,
+                IsExtensionDeclarationSkeleton: false,
                 availability,
                 failed,
                 failed ? "decode failed" : null,
@@ -437,7 +471,7 @@ public sealed class UnsafeMemberFindingsTests
         public void TokenOnlyFailureIsALimitation()
         {
             UnsafeMemberCensus census = Build(bodies:
-                new UnsafeMemberBodyFacts(0x06000002, null, InScope: false, MethodBodyAvailability.Present,
+                new UnsafeMemberBodyFacts(0x06000002, null, InScope: false, false, MethodBodyAvailability.Present,
                     true, "identity failed", false, DeclaredOwnerResolution.None, false, null, []));
 
             UnsafeMemberLimitation limitation = Assert.Single(census.Limitations);

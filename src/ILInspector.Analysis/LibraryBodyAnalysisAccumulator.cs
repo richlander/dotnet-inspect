@@ -368,6 +368,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 result.Token,
                 result.HasCaller ? result.Caller : null,
                 result.InScope,
+                result.IsExtensionDeclarationSkeleton,
                 result.BodyAvailability,
                 AnalysisFailed: result.Diagnostic is not null,
                 FailureDetail: result.Diagnostic?.Message,

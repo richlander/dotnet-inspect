@@ -13,6 +13,7 @@ internal readonly record struct UnsafeMemberBodyFacts(
     int Token,
     MethodIdentity? Body,
     bool InScope,
+    bool IsExtensionDeclarationSkeleton,
     MethodBodyAvailability Availability,
     bool AnalysisFailed,
     string? FailureDetail,
@@ -80,6 +81,10 @@ internal static class UnsafeMemberCensusBuilder
             // A scoped receipt does not classify bodies outside its scope;
             // its one receipt-level limitation stands for them.
             if (!hasFullMethodEvidenceScope && !body.InScope)
+                continue;
+            // An extension declaration copy duplicates its implementation
+            // method's contract and has no implementation body.
+            if (body.IsExtensionDeclarationSkeleton)
                 continue;
             if (body.Body is not { } physical)
             {

@@ -995,3 +995,21 @@ public sealed class UnsafeAccessorTarget
 
     public static int Value => s_value;
 }
+
+// A C# extension member is emitted as an implementation method and a
+// declaration copy in a grouping type; only the implementation is a finding.
+public static class UnsafeExtensionMembers
+{
+    extension(int[] values)
+    {
+        public unsafe int ExtensionDereference(int* pointer)
+        {
+            unsafe
+            {
+                return *pointer + values.Length;
+            }
+        }
+
+        public unsafe int ExtensionContract() => values.Length;
+    }
+}

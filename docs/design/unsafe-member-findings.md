@@ -101,6 +101,15 @@ The attribution owner never associates synchronous iterators, so an iterator
 `MoveNext` or lifted iterator helper, such as `<>m__Finally1`, with evidence is
 such a limitation until that owner associates it.
 
+A C# extension-block member is emitted twice: an implementation method on the
+enclosing `[Extension]` static class, which carries the source body and the
+member's attributes, and a declaration copy in a nested `SpecialName`
+`[Extension]` grouping type, whose body only throws. The implementation method
+is the declared member. The declaration copy duplicates its contract and holds
+no implementation evidence, so every method of a confirmed grouping type is
+ignored. An `[ExtensionMarker]` method outside that shape is unconfirmed and
+needs an authenticated owner like any other generated body.
+
 An explicit caller-unsafe contract belongs to the member that declares it.
 Generated bodies contribute body evidence and same-image explicit-contract
 calls; they never confer or remove the owner's contract.
@@ -259,6 +268,9 @@ Focused Release gates in `UnsafeMemberFindingsTests` cover:
   or its own finding;
 - `BodilessDeclarationsDoNotLimitTheCensus`: abstract and `extern`
   `UnsafeAccessor` declarations are no applicable input;
+- `ExtensionMemberIsOneFindingOnItsImplementation`: an extension-block member
+  is one finding on its implementation method, and its grouping-type
+  declaration copy is ignored;
 - `NonPublicMembersAreFindingsWithDeclarationExposure`: private and internal
   members are findings with exposure from the public root inventory;
 - `ExplicitContractBelongsOnlyToTheDeclaringMember` and
