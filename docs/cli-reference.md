@@ -229,11 +229,12 @@ together with `--framework`, `--version`, `--preview`, one `--tfm`,
 `--namesake-library`, NuGet source options, and `--verbose`. A package that
 contributes more than one Library keeps the multi-Library view; explicit
 `--tree` or `--mermaid` on such a package fails and asks for the assembly
-within the package. Any other option, including `-S`, `-v:n`, `-v:d`, every
-format option, and a `DOTNET_INSPECT_FORMAT` default, keeps the sectioned
-Library view; combined with such an option, `--tree` and `--mermaid` keep
-their `-S "Reference Hierarchy"` requirement. Library facts remain available
-as `-S "Library Info"`.
+within the package. Any other option, including `-S`, `-v:n`, `-v:d`, and
+every format option, keeps the sectioned Library view; combined with such an
+option, `--tree` and `--mermaid` keep their `-S "Reference Hierarchy"`
+requirement. A `DOTNET_INSPECT_FORMAT` default also keeps the sectioned view
+unless `--tree`, `--mermaid`, or `-v:m` is given explicitly. Library facts
+remain available as `-S "Library Info"`.
 
 A Library with no public Types renders its identity line marked
 `(no public types)`. A Library whose Type population cannot be read completely

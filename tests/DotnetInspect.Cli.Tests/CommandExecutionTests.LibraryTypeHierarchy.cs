@@ -204,6 +204,10 @@ public partial class CommandExecutionTests
                 "World.Blue.Nodes (1 type)",
                 environment.Output,
                 StringComparison.Ordinal);
+            Assert.False(
+                environment.Output.StartsWith(
+                    "DotnetInspector.Fixtures ",
+                    StringComparison.Ordinal));
             Assert.Equal(0, explicitTree.Exit);
             Assert.StartsWith(
                 "DotnetInspector.Fixtures ",
