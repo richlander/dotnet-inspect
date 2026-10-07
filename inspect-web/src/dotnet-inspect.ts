@@ -745,6 +745,11 @@ import {
   packageChangesEcosystems,
 } from "./package-changes-source.ts";
 import {
+  createLibraryPerformanceController,
+  initialLibraryPerformanceState,
+} from "./library-performance.ts";
+import { createBrowserLibraryPerformanceDataSource } from "./library-performance-source.ts";
+import {
   bindPackageChangesView,
   patchPackageChangesStream,
   renderPackageChangesView,
@@ -959,8 +964,10 @@ let inspectPackageIntegrations:
   EngineClient["analysis"]["queryPackageIntegrations"];
 let inspectPackageOpportunities:
   EngineClient["analysis"]["queryPackageOpportunities"];
-let inspectPackagePerformance:
-  EngineClient["analysis"]["queryPackagePerformance"];
+let inspectQueryPackagePerformanceStreaming:
+  EngineClient["analysis"]["queryPackagePerformanceStreaming"];
+let cancelLibraryPerformanceAnalysis:
+  EngineClient["analysis"]["cancelLibraryPerformanceAnalysis"];
 let inspectPackageResourceTriage:
   EngineClient["analysis"]["queryPackageResourceTriage"];
 let inspectPackageLibraryDependencyStructure:
@@ -1095,6 +1102,10 @@ async function loadEngineModule() {
       engineClient.package.cancelPackageQuery(...args);
     cancelPackageActivity = (...args) =>
       engineClient.package.cancelPackageActivity(...args);
+    inspectQueryPackagePerformanceStreaming = (...args) =>
+      engineClient.analysis.queryPackagePerformanceStreaming(...args);
+    cancelLibraryPerformanceAnalysis = (...args) =>
+      engineClient.analysis.cancelLibraryPerformanceAnalysis(...args);
     inspectRequestPackageQueryMatches = (...args) =>
       engineClient.package.requestPackageQueryMatches(...args);
     cancelTypeSourceInspection = (...args) =>
@@ -1168,7 +1179,6 @@ async function loadEngineModule() {
       queryMemberFacts: inspectMemberFacts,
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
-      queryPackagePerformance: inspectPackagePerformance,
       queryPackageResourceTriage: inspectPackageResourceTriage,
       queryPackageLibraryDependencyStructure:
         inspectPackageLibraryDependencyStructure,
@@ -3831,6 +3841,29 @@ const packageChangesController = createPackageChangesController(
     if (!state.packageActivityOpen) return;
     schedulePackageActivityStreamRender();
   },
+);
+const libraryPerformanceController = createLibraryPerformanceController(
+  initialLibraryPerformanceState(),
+  createBrowserLibraryPerformanceDataSource({
+    cancel: (operationId, reason) =>
+      cancelLibraryPerformanceAnalysis(operationId, reason),
+    run: (
+      operationId,
+      packageId,
+      version,
+      targetFramework,
+      assemblyName,
+      eventSink,
+    ) =>
+      inspectQueryPackagePerformanceStreaming(
+        operationId,
+        packageId,
+        version,
+        targetFramework,
+        assemblyName,
+        eventSink),
+  }),
+  () => {},
 );
 const packageQueryAnnouncements = createPackageQueryAnnouncementTracker();
 const packageQueryLiveAnnouncer = createPackageQueryLiveAnnouncer(
@@ -11029,6 +11062,32 @@ function resolveDependenciesGroupIndex(
   return active?.index ?? groups[0]?.index ?? null;
 }
 
+async function queryPackagePerformanceStreamed(
+  packageModel: AppPackage,
+  library: string,
+): Promise<PackagePerformance> {
+  await libraryPerformanceController.run({
+    packageId: packageModel.id,
+    version: packageModel.version,
+    targetFramework: packageModel.activeFramework,
+    assemblyName: library,
+  });
+  const settlement = libraryPerformanceController.state.settlement;
+  if (settlement.kind === "succeeded") {
+    return {
+      members: libraryPerformanceController.state.members,
+      ...settlement.summary,
+    };
+  }
+  if (settlement.kind === "canceled") {
+    throw new Error(
+      `Library Performance analysis was canceled (${settlement.reason}).`);
+  }
+  if (settlement.kind === "failed") throw new Error(settlement.error);
+  throw new Error(
+    "Library Performance analysis ended without a terminal settlement.");
+}
+
 const packageInspection = createPackageInspectionCoordinator({
   state,
   queryDependencies: packageModel => inspectPackageDependencies(
@@ -11071,11 +11130,8 @@ const packageInspection = createPackageInspectionCoordinator({
       platformVersion,
       assemblyFileName,
       pack),
-  queryPackagePerformance: (packageModel, library) => inspectPackagePerformance(
-    packageModel.id,
-    packageModel.version,
-    packageModel.activeFramework,
-    library),
+  queryPackagePerformance: (packageModel, library) =>
+    queryPackagePerformanceStreamed(packageModel, library),
   queryPackageResourceTriage: (packageModel, library) => inspectPackageResourceTriage(
     packageModel.id,
     packageModel.version,
