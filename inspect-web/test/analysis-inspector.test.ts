@@ -37,9 +37,9 @@ test("Relationships is the first and default Analysis mode", () => {
       "relationships",
       "dependencies",
       "complexity",
+      "integrations",
       "performance",
       "resource-triage",
-      "integrations",
     ],
   );
 });

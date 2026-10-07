@@ -31,9 +31,9 @@ const modes = [
   [defaultAnalysisMode, "Relationships"],
   ["dependencies", "Dependencies"],
   ["complexity", "Complexity"],
+  ["integrations", "Integrations"],
   ["performance", "Performance Triage"],
   ["resource-triage", "Resource Triage"],
-  ["integrations", "Integrations"],
 ] as const satisfies readonly (readonly [AnalysisMode, string])[];
 
 export function renderAnalysisInspector(
