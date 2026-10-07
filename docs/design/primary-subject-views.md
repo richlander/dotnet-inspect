@@ -375,7 +375,7 @@ Observed with production dotnet-inspect 0.26.0 on 2026-09-23, unless noted:
 | dotnet-inspect.osx-arm64 0.26.0 | `DotnetToolRidPackage`; `DotNetCliTool Version="2"` with an `executable` runner; `tools/any/osx-arm64/` holds a 118 MB native executable and no DLLs | No selected target; the missing managed Libraries are stated |
 | platform `Timer` | `type Timer` silently renders `System.Threading.Timer` | Obligation 1 requires a visible ambiguity failure |
 | `member JsonSerializer` | Renders member-group tables duplicating `type` | Two commands render one subject's children |
-| `type JsonElement --platform System.Text.Json` | Tree shows `Inherits`, `Properties`, `Methods`, and `Extension Methods` declared on `JsonSerializer`; `-S "Member Index" --count` is 62, including the five `extension:Deserialize:N` rows | Several children sections plus labeled context; attached extensions are counted children with a distinct row kind |
+| `type JsonElement --platform System.Text.Json` | Tree shows `Inherits`, `Properties`, `Methods`, and `Extension Methods` declared on `JsonSerializer`; `-S "Member Index" --count` is 62 exact Members, including the five `extension:Deserialize:N` rows | Several children sections plus labeled context; the Type's children are MemberGroups, so the attached extension `Deserialize` is one counted child with a distinct row kind, and the 62 exact Members are the `member`-level population, not the Type children Count |
 | Microsoft.TestPlatform.ObjectModel 18.10.1 | Three Libraries for net8.0; `library` silently renders `Microsoft.TestPlatform.CoreUtilities.dll` | Obligation 1 requires Library subject resolution |
 
 The 97 and 1,447 figures come from the Library Type Count and Rows work in
@@ -433,8 +433,11 @@ against that adoption's motivating assets:
 - obligations 2 and 3: default (`-v:m`) output and the explicitly named
   facts section for each adopted command, with context never counted as
   children, and with forwarder rows (System.Text.Json) and attached extension
-  rows (`JsonElement`'s five `JsonSerializer.Deserialize` extensions) counted
-  as children and distinguished by row kind in every format;
+  rows counted as children and distinguished by row kind in every format.
+  `JsonElement`'s attached `JsonSerializer.Deserialize` extensions are one
+  MemberGroup row, counted as one child and marked by its `receiver` row kind;
+  its five exact overloads are reached through `member`, not counted by the
+  Type default;
 - obligation 2 work bound: for each adopted default, the population owner
   shows from product outcomes that the default request asks for no deeper
   terminal and that no returned row carries one, for example no Library

@@ -20,9 +20,10 @@ Type (FullSpelling)
 
 This profile predates the work bound in
 [Primary subject views](primary-subject-views.md#authority-and-exact-claim),
-which removes per-MemberGroup overload Counts from the Type default. The Type
-document owner adopts that change in its own slice by making MemberGroup Rows
-leaves by default; the Count profile above remains an explicit request.
+which removes per-MemberGroup and per-category overload Counts from the Type
+default. The Type document owner adopts that change in its own slice by making
+MemberGroup Rows leaves by default and counting only MemberGroup rows in
+category nodes; the Count profile above remains an explicit request.
 
 It can be lowered as Tree or Mermaid without changing the semantic request.
 An expanded Type-to-MemberGroup-to-exact-Member Rows profile waits for the
