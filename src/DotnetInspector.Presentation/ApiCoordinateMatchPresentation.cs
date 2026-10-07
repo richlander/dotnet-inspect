@@ -3,9 +3,26 @@ using Markout.Formatting;
 
 namespace DotnetInspector.Presentation;
 
+public enum ApiCoordinateMatchTextFormat
+{
+    Markdown,
+    PlainText,
+}
+
 /// <summary>Shared Markout lowering of a completed API match; never performs inspection.</summary>
 public static class ApiCoordinateMatchPresentation
 {
+    public static void Render(
+        ApiCoordinateMatchContent content,
+        TextWriter writer,
+        ApiCoordinateMatchTextFormat format) =>
+        Render(content, writer, format switch
+        {
+            ApiCoordinateMatchTextFormat.Markdown => new MarkdownFormatter(),
+            ApiCoordinateMatchTextFormat.PlainText => new PlainTextFormatter(),
+            _ => throw new ArgumentOutOfRangeException(nameof(format)),
+        });
+
     public static void Render(
         ApiCoordinateMatchContent content,
         TextWriter writer,
