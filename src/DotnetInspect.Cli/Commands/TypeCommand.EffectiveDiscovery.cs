@@ -93,7 +93,8 @@ public static partial class TypeCommand
             return 1;
         }
         if (!CanProjectDirectLibraryDiscovery(
-                available.Document.Subject))
+                available.Document.Subject,
+                options.IncludeAll))
         {
             return null;
         }
@@ -257,6 +258,7 @@ public static partial class TypeCommand
         if (!options.EffectiveDiscovery
             || options.EnvelopeOutput
             || options.DiscoverDeferredToListing
+            || options.SelectDeferredToListing
             || options.PackagePath is not null
             || options.PackageRangeAddress is not null
             || options.PlatformAssembly is not null
@@ -303,11 +305,18 @@ public static partial class TypeCommand
         return true;
     }
 
-    static bool CanProjectDirectLibraryDiscovery(TypeSubject subject) =>
+    static bool CanProjectDirectLibraryDiscovery(
+        TypeSubject subject,
+        bool includeAll) =>
         subject.Category
             is MetadataTypeDeclarationCategory.Class
                 or MetadataTypeDeclarationCategory.Interface
-                or MetadataTypeDeclarationCategory.Delegate;
+                or MetadataTypeDeclarationCategory.Delegate
+        && (includeAll
+            || subject.DeclaringTypeDefinitionToken is null
+                && (subject.Attributes
+                    & TypeAttributes.VisibilityMask)
+                    == TypeAttributes.Public);
 
     static ApiType ProjectDirectLibraryDiscoveryType(
         TypeSubject subject,

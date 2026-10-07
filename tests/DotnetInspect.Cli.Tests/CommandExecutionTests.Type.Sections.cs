@@ -987,6 +987,75 @@ public partial class CommandExecutionTests
         Assert.Equal(platformOutput, directOutput);
     }
 
+    [Fact]
+    public async Task
+        Type_DeferredSelectedSectionMatchesPlatformRejection()
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                "type",
+                "System.Attribute",
+                "--library",
+                assemblyPath,
+                "-D",
+                "-S",
+                "Classes",
+                "--tsv");
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(
+                "type",
+                "System.Attribute",
+                "--platform",
+                "System.Private.CoreLib",
+                "-D",
+                "-S",
+                "Classes",
+                "--tsv");
+
+        Assert.Equal(1, directExit);
+        Assert.Equal(platformExit, directExit);
+        Assert.Equal(platformOutput, directOutput);
+        Assert.Equal(platformError, directError);
+    }
+
+    [Fact]
+    public async Task
+        Type_DirectLibraryExactType_NonPublicRequiresIncludeAll()
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        var (defaultExit, defaultOutput, defaultError) =
+            await RunAppAsync(
+                "type",
+                "System.Text.StringBuilderCache",
+                "--library",
+                assemblyPath,
+                "-D",
+                SectionNames.TypeInfo,
+                "--tsv");
+        var (allExit, allOutput, allError) =
+            await RunAppAsync(
+                "type",
+                "System.Text.StringBuilderCache",
+                "--library",
+                assemblyPath,
+                "--all",
+                "-D",
+                SectionNames.TypeInfo,
+                "--tsv");
+
+        Assert.Equal(1, defaultExit);
+        Assert.Empty(defaultOutput);
+        Assert.Contains(
+            "Type 'System.Text.StringBuilderCache' not found.",
+            defaultError);
+        Assert.Equal(0, allExit);
+        Assert.Empty(allError);
+        Assert.NotEmpty(allOutput);
+    }
+
     [Theory]
     [InlineData("System.Attribute", false)]
     [InlineData("System.TimeSpan", true)]
