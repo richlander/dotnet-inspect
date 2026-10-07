@@ -301,7 +301,7 @@ public class FindCommand
         FindOptions options,
         string[] patterns)
     {
-        if (options.QueryPlan?.InputRowLimit is not int inputRowLimit)
+        if (options.QueryPlan?.InputRows is not { } inputRows)
         {
             return options;
         }
@@ -319,9 +319,17 @@ public class FindCommand
 
         int effectiveLimit =
             options.Limit is int existingLimit
-                ? Math.Min(existingLimit, inputRowLimit)
-                : inputRowLimit;
-        return options with { Limit = effectiveLimit };
+                ? Math.Min(existingLimit, inputRows.End)
+                : inputRows.End;
+        return options with
+        {
+            Limit = effectiveLimit,
+            InputRows =
+                options.Members
+                && operation.Kind == RowSelectionStageKind.Window
+                    ? inputRows
+                    : null,
+        };
     }
 
     private sealed record LayeredFindResult(
@@ -756,35 +764,92 @@ public class FindCommand
                 platformWorkspace,
                 explicitWorkspace);
         List<MemberFindResult> results = search.Rows;
-        int observedRowCount = results.Count;
-        if (!TrySelectRows(
-                rowSelection,
-                results,
-                "member",
-                out IReadOnlyList<MemberFindResult> selectedMembers))
-        {
-            return new(1, RowCount: null);
-        }
-        results = [.. selectedMembers];
-        var title = memberPatterns.Length == 1 ? $"Find member: {memberPatterns[0]}" : "Find Members";
+        int observedRowCount =
+            search.ExactRowCount
+            ?? search.InputRows?.AcceptedCount
+            ?? results.Count;
+        var title =
+            memberPatterns.Length == 1
+                ? $"Find member: {memberPatterns[0]}"
+                : "Find Members";
 
         if (options.Count)
         {
-            if (search.HasFailures
-                || !CliSemanticRowSelection.ProvidesExactCount(
+            if (!CliSemanticRowSelection.TrySelectCount(
                     rowSelection,
                     observedRowCount,
-                    sourceComplete:
-                        !search.SourceSelectionIncomplete))
+                    static (stage, required, available) =>
+                        $"Find row selection stage {stage} requires "
+                        + $"member row {required}, but only {available} "
+                        + "member rows are available.",
+                    out int selectedCount))
+            {
+                return new(1, RowCount: null);
+            }
+            if (search.HasFailures
+                || search.SourceSelectionIncomplete)
             {
                 CommandError.Write(
                     "Cannot count member rows because one or more search sources were incomplete.");
                 return new(1, RowCount: null);
             }
-            if (!WriteMemberCount(results, title, options))
+            if (!WriteMemberCount(
+                    selectedCount,
+                    title,
+                    options))
+            {
                 return new(1, RowCount: null);
+            }
+            return new(0, selectedCount);
         }
-        else if (tsv is not null)
+
+        IReadOnlyList<MemberFindResult> selectedMembers;
+        if (search.InputRows is { } receipt)
+        {
+            if (options.QueryPlan?.InputRows is { } planned
+                && planned != receipt.Selection)
+            {
+                throw new InvalidOperationException(
+                    "Member Find returned an accepted-row receipt for a "
+                        + "different query-plan selection.");
+            }
+            if (!CliSemanticRowSelection.TrySelectCount(
+                    rowSelection,
+                    observedRowCount,
+                    static (stage, required, available) =>
+                        $"Find row selection stage {stage} requires "
+                        + $"member row {required}, but only {available} "
+                        + "member rows are available.",
+                    out int selectedCount))
+            {
+                return new(1, RowCount: null);
+            }
+            if (search.HasFailures
+                || search.SourceSelectionIncomplete)
+            {
+                CommandError.Write(
+                    "Cannot select member rows because one or more search sources were incomplete.");
+                return new(1, RowCount: null);
+            }
+            if (selectedCount != results.Count)
+            {
+                throw new InvalidOperationException(
+                    "Member Find's retained rows do not match its "
+                        + "accepted-row selection receipt.");
+            }
+            selectedMembers = results;
+        }
+        else if (!TrySelectRows(
+                     rowSelection,
+                     results,
+                     "member",
+                     out selectedMembers))
+        {
+            return new(1, RowCount: null);
+        }
+        results = [.. selectedMembers];
+
+        if (tsv is not null)
         {
             int alreadyStreamed = streamedRowCount?.Invoke() ?? 0;
             foreach (MemberFindResult row in results.Skip(alreadyStreamed))
@@ -981,6 +1046,17 @@ public class FindCommand
             options.Fields,
             rows: null);
     }
+
+    private static bool WriteMemberCount(
+        int count,
+        string title,
+        FindOptions options) =>
+        CountOutput.TryWriteProjectedCount<FindMembersResultView>(
+            count,
+            SearchViewContext.Default,
+            "Members",
+            options.Columns,
+            options.Fields);
 }
 
 /// <summary>

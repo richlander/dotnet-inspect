@@ -110,6 +110,153 @@ namespace ILInspector.Metadata.Tests
         }
 
         [Fact]
+        public void SearchMembers_window_matches_complete_search()
+        {
+            IReadOnlyList<MemberSearchResult> complete =
+                MemberSearch.SearchAssembly(
+                    SelfAssembly,
+                    ["MemberSearchProbe*"]);
+            using var session =
+                AssemblyInspectionSession.Open(SelfAssembly);
+
+            MemberSearchWindowResult window =
+                session.SearchMembers(
+                    Path.GetFileNameWithoutExtension(SelfAssembly),
+                    ["MemberSearchProbe*"],
+                    includeAll: false,
+                    new(1, complete.Count));
+
+            Assert.True(window.EndReached);
+            Assert.Equal(complete.Count, window.AcceptedCount);
+            Assert.Equal(complete, window.Results);
+            Assert.Equal(
+                complete.Count,
+                window.Receipt.ProjectedRows);
+        }
+
+        [Fact]
+        public void SearchMembers_window_counts_preceding_matches_without_projecting_them()
+        {
+            IReadOnlyList<MemberSearchResult> complete =
+                MemberSearch.SearchAssembly(
+                    SelfAssembly,
+                    ["MemberSearchProbe*"]);
+            using var session =
+                AssemblyInspectionSession.Open(SelfAssembly);
+
+            MemberSearchWindowResult window =
+                session.SearchMembers(
+                    Path.GetFileNameWithoutExtension(SelfAssembly),
+                    ["MemberSearchProbe*"],
+                    includeAll: false,
+                    new(2, 3));
+
+            Assert.True(window.EndReached);
+            Assert.Equal(3, window.AcceptedCount);
+            Assert.Equal(complete.Skip(1).Take(2), window.Results);
+            Assert.Equal(2, window.Receipt.ProjectedRows);
+        }
+
+        [Fact]
+        public void SearchMembers_count_projects_no_rows()
+        {
+            IReadOnlyList<MemberSearchResult> complete =
+                MemberSearch.SearchAssembly(
+                    SelfAssembly,
+                    ["MemberSearchProbe*"]);
+            using var session =
+                AssemblyInspectionSession.Open(SelfAssembly);
+
+            MemberSearchWindowResult count =
+                session.SearchMembers(
+                    Path.GetFileNameWithoutExtension(SelfAssembly),
+                    ["MemberSearchProbe*"],
+                    includeAll: false,
+                    new(
+                        start: 1,
+                        end: null,
+                        materializeRows: false));
+
+            Assert.False(count.EndReached);
+            Assert.Equal(complete.Count, count.AcceptedCount);
+            Assert.Empty(count.Results);
+            Assert.Equal(0, count.Receipt.ProjectedRows);
+        }
+
+        [Fact]
+        public void SearchMembers_declaring_type_filter_precedes_window_positions()
+        {
+            IReadOnlyList<MemberSearchResult> complete =
+                MemberSearch.SearchAssembly(
+                        SelfAssembly,
+                        ["MemberSearchProbe*"])
+                    .Where(result =>
+                        result.DeclaringType
+                        == typeof(MemberSearchProbeBetaFixture).FullName)
+                    .ToArray();
+            using var session =
+                AssemblyInspectionSession.Open(SelfAssembly);
+
+            MemberSearchWindowResult window =
+                session.SearchMembers(
+                    Path.GetFileNameWithoutExtension(SelfAssembly),
+                    ["MemberSearchProbe*"],
+                    includeAll: false,
+                    new(1, 2),
+                    name =>
+                        name.ToMetadataFullName()
+                        == typeof(MemberSearchProbeBetaFixture).FullName);
+
+            Assert.True(window.EndReached);
+            Assert.Equal(2, window.AcceptedCount);
+            Assert.Equal(complete.Take(2), window.Results);
+        }
+
+        [Fact]
+        public void SearchMembers_preserves_same_module_attached_extensions()
+        {
+            string assembly = typeof(object).Assembly.Location;
+            IReadOnlyList<MemberSearchResult> complete =
+                MemberSearch.SearchAssembly(
+                    assembly,
+                    ["AsSpan"]);
+            using var session =
+                AssemblyInspectionSession.Open(assembly);
+
+            MemberSearchWindowResult window =
+                session.SearchMembers(
+                    Path.GetFileNameWithoutExtension(assembly),
+                    ["AsSpan"],
+                    includeAll: false,
+                    new(1, complete.Count));
+
+            Assert.NotEmpty(complete);
+            Assert.Equal(complete.Count, window.AcceptedCount);
+            Assert.Equal(complete, window.Results);
+        }
+
+        [Fact]
+        public void SearchMembers_preserves_projected_member_shapes()
+        {
+            IReadOnlyList<MemberSearchResult> complete =
+                MemberSearch.SearchAssembly(
+                    SelfAssembly,
+                    ["MemberSearchProjection*"]);
+            using var session =
+                AssemblyInspectionSession.Open(SelfAssembly);
+
+            MemberSearchWindowResult window =
+                session.SearchMembers(
+                    Path.GetFileNameWithoutExtension(SelfAssembly),
+                    ["MemberSearchProjection*"],
+                    includeAll: false,
+                    new(1, complete.Count));
+
+            Assert.Equal(4, complete.Count);
+            Assert.Equal(complete, window.Results);
+        }
+
+        [Fact]
         public void Search_empty_patterns_returns_empty_outcome()
         {
             var outcome = MemberSearch.Search([SelfAssembly], []);
@@ -148,5 +295,22 @@ namespace ILInspector.Metadata.Tests
     public sealed class MemberSearchProbeIndexerAlias
     {
         public int this[int index] => index;
+    }
+
+    public sealed class MemberSearchProjectionFixture<T>
+    {
+        public string? MemberSearchProjectionField;
+
+        public string? MemberSearchProjectionProperty { get; set; }
+
+        public event EventHandler? MemberSearchProjectionEvent;
+
+        public T? MemberSearchProjectionMethod(
+            string? value,
+            T? result) =>
+            result;
+
+        public void Raise() =>
+            MemberSearchProjectionEvent?.Invoke(this, EventArgs.Empty);
     }
 }

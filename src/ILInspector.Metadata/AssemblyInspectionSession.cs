@@ -542,6 +542,27 @@ public sealed class AssemblyInspectionSession :
             typesOnly);
 
     /// <summary>
+    /// Executes a metadata-native Member accepted-row fold without constructing
+    /// a complete API surface.
+    /// </summary>
+    public MemberSearchWindowResult SearchMembers(
+        string assemblyName,
+        IReadOnlyList<string> patterns,
+        bool includeAll,
+        MemberSearchWindow window,
+        Func<MetadataTypeDefinitionName, bool>? declaringTypeMatches = null)
+    {
+        _image.EnsureAlive();
+        return MemberSearch.SearchWindow(
+            _image.PEReader,
+            assemblyName,
+            patterns,
+            includeAll,
+            window,
+            declaringTypeMatches);
+    }
+
+    /// <summary>
     /// Reads declaration-only API Types in metadata order and stops before the
     /// Type after <paramref name="stopAfterType"/> first returns
     /// <see langword="true"/>.
