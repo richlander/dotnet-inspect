@@ -146,9 +146,12 @@ completion signal during `AssemblyContextOptimizationOpportunitiesQuery`'s
 classification; see
 [Prerequisite](#prerequisite-per-member-compute-observability). This design's
 Item-publication phase does not need that signal: it activates only after the
-existing synchronous call returns the complete, already-ranked, already-capped
-result, and streams that known result's rows instead of returning them as one
-array. When a future per-member signal exists, the same event vocabulary
+existing synchronous call returns its complete, unrestricted ranking and the
+existing Browser projection (navigable-surface filtering, then
+`ApplyPerformanceMemberLimit`) resolves that ranking into the final,
+navigable, capped array, and streams that known array's rows instead of
+returning them as one array. When a future per-member signal exists, the same
+event vocabulary
 additionally carries Progress checkpoints during the compute phase itself;
 this design does not gate on, redefine, or require that migration's
 sequencing.
@@ -271,8 +274,11 @@ this sequential reference before changing yield points.
 This design does not:
 
 - change `AssemblyContextOptimizationOpportunitiesQuery`'s member population,
-  ranking, confidence classification, or triage cap semantics — the Item list
-  and Completed accounting are exactly today's existing computed values;
+  ranking, or confidence classification, or `PackagePerformanceAsync`'s
+  existing navigable-surface filtering and `ApplyPerformanceMemberLimit`
+  triage cap — the Item list and Completed accounting are exactly today's
+  existing computed values, produced by those same existing owners in their
+  existing order;
 - change `BrowserPerformanceMember` or `BrowserPackagePerformance`'s field
   vocabulary;
 - adopt Progressive JSONL Delivery's compact wire encoding — the first
