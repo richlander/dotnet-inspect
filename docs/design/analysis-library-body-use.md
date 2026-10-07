@@ -104,6 +104,11 @@ Each distinct lifted-method name is classified once per execution. A name
 longer than `MetadataSafetyPolicy.MaxTypeNameCharacters` rejects generated
 ownership visibly without repeated materialization.
 
+Rejected attribution issues `RejectedLogicalOwner`; ordinary generated bodies
+outside logical fidelity issue `UnavailableLogicalOwner`. Both remain
+physical-only and qualify the result. Consumers can distinguish rejection
+from expected coverage using the diagnostic kind without parsing its text.
+
 Attribution changes only which Type a body's uses belong to. Body use owns the
 facts it consumes, and failures of those facts remain visible. These make the
 body malformed or limited, or the operand unavailable, with a typed diagnostic:

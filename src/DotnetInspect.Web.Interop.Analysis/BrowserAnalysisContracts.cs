@@ -418,7 +418,8 @@ public sealed record BrowserLibraryBodyUseCoverage(
     int OperandsConsidered,
     int OperandsExamined,
     int OperandsUnavailable,
-    int OperandsLimited);
+    int OperandsLimited,
+    int BodiesRejectedOwnership);
 
 [JsonConverter(
     typeof(JsonStringEnumConverter<BrowserLibraryStructuralTypePole>))]
