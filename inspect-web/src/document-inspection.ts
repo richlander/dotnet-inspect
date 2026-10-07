@@ -134,7 +134,9 @@ function splitFrontmatter(text: string) {
 // A nuspec is XML; render it through the Markdown path as a fenced xml block.
 function documentMarkdown(request: PackageDocumentRequest, text: string) {
   if (request.document.kind !== "metadata") return splitFrontmatter(text);
-  const longestRun = Math.max(0, ...(text.match(/`+/g) ?? []).map(run => run.length));
+  let longestRun = 0;
+  for (const [run] of text.matchAll(/`+/g))
+    if (run.length > longestRun) longestRun = run.length;
   const fence = "`".repeat(Math.max(3, longestRun + 1));
   return { meta: null, body: `${fence}xml\n${text}\n${fence}` };
 }

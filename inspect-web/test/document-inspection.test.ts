@@ -271,6 +271,13 @@ test("nuspec fence outgrows backtick runs inside the xml", async () => {
   assert.equal(rendered, `\`\`\`\`\`xml\n${xml}\n\`\`\`\`\``);
 });
 
+test("nuspec with very many backtick runs still renders", async () => {
+  const xml = `<description>${"a`".repeat(200_000)}</description>`;
+  const { rendered } = await renderedNuspecBody(xml);
+
+  assert.equal(rendered, `\`\`\`xml\n${xml}\n\`\`\``);
+});
+
 test("closing during acquisition suppresses stale document publication", async () => {
   const query = deferred<BrowserPackageDocumentContent>();
   let markdownRenders = 0;
