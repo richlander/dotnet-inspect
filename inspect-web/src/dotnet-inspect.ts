@@ -9391,6 +9391,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     maybeAutoLoadPackageIntegrations();
     maybeAutoLoadPackagePerformance();
     maybeAutoLoadPackageLibraryMetrics();
+    maybeAutoLoadPackageLibraryDependencyStructure();
     maybeAutoLoadTypeLeverage();
     maybeAutoLoadPackageMetadata();
   }
@@ -11296,6 +11297,17 @@ function maybeAutoLoadPackageLibraryMetrics() {
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packageLibraryMetricsKey !== packageScopeSignature())
     observeAsync(loadPackageLibraryMetrics(), "Loading library metrics");
+}
+
+function maybeAutoLoadPackageLibraryDependencyStructure() {
+  if (!state.atLibraryRoot || state.libraryLens !== "analysis") return;
+  if (aggregateLibrarySubjectIsActive()) return;
+  if (state.analysisMode !== "dependencies") return;
+  if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
+  if (state.packageLibraryDependencyStructureKey !== packageScopeSignature())
+    observeAsync(
+      loadPackageLibraryDependencyStructure(),
+      "Loading library dependency structure");
 }
 
 function maybeAutoLoadTypeLeverage() {
@@ -13284,10 +13296,8 @@ async function openPlatformLensLibrary(
     else if (state.analysisMode === "complexity"
       || state.analysisMode === "relationships")
       await loadPackageLibraryMetrics();
-    else if (state.analysisMode === "dependencies") {
-      render();
-      return;
-    }
+    else if (state.analysisMode === "dependencies")
+      await loadPackageLibraryDependencyStructure();
     else assertNever(state.analysisMode, "analysis mode");
   } else await loadPackageMetadata();
 }
