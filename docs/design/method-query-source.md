@@ -34,9 +34,13 @@ own gate, optional module lookup, traversal ordinal, Producer Planning work,
 completion, and exact source coverage. A settled lane keeps its result when a
 later lane aborts or encounters source failure, and source failure reaches only
 active lanes whose type scope required the failed enumeration. Sparse breadth
-and incompatible requests remain separate groups. Metadata-predicate breadth,
-generated-body expansion, body packets, and collapsed sparse request groups
-remain **unverified**.
+and incompatible requests remain separate groups. Exact-method and exact-type
+requests may opt into bounded generated execution-body expansion. The source
+uses targeted nested metadata for state-machine bodies and the existing lifted
+ownership authority for bounded body-dependent discovery; its receipt separates
+candidate definitions, probe bodies and bytes, relationship nodes, and
+authenticated origins from terminal work. Metadata-predicate breadth, body
+packets, and collapsed sparse request groups remain **unverified**.
 
 ## Demo and pathological case
 
@@ -496,7 +500,17 @@ Migration is incremental:
    preserving its focused result rather than filtering a legacy aggregate.
    Type `Unsafe Members` effective discovery implements this step with exact
    TypeDef breadth.
-5. Add authenticated generated-body expansion for that consumer.
+5. Add authenticated generated-body expansion for that consumer. This slice is
+   implemented: exact-Type `Unsafe Members` includes authenticated state-machine
+   and lifted execution bodies under finite candidate, generated-method, probe,
+   IL-byte, and relationship bounds. Scoped lifted-owner evidence settles once
+   per owner group, and state-machine authentication remains targeted.
+   State-machine claimant attributes settle once per source declaring-Type
+   chain. Nested TypeDef indexing, lifted declaring-chain authentication, and
+   every examined state-machine InterfaceImpl and MethodImpl row are included
+   in relationship-node work. Both targeted paths retain their acquired
+   evidence per TypeDef, so sibling sources reuse it without hiding the work
+   charged by the first lookup.
 6. Add referenced-body expansion only with a consumer that requires it.
 7. Let the host-neutral request-set planner from #8574 group compatible
    requests. Method Classification implements the first mixed-terminal CLI
@@ -534,9 +548,27 @@ The exact-breadth slice is gated in Release:
 The first production adoption is gated in Release:
 
 - `ExactTypeBreadthReceiptsOnlyTheSelectedType`
+- `ExactTypeBreadthIncludesGeneratedUnsafeBodies`
 - `TypeAuditEffectiveDiscovery_ListsUnsafeMembers`
+- `TypeAuditEffectiveDiscovery_ListsGeneratedUnsafeMembers`
 - `TypeAuditEffectiveDiscovery_OmitsUnsafeMembersForSafeType`
 - `TypeCommand_UnsafeMembersDiscovery_DoesNotBuildIndex`
+
+Generated expansion is gated in Release:
+
+- `MethodQuerySource_GeneratedExpansionVisitsOnlyAuthenticatedBodies`
+- `MethodQuerySource_GeneratedExpansionAccountsBodyDependentDiscovery`
+- `MethodQuerySource_GeneratedExpansionAvoidsAssemblyStateMachineIndex`
+- `MethodQuerySource_GeneratedExpansionAvoidsLegacyLiftedDeclaringChainWalk`
+- `MethodQuerySource_GeneratedExpansionSettlesSiblingLiftedEvidenceOnce`
+- `MethodQuerySource_GeneratedExpansionBoundsLiftedDeclaringTypeTraversal`
+- `MethodQuerySource_GeneratedExpansionBoundsNestedTypeTraversal`
+- `MethodQuerySource_GeneratedExpansionBoundsTargetedStateMachineLookup`
+- `MethodQuerySource_GeneratedExpansionSettlesTargetedStateMachineClaimsOnce`
+- `MethodQuerySource_GeneratedExpansionBoundsStateMachineInterfaceTraversal`
+- `MethodQuerySource_GeneratedExpansionBoundsStateMachineMethodImplementationTraversal`
+- `MethodQuerySource_GeneratedExpansionReusesTargetedStateMachineLookup`
+- `MethodQuerySource_GeneratedExpansionBoundPublishesSourceIncomplete`
 
 The instruction-demand reference planner is gated in Release:
 
@@ -546,8 +578,6 @@ The instruction-demand reference planner is gated in Release:
 
 The following deeper-source gates remain **unverified**:
 
-- `MethodQuerySource_GeneratedExpansionVisitsOnlyAuthenticatedBodies`
-- `MethodQuerySource_GeneratedExpansionAccountsBodyDependentDiscovery`
 - `MethodQuerySource_ReferencedExpansionIsBoundedDeduplicatedAndOrdered`
 - `MethodQuerySource_DeepestTerminalLayerIsAcquiredOncePerMethod`
 - `MethodQuerySource_SourceFailureDoesNotBecomeSuccessfulAbsence`
