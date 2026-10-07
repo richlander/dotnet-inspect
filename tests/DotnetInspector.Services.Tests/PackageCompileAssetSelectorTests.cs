@@ -5,6 +5,56 @@ namespace DotnetInspector.Services.Tests;
 
 public class PackageCompileAssetSelectorTests : IDisposable
 {
+    [Theory]
+    [InlineData("lib/net10.0/Example.dll", "lib/net11.0/Example.dll")]
+    [InlineData("ref/net10.0/Example.dll", "lib/net11.0/Example.dll")]
+    [InlineData("lib/net10.0/nested/Example.dll", "lib/net11.0/nested/Example.dll")]
+    public void FindComparisonAsset_UsesSelectedCompatibleSlice(string beforePath, string afterPath)
+    {
+        var before = PackageCompileAssetSelector.Evaluate(InMemory(beforePath), "Example",
+            PackageCompileAssetSelectionPolicy.ExplicitTarget, "net11.0").Selection;
+        var after = PackageCompileAssetSelector.Evaluate(InMemory(afterPath), "Example",
+            PackageCompileAssetSelectionPolicy.ExplicitTarget, "net11.0").Selection;
+
+        var counterpart = before.FindComparisonAsset(Assert.Single(after.Assets));
+
+        Assert.Same(Assert.Single(before.Assets), counterpart);
+        Assert.Equal(beforePath, counterpart!.Path);
+        Assert.Equal("net10.0", counterpart.TargetFramework);
+    }
+
+    [Fact]
+    public void FindComparisonAsset_DoesNotMatchOnlyTheFileName()
+    {
+        var before = PackageCompileAssetSelector.Evaluate(InMemory("lib/net10.0/other/Example.dll"), "Example",
+            PackageCompileAssetSelectionPolicy.ExplicitTarget, "net11.0").Selection;
+        var after = PackageCompileAssetSelector.Evaluate(InMemory("lib/net11.0/nested/Example.dll"), "Example",
+            PackageCompileAssetSelectionPolicy.ExplicitTarget, "net11.0").Selection;
+
+        Assert.Null(before.FindComparisonAsset(Assert.Single(after.Assets)));
+    }
+
+    [Fact]
+    public void FindComparisonAsset_PreservesExactAsset()
+    {
+        var selected = PackageCompileAssetSelector.Select(InMemory("lib/net11.0/Example.dll"), "Example", "net11.0");
+        var asset = Assert.Single(selected.Assets);
+
+        Assert.Same(asset, selected.FindComparisonAsset(asset));
+    }
+
+    [Fact]
+    public void FindComparisonAsset_DoesNotChooseAnAmbiguousRelativePath()
+    {
+        var selected = PackageCompileAssetSelector.Evaluate(InMemory("lib/net10.0/Example.dll"), "Example",
+            PackageCompileAssetSelectionPolicy.ExplicitTarget, "net11.0").Selection;
+        var baseline = Assert.Single(selected.Assets);
+        var ambiguous = selected with { Assets = [baseline, baseline with { Id = "other", Path = "ref/net10.0/Example.dll" }] };
+        var current = baseline with { Id = "compile:lib/net11.0/Example.dll", Path = "lib/net11.0/Example.dll", TargetFramework = "net11.0" };
+
+        Assert.Null(ambiguous.FindComparisonAsset(current));
+    }
+
     readonly string _root =
         Path.Combine(Path.GetTempPath(), $"package-assets-{Guid.NewGuid():N}");
 

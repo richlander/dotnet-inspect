@@ -208,13 +208,6 @@ public static partial class MetadataExports
         BrowserInspectionScope targetScope = targetLease.Scope;
         BrowserPackageCoordinate targetCoordinate =
             targetScope.Coordinates[0];
-        PackageCompileAsset targetAsset = RequireExactCompileAsset(
-            targetCoordinate,
-            request.CompileAssetId,
-            "target");
-        BrowserWorkspaceParticipant targetParticipant =
-            targetScope.SurfaceParticipant(targetCoordinate, targetAsset);
-
         await using BrowserScopeLease<BrowserInspectionScope> currentLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 request.PackageId,
@@ -228,6 +221,13 @@ public static partial class MetadataExports
             currentCoordinate,
             request.CompileAssetId,
             "current");
+        PackageCompileAsset targetAsset = targetCoordinate.Selection.FindComparisonAsset(currentAsset)
+            ?? throw new BrowserLibraryApiDiffRequestException(
+                $"The target package endpoint {targetCoordinate.PackageId} {targetCoordinate.Version} "
+                    + $"has no unique selected compile counterpart for '{currentAsset.Id}' "
+                    + $"for framework '{request.TargetFramework}'.");
+        BrowserWorkspaceParticipant targetParticipant =
+            targetScope.SurfaceParticipant(targetCoordinate, targetAsset);
         BrowserWorkspaceParticipant currentParticipant =
             currentScope.SurfaceParticipant(currentCoordinate, currentAsset);
 

@@ -216,7 +216,7 @@ public static partial class SourceExports
                     ? valid.Name
                     : throw new ArgumentException(
                         "Source comparison requires an exact metadata Type identity.");
-        var anchor = new MemberAnchor(
+        var anchor = new ProjectedMemberAnchor(
             request.StableSelector,
             request.CanonicalSignature,
             request.Fingerprint,
@@ -224,7 +224,7 @@ public static partial class SourceExports
             request.MemberName);
         return new(
             implementation,
-            new(type, anchor));
+            AssemblyMemberSourcePairEndpointRequest.From(type, anchor));
     }
 
     static void ValidateSourceComparisonRequest(BrowserSourceComparisonRequest request)

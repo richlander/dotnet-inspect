@@ -894,3 +894,122 @@ public sealed class AccessorContractFixtures
         }
     }
 }
+
+// Unsafe member findings attribution: generated bodies fold into the declared
+// member, and private and internal members are findings alongside public ones.
+public static class UnsafeFindingAttributionSamples
+{
+    public static System.Collections.Generic.IEnumerable<int> IteratorDereference(int[] values)
+    {
+        for (int index = 0; index < values.Length; index++)
+        {
+            int value;
+            unsafe
+            {
+                int* pointer = stackalloc int[1];
+                *pointer = values[index];
+                value = *pointer;
+            }
+            yield return value;
+        }
+    }
+
+    public static int LocalFunctionDereference(int[] values)
+    {
+        unsafe
+        {
+            return Read(values);
+        }
+
+        static unsafe int Read(int[] source)
+        {
+            unsafe
+            {
+                fixed (int* pointer = source)
+                {
+                    return *pointer;
+                }
+            }
+        }
+    }
+
+    static unsafe int PrivateDereference(int* pointer)
+    {
+        unsafe
+        {
+            return *pointer;
+        }
+    }
+
+    internal static unsafe int InternalDereference(int* pointer)
+    {
+        unsafe
+        {
+            return *pointer;
+        }
+    }
+
+    public static unsafe int CallsNonPublic(int* pointer)
+    {
+        unsafe
+        {
+            return PrivateDereference(pointer) + InternalDereference(pointer);
+        }
+    }
+
+    public static int Sink;
+
+    static unsafe delegate*<int> s_reader = &ReadZero;
+
+    static int ReadZero() => 0;
+
+    // Roslyn lifts this finally into <IteratorFinallyCall>d__N.<>m__Finally1,
+    // which only an authenticated owner may claim.
+    public static System.Collections.Generic.IEnumerable<int> IteratorFinallyCall(int[] values)
+    {
+        try
+        {
+            foreach (int value in values)
+                yield return value;
+        }
+        finally
+        {
+            unsafe
+            {
+                Sink = s_reader();
+            }
+        }
+    }
+
+    // An extern UnsafeAccessor is an IL declaration without a body: no
+    // applicable input, not a gap.
+    [System.Runtime.CompilerServices.UnsafeAccessor(
+        System.Runtime.CompilerServices.UnsafeAccessorKind.StaticField,
+        Name = "s_value")]
+    safe static extern ref int TargetValue(UnsafeAccessorTarget? target);
+}
+
+public sealed class UnsafeAccessorTarget
+{
+    static int s_value = 1;
+
+    public static int Value => s_value;
+}
+
+// A C# extension member is emitted as an implementation method and a
+// declaration copy in a grouping type; only the implementation is a finding.
+public static class UnsafeExtensionMembers
+{
+    extension(int[] values)
+    {
+        public unsafe int ExtensionDereference(int* pointer)
+        {
+            unsafe
+            {
+                return *pointer + values.Length;
+            }
+        }
+
+        public unsafe int ExtensionContract() => values.Length;
+    }
+}

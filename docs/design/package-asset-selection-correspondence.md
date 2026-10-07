@@ -58,6 +58,24 @@ Navigation or its
 request. `DefaultAsset` matches file stems in selection order, while First
 Library matches owner-issued assembly names in Library order.
 
+## Comparison counterparts
+
+An ordered package-version comparison retains the exact selected current
+compile asset. Its baseline selects a compile slice independently for the
+requested target using the existing compatibility policy. Within that selected
+set, `FindComparisonAsset` first resolves the exact asset ID; otherwise it
+issues a counterpart only when exactly one selected asset has the same
+framework-relative path. For example, `lib/net11.0/System.Text.Json.dll`
+corresponds to `lib/net10.0/System.Text.Json.dll` when those are the independently
+selected slices. Reference and library roots may differ between versions.
+
+Only the framework/root prefixes are removed by the existing package path
+projection; nested relative directories remain part of identity. This operation
+does not choose an unselected slice, change framework compatibility, match an
+assembly display name, or select the first candidate. Missing, unsupported, and
+ambiguous counterparts return no asset. The consumer retains both issued exact
+asset identities as comparison provenance.
+
 ## Receipts
 
 `PackageAssetSelector.Evaluate` returns `PackageAssetSelectionReceipt` with:
