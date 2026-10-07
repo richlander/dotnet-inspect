@@ -1,3 +1,4 @@
+using System.Reflection.Metadata.Ecma335;
 using ILInspector.Metadata;
 using ILInspector.CSharp;
 using ILInspector.Decompiler;
@@ -102,7 +103,11 @@ public static class AnnotatedSourceDiffExactPairQuery
     static MetadataMethodAddress Address(AssemblyContextGroup group, AssemblyContextParticipant participant, int token)
         => AssemblyContextMethodAddressQuery.ExecuteParticipant(group, participant, token) switch
         {
-            AssemblyContextEntry<MetadataMethodAddress>.Available available => available.Value,
+            AssemblyContextEntry<ProjectedMethodAddress>.Available available =>
+                new(
+                    available.Value.ModuleVersionId,
+                    MetadataTokens.MethodDefinitionHandle(
+                        available.Value.MetadataToken & 0x00ffffff)),
             _ => throw new InspectionQueryException("Exact Member address is unavailable."),
         };
 

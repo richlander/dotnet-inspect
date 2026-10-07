@@ -11,6 +11,31 @@ public sealed class BrowserMemberBodyDiffTests
 {
     [Fact]
     [Trait("Speed", "Slow")]
+    public async Task CrossFrameworkBaseline_OpensAddedMemberFromRetainedInventory()
+    {
+        var request = new BrowserMemberBodyDiffRequest("System.Text.Json", "10.0.0", "11.0.0-rc.1.26425.128",
+            "net11.0", "compile:lib/net11.0/System.Text.Json.dll", Guid.NewGuid().ToString());
+        string json = await SourceExports.QueryMemberBodyDiff(Guid.NewGuid().ToString(),
+            JsonSerializer.Serialize(request, BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffRequest));
+        var inventory = JsonSerializer.Deserialize(json, BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffResult)!;
+        Assert.True(inventory.Kind == "Available", $"{inventory.Kind}: {inventory.Detail}");
+        Assert.NotNull(inventory.Inspection);
+        var added = inventory.Inventory!.Types.SelectMany(type => type.Members)
+            .First(member => member.Outcome == "Added" && member.Selector is not null);
+
+        string memberJson = await SourceExports.QueryMemberBodyDiff(Guid.NewGuid().ToString(),
+            JsonSerializer.Serialize(request with { InventoryId = inventory.Inventory.Id, MemberId = added.Id },
+                BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffRequest));
+        var result = JsonSerializer.Deserialize(memberJson, BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffResult)!;
+        Assert.True(result.Kind == "Available", $"{result.Kind}: {result.Detail}");
+        Assert.Equal("Absent", result.Document!.BeforeOutcome);
+        Assert.Equal("Present", result.Document.AfterOutcome);
+        Assert.Equal(["CSharp", "Il"], result.Document.Media.Select(medium => medium.Medium));
+        Assert.All(result.Document.Media, medium => Assert.NotEmpty(medium.Diff!.Changes));
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public async Task AspireHosting_MemberBodyInventoryResolvesPublicPopulation()
     {
         var request = new BrowserMemberBodyDiffRequest("Aspire.Hosting", "13.6.0", "13.6.1",
