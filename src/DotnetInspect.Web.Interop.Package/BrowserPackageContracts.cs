@@ -338,7 +338,7 @@ public sealed record BrowserExceptionSurface(
 public sealed record BrowserTypeCandidate(
     string Key,
     string Name,
-    string Full) : LoadedTypeSearchCandidate(Key, Name, Full);
+    string Full);
 
 public sealed record BrowserTypeSearchHit(
     string Key,
