@@ -1,4 +1,5 @@
 using ILInspector.Analysis;
+using ILInspector.Analysis.Planning;
 
 namespace DotnetInspector.Queries;
 
@@ -14,12 +15,12 @@ public abstract record MemberCallSiteCountResult
     /// <summary>Count completed for every admitted physical body.</summary>
     public sealed record Available(
         int Count,
-        LibraryCallSiteCountAnalysisResult Analysis)
+        MemberCallCountAnalysis Analysis)
         : MemberCallSiteCountResult;
 
     /// <summary>At least one admitted physical body did not issue a count.</summary>
     public sealed record Incomplete(
-        LibraryCallSiteCountAnalysisResult Analysis)
+        MemberCallCountAnalysis Analysis)
         : MemberCallSiteCountResult;
 
     /// <summary>Count acquisition or Analysis failed.</summary>
@@ -49,40 +50,24 @@ public static class MemberCallSiteCountQuery
         int methodToken,
         ImplementationMetricWorkLimits limits)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
-        ArgumentNullException.ThrowIfNull(limits);
-
-        try
+        MemberCallCountExecution execution =
+            MemberCallCountQuery.Execute(
+                assemblyPath,
+                methodToken,
+                limits,
+                MethodCallCountProducer.CallSites,
+                "MemberCallSiteCount");
+        return execution.Status switch
         {
-            LibraryBodyAnalysisExecution execution =
-                LibraryBodyAnalysisService.ExecutePath(
-                    assemblyPath,
-                    LibraryBodyAnalysisRequest
-                        .CreateCallSiteCounts(
-                            limits,
-                            new HashSet<int> { methodToken }));
-            LibraryCallSiteCountAnalysisResult analysis =
-                execution.CallSiteCounts;
-            if (!analysis.IsComplete)
-            {
-                return new MemberCallSiteCountResult
-                    .Incomplete(analysis);
-            }
-
-            int count = 0;
-            foreach (MethodCallSiteCountEvidence body
-                in analysis.Counts)
-            {
-                if (body.Method.MetadataToken == methodToken)
-                    count = checked(count + body.Count);
-            }
-            return new MemberCallSiteCountResult.Available(
-                count,
-                analysis);
-        }
-        catch (Exception ex)
-        {
-            return new MemberCallSiteCountResult.Failed(ex);
-        }
+            MemberCallCountExecutionStatus.Available =>
+                new MemberCallSiteCountResult.Available(
+                    execution.Count,
+                    execution.Analysis!),
+            MemberCallCountExecutionStatus.Incomplete =>
+                new MemberCallSiteCountResult.Incomplete(
+                    execution.Analysis!),
+            _ => new MemberCallSiteCountResult.Failed(
+                execution.Error!),
+        };
     }
 }
