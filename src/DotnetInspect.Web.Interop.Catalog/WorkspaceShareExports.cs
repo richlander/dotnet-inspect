@@ -93,8 +93,7 @@ namespace DotnetInspect.Web.Interop.Catalog
             {
                 WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(encoded);
                 BrowserWorkspaceDiffShare? comparison = null;
-                if (packet.FormatVersion == WorkspaceSharePacketCodec.Format4Version
-                    && packet.Queries.Any(query => query.Vocabulary == WorkspaceDiffIntent.QueryId))
+                if (WorkspaceDiffShareProjection.IsExactDiff(packet))
                 {
                     WorkspaceDiffShare diff = WorkspaceDiffShareProjection.Read(packet);
                     packet = diff.Presentation;

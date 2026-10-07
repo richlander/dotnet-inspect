@@ -6,6 +6,10 @@ namespace DotnetInspector.Queries.Definitions;
 /// <summary>Exact Diff adoption of the existing committed packet/query contract.</summary>
 public static class WorkspaceDiffShareProjection
 {
+    public static bool IsExactDiff(WorkspaceSharePacket packet) =>
+        packet.FormatVersion == WorkspaceSharePacketCodec.Format4Version
+        && packet.Queries.Any(query => query.Vocabulary == WorkspaceDiffIntent.QueryId);
+
     public static WorkspaceSharePacket Create(
         WorkspaceSharePacket presentation,
         PortableLibraryIdentity library,
