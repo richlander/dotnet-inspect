@@ -454,7 +454,7 @@ public class PdbSourceHouseTests
     }
 
     [Fact]
-    public async Task FetchVerifiedSourceText_PreservesLineEndingNormalizationEvidence()
+    public async Task VerifiedSourceTextFetch_PreservesLineEndingNormalizationEvidence()
     {
         byte[] expected = Encoding.UTF8.GetBytes(Source.ReplaceLineEndings("\n"));
         byte[] actual = Encoding.UTF8.GetBytes(Source.ReplaceLineEndings("\r\n"));
@@ -465,7 +465,7 @@ public class PdbSourceHouseTests
             new InMemorySourceContentStore());
 
         VerifiedSourceTextResult result =
-            await PdbSourceHouse.FetchVerifiedSourceTextAsync(
+            await VerifiedSourceTextFetch.FetchAsync(
                 fetcher,
                 $"https://example.test/{Guid.NewGuid():N}/Sample.cs",
                 "SHA256",
@@ -477,6 +477,57 @@ public class PdbSourceHouseTests
         Assert.Equal(
             SourceChecksumVerification.LineEndingNormalized,
             result.ChecksumVerification);
+    }
+
+    [Fact]
+    public async Task VerifiedSourceTextFetch_MissingChecksumDoesNotDispatch()
+    {
+        var handler = new QueueHandler(Encoding.UTF8.GetBytes(Source));
+        using var client = new HttpClient(handler);
+        var fetcher = new SourceFetch(
+            client,
+            new InMemorySourceContentStore());
+
+        VerifiedSourceTextResult result =
+            await VerifiedSourceTextFetch.FetchAsync(
+                fetcher,
+                $"https://example.test/{Guid.NewGuid():N}/Sample.cs",
+                checksumAlgorithm: null,
+                checksum: null,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(result.Text);
+        Assert.Equal(
+            "The portable PDB does not provide a usable source checksum.",
+            result.Failure);
+        Assert.Equal(0, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task VerifiedSourceTextFetch_MapsRejectedDestination()
+    {
+        var handler = new QueueHandler(Encoding.UTF8.GetBytes(Source));
+        using var client = new HttpClient(handler);
+        var policy = new RejectingSourceFetchPolicy();
+        var fetcher = new SourceFetch(
+            client,
+            new InMemorySourceContentStore(),
+            policy);
+
+        VerifiedSourceTextResult result =
+            await VerifiedSourceTextFetch.FetchAsync(
+                fetcher,
+                "https://localhost/Sample.cs",
+                "SHA256",
+                SHA256.HashData(Encoding.UTF8.GetBytes(Source)),
+                TestContext.Current.CancellationToken);
+
+        Assert.Null(result.Text);
+        Assert.Equal(
+            "The host does not authorize this SourceLink destination.",
+            result.Failure);
+        Assert.Equal(0, handler.RequestCount);
+        Assert.Equal(0, policy.ConfiguredRequests);
     }
 
     [Fact]
