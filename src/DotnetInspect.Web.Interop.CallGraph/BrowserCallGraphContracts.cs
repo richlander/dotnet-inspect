@@ -77,7 +77,16 @@ public sealed record BrowserCallGraphTarget(
     string? SurfaceAssemblyId,
     string? PackageId = null,
     string? PackageVersion = null,
-    string? PackageFramework = null);
+    string? PackageFramework = null)
+{
+    public string? OwnerKind { get; init; }
+
+    public string? PlatformFamily { get; init; }
+
+    public string? PlatformFramework { get; init; }
+
+    public string? PlatformVersion { get; init; }
+}
 
 public sealed record BrowserCallGraphNode(
     string Label,
