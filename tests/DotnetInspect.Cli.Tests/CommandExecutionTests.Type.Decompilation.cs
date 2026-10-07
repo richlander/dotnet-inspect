@@ -1088,8 +1088,7 @@ public partial class CommandExecutionTests
             "Properties",
             "Methods",
             "Operators",
-            "Explicit Interface Implementations",
-            "Extension Methods"
+            "Explicit Interface Implementations"
         ];
 
         var previous = -1;
@@ -1099,6 +1098,7 @@ public partial class CommandExecutionTests
             Assert.True(current > previous, $"{heading} was not after the previous heading.");
             previous = current;
         }
+        Assert.DoesNotContain("─ Extension Methods", output);
     }
 
     [Fact]
@@ -1136,7 +1136,8 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("System.Collections.Generic.Dictionary<TKey, TValue>", output);
-        Assert.Contains("void Add(TKey key, TValue value)", output);
+        Assert.Contains("─ Add", output);
+        Assert.DoesNotContain("void Add(TKey key, TValue value)", output);
     }
 
     [Fact]

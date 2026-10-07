@@ -368,108 +368,10 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                 new PEReader(snapshot.Content);
 
             MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
-
-            var references =
-                ImmutableArray.CreateBuilder<AssemblyReferenceIdentity>();
-            var seenReferences = new HashSet<AssemblyReferenceIdentity>();
-            var referencesByHandle =
-                new Dictionary<
-                    AssemblyReferenceHandle,
-                    AssemblyReferenceIdentity>();
-            var referenceProjection =
-                new AssemblyReferenceProjectionCache(reader);
-            foreach (AssemblyReferenceHandle handle in reader.AssemblyReferences)
-            {
-                try
-                {
-                    AssemblyReferenceIdentity reference =
-                        AssemblyReferenceIdentity.From(
-                            handle,
-                            referenceProjection);
-                    referencesByHandle.Add(handle, reference);
-                    if (seenReferences.Add(reference))
-                        references.Add(reference);
-                }
-                catch (Exception ex) when (
-                    ex is BadImageFormatException
-                        or ArgumentOutOfRangeException)
-                {
-                    entry.RecordRootAdjacencyFailure(
-                        "The selected image has an invalid AssemblyRef row.");
-                }
-            }
-
-            var forwarderTargets =
-                ImmutableArray.CreateBuilder<AssemblyReferenceIdentity>();
-            var seenForwarderTargets =
-                new HashSet<AssemblyReferenceIdentity>();
-            Span<ExportedTypeHandle> rootToLeaf =
-                stackalloc ExportedTypeHandle[
-                    MetadataSafetyPolicy.MaxRelationshipNodes];
-            foreach (ExportedTypeHandle handle in reader.ExportedTypes)
-            {
-                try
-                {
-                    if (!MetadataRelationshipTraversal
-                            .TryWalkExportedTypeImplementationChain(
-                                reader,
-                                handle,
-                                rootToLeaf,
-                                out _,
-                                out EntityHandle terminal,
-                                out _))
-                    {
-                        // Root extraction diagnoses this ExportedType row from
-                        // the retained session; only adjacency discovery skips it.
-                        entry.RecordRootAdjacencyFailure(
-                            "The selected image has an invalid ExportedType relationship.");
-                        continue;
-                    }
-
-                    if (terminal.Kind == HandleKind.AssemblyReference)
-                    {
-                        if (!reader.GetExportedType(rootToLeaf[0]).IsForwarder)
-                        {
-                            entry.RecordRootAdjacencyFailure(
-                                ApiSurfaceInspectionFailure
-                                    .UnmarkedAssemblyForwarderDetail);
-                            continue;
-                        }
-
-                        var targetHandle = (AssemblyReferenceHandle)terminal;
-                        if (!referencesByHandle.TryGetValue(
-                                targetHandle,
-                                out AssemblyReferenceIdentity? target))
-                        {
-                            target = AssemblyReferenceIdentity.From(
-                                targetHandle,
-                                referenceProjection);
-                            referencesByHandle.Add(targetHandle, target);
-                            if (seenReferences.Add(target))
-                                references.Add(target);
-                        }
-
-                        if (seenForwarderTargets.Add(target))
-                            forwarderTargets.Add(target);
-                    }
-                    else if (terminal.Kind != HandleKind.AssemblyFile)
-                    {
-                        // Root extraction diagnoses this ExportedType row from
-                        // the retained session; only adjacency discovery skips it.
-                        entry.RecordRootAdjacencyFailure(
-                            "The selected image has an unsupported ExportedType terminal.");
-                    }
-                }
-                catch (Exception ex) when (
-                    ex is BadImageFormatException
-                        or ArgumentOutOfRangeException)
-                {
-                    // Root extraction diagnoses this ExportedType row from the
-                    // retained session; only adjacency discovery skips it.
-                    entry.RecordRootAdjacencyFailure(
-                        "The selected image has an invalid ExportedType row.");
-                }
-            }
+            MetadataRootAdjacencySnapshot adjacency =
+                MetadataRootAdjacencyInspector.Read(reader);
+            if (adjacency.Failure is { } failure)
+                entry.RecordRootAdjacencyFailure(failure);
 
             return new CandidateRegistrationResult.Ready(
                 entry.Candidate,
@@ -477,8 +379,8 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                     snapshot.Identity,
                     snapshot.ModuleVersionId,
                     contentDigest,
-                    references.ToImmutable(),
-                    forwarderTargets.ToImmutable(),
+                    adjacency.References,
+                    adjacency.ForwarderTargets,
                     snapshot.Length),
                 entry.RootAdjacencyFailure);
         }

@@ -2,8 +2,10 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Planning;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
+using DotnetInspector.Presentation;
 
 namespace DotnetInspect.Cli.Tests.Parsers;
 
@@ -59,8 +61,10 @@ public class TypeOptionsParserTests
         typeCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Details);
+        opts.AddPerformanceTriageOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(opts.PlainText);
+        typeCommand.Options.Add(opts.Mermaid);
         typeCommand.Options.Add(opts.Envelope);
         opts.AddOutputOptionsTo(typeCommand);
         opts.AddNuGetOptionsTo(typeCommand);
@@ -125,6 +129,10 @@ public class TypeOptionsParserTests
     }
 
     static async Task<TypeOptions> ParseSuccessAsync(params string[] args)
+        => (await ParsePlanSuccessAsync(args)).Options;
+
+    static async Task<TypeOptionsParser.Success> ParsePlanSuccessAsync(
+        params string[] args)
     {
         ArgumentPreprocessor.Reset();
         var (root, opts, cmdArgs) = CreateTestCommand();
@@ -132,8 +140,124 @@ public class TypeOptionsParserTests
         Assert.Empty(parseResult.Errors);
 
         var result = await TypeOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
-        var success = Assert.IsType<TypeOptionsParser.Success>(result);
-        return success.Options;
+        if (result is TypeOptionsParser.VersionError versionError)
+        {
+            Assert.Fail(versionError.Error.Message);
+        }
+        return Assert.IsType<TypeOptionsParser.Success>(result);
+    }
+
+    [Theory]
+    [InlineData(
+        TypeOverviewHierarchyPresentationFormat.Tree,
+        "type", "System.Math", "--platform", "System.Private.CoreLib")]
+    [InlineData(
+        TypeOverviewHierarchyPresentationFormat.Tree,
+        "type", "System.Math", "--platform", "System.Private.CoreLib", "--tree")]
+    [InlineData(
+        TypeOverviewHierarchyPresentationFormat.Mermaid,
+        "type", "System.Math", "--platform", "System.Private.CoreLib", "--mermaid")]
+    [InlineData(
+        TypeOverviewHierarchyPresentationFormat.Tree,
+        "type", "System.Math", "--platform", "System.Private.CoreLib", "--all")]
+    public async Task ExactTypePresentation_IsPlannedAfterParsing(
+        TypeOverviewHierarchyPresentationFormat expected,
+        params string[] args)
+    {
+        TypeOptionsParser.Success success =
+            await ParsePlanSuccessAsync(args);
+
+        var plan =
+            Assert.IsType<TypeCommandPlan.ExactTypeOverview>(
+                success.CommandPlan);
+        Assert.Equal(expected, plan.Format);
+    }
+
+    [Theory]
+    [InlineData("type", "System.*", "--platform", "System.Private.CoreLib")]
+    [InlineData("type", "System.Math", "--platform", "System.Private.CoreLib", "--json")]
+    [InlineData("type", "System.Math", "--platform", "System.Private.CoreLib", "-S", "Methods")]
+    [InlineData("type", "System.Math", "--platform", "System.Private.CoreLib", "-m", "M")]
+    [InlineData("type", "System.Math", "--platform", "System.Private.CoreLib", "-n", "2")]
+    [InlineData("type", "System.Math", "--platform", "System.Private.CoreLib", "--top", "0")]
+    public async Task CompetingTypeRequests_KeepStandardPlan(
+        params string[] args)
+    {
+        TypeOptionsParser.Success success =
+            await ParsePlanSuccessAsync(args);
+
+        Assert.IsType<TypeCommandPlan.Standard>(success.CommandPlan);
+    }
+
+    [Theory]
+    [InlineData("--top", "0")]
+    [InlineData("--tree")]
+    public async Task TargetFreeMermaidCompetingRequest_UsesStandaloneDiagnostic(
+        params string[] competingArgs)
+    {
+        ArgumentPreprocessor.Reset();
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        ParseResult parseResult = root.Parse(
+            ["type", "--mermaid", .. competingArgs]);
+        Assert.Empty(parseResult.Errors);
+
+        TypeOptionsParser.TypeParseResult result =
+            await TypeOptionsParser.ParseAsync(
+                parseResult,
+                opts,
+                cmdArgs);
+
+        var error =
+            Assert.IsType<TypeOptionsParser.VersionError>(result);
+        Assert.Equal(
+            TypeCommandPlanner.StandaloneMermaidError,
+            error.Error.Message);
+    }
+
+    [Fact]
+    public void ImplicitPlatformPrefixFallback_IsNotAnExactTypePlan()
+    {
+        var options = new TypeOptions
+        {
+            TypeName = "DefinitelyNotAType9620",
+            PlatformAssembly = "System.Private.CoreLib",
+            TypeTargetUsedPlatformPrefixFallback = true,
+        };
+        ResolvedMemberInspectionPlan inspectionPlan =
+            ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options);
+
+        var planned =
+            Assert.IsType<TypeCommandPlanningResult.Planned>(
+                TypeCommandPlanner.Plan(
+                    options,
+                    inspectionPlan));
+        Assert.IsType<TypeCommandPlan.Standard>(planned.Plan);
+    }
+
+    [Fact]
+    public void ImplicitPlatformPrefixFallback_MermaidIsRejected()
+    {
+        var options = new TypeOptions
+        {
+            TypeName = "DefinitelyNotAType9620",
+            PlatformAssembly = "System.Private.CoreLib",
+            MermaidExplicitlySet = true,
+            MermaidOutput = true,
+            TypeTargetUsedPlatformPrefixFallback = true,
+        };
+        ResolvedMemberInspectionPlan inspectionPlan =
+            ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options);
+
+        var rejected =
+            Assert.IsType<TypeCommandPlanningResult.Rejected>(
+                TypeCommandPlanner.Plan(
+                    options,
+                    inspectionPlan));
+        Assert.Equal(
+            TypeCommandPlanner.ExactTypeMermaidError,
+            rejected.Error);
     }
 
     [Fact]
