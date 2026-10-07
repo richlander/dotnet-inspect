@@ -101,6 +101,7 @@
     <ProjectReference Include="..\..\src\ILInspector.Research\ILInspector.Research.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.DependencyManifests\DotnetInspector.DependencyManifests.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Services\DotnetInspector.Services.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.ResearchSections\DotnetInspector.ResearchSections.csproj" />
     <ProjectReference Include="..\..\src\Inspector.Artifacts.Workspaces\Inspector.Artifacts.Workspaces.csproj" />
@@ -211,6 +212,8 @@
              Link="ReturnToSenderTargetCount.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AuthoredRebuildFidelity.cs"
              Link="AuthoredRebuildFidelity.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\AuthoredSourceQuerySession.cs"
+             Link="AuthoredSourceQuerySession.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AuthoredBuildContext.cs"
              Link="AuthoredBuildContext.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CSharpSourceIdentity.cs"

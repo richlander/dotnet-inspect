@@ -1644,6 +1644,11 @@ canaries:
   and ordered resolution routes into caller-shaped Browser values. The Package
   facade preserves the generated wire contract without referencing Metadata
   identities or structured Type names.
+- Product demo plans resolve their owner-issued member anchor over
+  caller-shaped candidates in Queries. Web Core carries only the projected
+  Browser surface and a portable exact Library identity to Catalog; Catalog
+  does not independently invoke Metadata member resolution or unwrap Metadata
+  assembly identities.
 - `AssemblyContextTypeDependencyQuery` retains the admitted descriptors for one
   binding-consistent group and invokes the Metadata-owned population scan once.
   Ordinary population lookup scans the committed participant order. Its

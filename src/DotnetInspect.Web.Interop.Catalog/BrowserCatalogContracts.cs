@@ -574,7 +574,14 @@ public sealed record BrowserWorkspaceShareView(
     string? MemberSignature,
     string? Section,
     string[] Libraries,
-    string? SourceView);
+    string? SourceView,
+    BrowserWorkspaceDiffShare? Comparison = null);
+
+public sealed record BrowserWorkspaceDiffShare(
+    string Baseline, string Content, string Asset, string Medium, string? Body,
+    string LibraryName, string LibraryVersion, string? LibraryCulture,
+    string? LibraryPublicKeyToken,
+    string? PredicateOperator = null, string? PredicateValue = null);
 
 /// <summary>
 /// Long-form Browser transport for one canonical packet-local scenario.

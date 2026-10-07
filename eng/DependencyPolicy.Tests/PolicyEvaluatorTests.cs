@@ -1419,7 +1419,6 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Ecosystems",
                 "DotnetInspector.Queries",
                 "DotnetInspector.Sections",
-                "ILInspector.Metadata",
             ],
             Assert.IsType<string[]>(projectRule.AllowOnly));
         Assert.Null(projectRule.Deny);
@@ -1441,7 +1440,6 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Sections",
                 "DotnetInspector.SourceSelection",
                 "ILInspector.Decompiler",
-                "ILInspector.Metadata",
                 "InertText",
                 "NuGetFetch",
                 "QuerySpace.Primitives",
@@ -1455,13 +1453,13 @@ public sealed class PolicyEvaluatorTests
         AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
             projectRule.Id,
             target[0],
-            "ILInspector.Analysis",
+            "ILInspector.Metadata",
             DependencyGraphKind.Project,
             projectPath[0]);
         AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
             assemblyRule.Id,
             target[0],
-            "ILInspector.Analysis",
+            "ILInspector.Metadata",
             DependencyGraphKind.Assembly,
             projectPath[0]);
     }

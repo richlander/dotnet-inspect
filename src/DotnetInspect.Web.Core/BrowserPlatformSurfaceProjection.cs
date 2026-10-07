@@ -8,13 +8,12 @@ namespace DotnetInspect.Web;
 
 internal sealed record BrowserPlatformProjectionInfo(
     BrowserPackageSurfaceInfo Surface,
-    AssemblyContextApiSurfaceResult ApiSurfaces,
+    PortableLibraryIdentity AssemblyIdentity,
     WorkspaceContextMember Participant,
     RealizedMemberCoordinate.Platform Coordinate);
 
 internal sealed record BrowserPlatformSurfaceProjectionValue(
-    BrowserPackageSurfaceInfo Surface,
-    AssemblyContextApiSurfaceResult ApiSurfaces);
+    BrowserPackageSurfaceInfo Surface);
 
 internal abstract record BrowserPlatformSurfaceProjectionResult
 {
@@ -142,6 +141,7 @@ internal static class BrowserPlatformSurfaceProjection
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(participant);
         ArgumentNullException.ThrowIfNull(coordinate);
+        assetFileName ??= participant.Participant.Assembly.AssetFileName;
 
         BrowserPlatformSurfaceProjectionResult result =
             scope.UseParticipant(
@@ -158,7 +158,8 @@ internal static class BrowserPlatformSurfaceProjection
             BrowserPlatformSurfaceProjectionResult.Projected projected =>
                 new BrowserPlatformProjectionInfo(
                     projected.Projection.Surface,
-                    projected.Projection.ApiSurfaces,
+                    PortableIdentityProjection.FromWorkspaceContextMember(
+                        participant),
                     participant,
                     coordinate),
             BrowserPlatformSurfaceProjectionResult.Unavailable unavailable =>
@@ -231,8 +232,6 @@ internal static class BrowserPlatformSurfaceProjection
                 surface);
         }
         return new BrowserPlatformSurfaceProjectionResult.Projected(
-            new BrowserPlatformSurfaceProjectionValue(
-                surface,
-                surfaces));
+            new BrowserPlatformSurfaceProjectionValue(surface));
     }
 }

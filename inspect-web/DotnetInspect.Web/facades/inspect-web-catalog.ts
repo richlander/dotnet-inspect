@@ -873,7 +873,22 @@ export interface BrowserWorkspaceShareTab {
   readonly runtimeIdentifier: string | null;
 }
 
+export interface BrowserWorkspaceDiffShare {
+  readonly baseline: string;
+  readonly content: string;
+  readonly asset: string;
+  readonly medium: string;
+  readonly body: string | null;
+  readonly libraryName: string;
+  readonly libraryVersion: string;
+  readonly libraryCulture: string | null;
+  readonly libraryPublicKeyToken: string | null;
+  readonly predicateOperator?: string | null;
+  readonly predicateValue?: string | null;
+}
+
 export interface BrowserWorkspaceShareView {
+  readonly comparison?: BrowserWorkspaceDiffShare | null;
   readonly lens: string | null;
   readonly type: string | null;
   readonly memberAnchor: string | null;
