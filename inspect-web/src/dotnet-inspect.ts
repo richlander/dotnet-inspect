@@ -5076,10 +5076,13 @@ const spotlight = createSpotlight({
     spotlightPackageSearchIsLoading(state.spotlightPackageSearch),
   packageSearchError: () =>
     spotlightPackageSearchError(state.spotlightPackageSearch),
+  packageSearchNotice: () => state.spotlightQuery.includes("*")
+    ? `Package prefix search · up to ${SPOTLIGHT_PACKAGE_PREFIX_LIMIT} matches` : "",
   typeSearchLoading: () => spotlightTypeFind.loading(),
   typeSearchError: () => spotlightTypeFind.error(),
   typeSearchNotice: () => spotlightTypeFind.notice(),
-  scheduleCapabilitySearch: () => spotlightCapabilitySearch.schedule(),
+  scheduleCapabilitySearch: () => state.spotlightQuery.includes("*")
+    ? spotlightCapabilitySearch.reset() : spotlightCapabilitySearch.schedule(),
   resetCapabilitySearch: () => spotlightCapabilitySearch.reset(),
   capabilitySearchMessage: () =>
     spotlightCapabilitySearchMessage(
@@ -11975,7 +11978,7 @@ function prepareSpotlightResults() {
   const requestsTypes = state.spotlightScope === "commands"
     ? /^type(?:\s|$)/i.test(query)
     : Boolean(query)
-      && (state.spotlightScope === "all"
+      && ((state.spotlightScope === "all" && !query.includes("*"))
         || state.spotlightScope === "types"
         || state.spotlightScope === "members");
   if (!state.spotlightOpen || !requestsTypes) return;
@@ -15281,7 +15284,8 @@ function spotlightResults(): SpotlightResult[] {
   }
 
   const all = spotlightScope === "all";
-  const requestsTypes = all || spotlightScope === "types";
+  const prefixQuery = (all || spotlightScope === "packages") && query.includes("*");
+  const requestsTypes = (all && !prefixQuery) || spotlightScope === "types";
   spotlightTypeFind.schedule(
     activeRetainedWorkspacePosting,
     query,
@@ -15290,6 +15294,16 @@ function spotlightResults(): SpotlightResult[] {
   const results: SpotlightResult[] = [];
 
   if (all || spotlightScope === "packages") {
+    if (prefixQuery) {
+      for (const hit of visibleSpotlightPackageHits(state.spotlightPackageSearch, query)) {
+        const pkg = findOpenPackageForQuery(state, {
+          packageId: hit.id, version: hit.version ?? "latest", explicitVersion: true,
+        });
+        results.push(pkg ? { kind: "pkg-loaded", pkg, ranges: [] }
+          : { kind: "pkg-nuget", hit, ranges: [] });
+      }
+      return annotateSpotlightPublicationDates(annotateSpotlightEcosystems(results));
+    }
     const parsedPackageQuery = parsePackageQuery(query);
     if (parsedPackageQuery?.explicitVersion) {
       const openPackage = findOpenPackageForQuery(state, parsedPackageQuery);
@@ -15338,11 +15352,6 @@ function spotlightResults(): SpotlightResult[] {
       results.push({ kind: "pkg-nuget", hit, ranges: computeHighlightRanges(hit.id, query.toLowerCase()) });
       if (all && ++added >= 4) break;
     }
-    results.push({
-      kind: "package-query",
-      prefix: validPackageQuerySearchText(query),
-    });
-    results.push({ kind: "package-activity" });
   }
   if (all && query) {
     for (const capability of visibleSpotlightCapabilityResults(
@@ -15408,9 +15417,34 @@ function isNugetSearchResult(value: unknown): value is NugetSearchResult {
     && (value.description === undefined || typeof value.description === "string");
 }
 
-async function querySpotlightPackages(query: string): Promise<SpotlightPackageHit[]> {
+const SPOTLIGHT_PACKAGE_PREFIX_LIMIT = 8;
+
+async function querySpotlightPackagePrefix(query: string, signal: AbortSignal): Promise<SpotlightPackageHit[]> {
+  const source = createBrowserPackageQueryDataSource({
+    cancel: (operationId, reason) => cancelPackageQuery(operationId, reason),
+    requestMatches: (operationId, credit) => inspectRequestPackageQueryMatches(operationId, credit),
+    run: (...args) => inspectRunPackageQuery(...args),
+  });
+  const hits: SpotlightPackageHit[] = [];
+  const failures: string[] = [];
+  const completion = await source.run({
+    ...createQueryRequest(query),
+    includePrerelease: true,
+    requestedLimit: SPOTLIGHT_PACKAGE_PREFIX_LIMIT,
+    requestedMatchLimit: SPOTLIGHT_PACKAGE_PREFIX_LIMIT,
+  }, rows => {
+    for (const row of rows) hits.push({ id: row.packageId, version: row.version });
+  }, failure => failures.push(failure), () => {}, signal);
+  if (completion.kind === "cancelled") throw new DOMException("Package prefix search was cancelled.", "AbortError");
+  if (completion.kind === "failed") failures.push(completion.reason);
+  if (failures.length) throw new Error(failures.join("; "));
+  return hits;
+}
+
+async function querySpotlightPackages(query: string, signal: AbortSignal): Promise<SpotlightPackageHit[]> {
+  if (query.includes("*")) return querySpotlightPackagePrefix(query, signal);
   const url = `https://azuresearch-usnc.nuget.org/query?q=${encodeURIComponent(query)}&take=8&prerelease=true&semVerLevel=2.0.0`;
-  const response = await fetch(url);
+  const response = await fetch(url, { signal });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const payload: unknown = await response.json();
   if (!isRecord(payload)
@@ -15771,9 +15805,6 @@ function openSpotlightCapability(result: SpotlightCapabilityResult): void {
 function pickSpotlightResult(result: SpotlightResult) {
   if (!result) { closeSpotlight(); return; }
   switch (result.kind) {
-    case "package-query":
-      openPackageQueryRoute(result.prefix);
-      break;
     case "package-activity":
       openPackageActivityRoute();
       break;
