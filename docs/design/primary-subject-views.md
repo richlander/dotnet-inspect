@@ -240,7 +240,8 @@ adopts it, in that owner's document, with its own gates.
   is unique in the slice. A `--namesake-library` or `--first-library` request,
   as defined by
   [Inspection Subject Navigation](inspection-subject-navigation.md#initial-aggregate-and-package),
-  may appear as a tip on that failure, never as the silent subject.
+  may appear as a tip on that failure when it would apply, never as the silent
+  subject.
 - **Narrowing:** `library L --namespace N`, so that every collapsed row can be
   expanded.
 - **Namespace as input:** `library N`, where `N` names a namespace rather

@@ -661,8 +661,10 @@ correspondence. Artifact acquisition and package realization bind that receipt
 and its admitted Library outcomes to one exact Package occurrence in one
 `PackageLibraries` basis. Navigation consumes that composed value, not
 separately pairable occurrence and projection arguments. It neither reselects
-a TFM nor ranks package asset paths. The compile-selection owner resolves exact
-asset IDs within that projection. Library admission and Metadata supply the
+a TFM nor ranks package asset paths for selection. Library order's final
+ordinal path comparison only makes the order total among already admitted
+Libraries. The compile-selection owner resolves exact asset IDs within that
+projection. Library admission and Metadata supply the
 exact admitted Library identities and managed assembly facts used by
 narrowing.
 
@@ -1311,7 +1313,7 @@ trustworthy when another row or participant fails; failure does not erase
 positive evidence.
 
 Every admitted Library remains an ordered aggregate member and an eligible
-target for explicit exact or namesake narrowing. No individual Library is an
+target for explicit exact, namesake, or First Library narrowing. No individual Library is an
 implicit initial-recommendation candidate. Exact returned Type rows remain
 inventory candidates for retained-context ranking; they are not implicit
 subjects. Classification does not commit the recommendation, choose an active
@@ -1508,8 +1510,9 @@ inspector. Inspect Web currently implements a host-local approximation in
 `preferredLibrarySubjectId`. It matches and sorts selector-issued file stems
 with a culture-sensitive collation and checks no assembly identity. Adoption
 under #9683 replaces it with the shared result. That changes the name basis to
-owner-issued assembly simple names, changes the collation to ordinal, and adds
-failure on unresolved identity, so the gesture can choose a different Library
+owner-issued assembly simple names, changes the collation to ordinal, adds
+failure on unresolved identity, and stops activating the inspector when First
+Library does not apply. The gesture can therefore choose a different Library
 than it does today.
 The transition runs only for user inspector navigation. Restoration,
 rerendering, and asynchronous settlement do not repeat it. A later explicit
@@ -2785,7 +2788,7 @@ must preserve the same typed outcomes and fresh destination content.
 | Unique namesake gesture | Exact one-Library subject whose owner-issued assembly simple name uniquely matches the Package ID ignoring case |
 | Missing, ambiguous, or indeterminate namesake | Typed unavailable, ambiguous, or failed result with ordered candidates and participant evidence; no declaration-order, aggregate, or Package fallback |
 | First Library gesture | The first namesake in Library order, otherwise the first Library in Library order; several namesakes select the first |
-| First Library with an unresolved identity, no admitted Library, or a failed chosen Library | Typed failed or unavailable result; no sibling-Library, aggregate, or Package fallback |
+| First Library with an unresolved identity, no admitted Library, or an unavailable or failed chosen Library | Typed failed or unavailable result; no sibling-Library, aggregate, or Package fallback |
 | Multiple framework selection | One separately associated aggregate per selected framework; no cross-framework subject or API merge |
 | Preferred role is not first | Preferred available role, not the earlier available descriptor |
 | Preferred lens unavailable | First available registry-ordered fallback with preferred evidence retained |
