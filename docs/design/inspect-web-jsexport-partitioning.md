@@ -312,6 +312,12 @@ PDB source inspections expose their resolved and attributable browse URLs as
 detached Services-owned values. The facade preserves those values in its
 existing source and comparison contracts without interpreting SourceLink
 documents or referencing the SourceLink component directly.
+Exact logical-member identity similarly crosses through Metadata-owned
+`ProjectedMemberAnchor` values. Decompiler documents, Queries source requests,
+and ResearchQueries comparison endpoints perform the projection at their
+owning boundaries; the Source facade transports those values without
+constructing or inspecting
+`MetadataPrimitives.MemberAnchor`.
 
 ### Call-graph facade: 2 exports
 

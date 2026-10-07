@@ -29,6 +29,9 @@ public static class AnalysisFindings
     public static readonly FindingDescriptor UnsafeEvidenceDescriptor =
         new("analysis.unsafe-evidence", "Unsafe evidence");
 
+    public static readonly FindingDescriptor UnsafeMemberDescriptor =
+        new("analysis.unsafe-member", "Unsafe member");
+
     public static readonly FindingDescriptor ResourceLifecycleDescriptor =
         new("analysis.resource-lifecycle", "Resource lifecycle occurrence");
 
@@ -323,6 +326,75 @@ public static class AnalysisFindings
     }
 
     /// <summary>
+    /// Projects the unsafe member census into one Finding per declared member,
+    /// an identity set keyed by the member's signature. An incomplete census is
+    /// never returned as complete; see docs/design/unsafe-member-findings.md.
+    /// </summary>
+    public static UnsafeMemberFindingInspection InspectUnsafeMembers(
+        UnsafeMemberCensus census,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(census);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        var findings = ImmutableArray.CreateBuilder<Finding<UnsafeMemberFinding>>(
+            census.Members.Length);
+        foreach (UnsafeMemberFinding member in census.Members
+            .OrderBy(static member => member.Member.MetadataToken))
+        {
+            findings.Add(new Finding<UnsafeMemberFinding>(
+                subject,
+                UnsafeMemberDescriptor,
+                new FindingKey(GetUnsafeMemberIdentityKey(member.Member)),
+                member,
+                Ordinal: null,
+                Detail: null));
+        }
+
+        var inspection = new FindingInspection<UnsafeMemberFinding>.Complete(
+            findings.MoveToImmutable());
+        return census.IsComplete
+            ? new UnsafeMemberFindingInspection.Complete(inspection)
+            : new UnsafeMemberFindingInspection.Incomplete(
+                inspection,
+                census.Limitations);
+    }
+
+    /// <summary>
+    /// Projects an execution's unsafe member census, failing when the execution
+    /// did not produce one.
+    /// </summary>
+    public static UnsafeMemberFindingInspection InspectUnsafeMembers(
+        LibrarySafetyAnalysisResult safety,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(safety);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return safety.WasRequested && safety.HasMemberCensus
+            ? InspectUnsafeMembers(safety.MemberCensus, subject)
+            : new UnsafeMemberFindingInspection.Failed(
+                new InspectionError(
+                    subject,
+                    UnsafeMemberDescriptor,
+                    "Method evidence was not requested for this analysis execution."));
+    }
+
+    /// <summary>
+    /// The declared member's identity through the shared member-identity
+    /// fragment. Module version, metadata token, and caller-unsafe mode are not
+    /// identity.
+    /// </summary>
+    public static string GetUnsafeMemberIdentityKey(MethodIdentity member)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+
+        var key = new StringBuilder();
+        AppendMethodIdentity(key, member);
+        return key.ToString();
+    }
+
+    /// <summary>
     /// Projects one method's definite unsafe IL operations into IL order. An empty sequence is a
     /// complete safe-operation census; declaration and signature evidence use
     /// <see cref="InspectUnsafeEvidence"/> instead.
@@ -550,27 +622,72 @@ public static class AnalysisFindings
     }
 
     static void AppendMemberIdentity(StringBuilder key, MemberRef member)
+        => AppendMemberIdentityFragment(
+            key,
+            member.Kind,
+            member.DeclaringType,
+            member.Name,
+            member.HasThis,
+            member.SignatureHeader,
+            member.GenericArity,
+            member.TypeArguments,
+            member.ParameterTypes,
+            member.ReturnType,
+            member.OpenSignatureParameters,
+            member.OpenSignatureReturn);
+
+    // A definition's signature is already its open signature.
+    static void AppendMethodIdentity(StringBuilder key, MethodIdentity method)
+        => AppendMemberIdentityFragment(
+            key,
+            method.Name is ".ctor" or ".cctor"
+                ? MemberKind.Constructor
+                : MemberKind.Method,
+            method.DeclaringType,
+            method.Name,
+            !method.IsStatic,
+            method.SignatureHeader,
+            method.GenericArity,
+            [],
+            method.ParameterTypes,
+            method.ReturnType,
+            method.ParameterTypes,
+            method.ReturnType);
+
+    static void AppendMemberIdentityFragment(
+        StringBuilder key,
+        MemberKind kind,
+        TypeRef declaringType,
+        string name,
+        bool hasThis,
+        byte signatureHeader,
+        int genericArity,
+        ImmutableArray<TypeRef> typeArguments,
+        ImmutableArray<TypeRef> parameterTypes,
+        TypeRef returnType,
+        ImmutableArray<TypeRef> openParameterTypes,
+        TypeRef openReturnType)
     {
         AppendKeyPart(
             key,
-            ((int)member.Kind).ToString(
+            ((int)kind).ToString(
                 System.Globalization.CultureInfo.InvariantCulture));
-        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(member.DeclaringType));
-        AppendKeyPart(key, member.Name);
-        AppendKeyPart(key, member.HasThis ? "instance" : "static");
+        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(declaringType));
+        AppendKeyPart(key, name);
+        AppendKeyPart(key, hasThis ? "instance" : "static");
         AppendKeyPart(
             key,
-            member.SignatureHeader.ToString(
+            signatureHeader.ToString(
                 System.Globalization.CultureInfo.InvariantCulture));
         AppendKeyPart(
             key,
-            member.GenericArity.ToString(
+            genericArity.ToString(
                 System.Globalization.CultureInfo.InvariantCulture));
-        AppendTypes(key, member.TypeArguments);
-        AppendTypes(key, member.ParameterTypes);
-        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(member.ReturnType));
-        AppendTypes(key, member.OpenSignatureParameters);
-        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(member.OpenSignatureReturn));
+        AppendTypes(key, typeArguments);
+        AppendTypes(key, parameterTypes);
+        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(returnType));
+        AppendTypes(key, openParameterTypes);
+        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(openReturnType));
     }
 
     static void AppendKeyPart(StringBuilder key, string part)

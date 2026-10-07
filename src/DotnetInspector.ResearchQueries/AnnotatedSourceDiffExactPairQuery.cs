@@ -12,7 +12,15 @@ public sealed record AnnotatedSourceDiffBodyEndpoint(
     MemberAnchor Anchor,
     MemberTargetSelector Selector,
     int MethodToken,
-    ResearchTargetRelationshipRole Role);
+    ResearchTargetRelationshipRole Role)
+{
+    public ProjectedMemberAnchor ProjectedAnchor => new(
+        Anchor.StableSelector,
+        Anchor.CanonicalSignature,
+        Anchor.Fingerprint,
+        Anchor.TypeFullName,
+        Anchor.MemberName);
+}
 
 /// <summary>
 /// Projects an already-corresponded exact pair. The caller owns the semantic
