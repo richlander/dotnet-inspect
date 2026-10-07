@@ -7,6 +7,7 @@ test("Member Body opens inline and retains the document through media and Explor
   test.skip(!site, "Set INSPECT_WEB_SOURCE_DIFF_URL to the published Wasm site.");
   test.setTimeout(300_000);
   await page.goto(`${new URL(site!).origin}/?package=System.Text.Json&version=11.0.0-preview.7.26381.103&framework=net10.0#pkg`);
+  await page.locator('[data-package-lens="compare"][role="tab"]').click({ timeout: 120_000 });
   await page.locator("#package-diff-target").selectOption("exact:11.0.0-preview.6.26359.118", { timeout: 120_000 });
   await chooseSubject(page, "library");
   await selectFirstExactLibrary(page);
