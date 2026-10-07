@@ -680,6 +680,26 @@ command.
 
 ## Worked pattern: MemberGroup documents
 
+The compact Type declaration path now follows the same ownership split.
+[`TypeOverviewDocumentInspectionOperation`](../src/DotnetInspector.Sections/TypeOverviewDocumentInspection.cs)
+projects the existing exact-Type and Type MemberGroup population operation into
+one final `TypeOverviewDocument`. Its request requires compact Rows with a
+nested exact-Member Count for every MemberGroup, and its closed outcome
+promotes Type, population, and Rows non-successes rather than exposing
+success-shaped partial content. The operation preserves the owner-issued exact
+Type and population binding, filtering intent, ordering, continuation, Share,
+and diagnostics; it does not spell complete Member signatures or adopt host
+rendering.
+
+[`CompleteTypeDocumentInspectionOperation`](../src/DotnetInspector.Sections/CompleteTypeDocumentInspection.cs)
+uses the same exact-Type Library path but asks Metadata for the complete
+declaration population. Metadata spells every admitted method, property,
+field, and event during the same classified-Member scan that defines compact
+membership, so one assembly borrow and one exact-Type resolution produce a
+`TypeDocument` whose declarations retain the overview's population binding.
+The operation promotes nested bounds and failures to its closed document
+outcome; rendering and host adoption remain separate work.
+
 The capability-led pilot for
 [#8802](https://github.com/richlander/dotnet-inspect/issues/8802) is the current
 MemberGroup inspection delivered by
@@ -713,12 +733,21 @@ through the QuerySpace route in
   they answer distinct current questions.
 
 The focused singleton `PointerFreeUnsafeMethod` case proves that the population
-operation can return one exact row. The target document-resolution contract
+operation can return one exact row.
+[`MemberDocumentResolutionOperation`](../src/DotnetInspector.Sections/MemberDocumentResolution.cs)
 uses that row's owner-issued identity to select `MemberDocument` rather than
 exposing a one-row `MemberOverviewDocument`. The neighboring 15-row `Serialize`
-family proves that CLI default Tree, explicit Tree, and Browser family views
-consume the same owner-issued population; a missing group remains typed
-rejection.
+family proves that the same operation returns the complete
+`MemberOverviewDocument`; a missing group remains typed rejection. CLI default
+Tree, explicit Tree, and Browser family views continue to consume the
+transitional operation until their focused adoption slice.
+
+`MemberContextualExplanationOperation.ExplainResolvedMember` consumes only the
+completed overview or exact success variants from that resolver. It projects
+the same MemberGroup population or exact Member, including population
+correspondence, into the common Resource Explanation document without running
+resolution or an ordinary document plan again. CLI and Browser routing remain
+transitional until their focused host-adoption slice.
 
 This pilot uses the full stack because its question needs the full stack. It
 does not imply that a scalar Query needs a Section, that every Section needs

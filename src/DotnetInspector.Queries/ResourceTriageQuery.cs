@@ -55,7 +55,10 @@ public abstract record ResourceTriageResult
     public sealed record Failed(InspectionError Error) : ResourceTriageResult;
 }
 
-/// <summary>Assesses resource lifecycle evidence from an already-acquired body index.</summary>
+/// <summary>
+/// Assesses resource lifecycle evidence from already-produced focused body
+/// analysis.
+/// </summary>
 public static class ResourceTriageQuery
 {
     public static InspectionQuery<ResourceTriageResult> Definition { get; } =

@@ -249,9 +249,12 @@ alternatives rather than a lookup-chosen union. A commandless
 Discover the stable IDs accepted by body queries:
 
 ```bash
-dnx dotnet-inspect -y -- vocabulary -S "C# Body Kinds" \
-  --columns "ID;Label" -n 5 --table
+dnx dotnet-inspect -y -- explain vocabularies/csharp.body-kinds --depth 1
 ```
+
+The depth-1 listing shows every value's exact Identity, such as
+`ObjectCreationExpression` or `BreakStatement`, which is the spelling queries
+accept; Name is a display label.
 
 Then use one as a typed predicate. `Kind=...` auto-selects `Body Shapes`, while
 ordinary section query options still control columns and rows:
@@ -300,7 +303,7 @@ stderr rather than mixed into structured output.
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, direct dependencies, recognized ecosystem dependencies, rooted dependency hierarchy, vulnerability data, custom feeds, and NuGet config support. |
 | Project package skills and docs | `project` | Section-driven direct-dependency rows from valid `skills/**/SKILL.md` files and root `README.md` files in the restored package cache. Use `--print --row N` to emit one selected document. Skill inventory values and complete documents that require containment become `[Text omitted: required containment]`; selected documents also report bounded code-point locations on stderr. |
-| Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
+| Query vocabulary | `explain vocabularies` | Product-owned stable values, accepted query inputs, maps, and defaults for rich queries. |
 | Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
 | API discovery | `type`, `member`, `find` | Type search, exact namespace discovery, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, and IL. Unscoped `find` searches installed Platform populations and adds exact prune-authorized package observations for namespace hits; add other package APIs through explicit `--package`, restored `--project`, or patterned `--package-prefix` scope. |
@@ -348,7 +351,7 @@ stderr rather than mixed into structured output.
 | `implements X` | Find concrete implementors or subclasses. |
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
-| `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
+| `explain vocabularies` | Explain product-owned query vocabularies such as `api.accessibility`, `csharp.style-choices`, and `csharp.body-kinds`. Add `/<id>` for one vocabulary, `--depth 1` for all of its values, or `/<id>/values/<value>` for one value. |
 | `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
 | `workspace` | Render the typed top-level inventory of one ephemeral Workspace: committed ordered Package occurrences first, then inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; add `--register-library PACKAGE@VERSION/ASSEMBLY@ASSEMBLY_VERSION`, `--register-package-prefix PREFIX`, or `--register-ecosystem ID`; filter with repeatable `--kind`. Restore a current-format canonical Workspace packet with `--packet PACKET`, or use `--root-request TOKEN` to reopen the exact Package Root a `package query --where "library-literal=..."` result names. Add `--active-ecosystem ID` to activate the exact resource-free registration with Ecosystem Overview, or `--active-package N` to evaluate the exact Package occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
 | `workspace packet encode` / `decode` | Convert validated Workspace JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
@@ -431,7 +434,7 @@ matches remain discovery scope and are not substituted for those roots.
 
 Use `package activity --ecosystem` to report package activity under one named
 ecosystem's recorded package prefixes (for example `Aspire.` for `aspire`). The ecosystem option selects where
-to look; `ecosystem` itself remains the acquisition-free vocabulary command.
+to look; `ecosystem` itself remains the acquisition-free catalog command.
 This network-backed query defaults to the interval
 `(reference time - 42 days, reference time]`, reports the exact UTC bounds and
 source horizon, and overlays current GitHub-reviewed advisory context and
@@ -688,9 +691,6 @@ dotnet-inspect library -Q
 dotnet-inspect type -Q "Body Shapes"
 dotnet-inspect library -Q "Performance: Arrays" --json
 dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
-dotnet-inspect vocabulary -D
-dotnet-inspect vocabulary -S @Decompiler
-dotnet-inspect vocabulary -S "C# Body Kinds" -n 10
 dotnet-inspect explain vocabularies
 dotnet-inspect explain vocabularies/csharp.body-kinds
 dotnet-inspect explain vocabularies/csharp.body-kinds --depth 1

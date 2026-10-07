@@ -1213,8 +1213,7 @@ test.describe("Package Query website over real Wasm", () => {
     await expect(overview.locator("h1")).toHaveText(
       literalCoordinate.packageId.toLowerCase(),
     );
-    await expect(overview.locator(".overview-surface-footer"))
-      .toContainText(literalCoordinate.version);
+    await expect(overview.locator(".overview-surface-footer")).toHaveCount(0);
     const packageUrl = page.url();
     const retainedWorkspaceId = await currentHistoryWorkspaceId(page);
     expect(retainedWorkspaceId).not.toBeNull();
@@ -2901,7 +2900,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     // "Inspection failed" instead.
     await expect(panel.locator(".api-surface-head"))
       .toContainText("1 direct reference");
-    await expect(panel.locator("footer")).toContainText(healthyAssemblyFileName);
+    await expect(panel.locator("footer")).toHaveCount(0);
     await expect(panel).not.toContainText("Inspection failed");
   });
 
@@ -3351,8 +3350,7 @@ test.describe("deterministic two-host Workspace demo", () => {
       await expect(overview).toBeVisible({ timeout: 180_000 });
       await expect(overview.locator("h1"))
         .toHaveText(retainedWorkspace.packageId);
-      await expect(overview.locator(".overview-surface-footer"))
-        .toContainText(retainedWorkspace.version);
+      await expect(overview.locator(".overview-surface-footer")).toHaveCount(0);
     };
 
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -4203,5 +4201,91 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(surface.activeFramework).toBe("net8.0");
     expect(surface.assemblies.length).toBeGreaterThan(0);
     expect(surface.types.length).toBeGreaterThan(0);
+  });
+});
+
+test.describe("Spotlight ecosystem annotations over real Wasm", () => {
+  test("cold catalog does not block results or acquire packs, then joins Package and Library", async ({ page, context }) => {
+    const catalog: unknown = JSON.parse(readFileSync(resolve("assets/platform-index.json"), "utf8"));
+    if (!catalog || typeof catalog !== "object" || !("defaultFramework" in catalog))
+      throw new Error("Invalid test platform catalog.");
+    catalog.defaultFramework = "net10.0";
+    let releaseCatalog!: () => void;
+    const catalogGate = new Promise<void>(complete => { releaseCatalog = complete; });
+    const packs: string[] = [];
+    await context.route("**/assets/platform-index.json", async route => {
+      await catalogGate;
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify(catalog) });
+    });
+    await context.route("https://azuresearch-usnc.nuget.org/**", route => {
+      const query = new URL(route.request().url()).searchParams.get("q");
+      const versions: Readonly<Record<string, string>> = {
+        "System.Linq": "4.3.0", "System.Text.Json": "9.0.0",
+        "Microsoft.AspNetCore.Http": "2.2.2", "Microsoft.Extensions.Logging": "9.0.0",
+        "Aspire.Hosting": "9.0.0",
+      };
+      const id = query && versions[query] ? query : "System.Linq";
+      return route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ data: [{ id, version: versions[id] }] }),
+      });
+    });
+    await context.route(/https:\/\/.*\/(?:microsoft\.netcore\.app|microsoft\.aspnetcore\.app)[^/]*\/.*\.nupkg(?:\?.*)?$/i, route => {
+      packs.push(route.request().url());
+      return route.abort();
+    });
+    await page.goto("/");
+    const search = page.locator("#spotlight-input");
+    await expect(search).toBeEditable({ timeout: 120_000 });
+    await search.fill("System.Linq");
+    const packageHit = page.locator('[data-sl-pkg-load="System.Linq"]');
+    await expect(packageHit).toBeVisible();
+    await expect(packageHit.locator(".spotlight-pruned")).toHaveCount(0);
+    const alignment = await packageHit.evaluate(element => ({
+      nameLeft: element.querySelector(".spotlight-item-name")!.getBoundingClientRect().left,
+      metadataRight: element.querySelector(".spotlight-item-ns")!.getBoundingClientRect().right,
+    }));
+    const originalControl = await packageHit.elementHandle();
+    expect(packs).toEqual([]);
+    releaseCatalog();
+    await expect(packageHit.locator('[aria-label="Pruned for net10.0"]')).toBeVisible();
+    await expect(page.locator('[data-sl-framework-lib="System.Linq"]')).toBeVisible();
+    const annotatedAlignment = await packageHit.evaluate(element => ({
+      nameLeft: element.querySelector(".spotlight-item-name")!.getBoundingClientRect().left,
+      metadataRight: element.querySelector(".spotlight-item-ns")!.getBoundingClientRect().right,
+    }));
+    expect(annotatedAlignment.nameLeft).toBeCloseTo(alignment.nameLeft, 2);
+    expect(annotatedAlignment.metadataRight).toBeCloseTo(alignment.metadataRight, 2);
+    expect(await packageHit.locator(".spotlight-pruned").evaluate(element => ({
+      width: element.getBoundingClientRect().width,
+      mask: getComputedStyle(element).maskImage,
+    }))).toMatchObject({ width: 20, mask: expect.stringContaining("data:image/svg+xml") });
+    await expect(packageHit.getByRole("img", { name: ".NET Runtime", exact: true })).toBeVisible();
+    await expect(page.locator('[data-sl-framework-lib="System.Linq"]').getByRole("img", { name: ".NET Runtime", exact: true })).toBeVisible();
+    await expect(page.locator(".spotlight-group").filter({ hasText: /^Ecosystem$/ })).toHaveCount(1);
+    await expect(packageHit).toContainText("Package");
+    await expect(page.locator('[data-sl-framework-lib="System.Linq"]')).toContainText(".NET library");
+    expect(packs).toEqual([]);
+    await expect(search).toBeFocused();
+    expect(await packageHit.evaluate((element, original) => element === original, originalControl)).toBe(true);
+    await search.fill("System.Text.Json");
+    const jsonPackage = page.locator('[data-sl-pkg-load="System.Text.Json"]');
+    await expect(jsonPackage.locator('[aria-label="Pruned for net10.0"]')).toBeVisible();
+    await expect(page.locator('[data-sl-framework-lib="System.Text.Json"]')).toBeVisible();
+    await expect(page.locator(".spotlight-group").filter({ hasText: /^Ecosystem$/ })).toHaveCount(1);
+    expect(packs).toEqual([]);
+    for (const [id, ecosystem] of [
+      ["Microsoft.AspNetCore.Http", "ASP.NET Core"],
+      ["Microsoft.Extensions.Logging", "Microsoft.Extensions"],
+      ["Aspire.Hosting", "Aspire"],
+    ]) {
+      await search.fill(id!);
+      const row = page.locator(`[data-sl-pkg-load="${id}"]`);
+      const icon = row.getByRole("img", { name: ecosystem!, exact: true });
+      await expect(icon).toBeVisible();
+      expect(await icon.evaluate(element => getComputedStyle(element).backgroundImage))
+        .toContain("data:image/svg+xml");
+    }
+    expect(packs).toEqual([]);
   });
 });

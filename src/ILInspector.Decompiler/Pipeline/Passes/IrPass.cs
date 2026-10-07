@@ -14,6 +14,12 @@ public interface IIrPass
 {
     string Name { get; }
 
+    PassAnalysisKind RequiredAnalyses
+        => PassAnalysisKind.None;
+
+    PassAnalysisKind PreservedAnalyses
+        => PassAnalysisKind.None;
+
     void Run(IrFunction function, PassContext context);
 }
 
@@ -576,16 +582,13 @@ public static class IrPasses
     public static void Run(IrFunction function, ImmutableArray<IIrPass> passes, PassContext context)
     {
         ValidateForExecution(passes);
-        foreach (var pass in passes)
-        {
-            pass.Run(function, context);
-            if (IrInvariants.Enabled)
-            {
-                function.CheckInvariant(IrInvariants.CheckSemantics);
-                if (IrInvariants.CheckSemantics && function.IsMetadataBacked)
-                    function.ValidateArgumentBindings();
-            }
-        }
+        RunPasses(
+            function,
+            passes,
+            context,
+            completed: null,
+            analysisReceipts: null,
+            validateArgumentBindings: true);
     }
 
     /// <summary>The synthetic stage name for the importer output — the pre-transform tree, before any pass runs.</summary>
@@ -641,14 +644,106 @@ public static class IrPasses
         {
             new(ImportStageName, project(function), function.Fidelity),
         };
-        foreach (var pass in passes)
-        {
-            pass.Run(function, context);
-            if (IrInvariants.Enabled)
-                function.CheckInvariant(IrInvariants.CheckSemantics);
-            stages.Add(new(pass.Name, project(function), function.Fidelity));
-        }
+        RunObserved(function, passes, context,
+            (_, pass) => stages.Add(new(pass.Name, project(function), function.Fidelity)));
         return stages;
+    }
+
+    /// <summary>
+    /// Runs the default pipeline and issues one ordered receipt per completed
+    /// pass. Change attribution compares adjacent <see cref="IrPrinter.Dump"/>
+    /// projections while retaining only the preceding projection.
+    /// </summary>
+    public static IReadOnlyList<PassExecutionReceipt> RunWithReceipts(IrFunction function)
+        => RunWithReceipts(function, Default, IrPrinter.Dump, PassContext.None);
+
+    /// <summary>
+    /// As <see cref="RunWithReceipts(IrFunction)"/>, but wires the cross-method
+    /// import and type-disjointness capabilities used by metadata-backed runs.
+    /// </summary>
+    public static IReadOnlyList<PassExecutionReceipt> RunWithReceipts(
+        IrFunction function, Func<MethodRef, IrFunction?>? importMethodBody,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
+        => RunWithReceipts(
+            function,
+            Default,
+            IrPrinter.Dump,
+            PassContext.ForImport(importMethodBody, typesProvablyDisjoint));
+
+    internal static IReadOnlyList<PassExecutionReceipt> RunWithReceipts(
+        IrFunction function,
+        ImmutableArray<IIrPass> passes,
+        Func<IrFunction, string> project,
+        PassContext context)
+    {
+        ValidateForExecution(passes);
+        string previous = project(function);
+        var receipts = new List<PassExecutionReceipt>(passes.Length);
+        RunObserved(function, passes, context, (index, pass) =>
+        {
+            string current = project(function);
+            receipts.Add(new(index + 1, pass.Name,
+                !string.Equals(previous, current, StringComparison.Ordinal)));
+            previous = current;
+        });
+        return receipts;
+    }
+
+    /// <summary>
+    /// Runs the default pipeline and issues one receipt for every completed
+    /// manager-owned analysis boundary.
+    /// </summary>
+    public static IReadOnlyList<PassAnalysisReceipt> RunWithAnalysisReceipts(
+        IrFunction function)
+        => RunWithAnalysisReceipts(
+            function,
+            Default,
+            PassContext.None);
+
+    /// <summary>
+    /// As <see cref="RunWithAnalysisReceipts(IrFunction)"/>, but wires the
+    /// cross-method import and type-disjointness capabilities used by
+    /// metadata-backed runs.
+    /// </summary>
+    public static IReadOnlyList<PassAnalysisReceipt> RunWithAnalysisReceipts(
+        IrFunction function,
+        Func<MethodRef, IrFunction?>? importMethodBody,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
+        => RunWithAnalysisReceipts(
+            function,
+            Default,
+            PassContext.ForImport(
+                importMethodBody,
+                typesProvablyDisjoint));
+
+    internal static IReadOnlyList<PassAnalysisReceipt> RunWithAnalysisReceipts(
+        IrFunction function,
+        ImmutableArray<IIrPass> passes,
+        PassContext context)
+    {
+        var receipts = new List<PassAnalysisReceipt>();
+        RunWithAnalysisReceipts(
+            function,
+            passes,
+            context,
+            receipts);
+        return receipts;
+    }
+
+    internal static void RunWithAnalysisReceipts(
+        IrFunction function,
+        ImmutableArray<IIrPass> passes,
+        PassContext context,
+        List<PassAnalysisReceipt> receipts)
+    {
+        ValidateForExecution(passes);
+        RunPasses(
+            function,
+            passes,
+            context,
+            completed: null,
+            analysisReceipts: receipts,
+            validateArgumentBindings: true);
     }
 
     /// <summary>
@@ -687,12 +782,13 @@ public static class IrPasses
             typesProvablyDisjoint: typesProvablyDisjoint);
         try
         {
-            foreach (var pass in Default)
-            {
-                pass.Run(function, context);
-                if (IrInvariants.Enabled)
-                    function.CheckInvariant(IrInvariants.CheckSemantics);
-            }
+            RunPasses(
+                function,
+                Default,
+                context,
+                completed: null,
+                analysisReceipts: null,
+                validateArgumentBindings: false);
         }
         catch (StepLimitReachedException)
         {
@@ -701,6 +797,51 @@ public static class IrPasses
             // to inspect.
         }
         return stepper;
+    }
+
+    static void RunObserved(
+        IrFunction function,
+        ImmutableArray<IIrPass> passes,
+        PassContext context,
+        Action<int, IIrPass> completed)
+    {
+        RunPasses(
+            function,
+            passes,
+            context,
+            completed,
+            analysisReceipts: null,
+            validateArgumentBindings: false);
+    }
+
+    static void RunPasses(
+        IrFunction function,
+        ImmutableArray<IIrPass> passes,
+        PassContext context,
+        Action<int, IIrPass>? completed,
+        List<PassAnalysisReceipt>? analysisReceipts,
+        bool validateArgumentBindings)
+    {
+        PassContext runContext =
+            context.ForPipeline(function, analysisReceipts);
+        for (int i = 0; i < passes.Length; i++)
+        {
+            IIrPass pass = passes[i];
+            runContext.BeginPass(i + 1, pass);
+            pass.Run(function, runContext);
+            if (IrInvariants.Enabled)
+            {
+                function.CheckInvariant(IrInvariants.CheckSemantics);
+                if (validateArgumentBindings
+                    && IrInvariants.CheckSemantics
+                    && function.IsMetadataBacked)
+                {
+                    function.ValidateArgumentBindings();
+                }
+            }
+            runContext.CompletePass();
+            completed?.Invoke(i, pass);
+        }
     }
 
     static void ValidateForExecution(ImmutableArray<IIrPass> passes)

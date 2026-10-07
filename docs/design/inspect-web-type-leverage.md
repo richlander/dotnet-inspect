@@ -206,10 +206,12 @@ rejecting them as duplicates.
 
 Pole cues add no row tint, badge, section, summary count, control, or filter.
 The existing namespace top-leverage glyph remains a surface namespace cue.
-Qualified cues stay visible alongside one concise warning. An unavailable
+Qualified cues stay visible. Qualification, failure, and Retry use the transient
+feedback presentation owned by
+[Data bar and Diagnostics](inspect-web-surface-composition.md#data-bar-and-diagnostics),
+so diagnostics never reduce the Type inventory's space. An unavailable
 implementation channel leaves surface cues visible and names the body
-unavailability. Retry is offered only through the existing failure-status
-affordance, not as a salience control.
+unavailability. Retry remains a failure-status action, not a salience control.
 
 ## Validation
 

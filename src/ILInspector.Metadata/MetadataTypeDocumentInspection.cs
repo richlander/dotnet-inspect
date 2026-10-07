@@ -8,6 +8,8 @@ public sealed record MetadataTypeDocumentInspectionRequest
         MetadataTypeDefinitionName type,
         MetadataTypeMemberGroupPopulationRequest? declarations = null,
         MetadataTypeDefinitionAddress? expectedDeclarationPopulationType =
+            null,
+        MetadataTypeDeclarationPopulationRequest? memberDeclarations =
             null)
     {
         Type = type ?? throw new ArgumentNullException(nameof(type));
@@ -24,21 +26,39 @@ public sealed record MetadataTypeDocumentInspectionRequest
                 "A Member-group population binding requires a population request.",
                 nameof(expectedDeclarationPopulationType));
         }
+        if (memberDeclarations is not null
+            && memberDeclarations.Type != type)
+        {
+            throw new ArgumentException(
+                "The Type document and complete Member declarations must identify the same Type.",
+                nameof(memberDeclarations));
+        }
+        if (declarations is not null
+            && memberDeclarations is not null)
+        {
+            throw new ArgumentException(
+                "A Type document request cannot inspect compact and complete Member declarations together.",
+                nameof(memberDeclarations));
+        }
 
         Declarations = declarations;
         ExpectedDeclarationPopulationType =
             expectedDeclarationPopulationType;
+        MemberDeclarations = memberDeclarations;
     }
 
     public MetadataTypeDefinitionName Type { get; }
     public MetadataTypeMemberGroupPopulationRequest? Declarations { get; }
     public MetadataTypeDefinitionAddress? ExpectedDeclarationPopulationType
     { get; }
+    public MetadataTypeDeclarationPopulationRequest? MemberDeclarations
+    { get; }
 }
 
 public sealed record MetadataTypeDocument(
     MetadataTypeDeclarationEvidence Subject,
-    MetadataTypeDocumentDeclarations Declarations);
+    MetadataTypeDocumentDeclarations Declarations,
+    MetadataTypeDeclarationPopulationOutcome? MemberDeclarations = null);
 
 public abstract record MetadataTypeDocumentDeclarations
 {
@@ -181,8 +201,21 @@ internal static class MetadataTypeDocumentInspection
                                         bounds,
                                         resolved,
                                         cancellationToken));
+            MetadataTypeDeclarationPopulationOutcome? memberDeclarations =
+                request.MemberDeclarations is null
+                    ? null
+                    : MetadataTypeDeclarationPopulationInspection
+                        .ReadResolved(
+                            reader,
+                            request.MemberDeclarations,
+                            bounds,
+                            resolved,
+                            cancellationToken);
             return new MetadataTypeDocumentInspectionOutcome.Available(
-                new(subject, declarations));
+                new(
+                    subject,
+                    declarations,
+                    memberDeclarations));
         }
         catch (Exception exception) when (
             MetadataTypeMemberCompositionInspection.IsMetadataFailure(

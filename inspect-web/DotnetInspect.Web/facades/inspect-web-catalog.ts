@@ -14,6 +14,8 @@ export type BrowserVocabularyScalarKind = "Text" | "Integer" | "Boolean" | numbe
 
 export type BrowserWorkspacePackageSourceAuthentication = "Anonymous" | "AuthenticationRequired" | number;
 
+export type JsonValueKind = number;
+
 export interface BrowserAccessibilityDescriptor {
   readonly id: string;
   readonly label: string;
@@ -49,8 +51,21 @@ export interface BrowserCallGraph {
   readonly callees: BrowserCallGraphNode;
   readonly scope: BrowserCallGraphScope;
   readonly targets: ReadonlyArray<BrowserCallGraphTarget>;
+  readonly boundaries: ReadonlyArray<BrowserCallGraphBoundary>;
   readonly diagnostics: BrowserCallGraphDiagnostics;
   readonly noBody: boolean;
+}
+
+export interface BrowserCallGraphBoundary {
+  readonly id: string;
+  readonly sourcePackageId: string;
+  readonly sourcePackageVersion: string;
+  readonly sourcePackageFramework: string;
+  readonly sourceAssembly: string;
+  readonly targetPackageId: string;
+  readonly targetPackageVersion: string;
+  readonly targetPackageFramework: string;
+  readonly targetAssembly: string;
 }
 
 export interface BrowserCallGraphDiagnostics {

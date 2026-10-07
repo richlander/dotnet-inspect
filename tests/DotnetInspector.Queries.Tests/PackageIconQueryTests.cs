@@ -1,6 +1,10 @@
 using System.IO.Compression;
+using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using DotnetInspector.Packages;
+using NuGetFetch;
+using ZipFetch;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -154,6 +158,84 @@ public sealed class PackageIconQueryTests
                 PackageVersion));
     }
 
+    [Fact]
+    public async Task RangeQuery_RealPackageReadsOnlyDirectoryManifestAndIconRanges()
+    {
+        const string packageId = "System.Text.Json";
+        const string packageVersion = "9.0.4";
+        byte[] archive = await File.ReadAllBytesAsync(
+            Path.Combine(
+                FindRepositoryRoot(),
+                "fixtures",
+                "services",
+                "signatures",
+                "system.text.json.9.0.4.nupkg"),
+            TestContext.Current.CancellationToken);
+        var handler = new PackageRangeHandler(archive);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
+                handler);
+
+        PackageIconRangeResult result =
+            await PackageIconRangeQuery.ExecuteAsync(
+                Assert.IsAssignableFrom<IPackageArchiveRangeSource>(client),
+                PackageSourceCoordinate.Create(packageId, packageVersion),
+                ZipReadLimits.Default,
+                TestContext.Current.CancellationToken);
+
+        PackageIcon icon = Available(
+            Assert.IsType<PackageIconRangeResult.Completed>(result).Icon);
+        Assert.NotEmpty(icon.Bytes);
+        Assert.True(handler.Requests >= 2);
+        Assert.Equal(0, handler.NonRangeRequests);
+        Assert.True(handler.BytesServed < archive.Length);
+    }
+
+    [Fact]
+    public async Task RangeQuery_RangeRefusalDoesNotRetryAsACompleteGet()
+    {
+        byte[] archive = Archive(
+            ($"{PackageId}.nuspec", Manifest("package.png")),
+            ("package.png", Png));
+        var handler = new PackageRangeHandler(
+            archive,
+            ignoreRanges: true);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
+                handler);
+
+        PackageIconRangeResult result =
+            await PackageIconRangeQuery.ExecuteAsync(
+                Assert.IsAssignableFrom<IPackageArchiveRangeSource>(client),
+                PackageSourceCoordinate.Create(PackageId, PackageVersion),
+                ZipReadLimits.Default,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            PackageArchiveReadRefusal.RangeIgnored,
+            Assert.IsType<PackageIconRangeResult.Refused>(result).Reason);
+        Assert.Equal(1, handler.Requests);
+        Assert.Equal(0, handler.NonRangeRequests);
+    }
+
+    [Fact]
+    public async Task RangeQuery_PreservesMissingAndInvalidIconOutcomes()
+    {
+        PackageIconResult missing = await ExecuteRangeAsync(
+            Archive(($"{PackageId}.nuspec", Manifest(iconPath: null))));
+        Assert.IsType<PackageIconResult.Missing>(missing);
+
+        PackageIconResult invalid = await ExecuteRangeAsync(
+            Archive(
+                ($"{PackageId}.nuspec", Manifest("package.png")),
+                ("package.png", "not an image"u8.ToArray())));
+        AssertUnavailable(
+            PackageIconUnavailableReason.UnsupportedFormat,
+            invalid);
+    }
+
     static PackageIcon Available(PackageIconResult result) =>
         Assert.IsType<PackageIconResult.Available>(result).Value;
 
@@ -183,6 +265,13 @@ public sealed class PackageIconQueryTests
 
     static InMemoryPackageContent Content(
         params (string Path, byte[] Content)[] entries)
+        => new(
+            Archive(entries),
+            fromCache: false,
+            producerKey: "package-icon-query-tests");
+
+    static byte[] Archive(
+        params (string Path, byte[] Content)[] entries)
     {
         using var package = new MemoryStream();
         using (var archive = new ZipArchive(
@@ -199,9 +288,98 @@ public sealed class PackageIconQueryTests
             }
         }
 
-        return new InMemoryPackageContent(
-            package.ToArray(),
-            fromCache: false,
-            producerKey: "package-icon-query-tests");
+        return package.ToArray();
+    }
+
+    static async Task<PackageIconResult> ExecuteRangeAsync(byte[] archive)
+    {
+        var handler = new PackageRangeHandler(archive);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
+                handler);
+        PackageIconRangeResult result =
+            await PackageIconRangeQuery.ExecuteAsync(
+                Assert.IsAssignableFrom<IPackageArchiveRangeSource>(client),
+                PackageSourceCoordinate.Create(PackageId, PackageVersion),
+                ZipReadLimits.Default,
+                TestContext.Current.CancellationToken);
+        Assert.Equal(0, handler.NonRangeRequests);
+        return Assert.IsType<PackageIconRangeResult.Completed>(result).Icon;
+    }
+
+    static string FindRepositoryRoot()
+    {
+        for (DirectoryInfo? directory = new(AppContext.BaseDirectory);
+            directory is not null;
+            directory = directory.Parent)
+        {
+            if (File.Exists(
+                Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
+            {
+                return directory.FullName;
+            }
+        }
+
+        throw new InvalidOperationException(
+            "Could not locate the repository root.");
+    }
+
+    sealed class PackageRangeHandler(
+        byte[] archive,
+        bool ignoreRanges = false) : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        public int NonRangeRequests { get; private set; }
+
+        public long BytesServed { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests++;
+            RangeItemHeaderValue? range =
+                request.Headers.Range?.Ranges.SingleOrDefault();
+            if (range is null)
+                NonRangeRequests++;
+            if (ignoreRanges || range is null)
+            {
+                BytesServed += archive.Length;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(archive),
+                    RequestMessage = request,
+                });
+            }
+
+            long from;
+            long to;
+            if (range.From is null)
+            {
+                from = Math.Max(0, archive.Length - range.To!.Value);
+                to = archive.Length - 1;
+            }
+            else
+            {
+                from = range.From.Value;
+                to = Math.Min(
+                    range.To ?? archive.Length - 1,
+                    archive.Length - 1);
+            }
+
+            byte[] bytes = archive[(int)from..(int)(to + 1)];
+            BytesServed += bytes.Length;
+            var content = new ByteArrayContent(bytes);
+            content.Headers.ContentRange =
+                new ContentRangeHeaderValue(from, to, archive.Length);
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.PartialContent)
+                {
+                    Content = content,
+                    RequestMessage = request,
+                });
+        }
     }
 }

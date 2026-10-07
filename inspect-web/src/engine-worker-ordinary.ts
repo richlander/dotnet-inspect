@@ -42,6 +42,7 @@ type PackageOperationName =
   | "activatePlatformForwarder"
   | "closePlatformForwarderView"
   | "openPlatformForwarderView"
+  | "classifyEcosystemPackages"
   | "classifyPackageGraphIdentities"
   | "getPlatformCatalog"
   | "getPlatformVersions"
@@ -53,6 +54,7 @@ type PackageOperationName =
   | "packageCacheStats"
   | "prefetchPlatformPacks"
   | "queryPackage"
+  | "queryPackageIcon"
   | "queryPackageRoot"
   | "queryPackageSummary"
   | "loadRuntimePack"
@@ -134,6 +136,7 @@ type SourceOperationName =
 
 type CallGraphOperationName =
   | "queryMemberCallGraph"
+  | "queryDirectUseClusters"
   | "expandPlatformCallGraph";
 
 type CatalogOperationName =
@@ -996,6 +999,12 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   package: {
+    classifyEcosystemPackages: valueOperation(
+      "ordinary-package-classify-ecosystem-packages",
+      3,
+      (facades, ...args: Parameters<PackageFacade["classifyEcosystemPackages"]>) =>
+        facades.package.classifyEcosystemPackages(...args),
+    ),
     classifyPackageGraphIdentities: valueOperation(
       "ordinary-package-classify-graph-identities",
       2,
@@ -1189,6 +1198,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<PackageFacade["queryPackageDependencies"]>
       ) => facades.package.queryPackageDependencies(...args),
+    ),
+    queryPackageIcon: valueOperation(
+      "ordinary-package-query-icon",
+      2,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryPackageIcon"]>
+      ) => facades.package.queryPackageIcon(...args),
     ),
     queryPackageVulnerabilities: valueOperation(
       "ordinary-package-query-vulnerabilities",
@@ -1781,6 +1798,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<CallGraphFacade["queryMemberCallGraph"]>
       ) => facades.callGraph.queryMemberCallGraph(...args),
     ),
+    queryDirectUseClusters: valueOperation(
+      "ordinary-call-graph-query-direct-use-clusters",
+      9,
+      (
+        facades,
+        ...args: Parameters<CallGraphFacade["queryDirectUseClusters"]>
+      ) => facades.callGraph.queryDirectUseClusters(...args),
+    ),
     expandPlatformCallGraph: valueOperation(
       "ordinary-call-graph-expand-platform",
       12,
@@ -2202,6 +2227,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     package: {
+      classifyEcosystemPackages: bind(
+        engineWorkerOrdinaryOperations.package.classifyEcosystemPackages,
+      ),
       classifyPackageGraphIdentities: bind(
         engineWorkerOrdinaryOperations.package
           .classifyPackageGraphIdentities,
@@ -2278,6 +2306,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryPackageDependencies: bind(
         engineWorkerOrdinaryOperations.package.queryPackageDependencies,
+      ),
+      queryPackageIcon: bind(
+        engineWorkerOrdinaryOperations.package.queryPackageIcon,
       ),
       queryPackageVulnerabilities: bind(
         engineWorkerOrdinaryOperations.package.queryPackageVulnerabilities,
@@ -2495,6 +2526,9 @@ export function bindEngineWorkerOrdinaryClient(
     callGraph: {
       queryMemberCallGraph: bind(
         engineWorkerOrdinaryOperations.callGraph.queryMemberCallGraph,
+      ),
+      queryDirectUseClusters: bind(
+        engineWorkerOrdinaryOperations.callGraph.queryDirectUseClusters,
       ),
       expandPlatformCallGraph: bind(
         engineWorkerOrdinaryOperations.callGraph

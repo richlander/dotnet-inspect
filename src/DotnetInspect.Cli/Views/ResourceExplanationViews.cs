@@ -194,6 +194,9 @@ public sealed class ResourceExplanationView
 
     [MarkoutSection(Name = "Expanded Resources")]
     [MarkoutIgnoreColumnWhen(
+        nameof(IdentitiesEmpty),
+        nameof(ResourceExplanationResourceRow.Identity))]
+    [MarkoutIgnoreColumnWhen(
         nameof(ItemKindsEmpty),
         nameof(ResourceExplanationResourceRow.ItemKind))]
     [MarkoutIgnoreColumnWhen(
@@ -373,6 +376,10 @@ public sealed class ResourceExplanationView
                 ]);
         }
     }
+
+    public static bool IdentitiesEmpty(
+        List<ResourceExplanationResourceRow>? rows) =>
+        rows is null || rows.All(static row => row.Identity is null);
 
     public static bool ItemKindsEmpty(
         List<ResourceExplanationResourceRow>? rows) =>
@@ -581,6 +588,7 @@ public sealed record ResourceExplanationResourceRow(
     string Path,
     string Kind,
     string Name,
+    string? Identity,
     string Owner,
     string? ItemKind,
     List<string> Formats,
@@ -591,6 +599,13 @@ public sealed record ResourceExplanationResourceRow(
     public string Kind { get; init; } = LibraryViewText.Contain(Kind);
 
     public string Name { get; init; } = LibraryViewText.Contain(Name);
+
+    /// <summary>
+    /// The exact owner identity of a vocabulary value, which queries accept;
+    /// its path segment is lower-cased and its name is a display label.
+    /// </summary>
+    public string? Identity { get; init; } =
+        LibraryViewText.Contain(Identity);
 
     public string Owner { get; init; } = LibraryViewText.Contain(Owner);
 
@@ -610,6 +625,9 @@ public sealed record ResourceExplanationResourceRow(
             resource.Path?.Value ?? "(context)",
             DisplayType(resource.ResourceType.Value),
             ResourceExplanationFactView.RequiredText(resource, "name"),
+            resource.ResourceType.Value == "vocabulary-value"
+                ? ResourceExplanationFactView.RequiredText(resource, "identity")
+                : null,
             DisplayOwner(resource.Owner.Value),
             ResourceExplanationFactView.OptionalText(
                 resource,

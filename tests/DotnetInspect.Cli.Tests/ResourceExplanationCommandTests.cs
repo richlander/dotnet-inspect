@@ -377,7 +377,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 .GetProperty("requested_path")
                 .GetString());
 
-        var pathless = await RunAsync("vocabulary", "-D");
+        var pathless = await RunAsync("diff", "-D");
 
         Assert.Equal(0, pathless.ExitCode);
         Assert.Empty(pathless.Error);
@@ -760,6 +760,33 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.Contains("var-spelling-style:var-elsewhere", human.Output);
         Assert.Contains("oracle_endorsed = ", human.Output);
         Assert.Contains("vocabularies/csharp.style-tiers/values/", human.Output);
+    }
+
+    [Fact]
+    public async Task VocabularyValueListing_ShowsTheExactIdentityQueriesAccept()
+    {
+        var values = await RunAsync(
+            "explain",
+            "vocabularies/csharp.body-kinds",
+            "--depth",
+            "1");
+
+        Assert.Equal(0, values.ExitCode);
+        Assert.Empty(values.Error);
+        Assert.Contains("| Path | Kind | Name | Identity | Owner |", values.Output);
+        Assert.Contains(
+            "| vocabularies/csharp.body-kinds/values/breakstatement | "
+                + "Vocabulary value | Break | BreakStatement |",
+            values.Output);
+
+        var vocabularies = await RunAsync(
+            "explain",
+            "vocabularies",
+            "--depth",
+            "1");
+
+        Assert.Equal(0, vocabularies.ExitCode);
+        Assert.DoesNotContain("| Identity |", vocabularies.Output);
     }
 
     [Fact]

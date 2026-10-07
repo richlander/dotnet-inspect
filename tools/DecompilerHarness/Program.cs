@@ -1287,9 +1287,9 @@ static class Program
     /// number of corpus methods it changed (the "which passes carry the load"
     /// roadmap). With a pass named, lists every method that pass changed (its
     /// blast radius), optionally with the per-method diff hunk (<c>--show-diff</c>).
-    /// <paramref name="cap"/> stops the sweep after that many methods —
-    /// RunWithStages over whole CoreLib is not free, and a cap is the same
-    /// bound the compiling checks use.
+    /// <paramref name="cap"/> stops the sweep after that many methods. The
+    /// name-only path streams manager-issued receipts; <c>--show-diff</c>
+    /// retains stages because it presents their text.
     /// </summary>
     static int PassImpact(List<string> assemblies, string? passFilter, bool showDiff, int cap)
     {
@@ -1320,10 +1320,20 @@ static class Program
                 if (total >= cap) { capped = true; break; }
                 total++;
 
-                IReadOnlyList<PipelineStage> stages;
+                IReadOnlyCollection<string> changed;
+                IReadOnlyList<PipelineStage>? stages = null;
                 try
                 {
-                    stages = IrPasses.RunWithStages(function, ImportSeam(source));
+                    if (showDiff && canonicalPass is not null)
+                    {
+                        stages = IrPasses.RunWithStages(function, ImportSeam(source));
+                        changed = StageDump.PassesThatChanged(stages);
+                    }
+                    else
+                    {
+                        var receipts = IrPasses.RunWithReceipts(function, ImportSeam(source));
+                        changed = PassExecutionReceipts.ChangedPasses(receipts);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -1334,8 +1344,6 @@ static class Program
                             function.Signature, function.MetadataToken));
                     continue;
                 }
-                var changed = StageDump.PassesThatChanged(stages);
-
                 if (canonicalPass is null)
                 {
                     foreach (var name in changed)
@@ -1349,7 +1357,7 @@ static class Program
                 Console.WriteLine($"{typeName}::{methodName}");
                 if (showDiff)
                 {
-                    Console.Write(StageDump.FormatPassDiff(stages, canonicalPass));
+                    Console.Write(StageDump.FormatPassDiff(stages!, canonicalPass));
                     Console.WriteLine();
                 }
             }

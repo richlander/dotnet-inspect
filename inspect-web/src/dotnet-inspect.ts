@@ -1,3 +1,4 @@
+import { createSpotlightEcosystemClassification } from "./spotlight-ecosystem.ts";
 import {
   accessibilityFilterIncludingType,
   activeSourceOperationKind,
@@ -323,7 +324,13 @@ import {
   type PlatformStackEntry,
 } from "./call-graph-inspection.ts";
 import {
+  bindDirectUseClusterInspection,
+  createDirectUseClusterInspectionController,
+  renderDirectUseClusterInspection,
+} from "./direct-use-cluster-inspection.ts";
+import {
   createDocumentInspectionCoordinator,
+  createPackageDocumentTitles,
   documentViewerIsOpen,
   normalizeDocumentViewerSnapshot,
   type DocumentViewerState,
@@ -335,7 +342,11 @@ import {
 } from "./overview-surface.ts";
 import { renderPackageInfo } from "./package-info.ts";
 import { renderPackageVulnerabilities } from "./package-vulnerabilities.ts";
-import { renderLibraryReferencesSurface } from "./library-references.ts";
+import {
+  createWorkspaceLibraryReferenceCandidates,
+  renderLibraryReferencesSurface,
+  resolveLibraryReferenceDestinations,
+} from "./library-references.ts";
 import { renderLibraryIntegrationsSurface } from "./library-integrations.ts";
 import {
   bindAnalysisTabs,
@@ -606,6 +617,7 @@ import {
   bindLibraryApiDiffRows,
   createLibraryApiDiffCoordinator,
   libraryApiDiffPresence,
+  libraryApiDiffDataBarResult,
   libraryApiDiffMemberExploreContext,
   renderLibraryApiDiff,
   type LibraryApiDiffMemberExploreContext,
@@ -630,7 +642,7 @@ import {
   type CompareCloneSelection,
   type CompareCloneState,
 } from "./compare-clone.ts";
-import { dataBarHtml, fmtBytes } from "./data-bar.ts";
+import { createDataBarFeedback, dataBarHtml, fmtBytes } from "./data-bar.ts";
 import {
   DIAGNOSTICS_PATH,
   diagnosticsHistoryState,
@@ -777,6 +789,7 @@ import type {
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
   BrowserPackageDependencyGroup,
+  BrowserPackageIconInspection,
   BrowserPackageSurface,
   BrowserPackageVulnerabilityResult,
   BrowserPlatformForwarderRow,
@@ -805,6 +818,7 @@ import type {
 } from "./facades/inspect-web-analysis.d.ts";
 import {
   createTypeLeverageCoordinator,
+  typeLeverageFeedback,
 } from "./type-leverage.ts";
 import type {
   BrowserMemberSource,
@@ -843,6 +857,7 @@ let inspectLoadRuntimePack: EngineClient["package"]["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly:
   EngineClient["package"]["loadRuntimePackAssembly"];
 let inspectPlatformVersions: EngineClient["package"]["getPlatformVersions"];
+let classifyEcosystemPackages: EngineClient["package"]["classifyEcosystemPackages"];
 let inspectPlatformCatalog: EngineClient["package"]["getPlatformCatalog"];
 let inspectPrefetchPlatformPacks:
   EngineClient["package"]["prefetchPlatformPacks"];
@@ -860,6 +875,7 @@ let inspectLibraryDocument: EngineClient["library"]["inspectLibrary"];
 let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
 let inspectPackageDependencies:
   EngineClient["package"]["queryPackageDependencies"];
+let inspectPackageIcon: EngineClient["package"]["queryPackageIcon"];
 let inspectPackageVulnerabilities:
   EngineClient["package"]["queryPackageVulnerabilities"];
 let inspectPackageVersions: EngineClient["package"]["queryPackageVersions"];
@@ -971,6 +987,8 @@ let inspectExpandPlatformCallGraph:
   EngineClient["callGraph"]["expandPlatformCallGraph"];
 let inspectMemberCallGraph:
   EngineClient["callGraph"]["queryMemberCallGraph"];
+let inspectDirectUseClusters:
+  EngineClient["callGraph"]["queryDirectUseClusters"];
 let inspectDecodeWorkspaceShareState:
   EngineClient["catalog"]["decodeWorkspaceShareState"];
 let inspectEncodeWorkspaceShareState:
@@ -1062,6 +1080,7 @@ async function loadEngineModule() {
       loadRuntimePack: inspectLoadRuntimePack,
       loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
       getPlatformVersions: inspectPlatformVersions,
+      classifyEcosystemPackages,
       getPlatformCatalog: inspectPlatformCatalog,
       prefetchPlatformPacks: inspectPrefetchPlatformPacks,
       packageCacheStats: inspectPackageCacheStats,
@@ -1073,6 +1092,7 @@ async function loadEngineModule() {
       queryPackageRoot: inspectPackageRoot,
       queryPackageSummary: inspectPackageSummary,
       queryPackageDependencies: inspectPackageDependencies,
+      queryPackageIcon: inspectPackageIcon,
       queryPackageVulnerabilities: inspectPackageVulnerabilities,
       queryPackageVersions: inspectPackageVersions,
       resolvePackageDependencyVersion: resolveDependencyVersion,
@@ -1158,6 +1178,7 @@ async function loadEngineModule() {
     } = engineClient.source);
     ({
       expandPlatformCallGraph: inspectExpandPlatformCallGraph,
+      queryDirectUseClusters: inspectDirectUseClusters,
       queryMemberCallGraph: inspectMemberCallGraph,
     } = engineClient.callGraph);
     ({
@@ -1482,6 +1503,12 @@ const initialState = {
   memberCallGraphError: "",
   graphMemberNavigationError: "",
   memberCallGraphKey: "",
+  directUseClusterGraphKey: "",
+  directUseClusterBoundary: null,
+  directUseClusterResult: null,
+  directUseClusterLoading: false,
+  directUseClusterError: "",
+  directUseClusterSeq: 0,
   callGraphTraversalFramework: "net12.0",
   memberCallGraphExpanding: false,
   memberCallGraphSeq: 0,
@@ -1625,6 +1652,11 @@ interface StateOverrides {
   packageMetadata: PackageMetadata | null;
   explorer: AppExplorerState | null;
   memberCallGraph: InspectedCallGraph | null;
+  directUseClusterBoundary:
+    import("./call-graph-inspection.ts").InspectedCallGraphBoundary | null;
+  directUseClusterResult:
+    import("./facades/inspect-web-call-graph.d.ts").BrowserDirectUseClusterInspection
+    | null;
   pendingGraphMemberDeepLink: PendingGraphMemberDeepLink | null;
   platformStack: PlatformStackEntry[];
   memberFacts: MemberFacts | null;
@@ -1919,6 +1951,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.packageMetadataLoading = false;
   snapshotState.memberCallGraphLoading = false;
   snapshotState.memberCallGraphExpanding = false;
+  snapshotState.directUseClusterLoading = false;
   snapshotState.platformDrillLoading = false;
   snapshotState.memberFactsLoading = false;
   snapshotState.memberDocumentationLoading = false;
@@ -1953,6 +1986,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.workspaceDependencyLoads = new Set();
   snapshotState.typeMetadataGeneration++;
   snapshotState.memberCallGraphSeq++;
+  snapshotState.directUseClusterSeq++;
   snapshotState.graphMemberNavigationSeq++;
 
   if (memberAnnotatedLoading) snapshotState.memberAnnotatedKey = "";
@@ -1994,6 +2028,7 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
 ) {
   const typeMetadataGeneration = state.typeMetadataGeneration;
   const memberCallGraphSeq = state.memberCallGraphSeq;
+  const directUseClusterSeq = state.directUseClusterSeq;
   const graphMemberNavigationSeq = state.graphMemberNavigationSeq;
   const platformIndex = state.platformIndex ?? snapshot.state.platformIndex;
   clearWorkspaceOccurrenceView();
@@ -2003,6 +2038,8 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
     Math.max(typeMetadataGeneration, snapshot.state.typeMetadataGeneration) + 1;
   state.memberCallGraphSeq =
     Math.max(memberCallGraphSeq, snapshot.state.memberCallGraphSeq) + 1;
+  state.directUseClusterSeq =
+    Math.max(directUseClusterSeq, snapshot.state.directUseClusterSeq) + 1;
   state.graphMemberNavigationSeq =
     Math.max(graphMemberNavigationSeq, snapshot.state.graphMemberNavigationSeq) + 1;
   state.platformIndex = platformIndex;
@@ -2086,6 +2123,7 @@ function invalidateWorkspaceAsyncOwners(): void {
   memberDetailInspection.invalidate();
   invalidateGraphMemberNavigation();
   invalidateMemberCallGraphWork(state);
+  directUseClusterInspection.reset();
   packageInspection.invalidatePackageResults();
   clearWorkspaceOccurrenceView();
 }
@@ -3428,6 +3466,17 @@ const typeAnalysisWorkspaceGenerations =
   new WeakMap<AppPackage, string>();
 const typeLeverageWorkspaceGenerations =
   new WeakMap<AppPackage, string>();
+const dataBarFeedback = createDataBarFeedback();
+const typeLeverageFeedbackTickets = new Map<string, number>();
+
+function dataBarViewKey(): string {
+  return JSON.stringify([
+    location.pathname,
+    viewSignature(),
+    state.typeExplorerOpen,
+  ]);
+}
+
 const typeLeverage = createTypeLeverageCoordinator<TypeLeverageTarget>({
   operationAuthority,
   key: target => target.key,
@@ -3441,15 +3490,33 @@ const typeLeverage = createTypeLeverageCoordinator<TypeLeverageTarget>({
     return undefined;
   },
   publish: published => {
+    const generation = dataBarFeedback.synchronize(dataBarViewKey());
     switch (published.status) {
       case "loading":
         state.typeLeverageErrors.delete(published.key);
+        typeLeverageFeedbackTickets.set(published.key, generation);
+        dataBarFeedback.publish(published.key, generation, null);
         break;
       case "ready":
         state.typeLeverageErrors.delete(published.key);
+        dataBarFeedback.publish(
+          published.key,
+          typeLeverageFeedbackTickets.get(published.key) ?? -1,
+          typeLeverageFeedback(published.presentation),
+        );
+        typeLeverageFeedbackTickets.delete(published.key);
         break;
       case "failed":
         state.typeLeverageErrors.set(published.key, published.message);
+        dataBarFeedback.publish(
+          published.key,
+          typeLeverageFeedbackTickets.get(published.key) ?? -1,
+          {
+            message: `Structural salience is unavailable: ${published.message}`,
+            retry: "type-leverage",
+          },
+        );
+        typeLeverageFeedbackTickets.delete(published.key);
         break;
     }
     renderPreservingMemberFocus();
@@ -3898,6 +3965,22 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
     await renderMermaidCallGraph();
   },
 });
+const directUseClusterInspection =
+  createDirectUseClusterInspectionController({
+    state,
+    query: request => inspectDirectUseClusters(
+      request.sourcePackageId,
+      request.sourceVersion,
+      request.sourceFramework,
+      request.sourceAssembly,
+      request.targetPackageId,
+      request.targetVersion,
+      request.targetFramework,
+      request.targetAssembly,
+      request.selectedCluster),
+    describeError: errorMessage,
+    render,
+  });
 const documentInspection = createDocumentInspectionCoordinator({
   state,
   queryDocument: request => inspectPackageDocument(
@@ -3909,6 +3992,37 @@ const documentInspection = createDocumentInspectionCoordinator({
   describeError: errorMessage,
   render,
 });
+
+const packageDocumentTitles = createPackageDocumentTitles({
+  queryDocument: request => inspectPackageDocument(request.packageId, request.version, request.document.path),
+  renderMarkdown,
+  firstHeading: html => {
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    return template.content.querySelector("h1")?.textContent?.trim() || null;
+  },
+  describeError: errorMessage,
+  render,
+});
+let packageDocumentationScheduled = false;
+function schedulePackageDocumentTitles() {
+  const pkg = state.package;
+  if (packageDocumentationScheduled || !pkg
+    || !document.querySelector(".package-document-list")
+    || !pkg.documents.some(doc => !packageDocumentTitles.get(pkg, doc.path))) return;
+  packageDocumentationScheduled = true;
+  requestAnimationFrame(() => setTimeout(() => {
+    packageDocumentationScheduled = false;
+    if (state.package !== pkg) {
+      schedulePackageDocumentTitles();
+      return;
+    }
+    if (!document.querySelector(".package-document-list")) return;
+    observeAsync(packageDocumentTitles.load(pkg, pkg.documents.map(document => ({
+      packageId: pkg.id, version: pkg.version, document,
+    }))), "Reading package documentation titles");
+  }, 0));
+}
 
 function captureView(): WorkspaceView | null {
   if (!state.package && !state.platformSelection) return null;
@@ -4935,6 +5049,7 @@ const spotlight = createSpotlight({
   highlightRanges,
   kindIcon,
   searchResults: spotlightResults,
+  ecosystemError: () => spotlightEcosystemClassification.error(),
   pickResult: pickSpotlightResult,
   removeResult: removeSpotlightPackage,
   executeCommand,
@@ -5398,6 +5513,11 @@ function loadTypeLeverage(retry = false) {
   try {
     const targets = createCurrentTypeLeverageTargets();
     state.typeLeverageSetupError = "";
+    dataBarFeedback.publish(
+      "type-leverage-setup",
+      dataBarFeedback.synchronize(dataBarViewKey()),
+      null,
+    );
     for (const target of targets) {
       state.typeLeverageErrors.delete(target.key);
       if (retry) typeLeverage.retry(target);
@@ -5405,6 +5525,14 @@ function loadTypeLeverage(retry = false) {
     }
   } catch (error) {
     state.typeLeverageSetupError = errorMessage(error);
+    dataBarFeedback.publish(
+      "type-leverage-setup",
+      dataBarFeedback.synchronize(dataBarViewKey()),
+      {
+        message: `Structural salience is unavailable: ${state.typeLeverageSetupError}`,
+        retry: "type-leverage",
+      },
+    );
     renderPreservingMemberFocus();
   } finally {
     typeLeverageBatchLoading = false;
@@ -6460,40 +6588,6 @@ function typeAccessibilityIncludesForwarders() {
   const selected = selectedTypeAccessibility();
   return !selected || accessibilityBuckets().some(
     descriptor => descriptor.id === selected && descriptor.isDefault);
-}
-
-function typeLeverageStatus() {
-  const failures = [
-    ...(state.typeLeverageSetupError
-      ? [state.typeLeverageSetupError]
-      : []),
-    ...currentTypeLeverageTargets().flatMap(target => {
-      const error = state.typeLeverageErrors.get(target.key);
-      return error ? [error] : [];
-    }),
-  ];
-  if (failures.length > 0) {
-    return `<div class="metadata-warning" aria-live="polite">
-      <small>Structural salience is unavailable: ${failures.map(escapeHtml).join("<br>")}</small>
-      <button type="button" class="tiny-button" data-type-leverage-retry>Retry</button>
-    </div>`;
-  }
-  const qualified = currentTypeLeveragePresentations().filter(
-    ({ presentation }) =>
-      presentation.disposition.toLowerCase() !== "complete"
-      || presentation.diagnostics.length > 0
-      || presentation.warnings.length > 0,
-  );
-  if (qualified.length === 0) return "";
-  const diagnostics = qualified.flatMap(
-    ({ presentation }) => [
-      ...presentation.warnings,
-      ...presentation.diagnostics,
-    ]);
-  return `<div class="metadata-warning" aria-live="polite">
-    <small>Structural salience has qualified evidence${diagnostics.length ? `<br>${diagnostics.map(escapeHtml).join("<br>")}` : ""}</small>
-    <button type="button" class="tiny-button" data-type-leverage-retry>Retry</button>
-  </div>`;
 }
 
 function typeFilterSummary() {
@@ -7633,6 +7727,15 @@ function renderLibraryDiffTools(subject: CompareSubject): string {
   </div>`;
 }
 
+function currentDataBarResult() {
+  const subject = currentCompareSubject();
+  if (subject?.kind !== "library" || currentCompareMode() !== "diff") return null;
+  return libraryApiDiffDataBarResult(
+    state.libraryApiDiff,
+    currentLibraryApiDiffSelection(),
+  );
+}
+
 function renderCompareSurface(): string {
   const subject = currentCompareSubject();
   if (!subject) return "";
@@ -7656,6 +7759,7 @@ function renderCompareSurface(): string {
   );
   return renderLibraryApiDiff(state.libraryApiDiff, escapeHtml, {
     ...options,
+    resultSummaryInDataBar: currentDataBarResult() !== null,
     subjectLabel,
     targetText,
     ...(subject.kind === "library"
@@ -8689,12 +8793,14 @@ function settingsOwnsHomeFocusTarget(target: HomeFocusTarget | null): boolean {
 }
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
+  dataBarFeedback.synchronize(dataBarViewKey());
   productNavigationBinding.beforeRender();
   try {
     renderCore(options);
   } finally {
     productNavigationBinding.afterRender();
     memberListRevealer.afterRender(document);
+    schedulePackageDocumentTitles();
     scheduleTypeHeat();
     scheduleTypeMethodLeverage();
     memberDiffExplorer.afterRender(
@@ -9178,6 +9284,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
 
       ${dataBarHtml({
         buildIdentity: state.buildIdentity,
+        errors: dataBarFeedback.errors(),
+        result: currentDataBarResult(),
         producer: {
           kind: pkg.source.kind === "platform"
             || state.rootKind === "library"
@@ -9202,12 +9310,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     }, escapeHtml)}
     ${renderAnnotatedSourceModal()}`);
 
-  for (const packageIcon of document.querySelectorAll<HTMLImageElement>("[data-package-icon]")) {
-    packageIcon.onerror = () => {
-      if (packageIcon.getAttribute("src") === NUGET_DEFAULT_PACKAGE_ICON) return;
-      packageIcon.src = NUGET_DEFAULT_PACKAGE_ICON;
-    };
-  }
+  bindPackageIconFallbacks(document);
   bindEvents();
   bindLibraryOpenEvents();
   if (loadingPackageContent) {
@@ -9861,6 +9964,7 @@ function renderNavPane(
       frameworks: pkg.frameworks,
       activeFramework: pkg.activeFramework,
       versions,
+      unlistedVersions: entry.status === "available" ? entry.inventory.unlistedVersions ?? [] : [],
       activeVersion: pkg.version,
       statusHtml: pkg.source.kind !== "nuget.org"
         ? '<p>Version discovery is unavailable for this package source.</p>'
@@ -10109,8 +10213,7 @@ function renderTypeNavPane(
         achievements.push(apiDiffAchievement);
       return achievements;
     },
-    statusHtml:
-      `${typeLeverageStatus()}${platformForwarderInventoryStatus()}`,
+    statusHtml: platformForwarderInventoryStatus(),
   });
 }
 
@@ -10579,6 +10682,17 @@ function renderLibraryReferences() {
   const fresh = state.packageDependenciesKey === current;
   const library = selectedLibrary();
   const pkg = currentPackage();
+  const references =
+    fresh && state.packageDependencies
+      && state.packageDependencies.assemblyReferences
+      && typeof state.packageDependencies.assemblyReferences !== "string"
+      ? state.packageDependencies.assemblyReferences.references
+      : [];
+  const candidates = state.packages.flatMap(candidatePackage =>
+    createWorkspaceLibraryReferenceCandidates(
+      packageIdentityKey(candidatePackage),
+      packageLibrariesForModel(candidatePackage),
+      candidatePackage.assemblies));
   return renderLibraryReferencesSurface({
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
     assetPath: library?.asset ?? "",
@@ -10586,6 +10700,9 @@ function renderLibraryReferences() {
     loading: state.packageDependenciesLoading && fresh,
     error: fresh ? state.packageDependenciesError : "",
     data: fresh ? state.packageDependencies : null,
+    referenceDestinations: resolveLibraryReferenceDestinations(
+      references,
+      candidates),
     escapeHtml,
   });
 }
@@ -10626,7 +10743,7 @@ function dependencyListSectionHtml(
               : open
               ? `data-dep-open="${escapeHtml(packageIdentityKey(open))}" title="Switch to ${escapeHtml(dependency.id)}"`
               : `data-dep-load="${escapeHtml(dependency.id)}" data-dep-version="${escapeHtml(dependency.versionRange || "")}" title="Open ${escapeHtml(dependency.id)} in a new tab"`;
-            return `<li><button class="dep-name as-link${open ? " is-open" : ""}" ${attrs}>${escapeHtml(dependency.id)}</button><code class="dep-version">${escapeHtml(dependency.versionRange || "*")}</code></li>`;
+            return `<li><img class="dep-icon" src="${NUGET_DEFAULT_PACKAGE_ICON}" alt="" data-package-icon data-dependency-icon="${index}"><button class="dep-name as-link${open ? " is-open" : ""}" ${attrs}>${escapeHtml(dependency.id)}</button><code class="dep-version">${escapeHtml(dependency.versionRange || "*")}</code></li>`;
           }).join("")}</ul>`
         : `<div class="empty-list">No package dependencies declared for ${escapeHtml(group.framework)}.</div>`}
     </section>`;
@@ -10654,6 +10771,11 @@ async function renderPackageDependencyList() {
     if (!isCurrent()) return;
     container.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex, matches);
     bindPackageDependencyListEvents();
+    await renderPackageDependencyIcons(
+      data,
+      groups,
+      selectedGroupIndex,
+      matches);
   } catch (error) {
     if (!isCurrent()) return;
     container.dataset.dependencyMatchState = "failed";
@@ -10661,6 +10783,77 @@ async function renderPackageDependencyList() {
     container.insertAdjacentHTML("beforeend",
       `<p class="graph-render-error" role="alert">Dependency matching failed: ${escapeHtml(errorMessage(error))}</p>`);
   }
+}
+
+async function renderPackageDependencyIcons(
+  data: BrowserPackageDependencies | null,
+  groups: readonly BrowserPackageDependencyGroup[],
+  selectedGroupIndex: number | null,
+  matches: readonly (AppPackage | null)[],
+) {
+  const container =
+    document.querySelector<HTMLElement>("#dep-list-section");
+  const group =
+    groups.find(candidate => candidate.index === selectedGroupIndex)
+    || groups[0];
+  if (!container || !group) return;
+
+  const dependencies = group.dependencies || [];
+  const images = [
+    ...container.querySelectorAll<HTMLImageElement>("[data-dependency-icon]"),
+  ];
+  const requests =
+    new Map<string, Promise<BrowserPackageIconInspection>>();
+  const signature = packageDependenciesSignature();
+  const isCurrent = () =>
+    document.querySelector("#dep-list-section") === container
+    && state.packageDependencies === data
+    && packageDependenciesSignature() === signature
+    && resolveDependenciesGroupIndex(groups) === selectedGroupIndex;
+  let next = 0;
+
+  const loadNext = async () => {
+    while (true) {
+      const index = next++;
+      if (index >= dependencies.length) return;
+      const dependency = dependencies[index];
+      if (!dependency) continue;
+      const image = images.find(candidate =>
+        candidate.dataset.dependencyIcon === String(index));
+      if (!image) continue;
+
+      try {
+        const version = matches[index]?.version
+          ?? await resolveDependencyVersion(
+            dependency.id,
+            dependency.versionRange ?? null);
+        const key = `${dependency.id.toLowerCase()}@${version}`;
+        let request = requests.get(key);
+        if (!request) {
+          request = inspectPackageIcon(dependency.id, version);
+          requests.set(key, request);
+        }
+        const result = await request;
+        if (!isCurrent()
+          || result.packageId !== dependency.id
+          || result.packageVersion !== version
+          || result.status !== "Available"
+          || !result.icon) {
+          continue;
+        }
+
+        image.src =
+          `data:${result.icon.mediaType};base64,${result.icon.base64}`;
+      } catch {
+        // The default icon is the visible typed failure presentation.
+      }
+    }
+  };
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(4, dependencies.length) },
+      loadNext));
 }
 
 // Switch the dependency lens to a different target framework without a full page render:
@@ -11922,7 +12115,8 @@ function enabledLibraryEnablements(
 function renderPackageOverview() {
   const pkg = currentPackage();
   const documentsSection =
-    renderPackageDocuments(pkg.documents || [], escapeHtml);
+    renderPackageDocuments(pkg.documents || [], escapeHtml,
+      path => packageDocumentTitles.get(pkg, path));
   const contentHtml = renderPackageOverviewContent({
     packageInfoHtml: pkg.packageInfo
       ? renderPackageInfo(pkg.packageInfo, escapeHtml)
@@ -12428,9 +12622,6 @@ function renderApiLens(item: AppTypeSurface) {
             </section>`
           : ""}
       </div>
-      <footer class="api-surface-footer">
-        <span>Select a row to inspect its API</span>
-      </footer>
     </section>`;
 }
 
@@ -12451,6 +12642,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
           <header class="api-surface-head member-surface-head">
             <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
             <p>${count} ${count === 1 ? "overload" : "overloads"} <span>· ${escapeHtml(member.kind)}</span></p>
+            <button class="member-back" id="member-back" title="Back to ${escapeHtml(typeDisplayName(type))}">← Type</button>
           </header>
           <div class="member-surface-scroll">
             <div class="api-list api-surface-list member-surface-list">
@@ -12521,6 +12713,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
         <header class="api-surface-head member-surface-head">
           <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
           <p>${document.count} ${document.count === 1 ? "overload" : "overloads"} <span>· ${escapeHtml(member.kind)}</span></p>
+          <button class="member-back" id="member-back" title="Back to ${escapeHtml(typeDisplayName(type))}">← Type</button>
         </header>
         <div class="member-surface-scroll">
           <div class="api-list api-surface-list member-surface-list">
@@ -12542,10 +12735,6 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             }).join("")}
           </div>
         </div>
-        <footer class="api-surface-footer member-surface-footer">
-          <button class="member-back" id="member-back">← ${escapeHtml(typeDisplayName(type))}</button>
-          <span>Choose an overload to inspect</span>
-        </footer>
       </section>`;
   }
   const overload = selectedOverload ?? member.overloads[0];
@@ -12671,6 +12860,13 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     const incompleteGraph = diagnosticsMessage
       ? `<div class="graph-drill-error graph-diagnostics">${escapeHtml(diagnosticsMessage)}</div>`
       : "";
+    const directUseClusters = active && !platformView
+      ? renderDirectUseClusterInspection(
+          active,
+          state.memberCallGraphKey,
+          state,
+          escapeHtml)
+      : "";
     content = state.memberCallGraphLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Building dependency-aware call graph…</h2><p>Resolving package dependencies under ${escapeHtml(state.callGraphTraversalFramework)} and scanning implementation IL.</p></section>`
       : active && active.noBody
@@ -12696,6 +12892,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             ${scopeLine}
             <div id="call-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
             ${callGraphLegendHtml(supplyChainGraph)}
+            ${directUseClusters}
           </section>`
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
     content = `<div data-call-graph-surface>${content}</div>`;
@@ -12847,6 +13044,18 @@ const packageViewActions: PackageViewBindingActions = {
     if (!assetId) return;
     navigationSequence.begin();
     if (!selectLibrarySubject(assetId)) return;
+    showContentDetailAfterRender();
+    render();
+  },
+  onLibraryReferenceSelect: (packageKey, libraryId) => {
+    if (!packageKey || !libraryId) return;
+    const target = state.packages.find(candidate =>
+      packageIdentityKey(candidate) === packageKey);
+    if (!target) return;
+    if (state.package !== target)
+      selectWorkspacePackage(target, { renderSelection: false });
+    else navigationSequence.begin();
+    if (!selectLibrarySubject(libraryId)) return;
     showContentDetailAfterRender();
     render();
   },
@@ -13079,6 +13288,18 @@ function bindPackageViewEvents() {
 
 function bindPackageDependencyListEvents() {
   bindPackageDependencyList(document, packageViewActions);
+  bindPackageIconFallbacks(document);
+}
+
+function bindPackageIconFallbacks(root: ParentNode) {
+  for (const packageIcon of
+    root.querySelectorAll<HTMLImageElement>("[data-package-icon]")) {
+    packageIcon.onerror = () => {
+      if (packageIcon.getAttribute("src") === NUGET_DEFAULT_PACKAGE_ICON)
+        return;
+      packageIcon.src = NUGET_DEFAULT_PACKAGE_ICON;
+    };
+  }
 }
 
 function bindLibrarySubjectNavEvents() {
@@ -14171,6 +14392,23 @@ function bindEvents() {
   bindGraphBack(document, graphBackActions);
   bindGraphExplore(document, openGraphExplorer);
   bindCallGraphTraversalFramework();
+  bindDirectUseClusterInspection(document, {
+    selectBoundary: id => {
+      const graph = currentCallGraph();
+      const boundary = graph?.boundaries.find(item => item.id === id);
+      if (!graph || !boundary) return;
+      observeAsync(
+        directUseClusterInspection.selectBoundary(
+          state.memberCallGraphKey,
+          boundary),
+        "Inspecting a Library dependency boundary");
+    },
+    selectCluster: ordinal => {
+      observeAsync(
+        directUseClusterInspection.selectCluster(ordinal),
+        "Inspecting a Direct-Use Cluster");
+    },
+  });
   bindContentFrameEvents();
   bindPlatformForwarderEvents();
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
@@ -14189,6 +14427,7 @@ function bindCallGraphTraversalFramework() {
     state.memberCallGraph = null;
     state.memberCallGraphError = "";
     state.graphMemberNavigationError = "";
+    directUseClusterInspection.reset();
     render();
     observeAsync(
       loadSelectedMemberCallGraph(),
@@ -14942,6 +15181,19 @@ function frameworkLibrarySpotlightResults(query: string): SpotlightResult[] {
   return results;
 }
 
+const spotlightEcosystemClassification = createSpotlightEcosystemClassification({
+  classify: (tfm, candidates, inventory) => classifyEcosystemPackages(tfm, candidates, inventory),
+  updateResults: () => spotlight.updateResults(),
+});
+
+function annotateSpotlightEcosystems(results: SpotlightResult[]): SpotlightResult[] {
+  if (!state.engineReady) return results;
+  const target = selectedPlatformTarget();
+  const traversalTfm = state.platformSelection?.tfm ?? state.platformIndex?.defaultFramework;
+  if (!traversalTfm) return results;
+  return spotlightEcosystemClassification.project(results, traversalTfm, target);
+}
+
 function spotlightResults(): SpotlightResult[] {
   const query = state.spotlightQuery.trim();
   const spotlightScope = state.spotlightScope;
@@ -14994,7 +15246,7 @@ function spotlightResults(): SpotlightResult[] {
           ranges: [[0, parsedPackageQuery.packageId.length]],
         });
       }
-      return results;
+      return annotateSpotlightEcosystems(results);
     }
     const loaded = spotlightLoadedPackageMatches(query).slice(0, all ? 3 : 20);
     for (const match of loaded) results.push({ kind: "pkg-loaded", pkg: match.pkg, ranges: match.ranges });
@@ -15070,7 +15322,7 @@ function spotlightResults(): SpotlightResult[] {
   if (all) {
     results.push(...frameworkLibrarySpotlightResults(query).slice(0, 5));
   }
-  return results;
+  return annotateSpotlightEcosystems(results);
 }
 
 interface NugetSearchResult {
@@ -15314,7 +15566,8 @@ function updateVersionSelect(pkg: CatalogPackage) {
   const pane = document.querySelector(".package-version-nav");
   if (pane) {
     const filter = document.querySelector<HTMLInputElement>("#package-version-filter")?.value ?? "";
-    const prerelease = document.querySelector<HTMLInputElement>("#package-version-prerelease")?.checked ?? true;
+    const prerelease = document.querySelector<HTMLInputElement>("#package-version-prerelease")?.checked ?? false;
+    const unlisted = document.querySelector<HTMLInputElement>("#package-version-unlisted")?.checked ?? false;
     const focused = document.activeElement instanceof HTMLElement && pane.contains(document.activeElement)
       ? { id: document.activeElement.id, version: document.activeElement.dataset.packageVersion, framework: document.activeElement.dataset.packageFramework } : null;
     const scrollTop = document.querySelector("#package-version-list")?.scrollTop ?? 0;
@@ -15323,6 +15576,8 @@ function updateVersionSelect(pkg: CatalogPackage) {
     const nextPrerelease = document.querySelector<HTMLInputElement>("#package-version-prerelease");
     if (nextFilter) nextFilter.value = filter;
     if (nextPrerelease) nextPrerelease.checked = prerelease;
+    const nextUnlisted = document.querySelector<HTMLInputElement>("#package-version-unlisted");
+    if (nextUnlisted) nextUnlisted.checked = unlisted;
     const nextPane = document.querySelector(".package-version-nav");
     if (nextPane) {
       packageControls.bind(nextPane);
@@ -21761,6 +22016,9 @@ async function loadSelectedMemberCallGraph() {
     memberRequestSignature(type, overload, true);
   const signature =
     `${memberSignature}|traversal:${traversalFramework}`;
+  if (state.memberCallGraphKey !== signature) {
+    directUseClusterInspection.reset();
+  }
   const pkg = currentPackage();
   const platformAssembly = assemblyDescriptorForType(pkg.assemblies, type);
   return callGraphInspection.load({
@@ -24360,6 +24618,7 @@ function applyProductHomeDemoSelection(
   state.packageLens = "overview";
   resetMemberFilters();
   resetMemberSectionState();
+  directUseClusterInspection.reset();
   state.platformStack = [];
   state.memberBrowseTypeId = member ? type.id : "";
   state.selectedMemberKey = member?.key ?? "";
@@ -26944,7 +27203,7 @@ window.__platformIndex = loadPlatformIndex();
 observeAsync(
   window.__platformIndex.then(index => {
     if (index) state.platformIndex = index;
-    if (state.spotlightOpen) spotlight.refresh();
+    if (state.spotlightOpen || state.home) spotlight.refresh();
     return undefined;
   }),
   "Loading the platform index");
