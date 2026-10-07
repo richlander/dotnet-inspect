@@ -6468,7 +6468,6 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
   border: 0; padding: 0; background: transparent; color: var(--blue);
   font: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere;
 }
-.forwarder-destination span { margin-left: 8px; }
 .forwarder-destination:is(:hover, :focus-visible) {
   color: var(--accent); text-decoration: underline;
 }

@@ -45,7 +45,7 @@ test("XML forwarders open each immediate Library and restore fresh history actio
   await openXml(page);
   const firstAction = await page.locator("html").getAttribute("data-forwarder-view");
   await page.locator("[data-platform-forwarder]").click();
-  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml →");
+  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml");
   await expect(page.locator("#forwarded-type-title")).toBeFocused();
   await expect(page.locator('[data-inspector-tab][data-lens="source"]')).toHaveCount(0);
   await page.locator("[data-platform-forwarder]").click();
@@ -58,13 +58,13 @@ test("XML forwarders open each immediate Library and restore fresh history actio
     /"System.Xml.XmlReader","csharp","public"\]$/,
   );
   await page.locator("#nav-back").click();
-  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml →");
+  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml");
   await page.locator("#nav-back").click();
-  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter →");
+  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter");
   expect(await page.locator("html").getAttribute("data-forwarder-view")).not.toBe(firstAction);
   await page.reload();
   await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
-  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter →");
+  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter");
 });
 
 // PR-fast: copies through both forwarding hops and the ordinary defining Type.
@@ -123,7 +123,7 @@ test("namespace filtering includes forwarded-only namespaces and follows the sel
     .toBeVisible();
   await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
   await page.locator("[data-platform-forwarder]").click();
-  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml →");
+  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml");
   await page.locator("[data-platform-forwarder]").click();
   await expect(page.locator('[data-type="System.Private.Xml:System.Xml.XmlReader"]'))
     .toBeVisible();
@@ -249,7 +249,7 @@ test("leaving a pending forwarder cannot replace the newer Library subject", asy
   await expect(page.locator("[data-platform-forwarder]")).toBeEnabled();
   await page.locator("[data-platform-forwarder]").click();
   await releaseFacade(page, "finish-forwarder");
-  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml →");
+  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml");
 });
 
 test("leaving and returning does not revive a superseded forwarding action", async ({ page }) => {
@@ -262,6 +262,6 @@ test("leaving and returning does not revive a superseded forwarding action", asy
   await expect.poll(() => page.locator("html").getAttribute("data-forwarder-view"))
     .not.toBe(retired);
   await releaseFacade(page, "finish-forwarder");
-  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter →");
+  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter");
   await expect(page.locator("[data-platform-forwarder]")).toBeEnabled();
 });

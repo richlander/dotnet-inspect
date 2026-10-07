@@ -45,7 +45,7 @@ export function renderForwardedTypeOverview(
 ): string {
   const e = escapeHtml;
   const destination = row.action && status.available !== false
-    ? `<button type="button" class="forwarder-destination" data-platform-forwarder="${e(row.id)}" aria-label="${e(`Open ${row.name} in ${row.targetAssembly}`)}"${status.pending ? ' disabled aria-busy="true"' : ""}>${e(row.targetAssembly)} <span aria-hidden="true">→</span></button>`
+    ? `<button type="button" class="forwarder-destination" data-platform-forwarder="${e(row.id)}" aria-label="${e(`Open ${row.name} in ${row.targetAssembly}`)}"${status.pending ? ' disabled aria-busy="true"' : ""}>${e(row.targetAssembly)}</button>`
     : `<code>${e(row.targetAssembly)}</code>`;
   return `<section class="metadata-surface forwarded-type-overview" aria-labelledby="forwarded-type-title">
     <header class="metadata-surface-head">
