@@ -356,6 +356,12 @@ public record LibraryOptions : IProjectionOptions
     public RowSelectionIntent<string>? CloneCandidateRowSelection { get; init; }
 
     /// <summary>
+    /// Semantic row selection for an exact lone Body Shapes or Body Shape
+    /// Summary section.
+    /// </summary>
+    public RowSelectionIntent<string>? BodyShapeRowSelection { get; init; }
+
+    /// <summary>
     /// Semantic row selection for direct assembly references.
     /// </summary>
     public RowSelectionIntent<string>? ReferenceRowSelection { get; init; }
