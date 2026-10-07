@@ -415,7 +415,7 @@ public static class TypeMemberGroupPopulationInspectionOperation
             == query.IncludesExactMemberCount;
     }
 
-    private static MetadataMemberSpelling Spelling(
+    internal static MetadataMemberSpelling Spelling(
         TypeMemberGroupSpelling spelling) =>
         spelling switch
         {
@@ -427,7 +427,7 @@ public static class TypeMemberGroupPopulationInspectionOperation
                 "Unknown Type Member-group spelling."),
         };
 
-    private static MetadataMethodAccessibilityFilter Accessibility(
+    internal static MetadataMethodAccessibilityFilter Accessibility(
         TypeMemberGroupAccessibilityFilter accessibility) =>
         accessibility switch
         {
@@ -445,7 +445,7 @@ public static class TypeMemberGroupPopulationInspectionOperation
                 "Unknown Type Member-group accessibility."),
         };
 
-    private static MetadataTypeMemberGroupReceiverFilter Receiver(
+    internal static MetadataTypeMemberGroupReceiverFilter Receiver(
         TypeMemberGroupReceiverFilter receiver) =>
         receiver switch
         {
@@ -463,7 +463,7 @@ public static class TypeMemberGroupPopulationInspectionOperation
                 "Unknown Type Member-group receiver."),
         };
 
-    private static MemberGroupCategory Category(
+    internal static MemberGroupCategory Category(
         MetadataTypeMemberGroupCategory category) =>
         category switch
         {

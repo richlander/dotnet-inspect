@@ -69,13 +69,15 @@ export function bindPackageSelections(
 export function bindPackageVersionNavigation(root: ParentNode, options: Pick<PackageControlsOptions, "selectVersion" | "retryVersionInventory">) {
   const filter = root.querySelector<HTMLInputElement>("#package-version-filter");
   const prerelease = root.querySelector<HTMLInputElement>("#package-version-prerelease");
+  const unlisted = root.querySelector<HTMLInputElement>("#package-version-unlisted");
   const rows = [...root.querySelectorAll<HTMLElement>("[data-package-version]")];
   const apply = () => {
     for (const row of rows) {
       const version = row.dataset.packageVersion ?? "";
       row.hidden = row.getAttribute("aria-current") !== "page"
         && (!version.toLowerCase().includes(filter?.value.toLowerCase() ?? "")
-          || (prerelease?.checked === false && version.split("+", 1)[0]?.includes("-") === true));
+          || (prerelease?.checked === false && version.split("+", 1)[0]?.includes("-") === true)
+          || (unlisted?.checked !== true && row.dataset.packageUnlisted === "true"));
     }
   };
   root.querySelector("#package-version-list")?.addEventListener("focus", () => {
@@ -83,6 +85,7 @@ export function bindPackageVersionNavigation(root: ParentNode, options: Pick<Pac
   });
   filter?.addEventListener("input", apply);
   prerelease?.addEventListener("change", apply);
+  unlisted?.addEventListener("change", apply);
   rows.forEach(row => row.addEventListener("click", () => {
     options.selectVersion(row.dataset.packageVersion ?? "");
   }));
