@@ -563,8 +563,10 @@ known source family; unillustrated ecosystems retain their text disclosure and
 an empty icon slot. Kind and status glyphs follow the structural-salience icon
 language. The four ecosystem marks use the operator-selected original
 [Aspire family concept set](https://chatgpt.com/share/6ac58f0a-d2f4-83e8-8b09-6dbf61660302)
-and its purple palette; Aspire uses the official product SVG. The .NET artwork
-can change independently of these row semantics.
+and its purple palette; Aspire uses the official product SVG. The .NET mark
+uses the subsequently selected
+[matte lowercase n with a smaller hollow ring](https://chatgpt.com/share/6ac59580-5c10-83e8-842c-e48b179f22e6).
+Its artwork can change independently of these row semantics.
 
 The static catalog continues loading in the background without blocking search.
 Results appear immediately and receive annotations after a local Worker turn.
