@@ -21,7 +21,9 @@ declarations.
 The user approved defining these four documents together and integrating their
 resolved Member subjects with
 [Contextual Resource Explanation](contextual-resource-explanation.md). CLI and
-Browser rendering are explicitly outside this effort.
+Browser rendering are outside the object-model slices. Their independent host
+adoption composes these documents with
+[Host-neutral hierarchy projection](host-neutral-hierarchy-projection.md).
 
 Direct JSON transport preserves exact Type and Member identity, population
 bindings, inert strings, spelling, and closed population outcomes. In-process
@@ -191,6 +193,43 @@ Type or population rejection, bound, or failure remains a closed document
 outcome. Rows rejection, incompleteness, or failure is promoted to that same
 document boundary rather than returned inside success-shaped content.
 
+### Hierarchy projection
+
+Hierarchy is an explicit host-neutral request over this owner's subject
+relations, not an inference from a selected renderer. The compact overview
+admits the `TypeCategoriesAndMemberGroups` topology:
+
+```text
+Type
+  -> Category
+    -> MemberGroup
+      -> exact Member
+```
+
+Its first profile requests FullSpelling for the Type, category Rows with Name,
+MemberGroup Rows with Name, and exact-Member Count beneath each MemberGroup.
+The plan must therefore request complete compact MemberGroup Rows with an exact
+Member Count for every row.
+
+The Type overview owner pushes category nodes carrying the category and its
+logical and exact Counts, plus MemberGroup nodes carrying the owner-issued
+compact row. It defines category membership and order, MemberGroup order,
+nesting, Counts, and exact last-sibling facts. It rejects unsupported spelling
+or terminal choices and unavailable, partial, or uncounted Rows rather than
+emitting a successful shortened hierarchy. Within each category, projection
+preserves the order of the bound MemberGroup Rows exactly; it does not sort
+completed product Rows after population execution.
+
+[Host-neutral hierarchy projection](host-neutral-hierarchy-projection.md)
+owns the recursive Rows-or-Count and Name-or-FullSpelling request vocabulary,
+the streaming sink, and shared format lowering. Tree and Mermaid do not
+regroup, recount, or reconstruct this owner's subjects.
+
+`TypeOverviewDocument` carries this compact projection directly. An expanded
+`Type -> MemberGroup -> exact Member Rows` projection belongs to the complete
+`TypeDocument`, because compact overview Counts are not exact-Member
+declarations.
+
 ## TypeDocument
 
 `TypeDocument` is the complete declaration document for one exact Type. It
@@ -205,6 +244,21 @@ declaration spelling.
 Its Member declarations are declaration rows, not embedded `MemberDocument`
 values. Exact-subject documentation, source, metrics, Analysis, and other
 attachments remain independently requested.
+
+`CompleteTypeDocumentInspectionOperation` resolves the exact Type once through
+the existing Library and Metadata Type-document path. Metadata projects every
+admitted declaration during the same classified-Member scan that defines the
+compact Type population. The scan applies spelling, accessibility, receiver,
+and hidden admission before signature materialization, then issues each
+declaration's MemberGroup identity, Metadata ordinal and token, anchor,
+display and canonical signatures, documentation identity, fingerprint,
+accessibility, and receiver.
+
+The operation does not reopen the assembly per MemberGroup or materialize the
+legacy rich API surface. Its closed outcome promotes exact-Type, Metadata-row,
+Member, retained-text, and malformed-Metadata non-success to the complete
+document boundary. It preserves the source Share and diagnostics and returns
+only resource-free inert data.
 
 ## MemberOverviewDocument
 
@@ -322,12 +376,14 @@ production adoption as focused slices:
 4. Adopt the resolved Member subject mapping in Contextual Resource
    Explanation. Complete.
 5. Implement compact `TypeOverviewDocument`. Complete.
-6. Implement complete `TypeDocument`.
+6. Implement complete `TypeDocument`. Complete.
 7. Adopt the documents independently in CLI and Browser/Wasm.
 8. Retire transitional document names and superseded host-local composition.
 
 Rendering work is not part of slices 1 through 6 and does not define the object
-model.
+model. Future CLI Tree and Mermaid adoption will select shared presentation
+profiles over the owner-issued hierarchy; Count and other projections retain
+their independently admitted routes.
 
 ## Required evidence
 

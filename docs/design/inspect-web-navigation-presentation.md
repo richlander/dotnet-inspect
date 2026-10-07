@@ -907,9 +907,12 @@ Existing inventory bounds still apply, and incomplete or failed inventory
 remains visibly incomplete or failed.
 
 Selecting a forwarded Type opens a Type subject with exactly one inspector,
-**Overview**. It identifies the structured Type, its declaring Library, and
-its immediate destination assembly. The destination assembly is an accessible
-button or chip when the
+**Overview**. Its content uses the existing Type Metadata surface: a compact
+Type forwarder heading and ECMA-335 declaration facts identify the structured
+Type, namespace, declaring Library, and immediate destination assembly. A
+quiet inline destination control offers traversal beside the assembly identity;
+there is no oversized call to action or disclaimer about absent members.
+The destination assembly is an accessible inline button when the
 [Platform forwarded-Type activation owner](inspect-web-platform-forwarded-type-activation.md)
 supplies an action. It is explanatory text with the applicable reason when no
 action is available. No separate Metadata inspector or chain-explorer UI is
@@ -924,6 +927,13 @@ the assembly label, and installs only the returned Library/Type destination.
 Non-success remains visible without replacing the current subject.
 [Navigation Consumer](inspect-web-navigation-consumer.md) retains ownership of
 current-authority checks, history, synchronization, and destination focus.
+
+The motivating asset also includes
+`Microsoft.NETCore.App@11.0.0-rc.1.26425.128`,
+`System.Runtime.dll / Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid`,
+whose destination is `System.Private.CoreLib`. Its declaration facts and
+traversal control use the same rendering gate as the XML route below. The
+immutable runtime package remains acquired through the normal Platform path.
 
 The production scenario is
 `Microsoft.NETCore.App@11.0.0-rc.1.26425.128`:

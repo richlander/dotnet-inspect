@@ -99,6 +99,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     closePlatformForwarderView: () => unexpected("closePlatformForwarderView"),
     classifyPackageGraphIdentities: () =>
       unexpected("classifyPackageGraphIdentities"),
+    classifyEcosystemPackages: () => unexpected("classifyEcosystemPackages"),
     getPlatformCatalog: () => unexpected("getPlatformCatalog"),
     getPlatformVersions: () => unexpected("getPlatformVersions"),
     matchPackageDependencyCoordinate: () =>
@@ -126,6 +127,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformMemberDocumentation"),
     queryPackageDependencies: () =>
       unexpected("queryPackageDependencies"),
+    queryPackageIcon: () => unexpected("queryPackageIcon"),
     queryPackageVulnerabilities: () =>
       unexpected("queryPackageVulnerabilities"),
     queryPackageVersions: () => unexpected("queryPackageVersions"),
@@ -2121,8 +2123,8 @@ test("malformed and oversized inputs are rejected before facade invocation", asy
 });
 
 test("large generated results cross the former ordinary transport bounds", async () => {
-  const formerMaximumJsonCharacters = 8_388_608;
-  const formerMaximumCollectionEntries = 262_144;
+  const formerMaximumJsonCharacters = 33_554_432;
+  const formerMaximumCollectionEntries = 1_310_720;
   const versions = Array.from(
     { length: formerMaximumCollectionEntries },
     (_unused, index) => index === 0
@@ -2300,6 +2302,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     package: [
       "activatePlatformForwarder",
       "activateWorkspacePackageOccurrence",
+      "classifyEcosystemPackages",
       "classifyPackageGraphIdentities",
       "clearWorkspacePackageOccurrences",
       "closePlatformForwarderView",
@@ -2318,6 +2321,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformMemberDocumentation",
       "queryPackage",
       "queryPackageDependencies",
+      "queryPackageIcon",
       "queryPackageVulnerabilities",
       "queryPackageRoot",
       "queryPackageSummary",
@@ -2435,7 +2439,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 114);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 116);
 
   const state = fixture();
   const groups = [

@@ -239,7 +239,7 @@ test("settled API Diff evidence decorates exact Type and Member navigation rows"
   const typeNav = sourceText(functionDeclaration("renderTypeNavPane"));
   assert.match(
     typeNav,
-    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*diffPresence\.typeIdentifiers\.has\(item\.definitionId \?\? item\.id\)[\s\S]*achievements\.push\(apiDiffAchievement\)/,
+    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*typeLeverageAchievements\([\s\S]*diffPresence\.typeIdentifiers\.has\(item\.definitionId \?\? item\.id\)\s*\? apiDiffAchievement : null\)/,
   );
 
   const memberNav = sourceText(functionDeclaration("renderMemberNavPane"));
@@ -774,9 +774,14 @@ test("typed package view owns package navigation bindings", () => {
   const namespaceJump = actionSource("onNamespaceJump");
   const packageChildLibrary =
     actionSource("onPackageChildLibrarySelect");
+  const libraryReference =
+    actionSource("onLibraryReferenceSelect");
   assert.match(
     packageChildLibrary,
     /navigationSequence\.begin\(\)[\s\S]*selectLibrarySubject\(assetId\)/);
+  assert.match(
+    libraryReference,
+    /state\.packages\.find[\s\S]*packageIdentityKey\(candidate\) === packageKey[\s\S]*selectWorkspacePackage\(target, \{ renderSelection: false \}\)[\s\S]*selectLibrarySubject\(libraryId\)/);
   assert.match(
     kindJump,
     /state\.atPackageRoot = false;[\s\S]*state\.kindFilter = kind;[\s\S]*state\.namespaceFilter = ""/);
@@ -2118,7 +2123,7 @@ test("Spotlight async work is receipt-gated and refreshes either mounted surface
     /generation|spotlightPkgGeneration|spotlightPkgTimer/);
   assert.match(
     appSource,
-    /window\.__platformIndex\.then\(index => \{[\s\S]*if \(state\.spotlightOpen\) spotlight\.refresh\(\)/);
+    /window\.__platformIndex\.then\(index => \{[\s\S]*if \(state\.spotlightOpen \|\| state\.home\) spotlight\.refresh\(\)/);
   assert.doesNotMatch(appSource, /rtpack-suggest|data-sl-load-runtime/);
   assert.doesNotMatch(appSource, /function activateRuntimePack\(/);
 });

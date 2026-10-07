@@ -419,7 +419,10 @@ public static class OutputFormatter
     /// rather than disappearing, matching how a category renders.
     /// </remarks>
     internal static IReadOnlyList<string>? ResolveCountMapSections<TModel>(
-        SectionPipeline<TModel> pipeline, HashSet<string>? includeSections, bool fixedOverview)
+        SectionPipeline<TModel> pipeline,
+        HashSet<string>? includeSections,
+        bool fixedOverview,
+        bool keepSectionMap = false)
     {
         var requested = includeSections is { Count: > 0 }
             ? includeSections
@@ -427,8 +430,11 @@ public static class OutputFormatter
                 ? new HashSet<string>(pipeline.BareSelectSectionNames, StringComparer.OrdinalIgnoreCase)
                 : null;
 
-        if (requested is not { Count: > 1 })
+        if (requested is not { Count: > 1 }
+            && !(keepSectionMap && requested is { Count: 1 }))
+        {
             return null;
+        }
 
         return requested.OrderBy(
             section => section,
@@ -696,7 +702,11 @@ public static class OutputFormatter
         {
             var projection = CaptureLibraryCountProjection(
                 auditView, inspection, writerOpts, options.Rows, options.Fields, options.Columns);
-            var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
+            var ordered = ResolveCountMapSections(
+                pipeline,
+                options.IncludeSections,
+                options.FixedOverview,
+                keepSectionMap: options.ScalarSectionsOmitted);
             CountOutput.Write(
                 projection, ordered, options.Format, options.NoHeader, options.OutputPath, options.Rows);
             return;
@@ -920,7 +930,11 @@ public static class OutputFormatter
                 projection.Merge(CaptureLibraryCountProjection(
                     auditView, inspection, WriterOptions(inspection), options.Rows, options.Fields, options.Columns));
             }
-            var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
+            var ordered = ResolveCountMapSections(
+                pipeline,
+                options.IncludeSections,
+                options.FixedOverview,
+                keepSectionMap: options.ScalarSectionsOmitted);
             CountOutput.Write(
                 projection, ordered, options.Format, options.NoHeader, options.OutputPath, options.Rows);
             return;

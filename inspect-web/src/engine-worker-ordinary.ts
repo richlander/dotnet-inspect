@@ -42,6 +42,7 @@ type PackageOperationName =
   | "activatePlatformForwarder"
   | "closePlatformForwarderView"
   | "openPlatformForwarderView"
+  | "classifyEcosystemPackages"
   | "classifyPackageGraphIdentities"
   | "getPlatformCatalog"
   | "getPlatformVersions"
@@ -53,6 +54,7 @@ type PackageOperationName =
   | "packageCacheStats"
   | "prefetchPlatformPacks"
   | "queryPackage"
+  | "queryPackageIcon"
   | "queryPackageRoot"
   | "queryPackageSummary"
   | "loadRuntimePack"
@@ -274,9 +276,9 @@ interface EngineWorkerOrdinaryActivity {
   whenIdle(): Promise<void>;
 }
 
-export const engineWorkerOrdinaryMaximumJsonCharacters = 33_554_432;
+export const engineWorkerOrdinaryMaximumJsonCharacters = 83_886_080;
 export const engineWorkerOrdinaryMaximumNesting = 64;
-export const engineWorkerOrdinaryMaximumCollectionEntries = 1_310_720;
+export const engineWorkerOrdinaryMaximumCollectionEntries = 2_621_440;
 export const engineWorkerUploadedLibraryMaximumBytes = 32 * 1024 * 1024;
 
 type JsonPrimitive = null | boolean | number | string;
@@ -997,6 +999,12 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   package: {
+    classifyEcosystemPackages: valueOperation(
+      "ordinary-package-classify-ecosystem-packages",
+      3,
+      (facades, ...args: Parameters<PackageFacade["classifyEcosystemPackages"]>) =>
+        facades.package.classifyEcosystemPackages(...args),
+    ),
     classifyPackageGraphIdentities: valueOperation(
       "ordinary-package-classify-graph-identities",
       2,
@@ -1190,6 +1198,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<PackageFacade["queryPackageDependencies"]>
       ) => facades.package.queryPackageDependencies(...args),
+    ),
+    queryPackageIcon: valueOperation(
+      "ordinary-package-query-icon",
+      2,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryPackageIcon"]>
+      ) => facades.package.queryPackageIcon(...args),
     ),
     queryPackageVulnerabilities: valueOperation(
       "ordinary-package-query-vulnerabilities",
@@ -2211,6 +2227,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     package: {
+      classifyEcosystemPackages: bind(
+        engineWorkerOrdinaryOperations.package.classifyEcosystemPackages,
+      ),
       classifyPackageGraphIdentities: bind(
         engineWorkerOrdinaryOperations.package
           .classifyPackageGraphIdentities,
@@ -2287,6 +2306,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryPackageDependencies: bind(
         engineWorkerOrdinaryOperations.package.queryPackageDependencies,
+      ),
+      queryPackageIcon: bind(
+        engineWorkerOrdinaryOperations.package.queryPackageIcon,
       ),
       queryPackageVulnerabilities: bind(
         engineWorkerOrdinaryOperations.package.queryPackageVulnerabilities,

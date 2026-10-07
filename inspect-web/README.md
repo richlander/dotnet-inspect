@@ -75,9 +75,12 @@ The separate `inspect-web-package-facade-*-dependencies-stay-within-capability-r
 rules preserve the Package facade's evaluated-project and compiled-assembly
 ceilings. Direct assembly-reference evidence now arrives as detached
 Queries-owned rows, so the facade does not project Metadata identities for that
-result, and the unused `DotnetInspector.Networking` project edge is retired.
-The broader compiled closure and remaining exact-Library Metadata projection
-stay explicit for focused #8779 successors.
+result, exact-Library identity arrives as a detached Queries-owned value, and
+the unused `DotnetInspector.Networking` and exact-Library
+`ILInspector.Metadata` project edges are retired. The broader compiled closure
+still contains Metadata types reached by Platform-forwarder and
+assembly-context failure adaptation; the separate graph rules preserve that
+explicit residual for focused #8779 successors.
 
 The separate `inspect-web-library-facade-*-dependencies-stay-within-capability-ratchet`
 rules preserve the Library facade's smaller evaluated-project boundary and its
@@ -910,7 +913,8 @@ against that manifest) and `QueryMemberDocumentation` (the XML file shipped
 beside a product-selected compile asset).
 
 Three exports touch **no artifact at all** and say so in place: `SearchTypes`
-(ranking names the client already holds, through `TypeMatcher`),
+(adapting names the client already holds through Queries-owned
+`LoadedTypeSearchRanking`),
 `PackageCacheStats`, and `ListVocabulary` (the shared product-owned vocabulary
 catalog).
 
@@ -1008,6 +1012,15 @@ compile participant's direct references come from the assembly-context query;
 the browser does not open another assembly session. Package Dependencies shows
 only NuGet dependency groups; Library References shows only the selected
 Library's assembly references.
+
+Each NuGet dependency row displays the package's embedded icon when its exact
+version resolves and the icon passes the existing package-icon bounds.
+`QueryPackageIcon` reads only the archive directory, root nuspec, and declared
+icon entry through byte ranges; it never acquires the complete nupkg as a
+fallback and never follows deprecated nuspec icon URLs. Rows use the NuGet
+default icon immediately and retain it when version resolution, range access,
+or icon admission is unavailable. Navigation matching completes before icon
+requests begin.
 
 `QueryPackageVulnerabilities` is a separate operation used by the Package
 Vulnerabilities lens for exact nuget.org package coordinates. It delegates

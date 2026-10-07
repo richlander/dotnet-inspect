@@ -30,6 +30,9 @@ public sealed record PlatformOwnedInfo
 
     public PlatformFamily Layer { get; }
 
+    /// <summary>The layer name for hosts projecting classification without platform APIs.</summary>
+    public string LayerName => Layer.ToString();
+
     /// <summary>
     /// Whether the traversal platform subsumes the selected package version;
     /// null when the comparison is unavailable. This is not a restore observation.

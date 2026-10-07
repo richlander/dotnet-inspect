@@ -243,8 +243,11 @@ ordered workspace package occurrences and their opaque activation actions,
 package-query streaming, package-shipped documents, package dependency
 coordinates, and the API surface initially loaded for a package or platform.
 `SearchTypes` stays here because it ranks candidates from that loaded package
-surface without opening another artifact. It does not transfer type-matching
-semantics from the product query owner.
+surface without opening another artifact. The facade adapts its existing
+candidate and hit records through Queries-owned `LoadedTypeSearchRanking`; it
+does not execute Type-matching, tier, fuzzy-ranking, or result-limit semantics.
+Exact-Library API identity likewise reaches the facade as a Queries-owned
+detached value, so the wire adapter does not reference Metadata identity types.
 
 ### Metadata facade: 8 exports
 
@@ -600,12 +603,28 @@ five fernie pairs and all five merritt pairs; median end-to-end improvement was
 cold delay to managed source-generated writer initialization; JavaScript parse
 and closed-shape validation remained at or below 1 ms.
 
+The motivating runtime asset
+`Microsoft.NETCore.App.Runtime.linux-x64@11.0.0-rc.1.26425.128`,
+`System.Private.CoreLib.dll`, exceeds the previous character and entry bounds when
+opened directly or reached from the `System.Runtime` SafeHandle forwarder.
+The complete production projection must fit a measured finite envelope;
+ordinary validation continues to reject malformed and over-budget results.
+The direct forwarding-view response measures 58,775,512 characters and
+2,142,382 entries; SafeHandle activation measures 58,775,697 characters and
+2,142,386 entries, including the ordinary result tuple. The finite envelope
+admits both with about 43% character and 22% entry headroom.
+`PlatformForwarders_CoreLibWireBudget` gates those pinned production projections;
+`large generated results cross the former ordinary transport bounds` exercises
+the expanded transport and the neighboring rejection test retains its ceiling.
+The real-runtime managed projection and published package-adoption gate retain
+regression evidence for direct opening and exact forwarder activation.
+
 All other managed calls use the closed ordinary-operation catalog in
 [`engine-worker-ordinary.ts`](../../inspect-web/src/engine-worker-ordinary.ts).
 Its 47 entries are named at build time across Package (17), Metadata (8),
 Analysis (7), Source (9), Call Graph (2), and Catalog (4). Callers cannot send a
 module, facade, or member name. Arguments and results cross as inert JSON trees
-only, bounded to 33,554,432 characters, 64 nesting levels, and 1,310,720
+only, bounded to 83,886,080 characters, 64 nesting levels, and 2,621,440
 collection entries. The production projection for the immutable
 `Aspire.Hosting@13.5.4/net8.0` package measures 11,749,773 JSON characters and
 340,284 collection entries, crossing both former 8,388,608-character and
@@ -613,7 +632,7 @@ collection entries. The production projection for the immutable
 ordinary package surface with 43% character and 54% collection-entry headroom.
 The immutable `Avalonia@12.1.3/net8.0` production projection measures
 26,857,990 JSON characters and 998,725 collection entries, crossing both
-former limits. The current finite envelope admits this complete surface with
+former limits. The previous finite envelope admitted this complete surface with
 about 25% character and 31% collection-entry headroom. The corresponding
 `Avalonia@12.1.2/net8.0` projection measures 26,847,746 characters and
 998,336 entries. Both measurements include the ordinary one-element result

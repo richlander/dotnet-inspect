@@ -18,6 +18,10 @@ export interface PackagePerformanceTarget {
 export interface PackageViewBindingActions
   extends PackageDependencyBindingActions {
   onPackageChildLibrarySelect: (assetId: string) => void;
+  onLibraryReferenceSelect: (
+    packageKey: string,
+    libraryId: string,
+  ) => void;
   onRuntimeIdentifierPackageLoad: (
     packageId: string,
     packageVersion: string,
@@ -46,22 +50,28 @@ export interface PackageNavOptions {
   activeFramework: string;
   versions: readonly string[];
   activeVersion: string;
+  unlistedVersions?: readonly string[];
   statusHtml?: string;
   escapeHtml: (value: unknown) => string;
 }
 
 export function renderPackageNav(options: PackageNavOptions): string {
   const { versions, activeVersion, statusHtml = "", escapeHtml } = options;
+  const unlisted = new Set(options.unlistedVersions?.map(version => version.toLowerCase()));
   return `<aside id="content-navigation-pane" class="type-browser package-version-nav" aria-label="Frameworks &amp; versions">
     ${renderPackageFrameworks(options.frameworks, options.activeFramework, escapeHtml, renderContentNavigationCloseButton())}
     <section class="package-navigation-controls" aria-label="Version filters">
       <div class="section-title"><h2>Versions</h2><span>${versions.length}</span></div>
       <label>Filter versions<input id="package-version-filter" type="search" placeholder="Find a version"></label>
-      <label><input id="package-version-prerelease" type="checkbox" checked> Include prerelease</label>
+      <div class="package-version-inclusion" role="group" aria-label="Include versions">
+        <span>Include:</span>
+        <label><input id="package-version-prerelease" type="checkbox"> Prerelease</label>
+        <label><input id="package-version-unlisted" type="checkbox"> Unlisted</label>
+      </div>
       ${statusHtml}
     </section>
     <div id="package-version-list" class="type-list" role="group" aria-label="Package version navigation" tabindex="-1" data-nav-scope="versions" data-nav-selection="version:${escapeHtml(activeVersion)}">
-      ${versions.map(version => `<button type="button" class="type-row ${version.toLowerCase() === activeVersion.toLowerCase() ? "selected" : ""}" data-package-version="${escapeHtml(version)}"${version.toLowerCase() === activeVersion.toLowerCase() ? ' aria-current="page"' : ""} title="Use ${escapeHtml(version)}"><span class="kind-icon">V</span><span class="type-name">${escapeHtml(version)}</span></button>`).join("")}
+      ${versions.map(version => `<button type="button" class="type-row ${version.toLowerCase() === activeVersion.toLowerCase() ? "selected" : ""}" data-package-version="${escapeHtml(version)}"${unlisted.has(version.toLowerCase()) ? ' data-package-unlisted="true"' : ""}${version.toLowerCase() === activeVersion.toLowerCase() ? ' aria-current="page"' : ""} title="Use ${escapeHtml(version)}"><span class="kind-icon">V</span><span class="type-name">${escapeHtml(version)}</span></button>`).join("")}
     </div>
   </aside>`;
 }
@@ -106,6 +116,12 @@ export function bindPackageView(
       "click",
       () => actions.onPackageChildLibrarySelect(
         button.dataset.packageChildLibrary ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-library-reference-package]").forEach(
+    button => button.addEventListener(
+      "click",
+      () => actions.onLibraryReferenceSelect(
+        button.dataset.libraryReferencePackage ?? "",
+        button.dataset.libraryReferenceLibrary ?? "")));
   root.querySelectorAll<HTMLElement>("[data-package-child-package]").forEach(
     button => button.addEventListener(
       "click",

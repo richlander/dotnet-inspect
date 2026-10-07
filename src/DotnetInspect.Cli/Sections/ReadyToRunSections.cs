@@ -14,6 +14,7 @@ public static class ReadyToRunSections
         pipeline.Add(new SectionEntry<LibraryInspection>
         {
             Name = ReadyToRunSectionNames.Image,
+            Shape = SectionShape.Table,
             IsExpensive = false,
             ExplicitOnly = true,
             ListedInCatalog = false,
@@ -28,6 +29,7 @@ public static class ReadyToRunSections
         pipeline.Add(new SectionEntry<LibraryInspection>
         {
             Name = ReadyToRunSectionNames.Sections,
+            Shape = SectionShape.Table,
             IsExpensive = false,
             ExplicitOnly = true,
             ListedInCatalog = false,

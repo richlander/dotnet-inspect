@@ -585,9 +585,11 @@ cache.
 4. **Browser/Wasm:** the Library Analysis inspector exposes a dedicated
    **Dependencies** tab with a levelized namespace view, marked cycles, and
    drill-down from one selected namespace edge to its explaining Type edges.
-   Entering the tab does not spend the additional whole-library call-graph
-   budget; it presents an explicit **Load dependency structure** gesture.
-   That gesture invokes a separate focused managed operation whose Analysis
+   Selecting the tab is the demand gesture: like Complexity and
+   Relationships, entering it for a Library starts the analysis once per
+   Library scope, and other tabs never spend its whole-library call-graph
+   budget. A failed or empty result offers **Try again** rather than retrying
+   automatically. The load invokes a separate focused managed operation whose Analysis
    request selects only Method Evidence and whose Research query remains the
    singular owner of topology. Its QuerySpace request retains every namespace
    node and cycle and selects at most 64 owner-ranked namespace edges; the

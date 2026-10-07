@@ -1616,6 +1616,16 @@ canaries:
   separately from an empty dependency set. Browser-Wasm composes those two
   typed results without parsing XML, opening an assembly session, or projecting
   Metadata identities itself.
+- `LoadedTypeSearchRanking` owns direct, broadened, and fuzzy ranking over one
+  finite caller-authorized population of already-loaded Type names. It consumes
+  Metadata's matching grammar and tier predicates, applies the product result
+  bounds, and issues caller-shaped hits without acquiring or inspecting an
+  artifact. Browser-Wasm supplies its existing transport records but does not
+  execute the semantic ranking.
+- `ExactLibraryApiInspectionResult` carries its exact assembly identity through
+  a Queries-owned detached value with the same metadata fields. Browser-Wasm
+  losslessly adapts that value without referencing Metadata identity types;
+  Queries retains the semantic projection from the selected participant.
 - `AssemblyContextTypeDependencyQuery` retains the admitted descriptors for one
   binding-consistent group and invokes the Metadata-owned population scan once.
   Ordinary population lookup scans the committed participant order. Its

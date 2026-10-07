@@ -65,6 +65,7 @@ public sealed class BrowserPackageVersionInventoryTests
         Assert.Equal("1.0.0", result.PreviousVersion);
         Assert.Equal(0, result.CurrentVersionInsertionIndex);
         Assert.Contains("1.1.0", result.Versions);
+        Assert.Equal(["1.1.0"], result.UnlistedVersions);
     }
 
     [Fact]
@@ -111,6 +112,8 @@ public sealed class BrowserPackageVersionInventoryTests
     [Fact]
     public void BrowserWirePublishesOnlyAvailablePredecessorFacts()
     {
+        Assert.Contains("\"unlistedVersions\":[\"1.0.0\"]",
+            Serialize(new BrowserPackageVersions(["1.0.0"], 0, null, null, ["1.0.0"])));
         Assert.Equal(
             """{"versions":["2.0.0"],"currentVersionInsertionIndex":0,"previousVersion":"1.0.0"}""",
             Serialize(new BrowserPackageVersions(["2.0.0"], 0, "1.0.0", null)));

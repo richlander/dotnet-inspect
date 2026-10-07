@@ -21,6 +21,51 @@ import {
 
 test.use({ viewport: { width: 900, height: 900 } });
 
+test("Type selection preserves a long inventory viewport across renders", async ({ page }) => {
+  const types = Array.from({ length: 100 }, (_, index) =>
+    type(`Example.Type${String(index).padStart(3, "0")}`, core));
+  await installFacades(page, { ...surface, types });
+  await page.goto(root);
+  await chooseSubject(page, "type", "Type");
+  const list = page.locator("#type-list");
+  const selected = page.locator(`[data-type="${types[60]!.id}"]`);
+  await selected.scrollIntoViewIfNeeded();
+  const before = await list.evaluate(element => element.scrollTop);
+  expect(before).toBeGreaterThan(0);
+  await selected.click();
+  await expect(selected).toHaveClass(/selected/);
+  await expect.poll(() => list.evaluate(element => element.scrollTop)).toBe(before);
+  await chooseInspector(page, "data-lens", "api", "API");
+  await expect.poll(() => list.evaluate(element => element.scrollTop)).toBe(before);
+});
+
+test("Member selection preserves a long inventory viewport across renders", async ({ page }) => {
+  const api = Array.from({ length: 100 }, (_, index) => ({
+    ...run,
+    name: `Run${String(index).padStart(3, "0")}`,
+    signature: `public void Run${String(index).padStart(3, "0")}()`,
+    metadataToken: 0x06000001 + index,
+    declarationMetadataToken: 0x06000001 + index,
+    documentationId: `M:Example.Widget.Run${index}`,
+    stableSelector: `Run${index}`,
+    anchorDigest: `widget-run-${index}`,
+    canonicalSignature: `void Example.Widget.Run${index}()`,
+  }));
+  const widget = { ...type("Example.Widget", core), api, members: api.length };
+  await installFacades(page, { ...surface, types: [widget] });
+  await page.goto(root);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(`[data-type="${widget.id}"]`).click();
+  await chooseSubject(page, "member", "Member");
+  const list = page.locator("#type-list");
+  const selected = list.locator("[data-nav-member]").nth(60);
+  await selected.scrollIntoViewIfNeeded();
+  const before = await list.evaluate(element => element.scrollTop);
+  expect(before).toBeGreaterThan(0);
+  await selected.click();
+  await expect.poll(() => list.evaluate(element => element.scrollTop)).toBe(before);
+});
+
 test("Type filters expose counted Namespace, Accessibility, Kind, and Trait selectors", async ({
   page,
 }) => {

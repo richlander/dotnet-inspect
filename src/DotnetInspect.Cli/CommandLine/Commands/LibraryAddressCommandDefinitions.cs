@@ -100,6 +100,7 @@ internal static class LibraryAddressCommandDefinitions
         opts.AddTableOptionsTo(command);
         opts.AddOutputOptionsTo(command);
         command.Options.Add(opts.Discover);
+        command.Options.Add(opts.Details);
         command.Options.Add(opts.Select);
         command.Options.Add(opts.Columns);
         command.Options.Add(opts.Fields);
@@ -170,6 +171,13 @@ internal static class LibraryAddressCommandDefinitions
                             + "or --file, not both."
                         : "library address requires one exact address or "
                             + "--file <path>.");
+                return 1;
+            }
+
+            bool discoverDetails = opts.ParseDiscoverDetails(parseResult);
+            if (discoverDetails && opts.ParseDiscover(parseResult) is null)
+            {
+                CommandError.Write("--details requires -D/--discover.");
                 return 1;
             }
 
@@ -335,7 +343,9 @@ internal static class LibraryAddressCommandDefinitions
                 Rows = rowSelection is null
                     ? opts.ParseRows(parseResult)
                     : null,
-                Schema = opts.ParseSchema(parseResult),
+                Schema = opts.ParseSchema(parseResult)
+                    || discoverDetails,
+                DiscoverDetails = discoverDetails,
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 SourceOptions =
                     opts.ParseNuGetSourceOptions(parseResult),
@@ -476,6 +486,7 @@ internal static class LibraryAddressCommandDefinitions
         string[]? discover = options.ParseDiscover(parseResult);
         return discover is not null
             && (options.ParseSchema(parseResult)
+                || options.ParseDiscoverDetails(parseResult)
                 || (!parseResult.GetValue(options.Effective)
                     && discover.Length > 0));
     }

@@ -624,6 +624,9 @@ public sealed class CoercionInsertionPass : IIrPass
 {
     public string Name => "coercion-insertion";
 
+    public PassAnalysisKind PreservedAnalyses
+        => PassAnalysisKind.BranchTargets;
+
     public void Run(IrFunction function, PassContext context) => Insert(function, context);
 
     /// <summary>
