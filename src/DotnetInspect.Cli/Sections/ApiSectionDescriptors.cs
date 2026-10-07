@@ -541,7 +541,7 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
-        // Backed by the whole-assembly body index; list structurally during -D rather
+        // Backed by whole-assembly body analysis; list structurally during -D rather
         // than opening the index to probe, mirroring OptimizationOpportunities.
         public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)
@@ -583,7 +583,7 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
-        // Backed by the whole-assembly body index; list structurally during -D rather
+        // Backed by whole-assembly body analysis; list structurally during -D rather
         // than opening the index to probe, mirroring SourceLocations/UnsafeOperations.
         public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)

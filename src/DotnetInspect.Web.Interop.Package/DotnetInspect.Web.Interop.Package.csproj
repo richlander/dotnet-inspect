@@ -20,7 +20,6 @@
     <ProjectReference Include="..\DotnetInspector.InspectionContracts\DotnetInspector.InspectionContracts.csproj" />
     <ProjectReference Include="..\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Ecosystems\DotnetInspector.Ecosystems.csproj" />
-    <ProjectReference Include="..\DotnetInspector.Networking\DotnetInspector.Networking.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
     <ProjectReference Include="..\DotnetInspector.Presentation\DotnetInspector.Presentation.csproj" />
     <ProjectReference Include="..\QuerySpace\QuerySpace.csproj" />
