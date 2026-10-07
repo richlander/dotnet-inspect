@@ -179,10 +179,20 @@ ordinary Worker limits, the projection retains it; otherwise it returns the
 typed transport rejection and no successful-looking inventory.
 
 The projection admits at most 10,000 changed Member subjects and the ordinary
-Worker's 16,777,216-character and 524,288-collection-entry limits. Admission
+Worker's 83,886,080-character and 2,621,440-collection-entry limits. Admission
 measures the complete serialized result, including Content, Share, diagnostics,
 inventory rows, destinations, and coverage. The operation does not truncate
 Members, evidence, or diagnostics to fit.
+
+The real `System.Text.Json@9.0.20..10.0.12/netstandard2.0` pair motivates
+transport regression coverage. Its complete Library inventory crosses the
+former Worker limits; rejecting it under those stale limits prevented opening
+the added `JsonDocumentOptions.AllowDuplicateProperties` getter. Managed
+admission uses the shared ordinary-Worker JSON budget, measures the JSON tree
+as JavaScript serializes it, counts every collection container and entry, and
+reserves the one-element result tuple. The managed production test and
+published Firefox journey retain this exact pair and open the added getter
+in both C# and IL without discarding owning Content, Share, or diagnostics.
 
 ## Library and Type presentation
 

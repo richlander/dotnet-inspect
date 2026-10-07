@@ -3,6 +3,27 @@ import { chooseSubject, selectFirstExactLibrary } from "./library-subject-action
 
 const site = process.env.INSPECT_WEB_SOURCE_DIFF_URL;
 
+test("Member Body opens an added property across the former Worker limits", async ({ page }) => {
+  test.skip(!site, "Set INSPECT_WEB_SOURCE_DIFF_URL to the published Wasm site.");
+  test.setTimeout(300_000);
+  await page.goto(`${new URL(site!).origin}/?package=System.Text.Json&version=10.0.12&framework=netstandard2.0#pkg`);
+  await page.locator('[data-package-lens="compare"][role="tab"]').click({ timeout: 120_000 });
+  await page.locator("#package-diff-target").selectOption("exact:9.0.20", { timeout: 120_000 });
+  await chooseSubject(page, "library");
+  await selectFirstExactLibrary(page);
+  await page.locator('[data-navigation-id="compare"][role="tab"]').click();
+  await page.locator("#compare-diff-content").selectOption("member-body");
+  await page.locator('[data-member-body-type="System.Text.Json.JsonDocumentOptions"]').click({ timeout: 180_000 });
+  await page.locator("[data-member-body-member]").filter({ hasText: "AllowDuplicateProperties" }).first().click();
+  await expect(page.locator(".member-body-reader .source-diff-viewer")).toBeVisible({ timeout: 120_000 });
+  await expect(page.locator(".member-body-reader")).toContainText("Before: Not present on this side.");
+  await expect(page.locator(".member-body-reader")).toContainText("AllowDuplicateProperties");
+  await expect(page.getByRole("button", { name: "Show diff", exact: true })).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath("added-property-inline.png") });
+  await page.locator('[data-member-body-medium="Il"]').click();
+  await expect(page.locator(".member-body-reader .source-diff-viewer")).toContainText("IL_");
+});
+
 test("Member Body opens inline and retains the document through media and Explore", async ({ page }) => {
   test.skip(!site, "Set INSPECT_WEB_SOURCE_DIFF_URL to the published Wasm site.");
   test.setTimeout(300_000);
