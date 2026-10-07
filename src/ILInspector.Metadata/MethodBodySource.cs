@@ -208,6 +208,63 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         return methodHandle is { } handle ? CreateSelection(handle) : null;
     }
 
+    /// <summary>
+    /// Extracts the declarations of one Type without decoding any other Type.
+    /// Members are exactly those a complete declaration walk yields for that
+    /// Type at the same scope; receiver-contextual extension members declared
+    /// on other Types are not projected (see <see cref="DeclaresExtensionMethod"/>).
+    /// </summary>
+    /// <returns>The Type, or null when no Type has that full name or the
+    /// scope excludes it.</returns>
+    public ApiType? ExtractDeclaredType(string typeName, bool includeAll)
+    {
+        _ensureAlive();
+        TypeDefinitionHandle typeHandle = FindType(typeName);
+        if (typeHandle.IsNil)
+            return null;
+
+        int token = MetadataTokens.GetToken(typeHandle);
+        ApiSurface surface = ApiSurfaceExtractor.ExtractDeclarations(
+            _peReader,
+            includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
+            handle => handle == typeHandle);
+        return surface.Types.FirstOrDefault(
+            type => type.MetadataToken == token);
+    }
+
+    /// <summary>
+    /// Reports whether any static method in this image whose name matches
+    /// <paramref name="methodName"/> under <see cref="TypeMatcher.MatchesMemberName"/>
+    /// carries <c>[Extension]</c>. A complete API
+    /// surface projects such a method onto its receiver Type, so a caller that
+    /// selects members from <see cref="ExtractDeclaredType"/> must use the
+    /// complete surface when this returns true.
+    /// </summary>
+    public bool DeclaresExtensionMethod(string methodName)
+    {
+        _ensureAlive();
+        foreach (MethodDefinitionHandle handle in _reader.MethodDefinitions)
+        {
+            MethodDefinition method = _reader.GetMethodDefinition(handle);
+            if ((method.Attributes & MethodAttributes.Static) == 0
+                || !TypeMatcher.MatchesMemberName(
+                    _reader.GetString(method.Name),
+                    methodName))
+            {
+                continue;
+            }
+            if (AttributeReader.HasExtensionAttribute(
+                    _reader,
+                    method.GetCustomAttributes()))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public bool ContainsType(string typeName)
     {
         _ensureAlive();
