@@ -2718,7 +2718,8 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Text.Json",
             "-S",
-            "Library Info"
+            "Library Info",
+            "--markdown"
         ];
 
         var direct = await RunAppAsync(["library", .. arguments]);
@@ -3713,6 +3714,7 @@ public partial class CommandExecutionTests
             library,
             "-S",
             "Library Info",
+            "--markdown",
         ];
         var direct = await RunAppAsync(["package", .. arguments]);
         var routed = await RunAppAsync(arguments);
@@ -3754,6 +3756,7 @@ public partial class CommandExecutionTests
             libraryPath,
             "-S",
             "Library Info",
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(["package", .. arguments]);
@@ -3800,6 +3803,7 @@ public partial class CommandExecutionTests
                 libraryPath,
                 "-S",
                 "Library Info",
+                "--markdown",
             ];
 
             var direct = await RunAppInDirectoryAsync(
@@ -3828,6 +3832,7 @@ public partial class CommandExecutionTests
             "--library:lib/net6.0/Newtonsoft.Json.dll",
             "-S",
             "Library Info",
+            "--markdown",
         ];
 
         var direct = await RunAppAsync(["package", .. arguments]);
@@ -3989,6 +3994,7 @@ public partial class CommandExecutionTests
                 "Newtonsoft.Json.dll",
                 "-S",
                 "Library Info",
+                "--markdown",
             ];
 
             var direct = await RunAppInDirectoryAsync(
