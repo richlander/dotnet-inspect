@@ -201,8 +201,10 @@ test("rejected ownership is useful information without Retry", async ({ page }) 
   await expect(page.locator(".data-bar-errors")).toContainText(
     "Generated-body ownership evidence was rejected.");
   await expect(page.locator("[data-type-leverage-retry]")).toHaveCount(0);
-  await expect(page.locator(".type-row.surface-sea-level")).toHaveCount(1);
+  await expect(page.locator(".type-row.surface-sea-level")).toHaveCount(0);
   await expect(page.locator(".type-row.implementation-sea-level")).toHaveCount(2);
+  await expect(page.locator(".type-row .item-achievement-rail").first())
+    .toHaveAccessibleName(/surface.*implementation/);
 });
 
 for (const width of [900, 700]) {
