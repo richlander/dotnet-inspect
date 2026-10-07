@@ -1829,10 +1829,8 @@ function renderStringLiteralPresentation(
   const failures = literalRows.filter(
     row => row.transition === "FindingComparison.Failed",
   );
-  // Present means the literal exists on both sides: not a change.
   const rows = literalRows.filter(
-    row => row.transition !== "FindingComparison.Failed"
-      && row.transition !== "PairFinding.Present",
+    row => row.transition !== "FindingComparison.Failed",
   );
   if (rows.length === 0 && failures.length === 0) {
     return {
