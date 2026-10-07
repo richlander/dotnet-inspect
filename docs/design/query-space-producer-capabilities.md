@@ -270,6 +270,11 @@ owner-certified relationship. That relationship binds:
 - the completion evidence that admits the projection; and
 - cardinality preservation when Count is derived.
 
+A covering path keeps a structural property such as exact cardinality only
+when its provision and every edge on the path establish it. An edge's property
+states what its projection preserves, so it cannot create a property its
+source lacks.
+
 Coverage is a directed relation, not a numeric level. A producer may declare
 `Signature -> Name` for one Type and `complete Names -> Count` for one
 population without claiming that Signature rows always establish population
@@ -410,12 +415,16 @@ unplanned fallback.
 
 The
 [producer-capability demand Lean model](models/producer-capability-demand/ProducerCapabilityDemand/FailureRouting.lean)
-proves this rule sound and complete for result validation:
-`any_sound` shows a dependent of any reported failure never reports success,
-and `any_complete` shows every execution that fails several provisions has an
-accepted result set. The previous exact-match rule rejected every outcome when
-two failures shared a dependent
-([#9484](https://github.com/richlander/dotnet-inspect/issues/9484)).
+proves this rule sound and complete for result validation. `any_sound` shows
+a dependent of any reported failure never reports success. `any_complete`
+shows that any result set in which each dependent names a failure on its path
+is accepted; such a report always exists, so an execution that fails several
+provisions is representable. The previous exact-match rule rejected every
+outcome when two failures shared a dependent
+([#9484](https://github.com/richlander/dotnet-inspect/issues/9484)). This
+provision-level rule does not change the settled-request rules in
+[Open and closed queries](open-and-closed-queries.md), which concern failures
+inside one execution's shared work, not a provision reported as failed.
 
 ## Type example
 
@@ -510,13 +519,12 @@ The
 [producer-capability demand Lean pilot](models/producer-capability-demand/)
 adds prototype proof evidence for every requirement set: demand-join laws,
 Method-body source selection, and shared-traversal result and charge
-preservation. Covering-path validation is proven sound only when an edge's
-`ExactCardinality` certifies its target unconditionally; under the documented
-"preserves" reading it is unsound, while a rule that conjoins the provision's
-and every edge's properties is sound under either reading. The pilot's open
-findings are
-[#9483](https://github.com/richlander/dotnet-inspect/issues/9483) and
-[#9484](https://github.com/richlander/dotnet-inspect/issues/9484). Its
+preservation. Covering-path validation conjoins the provision's and every
+edge's properties, which the model proves sound whether an edge's
+`ExactCardinality` certifies its target outright or preserves its source's
+cardinality. The previous rule took properties from the last edge alone and
+was unsound under the documented "preserves" reading
+([#9483](https://github.com/richlander/dotnet-inspect/issues/9483)). Its
 [validator check classification](models/producer-capability-demand/README.md#validator-check-classification)
 proves that `MissingDependency` and `DependencyOrder` exclude every dependency
 cycle, and that the satisfaction checks imply known capabilities and the

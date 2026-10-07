@@ -223,11 +223,11 @@ not IL semantics:
    owner-issued PDB checksum and decoded-text result.
 6. [SourceHouse](source-house.md) composes local, repository, and remote
    product candidates and settles visible PDB-source outcomes.
-7. `PdbMemberSourceAcquisition` preserves that PDB-provenance ordering only
-   for certification consumers that already own an open SourceLink context.
-8. `AssemblyContextSourceQuery` consumes SourceHouse and retains only explicit
-   host timing and presentation composition.
-9. SourceHouse keeps those product composition responsibilities in one
+7. `AssemblyContextSourceQuery` consumes SourceHouse, including one reusable
+   authored-member session that retains a Library for certification
+   populations, and retains only explicit host timing and presentation
+   composition.
+8. SourceHouse keeps those product composition responsibilities in one
    `DotnetInspector` owner that invokes
    `SourceLinkService`, `CSharpDecompilerService`, and authorized transport
    capabilities without moving network policy into `ILInspector.SourceLink`.
@@ -373,8 +373,8 @@ components move to the
 [`PlatformHouse`](platform-house-reference-processing.md) owner above the lower
 [Platform Target Currency](platform-target-currency.md), source-byte transport
 to the independent `SourceFetch` root, PDB-specific product source composition
-to [SourceHouse](source-house.md) under #6512, narrow certification acquisition
-to `PdbMemberSourceAcquisition`, and
+to [SourceHouse](source-house.md) under #6512, reusable certification
+acquisition to `AssemblyContextSourceQuery`, and
 compiled and authored-source documentation composition to
 [DocumentationHouse](documentation-house.md) under #6579, and
 assembly-set or dependency-resolution components to their workspace or

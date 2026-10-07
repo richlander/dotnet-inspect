@@ -771,7 +771,7 @@ public static class ProducerCapabilityPlanValidator
                     break;
                 }
                 path.Add(coverage);
-                offer = Offer.FromTarget(coverage);
+                offer = offer.Through(coverage);
             }
             if (!validPath)
                 continue;
@@ -904,14 +904,17 @@ public static class ProducerCapabilityPlanValidator
                 coverage.SourceCompletion)
             && ReferenceEquals(Outcome, coverage.SourceOutcome);
 
-        public static Offer FromTarget(
+        // A path keeps a structural property only when the provision and
+        // every covering edge establish it: an edge that preserves exact
+        // cardinality cannot create it from a source that lacks it.
+        public Offer Through(
             ProducerCapabilityCoverageDeclaration coverage) =>
             new(
                 coverage.TargetScope,
                 coverage.TargetCapability,
                 coverage.TargetCompletion,
                 coverage.TargetOutcome,
-                coverage.Properties);
+                Properties & coverage.Properties);
     }
 }
 

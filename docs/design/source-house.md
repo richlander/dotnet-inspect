@@ -51,10 +51,19 @@ acquisition, selected-member pairs, and exact member/type decompilation also
 use SourceHouse. Browser Type Source deliberately retains its latency hedge
 over independent authored and decompiled operations; explicit authored
 document requests never decompile. SourceLinkService owns checksum
-verification and decoding. `PdbMemberSourceAcquisition` retains only the
-certification harness's member-source ordering over an already-open SourceLink
-context; it is not a product House. Other query-owned timing policy remains an
-explicit host choice, not a second product settlement boundary.
+verification and decoding. The reusable `AssemblyContextSourceQuery`
+authored-member session retains one Library and one serial
+`SourceHouse.AuthoredSession` for certification populations. The first request
+prepares the bounded detached assembly, API target index, Portable PDB,
+SourceLink map, and document inventory. Later requests reuse that preparation
+while supplying a fresh operation plan, transferred Library lease, deadline,
+capability set, exact target mapping, and source-content settlement. The
+session binds the same `SourceHouseLimits` instance for its lifetime and must
+close before the retained Library retires. Each outcome repeats the shared
+preparation observations so it remains standalone; population reports must
+treat those observations as shared setup rather than additive work. Other
+query-owned timing policy remains an explicit host choice, not a second
+product settlement boundary.
 
 ### Authored settlement delivery
 
@@ -134,11 +143,10 @@ settlement.
 Step 5 is complete. Shared source-query adoption replaced the public
 PDB-source House. `PdbSourceInspectionProjection` owns the compatibility
 member/type checksum, decoded-content, and acquisition-failure projections;
-`VerifiedLocalSourceRead` owns checksum-authenticated PDB-recorded local-file
-reads; and `PdbMemberSourceAcquisition` is the narrow member-only diagnostic
-adapter for certification consumers that already own an open SourceLink
-context. The unused type-acquisition and general verified-text compatibility
-entry points are retired. The
+and `VerifiedLocalSourceRead` owns checksum-authenticated PDB-recorded
+local-file reads. The member-only compatibility acquisition adapter, unused
+type-acquisition entry point, and general verified-text compatibility entry
+point are retired. The
 [six-delivery adapter-first path](type-source-acquisition.md#production-adoption-and-retirement)
 and overall twelve-step plan below retain both CLI and Browser/Wasm consumers. The member-source-pair
 cutover in #7448 supplies the first shared completed
@@ -608,10 +616,10 @@ validate each candidate. This preserves the existing family boundary:
 
 The former public PDB-source House combined those roles. Product candidate
 settlement now belongs to SourceHouse, while PDB and SourceLink interpretation
-uses owner-issued SourceLink service operations. The certification harness's
-narrow `PdbMemberSourceAcquisition` adapter composes those operations without
-creating another product House or expanding the `ILInspector.SourceLink`
-family.
+uses owner-issued SourceLink service operations. The certification harness
+consumes those operations through a reusable Query-owned SourceHouse session
+without creating another product House or expanding the
+`ILInspector.SourceLink` family.
 
 ### `CSharpDecompilerService`
 

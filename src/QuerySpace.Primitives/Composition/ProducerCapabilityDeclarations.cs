@@ -256,7 +256,12 @@ public enum ProducerCapabilityProperties
     /// <summary>No additional structural property is required.</summary>
     None = 0,
 
-    /// <summary>The result preserves exact source cardinality.</summary>
+    /// <summary>
+    /// On a provision, its result has exact source cardinality. On a covering
+    /// edge, the projection preserves the source's exact cardinality. A
+    /// covering path has the property only when its provision and every edge
+    /// declare it.
+    /// </summary>
     ExactCardinality = 1,
 }
 
