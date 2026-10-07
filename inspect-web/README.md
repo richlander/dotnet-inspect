@@ -756,6 +756,24 @@ restored subjects keep their requested selection.
 Package Metadata overview, table windows, and heap listings also reuse the
 admitted realization. They retain their exact Library selection and existing
 metadata bounds; visiting Metadata does not require another complete archive.
+A standalone exact Metadata request uses the existing exact-Library realization
+with one named implementation demand, no PDB companions, no framework-reference
+evidence, and no icon prefetch. Reference-only Libraries retain the surface
+fallback. Surface folders and aligned implementation chunks keep their existing
+expansion rules, so a chunk can include neighboring files. The complete logical
+Library inventory and product selection remain authoritative.
+
+The narrowed realization has a selection-specific cache and scope demand; it
+cannot satisfy a later broad Package/API request. If Summary already admitted
+a full realization, Metadata reuses it instead. Table windows and heap listings
+remain lazy, bounded requests over that retained scope. Legacy assembly-name
+selectors and unavailable targets preserve their existing resolution outcomes.
+`Avalonia` 12.1.2 targeting net10.0 motivates this demand: Metadata for the exact
+`Avalonia.Base.dll` should not eagerly acquire every other implementation or its
+package icon. `MetadataScope_NamesOneImplementationAndDoesNotReplaceTheFullScope`
+gates implementation narrowing, warm reuse, a neighboring Library, later broad
+acquisition, and Summary-first reuse; `MetadataScope_ReferenceOnlyLibraryRetainsItsSurfaceFallback`
+gates the reference-only boundary.
 
 `QueryPackage` is the broad Type-navigation path. It runs against the
 product-selected compile assets, so `ref/` assemblies remain authoritative

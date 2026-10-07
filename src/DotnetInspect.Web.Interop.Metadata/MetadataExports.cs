@@ -34,10 +34,11 @@ public static partial class MetadataExports
         string assemblyFileName)
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-            await BrowserPackageWorkspace.OpenRealizedScopeAsync(
+            await BrowserPackageWorkspace.OpenMetadataScopeAsync(
                 packageId,
                 version,
-                targetFramework);
+                targetFramework,
+                assemblyFileName);
         BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         BrowserCompileLibraryAvailability compileLibrary =
@@ -133,10 +134,11 @@ public static partial class MetadataExports
         int maxRows)
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-            await BrowserPackageWorkspace.OpenRealizedScopeAsync(
+            await BrowserPackageWorkspace.OpenMetadataScopeAsync(
                 packageId,
                 version,
-                targetFramework);
+                targetFramework,
+                assemblyFileName);
         BrowserInspectionScope scope = scopeLease.Scope;
         BrowserWorkspaceParticipant participant = MetadataParticipant(
             scope,
@@ -189,10 +191,11 @@ public static partial class MetadataExports
         string heap)
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-            await BrowserPackageWorkspace.OpenRealizedScopeAsync(
+            await BrowserPackageWorkspace.OpenMetadataScopeAsync(
                 packageId,
                 version,
-                targetFramework);
+                targetFramework,
+                assemblyFileName);
         BrowserInspectionScope scope = scopeLease.Scope;
         BrowserWorkspaceParticipant participant = MetadataParticipant(
             scope,
