@@ -1,9 +1,30 @@
+using System.Text;
+
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
+
+public sealed class ExternalBaseSiblingWriter : TextWriter
+{
+    public override Encoding Encoding => Encoding.UTF8;
+
+    public override void Flush()
+    {
+    }
+}
+
+public static class ExternalBaseSiblingFixtures
+{
+    public static async Task FlushesExternalBaseWriter(
+        ExternalBaseSiblingWriter writer)
+    {
+        await Task.Yield();
+        writer.Flush();
+    }
+}
 
 public class AsyncSiblingProducerTests
 {
@@ -67,6 +88,46 @@ public class AsyncSiblingProducerTests
 
             return new(new AssemblyBindingPolicyVersion(), snapshot.Selection);
         }
+    }
+
+    [Fact]
+    public void Producer_ReportsUnresolvedInheritedBaseAsDiagnostic()
+    {
+        var operation = CreateOperation();
+        using var session = AssemblyInspectionSession.Open(FixturePath);
+        var binding = new AssemblyReferenceBindingAccess(
+            ResolvedAssemblyReference.CreateFromPath(
+                FixturePath,
+                AssemblyResolutionProvenance.Local("async sibling test")),
+            new AssemblyReferenceBindingPolicy(new NoResolver()));
+
+        AsyncSiblingProducerResult result = session.SnapshotOperation(
+            operation,
+            binding,
+            access =>
+            {
+                var completed = Assert.IsType<
+                    AssemblyAnalysisServiceResult<AsyncSiblingProducerResult>
+                        .Completed>(
+                    AssemblyAnalysisService.Instance.Execute(
+                        operation,
+                        access));
+                return completed.Execution.ResultOf(
+                    AsyncSiblingProducer.Instance).Value!;
+            });
+
+        Assert.DoesNotContain(
+            result.Rows,
+            row => row.Caller.Name
+                == nameof(ExternalBaseSiblingFixtures
+                    .FlushesExternalBaseWriter));
+        Assert.Contains(
+            result.Diagnostics,
+            d => d.Method == nameof(ExternalBaseSiblingFixtures
+                    .FlushesExternalBaseWriter)
+                && d.Message.Contains(
+                    "could not be resolved",
+                    StringComparison.Ordinal));
     }
 
     [Fact]

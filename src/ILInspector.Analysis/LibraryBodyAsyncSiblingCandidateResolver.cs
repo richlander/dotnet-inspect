@@ -68,6 +68,10 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
             int CalleeDefinitionToken),
         AsyncSiblingLookup?> _lookupCache = [];
 
+    // Set while a lookup runs under _lookupCacheGate when a base type's
+    // assembly cannot be resolved, so the absence of a sibling is unproven.
+    bool _sawUnresolvedBase;
+
     readonly HashSet<(
         MemberRef Callee,
         string ExactCalleeIdentity,
@@ -127,11 +131,12 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
                     lookupKey,
                     out lookup))
             {
+                _sawUnresolvedBase = false;
                 lookup = PrepareAsyncSiblingLookup(
                     callee,
                     calleeDefinitionToken,
                     out bool unresolved);
-                if (unresolved)
+                if (unresolved || _sawUnresolvedBase)
                     _unresolvedLookups.Add(lookupKey);
                 _lookupCache.Add(
                     lookupKey,
@@ -365,13 +370,17 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
             if (FrameworkIdentity.IsCoreLibraryType(
                     LibraryBodyAsyncSiblingSignatureMatcher.DefinitionType(baseType),
                     "System",
-                    "Object")
-                || _dispatchAnalyzer
+                    "Object"))
+            {
+                return [];
+            }
+            if (_dispatchAnalyzer
                     .TryResolveTypeDefinition(
                         reader,
                         baseType)
                     is not { } resolvedBase)
             {
+                _sawUnresolvedBase = true;
                 return [];
             }
             reader = resolvedBase.DefiningReader;
@@ -514,6 +523,7 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
                         baseType)
                 is not { } resolvedBase)
             {
+                _sawUnresolvedBase = true;
                 return null;
             }
             reader = resolvedBase.DefiningReader;
