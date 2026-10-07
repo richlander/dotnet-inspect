@@ -15,8 +15,9 @@ every difference to be computed.
 
 > **Claim.** For one exact Library pair and one scope, Fast Diff returns one
 > state per immediate child subject: `Unchanged`, `Changed`, or
-> `Indeterminate`. `Unchanged` is exact: the complete diff would report no API
-> or implementation difference for that subject. `Changed` and `Indeterminate`
+> `Indeterminate`. `Unchanged` is exact for the facts that pass compares (see
+> Passes and scopes): the complete diff would report no difference in those
+> facts for that subject. `Changed` and `Indeterminate`
 > may over-report relative to the complete diff but never hide a change. Fast
 > Diff stops at the first difference per subject, performs no decompilation, and
 > never produces row-level detail.
@@ -35,16 +36,25 @@ are unchanged, and proving that is far cheaper than describing a change.
 
 ## Passes and scopes
 
-| Pass | Scope | Returns | Cost bound |
+| Pass | Scope | Returns | Facts compared |
 | --- | --- | --- | --- |
-| Fast | Library | One state per Type | One equality check per member, stop at the first sign of change |
-| Fast | Type | One state per Member | One equality check per member, stop at the first sign of change |
+| Fast | Library | One state per Type | API (Finding transitions and `ApiDiff` classifications) and the one-sided method census; no body comparison |
+| Fast | Type | One state per Member | The Library facts for that Type's Members, plus canonical body equality for its paired methods |
 | Complete | Member | Full API and body diff for one exact Member | Existing [Annotated Source diff](annotated-source-diff-document.md) cost |
 
-Scopes nest. A Type is `Changed` when its definition or any member differs, so
-the Library pass does not need the Type pass. The Type pass is requested only
-for a Type the user opens, and the Complete pass only for a Member the user
-opens.
+Each pass stops at the first sign of change per subject. The passes are tiered
+by cost, not nested by result: a Library `Unchanged` says the Type has no API
+or member-inventory difference and says nothing about bodies. The Library pass
+does not walk method bodies because exact `Unchanged` on a Type requires every
+paired body proven equal, and early exit helps only changed Types, so the body
+walk costs the whole library on every unchanged Type. Measured on NativeAOT in
+[#9686](https://github.com/richlander/dotnet-inspect/pull/9686), adding a body
+comparison across the library regressed `System.Text.Json` 9.0.0 to 10.0.0
+Library Compare by 35.9% against the API-only diff. Body equality is therefore
+a Type-pass fact, where the walk is bounded by one Type. A host that must know
+whether any body changed in a Type requests the Type pass; the producer states
+the facts each pass compares so no consumer reads more into a state than it
+carries.
 
 ## Subject states and equality
 
@@ -60,15 +70,16 @@ changed and may offer the Complete pass.
 Equality is decided per paired subject:
 
 - **API.** The facts that Metadata's `ApiDiff` classifies over the two endpoint
-  API surfaces (signature, accessibility, modifiers, constraints, attributes
+  API surfaces, together with the changed Type Finding pairs the complete API
+  comparison includes even when no `ApiChange` is classified (signature, accessibility, modifiers, constraints, attributes
   the complete diff reports). Fast Diff consumes that Metadata correspondence
   and classification directly, with early exit. It does not consume
   [Library API diff presentation](library-api-diff-presentation.md), which
   admits only a completed Library comparison and would force the complete diff
   first. The presentation remains the owner of how complete results are shown;
   Fast Diff defines no second notion of API equality.
-- **Implementation.** Canonical IL operation equality for each paired,
-  body-backed method, as defined by
+- **Implementation (Type pass only).** Canonical IL operation equality for each
+  paired, body-backed method, as defined by
   [IL diff canonicalization](il-diff-canonicalization.md) (tokens resolved to
   names, no decompilation). A method with no body on both sides is equal on
   this axis. Canonical operations do not cover every body fact the complete
@@ -78,10 +89,11 @@ Equality is decided per paired subject:
   method `Indeterminate`, never `Unchanged`. String operands compare as
   resolved user-string values, never heap tokens, so a literal that only moved
   is equal and a changed literal is a difference.
-- **One-sided methods.** The complete Implementation Diff compares the union of
+- **One-sided methods (both passes).** The complete Implementation Diff compares the union of
   declared methods, so the producer also takes a census of methods present on
   only one side, including non-public ones. A one-sided method makes its Type
-  `Changed`, whatever its accessibility.
+  `Changed`, whatever its accessibility. Producing the census needs method
+  declarations only, not bodies.
 
 The body comparison may decode lazily: walk both IL streams in lockstep, stop at
 the first difference, and resolve token operands only when reached, memoized per
@@ -100,11 +112,14 @@ inventory. No row counts, classifications, or text are produced.
 
 ## Consequences for the complete diff
 
-Fast Diff must be sound against the complete diff for the same pair: a subject
-the fast pass reports `Unchanged` has no row in the complete API diff and no
-changed body in Implementation Diff. The converse is not required. The gate is
-a corpus comparison over real package pairs with zero `Unchanged` subjects that
-the complete diff reports changed.
+Fast Diff must be sound against the complete diff for the same pair, per pass
+and for the facts that pass compares: a subject reported `Unchanged` has no
+difference in those facts in the complete diff. A Library `Unchanged` Type may
+still have a changed body; that is by design and is not a soundness failure. The
+converse is not required. The gate is a corpus comparison over real package
+pairs with zero `Unchanged` subjects, per pass, that the complete diff reports
+changed in the facts that pass compares. Each pass also publishes exact-head
+NativeAOT numbers against the complete diff for the same pairs.
 
 ## Hosts
 
@@ -152,8 +167,9 @@ that policy consumes.
 Each step is independently mergeable under #9716.
 
 1. **Producer.** Library and Type passes over one exact Library pair, with
-   typed states, early exit, and the soundness corpus gate. Includes
-   NativeAOT numbers against the complete diff for the same pairs.
+   typed states, early exit, and the per-pass soundness corpus gate. Includes
+   NativeAOT numbers against the complete diff for the same pairs and, where it
+   exists, against the shallow-summary strategy of #9686.
 2. **Consumer slices.** Each is a separate focused effort that updates its own
    owner and is not specified here: Browser Library pass and Type pass
    (Compare experience), the Member Compare hybrid (Member Body Diff), the CLI
@@ -167,15 +183,21 @@ Each step is independently mergeable under #9716.
 
 ## Acceptance scenarios
 
-1. A Library request returns `Unchanged` or `Changed` per Type, stopping at the
-   first sign of change per Type, with no counts and no complete rows.
-2. A Type request returns `Unchanged` or `Changed` per Member; an unchanged
-   Member is never reported `Changed`.
+1. A Library request returns one state per Type, stopping at the first sign of
+   change per Type, with no counts and no complete rows. A Type whose only
+   change is a method body is `Unchanged` at Library scope and `Changed` at
+   Type scope.
+2. A Type request returns one state per Member. A `Changed` Member may
+   over-report; an `Unchanged` Member has no difference in the compared facts.
 3. Added and removed subjects are reported `Changed` with no further kind.
 4. A decode failure yields `Indeterminate`, never `Unchanged`.
-5. Across the corpus, no subject reported `Unchanged` appears in the complete
-   diff.
-6. A method whose only change is a string literal is `Changed`; a method whose literal only moved heap offsets is `Unchanged`.
-7. A Type whose only change is an added private method is `Changed`.
+5. Per pass, no subject reported `Unchanged` appears in the complete diff in the
+   facts that pass compares.
+6. A method whose only change is a string literal is `Changed` at Type scope; a
+   method whose literal only moved heap offsets is `Unchanged`.
+7. A Type whose only change is an added private method is `Changed` at Library
+   scope.
 8. A method whose only change is an exception-handler catch type is `Changed`
-    or `Indeterminate`, never `Unchanged`.
+   or `Indeterminate` at Type scope, never `Unchanged`.
+9. A Type whose only change is a Type-facet Finding with no classified
+   `ApiChange` is `Changed` at Library scope.
