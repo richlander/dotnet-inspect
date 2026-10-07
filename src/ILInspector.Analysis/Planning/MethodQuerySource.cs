@@ -557,7 +557,15 @@ public sealed class MethodDefinitionSourceRequestSetPlan
     {
         Requests = requests;
         Groups = groups;
+        foreach (MethodDefinitionSourceGroupPlan group in groups)
+        foreach (MethodDefinitionSourceLanePlan lane in group.Lanes)
+        foreach (MethodDefinitionSourceAssociation association
+            in lane.Associations)
+            DeclaredLayers |= association.Request.DeclaredLayers;
     }
+
+    /// <summary>The union of layers any planned request declares.</summary>
+    public MethodDefinitionLayers DeclaredLayers { get; }
 
     internal QuerySpaceRequestSetPlan<MethodDefinitionSourceRequest> Requests
     {

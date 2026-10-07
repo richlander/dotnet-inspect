@@ -1014,8 +1014,9 @@ internal sealed class LibraryBodyAsyncSiblingDispatchAnalyzer(
             return true;
         }
         catch (Exception ex)
-            when (LibraryMethodAnalysisRunner
-                .IsRecoverableMethodFailure(ex))
+            when (ex is not AssemblyBindingPolicyChangedException
+                && LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(ex))
         {
             return true;
         }

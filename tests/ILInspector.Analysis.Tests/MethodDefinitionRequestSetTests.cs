@@ -811,6 +811,38 @@ public sealed class MethodDefinitionRequestSetTests
                 MetadataTokens.MethodDefinitionHandle(2)));
     }
 
+    [Fact]
+    public void RequestSet_RejectsPlanDeclaringReferenceBinding()
+    {
+        MethodDefinitionSourceRequestSetPlan plan = AcceptedPlan(
+            [
+                Association(
+                    AsyncSiblingProducer.Instance,
+                    ProducerTerminal.Rows),
+            ]);
+        Assert.Equal(
+            MethodDefinitionLayers.ReferenceBinding,
+            plan.DeclaredLayers & MethodDefinitionLayers.ReferenceBinding);
+        string path =
+            typeof(MethodDefinitionRequestSetTests).Assembly.Location;
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+        AssemblyAnalysisRequestSetOperation operation =
+            AssemblyAnalysisRequestSetOperation.Create(path, plan);
+
+        var result = session.SnapshotOperation(
+            operation,
+            access => AssemblyAnalysisService.Instance.Execute(
+                operation,
+                access));
+
+        Assert.Equal(
+            AssemblyAnalysisRejectionKind.ReferenceBindingUnavailable,
+            Assert.IsType<
+                    AssemblyAnalysisRequestSetServiceResult.Rejected>(result)
+                .Kind);
+    }
+
     static MethodDefinitionSourceAssociation Association<TResult>(
         ProducerDeclaration<TResult> producer,
         ProducerTerminal terminal,

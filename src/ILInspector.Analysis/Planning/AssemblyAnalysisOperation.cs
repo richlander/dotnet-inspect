@@ -244,6 +244,15 @@ public sealed class AssemblyAnalysisService
                 AssemblyAnalysisRejectionKind.ManagedMetadataUnavailable);
         }
 
+        // Request-set execution carries no binding, so any plan that declares
+        // the layer is rejected before a producer runs.
+        if ((operation.MethodDefinitions.DeclaredLayers
+                & MethodDefinitionLayers.ReferenceBinding) != 0)
+        {
+            return new AssemblyAnalysisRequestSetServiceResult.Rejected(
+                AssemblyAnalysisRejectionKind.ReferenceBindingUnavailable);
+        }
+
         AssemblyInspectionSubjectIdentity subject = access.Subject;
         return access.InspectImage(
             peReader =>
