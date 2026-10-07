@@ -786,7 +786,7 @@ function decodeWorkspaceShareResult(
       error: "The shared member source view requires a selected member Source section.",
     };
   }
-  const packageLens = !(state.view.type && state.view.lens === "overview")
+  const packageLens = !(state.view.type && isTypeLens(state.view.lens))
     && isPackageLens(state.view.lens)
     ? state.view.lens
     : null;
