@@ -59,12 +59,14 @@ changed and may offer the Complete pass.
 
 Equality is decided per paired subject:
 
-- **API.** The Metadata-corresponded public API facts that the complete Library
-  API diff classifies (signature, accessibility, modifiers, constraints,
-  attributes the complete diff reports). Fast Diff reuses
-  [Library API diff presentation](library-api-diff-presentation.md)
-  correspondence and classification as the single source of API semantics; it
-  does not define a second notion of API equality.
+- **API.** The facts that Metadata's `ApiDiff` classifies over the two endpoint
+  API surfaces (signature, accessibility, modifiers, constraints, attributes
+  the complete diff reports). Fast Diff consumes that Metadata correspondence
+  and classification directly, with early exit. It does not consume
+  [Library API diff presentation](library-api-diff-presentation.md), which
+  admits only a completed Library comparison and would force the complete diff
+  first. The presentation remains the owner of how complete results are shown;
+  Fast Diff defines no second notion of API equality.
 - **Implementation.** Canonical IL operation equality for each paired,
   body-backed method, as defined by
   [IL diff canonicalization](il-diff-canonicalization.md) (tokens resolved to
@@ -73,7 +75,19 @@ Equality is decided per paired subject:
   Implementation Diff renders, so the comparison also covers exception regions
   (including catch types and filters) and local variable types. A body fact the
   producer cannot compare, or that canonicalization does not define, makes the
-  method `Indeterminate`, never `Unchanged`. A member already `Changed` by an
+  method `Indeterminate`, never `Unchanged`. String operands compare as
+  resolved user-string values, never heap tokens, so a literal that only moved
+  is equal and a changed literal is a `Body` difference.
+- **One-sided methods.** The complete Implementation Diff compares the union of
+  declared methods, so the producer also takes a census of methods present on
+  only one side, including non-public ones. A one-sided method makes its Type
+  `Changed`, whatever its accessibility.
+
+The body comparison may decode lazily: walk both IL streams in lockstep, stop at
+the first difference, and resolve token operands only when reached, memoized per
+side. Equal token numbers never prove equal targets across assemblies. Length
+alone proves a change only if canonicalization does not normalize encodings.
+This changes how early the walk stops, not what counts as equal. A member already `Changed` by an
   API difference, or added or removed, needs no body comparison for the state.
 
 A `Changed` Member also carries a **cause**: `Api`, `Body`, or both, or
@@ -121,8 +135,10 @@ by exact pair identity, scope, and subject. The Library result is reused when
 the same Compare reopens. It does not seed the Type pass: early exit stops at
 the first difference per Type, so Member states are a separate computation.
 Completed Member diffs are cached in a bounded LRU keyed by exact Member
-identity. A cache is an optimization; a miss recomputes and never changes a
-result.
+identity together with the comparison inputs of the Member Body cache key
+([Member Body Diff](inspect-web-member-body-diff.md)): ordered versions,
+framework and compile asset, Library identities, and mechanisms. A cache is
+an optimization; a miss recomputes and never changes a result.
 
 When a Type opens, a host runs the Type pass and marks Members. It may then
 speculatively stream complete Member diffs, subject to all of these:
@@ -206,3 +222,10 @@ Each step is independently mergeable under #9716.
    result.
 7. Navigating away cancels in-flight prefetch before the next user-initiated
    Member diff starts.
+8. A method whose only change is a string literal is `Changed` with cause
+   `Body`; a method whose literal only moved heap offsets is `Unchanged`.
+9. A Type whose only change is an added private method is `Changed`.
+10. A method whose only change is an exception-handler catch type is `Changed`
+    or `Indeterminate`, never `Unchanged`.
+11. The same Member opened against two different baselines never reuses the
+    first baseline's completed diff.
