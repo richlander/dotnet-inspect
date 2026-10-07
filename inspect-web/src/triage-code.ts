@@ -35,7 +35,7 @@ export function triageIssueLine(document: unknown, offsets: readonly number[]): 
     const width = (node: (typeof matches)[number]) => node.spans.reduce((sum, span) => sum + span.length, 0);
     const nearestWidth = Math.min(...matches.map(width));
     const touched = new Set<number>();
-    for (const node of matches.filter(node => width(node) === nearestWidth)) {
+    for (const node of matches.filter(candidate => width(candidate) === nearestWidth)) {
       for (const span of node.spans) {
         if (span.length === 0) return null;
         const first = lines.findIndex(line => span.start >= line.start && span.start <= line.end);

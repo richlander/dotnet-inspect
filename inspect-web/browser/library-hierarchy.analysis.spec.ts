@@ -154,6 +154,9 @@ for (const width of [1440, 390, 320]) {
     await expectCompactAnalysisHeader(page);
     await integrations.focus();
     await integrations.press("ArrowLeft");
+    const resources = frame.getByRole("tab", { name: "Resource Triage", exact: true });
+    await expect(resources).toBeFocused();
+    await resources.press("ArrowLeft");
     await expect(performance).toBeFocused();
     await expect(integrations).toHaveAttribute("aria-selected", "true");
     await performance.press("Enter");
@@ -166,6 +169,8 @@ for (const width of [1440, 390, 320]) {
     await page.screenshot({ path: testInfo.outputPath("analysis-tabs-performance.png") });
 
     await performance.press("ArrowRight");
+    await expect(resources).toBeFocused();
+    await resources.press("ArrowRight");
     await expect(integrations).toBeFocused();
     await integrations.press("Space");
     await expect(integrations).toHaveAttribute("aria-selected", "true");
