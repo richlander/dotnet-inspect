@@ -93,7 +93,8 @@ public partial class ApiCommand
         ApiType apiType, SectionPipeline<ApiType> memberPipeline, ApiOptions options,
         TypeAcquisitionContext? acquisition = null,
         DocumentSchema? precomputedSchema = null,
-        RenderedSectionManifest? precomputedManifest = null)
+        RenderedSectionManifest? precomputedManifest = null,
+        bool skipBareUnsafeApplicability = false)
     {
         var fullSchema =
             precomputedSchema ?? GetTypeDocumentSchema(options);
@@ -130,8 +131,7 @@ public partial class ApiCommand
         HashSet<string> requestedDiscoverySections = bareDiscover
             ? []
             : GetRequestedMemberSections(filteredType, options);
-        if ((bareDiscover
-                && options.UserVerbosity == Verbosity.Detailed
+        if ((bareDiscover && !skipBareUnsafeApplicability
                 || requestedDiscoverySections.Contains(
                     SectionNames.UnsafeMembers))
             && !ApplyTypeUnsafeMembersApplicability(

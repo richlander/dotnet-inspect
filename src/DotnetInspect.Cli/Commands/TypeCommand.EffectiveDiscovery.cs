@@ -13,6 +13,15 @@ namespace DotnetInspect.Cli.Commands;
 
 public static partial class TypeCommand
 {
+    static readonly ApiSurfaceExtractionBounds s_directDiscoveryBounds =
+        new(
+            maxTypes: 5_000,
+            maxMembers: 100_000,
+            maxInspectionFailures: 1_000,
+            maxTypeForwarders: 10_000,
+            maxMetadataRows: 1_000_000,
+            maxRetainedTextCharacters: 20_000_000);
+
     static int? TryExecuteDirectLibraryEffectiveDiscovery(
         TypeOptions options,
         SectionPipeline<ApiType> memberPipeline,
@@ -42,7 +51,7 @@ public static partial class TypeCommand
                 : null;
         var inspectionPlan = new TypeDocumentInspectionPlan(
             typeName,
-            DirectLibraryInspectionCommand.s_bounds,
+            s_directDiscoveryBounds,
             declarations);
         ResolvedAssemblyReference assembly;
         try
@@ -92,7 +101,10 @@ public static partial class TypeCommand
                 "The exact Type discovery inspection did not complete.");
             return 1;
         }
-        if (!CanProjectDirectLibraryDiscovery(
+        // A degraded image (for example, incomplete root adjacency) keeps
+        // the rich route's established disclosure.
+        if (!envelope.Diagnostics.IsEmpty
+            || !CanProjectDirectLibraryDiscovery(
                 available.Document.Subject,
                 options.IncludeAll))
         {
@@ -157,7 +169,10 @@ public static partial class TypeCommand
             effectiveOptions,
             acquisition,
             DirectDiscoverySchema(memberPipeline),
-            DirectDiscoveryManifest(type, acquisition));
+            DirectDiscoveryManifest(type, acquisition),
+            // Minimal non-tree discovery lists categories, not their
+            // members, so it never discloses Unsafe Members.
+            skipBareUnsafeApplicability: true);
     }
 
     static bool RequiresMemberApplicability(TypeOptions options) =>
@@ -295,9 +310,15 @@ public static partial class TypeCommand
             return false;
         }
 
+        // Only a spelling that round-trips exactly is admitted; the rich
+        // route owns lookup for every other spelling.
         if (MetadataTypeDefinitionName.ParseSerialized(options.TypeName)
                 is not MetadataTypeDefinitionNameResult.Valid valid
-            || valid.Name.Namespace.Length == 0)
+            || valid.Name.Namespace.Length == 0
+            || !string.Equals(
+                valid.Name.ToEscapedFullName(),
+                options.TypeName,
+                StringComparison.Ordinal))
         {
             return false;
         }

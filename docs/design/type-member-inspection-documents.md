@@ -391,10 +391,12 @@ inspection operation without claiming adoption of the four public document
 declarations. Exact `Type Info` requests only the detached Type subject. Bare
 discovery adds declared Member-group selector Counts and a separately typed
 same-image contextual-extension Exists request. Both share one opened assembly
-image; neither constructs Member-group Rows or the rich API surface. Bare
-discovery does not run the opt-in unsafe applicability probe, while exact
-`Unsafe Members` discovery still runs it on demand. Unsupported declaration
-shapes and non-exact requests retain the established route.
+image; neither constructs Member-group Rows or the rich API surface. Direct
+bare discovery admits only minimal, non-tree output, which lists categories
+without their members, so it does not run the opt-in unsafe applicability
+probe; exact `Unsafe Members` discovery still runs it on demand. Unsupported
+declaration shapes, non-exact or non-round-tripping names, and requests that
+list category members retain the established route and its probe.
 
 The motivating production case is .NET 11 RC1 CoreLib
 `System.Text.StringBuilder`, whose previous exact direct-Library effective

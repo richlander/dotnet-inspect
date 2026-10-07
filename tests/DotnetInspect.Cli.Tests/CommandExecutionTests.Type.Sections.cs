@@ -1425,6 +1425,98 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("--tree")]
+    [InlineData("--tree", "-v:n")]
+    public async Task
+        Type_TreeDiscoveryOmitsInapplicableUnsafeMembers(
+            params string[] treeArgs)
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                [
+                    "type",
+                    "System.ArgumentException",
+                    "--library",
+                    assemblyPath,
+                    "-D",
+                    .. treeArgs,
+                ]);
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(
+                [
+                    "type",
+                    "System.ArgumentException",
+                    "--platform",
+                    "System.Private.CoreLib",
+                    "-D",
+                    .. treeArgs,
+                ]);
+
+        Assert.True(
+            directExit == 0,
+            $"Direct discovery failed: {directError}");
+        Assert.Equal(platformExit, directExit);
+        Assert.Equal(platformOutput, directOutput);
+        Assert.Equal(platformError, directError);
+        Assert.Contains(SectionNames.SafetyFacts, directOutput);
+        Assert.DoesNotContain(
+            SectionNames.UnsafeMembers,
+            directOutput);
+    }
+
+    [Fact]
+    public async Task
+        Type_BareDiscoveryOverReferenceSystemRuntimeOmitsPrimitiveExtensions()
+    {
+        // StringNormalizationExtensions encodes its string receiver as a
+        // primitive element type, which names no local definition in an
+        // image that does not define primitive types.
+        string assemblyPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "LibraryInfo",
+            "ref",
+            "System.Runtime.dll");
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.String",
+            "--library",
+            assemblyPath,
+            "-D",
+            "--tsv");
+
+        Assert.True(exit == 0, $"Discovery failed: {error}");
+        Assert.Contains($"{SectionNames.TypeInfo}\tsection", output);
+        Assert.DoesNotContain(
+            $"{SectionNames.ExtensionMethods}\tsection",
+            output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task
+        Type_DiscoveryRejectsNameThatDoesNotRoundTrip()
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            " System.String",
+            "--library",
+            assemblyPath,
+            "-D",
+            SectionNames.TypeInfo);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Type ' System.String' not found.",
+            error);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task

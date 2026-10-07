@@ -578,9 +578,12 @@ internal static partial class MetadataRelationInspection
 
         try
         {
+            bool sourceDefinesPrimitiveTypes =
+                ApiSurfaceExtractor.DefinesPrimitiveTypes(reader);
             var provider = new ExtensionReceiverMatchProvider(
                 sourceAssembly,
-                selection);
+                selection,
+                sourceDefinesPrimitiveTypes);
             BlobReader signature =
                 reader.GetBlobReader(receiverMethod.Signature);
             SignatureHeader header =
@@ -648,7 +651,8 @@ internal static partial class MetadataRelationInspection
 
             provider = new(
                 sourceAssembly,
-                selection);
+                selection,
+                sourceDefinesPrimitiveTypes);
             GenericContext context =
                 GenericContext.ForMethod(
                     reader,
@@ -1407,13 +1411,16 @@ internal static partial class MetadataRelationInspection
     {
         readonly AssemblyReferenceIdentity _sourceAssembly;
         readonly MetadataExtensionReceiverSelection _selection;
+        readonly bool _sourceDefinesPrimitiveTypes;
 
         internal ExtensionReceiverMatchProvider(
             AssemblyReferenceIdentity sourceAssembly,
-            MetadataExtensionReceiverSelection selection)
+            MetadataExtensionReceiverSelection selection,
+            bool sourceDefinesPrimitiveTypes)
         {
             _sourceAssembly = sourceAssembly;
             _selection = selection;
+            _sourceDefinesPrimitiveTypes = sourceDefinesPrimitiveTypes;
         }
 
         internal bool Rejected { get; private set; }
@@ -1489,9 +1496,11 @@ internal static partial class MetadataRelationInspection
             }
         }
 
+        // Primitive element types name local definitions only in an image
+        // that defines them, matching the rich route's receiver decoding.
         public bool GetPrimitiveType(PrimitiveTypeCode typeCode) =>
-            ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
-                _selection.Assembly)
+            _sourceDefinesPrimitiveTypes
+            && _sourceAssembly.IsEquivalentTo(_selection.Assembly)
             && IsSelectedSystemType(
                 typeCode switch
                 {
