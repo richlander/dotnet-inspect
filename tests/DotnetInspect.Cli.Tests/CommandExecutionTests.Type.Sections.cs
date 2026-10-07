@@ -848,6 +848,783 @@ public partial class CommandExecutionTests
             advertised.OrderBy(f => f, StringComparer.Ordinal));
     }
 
+    [Theory]
+    [InlineData("System.Text.StringBuilder", "Append")]
+    [InlineData("System.Collections.Generic.List`1", "Add")]
+    [InlineData("System.IDisposable", "Dispose")]
+    [InlineData("System.Action", "Invoke")]
+    [InlineData("System.Enum", "HasFlag")]
+    public async Task
+        Type_DirectLibraryExactType_TypeInfoDiscoveryMatchesLegacyProjection(
+            string typeName,
+            string memberName)
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        string[] directArgs =
+        [
+            "type",
+            typeName,
+            "--library",
+            assemblyPath,
+            "-D",
+            SectionNames.TypeInfo,
+            "--tsv",
+        ];
+        string[] legacyArgs =
+        [
+            "type",
+            typeName,
+            "--library",
+            assemblyPath,
+            "-m",
+            memberName,
+            "-D",
+            SectionNames.TypeInfo,
+            "--tsv",
+        ];
+
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(directArgs);
+        var (legacyExit, legacyOutput, legacyError) =
+            await RunAppAsync(legacyArgs);
+
+        Assert.True(
+            directExit == 0,
+            $"Direct discovery failed: {directError}");
+        Assert.True(
+            legacyExit == 0,
+            $"Legacy discovery failed: {legacyError}");
+        Assert.Empty(directError);
+        Assert.Empty(legacyError);
+        Assert.Equal(legacyOutput, directOutput);
+    }
+
+    [Fact]
+    public async Task
+        Type_DirectLibraryCoreDelegate_TypeInfoDiscoveryMatchesLegacyProjection()
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                "type",
+                "System.MulticastDelegate",
+                "--library",
+                assemblyPath,
+                "-D",
+                SectionNames.TypeInfo,
+                "--tsv");
+        var (legacyExit, legacyOutput, legacyError) =
+            await RunAppAsync(
+                "type",
+                "System.MulticastDelegate",
+                "--library",
+                assemblyPath,
+                "-k",
+                "constructor",
+                "-D",
+                SectionNames.TypeInfo,
+                "--tsv");
+
+        Assert.True(
+            directExit == 0,
+            $"Direct discovery failed: {directError}");
+        Assert.True(
+            legacyExit == 0,
+            $"Legacy discovery failed: {legacyError}");
+        Assert.Empty(directError);
+        Assert.Empty(legacyError);
+        Assert.Equal(legacyOutput, directOutput);
+    }
+
+    [Theory]
+    [InlineData("System.Text.StringBuilder")]
+    [InlineData("System.IDisposable")]
+    [InlineData("System.Action")]
+    [InlineData("System.Delegate")]
+    [InlineData("System.IAsyncResult")]
+    public async Task
+        Type_DirectLibraryExactType_BareDiscoveryMatchesPlatformProjection(
+            string typeName)
+    {
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--library",
+                typeof(System.Text.StringBuilder).Assembly.Location,
+                "-D",
+                "--tsv");
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--platform",
+                "System.Private.CoreLib",
+                "-D",
+                "--tsv");
+
+        Assert.True(
+            directExit == 0,
+            $"Direct discovery failed: {directError}");
+        Assert.True(
+            platformExit == 0,
+            $"Platform discovery failed: {platformError}");
+        Assert.Empty(directError);
+        Assert.Empty(platformError);
+        Assert.Equal(platformOutput, directOutput);
+    }
+
+    [Fact]
+    public async Task
+        Type_DirectLibraryExactType_IncludeAllBareDiscoveryMatchesPlatformProjection()
+    {
+        string typeName = "System.Delegate";
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--library",
+                typeof(System.Text.StringBuilder).Assembly.Location,
+                "-D",
+                "--all",
+                "--tsv");
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--platform",
+                "System.Private.CoreLib",
+                "-D",
+                "--all",
+                "--tsv");
+
+        Assert.True(
+            directExit == 0,
+            $"Direct discovery failed: {directError}");
+        Assert.True(
+            platformExit == 0,
+            $"Platform discovery failed: {platformError}");
+        Assert.Empty(directError);
+        Assert.Empty(platformError);
+        Assert.Equal(platformOutput, directOutput);
+        Assert.Contains(
+            $"{SectionNames.ExtensionMethods}\tsection",
+            directOutput);
+    }
+
+    [Fact]
+    public async Task
+        Type_PackageBackedLibraryDiscoveryRetainsPackageMembershipValidation()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) =
+                await RunAppAsync(
+                    "type",
+                    "DotnetInspect.Cli.Tests.CommandExecutionTests",
+                    "--package",
+                    packagePath,
+                    "--library",
+                    TestAssemblyPath,
+                    "-D",
+                    SectionNames.TypeInfo,
+                    "--tsv");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "not found in package",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        Type_DirectLibraryGenericBareDiscoveryRetainsContextualExtensions()
+    {
+        var (exitCode, output, error) =
+            await RunAppAsync(
+                "type",
+                "System.Collections.Generic.List`1",
+                "--library",
+                typeof(System.Text.StringBuilder).Assembly.Location,
+                "-D",
+                "--tsv");
+
+        Assert.True(exitCode == 0, error);
+        Assert.Empty(error);
+        Assert.Contains("Extension Methods\tsection", output);
+        Assert.Contains("Interfaces\tsection", output);
+    }
+
+    [Theory]
+    [InlineData(
+        "System.Text.StringBuilder",
+        "System.Private.CoreLib")]
+    [InlineData(
+        "System.Collections.Generic.IReadOnlyCollection`1",
+        "System.Private.CoreLib")]
+    [InlineData(
+        "System.Text.Json.Nodes.JsonArray",
+        "System.Text.Json")]
+    public async Task
+        Type_DirectLibraryExactType_AuditDiscoveryMatchesPlatformProjection(
+            string typeName,
+            string platformAssembly)
+    {
+        string assemblyPath = platformAssembly
+            == "System.Private.CoreLib"
+                ? typeof(System.Text.StringBuilder).Assembly.Location
+                : typeof(System.Text.Json.Nodes.JsonArray)
+                    .Assembly.Location;
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--library",
+                assemblyPath,
+                "-D",
+                SectionCategoryNames.Audit,
+                "--tsv");
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--platform",
+                platformAssembly,
+                "-D",
+                SectionCategoryNames.Audit,
+                "--tsv");
+
+        Assert.True(
+            directExit == 0,
+            $"Direct discovery failed: {directError}");
+        Assert.True(
+            platformExit == 0,
+            $"Platform discovery failed: {platformError}");
+        Assert.Empty(directError);
+        Assert.Empty(platformError);
+        Assert.Equal(platformOutput, directOutput);
+    }
+
+    [Theory]
+    [InlineData(
+        "System.Text.StringBuilder",
+        "System.Private.CoreLib",
+        SectionNames.SafetyFacts)]
+    [InlineData(
+        "System.Text.StringBuilder",
+        "System.Private.CoreLib",
+        SectionNames.UnsafeMembers)]
+    [InlineData(
+        "System.Text.Json.Nodes.JsonArray",
+        "System.Text.Json",
+        SectionNames.SafetyFacts)]
+    [InlineData(
+        "System.Text.Json.Nodes.JsonArray",
+        "System.Text.Json",
+        SectionNames.UnsafeMembers)]
+    public async Task
+        Type_DirectLibraryExactType_AuditSectionDiscoveryMatchesPlatformProjection(
+            string typeName,
+            string platformAssembly,
+            string section)
+    {
+        string assemblyPath = platformAssembly
+            == "System.Private.CoreLib"
+                ? typeof(System.Text.StringBuilder).Assembly.Location
+                : typeof(System.Text.Json.Nodes.JsonArray)
+                    .Assembly.Location;
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--library",
+                assemblyPath,
+                "-D",
+                section,
+                "--tsv");
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--platform",
+                platformAssembly,
+                "-D",
+                section,
+                "--tsv");
+
+        Assert.True(
+            directExit == 0,
+            $"Direct discovery failed: {directError}");
+        Assert.True(
+            platformExit == 0,
+            $"Platform discovery failed: {platformError}");
+        Assert.Empty(directError);
+        Assert.Empty(platformError);
+        Assert.Equal(platformOutput, directOutput);
+    }
+
+    [Theory]
+    [InlineData("System.IDisposable", SectionNames.Facts)]
+    [InlineData("System.Attribute", SectionNames.Methods)]
+    public async Task
+        Type_SelectedSectionDiscoveryMatchesPlatformProjection(
+            string typeName,
+            string section)
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--library",
+                assemblyPath,
+                "-D",
+                "-S",
+                section);
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--platform",
+                "System.Private.CoreLib",
+                "-D",
+                "-S",
+                section);
+
+        Assert.True(
+            directExit == 0,
+            $"Direct discovery failed: {directError}");
+        Assert.True(
+            platformExit == 0,
+            $"Platform discovery failed: {platformError}");
+        Assert.Empty(directError);
+        Assert.Empty(platformError);
+        Assert.Equal(platformOutput, directOutput);
+    }
+
+    [Fact]
+    public async Task
+        Type_DeferredSelectedSectionMatchesPlatformRejection()
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                "type",
+                "System.Attribute",
+                "--library",
+                assemblyPath,
+                "-D",
+                "-S",
+                "Classes",
+                "--tsv");
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(
+                "type",
+                "System.Attribute",
+                "--platform",
+                "System.Private.CoreLib",
+                "-D",
+                "-S",
+                "Classes",
+                "--tsv");
+
+        Assert.Equal(1, directExit);
+        Assert.Equal(platformExit, directExit);
+        Assert.Equal(platformOutput, directOutput);
+        Assert.Equal(platformError, directError);
+    }
+
+    [Fact]
+    public async Task
+        Type_DirectLibraryExactType_NonPublicRequiresIncludeAll()
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        var (defaultExit, defaultOutput, defaultError) =
+            await RunAppAsync(
+                "type",
+                "System.Text.StringBuilderCache",
+                "--library",
+                assemblyPath,
+                "-D",
+                SectionNames.TypeInfo,
+                "--tsv");
+        var (allExit, allOutput, allError) =
+            await RunAppAsync(
+                "type",
+                "System.Text.StringBuilderCache",
+                "--library",
+                assemblyPath,
+                "--all",
+                "-D",
+                SectionNames.TypeInfo,
+                "--tsv");
+
+        Assert.Equal(1, defaultExit);
+        Assert.Empty(defaultOutput);
+        Assert.Contains(
+            "Type 'System.Text.StringBuilderCache' not found.",
+            defaultError);
+        Assert.Equal(0, allExit);
+        Assert.Empty(allError);
+        Assert.NotEmpty(allOutput);
+    }
+
+    [Fact]
+    public async Task
+        Type_DirectLibraryExactType_HiddenRequiresIncludeAll()
+    {
+        const string typeName =
+            "DotnetInspect.Cli.Tests.HiddenExactTypeDiscoveryProbe";
+        var (defaultExit, defaultOutput, defaultError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--library",
+                TestAssemblyPath,
+                "-D",
+                SectionNames.TypeInfo,
+                "--tsv");
+        var (allExit, allOutput, allError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--library",
+                TestAssemblyPath,
+                "--all",
+                "-D",
+                SectionNames.TypeInfo,
+                "--tsv");
+
+        Assert.Equal(1, defaultExit);
+        Assert.Empty(defaultOutput);
+        Assert.Contains(
+            $"Type '{typeName}' not found.",
+            defaultError);
+        Assert.Equal(0, allExit);
+        Assert.Empty(allError);
+        Assert.NotEmpty(allOutput);
+    }
+
+    [Theory]
+    [InlineData("System.__Canon", true)]
+    [InlineData(
+        "DotnetInspect.Cli.Tests.__CompilerGeneratedExactTypeDiscoveryProbe",
+        false)]
+    public async Task
+        Type_DirectLibraryExactType_CompilerGeneratedIsNotApi(
+            string typeName,
+            bool coreLibrary)
+    {
+        string assemblyPath = coreLibrary
+            ? typeof(System.Text.StringBuilder).Assembly.Location
+            : TestAssemblyPath;
+        var (exit, output, error) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--library",
+                assemblyPath,
+                "--all",
+                "-D",
+                SectionNames.TypeInfo,
+                "--tsv");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Type '{typeName}' not found.",
+            error);
+    }
+
+    [Theory]
+    [InlineData("System.Attribute", false)]
+    [InlineData("System.TimeSpan", true)]
+    public async Task
+        Type_DetailedDiscoveryMatchesPlatformProjection(
+            string typeName,
+            bool excludesUnsafeMembers)
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--library",
+                assemblyPath,
+                "-D",
+                "-v:d");
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--platform",
+                "System.Private.CoreLib",
+                "-D",
+                "-v:d");
+
+        Assert.True(
+            directExit == 0,
+            $"Direct discovery failed: {directError}");
+        Assert.True(
+            platformExit == 0,
+            $"Platform discovery failed: {platformError}");
+        Assert.Empty(directError);
+        Assert.Empty(platformError);
+        Assert.Equal(platformOutput, directOutput);
+        if (excludesUnsafeMembers)
+        {
+            Assert.DoesNotContain(
+                SectionNames.UnsafeMembers,
+                directOutput);
+        }
+
+    }
+
+    [Fact]
+    public async Task
+        Type_TreeDiscoveryMatchesPlatformProjection()
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                "type",
+                "System.IDisposable",
+                "--library",
+                assemblyPath,
+                "-D",
+                "--tree");
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(
+                "type",
+                "System.IDisposable",
+                "--platform",
+                "System.Private.CoreLib",
+                "-D",
+                "--tree");
+
+        Assert.Equal(platformExit, directExit);
+        Assert.Equal(platformOutput, directOutput);
+        Assert.Equal(platformError, directError);
+        Assert.Contains("Signature", directOutput);
+        Assert.Contains("Return Type", directOutput);
+    }
+
+    [Theory]
+    [InlineData("--tree")]
+    [InlineData("--tree", "-v:n")]
+    public async Task
+        Type_TreeDiscoveryOmitsInapplicableUnsafeMembers(
+            params string[] treeArgs)
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                [
+                    "type",
+                    "System.ArgumentException",
+                    "--library",
+                    assemblyPath,
+                    "-D",
+                    .. treeArgs,
+                ]);
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(
+                [
+                    "type",
+                    "System.ArgumentException",
+                    "--platform",
+                    "System.Private.CoreLib",
+                    "-D",
+                    .. treeArgs,
+                ]);
+
+        Assert.True(
+            directExit == 0,
+            $"Direct discovery failed: {directError}");
+        Assert.Equal(platformExit, directExit);
+        Assert.Equal(platformOutput, directOutput);
+        Assert.Equal(platformError, directError);
+        Assert.Contains(SectionNames.SafetyFacts, directOutput);
+        Assert.DoesNotContain(
+            SectionNames.UnsafeMembers,
+            directOutput);
+    }
+
+    [Fact]
+    public async Task
+        Type_BareDiscoveryOverReferenceSystemRuntimeOmitsPrimitiveExtensions()
+    {
+        // StringNormalizationExtensions encodes its string receiver as a
+        // primitive element type, which names no local definition in an
+        // image that does not define primitive types.
+        string assemblyPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "LibraryInfo",
+            "ref",
+            "System.Runtime.dll");
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.String",
+            "--library",
+            assemblyPath,
+            "-D",
+            "--tsv");
+
+        Assert.True(exit == 0, $"Discovery failed: {error}");
+        Assert.Contains($"{SectionNames.TypeInfo}\tsection", output);
+        Assert.DoesNotContain(
+            $"{SectionNames.ExtensionMethods}\tsection",
+            output);
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("ObsoleteExtensionTarget", true)]
+    [InlineData("PropertyBlockTarget", false)]
+    public async Task
+        Type_BareDiscoveryAdmitsExtensionMethodsLikeApiSurface(
+            string typeName,
+            bool listsExtensionMethods)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            $"DotnetInspect.Cli.Tests.ExactTypeDiscoveryExtensions.{typeName}",
+            "--library",
+            TestAssemblyPath,
+            "-D",
+            "--tsv");
+
+        Assert.True(exit == 0, $"Discovery failed: {error}");
+        Assert.Empty(error);
+        Assert.Equal(
+            listsExtensionMethods,
+            output.Contains(
+                $"{SectionNames.ExtensionMethods}\tsection",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task
+        Type_AuditDiscoveryCountsSameImageExtensionMethods()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "DotnetInspect.Cli.Tests.ExactTypeDiscoveryExtensions.IExtensionOnlyTarget",
+            "--library",
+            TestAssemblyPath,
+            "-D",
+            SectionCategoryNames.Audit,
+            "--tsv");
+
+        Assert.True(exit == 0, $"Discovery failed: {error}");
+        Assert.Empty(error);
+        Assert.Contains(
+            $"{SectionNames.SafetyFacts}\tsection",
+            output);
+    }
+
+    [Fact]
+    public async Task
+        Type_DiscoveryRejectsNameThatDoesNotRoundTrip()
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            " System.String",
+            "--library",
+            assemblyPath,
+            "-D",
+            SectionNames.TypeInfo);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Type ' System.String' not found.",
+            error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task
+        Type_QuietDiscoveryMatchesPlatformRejection(
+            bool tree)
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        string[] directArgs = tree
+            ?
+            [
+                "type",
+                "System.Attribute",
+                "--library",
+                assemblyPath,
+                "-D",
+                "--tree",
+                "-v:q",
+            ]
+            :
+            [
+                "type",
+                "System.Attribute",
+                "--library",
+                assemblyPath,
+                "-D",
+                "-v:q",
+            ];
+        string[] platformArgs = tree
+            ?
+            [
+                "type",
+                "System.Attribute",
+                "--platform",
+                "System.Private.CoreLib",
+                "-D",
+                "--tree",
+                "-v:q",
+            ]
+            :
+            [
+                "type",
+                "System.Attribute",
+                "--platform",
+                "System.Private.CoreLib",
+                "-D",
+                "-v:q",
+            ];
+
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(directArgs);
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(platformArgs);
+
+        Assert.Equal(1, directExit);
+        Assert.Equal(platformExit, directExit);
+        Assert.Equal(platformOutput, directOutput);
+        Assert.Equal(platformError, directError);
+        Assert.Contains(
+            "-v:q is not supported by the type shape renderer.",
+            directError);
+    }
+
     [Fact]
     public async Task Type_TypeInfoDiscovery_DoesNotRunUnrequestedUnsafeProbe()
     {
@@ -865,6 +1642,36 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.NotEmpty(output);
+            Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(
+                fixtureDir,
+                recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Type_BareDiscovery_DoesNotRunUnlistedUnsafeProbe()
+    {
+        var (assemblyPath, fixtureDir) =
+            CreateIncompleteUnsafeDiscoveryAssembly();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "type",
+                "DiscoveryFixtures.IncompleteUnsafeDiscovery",
+                "--library",
+                assemblyPath,
+                "-D",
+                "--tsv");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("@Audit\tcategory", output);
+            Assert.DoesNotContain(
+                $"{SectionNames.UnsafeMembers}\tsection",
+                output);
             Assert.Empty(error);
         }
         finally
