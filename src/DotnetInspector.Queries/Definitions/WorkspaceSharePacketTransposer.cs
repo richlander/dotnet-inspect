@@ -310,11 +310,14 @@ public static class WorkspaceSharePacketTransposer
         foreach (PortableQueryDefinitionDescriptor descriptor in
             queryDescriptors ?? [])
         {
-            if (descriptor.QueryId == PackageQuery.DefinitionDescriptor.QueryId)
+            if (descriptor.QueryId == PackageQuery.DefinitionDescriptor.QueryId
+                || descriptor.QueryId == WorkspaceDiffIntent.QueryId)
             {
                 if (!ReferenceEquals(
                         descriptor,
-                        PackageQuery.DefinitionDescriptor))
+                        descriptor.QueryId == WorkspaceDiffIntent.QueryId
+                            ? WorkspaceDiffIntent.Descriptor
+                            : PackageQuery.DefinitionDescriptor))
                 {
                     throw new InspectionDefinitionException(
                         $"Portable query descriptor '{descriptor.QueryId}' conflicts "
@@ -1273,7 +1276,8 @@ public static class WorkspaceSharePacketTransposer
                 .Select(binding => binding.Descriptor)
                 .DistinctBy(descriptor => descriptor.QueryId))
         {
-            if (descriptor.QueryId == PackageQuery.DefinitionDescriptor.QueryId)
+            if (descriptor.QueryId == PackageQuery.DefinitionDescriptor.QueryId
+                || descriptor.QueryId == WorkspaceDiffIntent.QueryId)
                 continue;
             registry.AddQueryDescriptor(descriptor);
         }

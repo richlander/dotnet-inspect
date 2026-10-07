@@ -248,6 +248,7 @@ public partial record ApiOptions : IProjectionOptions
     public bool Count { get; init; }
     public RowWindow? Rows { get; init; }
     public RowSelectionIntent<string>? CloneCandidateRowSelection { get; init; }
+    public RowSelectionIntent<string>? BodyShapeRowSelection { get; init; }
     public PerformanceTriageOptions PerformanceTriage { get; init; } = PerformanceTriageOptions.Default;
     public BodyKindQueryOptions BodyKindQuery { get; init; } = BodyKindQueryOptions.Default;
     public CloneCandidateQueryOptions CloneCandidateQuery { get; init; } =
