@@ -1,0 +1,110 @@
+# Lean methodology
+
+Lean is used, per [Proof methodology](proof-methodology.md#choosing-a-tool), to
+prove claims about functions and data for every input, without the size bounds
+a model checker needs. Typical claims are plan equivalence, algebraic laws, and
+whether a check can change an observable result.
+
+## Setup
+
+Install the Lean toolchain manager:
+
+```sh
+brew install elan-init
+```
+
+On other platforms, use the
+[elan installer](https://github.com/leanprover/elan). Each model pins its
+compiler in `lean-toolchain`, so `lake build` fetches the right version on
+first use. Models currently pin `leanprover/lean4:v4.34.1`.
+
+## Placement and project shape
+
+Keep each model in its own directory under the owning design's `models/`
+directory, normally `docs/design/models/<name>/`. Don't share a directory with
+a TLA+ model; give each tool its own sibling directory, linked both ways from
+the two READMEs. Each Lean model is one self-contained Lake project:
+
+| File | Role |
+| --- | --- |
+| `lakefile.toml` | Project and library declaration; the default target is the model library |
+| `lean-toolchain` | The pinned Lean release |
+| `lake-manifest.json` | The resolved dependency set |
+| `.gitignore` | Contains `.lake/`, which keeps build output out of the tree |
+| `<Model>.lean`, or a root module with a `<Model>/` folder | The definitions and theorems |
+| `README.md` | Owner, claims, correspondence, assumptions, limits, and build command |
+
+Keep models dependency-free. Core Lean covers the list, natural-number, and
+decidability reasoning these models need. Adding a dependency such as Mathlib
+needs a stated reason and a pinned revision, because it changes build time and
+the trust base.
+
+Executable companions stay outside the model directory. A C# NativeAOT probe
+that measures the modeled shapes belongs under `prototypes/<name>/`, and its
+README links back to the model.
+
+Commit and push a model as soon as it builds, as
+[TLA+ methodology](tla-plus-methodology.md#compose-models-along-product-boundaries)
+also requires for TLA+ models. An uncommitted model is not reviewable evidence.
+
+## Model the code, then prove the claim
+
+Mirror the C# at one named commit. Write one Lean definition for each C#
+operation whose behavior the claim depends on. Keep its control flow, guards,
+and failure points in the same order, even when a shorter definition would
+prove more easily. If the model simplifies representation, for example a list
+standing for a set builder, say so in the README.
+
+State outside facts as explicit theorem hypotheses, not as `axiom`
+declarations. Facts such as "a MethodDef table has fewer than `2^24` rows" or
+"`GetILReader().Length` is an `int`" then stay visible at every use.
+
+Prove counterexamples as well. When a rule fails, prove the existential
+statement that a concrete input breaks it, instead of describing the failure in
+prose. The proof records exactly which input breaks the rule.
+
+## README contract
+
+Every model README states:
+
+- **Owner:** the normative owner and the issue or PR the model serves.
+- **Claims:** a table mapping each owner claim to the theorem that proves it.
+  When the model classifies checks, give each one's classification as well, per
+  [Proving that work can be removed](proof-methodology.md#proving-that-work-can-be-removed).
+- **Correspondence:** a table mapping each Lean definition to its C# symbol at
+  the modeled commit.
+- **Assumptions:** every hypothesis that stands for an outside fact.
+- **Limits:** what the model does not cover.
+- **Build:** the command, run from the model directory.
+
+When the modeled code changes, update the correspondence and re-run the build,
+or mark the README stale. A proof about an outdated model is not evidence about
+current code. Statements about the code must be checked against every
+production caller; reviewers check them like any other claim.
+
+## Build bar
+
+From the model directory:
+
+```sh
+rm -rf .lake && lake build
+```
+
+The build must succeed with no errors, no warnings, no `sorry`, and no `axiom`
+declarations. Report the axioms that each headline theorem depends on:
+
+```lean
+#print axioms MyModel.headline_theorem
+```
+
+Only Lean's standard axioms are acceptable: `propext`, `Classical.choice`, and
+`Quot.sound`. Report the build result and axioms in the PR. Lean models have no
+CI gate yet, so reviewers run the build at the exact head.
+
+## Evidence limits
+
+A Lean theorem is a fact about the model. Correctness, safety, or
+performance claims about the implementation still need the gates in
+[Evidence and validation](evidence-and-validation.md). A proof that work can be
+removed supports a code reduction; a speedup claim also needs a NativeAOT
+measurement on the path the measured command actually runs.
