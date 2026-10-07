@@ -97,7 +97,7 @@ public sealed partial class PackageSourceClientTests
                 transport,
                 options);
 
-        public static HttpClientHandler CreateGalleryTransportHandler(
+        public static HttpMessageHandler CreateGalleryTransportHandler(
             bool isBrowser) =>
             NuGetFetch.PackageSourceClientFactory
                 .CreateGalleryTransportHandler(isBrowser);

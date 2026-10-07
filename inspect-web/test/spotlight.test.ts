@@ -1172,7 +1172,7 @@ test("framework assemblies are Library results without a Platform destination", 
   });
 
   const html = spotlight.modalHtml();
-  assert.match(html, /class="spotlight-group">Libraries/);
+  assert.match(html, /class="spotlight-group">Ecosystem/);
   assert.match(html, /data-sl-framework-lib="System\.Text\.Json"/);
   assert.match(html, /\.NET library · net11\.0 · 11\.0\.0 · 42 types/);
   assert.doesNotMatch(html, /data-sl-scope="runtime"|>Platform</);
@@ -1191,4 +1191,34 @@ test("command queries and command metadata are escaped in Spotlight markup", () 
   const html = spotlight.modalHtml();
   assert.doesNotMatch(html, /<script/);
   assert.match(html, /find &lt;script class=&quot;x&quot;&gt;/);
+});
+
+test("same-named Package and Library share one Ecosystem group with independent identities", () => {
+  const packageResult: SpotlightResult = {
+    kind: "pkg-nuget", hit: { id: "System.Linq", version: "4.3.0" }, ranges: [],
+    ecosystem: { id: "ecosystem.runtime", title: ".NET Runtime", isPruned: true, traversalTfm: "net10.0", platformVersion: "10.0.12" },
+  };
+  const libraryResult: SpotlightResult = {
+    kind: "framework-lib", assembly: "System.Linq", pack: "netcore.app", publicTypes: 1,
+    tfm: "net10.0", version: "10.0.12", ranges: [],
+  };
+  const external: SpotlightResult = { kind: "pkg-nuget", hit: { id: "Example.External", version: "1.0.0" }, ranges: [] };
+  const { spotlight } = createHarness({ searchResults: () => [external, packageResult, libraryResult] });
+  const html = spotlight.modalHtml();
+  assert.equal((html.match(/class="spotlight-group">Ecosystem/g) ?? []).length, 1);
+  assert.match(html, /aria-label="Pruned for net10.0"/);
+  assert.match(html, /Supplied by net10.0 @ 10.0.12/);
+  assert.match(html, /\.NET Runtime · Package · 4.3.0/);
+  assert.notEqual(spotlightResultIdentity(packageResult), spotlightResultIdentity(libraryResult));
+  assert.deepEqual(spotlight.results(), [packageResult, libraryResult, external]);
+});
+
+test("false or unavailable pruning never renders a positive badge", () => {
+  for (const isPruned of [false, null]) {
+    const { spotlight } = createHarness({ searchResults: () => [{
+      kind: "pkg-nuget", hit: { id: "System.Text.Json", version: "99.0.0" }, ranges: [],
+      ecosystem: { id: "ecosystem.runtime", title: ".NET Runtime", isPruned, traversalTfm: "net10.0", platformVersion: "10.0.12" },
+    }] });
+    assert.doesNotMatch(spotlight.modalHtml(), /spotlight-pruned|Pruned for/);
+  }
 });
