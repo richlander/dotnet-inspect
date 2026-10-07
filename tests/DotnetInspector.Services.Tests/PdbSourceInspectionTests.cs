@@ -57,6 +57,65 @@ public class PdbSourceInspectionTests
                 StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(
+        "https://raw.githubusercontent.com/example/repository/0123456789abcdef0123456789abcdef01234567/src/Widget.cs",
+        "https://github.com/example/repository/blob/0123456789abcdef0123456789abcdef01234567/src/Widget.cs")]
+    [InlineData(
+        "https://raw.githubusercontent.com/example/repository/v1/src/Widget.cs",
+        null)]
+    [InlineData("https://example.test/src/Widget.cs", null)]
+    public void Inspection_ProjectsDetachedSourceLocation(
+        string resolvedUrl,
+        string? expectedBrowseUrl)
+    {
+        byte[] content = Encoding.UTF8.GetBytes(Source);
+        SourceDocumentObservation document =
+            Document(content) with { ResolvedUrl = resolvedUrl };
+
+        PdbMemberSourceInspection result =
+            PdbSourceInspectionProjection.FromMemberContent(
+                Mapping(),
+                document,
+                content,
+                "M",
+                Subject);
+
+        Assert.Equal(resolvedUrl, result.ResolvedUrl);
+        Assert.Equal(expectedBrowseUrl, result.VerifiedBrowseUrl);
+    }
+
+    [Fact]
+    public void Inspection_BrowseUrlRequiresVerifiedChecksum()
+    {
+        const string resolvedUrl =
+            "https://raw.githubusercontent.com/example/repository/"
+            + "0123456789abcdef0123456789abcdef01234567/src/Widget.cs";
+        byte[] content = Encoding.UTF8.GetBytes(Source);
+        SourceDocumentObservation document =
+            Document(content) with { ResolvedUrl = resolvedUrl };
+        PdbMemberSourceInspection result =
+            PdbSourceInspectionProjection.FromMemberContent(
+                Mapping(),
+                document,
+                content,
+                "M",
+                Subject);
+
+        Assert.NotNull(result.VerifiedBrowseUrl);
+        Assert.NotNull(
+            (result with
+            {
+                ChecksumVerification =
+                    SourceChecksumVerification.LineEndingNormalized,
+            }).VerifiedBrowseUrl);
+        Assert.Null(
+            (result with
+            {
+                ChecksumVerification = SourceChecksumVerification.Mismatch,
+            }).VerifiedBrowseUrl);
+    }
+
     [Fact]
     public void FromContent_UsesSequencePointEvidenceToSelectAConditionalMember()
     {

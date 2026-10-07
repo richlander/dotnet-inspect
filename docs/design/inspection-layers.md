@@ -1649,6 +1649,10 @@ canaries:
   Browser surface and a portable exact Library identity to Catalog; Catalog
   does not independently invoke Metadata member resolution or unwrap Metadata
   assembly identities.
+- PDB source inspections project resolved and attributable browse URLs as
+  detached Services-owned values. The Browser Source facade preserves those
+  values without interpreting SourceLink documents, and its positive project
+  and compiled-assembly ratchets exclude `ILInspector.SourceLink`.
 - `AssemblyContextTypeDependencyQuery` retains the admitted descriptors for one
   binding-consistent group and invokes the Metadata-owned population scan once.
   Ordinary population lookup scans the committed participant order. Its

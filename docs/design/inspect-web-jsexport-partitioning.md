@@ -308,6 +308,10 @@ Method-body comparison likewise projects native C#/IL evidence through the
 shared query; its target inventory and keyed cancellation stay with that
 managed feature in the same facade even though its contextual dialog is
 retired.
+PDB source inspections expose their resolved and attributable browse URLs as
+detached Services-owned values. The facade preserves those values in its
+existing source and comparison contracts without interpreting SourceLink
+documents or referencing the SourceLink component directly.
 
 ### Call-graph facade: 2 exports
 
