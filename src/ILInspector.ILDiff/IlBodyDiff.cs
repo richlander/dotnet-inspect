@@ -178,7 +178,7 @@ public static partial class IlBodyDiff
 
         var (oldCorrespondence, newCorrespondence) =
             (normalization & IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals) != 0
-                ? CompilerGeneratedOrdinalCorrespondence.Build(oldReader, newReader)
+                ? CompilerGeneratedOrdinalCorrespondence.Build(oldReader, newReader, normalization)
                 : (CompilerGeneratedOrdinalCorrespondence.Empty, CompilerGeneratedOrdinalCorrespondence.Empty);
 
         return Compare(
