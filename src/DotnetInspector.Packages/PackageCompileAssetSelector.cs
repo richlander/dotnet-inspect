@@ -139,6 +139,19 @@ public sealed record PackageCompileAssetSelection(
             asset => asset.Id.Equals(id, StringComparison.Ordinal));
     }
 
+    /// <summary>Finds a unique selected comparison counterpart across compile slices.</summary>
+    public PackageCompileAsset? FindComparisonAsset(PackageCompileAsset currentAsset)
+    {
+        ArgumentNullException.ThrowIfNull(currentAsset);
+        if (!IsSelected) return null;
+        if (FindAsset(currentAsset.Id) is { } exact) return exact;
+        string? relativePath = TryGetRelativePath(currentAsset);
+        if (relativePath is null) return null;
+        PackageCompileAsset[] matches = [.. Assets.Where(asset =>
+            TryGetRelativePath(asset)?.Equals(relativePath, StringComparison.OrdinalIgnoreCase) is true).Take(2)];
+        return matches.Length == 1 ? matches[0] : null;
+    }
+
     /// <summary>
     /// Finds the implementation counterpart of one selected compile asset. An exact retained
     /// library asset is its own counterpart; otherwise correspondence uses the selector-owned

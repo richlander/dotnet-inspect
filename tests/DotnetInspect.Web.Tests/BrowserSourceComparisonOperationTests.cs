@@ -1278,7 +1278,7 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
 
     static AssemblyMemberSourcePairEndpointRequest ProductEndpoint(
         BrowserSourceComparisonEndpointRequest request) =>
-        new(
+        AssemblyMemberSourcePairEndpointRequest.From(
             MetadataTypeDefinitionName.ParseSerialized(request.TypeIdentity)
                 is MetadataTypeDefinitionNameResult.Valid valid
                     ? valid.Name

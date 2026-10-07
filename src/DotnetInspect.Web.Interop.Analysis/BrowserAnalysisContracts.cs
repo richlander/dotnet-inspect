@@ -597,7 +597,12 @@ public sealed record BrowserPerformanceMember(
     int OpportunityCount,
     int InLoopCount,
     string[] Shapes,
-    string Confidence);
+    string Confidence,
+    BrowserPerformanceBodyTarget[]? BodyTargets = null);
+
+public sealed record BrowserPerformanceBodyTarget(
+    string TypeId, string MemberName, string SelectorKey, int MethodToken,
+    int[]? IssueOffsets = null);
 
 public sealed record BrowserMemberFacts(
     int MetadataToken,
@@ -756,6 +761,7 @@ public sealed record BrowserImplementationHeatRelationship(
 [JsonSerializable(typeof(BrowserPackageIntegrations))]
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
+[JsonSerializable(typeof(BrowserResourceTriage))]
 [JsonSerializable(typeof(BrowserPerformanceAnalysisEvent))]
 [JsonSerializable(typeof(BrowserPerformanceAnalysisResult))]
 [JsonSerializable(typeof(BrowserPerformanceAnalysisCancellation))]

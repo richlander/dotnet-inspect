@@ -148,7 +148,15 @@ public sealed record CSharpTypePhysicalArtifact(
     int MetadataToken,
     CSharpTypeArtifactKind Kind,
     CSharpTypeOrigin Origin,
-    CSharpTypeArtifactRepresentation Representation);
+    CSharpTypeArtifactRepresentation Representation)
+{
+    public ProjectedMemberAnchor ProjectedAnchor => new(
+        Anchor.StableSelector,
+        Anchor.CanonicalSignature,
+        Anchor.Fingerprint,
+        Anchor.TypeFullName,
+        Anchor.MemberName);
+}
 
 public sealed record CSharpTypePhysicalBody(
     int Id,
@@ -195,7 +203,15 @@ public sealed record CSharpTypeDeclaration(
     CSharpTypeAccessibility Accessibility,
     CSharpTypeDeclarationPlacement Placement,
     CSharpTypeOrigin Origin,
-    ImmutableArray<CSharpTypeRenderPart> Parts);
+    ImmutableArray<CSharpTypeRenderPart> Parts)
+{
+    public ProjectedMemberAnchor ProjectedAnchor => new(
+        Anchor.StableSelector,
+        Anchor.CanonicalSignature,
+        Anchor.Fingerprint,
+        Anchor.TypeFullName,
+        Anchor.MemberName);
+}
 
 public sealed record CSharpTypeDocumentSource(
     CSharpTypeSourceKind Kind,
