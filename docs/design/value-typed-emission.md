@@ -1950,7 +1950,7 @@ and target-typed discards, direct-copy closure, external observers,
 managed-reference and nested-scope exclusions, and the pinned
 Microsoft.CodeAnalysis 5.0.0 `AnalyzerAssemblyLoader` constructor witness.
 
-On the fixed 14-assembly, 89,065-method corpus at base `af3eff0ff`, the pass
+On the fixed 14-assembly, 89,065-method corpus at base `243adb14a`, the pass
 changes 32 methods and retires 52 transitive slot webs. All 49 materialization
 decisions carrying `MissingLoad` disappear. Residual binding moves from
 143 webs / 209 locals / 98 methods to 94 / 160 / 67; split webs remain 51,
