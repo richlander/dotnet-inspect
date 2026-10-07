@@ -207,6 +207,19 @@ internal static class WorkspaceTypeHierarchyRelationsInspectionExecutor
         var realization =
             (PackagePrefixWorkspaceScopeRealizationOutcome.Settled)
                 realizationOutcome;
+        if (realization.ScopeOperation is not (
+                WorkspaceScopeOperationResult.Committed
+                or WorkspaceScopeOperationResult.NoEffect))
+        {
+            return (
+                new(
+                    null,
+                    null,
+                    CreateEvidenceDiagnostics(realization),
+                    AdditionalEvidenceComplete: false),
+                null);
+        }
+
         WorkspaceScopeSnapshot scope =
             ScopeSnapshot(realization.ScopeOperation);
         PackagePrefixSectionExecution? implementers =
@@ -310,12 +323,19 @@ internal static class WorkspaceTypeHierarchyRelationsInspectionExecutor
 
     private static ImmutableArray<InspectionDiagnostic>
         CreateEvidenceDiagnostics(
-            PackagePrefixWorkspaceTypeHierarchyExecution execution)
+            PackagePrefixWorkspaceTypeHierarchyExecution execution) =>
+        CreateEvidenceDiagnostics(
+            execution.Evidence.Realization,
+            execution.Evidence.Admissions);
+
+    private static ImmutableArray<InspectionDiagnostic>
+        CreateEvidenceDiagnostics(
+            PackagePrefixWorkspaceScopeRealizationOutcome.Settled realization,
+            ImmutableArray<PackagePrefixWorkspaceTypeHierarchyAdmission>
+                admissions = default)
     {
         var diagnostics =
             ImmutableArray.CreateBuilder<InspectionDiagnostic>();
-        PackagePrefixWorkspaceScopeRealizationOutcome.Settled realization =
-            execution.Evidence.Realization;
         foreach (PackageQueryFailure failure in realization.Query.Failures)
         {
             string subject = failure.PackageId is null
@@ -438,7 +458,9 @@ internal static class WorkspaceTypeHierarchyRelationsInspectionExecutor
         }
 
         foreach (PackagePrefixWorkspaceTypeHierarchyAdmission admission
-            in execution.Evidence.Admissions)
+            in admissions.IsDefault
+                ? []
+                : admissions)
         {
             if (admission.Failure is not { } failure)
                 continue;
@@ -483,13 +505,9 @@ internal static class WorkspaceTypeHierarchyRelationsInspectionExecutor
                 committed.Snapshot,
             WorkspaceScopeOperationResult.NoEffect noEffect =>
                 noEffect.Snapshot,
-            WorkspaceScopeOperationResult.Rejected rejected =>
-                rejected.Snapshot,
-            WorkspaceScopeOperationResult.Failed failed =>
-                failed.Snapshot,
             _ => throw new InvalidOperationException(
-                "Package-prefix Scope realization returned an unknown "
-                    + "operation result."),
+                "Package-prefix hierarchy composition requires a committed "
+                    + "or no-effect Scope realization."),
         };
 
     private static IReadOnlyDictionary<

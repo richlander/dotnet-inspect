@@ -466,13 +466,15 @@ public record TypeOptions : ApiOptions
 internal sealed record TypeHierarchyRelationsInspection(
     TypeHierarchyRelationSectionInspection? Implementers,
     TypeHierarchyRelationSectionInspection? DerivedTypes,
-    ImmutableArray<InspectionDiagnostic> Diagnostics = default)
+    ImmutableArray<InspectionDiagnostic> Diagnostics = default,
+    bool AdditionalEvidenceComplete = true)
 {
     internal ImmutableArray<InspectionDiagnostic> EffectiveDiagnostics =>
         Diagnostics.IsDefault ? [] : Diagnostics;
 
     internal bool IsComplete =>
-        (Implementers?.IsComplete ?? true)
+        AdditionalEvidenceComplete
+        && (Implementers?.IsComplete ?? true)
         && (DerivedTypes?.IsComplete ?? true);
 }
 

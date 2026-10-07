@@ -1460,6 +1460,81 @@ public sealed class ExactTypeWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task WorkspacePackagePrefixReportsScopeDeadlineFailure()
+    {
+        const string implementationPackage =
+            "ILInspector.Implementation";
+        (byte[] contract, byte[] implementation) =
+            BuildHierarchyPackageAssemblies();
+        SearchResult[] matches =
+        [
+            new(PackageId, Version),
+            new(implementationPackage, Version),
+        ];
+        var prefixSource = new PrefixPackageSource(matches);
+        var store = (InMemoryPackageStore)await CachedStoreAsync(
+            ($"lib/{Framework}/Hierarchy.Contract.dll", contract));
+        await AddPackageAsync(
+            store,
+            PackageId,
+            contract,
+            PackageSource.NuGetOrg.Url);
+        await AddPackageAsync(
+            store,
+            implementationPackage,
+            implementation,
+            PackageSource.NuGetOrg.Url);
+        using var client = new HttpClient(new FailingHandler());
+        string packet = EncodePacket(
+            format: 4,
+            [(PackageId, Version, Framework)],
+            [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        var options = new TypeOptions
+        {
+            WorkspacePacket = packet,
+            TypeName = "Exact.Hierarchy.IContract",
+            IncludeSections =
+                new(StringComparer.OrdinalIgnoreCase)
+                {
+                    SectionNames.Implementers,
+                },
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, _, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    new WorkspaceContextLoadOptions
+                    {
+                        HttpClient = client,
+                        SourceAuthorization =
+                            new UniformPackageSourceAuthorization(
+                                [Source, PackageSource.NuGetOrg]),
+                        PackageStore = store,
+                    },
+                    new(
+                        () => prefixSource,
+                        DateTimeOffset.UtcNow.AddMinutes(-1)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains(
+            "Package-prefix Workspace Scope update was rejected: "
+                + nameof(WorkspaceScopeRejection.DeadlineExpired),
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "requires a committed or no-effect",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task EligibleRoutePreservesEscapedDefinitionIdentity()
     {
         var store = await CachedStoreAsync(
