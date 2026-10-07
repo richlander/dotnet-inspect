@@ -176,6 +176,10 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
     if (reader && scroller) reader.scrollTop = scroller.scrollTop;
     dialog.close(); dialog.remove(); dialog = null;
   };
+  function dismissExplore(): void {
+    closeExplore(); dependencies.render();
+    dependencies.document.querySelector<HTMLElement>("[data-member-body-explore]")?.focus({ preventScroll: true });
+  }
   function bindReader(root: ParentNode, reader: Reader, expanded: boolean): void {
     root.querySelectorAll<HTMLButtonElement>("[data-member-body-medium]").forEach(button =>
       button.addEventListener("click", () => {
@@ -203,10 +207,7 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
       escapeHtml: escape,
     });
     bindReader(dialog, reader, true);
-    dialog.querySelector("[data-member-body-close]")?.addEventListener("click", () => {
-      closeExplore(); dependencies.render();
-      dependencies.document.querySelector<HTMLElement>("[data-member-body-explore]")?.focus();
-    });
+    dialog.querySelector("[data-member-body-close]")?.addEventListener("click", dismissExplore);
     const scroller = dialog.querySelector<HTMLElement>("[data-member-body-scroll]");
     if (scroller) scroller.scrollTop = reader.scrollTop;
   }
@@ -262,7 +263,7 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
       else if (!inventory) content = '<p role="status">Loading implementation changes…</p>';
       else if (context.subject === "member") {
         const reader = currentReader();
-        content = `<section class="member-body-reader"><header class="section-title"><h2>Member Body</h2>${reader ? `${mediaControls(reader)}<button type="button" data-member-body-explore>Explore</button>` : ""}</header><div class="member-body-scroll" data-member-body-scroll>${reader
+        content = `<section class="member-body-reader"><header class="section-title"><h2>Member Body</h2>${reader ? `${mediaControls(reader)}<button type="button" id="member-body-explore" data-member-body-explore>Explore</button>` : ""}</header><div class="member-body-scroll" data-member-body-scroll>${reader
           ? renderMemberBodyReader(reader, escape)
           : pending ? '<p role="status">Loading exact Member diff…</p>'
             : inventory.isComplete ? '<p role="status">No exact body comparison destination is available for this Member.</p>'
@@ -300,7 +301,7 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
           dialog.className = "member-body-explore";
           dialog.setAttribute("aria-labelledby", "member-body-explore-title");
           dependencies.document.body.append(dialog); paintExplore(reader);
-          dialog.addEventListener("cancel", () => { closeExplore(); dependencies.render(); });
+          dialog.addEventListener("cancel", event => { event.preventDefault(); dismissExplore(); });
           dialog.showModal();
         });
       }

@@ -4880,7 +4880,7 @@ const memberBodyDiff = createMemberBodyDiff({
   query: (id, request) => engineClient.source.queryMemberBodyDiff(id, request),
   cancel: (id, reason) => { observeAsync(engineClient.source.cancelMemberBodyDiff(id, reason), "Canceling Member Body comparison"); },
   diagnostic: diagnostic => { console.error("Member Body operation authority failure.", diagnostic); },
-  render, document, escapeHtml,
+  render: renderPreservingMemberFocus, document, escapeHtml,
   activateType: activateCompareType,
   activateMember: member => activateCompareMember(member.fingerprint!, member.methodToken),
 });

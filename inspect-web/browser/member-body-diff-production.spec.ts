@@ -26,6 +26,10 @@ test("Member Body opens inline and retains the document through media and Explor
   await page.locator("[data-member-body-close]").click();
   await expect(page.locator(".member-body-reader .source-diff-viewer")).toContainText("IL_");
   await expect(page.locator("[data-member-body-explore]")).toBeFocused();
+  await page.locator("[data-member-body-explore]").click();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".member-body-explore")).toHaveCount(0);
+  await expect(page.locator("[data-member-body-explore]")).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(page.locator("#compare-diff-content")).toHaveValue("member-body");
   await page.keyboard.press("ArrowUp");
