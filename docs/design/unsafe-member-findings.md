@@ -8,7 +8,7 @@ producer that Inspect Web's Unsafe view
 ## Owner and claim
 
 **ILInspector.Analysis owns unsafe member findings.** One finding states that
-one source-declared member has positive compiled unsafe-member evidence under
+one declared member has positive compiled unsafe-member evidence under
 the updated memory-safety semantics, in its own body or in compiler-generated
 bodies it owns. The finding retains every contributing role that was inspected
 and the physical body each came from, and marks its evidence partial when an
@@ -17,8 +17,10 @@ attributed body could not be inspected.
 Admission is exactly the
 [unsafe-member inventory](method-body-inspection.md#updated-semantics-unsafe-member-uses)
 rule; this producer adds attribution, identity, exposure, and completeness, not
-a second admission rule. Findings cover every source-declared member —
-private, internal, and public alike. Public exposure is an attribute of a
+a second admission rule. A declared member is a source-declared member, or a
+compiler-generated body that the attribution authority establishes has no
+source owner. Findings cover every declared member — private, internal, and
+public alike. Public exposure is an attribute of a
 finding, never a filter on admission.
 
 [Method-body inspection](method-body-inspection.md) owns the inventory and its
@@ -48,7 +50,7 @@ instead of relabeling or discarding generated bodies.
 ## Finding unit and identity
 
 The family is one `AnalysisFindings` descriptor over one finding per
-source-declared member. A member's finding exists exactly when the inventory
+declared member. A member's finding exists exactly when the inventory
 admits the member itself or at least one physical body attributed to it.
 
 Each finding's payload is a member-level record, since the inventory's
@@ -63,8 +65,9 @@ Each finding's payload is a member-level record, since the inventory's
 - the member's exposure.
 
 Evidence order is semantic only within one physical body. Finding enumeration
-is an identity set. The identity key reuses Analysis's shared member-identity
-fragment for the declared member: its assembly, declaring type, metadata name,
+is an identity set. The identity key is Analysis's shared member-identity
+fragment for the declared member, reached by projecting the member onto that
+fragment rather than through a second hand-written key: its assembly, declaring type, metadata name,
 generic arity, calling convention, instance or static form, parameter types,
 and return type. The module version ID, metadata token, and caller-unsafe mode
 are not identity, nor are physical tokens, IL offsets, and generated names,
@@ -114,6 +117,30 @@ updated-model caller-unsafe contract. Legacy pointer-shaped signatures,
 inventory roles in a legacy assembly, and evidence attributed from generated
 bodies never imply propagation.
 
+## Body availability
+
+Each physical body in scope is classified with the shared
+[typed inspection topology](finding-producers.md#admit-body-topology-before-native-comparison),
+the same rule Member Body comparison applies
+([Annotated source diff document](annotated-source-diff-document.md#sides)):
+
+- **Complete:** the body was inspected. A body with no admitted evidence is a
+  sound negative for that body.
+- **No applicable input:** the declaration has no body to inspect, such as an
+  abstract, extern, runtime-implemented, or bodiless interface member. It
+  cannot hold body evidence, so it is neither a limitation nor partial
+  evidence. Declaration roles, such as an explicit caller-unsafe contract,
+  still apply.
+- **Failed:** acquisition, decode, or analysis did not complete, or the body
+  was outside the receipt's scope. This is the only per-body state that makes a
+  finding partial or the census incomplete.
+
+A missing body, reader, or handle is never read as no applicable input; the
+owner-issued declaration evidence decides it. A reference assembly's bodies are
+not implementation evidence: the census records one image-level limitation and
+is incomplete, while declaration roles remain findings. A failed or
+no-applicable-input body never stands in for a body without evidence.
+
 ## Completeness and unknown evidence
 
 The census is measured against a declared scope: the inventory's admission
@@ -136,15 +163,22 @@ outcomes:
 - **Failed:** an inspection failure, not an observation.
 
 The census is incomplete when the body-analysis receipt lacks full
-method-evidence scope, a body's analysis failed or its managed body was
-unavailable, a generated body's owner could not be authenticated or attribution
-exhausted its bound, or the public root inventory was bounded or failed.
+method-evidence scope, a body is Failed, the image is a reference assembly, a
+generated body's owner could not be authenticated or attribution exhausted its
+bound, or the public root inventory was bounded or failed.
+
+Every limitation carries a typed reason, the affected physical body when it has
+one, and the declared member when that body's owner was authenticated.
+Limitations are enumerable, so a host can disclose their number and, on
+request, each affected member with its reason.
 
 A limitation stays with the part it affects. When a body that could not be
 inspected has an authenticated owner, that owner's finding is marked partial
 and names the body; the finding's existence remains sound, because admission and
-attribution are positive, but its evidence is not presented as complete. Only
-an unattributed body's limitation is census-wide.
+attribution are positive, but its evidence is not presented as complete. When
+that owner has no finding, the limitation remains in the census and names the
+declared member, whose absence from the findings is then unknown rather than a
+negative. Only an unattributed body's limitation is otherwise census-wide.
 
 Unlike the Resource Lifecycle projection, a scoped receipt or a census with no
 findings and some limitations is Incomplete rather than Failed: both carry
@@ -180,7 +214,16 @@ This slice is step 2 of 5 for #5254's Unsafe view:
 3. CLI Library Analysis section over this census, with selection aliases and
    `diff --analysis` participation through the shared descriptor-keyed
    comparison, replacing the legacy `Unsafe Members` evidence rows after
-   parity.
+   parity. Under an incomplete census the section is expected to render the
+   observed findings, report a `--count` equal to those rows, disclose the
+   limitations on stderr, and exit nonzero, as proposed for Rows and Count in
+   [#9621](https://github.com/richlander/dotnet-inspect/issues/9621) and
+   applied to Body Shapes in
+   [#9622](https://github.com/richlander/dotnet-inspect/issues/9622). An
+   incomplete census with no findings reports zero observed findings as
+   incomplete, never as no unsafe members. The Count-terminal owner decides
+   that contract; this producer supplies the observed findings and enumerable
+   limitations it needs.
 4. Inspect Web Library Analysis Unsafe tab, reworking #9366 onto this census
    and replacing its public-member-only attribution.
 5. Unsafe guidance findings: a focused checker family with its own design.
@@ -199,7 +242,11 @@ Focused Release gates cover, in both legacy and updated-model fixtures:
 - an unattributable generated body reported as a limitation, not a finding,
   including an async lambda whose lifted owner is unresolved;
 - a bounded or failed public root inventory yielding `Unknown` exposure and an
-  incomplete census; and
-- scoped, failed, and unavailable bodies producing an incomplete census rather
-  than a complete empty one, and an uninspected attributed body marking its
-  owner's finding partial rather than reading as complete evidence.
+  incomplete census;
+- scoped and failed bodies, and a reference assembly, producing an incomplete
+  census rather than a complete empty one, while abstract, extern, and other
+  bodiless declarations leave the census complete and no finding partial;
+- an uninspected attributed body marking its owner's finding partial rather
+  than reading as complete evidence, and naming its declared member as unknown
+  when that member has no finding; and
+- every limitation carrying a typed reason and its affected body and member.

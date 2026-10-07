@@ -85,6 +85,12 @@ public static class LibraryTypeHierarchyPresentation
             FormatLibrary(
                 document.Assembly,
                 plan.Hierarchy.RootSpelling);
+        // An empty population renders as such rather than as a bare root.
+        if (document.Types!.Rows
+            is LibraryTypePopulationRowsOutcome.Read { Items.IsEmpty: true })
+        {
+            root += " (no public types)";
+        }
         switch (plan.Format)
         {
             case LibraryTypeHierarchyPresentationFormat.Tree:
