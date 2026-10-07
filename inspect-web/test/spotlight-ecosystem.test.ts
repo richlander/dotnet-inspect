@@ -9,7 +9,7 @@ const hits: SpotlightResult[] = [{ kind: "pkg-nuget", hit: { id: "System.Text.Js
 const target: PlatformCatalogTarget = { tfm: "net10.0", version: "10.0.12", rows: [], supplies: [] };
 const annotation: BrowserEcosystemPackageClassification = {
   id: "System.Text.Json", version: "9.0.0", ecosystemId: "ecosystem.runtime",
-  ecosystemTitle: ".NET Runtime", platformLayer: "DotNetRuntime", isPruned: true,
+  ecosystemTitle: ".NET Runtime", platformLayer: "DotNetRuntime", isPruned: true, platformVersionComparison: -1,
 };
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 
@@ -103,4 +103,20 @@ test("returning to an earlier batch ignores its superseded success and failure",
   if (results[0]?.kind === "pkg-nuget") assert.equal(results[0].ecosystem?.isPruned, true);
   assert.equal(coordinator.error(), "");
   assert.equal(updates, 1);
+});
+
+
+test("Package pruning does not annotate the supplying Library", async () => {
+  const library: SpotlightResult = { kind: "framework-lib", assembly: "System.Text.Json", pack: "netcore.app", tfm: "net10.0", version: "10.0.12", publicTypes: 1, ranges: [] };
+  for (const isPruned of [true, false, null]) {
+    const coordinator = createSpotlightEcosystemClassification({
+      classify: async () => [{ ...annotation, isPruned }], updateResults: () => {},
+    });
+    const batch = [...hits, library];
+    coordinator.project(batch, "net10.0", target);
+    await tick();
+    const results = coordinator.project(batch, "net10.0", target);
+    assert.deepEqual(results[1], library);
+    if (results[0]?.kind === "pkg-nuget") assert.equal(results[0].ecosystem?.isPruned, isPruned);
+  }
 });

@@ -25,6 +25,27 @@ public sealed class EcosystemPackageExportsTests
     }
 
     [Theory]
+    [InlineData("9.0.0", -1)]
+    [InlineData("10.0.12", 0)]
+    [InlineData("11.0.0-rc.1", 1)]
+    [InlineData("10.0.12-rc.1", -1)]
+    public void PlatformVersionComparisonUsesNuGetPrecedence(string version, int expected)
+    {
+        var result = Classify("System.Text.Json", version, "net10.0",
+            "{\"tfm\":\"net10.0\",\"version\":\"10.0.12\",\"supplies\":[{\"family\":\"Microsoft.NETCore.App\",\"package\":\"System.Text.Json\",\"version\":\"10.0.12\"}]}")[0];
+        Assert.Equal(expected, Math.Sign(result.PlatformVersionComparison!.Value));
+    }
+
+    [Fact]
+    public void KnownVersionsCanBeComparedWithoutPruningInventory()
+    {
+        var result = Classify("System.Text.Json", "11.0.0-rc.1", "net10.0",
+            "{\"tfm\":\"net10.0\",\"version\":\"10.0.12\",\"supplies\":null}")[0];
+        Assert.Null(result.IsPruned);
+        Assert.Equal(1, Math.Sign(result.PlatformVersionComparison!.Value));
+    }
+
+    [Theory]
     [InlineData("null")]
     [InlineData("{\"tfm\":\"net10.0\",\"version\":\"10.0.12\",\"supplies\":null}")]
     [InlineData("{\"tfm\":\"net9.0\",\"version\":\"9.0.0\",\"supplies\":[]}")]

@@ -302,6 +302,7 @@ interface DiagnosticsFixture {
   deferTypeMemberPopulation?: boolean;
   qualifiedStructuralSalience?: boolean;
   physicalOnlyStructuralSalience?: boolean;
+  rejectedOwnershipStructuralSalience?: boolean;
   failedStructuralSalience?: boolean;
   slowStructuralSalience?: boolean;
 }
@@ -1965,7 +1966,8 @@ async function installFacades(
         document.documentElement.dataset.structuralSalienceRequestCount =
           String(++structuralSalienceRequestCount);
         const qualified = diagnosticsOptions.qualifiedStructuralSalience;
-        const physicalOnly = diagnosticsOptions.physicalOnlyStructuralSalience;
+        const rejectedOwnership = diagnosticsOptions.rejectedOwnershipStructuralSalience;
+        const physicalOnly = diagnosticsOptions.physicalOnlyStructuralSalience || rejectedOwnership;
         if (diagnosticsOptions.failedStructuralSalience)
           throw new Error("Structural evidence acquisition failed.");
         const exactNamespace = "Example";
@@ -1991,7 +1993,7 @@ async function installFacades(
           pole: "SeaLevel"
         }));
         return {
-          schemaVersion: 2,
+          schemaVersion: 3,
           surface: {
             outcome: "available",
             methodologyVersion: "structural-salience.v3",
@@ -2054,6 +2056,7 @@ async function installFacades(
                 bodiesConsidered: 2,
                 bodiesExamined: qualified || physicalOnly ? 1 : 2,
                 bodiesPhysicalOnly: physicalOnly ? 1 : 0,
+                bodiesRejectedOwnership: rejectedOwnership ? 1 : 0,
                 bodiesUnavailable: qualified ? 1 : 0,
                 bodiesLimited: 0,
                 operandsConsidered: 3,
@@ -2066,7 +2069,8 @@ async function installFacades(
                 item => item.typeDefinitionId),
               mountainPeakOrder: implementationTypes.map(
                 item => item.typeDefinitionId),
-              diagnostics: qualified ? ["One body was unavailable."]
+              diagnostics: rejectedOwnership ? ["Generated-body ownership evidence was rejected."]
+                : qualified ? ["One body was unavailable."]
                 : physicalOnly ? ["The physical body has no authenticated logical owner."] : []
             }],
             failure: null,

@@ -255,6 +255,7 @@ export interface BrowserEcosystemPackageClassification {
   readonly ecosystemTitle: string | null;
   readonly platformLayer: string | null;
   readonly isPruned: boolean | null;
+  readonly platformVersionComparison: number | null;
 }
 
 export interface BrowserEcosystemPackageInventory {

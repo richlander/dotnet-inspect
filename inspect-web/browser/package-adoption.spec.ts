@@ -602,6 +602,7 @@ declare global {
         platformPack: string,
         documentationId: string,
       ): Promise<CompiledDocumentationOutcome>;
+      loadPlatformLibrary(framework: string, version: string, assembly: string, pack: string): Promise<string>;
       openPlatformForwarderView(
         framework: string,
         version: string,
@@ -733,6 +734,8 @@ async function boot(page: Page): Promise<void> {
         platformPack,
         documentationId,
       ),
+      loadPlatformLibrary: (framework, platformVersion, assembly, pack) =>
+        client.package.loadRuntimePackAssembly(framework, platformVersion, assembly, pack, assembly),
       openPlatformForwarderView: (framework, platformVersion, assembly, pack) =>
         client.package.openPlatformForwarderView(
           framework, platformVersion, assembly, pack),
@@ -3677,6 +3680,36 @@ test.describe("bounded network-backed Worker smoke", () => {
     await expect(page.locator("[data-platform-forwarder]")).toHaveCount(0);
   });
 
+  test("opens CoreLib directly and through its SafeHandle forwarder over the production Worker", async ({ page }) => {
+    await boot(page);
+    const platformVersion = "11.0.0-rc.1.26425.128";
+    const name = "Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid";
+    try {
+      const raw = await page.evaluate(ver => window.__adoption!.loadPlatformLibrary(
+        "net11.0", ver, "System.Private.CoreLib.dll", "netcore.app"), platformVersion);
+      const direct: unknown = JSON.parse(raw);
+      if (!direct || typeof direct !== "object" || !("types" in direct) || !Array.isArray(direct.types)) {
+        throw new Error("CoreLib omitted its Type surface.");
+      }
+      expect(direct.types.some((type: unknown) => type !== null && typeof type === "object"
+        && "id" in type && type.id === `System.Private.CoreLib:${name}`)).toBe(true);
+      const initial = await page.evaluate(ver => window.__adoption!.openPlatformForwarderView(
+        "net11.0", ver, "System.Runtime.dll", "netcore.app"), platformVersion);
+      expect(initial.status, initial.message ?? "System.Runtime").toBe("opened");
+      const forwarder = initial.view?.forwarders.find(candidate => candidate.id === `System.Runtime:${name}`);
+      if (!forwarder) throw new Error("System.Runtime omitted the SafeHandle forwarder.");
+      expect(forwarder.targetAssembly).toBe("System.Private.CoreLib");
+      const result = await page.evaluate(action => window.__adoption!.activatePlatformForwarder(action), forwarder.action);
+      expect(result.status, result.message ?? "CoreLib activation").toBe("opened");
+      expect(result.view?.assembly).toBe("System.Private.CoreLib");
+      expect(result.view?.selectedTypeId).toBe(`System.Private.CoreLib:${name}`);
+      expect(result.view?.surface.types.some(type => type.id === result.view?.selectedTypeId)).toBe(true);
+      expect(result.view?.forwarders.some(candidate => candidate.id === result.view?.selectedTypeId)).toBe(false);
+    } finally {
+      await page.evaluate(() => window.__adoption!.dispose());
+    }
+  });
+
   test("opens each real XML forwarding occurrence through the production Worker", async ({
     page,
   }) => {
@@ -4219,10 +4252,11 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
       await catalogGate;
       await route.fulfill({ contentType: "application/json", body: JSON.stringify(catalog) });
     });
+    let jsonVersion = "9.0.0";
     await context.route("https://azuresearch-usnc.nuget.org/**", route => {
       const query = new URL(route.request().url()).searchParams.get("q");
       const versions: Readonly<Record<string, string>> = {
-        "System.Linq": "4.3.0", "System.Text.Json": "9.0.0",
+        "System.Linq": "4.3.0", "System.Text.Json": jsonVersion,
         "Microsoft.AspNetCore.Http": "2.2.2", "Microsoft.Extensions.Logging": "9.0.0",
         "Aspire.Hosting": "9.0.0",
       };
@@ -4250,8 +4284,15 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
     const originalControl = await packageHit.elementHandle();
     expect(packs).toEqual([]);
     releaseCatalog();
-    await expect(packageHit.locator('[aria-label="Pruned for net10.0"]')).toBeVisible();
-    await expect(page.locator('[data-sl-framework-lib="System.Linq"]')).toBeVisible();
+    await expect(packageHit.locator('[aria-label="Package pruned for net10.0"]')).toBeVisible();
+    const libraryHit = page.locator('[data-sl-framework-lib="System.Linq"]');
+    await expect(libraryHit.locator('[aria-label="Library: .NET Runtime"]')).toBeVisible();
+    await expect(libraryHit.locator(".spotlight-pruned")).toHaveCount(0);
+    const pairOrder = await page.locator("[data-sl-framework-lib=\"System.Linq\"], [data-sl-pkg-load=\"System.Linq\"]").evaluateAll(elements => elements.map(element => element.hasAttribute("data-sl-framework-lib") ? "Library" : "Package"));
+    expect(pairOrder).toEqual(["Library", "Package"]);
+    await expect(packageHit.locator('.sl-package-icon')).toHaveCount(0);
+    await expect(packageHit.locator('[role="img"]')).toHaveCount(1);
+    await expect(libraryHit.locator('[role="img"]')).toHaveCount(1);
     const annotatedAlignment = await packageHit.evaluate(element => ({
       nameLeft: element.querySelector(".spotlight-item-name")!.getBoundingClientRect().left,
       metadataRight: element.querySelector(".spotlight-item-ns")!.getBoundingClientRect().right,
@@ -4262,18 +4303,16 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
       width: element.getBoundingClientRect().width,
       mask: getComputedStyle(element).maskImage,
     }))).toMatchObject({ width: 20, mask: expect.stringContaining("data:image/svg+xml") });
-    await expect(packageHit.getByRole("img", { name: ".NET Runtime", exact: true })).toBeVisible();
-    await expect(page.locator('[data-sl-framework-lib="System.Linq"]').getByRole("img", { name: ".NET Runtime", exact: true })).toBeVisible();
     await expect(page.locator(".spotlight-group").filter({ hasText: /^Ecosystem$/ })).toHaveCount(1);
     await expect(packageHit).toContainText("Package");
-    await expect(page.locator('[data-sl-framework-lib="System.Linq"]')).toContainText(".NET library");
+    await expect(page.locator('[data-sl-framework-lib="System.Linq"]')).toContainText(".NET Runtime · Library");
     expect(packs).toEqual([]);
     await expect(search).toBeFocused();
     expect(await packageHit.evaluate((element, original) => element === original, originalControl)).toBe(true);
     await search.fill("System.Text.Json");
     const jsonPackage = page.locator('[data-sl-pkg-load="System.Text.Json"]');
-    await expect(jsonPackage.locator('[aria-label="Pruned for net10.0"]')).toBeVisible();
-    await expect(page.locator('[data-sl-framework-lib="System.Text.Json"]')).toBeVisible();
+    await expect(jsonPackage.locator('[aria-label="Package pruned for net10.0"]')).toBeVisible();
+    await expect(page.locator('[data-sl-framework-lib="System.Text.Json"] [aria-label="Library: .NET Runtime"]')).toBeVisible();
     await expect(page.locator(".spotlight-group").filter({ hasText: /^Ecosystem$/ })).toHaveCount(1);
     expect(packs).toEqual([]);
     for (const [id, ecosystem] of [
@@ -4283,11 +4322,30 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
     ]) {
       await search.fill(id!);
       const row = page.locator(`[data-sl-pkg-load="${id}"]`);
-      const icon = row.getByRole("img", { name: ecosystem!, exact: true });
-      await expect(icon).toBeVisible();
-      expect(await icon.evaluate(element => getComputedStyle(element).backgroundImage))
-        .toContain("data:image/svg+xml");
+      await expect(row.locator('[role="img"]')).toHaveCount(1);
+      if (id === "Aspire.Hosting") {
+        const icon = row.getByRole("img", { name: `Package: ${ecosystem}`, exact: true });
+        await expect(icon).toBeVisible();
+        expect(await icon.evaluate(element => getComputedStyle(element).backgroundImage))
+          .toContain("data:image/svg+xml");
+      } else {
+        await expect(row.getByRole("img", { name: "Package pruned for net10.0", exact: true })).toBeVisible();
+        await expect(page.locator(`[data-sl-framework-lib="${id}"] .spotlight-pruned`)).toHaveCount(0);
+        await expect(page.locator(`[data-sl-framework-lib="${id}"]`).getByRole("img", { name: "Library: ASP.NET Core", exact: true })).toBeVisible();
+      }
     }
+    jsonVersion = "11.0.0-preview.7.26381.103";
+    const newerPage = await context.newPage();
+    await newerPage.goto("/");
+    const newerSearch = newerPage.locator("#spotlight-input");
+    await expect(newerSearch).toBeEditable({ timeout: 120_000 });
+    await newerSearch.fill("System.Text.Json");
+    await expect(newerPage.locator('[data-sl-pkg-load="System.Text.Json"]')).toContainText(jsonVersion);
+    const newerPair = newerPage.locator('[data-sl-framework-lib="System.Text.Json"], [data-sl-pkg-load="System.Text.Json"]');
+    await expect(newerPair.first()).toHaveAttribute("data-sl-pkg-load", "System.Text.Json");
+    await expect(newerPage.locator('[data-sl-framework-lib="System.Text.Json"]')).toContainText(".NET Runtime · Library");
+    await expect(newerPage.locator('[data-sl-pkg-load="System.Text.Json"] [aria-label="Package: .NET Runtime"]')).toBeVisible();
+    await expect(newerPair.locator(".spotlight-pruned")).toHaveCount(0);
     expect(packs).toEqual([]);
   });
 });

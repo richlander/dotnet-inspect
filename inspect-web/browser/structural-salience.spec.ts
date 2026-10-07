@@ -87,7 +87,7 @@ test("aggregate Type lists load icon-only cues automatically", async ({
     .not.toContainText("Structural Salience");
 });
 
-test("qualified structural salience remains visible and retryable", async ({
+test("settled qualified structural salience stays visible without ineffective Retry", async ({
   page,
 }) => {
   await installFacades(
@@ -115,11 +115,7 @@ test("qualified structural salience remains visible and retryable", async ({
   })).toHaveCount(1);
   await expect(page.locator("#type-list .type-row").first())
     .toBeInViewport({ ratio: 1 });
-  await page.locator("[data-type-leverage-retry]").click();
-  await expect(page.locator("html")).toHaveAttribute(
-    "data-structural-salience-request-count",
-    "4",
-  );
+  await expect(page.locator("[data-type-leverage-retry]")).toHaveCount(0);
   await expect(page.locator(".type-browser-status .metadata-warning"))
     .toHaveCount(0);
   await expect(page.locator(".data-bar")).not.toContainText("CLI tool");
@@ -128,7 +124,19 @@ test("qualified structural salience remains visible and retryable", async ({
   await expect(page.locator(".data-bar-errors")).toHaveCount(0);
   await expect(page.locator(".data-bar")).toContainText("CLI tool");
   await expect(page.locator("html")).toHaveAttribute(
-    "data-structural-salience-request-count", "4");
+    "data-structural-salience-request-count", "2");
+});
+
+test("rejected ownership is useful information without Retry", async ({ page }) => {
+  await installFacades(page, undefined, [], "ready", "ready", undefined,
+    "ready", "ready", undefined, { rejectedOwnershipStructuralSalience: true });
+  await page.goto(root);
+  await chooseSubject(page, "type", "Type");
+  await expect(page.locator(".data-bar-errors")).toContainText(
+    "Generated-body ownership evidence was rejected.");
+  await expect(page.locator("[data-type-leverage-retry]")).toHaveCount(0);
+  await expect(page.locator(".type-row.surface-sea-level")).toHaveCount(1);
+  await expect(page.locator(".type-row.implementation-sea-level")).toHaveCount(2);
 });
 
 for (const width of [900, 700]) {
@@ -187,22 +195,24 @@ for (const width of [900, 700]) {
 }
 
 for (const width of [1440, 390]) {
-  test(`physical-only salience feedback preserves inventory space at ${width}px`, async ({ page }) => {
+  test(`physical-only salience stays silent and preserves inventory space at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await installFacades(page, undefined, [], "ready", "ready", undefined,
       "ready", "ready", undefined, { physicalOnlyStructuralSalience: true });
     await page.goto(root);
     await chooseSubject(page, "type", "Type");
     const feedback = page.locator(".data-bar-errors");
-    await expect(feedback).toContainText(
-      "The physical body has no authenticated logical owner.");
+    await expect(page.locator(".type-row.implementation-sea-level")).toHaveCount(2);
+    await expect(feedback).toHaveCount(0);
+    await expect(page.locator(".data-bar")).toContainText("CLI tool");
+    await expect(page.locator("[data-type-leverage-retry]")).toHaveCount(0);
     if (width < 768)
       await page.getByRole("button", { name: "Types", exact: true }).click();
     await expect(page.locator(".type-browser-status")).toHaveCount(0);
     await expect(page.locator("#type-list .type-row").first())
       .toBeInViewport({ ratio: 1 });
     const list = await page.locator("#type-list").boundingBox();
-    const bar = await feedback.boundingBox();
+    const bar = await page.locator(".data-bar").boundingBox();
     expect(bar?.height).toBe(30);
     expect(list).not.toBeNull();
     expect(list!.height).toBeGreaterThan(500);
@@ -238,12 +248,17 @@ test("failed salience acquisition uses the data bar and retries", async ({ page 
 });
 
 
-test("inspector traversal clears feedback without discarding salience", async ({ page }) => {
+test("routine physical-only coverage never replaces the databar", async ({ page }) => {
   await installFacades(page, undefined, [], "ready", "ready", undefined,
     "ready", "ready", undefined, { physicalOnlyStructuralSalience: true });
   await page.goto(root);
   await chooseSubject(page, "type", "Type");
-  await expect(page.locator(".data-bar-errors")).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-structural-salience-request-count", "2");
+  await expect(page.locator(".type-row.implementation-sea-level")).toHaveCount(2);
+  await expect(page.locator(".data-bar-errors")).toHaveCount(0);
+  await expect(page.locator(".data-bar")).toContainText("CLI tool");
+  await expect(page.locator("[data-type-leverage-retry]")).toHaveCount(0);
   const cues = await page.locator(".item-achievement-glyph").count();
   await chooseInspector(page, "data-lens", "metadata", "Metadata");
   await expect(page.locator(".data-bar-errors")).toHaveCount(0);

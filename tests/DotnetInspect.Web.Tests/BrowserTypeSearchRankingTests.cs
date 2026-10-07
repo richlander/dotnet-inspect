@@ -57,4 +57,26 @@ public sealed class BrowserTypeSearchRankingTests
                     + hit.GetProperty("kind").GetString()));
         Assert.Equal(expected, actual);
     }
+
+    [Fact]
+    public void SearchTypes_UsesFuzzyWireKind()
+    {
+        string candidatesJson = JsonSerializer.Serialize(
+            new[]
+            {
+                new
+                {
+                    key = "threshold",
+                    name = "Abcd",
+                    full = "Example.Abcd",
+                },
+            });
+
+        using JsonDocument hits = JsonDocument.Parse(
+            PackageExports.SearchTypes("Abef", candidatesJson));
+
+        JsonElement hit = Assert.Single(hits.RootElement.EnumerateArray());
+        Assert.Equal("threshold", hit.GetProperty("key").GetString());
+        Assert.Equal("fuzzy", hit.GetProperty("kind").GetString());
+    }
 }

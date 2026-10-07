@@ -542,8 +542,11 @@ the shared [ecosystem classifier](ecosystem-packs.md#package-classification-for-
 join those framework Library observations in one transient `Ecosystem` group.
 The group is a presentation category, distinct from the planned Ecosystems
 search scope. Package and Library subjects retain separate activation identities
-even when their names match. This first adoption preserves order within the
-group; calendar-date ordering is the next metadata slice tracked by #9513.
+even when their names match. For a same-named Package and platform Library pair,
+the platform Library precedes a pruned Package. Otherwise the higher version
+leads, using shared NuGet version precedence; ties put the platform Library first.
+Unavailable comparison preserves the existing order. Unrelated observations
+retain their order. Calendar-date metadata remains the next slice tracked by #9513.
 
 Classification is a resource-free annotation helper in the Package facade,
 following `ClassifyPackageGraphIdentities`, rather than an inspection or
@@ -555,12 +558,18 @@ accessible text naming the traversal TFM and a tooltip identifying its pack
 version. False and unavailable comparisons never render a pruning badge.
 The badge describes pruning eligibility, not an observed restore decision.
 
-Package and Library kinds use SVG icons independent of loading state. A
-fixed-width trailing rail reserves separate ecosystem and pruning slots, so
-annotation arrival or pruning status does not shift the metadata text. Ecosystem
-icons consume the classifier's owning identity, or the framework Library's
-known source family; unillustrated ecosystems retain their text disclosure and
-an empty icon slot. Kind and status glyphs follow the structural-salience icon
+Each Package and Library row has one leading 20-pixel SVG glyph. For Packages,
+positive pruning evidence takes precedence, followed by an illustrated ecosystem,
+then the existing Package icon as fallback. A pruned Package uses scissors in
+place of its kind icon. A platform Library always uses its normal ecosystem icon,
+or the existing Library icon as fallback, even when it supplies a pruned Package.
+Pruning applies to the Package, not to the supplying Library. False or unavailable
+comparisons do not produce pruning glyphs.
+Accessible glyph labels preserve Package or Library kind. Text metadata names
+the ecosystem consistently before the subject kind, such as `.NET Runtime ·
+Package` and `.NET Runtime · Library`, while retaining source disclosure. Ecosystem icons consume the classifier's owning identity, or
+the framework Library's known source family. There is no trailing icon rail.
+Kind and status glyphs follow the structural-salience icon
 language. The four ecosystem marks use the operator-selected original
 [Aspire family concept set](https://chatgpt.com/share/6ac58f0a-d2f4-83e8-8b09-6dbf61660302)
 and its purple palette; Aspire uses the official product SVG. The .NET mark
