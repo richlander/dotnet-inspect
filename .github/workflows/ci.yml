@@ -129,7 +129,7 @@ jobs:
           fi
           jq -e '
             type == "object"
-            and .schemaVersion == 7
+            and .schemaVersion == 8
             and .status == "planned"
           ' <<< "$plan" > /dev/null
           printf 'plan=%s\n' "$plan" >> "$GITHUB_OUTPUT"
@@ -305,6 +305,55 @@ jobs:
 
   # Keep focused Browser/Wasm platform probes in PR CI. Deep Inspect owns
   # complete engine, facade, canary, browser, and published-application checks.
+  # Upholds the build bar in docs/lean-methodology.md for every Lean model:
+  # the pinned toolchain, no package dependencies, ignored .lake output, no
+  # axiom declarations or sorry, and a clean build with no warnings. All models
+  # are checked because the set is small and each builds in seconds.
+  lean:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.plan).validations.lean
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache Lean toolchain archive
+        id: cache-lean
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/lean/lean-4.34.1-linux.tar.zst
+          # Include the asset digest so a later pin cannot reuse cached bytes
+          # from a different build.
+          key: lean-4.34.1-linux-47bf4bbd78f70c2e
+
+      - name: Download Lean toolchain archive
+        if: steps.cache-lean.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.cache/lean
+          curl -fLo ~/.cache/lean/lean-4.34.1-linux.tar.zst \
+            https://github.com/leanprover/lean4/releases/download/v4.34.1/lean-4.34.1-linux.tar.zst
+
+      # Verify on every run, cache hits included, before any byte executes.
+      - name: Install Lean toolchain
+        run: |
+          set -euo pipefail
+          echo "47bf4bbd78f70c2e9670598ab7124d92b6efb7330ff33e5fbb4030f6fd72e4e4  $HOME/.cache/lean/lean-4.34.1-linux.tar.zst" \
+            | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/lean"
+          tar --zstd -xf ~/.cache/lean/lean-4.34.1-linux.tar.zst -C "$RUNNER_TEMP/lean"
+          lean_bin=$(dirname "$(find "$RUNNER_TEMP/lean" -maxdepth 3 -path '*/bin/lake' -type f -print -quit)")
+          "$lean_bin/lean" --version | grep -F 'version 4.34.1'
+          echo "$lean_bin" >> "$GITHUB_PATH"
+
+      - name: Self-test Lean runner
+        shell: bash
+        run: eng/test-lean-checks.sh
+
+      - name: Run Lean checks
+        shell: bash
+        run: eng/run-lean-checks.sh
+
   inspect-web-platform:
     name: inspect-web platform probes
     needs: changes
@@ -855,6 +904,7 @@ jobs:
       - test
       - dependency-policy
       - tla-plus
+      - lean
       # Path-gated jobs report `skipped` when their input class is absent; all
       # expensive jobs except inspect-web and dependency-policy skip on pushes
       # to main. The host-analysis guard step also skips on pushes. That

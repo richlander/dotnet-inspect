@@ -88,8 +88,11 @@ result, so the code can drop it. Classify each piece of work as:
 
 Qualify a label when the classification depends on a condition or a call site,
 for example "Redundant; removed" or "Diagnostic, given plan-object executors".
+Use an either/or label, such as "Policy or diagnostic", when the row covers
+cases that differ, and say which case is which.
 
-Name the theorem for each classification. When a classification depends on
+Name the theorem for each classification. When a row is argued from the code
+rather than proven, mark it that way and state its basis. When a classification depends on
 facts about the platform, such as ECMA-335 table limits, state them as explicit
 hypotheses. Check the classification against every production caller, not only
 the call sites the model mirrors.
@@ -108,6 +111,7 @@ Each model lives in its own directory, as its tool's methodology directs, with
 a README that names its owner, claims, and limits. Runnable companion probes, such as C# NativeAOT
 experiments, stay under `prototypes/` and link to the model both ways.
 
-The per-PR TLA+ gate checks changed TLA+ models and their consumers. Lean
-models are built locally and in review until a CI gate exists; the
-[Lean methodology](lean-methodology.md#build-bar) defines the bar.
+The per-PR TLA+ gate checks changed TLA+ models and their consumers. The
+per-PR Lean gate checks every Lean model against the
+[Lean build bar](lean-methodology.md#build-bar) whenever Lean model content
+changes.

@@ -224,7 +224,7 @@ internal static class ChangePlanTestSuite
                 "code,csharpdiff,decompiler,ildiff,web"),
             ("global.json", "code,decompiler,packaging,web"),
             (".github/workflows/ci.yml",
-                "code,csharpdiff,decompiler,ildiff,packaging,web,skills,tla"),
+                "code,csharpdiff,decompiler,ildiff,packaging,web,skills,tla,lean"),
             (".github/workflows/deep-inspect.yml",
                 "code,web"),
             (".github/workflows/release.yml",
@@ -256,6 +256,16 @@ internal static class ChangePlanTestSuite
             ("eng/tla-module-overrides.txt", "docs,tla"),
             ("eng/tla-expected-exit-codes.txt", "docs,tla"),
             ("docs/design/models/m/README.md", "docs"),
+            ("docs/design/models/m/Model.lean", "docs,lean"),
+            ("docs/design/models/m/Model/Part.lean", "docs,lean"),
+            ("docs/design/models/m/lakefile.toml", "docs,lean"),
+            ("docs/design/models/m/lean-toolchain", "docs,lean"),
+            ("docs/design/models/m/lake-manifest.json", "docs,lean"),
+            ("docs/models/m/Model.lean", "docs,lean"),
+            ("docs/design/models/m/.gitignore", "docs"),
+            ("eng/run-lean-checks.sh", "lean"),
+            ("eng/test-lean-checks.sh", "lean"),
+            ("prototypes/p/Model.lean", ""),
             ("misc/notes.rst", ""),
         ];
 
@@ -417,7 +427,8 @@ internal static class ChangePlanTestSuite
                 && selections.Pack
                 && selections.InspectWeb
                 && selections.SkillGate
-                && selections.Tla))
+                && selections.Tla
+                && selections.Lean))
             {
                 throw new InvalidOperationException(
                     $"Pre-merge event {kind} did not select every "
@@ -441,7 +452,8 @@ internal static class ChangePlanTestSuite
 
         if (!pushed.Markdownlint
             || !pushed.InspectWeb
-            || !pushed.Tla)
+            || !pushed.Tla
+            || !pushed.Lean)
         {
             throw new InvalidOperationException(
                 "A push dropped an ungated validation.");
@@ -482,7 +494,8 @@ internal static class ChangePlanTestSuite
             || docsOnly.Test
             || docsOnly.DecompilerGates
             || docsOnly.InspectWeb
-            || docsOnly.Tla)
+            || docsOnly.Tla
+            || docsOnly.Lean)
         {
             throw new InvalidOperationException(
                 "A documentation-only candidate selected a content gate.");
@@ -604,7 +617,7 @@ internal static class ChangePlanTestSuite
             policy);
 
         const string Golden =
-            "{\"schemaVersion\":7,\"status\":\"planned\",\"provenance\":"
+            "{\"schemaVersion\":8,\"status\":\"planned\",\"provenance\":"
             + "{\"kind\":\"pullRequestSyntheticCandidate\",\"baseObjectId\":"
             + "\"1111111111111111111111111111111111111111\","
             + "\"candidateObjectId\":"
@@ -617,7 +630,7 @@ internal static class ChangePlanTestSuite
             + "\"markdownlint\":true,\"ilDiffSmoke\":false,"
             + "\"pack\":false,"
             + "\"inspectWeb\":false,"
-            + "\"skillGate\":false,\"tla\":true},"
+            + "\"skillGate\":false,\"tla\":true,\"lean\":false},"
             + "\"scopes\":{\"tla\":{\"artifact\":\"ci-plan-tla-paths0\","
             + "\"framing\":\"pathBytesNulTerminated\",\"recordCount\":1,"
             + "\"sha256\":\"c2965478b65cc2a4d5329c0634d39a072c6d0adf0669a2"
@@ -713,12 +726,12 @@ internal static class ChangePlanTestSuite
                     "\"status\": \"planned\"")),
             ("non-canonical property order",
                 text.Replace(
-                    "{\"schemaVersion\":7,\"status\":\"planned\"",
-                    "{\"status\":\"planned\",\"schemaVersion\":7")),
+                    "{\"schemaVersion\":8,\"status\":\"planned\"",
+                    "{\"status\":\"planned\",\"schemaVersion\":8")),
             ("escaped member name",
                 text.Replace("schemaVersion", "schema\\u0056ersion")),
             ("non-canonical number",
-                text.Replace("\"schemaVersion\":7", "\"schemaVersion\":7e0")),
+                text.Replace("\"schemaVersion\":8", "\"schemaVersion\":8e0")),
             ("control character", $"\n{text}"),
             ("truncated document", text[..^1]),
             ("unknown member",
@@ -726,13 +739,13 @@ internal static class ChangePlanTestSuite
             ("missing member", text.Replace(",\"diagnostics\":[]", "")),
             ("duplicate member",
                 text.Replace(
-                    "\"schemaVersion\":7",
-                    "\"schemaVersion\":7,\"schemaVersion\":7")),
+                    "\"schemaVersion\":8",
+                    "\"schemaVersion\":8,\"schemaVersion\":8")),
             ("mistyped boolean", text.Replace("\"test\":false", "\"test\":0")),
             ("mistyped count",
                 text.Replace("\"recordCount\":1", "\"recordCount\":\"1\"")),
             ("unsupported version",
-                text.Replace("\"schemaVersion\":7", "\"schemaVersion\":6")),
+                text.Replace("\"schemaVersion\":8", "\"schemaVersion\":6")),
             ("unsupported status",
                 text.Replace("\"planned\"", "\"refused\"")),
             ("invalid digest",
@@ -1669,6 +1682,11 @@ internal static class ChangePlanTestSuite
         if (selections.Tla)
         {
             selected.Add("tla");
+        }
+
+        if (selections.Lean)
+        {
+            selected.Add("lean");
         }
 
         return string.Join(',', selected);

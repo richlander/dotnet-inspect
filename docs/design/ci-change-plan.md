@@ -252,6 +252,16 @@ TLA+ job may validate model-directory layout within its assigned evidence, but
 it does not decide which repository changes or event kinds made TLA+
 validation relevant.
 
+The `lean` selection carries no scoped evidence. Lean model content under
+either model root, meaning `.lean` sources and each model's `lakefile.toml`,
+`lean-toolchain`, and `lake-manifest.json`, selects it. So do
+`eng/run-lean-checks.sh`, `eng/test-lean-checks.sh`, and the workflow. The
+selected job verifies the pinned Lean release archive, self-tests the runner,
+and then checks every model against the build bar in
+[Lean methodology](../lean-methodology.md#build-bar). The model set is small
+and each model builds in seconds, so the job checks every model rather than
+consuming a changed-path scope.
+
 ## Immutable plan
 
 One planning operation constructs one plan. Every scalar workflow output is a
@@ -272,7 +282,7 @@ Conceptually:
 
 ```json
 {
-  "schemaVersion": 7,
+  "schemaVersion": 8,
   "status": "planned",
   "provenance": {
     "kind": "pullRequestSyntheticCandidate",
@@ -309,7 +319,7 @@ only printable ASCII, with deterministic property order, lower camel member
 names, no newline, and lowercase digests. Its `validations` member always
 carries every field — `test`, `dependencyPolicy`,
 `csharpDiffSmoke`, `decompilerGates`, `markdownlint`, `ilDiffSmoke`,
-`pack`, `inspectWeb`, `skillGate`, and `tla`, so a
+`pack`, `inspectWeb`, `skillGate`, `tla`, and `lean`, so a
 consumer never distinguishes "false" from "absent". A scope descriptor names
 its artifact,
 record framing, record count, and digest; the TLA+ artifact is

@@ -98,7 +98,8 @@ internal sealed class ChangeRoutingPolicy
             state.Packaging,
             state.Web,
             state.Skills,
-            state.Tla);
+            state.Tla,
+            state.Lean);
     }
 
     /// <summary>
@@ -142,6 +143,27 @@ internal sealed class ChangeRoutingPolicy
             TlaExpectedExitCodes)
         || IsTlaScopedInput(path);
 
+    /// <summary>
+    /// Reports whether a path selects the Lean lane: Lean model content under
+    /// either model root, or the runner and workflow that check it.
+    /// </summary>
+    /// <param name="path">The raw path bytes.</param>
+    /// <returns>True when the path selects Lean validation.</returns>
+    internal static bool SelectsLean(ReadOnlySpan<byte> path) =>
+        BytePattern.MatchesAny(
+            path,
+            ".github/workflows/ci.yml",
+            "eng/run-lean-checks.sh",
+            "eng/test-lean-checks.sh",
+            "docs/design/models/*.lean",
+            "docs/design/models/*/lakefile.toml",
+            "docs/design/models/*/lean-toolchain",
+            "docs/design/models/*/lake-manifest.json",
+            "docs/models/*.lean",
+            "docs/models/*/lakefile.toml",
+            "docs/models/*/lean-toolchain",
+            "docs/models/*/lake-manifest.json");
+
     private void RoutePath(ReadOnlySpan<byte> path, ref RoutingState state)
     {
         if (IsWebProjectPath(path))
@@ -158,6 +180,11 @@ internal sealed class ChangeRoutingPolicy
         if (SelectsTla(path))
         {
             state.Tla = true;
+        }
+
+        if (SelectsLean(path))
+        {
+            state.Lean = true;
         }
 
         if (SelectsInspectWebSurface(path))
@@ -613,5 +640,6 @@ internal sealed class ChangeRoutingPolicy
         internal bool Web;
         internal bool Skills;
         internal bool Tla;
+        internal bool Lean;
     }
 }
