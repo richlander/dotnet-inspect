@@ -55,7 +55,7 @@ trap cleanup EXIT
 dotnet=${DOTNET:-dotnet}
 node=${NODE:-node}
 
-usage="Usage: generate-inspect-web-engine-facade.sh [--compile | --fast-check | --check | --contract <assembly> <declaration-output-directory> <version-prefix> [<source-output-directory>]]"
+usage="Usage: generate-inspect-web-engine-facade.sh [--compile | --verify-digest | --fast-check | --check | --contract <assembly> <declaration-output-directory> <version-prefix> [<source-output-directory>]]"
 
 mode=write
 source_assembly="$engine_dll"
@@ -71,6 +71,13 @@ case "${1:-}" in
       exit 1
     fi
     exec "$node" "$compiler" --install
+    ;;
+  --verify-digest)
+    if [[ "$#" != 1 ]]; then
+      echo "$usage" >&2
+      exit 1
+    fi
+    mode=verify-digest
     ;;
   --fast-check)
     if [[ "$#" != 1 ]]; then
@@ -118,6 +125,37 @@ case "${1:-}" in
     exit 1
     ;;
 esac
+
+# The manifest records the SHA-256 of each generated facade so a hand edit is
+# detectable without building anything. It does not prove the facades match the
+# current C# contracts; --fast-check and --check own that.
+digest_manifest="$ts_output_directory/facades.sha256"
+
+if [[ "$mode" == verify-digest ]]; then
+  if command -v sha256sum > /dev/null; then
+    sha256=(sha256sum)
+  else
+    sha256=(shasum -a 256)
+  fi
+  regenerate="Run eng/generate-inspect-web-engine-facade.sh and commit the generated facades and facades.sha256; do not edit them by hand."
+  if [[ ! -f "$digest_manifest" ]]; then
+    echo "error: $digest_manifest is missing. $regenerate" >&2
+    exit 1
+  fi
+  listed="$(awk '{ print $2 }' "$digest_manifest" | sort)"
+  expected_listed="$(printf '%s.ts\n' "${facade_modules[@]}" | sort)"
+  if [[ "$listed" != "$expected_listed" ]]; then
+    echo "error: $digest_manifest does not list exactly the consumer map's facades. $regenerate" >&2
+    diff <(printf '%s\n' "$expected_listed") <(printf '%s\n' "$listed") >&2 || true
+    exit 1
+  fi
+  if ! (cd "$ts_output_directory" && "${sha256[@]}" -c --quiet "$digest_manifest") >&2; then
+    echo "error: a generated facade differs from its recorded digest. $regenerate" >&2
+    exit 1
+  fi
+  echo "inspect-web facades match their recorded digests."
+  exit 0
+fi
 
 if [[ ! -f "$compiler" ]]; then
   echo "Facade compiler not found at $compiler." >&2
@@ -340,6 +378,14 @@ else
     echo "Wrote $ts_output_directory/$module.ts"
   done
   assert_directory_inventory "$ts_output_directory" '*.ts' "$expected_sources"
+  if command -v sha256sum > /dev/null; then
+    sha256=(sha256sum)
+  else
+    sha256=(shasum -a 256)
+  fi
+  (cd "$ts_output_directory" && "${sha256[@]}" "${facade_modules[@]/%/.ts}") \
+    > "$digest_manifest"
+  echo "Wrote $digest_manifest"
   install_compiled_outputs
   typecheck_consumers
 fi
