@@ -10,6 +10,8 @@ using ILInspector.Analysis;
 using ILInspector.CSharp;
 using Markout;
 using Markout.Formatting;
+using IntrinsicContinuationEvidence = DotnetInspector.PackageQueries.PackageDependencyIntrinsicCoreLibraryContinuationEvidence;
+using IntrinsicContinuationKind = DotnetInspector.PackageQueries.PackageDependencyIntrinsicCoreLibraryContinuationKind;
 
 namespace DotnetInspect.Cli.Output;
 
@@ -23,15 +25,25 @@ internal static class ExternalCallGraphOutputAdapter
 
     public static int Write(
         InspectionGraphDocument document,
+        ImmutableArray<
+            PackageDependencyMemberCallGraphNodeClassification>
+            nodeClassifications,
+        IntrinsicContinuationEvidence?
+            intrinsicCoreLibraryContinuation,
         ExternalCallGraphOptions options)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(options);
+        IReadOnlyDictionary<
+            int,
+            PackageDependencyMemberCallGraphNodeClassification>
+            classifications = nodeClassifications.ToDictionary(
+                static classification => classification.NodeId);
 
         if (!CliSemanticRowSelection.TrySelectOrApplyLegacy(
                 options.RowSelection,
                 options.Rows,
-                BuildRows(document),
+                BuildRows(document, classifications),
                 "External call graph",
                 failure =>
                     $"External call graph row selection stage "
@@ -52,6 +64,7 @@ internal static class ExternalCallGraphOutputAdapter
             WriteGraph(
                 document,
                 rows,
+                classifications,
                 OutputFormat.PlainText,
                 GraphTitle(options));
         }
@@ -63,6 +76,7 @@ internal static class ExternalCallGraphOutputAdapter
                     WriteGraph(
                         document,
                         rows,
+                        classifications,
                         OutputFormat.Markdown,
                         GraphTitle(options),
                         embeddedMermaid: options.EmbeddedMermaid);
@@ -71,6 +85,7 @@ internal static class ExternalCallGraphOutputAdapter
                     WriteGraph(
                         document,
                         rows,
+                        classifications,
                         OutputFormat.PlainText,
                         GraphTitle(options));
                     break;
@@ -78,6 +93,7 @@ internal static class ExternalCallGraphOutputAdapter
                     WriteGraph(
                         document,
                         rows,
+                        classifications,
                         OutputFormat.Mermaid,
                         GraphTitle(options));
                     break;
@@ -91,7 +107,7 @@ internal static class ExternalCallGraphOutputAdapter
                     WriteJsonl(rows);
                     break;
                 case OutputFormat.Json:
-                    WriteJson(document, rows);
+                    WriteJson(document, rows, classifications);
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(
@@ -103,11 +119,17 @@ internal static class ExternalCallGraphOutputAdapter
 
         WriteLimits(document);
         WriteFailures(document);
+        WriteIntrinsicCoreLibraryContinuation(
+            intrinsicCoreLibraryContinuation);
         return document.Failures.IsEmpty ? 0 : 1;
     }
 
     static ExternalCallGraphRow[] BuildRows(
-        InspectionGraphDocument document)
+        InspectionGraphDocument document,
+        IReadOnlyDictionary<
+            int,
+            PackageDependencyMemberCallGraphNodeClassification>
+            classifications)
     {
         IReadOnlyDictionary<int, InspectionGraphNode> nodes =
             document.Nodes.ToDictionary(static node => node.Id);
@@ -128,6 +150,12 @@ internal static class ExternalCallGraphOutputAdapter
             InspectionGraphEdge edge = document.Edges[index];
             MemberNode source = ReadMember(nodes[edge.FromNodeId]);
             MemberNode target = ReadMember(nodes[edge.ToNodeId]);
+            NodeClassification sourceClassification =
+                Classification(
+                    classifications.GetValueOrDefault(edge.FromNodeId));
+            NodeClassification targetClassification =
+                Classification(
+                    classifications.GetValueOrDefault(edge.ToNodeId));
             string role = ReadRole(edge, characteristics[edge.Id]);
             CallGraphCallSiteEvidence[] receipts =
             [
@@ -146,9 +174,13 @@ internal static class ExternalCallGraphOutputAdapter
                 edge.Id,
                 source.Label,
                 source.Assembly,
+                sourceClassification.Kind,
+                sourceClassification.Owner,
                 role,
                 target.Label,
                 target.Assembly,
+                targetClassification.Kind,
+                targetClassification.Owner,
                 receipts.Length,
                 string.Join(
                     " | ",
@@ -226,6 +258,48 @@ internal static class ExternalCallGraphOutputAdapter
         return type.Assembly;
     }
 
+    static NodeClassification Classification(
+        PackageDependencyMemberCallGraphNodeClassification?
+            classification) =>
+        classification switch
+        {
+            PackageDependencyMemberCallGraphNodeClassification.Package
+                package =>
+                new(
+                    "package",
+                    $"{package.PackageId}@{package.PackageVersion}"
+                    + (string.IsNullOrWhiteSpace(
+                            package.TargetFramework)
+                        ? ""
+                        : $"/{package.TargetFramework}")),
+            PackageDependencyMemberCallGraphNodeClassification.Platform
+                platform =>
+                new(
+                    "platform",
+                    $"{platform.Target} "
+                    + $"{platform.LibraryIdentity}"),
+            null => new("unclassified", ""),
+            _ => throw new InvalidOperationException(
+                "Unknown external call-graph node classification."),
+        };
+
+    static string? GraphGroup(
+        MemberNode member,
+        NodeClassification classification)
+    {
+        string assembly = member.Assembly;
+        if (classification.Kind == "unclassified")
+        {
+            return string.IsNullOrWhiteSpace(assembly)
+                ? null
+                : assembly;
+        }
+
+        return string.IsNullOrWhiteSpace(assembly)
+            ? $"{classification.Kind}: {classification.Owner}"
+            : $"{classification.Kind}: {classification.Owner} / {assembly}";
+    }
+
     static string FormatReceipt(CallGraphCallSiteEvidence receipt) =>
         $"{receipt.CallerModuleVersionId:D} "
         + $"method=0x{receipt.CallerMethodToken:X8} "
@@ -238,17 +312,24 @@ internal static class ExternalCallGraphOutputAdapter
     static void WriteGraph(
         InspectionGraphDocument document,
         IReadOnlyList<ExternalCallGraphRow> rows,
+        IReadOnlyDictionary<
+            int,
+            PackageDependencyMemberCallGraphNodeClassification>
+            classifications,
         OutputFormat format,
         string title,
         bool embeddedMermaid = false)
     {
-        Markout.Graph graph = BuildGraph(document, rows);
+        Markout.Graph graph = BuildGraph(
+            document,
+            rows,
+            classifications);
         if (format == OutputFormat.Markdown)
         {
             Console.Write("# ");
             Console.WriteLine(title);
             Console.WriteLine();
-            WriteFocus(document);
+            WriteFocus(document, classifications);
             Console.WriteLine();
             if (rows.Count == 0)
             {
@@ -278,7 +359,12 @@ internal static class ExternalCallGraphOutputAdapter
             ? "External Call Graph"
             : "Supply Chain Call Graph";
 
-    static void WriteFocus(InspectionGraphDocument document)
+    static void WriteFocus(
+        InspectionGraphDocument document,
+        IReadOnlyDictionary<
+            int,
+            PackageDependencyMemberCallGraphNodeClassification>
+            classifications)
     {
         InspectionGraphSeed seed =
             document.Seeds.Single(static seed =>
@@ -287,13 +373,22 @@ internal static class ExternalCallGraphOutputAdapter
             seed.Target.Kind == InspectionGraphTargetKind.Node
             && item.Id == seed.Target.Id);
         MemberNode member = ReadMember(node);
+        NodeClassification classification =
+            Classification(classifications.GetValueOrDefault(node.Id));
+        string ownership = string.IsNullOrWhiteSpace(classification.Owner)
+            ? classification.Kind
+            : $"{classification.Kind}: {classification.Owner}";
         Console.WriteLine(
-            $"Focus: `{member.Label}`");
+            $"Focus: `{member.Label}` ({ownership})");
     }
 
     static Markout.Graph BuildGraph(
         InspectionGraphDocument document,
-        IReadOnlyList<ExternalCallGraphRow> rows)
+        IReadOnlyList<ExternalCallGraphRow> rows,
+        IReadOnlyDictionary<
+            int,
+            PackageDependencyMemberCallGraphNodeClassification>
+            classifications)
     {
         InspectionGraphSeed seed =
             document.Seeds.Single(static item =>
@@ -323,14 +418,16 @@ internal static class ExternalCallGraphOutputAdapter
                 .Select(nodeId =>
                 {
                     MemberNode member = ReadMember(nodes[nodeId]);
+                    NodeClassification classification =
+                        Classification(
+                            classifications.GetValueOrDefault(nodeId));
                     return new Markout.GraphNode(
                         $"N{member.Id}",
                         member.Label)
                     {
-                        Group =
-                            string.IsNullOrWhiteSpace(member.Assembly)
-                                ? null
-                                : member.Assembly,
+                        Group = GraphGroup(
+                            member,
+                            classification),
                         Emphasized = nodeId == seed.Target.Id,
                     };
                 }),
@@ -374,18 +471,26 @@ internal static class ExternalCallGraphOutputAdapter
             [
                 "Source",
                 "Source Assembly",
+                "Source Kind",
+                "Source Owner",
                 "Role",
                 "Target",
                 "Target Assembly",
+                "Target Kind",
+                "Target Owner",
                 "Call Sites",
                 "Evidence",
             ],
             [
                 "source",
                 "source_assembly",
+                "source_kind",
+                "source_owner",
                 "role",
                 "target",
                 "target_assembly",
+                "target_kind",
+                "target_owner",
                 "call_sites",
                 "evidence",
             ],
@@ -394,9 +499,13 @@ internal static class ExternalCallGraphOutputAdapter
                 {
                     row.Source,
                     row.SourceAssembly,
+                    row.SourceKind,
+                    row.SourceOwner,
                     row.Role,
                     row.Target,
                     row.TargetAssembly,
+                    row.TargetKind,
+                    row.TargetOwner,
                     row.CallSites.ToString(),
                     row.Evidence,
                 }),
@@ -418,18 +527,26 @@ internal static class ExternalCallGraphOutputAdapter
             [
                 "Source",
                 "Source Assembly",
+                "Source Kind",
+                "Source Owner",
                 "Role",
                 "Target",
                 "Target Assembly",
+                "Target Kind",
+                "Target Owner",
                 "Call Sites",
                 "Evidence",
             ],
             [
                 "source",
                 "source_assembly",
+                "source_kind",
+                "source_owner",
                 "role",
                 "target",
                 "target_assembly",
+                "target_kind",
+                "target_owner",
                 "call_sites",
                 "evidence",
             ],
@@ -438,9 +555,13 @@ internal static class ExternalCallGraphOutputAdapter
                 {
                     row.Source,
                     row.SourceAssembly,
+                    row.SourceKind,
+                    row.SourceOwner,
                     row.Role,
                     row.Target,
                     row.TargetAssembly,
+                    row.TargetKind,
+                    row.TargetOwner,
                     row.CallSites.ToString(),
                     row.Evidence,
                 }),
@@ -463,7 +584,11 @@ internal static class ExternalCallGraphOutputAdapter
 
     static void WriteJson(
         InspectionGraphDocument document,
-        IReadOnlyList<ExternalCallGraphRow> rows)
+        IReadOnlyList<ExternalCallGraphRow> rows,
+        IReadOnlyDictionary<
+            int,
+            PackageDependencyMemberCallGraphNodeClassification>
+            classifications)
     {
         InspectionGraphSeed seed =
             document.Seeds.Single(static item =>
@@ -471,10 +596,15 @@ internal static class ExternalCallGraphOutputAdapter
         MemberNode focus = ReadMember(
             document.Nodes.Single(node =>
                 node.Id == seed.Target.Id));
+        NodeClassification focusClassification =
+            Classification(
+                classifications.GetValueOrDefault(focus.Id));
         int maxNodes = AssertedMaxNodes(document);
         var projection = new ExternalCallGraphJsonDocument(
             focus.Label,
             focus.Assembly,
+            focusClassification.Kind,
+            focusClassification.Owner,
             "outgoing",
             document.NeighborhoodRequest!.MaxDepth,
             maxNodes,
@@ -556,6 +686,28 @@ internal static class ExternalCallGraphOutputAdapter
         }
     }
 
+    static void WriteIntrinsicCoreLibraryContinuation(
+        IntrinsicContinuationEvidence?
+            continuation)
+    {
+        if (continuation is null
+            || continuation.Kind
+                is IntrinsicContinuationKind
+                    .Published)
+        {
+            return;
+        }
+
+        string target = continuation.Target is null
+            ? ""
+            : $" Target: {continuation.Target}.";
+        string detail = string.IsNullOrWhiteSpace(continuation.Detail)
+            ? ""
+            : $" Detail: {continuation.Detail}.";
+        CommandError.WriteWarning(
+            $"Intrinsic CoreLib continuation did not publish ({continuation.Kind}).{target}{detail}");
+    }
+
     static string[] FormatDiagnosticEvidence(
         IInspectionGraphDiagnosticEvidence? evidence) =>
         evidence switch
@@ -582,21 +734,30 @@ internal static class ExternalCallGraphOutputAdapter
         string Label,
         string Assembly);
 
+    sealed record NodeClassification(
+        string Kind,
+        string Owner);
 }
 
 internal sealed record ExternalCallGraphRow(
     int EdgeId,
     string Source,
     string SourceAssembly,
+    string SourceKind,
+    string SourceOwner,
     string Role,
     string Target,
     string TargetAssembly,
+    string TargetKind,
+    string TargetOwner,
     int CallSites,
     string Evidence);
 
 internal sealed record ExternalCallGraphJsonDocument(
     string Focus,
     string FocusAssembly,
+    string FocusKind,
+    string FocusOwner,
     string Direction,
     int MaxDepth,
     int MaxNodes,

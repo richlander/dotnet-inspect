@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Net;
 using System.Text.Json;
 
@@ -53,8 +54,9 @@ public sealed class ExternalCallGraphCommandTests
                     out PlatformVersionlessRuntimeTargetPolicy? policy));
         Assert.NotNull(policy);
         Assert.Equal(
-            PlatformVersion.Parse("11.0.0"),
+            PlatformVersion.Parse("11.0.0-0"),
             policy.MinimumPreferredVersion);
+        Assert.True(policy.AllowPrereleaseMinimum);
         Assert.IsType<PlatformTargetDiscoveryScope.ExactFramework>(
             policy.Fallback.Scope);
         Assert.False(
@@ -455,12 +457,53 @@ public sealed class ExternalCallGraphCommandTests
                 new(
                     maxDepth: 2,
                     maxNodes: 10));
+        int targetNodeId = Assert.Single(
+            document.Nodes,
+            node =>
+                node.Subject
+                    is InspectionGraphSubject.MemberSubject
+                    {
+                        Identity:
+                            InspectionGraphMemberIdentity.CallGraph
+                            {
+                                Member.DeclaringType.Namespace: "Target",
+                                Member.DeclaringType.Name: "Api",
+                            },
+                    }).Id;
+        var platformTarget = new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
+            PlatformTargetFramework.Parse("net11.0"),
+            PlatformVersion.Parse("11.0.0-rc.1.26425.128"));
+        ImmutableArray<
+            DotnetInspector.Sections
+                .PackageDependencyMemberCallGraphNodeClassification>
+            classifications =
+        [
+            .. document.Nodes
+                .Where(node => node.Id != targetNodeId)
+                .Select(node =>
+                    new DotnetInspector.Sections
+                        .PackageDependencyMemberCallGraphNodeClassification
+                        .Package(
+                            node.Id,
+                            RootPackageId,
+                            "1.0.0",
+                            Framework)),
+            new DotnetInspector.Sections
+                .PackageDependencyMemberCallGraphNodeClassification
+                .Platform(
+                    targetNodeId,
+                    platformTarget,
+                    assemblies[1].Identity),
+        ];
 
         var captured = await ConsoleCapture.RunAsync(
             () => Task.FromResult(
                 ExternalCallGraphOutputAdapter.Write(
                     document,
-                    new ExternalCallGraphOptions
+                    classifications,
+                    intrinsicCoreLibraryContinuation: null,
+                    options: new ExternalCallGraphOptions
                     {
                         TypeName = "Shared.Entry",
                         Member = "RunOuter",
@@ -481,6 +524,18 @@ public sealed class ExternalCallGraphCommandTests
             captured.Output);
         Assert.DoesNotContain(
             "\"role\":\"unclassified-boundary\"",
+            captured.Output);
+        Assert.Contains(
+            "\"source_kind\":\"package\"",
+            captured.Output);
+        Assert.Contains(
+            $"\"source_owner\":\"{RootPackageId}@{Version}/{Framework}\"",
+            captured.Output);
+        Assert.Contains(
+            "\"target_kind\":\"platform\"",
+            captured.Output);
+        Assert.Contains(
+            "\"target_owner\":\"DotNetRuntime/net11.0/11.0.0-rc.1.26425.128",
             captured.Output);
     }
 
@@ -570,7 +625,7 @@ public sealed class ExternalCallGraphCommandTests
     [InlineData(OutputFormat.PlainText, "Shared.Entry::RunOuter")]
     [InlineData(
         OutputFormat.Tsv,
-        "source\tsource_assembly\trole\ttarget")]
+        "source\tsource_assembly\tsource_kind\tsource_owner\trole\ttarget")]
     public async Task GraphFormats_LowerTheSameEdges(
         OutputFormat format,
         string expected)
@@ -825,10 +880,15 @@ public sealed class ExternalCallGraphCommandTests
                                     "HandleTransientHttpError",
                     },
                 });
-        PackageDependencyMemberCallGraphPackageSubject package =
+        DotnetInspector.Sections
+            .PackageDependencyMemberCallGraphNodeClassification.Package package =
             Assert.Single(
-                available.Document.PackageSubjects,
-                subject => subject.NodeId == target.Id);
+                available.Document.NodeClassifications
+                    .OfType<
+                        DotnetInspector.Sections
+                            .PackageDependencyMemberCallGraphNodeClassification
+                            .Package>(),
+                classification => classification.NodeId == target.Id);
         Assert.Equal(
             "Polly.Extensions.Http",
             package.PackageId,
@@ -1039,8 +1099,9 @@ public sealed class ExternalCallGraphCommandTests
                         scope,
                         registrations),
                     [],
-                    [],
-                    graph));
+                    IntrinsicCoreLibraryContinuation: null,
+                    NodeClassifications: [],
+                    Graph: graph));
         return new InspectionEnvelope<
                 PackageDependencyMemberCallGraphInspectionOutcome>(
                 content,

@@ -424,6 +424,61 @@ public partial class PlatformLibraryRealizationTests
     }
 
     [Fact]
+    public async Task
+        TypeCatalog_AcceptsCompleteImplementationPopulation()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var request = PopulationRequest(
+            cancellationToken,
+            PlatformViewDemand.Implementation);
+        PlatformSourceContribution.Realization contribution =
+            PopulationContribution(
+                request.Request,
+                request.Implementation,
+                PlatformSourceFacet.Implementation);
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreatePopulationAsync(
+                (
+                    contribution,
+                    RealCatalogAsset("System.Text.Json.dll")));
+        PlatformPopulationRealizationResult.Completed population =
+            await RealizeCatalogPopulationAsync(
+                request.Request,
+                artifacts,
+                count: 1,
+                view: PlatformViewDemand.Implementation);
+        try
+        {
+            PlatformTypeCatalog catalog = Assert.IsType<
+                    PlatformTypeCatalogDerivationOutcome.Completed>(
+                    PlatformTypeCatalogDerivation.Execute(
+                        population,
+                        s_catalogBounds,
+                        cancellationToken))
+                .Catalog;
+
+            Assert.Equal(PlatformViewDemand.Implementation, catalog.View);
+            Assert.Contains(
+                catalog.Entries,
+                entry =>
+                    entry.Name
+                        == Name(
+                            "System.Text.Json",
+                            "JsonSerializer")
+                    && entry.Kind
+                        == AssemblyTypeDeclarationKind.Definition);
+        }
+        finally
+        {
+            await RetireCatalogPopulationAsync(
+                population,
+                artifacts,
+                cancellationToken);
+        }
+    }
+
+    [Fact]
     public void TypeCatalogQuery_ExposesExactQuerySpaceContract()
     {
         QuerySpaceDescriptor descriptor =
@@ -1343,7 +1398,8 @@ public partial class PlatformLibraryRealizationTests
         RealizeCatalogPopulationAsync(
             PlatformHouseRequest request,
             ArtifactFixture artifacts,
-            int count)
+            int count,
+            PlatformViewDemand view = PlatformViewDemand.Reference)
     {
         var selections =
             Enumerable.Range(0, count)
@@ -1354,16 +1410,32 @@ public partial class PlatformLibraryRealizationTests
             Enumerable.Range(0, count)
                 .Select(artifacts.IssueContentLease)
                 .ToArray();
+        PlatformPopulationRealizationResult result =
+            view switch
+            {
+                PlatformViewDemand.Reference =>
+                    await PlatformHousePopulationRealizer
+                        .RealizeReferencesAsync(
+                            request,
+                            selections,
+                            leases,
+                            Consumed(
+                                sourceOperations: 1,
+                                assemblies: count)),
+                PlatformViewDemand.Implementation =>
+                    await PlatformHousePopulationRealizer
+                        .RealizeImplementationsAsync(
+                            request,
+                            selections,
+                            leases,
+                            Consumed(
+                                sourceOperations: 1,
+                                assemblies: count)),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(view)),
+            };
         return Assert.IsType<
-            PlatformPopulationRealizationResult.Completed>(
-                await PlatformHousePopulationRealizer
-                    .RealizeReferencesAsync(
-                        request,
-                        selections,
-                        leases,
-                        Consumed(
-                            sourceOperations: 1,
-                            assemblies: count)));
+            PlatformPopulationRealizationResult.Completed>(result);
     }
 
     private static async ValueTask RetireCatalogPopulationAsync(

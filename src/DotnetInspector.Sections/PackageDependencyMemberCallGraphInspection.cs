@@ -3,11 +3,14 @@ using System.Text.Json.Serialization;
 
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
+using ILInspector.Metadata;
 using Inspector.Artifacts.Workspaces;
 using InspectionGraphFailure = Inspector.Graph.GraphFailure<DotnetInspector.Queries.InspectionGraphFailurePayload>;
 using InspectionGraphLimit = Inspector.Graph.GraphLimit<DotnetInspector.Queries.InspectionGraphLimitPayload>;
 using NuGetFetch;
+using PackageQueries = DotnetInspector.PackageQueries;
 
 namespace DotnetInspector.Sections;
 
@@ -131,7 +134,8 @@ public sealed class PackageDependencyMemberCallGraphInspectionSource
         Func<
             PackageHouseOperation,
             CancellationToken,
-            PackageSourceOperationLease> issueOperation)
+            PackageSourceOperationLease> issueOperation,
+        PackageHouse? semanticContentHouse = null)
     {
         CandidateResolver =
             candidateResolver
@@ -140,6 +144,7 @@ public sealed class PackageDependencyMemberCallGraphInspectionSource
             manifestAcquirer
             ?? throw new ArgumentNullException(nameof(manifestAcquirer));
         House = house ?? throw new ArgumentNullException(nameof(house));
+        SemanticContentHouse = semanticContentHouse ?? House;
         _issueOperation =
             issueOperation
             ?? throw new ArgumentNullException(nameof(issueOperation));
@@ -156,6 +161,8 @@ public sealed class PackageDependencyMemberCallGraphInspectionSource
     }
 
     public PackageHouse House { get; }
+
+    public PackageHouse SemanticContentHouse { get; }
 
     public PackageSourceOperationLease IssueOperation(
         PackageHouseOperation operation,
@@ -206,15 +213,35 @@ public sealed record PackageDependencyMemberCallGraphDocument(
     ImmutableArray<
         PackageDependencyIntrinsicCoreLibraryContextNonParticipationReceipt>
         IntrinsicCoreLibraryContextNonParticipation,
-    ImmutableArray<PackageDependencyMemberCallGraphPackageSubject>
-        PackageSubjects,
+    PackageDependencyIntrinsicCoreLibraryContinuationEvidence?
+        IntrinsicCoreLibraryContinuation,
+    ImmutableArray<PackageDependencyMemberCallGraphNodeClassification>
+        NodeClassifications,
     InspectionGraphDocument Graph);
 
-public sealed record PackageDependencyMemberCallGraphPackageSubject(
-    int NodeId,
-    string PackageId,
-    string PackageVersion,
-    string? TargetFramework);
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(PackageDependencyMemberCallGraphNodeClassification.Package),
+    "package")]
+[JsonDerivedType(
+    typeof(PackageDependencyMemberCallGraphNodeClassification.Platform),
+    "platform")]
+public abstract record PackageDependencyMemberCallGraphNodeClassification(
+    int NodeId)
+{
+    public sealed record Package(
+        int NodeId,
+        string PackageId,
+        string PackageVersion,
+        string? TargetFramework)
+        : PackageDependencyMemberCallGraphNodeClassification(NodeId);
+
+    public sealed record Platform(
+        int NodeId,
+        PlatformFamilyTarget Target,
+        AssemblyReferenceIdentity LibraryIdentity)
+        : PackageDependencyMemberCallGraphNodeClassification(NodeId);
+}
 
 public sealed record PackageDependencyMemberCallGraphInspectionRoute(
     PackageDependencyMemberCallGraphRouteSubject Subject,
@@ -564,14 +591,10 @@ public static class PackageDependencyMemberCallGraphInspection
                             completed.FocalScope,
                             completed
                                 .IntrinsicCoreLibraryContextNonParticipation,
+                            completed.IntrinsicCoreLibraryContinuation,
                             [
-                                .. completed.NodePackages.Select(
-                                    static nodePackage =>
-                                        new PackageDependencyMemberCallGraphPackageSubject(
-                                            nodePackage.NodeId,
-                                            nodePackage.Descriptor.PackageId,
-                                            nodePackage.Descriptor.PackageVersion,
-                                            nodePackage.Descriptor.TargetFramework)),
+                                .. completed.NodeClassifications.Select(
+                                    Project),
                             ],
                             completed.Graph)),
             PackageDependencyMemberCallGraphOutcome.WorkspaceNotCommitted
@@ -598,6 +621,32 @@ public static class PackageDependencyMemberCallGraphInspection
                     failed.Detail),
             _ => throw new InvalidOperationException(
                 "Unknown dependency member call-graph outcome."),
+        };
+
+    static PackageDependencyMemberCallGraphNodeClassification Project(
+        PackageQueries.PackageDependencyMemberCallGraphNodeClassification
+            classification) =>
+        classification switch
+        {
+            PackageQueries
+                .PackageDependencyMemberCallGraphNodeClassification
+                .Package package =>
+                new PackageDependencyMemberCallGraphNodeClassification
+                    .Package(
+                        package.NodeId,
+                        package.Descriptor.PackageId,
+                        package.Descriptor.PackageVersion,
+                        package.Descriptor.TargetFramework),
+            PackageQueries
+                .PackageDependencyMemberCallGraphNodeClassification
+                .Platform platform =>
+                new PackageDependencyMemberCallGraphNodeClassification
+                    .Platform(
+                        platform.NodeId,
+                        platform.Target,
+                        platform.LibraryIdentity),
+            _ => throw new InvalidOperationException(
+                "Unknown package dependency call-graph node classification."),
         };
 
     static PackageDependencyMemberCallGraphInspectionRoute Project(

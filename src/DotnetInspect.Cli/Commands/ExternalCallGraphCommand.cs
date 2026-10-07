@@ -158,6 +158,8 @@ public static class ExternalCallGraphCommand
             WriteRouteDiagnostics(envelope.Diagnostics);
             return ExternalCallGraphOutputAdapter.Write(
                 available.Document.Graph,
+                available.Document.NodeClassifications,
+                available.Document.IntrinsicCoreLibraryContinuation,
                 options);
         }
         catch (MemberCallGraphAcquisitionException ex)
@@ -249,7 +251,13 @@ public static class ExternalCallGraphCommand
                     ? CommandError.WriteLine
                     : null),
             (operation, token) =>
-                composition.IssueSettlementOperation(token));
+                composition.IssueSettlementOperation(token),
+            composition.CreateDependencyContentQueryHouse(
+                (_, _) => new FileSystemPackageStore(),
+                options.SourceOptions,
+                options.Verbose
+                    ? CommandError.WriteLine
+                    : null));
         await using var continuationSource =
             new DesktopPackageDependencyMemberCallGraphContinuationSource(
                 source,

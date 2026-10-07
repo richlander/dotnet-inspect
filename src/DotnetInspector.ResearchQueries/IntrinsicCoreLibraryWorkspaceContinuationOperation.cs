@@ -640,11 +640,9 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
         }
 
         IntrinsicCoreLibraryRouteDecision successorDecision =
-            IntrinsicCoreLibraryPlatformApplicabilityQuery.Execute(
+            IntrinsicCoreLibraryPlatformApplicabilityQuery.Rebind(
                 eligible.Plan,
-                platform,
-                catalogBounds,
-                cancellationToken);
+                applicability);
         if (successorDecision
                 is not IntrinsicCoreLibraryRouteDecision.Applicable
                     successorApplicable
@@ -820,7 +818,6 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
             && firstCall.CallKind == secondCall.CallKind
             && firstCall.DispatchKind == secondCall.DispatchKind
             && firstCall.InLoop == secondCall.InLoop
-            && firstCall.Target == secondCall.Target
             && first.Correspondence.Type == second.Correspondence.Type
             && first.Origin.Asset == second.Origin.Asset
             && StringComparer.OrdinalIgnoreCase.Equals(
@@ -839,7 +836,6 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
                 StringComparison.OrdinalIgnoreCase)
             && !ReferenceEquals(first, second)
             && !ReferenceEquals(firstCall.Identity, secondCall.Identity)
-            && !ReferenceEquals(first.Origin.Package, second.Origin.Package)
             && !ReferenceEquals(
                 first.Origin.Registration,
                 second.Origin.Registration)
