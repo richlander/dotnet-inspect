@@ -281,7 +281,7 @@ export interface TypeParameterSummary {
 
 export interface TypeMetadata {
   exactTypeInspection?: BrowserTypeMetadata["exactTypeInspection"];
-  derivedTypes?: readonly string[];
+  hierarchy?: BrowserTypeMetadata["hierarchy"];
   graphNodes?: readonly unknown[];
   inspectionFailures?: readonly string[];
 }
@@ -1113,12 +1113,43 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
       </section>`
     : "";
 
-  const derivedTypes = meta.derivedTypes ?? [];
-  const derived = derivedTypes.length
-    ? `<section class="document-section">
-        <div class="section-title"><h2>Known derived types</h2><span>${derivedTypes.length} in ${escapeHtml(exactAssembly || item.assembly)}</span></div>
-        <div class="type-chip-list">${derivedTypes.map(name => relatedTypeChip(name)).join("")}</div>
-      </section>`
+  const hierarchy = meta.hierarchy;
+  const hierarchySection = hierarchy
+    ? (() => {
+        const title = hierarchy.form === "Implementers"
+          ? "Implementers"
+          : "Derived types";
+        const count = hierarchy.count === null
+          ? "count unavailable"
+          : `${hierarchy.count} total`;
+        const continuation = hierarchy.hasMore
+          ? ` · showing first ${hierarchy.rows.length}`
+          : "";
+        const rows = hierarchy.rows.length
+          ? `<div class="type-chip-list">${
+              hierarchy.rows
+                .map(row => relatedTypeChip(row.type))
+                .join("")
+            }</div>`
+          : `<p>${hierarchy.status === "available"
+              ? "No relationships found."
+              : "Relationship rows are unavailable."}</p>`;
+        const warning = hierarchy.status === "available"
+          ? ""
+          : `<div class="metadata-warning"><strong>⚠ Relationship evidence is ${escapeHtml(hierarchy.status)}</strong>${
+              hierarchy.diagnostics.length
+                ? `<ul>${hierarchy.diagnostics
+                    .map(diagnostic =>
+                      `<li><code>${escapeHtml(diagnostic.code)}</code> ${escapeHtml(diagnostic.summary)}</li>`)
+                    .join("")}</ul>`
+                : ""
+            }</div>`;
+        return `<section class="document-section">
+          <div class="section-title"><h2>${title}</h2><span>${count}${continuation}</span></div>
+          ${rows}
+          ${warning}
+        </section>`;
+      })()
     : "";
 
   const attributes = exact.attributes.length
@@ -1170,7 +1201,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     ${exactDiagnostics}
     ${composition}
     ${interfaces}
-    ${derived}
+    ${hierarchySection}
     ${attributes}
     ${graph}`);
 }

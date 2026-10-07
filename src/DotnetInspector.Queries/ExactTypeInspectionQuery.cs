@@ -466,6 +466,7 @@ internal static class ExactTypeInspectionQuery
             operation.Realization,
             context,
             request,
+            definingRegistration: null,
             scope,
             projectionLimits);
     }
@@ -476,12 +477,28 @@ internal static class ExactTypeInspectionQuery
         SelectedContextExactTypeInspectionRequest request,
         ApiSurfaceScope scope = ApiSurfaceScope.PublicWithNonPublicTypes,
         ApiSurfaceProjectionLimits? projectionLimits = null)
+        => ExecuteSelectedContext(
+            workspace,
+            context,
+            request,
+            definingRegistration: null,
+            scope,
+            projectionLimits);
+
+    internal static ExactTypeInspectionExecution ExecuteSelectedContext(
+        InspectionWorkspace workspace,
+        WorkspaceDeclarationContext context,
+        SelectedContextExactTypeInspectionRequest request,
+        AssemblyAcquisitionRegistration? definingRegistration,
+        ApiSurfaceScope scope = ApiSurfaceScope.PublicWithNonPublicTypes,
+        ApiSurfaceProjectionLimits? projectionLimits = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         return ExecuteSelectedContext(
             workspace.Identity,
             context,
             request,
+            definingRegistration,
             scope,
             projectionLimits);
     }
@@ -490,6 +507,7 @@ internal static class ExactTypeInspectionQuery
         InspectionWorkspaceIdentity realization,
         WorkspaceDeclarationContext context,
         SelectedContextExactTypeInspectionRequest request,
+        AssemblyAcquisitionRegistration? definingRegistration,
         ApiSurfaceScope scope,
         ApiSurfaceProjectionLimits? projectionLimits)
     {
@@ -536,12 +554,29 @@ internal static class ExactTypeInspectionQuery
         var definingSources =
             ImmutableArray.CreateBuilder<ExactTypeDefiningSource>();
         ExactTypeInspectionTarget? target = null;
+        ImmutableArray<AssemblyContextParticipant> participants =
+            definingRegistration is null
+                ? loaded.Group.Participants
+                :
+                [
+                    .. loaded.Group.Participants.Where(participant =>
+                        ReferenceEquals(
+                            participant.Assembly.Registration,
+                            definingRegistration)),
+                ];
+        if (definingRegistration is not null && participants.Length != 1)
+        {
+            throw new ArgumentException(
+                "The selected exact-Type registration must identify one "
+                    + "participant in the retained Workspace context.",
+                nameof(definingRegistration));
+        }
         ExactTypeInspectionResult result = ExecuteCore(
             realization,
             new ExactTypeInspectionContext(loaded),
             request.Type,
             request.SelectionKind,
-            loaded.Group.Participants,
+            participants,
             DefiningSource,
             definingSources,
             selected => target = selected,

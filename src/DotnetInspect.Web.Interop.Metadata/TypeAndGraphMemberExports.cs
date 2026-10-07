@@ -82,27 +82,47 @@ public static partial class MetadataExports
             scope.SurfaceParticipant(
                 root,
                 root.CompileAsset(assemblyName));
+        var exactTypeRequest = new ExactTypeInspectionRequest(
+            packageId,
+            version,
+            targetFramework,
+            typeDefinitionId,
+            ExactTypeSelectionKind.DefinitionIdentity);
+        BrowserTypeHierarchyInspection? hierarchyInspection =
+            scope.HasSurfaceDeclarationContext
+                ? BrowserTypeHierarchyInspectionOperation.Execute(
+                    scope,
+                    participant,
+                    typeDefinitionId)
+                : null;
         InspectionEnvelope<ExactTypeInspectionResult> exactTypeInspection =
-            await ExactTypeInspectionOperation.ExecuteAsync(
-                new ExactTypeInspectionRequest(
-                    packageId,
-                    version,
-                    targetFramework,
-                    typeDefinitionId,
-                    ExactTypeSelectionKind.DefinitionIdentity),
-                new WorkspaceContextLoadOptions
-                {
-                    HttpClient = BrowserPackageWorkspace.NetworkClient,
-                    SourceAuthorization =
-                        BrowserPackageWorkspace.PackageSourceAuthorization,
-                    PackageStore =
-                        BrowserPackageWorkspace.SessionPackageStore,
-                    PackageTransferPolicy =
-                        BrowserPackageWorkspace.PackageTransferPolicy,
-                    PayloadLimits =
-                        BrowserPackageWorkspace.PackageLimits,
-                },
-                BrowserApiSurfacePolicy.Limits);
+            hierarchyInspection is null
+                ? await ExactTypeInspectionOperation.ExecuteAsync(
+                    exactTypeRequest,
+                    new WorkspaceContextLoadOptions
+                    {
+                        HttpClient =
+                            BrowserPackageWorkspace.NetworkClient,
+                        SourceAuthorization =
+                            BrowserPackageWorkspace
+                                .PackageSourceAuthorization,
+                        PackageStore =
+                            BrowserPackageWorkspace.SessionPackageStore,
+                        PackageTransferPolicy =
+                            BrowserPackageWorkspace.PackageTransferPolicy,
+                        PayloadLimits =
+                            BrowserPackageWorkspace.PackageLimits,
+                    },
+                    BrowserApiSurfacePolicy.Limits)
+                : new(
+                    hierarchyInspection.ExactTypeInspection.Content
+                        .Inspection,
+                    hierarchyInspection.ExactTypeInspection.Share,
+                    hierarchyInspection.ExactTypeInspection.Diagnostics);
+        BrowserTypeHierarchyMetadata? hierarchy =
+            hierarchyInspection is null
+                ? ProjectUnavailableHierarchy(exactTypeInspection)
+                : ProjectTypeHierarchy(scope, hierarchyInspection);
 
         (ResearchViews.TypeProjectionResult Projection,
             TypeDependencySectionResult Dependencies) result =
@@ -141,7 +161,7 @@ public static partial class MetadataExports
 
         return new BrowserTypeMetadata(
                 exactTypeInspection,
-                [.. projection.DerivedTypes],
+                hierarchy,
                 graphNodes,
                 graphEdges,
                 dependencyEnvelope,
@@ -150,6 +170,186 @@ public static partial class MetadataExports
                         failure => $"{failure.Operation}: {failure.Detail}"),
                     .. TypeDependencyFailures(scope, result.Dependencies),
                 ]);
+    }
+
+    static BrowserTypeHierarchyMetadata? ProjectTypeHierarchy(
+        BrowserInspectionScope scope,
+        BrowserTypeHierarchyInspection inspection)
+    {
+        if (inspection.Form is null || inspection.Hierarchy is null)
+            return null;
+
+        WorkspaceTypeHierarchySubjectRelationsExecution execution =
+            inspection.Hierarchy;
+        WorkspaceTypeHierarchySubjectRelationsDocument document =
+            execution.Inspection.Content;
+        SubjectRelationPopulationResult population = document.Relations;
+        int? count = population.Count is
+            SubjectRelationPopulationCountOutcome.Counted counted
+                ? counted.Value
+                : null;
+        SubjectRelationPopulationRowsOutcome.Read? read =
+            population.Rows as SubjectRelationPopulationRowsOutcome.Read;
+        IReadOnlyList<WorkspaceTypeHierarchyCandidate> candidates =
+            inspection.Form == SubjectRelationForm.Interface
+                ? document.Implementers
+                : document.DerivedTypes;
+        BrowserTypeHierarchyRow[] rows =
+            read is null
+                ? []
+                :
+                [
+                    .. candidates.Select(candidate =>
+                        ProjectHierarchyRow(scope, candidate)),
+                ];
+        bool hasMore = read?.Continuation is not null;
+        bool coverageComplete = population.Evidence.IsComplete;
+        bool isComplete = read is not null
+            && !hasMore
+            && coverageComplete;
+        string status =
+            population.Count switch
+            {
+                SubjectRelationPopulationCountOutcome.Failed => "failed",
+                SubjectRelationPopulationCountOutcome.Unavailable =>
+                    "unavailable",
+                SubjectRelationPopulationCountOutcome.Incomplete => "partial",
+                _ => population.Rows switch
+                {
+                    SubjectRelationPopulationRowsOutcome.Failed => "failed",
+                    SubjectRelationPopulationRowsOutcome.Unavailable =>
+                        "unavailable",
+                    SubjectRelationPopulationRowsOutcome.Rejected => "failed",
+                    SubjectRelationPopulationRowsOutcome.Incomplete => "partial",
+                    SubjectRelationPopulationRowsOutcome.Read
+                        when isComplete => "available",
+                    SubjectRelationPopulationRowsOutcome.Read => "partial",
+                    _ => "unavailable",
+                },
+            };
+
+        return new BrowserTypeHierarchyMetadata(
+            inspection.Form == SubjectRelationForm.Interface
+                ? "Implementers"
+                : "Derived Types",
+            status,
+            count,
+            rows,
+            isComplete,
+            hasMore,
+            ProjectHierarchyShare(execution.Inspection.Share),
+            [
+                .. execution.Inspection.Diagnostics.Select(
+                    static diagnostic =>
+                        new BrowserTypeHierarchyDiagnostic(
+                            diagnostic.Code,
+                            diagnostic.Severity.ToString(),
+                            diagnostic.Summary.ToString(),
+                            diagnostic.Correspondence?.ToString())),
+            ],
+            [
+                .. population.Evidence.Producers.Select(static producer =>
+                    new BrowserTypeHierarchyProducer(
+                        producer.Producer.Name,
+                        producer.Disposition.ToString(),
+                        producer.Diagnostics.IsEmpty
+                            ? null
+                            : string.Join(
+                                "; ",
+                                producer.Diagnostics.Select(
+                                    static diagnostic =>
+                                        $"{diagnostic.Kind}: "
+                                            + diagnostic.Evidence)))),
+            ],
+            [
+                .. population.Evidence.Producers.Select(static producer =>
+                    new BrowserTypeHierarchyCoverage(
+                        producer.Producer.Name,
+                        producer.Coverage.Considered,
+                        producer.Coverage.Examined,
+                        producer.Coverage.Excluded,
+                        producer.Coverage.Unavailable,
+                        producer.Coverage.Limited)),
+            ]);
+    }
+
+    static BrowserTypeHierarchyMetadata? ProjectUnavailableHierarchy(
+        InspectionEnvelope<ExactTypeInspectionResult> exact)
+    {
+        string? form = exact.Content.Type?.Kind switch
+        {
+            "interface" => "Implementers",
+            "class" => "Derived Types",
+            _ => null,
+        };
+        if (form is null)
+            return null;
+
+        return new BrowserTypeHierarchyMetadata(
+            form,
+            "unavailable",
+            Count: null,
+            Rows: [],
+            IsComplete: false,
+            HasMore: false,
+            ProjectHierarchyShare(exact.Share),
+            [
+                new(
+                    "type-hierarchy.retained-context-unavailable",
+                    InspectionDiagnosticSeverity.Warning.ToString(),
+                    "The retained Browser workspace cannot provide exact "
+                        + "hierarchy authority for this Type.",
+                    Correspondence: null),
+            ],
+            Producers: [],
+            Coverage: []);
+    }
+
+    static BrowserTypeHierarchyShare ProjectHierarchyShare(
+        InspectionShare share) =>
+        share switch
+        {
+            InspectionShare.Available available =>
+                new(
+                    "available",
+                    available.FullUrl,
+                    available.Packet,
+                    Path: null,
+                    Reason: null),
+            InspectionShare.NonProjectable nonProjectable =>
+                new(
+                    "nonProjectable",
+                    FullUrl: null,
+                    Packet: null,
+                    nonProjectable.Path,
+                    nonProjectable.Reason.ToString()),
+            _ => throw new InvalidOperationException(
+                "The hierarchy inspection returned an unknown Share outcome."),
+        };
+
+    static BrowserTypeHierarchyRow ProjectHierarchyRow(
+        BrowserInspectionScope scope,
+        WorkspaceTypeHierarchyCandidate candidate)
+    {
+        if (candidate.Type.Identity is not
+            InspectionGraphTypeIdentity.AcquiredDefinition acquired)
+        {
+            throw new InvalidOperationException(
+                "Browser hierarchy rows require acquired Type definitions.");
+        }
+
+        BrowserWorkspaceParticipant participant =
+            scope.FindParticipant(acquired.Registration)
+            ?? throw new InvalidOperationException(
+                "The hierarchy row does not belong to the retained Browser "
+                    + "surface population.");
+        return new(
+            acquired.Type.ToEscapedFullName(),
+            participant.Asset.AssemblyName,
+            participant.Coordinate.PackageId,
+            participant.Coordinate.Version,
+            participant.Coordinate.Framework,
+            participant.Asset.Path);
     }
 
     static InspectionEnvelope<TypeDependencySectionResult> TypeDependencyEnvelope(

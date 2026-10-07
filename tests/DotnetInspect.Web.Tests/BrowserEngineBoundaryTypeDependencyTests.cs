@@ -56,6 +56,22 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal("1.0.0", provenance.GetProperty("packageVersion").GetString());
         Assert.True(provenance.TryGetProperty("tfm", out _));
         Assert.True(provenance.TryGetProperty("rid", out _));
+        JsonElement hierarchy =
+            document.RootElement.GetProperty("hierarchy");
+        Assert.Equal(
+            "Derived Types",
+            hierarchy.GetProperty("form").GetString());
+        Assert.Equal(0, hierarchy.GetProperty("count").GetInt32());
+        Assert.Equal(
+            "available",
+            hierarchy.GetProperty("status").GetString());
+        Assert.Empty(hierarchy.GetProperty("rows").EnumerateArray());
+        Assert.True(hierarchy.GetProperty("isComplete").GetBoolean());
+        Assert.False(hierarchy.GetProperty("hasMore").GetBoolean());
+        Assert.True(hierarchy.TryGetProperty("share", out _));
+        Assert.True(hierarchy.TryGetProperty("diagnostics", out _));
+        Assert.True(hierarchy.TryGetProperty("producers", out _));
+        Assert.True(hierarchy.TryGetProperty("coverage", out _));
     }
 
     [Fact]
@@ -351,6 +367,19 @@ public sealed partial class BrowserEngineBoundaryTests
                                         RowQueryOrderIntent>.Head(1),
                                 ]))));
         string dependencyName = dependency.FullName!;
+        string dependencyAssemblyName =
+            dependency.Assembly.GetName().Name!;
+        BrowserTypeMetadata implementers =
+            await DotnetInspect.Web.Interop.Metadata.MetadataExports
+                .TypeProjectionAsync(
+                    dependencyPackageId,
+                    "1.0.0",
+                    "net11.0",
+                    $"{dependencyAssemblyName}.dll",
+                    dependencyName,
+                    dependencyName,
+                    WorkspaceJson,
+                    Resolve(RowQueryIntent.Empty));
         BrowserTypeMetadata nested =
             await DotnetInspect.Web.Interop.Metadata.MetadataExports
                 .TypeProjectionAsync(
@@ -391,6 +420,21 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal("implements", selectedEdge.Kind);
         Assert.Empty(complete.InspectionFailures);
         Assert.Empty(bounded.InspectionFailures);
+        Assert.NotNull(complete.Hierarchy);
+        Assert.Equal("Derived Types", complete.Hierarchy.Form);
+        Assert.Equal(0, complete.Hierarchy.Count);
+        Assert.True(complete.Hierarchy.IsComplete);
+        Assert.NotNull(implementers.Hierarchy);
+        Assert.Equal("Implementers", implementers.Hierarchy.Form);
+        Assert.Contains(
+            implementers.Hierarchy.Rows,
+            row => row.Type == typeName
+                && row.PackageId == rootPackageId);
+        Assert.True(implementers.Hierarchy.Count >= 1);
+        Assert.Contains(
+            implementers.Hierarchy.Coverage,
+            coverage => coverage.Considered >= 1
+                && coverage.Examined >= 1);
         TypeDependencyRelationship selectedRelationship =
             Assert.Single(
                 bounded.TypeDependencyInspection.Content
@@ -405,6 +449,76 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Single(
                 nested.GraphNodes,
                 node => node.Id == dependencyName).Role);
+    }
+
+    [Fact]
+    public async Task TypeProjection_HierarchyKeepsExactCountAndBoundedRows()
+    {
+        const string rootPackageId =
+            "Browser.TypeHierarchy.Rows.Root";
+        const string dependencyPackageId =
+            "Browser.TypeHierarchy.Rows.Dependency";
+        const string rootAssemblyName =
+            "Browser.TypeHierarchy.Rows.Root";
+        Type hierarchyInterface = typeof(IPackagePayloadReservation);
+        string dependencyAssemblyName =
+            hierarchyInterface.Assembly.GetName().Name!;
+        string hierarchyName = hierarchyInterface.FullName!;
+
+        _ = await Coordinate(
+            rootPackageId,
+            Package(
+                BuildHierarchyImplementersImage(
+                    rootAssemblyName,
+                    "Browser.TypeHierarchy.Rows",
+                    hierarchyInterface,
+                    BrowserTypeHierarchyInspectionOperation.MaximumRows + 1),
+                $"lib/net11.0/{rootAssemblyName}.dll"));
+        _ = await Coordinate(
+            dependencyPackageId,
+            Package(
+                File.ReadAllBytes(hierarchyInterface.Assembly.Location),
+                $"lib/net11.0/{dependencyAssemblyName}.dll"));
+
+        BrowserTypeMetadata metadata =
+            await DotnetInspect.Web.Interop.Metadata.MetadataExports
+                .TypeProjectionAsync(
+                    dependencyPackageId,
+                    "1.0.0",
+                    "net11.0",
+                    $"{dependencyAssemblyName}.dll",
+                    hierarchyName,
+                    hierarchyName,
+                    $$"""
+                    [
+                      {
+                        "package": "{{rootPackageId}}",
+                        "version": "1.0.0",
+                        "framework": "net11.0"
+                      },
+                      {
+                        "package": "{{dependencyPackageId}}",
+                        "version": "1.0.0",
+                        "framework": "net11.0"
+                      }
+                    ]
+                    """,
+                    Resolve(RowQueryIntent.Empty));
+
+        Assert.NotNull(metadata.Hierarchy);
+        Assert.Equal("Implementers", metadata.Hierarchy.Form);
+        Assert.True(metadata.Hierarchy.Count
+            > BrowserTypeHierarchyInspectionOperation.MaximumRows);
+        Assert.Equal(
+            BrowserTypeHierarchyInspectionOperation.MaximumRows,
+            metadata.Hierarchy.Rows.Length);
+        Assert.True(metadata.Hierarchy.HasMore);
+        Assert.False(metadata.Hierarchy.IsComplete);
+        Assert.Equal("partial", metadata.Hierarchy.Status);
+        Assert.DoesNotContain(
+            metadata.Hierarchy.Rows,
+            row => string.IsNullOrWhiteSpace(row.PackageId)
+                || string.IsNullOrWhiteSpace(row.Asset));
     }
 
     [Fact]
@@ -475,6 +589,12 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             $"{rejectedPackageId}@1.0.0/lib/net11.0/Rejected.dll",
             rejection.Correspondence?.ToString());
+        Assert.NotNull(metadata.Hierarchy);
+        Assert.Equal("unavailable", metadata.Hierarchy.Status);
+        Assert.Contains(
+            metadata.Hierarchy.Diagnostics,
+            diagnostic => diagnostic.Code
+                == "type-hierarchy.retained-context-unavailable");
     }
 
     [Fact]
@@ -570,6 +690,79 @@ public sealed partial class BrowserEngineBoundaryTests
                 && edge.ToId
                     == "System.Collections.Generic.IList<TKey>");
         Assert.Empty(authentic.InspectionFailures);
+    }
+
+    [Fact]
+    public async Task TypeProjection_HierarchyUsesSelectedSameNamedInterface()
+    {
+        const string rootPackageId =
+            "Browser.TypeHierarchy.Identity.Root";
+        const string otherPackageId =
+            "Browser.TypeHierarchy.Identity.Other";
+        const string rootAssemblyName =
+            "Browser.TypeHierarchy.Identity.Root";
+        const string otherAssemblyName =
+            "Browser.TypeHierarchy.Identity.Other";
+        const string interfaceName =
+            "Browser.TypeHierarchy.Identity.IContract";
+        const string rootImplementer =
+            "Browser.TypeHierarchy.Identity.RootImplementer";
+        const string otherImplementer =
+            "Browser.TypeHierarchy.Identity.OtherImplementer";
+
+        _ = await Coordinate(
+            otherPackageId,
+            Package(
+                BuildHierarchyIdentityImage(
+                    otherAssemblyName,
+                    interfaceName,
+                    otherImplementer),
+                $"lib/net11.0/{otherAssemblyName}.dll"));
+        _ = await Coordinate(
+            rootPackageId,
+            Package(
+                BuildHierarchyIdentityImage(
+                    rootAssemblyName,
+                    interfaceName,
+                    rootImplementer),
+                $"lib/net11.0/{rootAssemblyName}.dll"));
+
+        BrowserTypeMetadata metadata = await QueryTypeProjection(
+            rootPackageId,
+            $"{rootAssemblyName}.dll",
+            interfaceName,
+            $$"""
+            [
+              {
+                "package": "{{otherPackageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              },
+              {
+                "package": "{{rootPackageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """);
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Available,
+            metadata.ExactTypeInspection.Content.Outcome);
+        Assert.NotNull(metadata.Hierarchy);
+        Assert.Equal("Implementers", metadata.Hierarchy.Form);
+        Assert.Equal(1, metadata.Hierarchy.Count);
+        var row = Assert.Single(metadata.Hierarchy.Rows);
+        Assert.Equal(rootImplementer, row.Type);
+        Assert.Equal(rootPackageId, row.PackageId);
+        Assert.Equal(
+            $"lib/net11.0/{rootAssemblyName}.dll",
+            row.Asset);
+        Assert.DoesNotContain(
+            metadata.Hierarchy.Rows,
+            candidate => candidate.Type == otherImplementer
+                || candidate.PackageId == otherPackageId);
+        Assert.Empty(metadata.InspectionFailures);
     }
 
     [Fact]
@@ -913,6 +1106,60 @@ public sealed partial class BrowserEngineBoundaryTests
         foreach (Type dependency in dependencies)
             type.AddInterfaceImplementation(dependency);
         type.CreateType();
+
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
+    }
+
+    static byte[] BuildHierarchyImplementersImage(
+        string assemblyName,
+        string typeNamespace,
+        Type hierarchyInterface,
+        int count)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(assemblyName);
+        for (int index = 0; index < count; index++)
+        {
+            TypeBuilder type = module.DefineType(
+                $"{typeNamespace}.Implementer{index:D3}",
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Class);
+            type.AddInterfaceImplementation(hierarchyInterface);
+            type.CreateType();
+        }
+
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
+    }
+
+    static byte[] BuildHierarchyIdentityImage(
+        string assemblyName,
+        string interfaceName,
+        string implementerName)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(assemblyName);
+        TypeBuilder hierarchyInterface = module.DefineType(
+            interfaceName,
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Interface);
+        Type interfaceType = hierarchyInterface.CreateType();
+        TypeBuilder implementer = module.DefineType(
+            implementerName,
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Class);
+        implementer.AddInterfaceImplementation(interfaceType);
+        implementer.CreateType();
 
         using var stream = new MemoryStream();
         assembly.Save(stream);

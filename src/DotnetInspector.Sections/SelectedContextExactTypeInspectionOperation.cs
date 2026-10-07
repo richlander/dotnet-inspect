@@ -316,6 +316,50 @@ public static class SelectedContextExactTypeInspectionOperation
             liveTargetConsumer);
     }
 
+    public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        ExecuteWithLiveTarget(
+            InspectionWorkspace workspace,
+            WorkspaceDeclarationContext context,
+            AssemblyAcquisitionRegistration definingRegistration,
+            SelectedContextExactTypeInspectionRequest request,
+            Action<SelectedContextExactTypeLiveTarget> liveTargetConsumer,
+            ExactTypeInspectionRequest? shareRequest = null,
+            ApiSurfaceProjectionLimits? projectionLimits = null,
+            CompleteWorkspaceActivation? activation = null,
+            ViewFacetId? facet = null,
+            ApiSurfaceScope scope =
+                ApiSurfaceScope.PublicWithNonPublicTypes)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(definingRegistration);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(liveTargetConsumer);
+
+        InspectionEnvelope<SelectedContextExactTypeInspectionResult> result =
+            Complete(
+            ExactTypeInspectionQuery.ExecuteSelectedContext(
+                workspace,
+                context,
+                request,
+                definingRegistration,
+                scope,
+                projectionLimits),
+            context,
+            request,
+            activation,
+            facet,
+            liveTargetConsumer);
+        return shareRequest is null
+            ? result
+            : new(
+                result.Content,
+                ExactTypeInspectionOperation.ProjectShare(
+                    shareRequest,
+                    result.Content.Inspection),
+                result.Diagnostics);
+    }
+
     static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
         ExecuteCore(
             InspectionWorkspace workspace,

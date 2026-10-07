@@ -90,11 +90,57 @@ public sealed record BrowserTypeFindResult(
 /// </summary>
 public sealed record BrowserTypeMetadata(
     InspectionEnvelope<ExactTypeInspectionResult> ExactTypeInspection,
-    string[] DerivedTypes,
+    BrowserTypeHierarchyMetadata? Hierarchy,
     BrowserTypeGraphNode[] GraphNodes,
     BrowserTypeGraphEdge[] GraphEdges,
     InspectionEnvelope<TypeDependencySectionResult> TypeDependencyInspection,
     string[] InspectionFailures);
+
+public sealed record BrowserTypeHierarchyMetadata(
+    string Form,
+    string Status,
+    int? Count,
+    BrowserTypeHierarchyRow[] Rows,
+    bool IsComplete,
+    bool HasMore,
+    BrowserTypeHierarchyShare Share,
+    BrowserTypeHierarchyDiagnostic[] Diagnostics,
+    BrowserTypeHierarchyProducer[] Producers,
+    BrowserTypeHierarchyCoverage[] Coverage);
+
+public sealed record BrowserTypeHierarchyShare(
+    string Kind,
+    string? FullUrl,
+    string? Packet,
+    string? Path,
+    string? Reason);
+
+public sealed record BrowserTypeHierarchyDiagnostic(
+    string Code,
+    string Severity,
+    string Summary,
+    string? Correspondence);
+
+public sealed record BrowserTypeHierarchyRow(
+    string Type,
+    string Assembly,
+    string PackageId,
+    string Version,
+    string Framework,
+    string Asset);
+
+public sealed record BrowserTypeHierarchyProducer(
+    string Source,
+    string Disposition,
+    string? Detail);
+
+public sealed record BrowserTypeHierarchyCoverage(
+    string Producer,
+    int Considered,
+    int Examined,
+    int Excluded,
+    int Unavailable,
+    int Limited);
 
 public sealed record BrowserTypeGraphNode(string Id, string DisplayName, string Role);
 
@@ -447,6 +493,12 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserMetadataWindow))]
 [JsonSerializable(typeof(BrowserHeapListing))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
+[JsonSerializable(typeof(BrowserTypeHierarchyMetadata))]
+[JsonSerializable(typeof(BrowserTypeHierarchyShare))]
+[JsonSerializable(typeof(BrowserTypeHierarchyDiagnostic[]))]
+[JsonSerializable(typeof(BrowserTypeHierarchyRow[]))]
+[JsonSerializable(typeof(BrowserTypeHierarchyProducer[]))]
+[JsonSerializable(typeof(BrowserTypeHierarchyCoverage[]))]
 [JsonSerializable(
     typeof(InspectionEnvelope<ExactTypeInspectionResult>),
     TypeInfoPropertyName = "ExactTypeInspectionEnvelope")]
