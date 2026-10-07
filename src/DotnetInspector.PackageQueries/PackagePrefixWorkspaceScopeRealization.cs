@@ -11,6 +11,7 @@ public enum PackagePrefixWorkspaceScopeRejection
     ForeignWorkspace,
     StaleRegistrationRevision,
     RegistrationNotCurrent,
+    CandidateLimitExceeded,
 }
 
 public enum PackagePrefixWorkspaceCandidateDisposition
@@ -197,6 +198,12 @@ public static class PackagePrefixWorkspaceScopeRealization
         {
             return new PackagePrefixWorkspaceScopeRealizationOutcome.Rejected(
                 PackagePrefixWorkspaceScopeRejection.RegistrationNotCurrent);
+        }
+        if (request.PrefixRequest.MaxPackages
+            > PackageQuery.MaximumCandidates)
+        {
+            return new PackagePrefixWorkspaceScopeRealizationOutcome.Rejected(
+                PackagePrefixWorkspaceScopeRejection.CandidateLimitExceeded);
         }
 
         PackageQueryPlan plan =

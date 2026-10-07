@@ -457,6 +457,63 @@ public partial class PackageQueryTests
     }
 
     [Fact]
+    public async Task WorkspacePrefixScope_CandidateLimitUsesPackageQueryBoundary()
+    {
+        var registration = new WorkspaceRegistration.PackagePrefix(
+            new PackagePrefixDeclaration("Contoso."));
+        await using var workspace =
+            new InspectionWorkspace([registration]);
+        WorkspaceRegistrationRevision revision =
+            CurrentRegistration(workspace);
+        WorkspaceScopeSnapshot scope =
+            await CurrentScopeAsync(workspace);
+        var admittedSource = new FakePackageSource(
+            [],
+            new Dictionary<string, byte[]>());
+
+        PackagePrefixWorkspaceScopeRealizationOutcome.Settled admitted =
+            Assert.IsType<
+                PackagePrefixWorkspaceScopeRealizationOutcome.Settled>(
+                await PackagePrefixWorkspaceScopeRealization.ExecuteAsync(
+                    Request(
+                        workspace,
+                        revision,
+                        registration,
+                        scope,
+                        admittedSource,
+                        new InMemoryPackageStore(),
+                        PackageQuery.MaximumCandidates),
+                    TestContext.Current.CancellationToken));
+
+        Assert.True(admitted.IsComplete);
+        Assert.Equal(
+            PackageQuery.MaximumCandidates,
+            admittedSource.LastSearchTake);
+
+        var rejectedSource = new FakePackageSource(
+            [],
+            new Dictionary<string, byte[]>());
+        PackagePrefixWorkspaceScopeRealizationOutcome.Rejected rejected =
+            Assert.IsType<
+                PackagePrefixWorkspaceScopeRealizationOutcome.Rejected>(
+                await PackagePrefixWorkspaceScopeRealization.ExecuteAsync(
+                    Request(
+                        workspace,
+                        revision,
+                        registration,
+                        scope,
+                        rejectedSource,
+                        new InMemoryPackageStore(),
+                        PackageQuery.MaximumCandidates + 1),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackagePrefixWorkspaceScopeRejection.CandidateLimitExceeded,
+            rejected.Reason);
+        Assert.Equal(0, rejectedSource.LastSearchTake);
+    }
+
+    [Fact]
     public async Task WorkspacePrefixScope_RequiresCanonicalFramework()
     {
         var registration = new WorkspaceRegistration.PackagePrefix(

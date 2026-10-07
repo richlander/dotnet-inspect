@@ -3633,13 +3633,13 @@ Workspace Scope publication without changing any of their ownership. It makes
 one claim:
 
 > Given one exact current package-prefix registration revision, caller-supplied
-> package-source authority, target framework, finite candidate policy, and
-> current Scope snapshot, the optional package adapter can resolve candidates
-> in source order, prepare only the candidates admitted by remaining Scope
-> capacity, and publish the successfully prepared batch through the ordinary
-> Scope gate. Its result retains prefix completion, per-candidate failures,
-> capacity declines, the Scope operation, and the final committed/no-effect
-> occurrences.
+> package-source authority, target framework, Package Query-admissible finite
+> candidate policy, and current Scope snapshot, the optional package adapter
+> can resolve candidates in source order, prepare only the candidates admitted
+> by remaining Scope capacity, and publish the successfully prepared batch
+> through the ordinary Scope gate. Its result retains prefix completion,
+> per-candidate failures, capacity declines, the Scope operation, and the final
+> committed/no-effect occurrences.
 
 The retained registration remains inert state. The caller applies finite
 consumer policy by creating a `PackagePrefixRequest` over the exact retained
@@ -3647,7 +3647,10 @@ declaration. Package Query owns prefix search, candidate validation, source
 identity, ordering, and terminal completion. Each accepted candidate becomes a
 producer-pinned `RealizedMemberCoordinate.Package`; Root preparation must
 reacquire through that exact producer rather than falling back to another
-authorized feed.
+authorized feed. A consumer policy above Package Query's public candidate
+ceiling is rejected as `CandidateLimitExceeded` before search or package
+acquisition; the shared inert request remains free to serve consumers with
+different finite policies.
 
 The operation reads remaining capacity from the supplied current Scope
 snapshot. Existing exact package coordinates consume no new slot. New
@@ -3685,7 +3688,8 @@ does not silently raise or bypass it.
 The Release gates cover exact-producer reacquisition, stable candidate order,
 existing-package coalescing, preparation failure followed by later admission,
 capacity decline without acquisition, stale registration rejection before
-network work, and Scope movement during realization.
+network work, the exact Package Query candidate-limit boundary, and Scope
+movement during realization.
 
 ### Scoped execution over a committed package Root
 
