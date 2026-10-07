@@ -18,6 +18,13 @@ Type (FullSpelling)
       -> exact Members (Count)
 ```
 
+This profile predates the work bound in
+[Primary subject views](primary-subject-views.md#authority-and-exact-claim),
+which removes per-MemberGroup and per-category overload Counts from the Type
+default. The Type document owner adopts that change in its own slice by making
+MemberGroup Rows leaves by default and counting only MemberGroup rows in
+category nodes; the Count profile above remains an explicit request.
+
 It can be lowered as Tree or Mermaid without changing the semantic request.
 An expanded Type-to-MemberGroup-to-exact-Member Rows profile waits for the
 complete `TypeDocument`; this design does not manufacture exact-Member rows
@@ -25,13 +32,14 @@ from compact Counts.
 
 The Library document is the second adopter
 ([#9593](https://github.com/richlander/dotnet-inspect/issues/9593)). Its
-owner admits one profile over the complete Type declaration population:
+owner's default profile lists the complete Type declaration population as
+leaves, grouped by namespace, and an explicit profile may add Member Counts:
 
 ```text
 Library (FullSpelling)
   -> namespaces (Rows, Name)
     -> Type declarations (Rows, Name)
-      -> Members (Count)
+      -> Members (Count, explicit profile only)
 ```
 
 [Library inspection documents](library-inspection-document.md#hierarchy-projection)
@@ -118,6 +126,14 @@ Every parent-to-child population closes independently as Rows or Count.
 Count does not require or imply Rows. Rows do not become Count by host-side
 enumeration. The adopting owner maps each requested closing to its existing
 typed population request and publishes the corresponding outcome.
+
+The vocabulary can express nested populations, but a subject's default view
+does not request them.
+[Primary subject views](primary-subject-views.md#authority-and-exact-claim)
+owns that rule: one row population per default view, with owner-issued groups
+derived from those rows and deeper levels reached through the next command.
+A Rows level that only groups the same population, such as a Library's
+namespaces or a Type's categories, is not a second population.
 
 ### Name or FullSpelling
 

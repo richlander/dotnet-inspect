@@ -93,8 +93,8 @@ Queries creates an opaque settlement target for the already-open PDB context;
 the browser host supplies its shared network client, PackageHouse content
 queries, source authorization, finite limits, deadline, and one bounded
 pathless in-memory positive store. Provider policy, identity validation, store
-keys, candidate ordering, and fallback remain in settlement. This adoption
-does not retire the remaining SourceHouse compatibility routes.
+keys, candidate ordering, and fallback remain in settlement. SourceHouse owns
+the current source-composition retirement status.
 
 ### Request and exact binding
 
@@ -545,10 +545,13 @@ metadata type is resolved before that inference, and the resulting mapping
 retains `Inferred` rather than presenting the filename relationship as a
 sequence-point correlation.
 
-`PdbMemberSourceAcquisition` retains a narrow member-only composition for
-certification and diagnostic consumers that already own an open
-`SourceLinkService`. It intentionally does not include decompiler-generated
-source or define product settlement policy.
+`AssemblyContextSourceQuery` exposes a reusable authored-member session for
+certification consumers. It retains one admitted Library and one bounded,
+serial SourceHouse authored session per assembly, reusing assembly, API,
+Portable PDB, SourceLink-map, and document preparation while issuing a fresh
+SourceHouse operation plan and lease per member. It does not add decompiler
+fallback. Diagnostic consumers may retain an independent `SourceLinkService`
+only for assembly-wide mapping or compilation-context inspection.
 `PdbSourceInspectionProjection` owns the compatibility member/type inspection
 models and projects checksum, mapping, decoded-text, absence, and failure
 evidence into them without selecting or acquiring a source candidate.
@@ -565,8 +568,8 @@ The [SourceHouse composition](design/source-house.md), tracked by
 the former product composition with one content-first House over
 `SourceLinkService`, `CSharpDecompilerService`, and authorized acquisition
 capabilities. Product candidate ordering belongs to SourceHouse.
-`PdbMemberSourceAcquisition` preserves the same PDB-provenance ordering only
-for the certification harness. This document continues to own PDB
+The reusable Query session preserves the same PDB-provenance ordering for the
+certification harness. This document continues to own PDB
 acquisition, SourceLink interpretation, checksum semantics, authored-source
 evidence, and its compatibility projection.
 
@@ -670,10 +673,10 @@ general verified-text entry points are retired, not duplicated. The one-URL
 Services composition lives in `VerifiedSourceTextFetch`, which combines
 `SourceFetch` transport with the owner-issued SourceLink checksum and detached
 text result without making either adjacent owner absorb the other. The
-member-only certification composition lives in
-`PdbMemberSourceAcquisition`; product acquisition ordering and fallback live
-in SourceHouse. Library lease consumption and the independent decompiler
-producer remain separately tracked.
+member-only certification composition lives in the reusable
+`AssemblyContextSourceQuery` session; acquisition ordering and fallback live in
+SourceHouse. Library lease consumption and the independent decompiler producer
+remain separately tracked.
 
 The motivating real repository is dotnet-inspect itself: its compiled
 Portable PDB maps an exact member to checksum-verified repository source,

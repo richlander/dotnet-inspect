@@ -308,6 +308,10 @@ Method-body comparison likewise projects native C#/IL evidence through the
 shared query; its target inventory and keyed cancellation stay with that
 managed feature in the same facade even though its contextual dialog is
 retired.
+PDB source inspections expose their resolved and attributable browse URLs as
+detached Services-owned values. The facade preserves those values in its
+existing source and comparison contracts without interpreting SourceLink
+documents or referencing the SourceLink component directly.
 
 ### Call-graph facade: 2 exports
 
@@ -333,8 +337,12 @@ package or Platform workspace services through `DotnetInspect.Web.Core`; it
 does not call sibling facades or reuse their wire DTOs.
 Home-demo call graphs likewise ask Web Core to lower the owner-issued neutral
 call-graph projection. The catalog facade does not open Analysis sessions or
-reference the Analysis component directly. It composes the product vocabulary
-from its owners' declarations (`BrowserVocabularyComposition`, under
+reference the Analysis component directly. Queries resolves the product-issued
+member anchor over caller-shaped projected candidates, so Catalog does not
+reparse demo member semantics or consume raw Metadata API surfaces. Portable
+Queries identities likewise carry retained and Platform Library identity
+fields without admitting Metadata into the facade. Catalog composes the product
+vocabulary from its owners' declarations (`BrowserVocabularyComposition`, under
 [Product Vocabulary ownership](vocabulary.md#ownership)), so its assembly
 ratchet admits `ILInspector.Decompiler` for the Decompiler's vocabulary
 declaration factories; it reaches that project transitively and adds no project
@@ -381,6 +389,14 @@ owner-issued public contracts, not another host's DTOs. A local transport record
 may retain their content, Share, and diagnostics unchanged. Metadata retains its
 exact-type and type-dependency inspection contracts; Source retains the
 [Type API Declaration Inspection](type-api-declarations.md) contract.
+The Library facade's uploaded-image path similarly maps detached Sections-owned
+provenance, identity, accessibility, and failure values. It passes the companion
+execution to Web Core for the one raw declaration-surface lowering and does not
+reference uploaded-path Metadata values itself.
+Its exact-Library document path also consumes Sections-owned inspection bounds
+and detached LibraryMetadata enablement values, preserving the wire identifiers
+and states without referencing `ILInspector.Metadata` or
+`ILInspector.MetadataPrimitives`.
 
 `ProductionFacadeWireContexts_AreAssemblyLocal` admits those completed contract
 closures and otherwise requires export DTOs to be declared and source-generated

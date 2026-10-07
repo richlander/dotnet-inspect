@@ -11,8 +11,10 @@ namespace ILInspector.Decompiler.Tests;
 /// metadata name (display class, state machine, anonymous type, collection
 /// expression type), because the residual and typed-local paths render the
 /// same type text and the fidelity diagnostic reports the name either way.
-/// Value types keep the full gate (#9395: a struct <c>this</c> spill typed as a
-/// value would become a copy), and every other spelling defect still defers.
+/// Ordinary value storage keeps the full gate. Exact struct <c>this</c> aliases
+/// are retired earlier by <see cref="ValueTypeReceiverAliasPass"/>, before
+/// spelling or value-local storage is considered. Every other spelling defect
+/// still defers.
 /// </summary>
 [Trait("Area", "Pass")]
 public class GeneratedNameReferenceStorageTests
@@ -104,17 +106,18 @@ public class GeneratedNameReferenceStorageTests
     }
 
     [Fact]
-    public void RealStructStateMachineThisRemainsResidual()
+    public void RealStructStateMachineThisAliasRetiresBeforeStorage()
     {
         // Newtonsoft.Json 13.0.4: the struct async state machine's `this`
-        // spill stays out of value storage (#9395).
+        // spill is an exact managed receiver alias, not value storage.
         var function = Run(
             "ReferenceConditional/Newtonsoft.Json.dll",
             "Newtonsoft.Json.JsonTextReader.<ParsePropertyAsync>d__31",
             "MoveNext",
-            out _);
-        Assert.Contains(function.ResidualSlotBindings.Values,
-            binding => binding.Slot == 0 && binding.Vetoes.HasFlag(SlotMaterializationVeto.OutsideCoercionDomain));
+            out string output);
+        Assert.DoesNotContain(function.ResidualSlotBindings.Values,
+            binding => binding.Slot == 0);
+        Assert.DoesNotContain(" = this;", output);
     }
 
     static IrFunction ExactWeb(TypeRef type, TypeRef definition, TypeShape shape)

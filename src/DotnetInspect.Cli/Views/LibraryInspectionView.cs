@@ -808,7 +808,8 @@ public class LibraryInspectionView
         Name = SectionNames.BodyShapes,
         EmptyText = "No matching body shapes found.")]
     public List<BodyShapeRow>? BodyShapesSection =>
-        _data.EffectiveBodyShapeSearchResult?.Matches?
+        (_data.BodyShapeRowSelection?.Matches
+            ?? _data.EffectiveBodyShapeSearchResult?.Matches)?
             .Select(BodyShapeRow.FromMatch)
             .ToList();
 
@@ -816,7 +817,9 @@ public class LibraryInspectionView
         Name = SectionNames.BodyShapeSummary,
         EmptyText = "No matching body shapes found.")]
     public List<BodyShapeSummaryRow>? BodyShapeSummarySection =>
-        _data.EffectiveBodyShapeSearchResult is { } result
+        _data.BodyShapeRowSelection?.Summary is { } selected
+            ? BodyShapeSummaryRow.FromSummaries(selected)
+            : _data.EffectiveBodyShapeSearchResult is { } result
             ? BodyShapeSummaryRow.FromMatches(result.Matches)
             : null;
 

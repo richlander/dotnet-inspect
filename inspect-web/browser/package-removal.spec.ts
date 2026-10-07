@@ -80,3 +80,46 @@ test("removal remains visible at narrow width", async ({ page }) => {
   await button.click();
   await expect(button).toHaveCount(0);
 });
+
+test("platform pre-search dismissal persists while search and explicit reopening remain available", async ({ page }) => {
+  await page.goto("/browser/package-removal.html?platform=1");
+  const dismiss = page.getByRole("button", { name: "Dismiss System.Runtime from Spotlight suggestions", exact: true });
+  await dismiss.click();
+  await expect(page.locator('[data-sl-framework-lib="System.Runtime"]')).toHaveCount(0);
+  await expect(page.locator("#notice")).toHaveText("");
+  await page.reload();
+  await expect(page.locator('[data-sl-framework-lib="System.Runtime"]')).toHaveCount(0);
+  await page.locator("#spotlight-input").fill("System.Runtime");
+  await expect(page.locator('[data-sl-framework-lib="System.Runtime"]')).toBeVisible();
+  await expect(dismiss).toHaveCount(0);
+  await page.locator('[data-sl-framework-lib="System.Runtime"]').click();
+  await expect(page.locator("#notice")).toHaveText("Activated");
+  await page.reload();
+  await expect(dismiss).toBeVisible();
+});
+
+test("artifact columns align when dates and controls are absent", async ({ page }) => {
+  await page.goto("/browser/package-removal.html?platform=1");
+  const geometry = await page.locator(".spotlight-artifact").evaluateAll(rows => rows.map(row => {
+    const metadata = row.querySelector(".spotlight-item-ns")!.getBoundingClientRect();
+    const date = row.querySelector(".spotlight-item-date")!.getBoundingClientRect();
+    return { metadataRight: metadata.right, dateRight: date.right, height: row.getBoundingClientRect().height };
+  }));
+  expect(geometry.length).toBeGreaterThan(1);
+  for (const row of geometry) {
+    expect(row.metadataRight).toBeCloseTo(geometry[0]!.metadataRight, 0);
+    expect(row.dateRight).toBeCloseTo(geometry[0]!.dateRight, 0);
+    expect(row.height).toEqual(geometry[0]!.height);
+  }
+  await page.locator("#spotlight-input").fill("System");
+  await expect(page.locator('[data-sl-framework-lib="System.Runtime"]')).toBeVisible();
+  await expect(page.getByRole("button", { name: "Dismiss System.Runtime from Spotlight suggestions" })).toHaveCount(0);
+  const searchGeometry = await page.locator(".spotlight-artifact").evaluateAll(rows => rows.map(row => ({
+    right: row.getBoundingClientRect().right,
+    dateRight: row.querySelector(".spotlight-item-date")!.getBoundingClientRect().right,
+  })));
+  for (const row of searchGeometry) {
+    expect(row.right).toBeCloseTo(searchGeometry[0]!.right, 0);
+    expect(row.dateRight).toBeCloseTo(searchGeometry[0]!.dateRight, 0);
+  }
+});

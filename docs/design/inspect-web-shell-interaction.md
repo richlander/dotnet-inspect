@@ -599,9 +599,34 @@ place of its kind icon. A platform Library always uses its normal ecosystem icon
 or the existing Library icon as fallback, even when it supplies a pruned Package.
 Pruning applies to the Package, not to the supplying Library. False or unavailable
 comparisons do not produce pruning glyphs.
-Accessible glyph labels preserve Package or Library kind. Text metadata names
-the ecosystem consistently, such as `.NET Runtime`, without repeating Package
-or Library inside the row, while retaining source disclosure. Ecosystem icons
+Accessible glyph labels preserve Package or Library kind and ecosystem identity.
+Package and platform Library rows show their version, highest known TFM, and
+available publication date, without repeating ecosystem names or open/recent
+state. Prefer framework facts already available from nuspec metadata; a loaded
+Package may also disclose the first framework in its owner-ordered measured
+framework inventory. Platform Library rows retain their selected catalog TFM.
+A selected Package framework alone does not establish the highest TFM. Recent
+entries retain the highest-framework fact when recorded; legacy entries without
+that fact leave it undisclosed. Missing metadata remains undisclosed, without
+additional metadata or package-content acquisition solely to fill a row.
+All artifact rows reserve the same columns for glyph, name, version/TFM,
+publication date and trailing control. Missing facts leave empty columns rather
+than shifting the other fields. Rows remain single-line, with truncation at
+narrow widths.
+
+Pre-search platform Library suggestions have a trailing dismissal control and
+support Shift+Delete. Dismissal persists by pack and assembly in browser-local
+preferences, without unloading Platform, changing its catalog, or acquiring
+anything. It filters suggestions before their display limit, so another catalog
+suggestion can take the vacant position. Nonempty searches continue to find
+and open dismissed Libraries. A successful explicit open restores the suggestion.
+A preference-write failure is visible and leaves dismissal state unchanged.
+This suggestion interaction is distinct from Package Workspace removal owned by
+[Package-row removal](inspect-web-package-removal.md).
+
+Library role and source details remain in tooltips. This compact presentation
+applies to Home pre-search lists and modal Spotlight alike. The Add package
+dialog retains its actionable already-in-Workspace disclosure. Ecosystem icons
 consume the classifier's owning identity, or
 the framework Library's known source family. There is no trailing icon rail.
 Kind and status glyphs follow the structural-salience icon
@@ -633,7 +658,9 @@ persistent scope chip or shell control. Matching installed resources appear in
 one transient `Capabilities` group; a capability such as `library-literal` is
 a result named `Library literal`, not a `Literals` category. Each row presents
 the owner-issued resource name with its resource kind, owning route, and first
-canonical key as secondary metadata.
+canonical key as secondary metadata. Spotlight omits the Package query
+`depends-ecosystem` facet (`Depends on ecosystem`) from its capability results;
+the facet remains available in Package query.
 
 The result identity is the capability search result's canonical Resource Path.
 The shell does not reconstruct identity from the displayed name, metadata, or
@@ -701,7 +728,11 @@ IDs outside the literal `Newtonsoft.` prefix. These are discovery rows, not
 inspection facets or a routed Query page. The existing typed shared plan limits
 both candidates and matches to eight, enables prerelease versions, and requests
 only basic search metadata. Spotlight discloses the bound without claiming
-exhaustive enumeration. It stages the bounded operation's rows until successful
+exhaustive enumeration. The `Package prefix search` disclosure links to `/query`,
+seeds the current search text, closes Spotlight, and focuses the Package ID
+prefix input without running the query. For `Aspire*`, it preserves `Aspire*`
+as the editable input. The existing routed entry owns validation, history,
+and return focus. It stages the bounded operation's rows until successful
 completion; any producer failure displays an error rather than a successful
 partial result. No manifest or package archive is acquired until activation.
 Editing text, changing scope, dismissing, or superseding Search cancels its

@@ -21,6 +21,12 @@ public static class InspectionViewFacetCatalog
             "package.dependency-hierarchy",
             InspectionViewFacetExecution.PackageDependencyHierarchy),
         Binding(
+            "library.types",
+            InspectionViewFacetExecution.LibraryTypes),
+        Binding(
+            "library.info",
+            InspectionViewFacetExecution.LibraryInfo),
+        Binding(
             "library.references",
             InspectionViewFacetExecution.LibraryReferences),
         Binding(
@@ -123,6 +129,25 @@ public static class InspectionViewFacetCatalog
                 300),
             "Rooted transitive package dependencies for the selected target framework.",
             AppliesToPackage),
+        Active(
+            Descriptor(
+                "library.types",
+                StructuralSubjectKind.Library,
+                "Types",
+                "Public Type declarations of the active Library, by namespace.",
+                50,
+                ViewFacetRole.LibraryTypes),
+            "Public Type declarations of the active Library, by namespace.",
+            AppliesToLibrary),
+        Active(
+            Descriptor(
+                "library.info",
+                StructuralSubjectKind.Library,
+                "Info",
+                "Identity, image, description, and enablement facts for the active Library.",
+                75),
+            "Identity, image, description, and enablement facts for the active Library.",
+            AppliesToLibrary),
         Active(
             Descriptor(
                 "library.references",
@@ -350,6 +375,8 @@ internal enum InspectionViewFacetExecution
     PackageOverview,
     PackageDependencies,
     PackageDependencyHierarchy,
+    LibraryTypes,
+    LibraryInfo,
     LibraryReferences,
     LibraryEcosystemDependencies,
     LibraryReferenceHierarchy,

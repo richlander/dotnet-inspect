@@ -1,6 +1,7 @@
 using ILInspector.CSharp;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using ILInspector.Metadata;
 
 using DotnetInspector.ResearchQueries;
 using DotnetInspector.ResearchSections;
@@ -132,6 +133,217 @@ public class ReturnToSenderTargetSelectionTests
         {
             FidelityCheckGeneratedFilterTests.DeleteFixture(
                 assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CappedSelectionMaterializesApiEvidenceOnlyForTheEvaluatedPrefix()
+    {
+        string assemblyPath =
+            FidelityCheckGeneratedFilterTests.CompileFixture("""
+                public static class EvidenceFixture00
+                {
+                    public static int Transform(int value) => value + 0;
+                }
+                public static class EvidenceFixture01
+                {
+                    public static int Transform(int value) => value + 1;
+                }
+                public static class EvidenceFixture02
+                {
+                    public static int Transform(int value) => value + 2;
+                }
+                public static class EvidenceFixture03
+                {
+                    public static int Transform(int value) => value + 3;
+                }
+                public static class EvidenceFixture04
+                {
+                    public static int Transform(int value) => value + 4;
+                }
+                public static class EvidenceFixture05
+                {
+                    public static int Transform(int value) => value + 5;
+                }
+                public static class EvidenceFixture06
+                {
+                    public static int Transform(int value) => value + 6;
+                }
+                public static class EvidenceFixture07
+                {
+                    public static int Transform(int value) => value + 7;
+                }
+                public static class EvidenceFixture08
+                {
+                    public static int Transform(int value) => value + 8;
+                }
+                public static class EvidenceFixture09
+                {
+                    public static int Transform(int value) => value + 9;
+                }
+                public static class EvidenceFixture10
+                {
+                    public static int Transform(int value) => value + 10;
+                }
+                public static class EvidenceFixture11
+                {
+                    public static int Transform(int value) => value + 11;
+                }
+                public static class EvidenceFixture12
+                {
+                    public static int Transform(int value) => value + 12;
+                }
+                public static class EvidenceFixture13
+                {
+                    public static int Transform(int value) => value + 13;
+                }
+                public static class EvidenceFixture14
+                {
+                    public static int Transform(int value) => value + 14;
+                }
+                public static class EvidenceFixture15
+                {
+                    public static int Transform(int value) => value + 15;
+                }
+                public static class EvidenceFixture16
+                {
+                    public static int Transform(int value) => value + 16;
+                }
+                public static class EvidenceFixture17
+                {
+                    public static int Transform(int value) => value + 17;
+                }
+                public static class EvidenceFixture18
+                {
+                    public static int Transform(int value) => value + 18;
+                }
+                public static class EvidenceFixture19
+                {
+                    public static int Transform(int value) => value + 19;
+                }
+                public static class EvidenceFixture20
+                {
+                    public static int Transform(int value) => value + 20;
+                }
+                public static class EvidenceFixture21
+                {
+                    public static int Transform(int value) => value + 21;
+                }
+                public static class EvidenceFixture22
+                {
+                    public static int Transform(int value) => value + 22;
+                }
+                public static class EvidenceFixture23
+                {
+                    public static int Transform(int value) => value + 23;
+                }
+                public static class EvidenceFixture24
+                {
+                    public static int Transform(int value) => value + 24;
+                }
+                public static class EvidenceFixture25
+                {
+                    public static int Transform(int value) => value + 25;
+                }
+                public static class EvidenceFixture26
+                {
+                    public static int Transform(int value) => value + 26;
+                }
+                public static class EvidenceFixture27
+                {
+                    public static int Transform(int value) => value + 27;
+                }
+                public static class EvidenceFixture28
+                {
+                    public static int Transform(int value) => value + 28;
+                }
+                public static class EvidenceFixture29
+                {
+                    public static int Transform(int value) => value + 29;
+                }
+                public static class EvidenceFixture30
+                {
+                    public static int Transform(int value) => value + 30;
+                }
+                public static class EvidenceFixture31
+                {
+                    public static int Transform(int value) => value + 31;
+                }
+                public static class EvidenceFixture32
+                {
+                    public static int Transform(int value) => value + 32;
+                }
+                public static class EvidenceFixture33
+                {
+                    public static int Transform(int value) => value + 33;
+                }
+                public static class EvidenceFixture34
+                {
+                    public static int Transform(int value) => value + 34;
+                }
+                public static class EvidenceFixture35
+                {
+                    public static int Transform(int value) => value + 35;
+                }
+                public static class EvidenceFixture36
+                {
+                    public static int Transform(int value) => value + 36;
+                }
+                public static class EvidenceFixture37
+                {
+                    public static int Transform(int value) => value + 37;
+                }
+                public static class EvidenceFixture38
+                {
+                    public static int Transform(int value) => value + 38;
+                }
+                public static class EvidenceFixture39
+                {
+                    public static int Transform(int value) => value + 39;
+                }
+                """, assemblyName: "RankedApiEvidence");
+        try
+        {
+            using var metadata = MetadataSource.Open(assemblyPath);
+            using AssemblyInspectionSession assembly =
+                AssemblyInspectionSession.Open(assemblyPath);
+            using var source = new ReturnToSenderTargetSourceSession(
+                assemblyPath,
+                assembly);
+            const int cap = 2;
+            ReturnToSenderCappedTargetSelection selection =
+                source.SelectCappedTargets(metadata, cap);
+
+            IReadOnlyList<IrImporter.StableRankedSampleCandidate> ranked =
+                IrImporter.GetStableRankedSampleCandidates(
+                    metadata,
+                    includeGenericArity: true);
+            Assert.Equal(cap, selection.Targets.Count);
+
+            // Evidence is prepared for the cap, then doubled only when the
+            // loop runs past it.
+            Assert.InRange(
+                selection.ApiEvidencePrefixLength,
+                selection.EvaluatedBodyCount,
+                Math.Max(
+                    Math.Min(cap, ranked.Count),
+                    2 * selection.EvaluatedBodyCount));
+
+            // Only Types declaring a prepared candidate are decoded, never the
+            // whole assembly.
+            int prefixTypes = ranked
+                .Take(selection.ApiEvidencePrefixLength)
+                .Select(candidate => candidate.Candidate.TypeDefHandle)
+                .Distinct()
+                .Count();
+            Assert.InRange(selection.ApiTypesMaterialized, 1, prefixTypes);
+            Assert.True(
+                selection.ApiTypesMaterialized < 40,
+                $"materialized {selection.ApiTypesMaterialized} of 40 Types");
+        }
+        finally
+        {
+            FidelityCheckGeneratedFilterTests.DeleteFixture(assemblyPath);
         }
     }
 

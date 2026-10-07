@@ -15,7 +15,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// no observable evaluation effect — so moving an argument's computation past it
 /// never reorders anything. This pass makes that one safe move
 /// <see cref="ConstructorChainPass"/> set up: it inlines each single-use
-/// argument temp stored in the run of statements immediately preceding the
+/// argument temp stored or zero-initialized by <c>initobj</c> in the run of
+/// statements immediately preceding the
 /// chain call. Left in place the call prints as an invalid <c>base(temp);</c>
 /// body statement (CS0175) that drops its argument on recompile.
 /// </summary>
@@ -45,6 +46,7 @@ public sealed class ConstructorChainArgumentPass : IIrPass
             context,
             "inline spilled base/this constructor argument",
             allowInArgumentAddressSpills: true,
+            defaultValueScope: function,
             orderSensitiveArguments: orderSensitiveArguments);
     }
 

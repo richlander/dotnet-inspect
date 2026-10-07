@@ -83,6 +83,55 @@ public class ConstructorChainArgumentOrderTests
         };
     }
 
+    [Fact]
+    public void DefaultValueSpill_InlinesOwnedInitialization()
+    {
+        var call = ChainCall(1, new LoadLocal(0, Int32));
+        var function = BuildCtor(1,
+            new InitObject(Int32, new LoadLocalAddress(0, Int32)),
+            new ExpressionStatement(call));
+
+        RunPass(function);
+
+        Assert.DoesNotContain(function.Descendants, node => node is InitObject);
+        Assert.Equal(Int32, Assert.IsType<DefaultValue>(call.Arguments[1]).Type);
+        function.CheckInvariant();
+    }
+
+    [Theory]
+    [InlineData("read")]
+    [InlineData("address")]
+    [InlineData("store")]
+    [InlineData("initialize")]
+    [InlineData("type")]
+    [InlineData("storage-type")]
+    [InlineData("binding")]
+    public void DefaultValueSpill_UnownedOrMismatchedStorageDoesNotInline(string boundary)
+    {
+        var call = ChainCall(1, new LoadLocal(0, boundary == "type" ? Object : Int32));
+        var statements = new List<IrNode>
+        {
+            new InitObject(Int32, new LoadLocalAddress(0, boundary == "storage-type" ? Object : Int32)),
+            new ExpressionStatement(call),
+        };
+        statements.Add(boundary switch
+        {
+            "read" => new ExpressionStatement(new LoadLocal(0, Int32)),
+            "address" => new ExpressionStatement(new LoadLocalAddress(0, Int32)),
+            "store" => new StoreLocal(0, Int32, new Constant(1, Int32)),
+            "initialize" => new InitObject(Int32, new LoadLocalAddress(0, Int32)),
+            "binding" => new UsingStatement(0, Int32, new Constant(0, Int32), new BlockContainer()),
+            _ => new Return(null),
+        });
+        var function = BuildCtor(1, statements.ToArray());
+
+        RunPass(function);
+
+        Assert.Contains(function.Descendants, node => node is InitObject);
+        Assert.IsType<LoadLocal>(call.Arguments[1]);
+        function.CheckInvariant();
+    }
+
     static void RunPass(IrFunction function) => new ConstructorChainArgumentPass().Run(function, PassContext.None);
 
     static int StackStores(IrFunction function) => function.Descendants.OfType<StoreStackSlot>().Count();

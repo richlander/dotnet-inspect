@@ -33,24 +33,55 @@ public sealed record EmbeddedLibraryInspectionFailure(
     EmbeddedLibraryInspectionFailureKind Kind,
     InertString Detail);
 
+public readonly record struct EmbeddedLibraryProvenance(
+    string ContentRef,
+    string Digest,
+    InertString DeclaredName);
+
+public readonly record struct EmbeddedLibraryAssemblyIdentity(
+    string Name,
+    Version? Version,
+    string? Culture,
+    string? PublicKeyToken);
+
+public enum EmbeddedLibraryApiSurfaceFailureMechanism
+{
+    Metadata,
+    Relationship,
+    Signature,
+    TypeSpecification,
+}
+
+public readonly record struct EmbeddedLibraryApiSurfaceInspectionFailure(
+    string Operation,
+    int SubjectToken,
+    EmbeddedLibraryApiSurfaceFailureMechanism Mechanism,
+    string Kind,
+    string Detail,
+    EmbeddedLibraryAssemblyIdentity? SubjectAssembly,
+    EmbeddedLibraryAssemblyIdentity? DependencyAssembly);
+
 public sealed record EmbeddedLibraryInspectionResult(
     EmbeddedLibraryInspectionOutcome Outcome,
     InertString DeclaredName,
     string Digest,
     long ByteLength,
-    AssemblyResolutionProvenance? Provenance,
-    AssemblyReferenceIdentity? Assembly,
-    ApiSurface? Surface,
+    EmbeddedLibraryProvenance? Provenance,
+    EmbeddedLibraryAssemblyIdentity? Assembly,
     ImmutableArray<ApiAccessibilityBucket> Accessibility,
-    ImmutableArray<ApiSurfaceInspectionFailure> InspectionFailures,
+    ImmutableArray<EmbeddedLibraryApiSurfaceInspectionFailure>
+        InspectionFailures,
     EmbeddedLibraryInspectionFailure? Failure,
     bool IsComplete)
 {
     public bool IsAvailable =>
         Outcome == EmbeddedLibraryInspectionOutcome.Available
-        && Assembly is not null
-        && Surface is not null;
+        && Assembly is not null;
 }
+
+public readonly record struct EmbeddedLibraryInspectionExecution(
+    InspectionEnvelope<EmbeddedLibraryInspectionResult> Inspection,
+    ApiSurface? Surface);
 
 /// <summary>
 /// Inspects one immutable embedded managed image as a closed-world Library.
@@ -59,7 +90,7 @@ public static class EmbeddedLibraryInspection
 {
     public const int DefaultMaximumImageBytes = 32 * 1024 * 1024;
 
-    public static async Task<InspectionEnvelope<EmbeddedLibraryInspectionResult>>
+    public static async Task<EmbeddedLibraryInspectionExecution>
         ExecuteAsync(
             string declaredName,
             ImmutableArray<byte> content,
@@ -77,7 +108,7 @@ public static class EmbeddedLibraryInspection
                 maximumImageBytes,
                 cancellationToken);
         if (preparation is EmbeddedLibraryPreparation.Rejected rejected)
-            return rejected.Inspection;
+            return new(rejected.Inspection, Surface: null);
 
         var ready = (EmbeddedLibraryPreparation.Ready)preparation;
         InertString safeName = ready.DeclaredName;
@@ -96,13 +127,15 @@ public static class EmbeddedLibraryInspection
                 cancellationToken);
         if (retained is RetainedAssemblyContextGroup.Rejected imageRejected)
         {
-            return Rejected(
-                safeName,
-                content.Length,
-                digest,
-                FailureKind(imageRejected.Failure.Kind),
-                imageRejected.Failure.Detail,
-                assembly.Identity);
+            return new(
+                Rejected(
+                    safeName,
+                    content.Length,
+                    digest,
+                    FailureKind(imageRejected.Failure.Kind),
+                    imageRejected.Failure.Detail,
+                    assembly.Identity),
+                Surface: null);
         }
 
         AssemblyContextGroup group =
@@ -116,14 +149,16 @@ public static class EmbeddedLibraryInspection
                 [participant]);
         if (projection.Truncation is { } truncation)
         {
-            return Rejected(
-                safeName,
-                content.Length,
-                digest,
-                EmbeddedLibraryInspectionFailureKind.ProjectionTruncated,
-                $"The uploaded Library exceeded the {truncation.Limit} "
-                    + $"projection bound of {truncation.Bound}.",
-                assembly.Identity);
+            return new(
+                Rejected(
+                    safeName,
+                    content.Length,
+                    digest,
+                    EmbeddedLibraryInspectionFailureKind.ProjectionTruncated,
+                    $"The uploaded Library exceeded the {truncation.Limit} "
+                        + $"projection bound of {truncation.Bound}.",
+                    assembly.Identity),
+                Surface: null);
         }
 
         AssemblyContextEntry<AssemblyApiSurface> entry =
@@ -131,48 +166,56 @@ public static class EmbeddedLibraryInspection
         if (entry is AssemblyContextEntry<AssemblyApiSurface>.Rejected
             participantRejected)
         {
-            return Rejected(
-                safeName,
-                content.Length,
-                digest,
-                FailureKind(participantRejected.Failure.Kind),
-                participantRejected.Failure.Detail,
-                assembly.Identity);
+            return new(
+                Rejected(
+                    safeName,
+                    content.Length,
+                    digest,
+                    FailureKind(participantRejected.Failure.Kind),
+                    participantRejected.Failure.Detail,
+                    assembly.Identity),
+                Surface: null);
         }
         if (entry is AssemblyContextEntry<AssemblyApiSurface>.Failed failed)
         {
-            return Rejected(
-                safeName,
-                content.Length,
-                digest,
-                EmbeddedLibraryInspectionFailureKind.InspectionFailed,
-                failed.Error.Message,
-                assembly.Identity);
+            return new(
+                Rejected(
+                    safeName,
+                    content.Length,
+                    digest,
+                    EmbeddedLibraryInspectionFailureKind.InspectionFailed,
+                    failed.Error.Message,
+                    assembly.Identity),
+                Surface: null);
         }
 
         AssemblyApiSurface available =
             ((AssemblyContextEntry<AssemblyApiSurface>.Available)entry).Value;
+        ImmutableArray<EmbeddedLibraryApiSurfaceInspectionFailure>
+            inspectionFailures =
+                Detach(available.InspectionFailures);
         var result = new EmbeddedLibraryInspectionResult(
             EmbeddedLibraryInspectionOutcome.Available,
             safeName,
             digest,
             content.Length,
-            provenance,
-            assembly.Identity,
-            available.Surface,
+            Detach(provenance),
+            Detach(assembly.Identity),
             projection.Accessibility,
-            available.InspectionFailures,
+            inspectionFailures,
             Failure: null,
             IsComplete: available.InspectionFailures.IsEmpty);
         return new(
-            result,
-            NonProjectableShare(),
-            available.InspectionFailures.Select(
-                failure => new InspectionDiagnostic(
-                    "embedded-library-inspection-incomplete",
-                    InspectionDiagnosticSeverity.Warning,
-                    $"{failure.Operation}: {failure.Kind}: {failure.Detail}",
-                    assembly.Identity.ToString())));
+            new(
+                result,
+                NonProjectableShare(),
+                inspectionFailures.Select(
+                    failure => new InspectionDiagnostic(
+                        "embedded-library-inspection-incomplete",
+                        InspectionDiagnosticSeverity.Warning,
+                        $"{failure.Operation}: {failure.Kind}: {failure.Detail}",
+                        assembly.Identity.ToString()))),
+            available.Surface);
     }
 
     /// <summary>
@@ -389,12 +432,11 @@ public static class EmbeddedLibraryInspection
                 byteLength,
                 Provenance: string.IsNullOrEmpty(digest)
                     ? null
-                    : AssemblyResolutionProvenance.Embedded(
+                    : new EmbeddedLibraryProvenance(
                         "browser-upload",
                         $"sha256:{digest}",
-                        declaredName.ToString()),
-                assembly,
-                Surface: null,
+                        declaredName),
+                assembly is null ? null : Detach(assembly),
                 Accessibility: [],
                 InspectionFailures: [],
                 failure,
@@ -408,6 +450,60 @@ public static class EmbeddedLibraryInspection
                     assembly?.ToString()),
             ]);
     }
+
+    static EmbeddedLibraryProvenance Detach(
+        AssemblyResolutionProvenance provenance) =>
+        provenance switch
+        {
+            AssemblyResolutionProvenance.EmbeddedAsset embedded =>
+                new(
+                    embedded.ContentRef,
+                    embedded.Digest,
+                    new InertString(TextPolicy.Field, embedded.DeclaredName)),
+            _ => throw new InvalidOperationException(
+                "Embedded Library provenance must remain Embedded."),
+        };
+
+    static EmbeddedLibraryAssemblyIdentity Detach(
+        AssemblyReferenceIdentity identity) =>
+        new(
+            identity.Name,
+            identity.Version,
+            identity.Culture,
+            identity.PublicKeyToken);
+
+    static ImmutableArray<EmbeddedLibraryApiSurfaceInspectionFailure>
+        Detach(ImmutableArray<ApiSurfaceInspectionFailure> failures) =>
+        failures.IsEmpty
+            ? []
+            : [.. failures.Select(Detach)];
+
+    static EmbeddedLibraryApiSurfaceInspectionFailure Detach(
+        ApiSurfaceInspectionFailure failure) =>
+        new(
+            failure.Operation,
+            failure.SubjectToken,
+            failure.Mechanism switch
+            {
+                MetadataTypeNameFailureMechanism.Metadata =>
+                    EmbeddedLibraryApiSurfaceFailureMechanism.Metadata,
+                MetadataTypeNameFailureMechanism.Relationship =>
+                    EmbeddedLibraryApiSurfaceFailureMechanism.Relationship,
+                MetadataTypeNameFailureMechanism.Signature =>
+                    EmbeddedLibraryApiSurfaceFailureMechanism.Signature,
+                MetadataTypeNameFailureMechanism.TypeSpecification =>
+                    EmbeddedLibraryApiSurfaceFailureMechanism.TypeSpecification,
+                _ => throw new InvalidOperationException(
+                    "Unknown embedded Library API-surface failure mechanism."),
+            },
+            failure.Kind,
+            failure.Detail,
+            failure.SubjectAssembly is null
+                ? null
+                : Detach(failure.SubjectAssembly),
+            failure.DependencyAssembly is null
+                ? null
+                : Detach(failure.DependencyAssembly));
 
     private static bool IsMetadataModule(byte[] bytes)
     {

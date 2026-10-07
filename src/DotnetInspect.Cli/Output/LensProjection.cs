@@ -10,7 +10,7 @@ namespace DotnetInspect.Cli.Output;
 /// <remarks>
 /// <para>
 /// Most projection dispatch happens inside the section pipeline, so a mode that produces its own
-/// payload and returns early — <c>--versions</c>, <c>--layout</c>, <c>--tfms</c>,
+/// payload and returns early — <c>--versions</c>, <c>--files</c>, <c>--tfms</c>,
 /// <c>--dependencies</c>, <c>library address --file</c>, and
 /// <c>-D</c>/<c>--discover</c> — never reaches it. Each such mode accepted
 /// the projection flags and then rendered its own unprojected payload, which

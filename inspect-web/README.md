@@ -84,17 +84,31 @@ prevent all three retired edges from returning.
 
 The separate `inspect-web-library-facade-*-dependencies-stay-within-capability-ratchet`
 rules preserve the Library facade's smaller evaluated-project boundary and its
-larger compiled-assembly boundary. The facade currently adapts the shared
-Library document and embedded-Library inspection while directly projecting
-Metadata-owned identity and API-surface values. It therefore keeps the broad
-semantic analyzer input until focused #8779 successors retire those low-level
-edges; the positive rules prevent either graph from expanding meanwhile.
+larger compiled-assembly boundary. Uploaded-Library provenance, assembly
+identity, accessibility, and inspection failures now arrive as detached
+Sections-owned values; Web Core alone reads and lowers the execution's raw API
+surface. The independent exact-Library document path now consumes
+Sections-owned bounds and detached LibraryMetadata enablement values while
+preserving the established wire contract. Its `ILInspector.Metadata` project
+edge and both compiled Metadata edges are retired; the positive rules prevent
+them from returning.
 
 The separate `inspect-web-catalog-facade-*-dependencies-stay-within-capability-ratchet`
 rules preserve the Catalog facade's evaluated-project and compiled-assembly
 boundaries. Home-demo call graphs use Web Core's shared lowering of the
 host-neutral call-graph projection, so neither graph admits
-`ILInspector.Analysis`.
+`ILInspector.Analysis`. Queries-owned demo selection now resolves the
+owner-issued member anchor over the already projected browser surface, and
+Queries-owned portable identities detach retained and Platform Library
+identity fields. The Catalog facade therefore has no project or compiled
+reference to `ILInspector.Metadata`.
+
+The separate `inspect-web-source-facade-*-dependencies-stay-within-capability-ratchet`
+rules establish the Source facade's evaluated-project and compiled-assembly
+ceilings. Services projects resolved and attributable browse URLs from typed
+PDB source inspections, so the facade preserves its existing source and
+comparison wire fields without interpreting SourceLink documents. Neither
+Source dependency graph admits `ILInspector.SourceLink`.
 
 Web Core and the capability facades other than CallGraph still use the broader
 `src/DotnetInspect.Web/BannedSymbols.txt` while their positive component

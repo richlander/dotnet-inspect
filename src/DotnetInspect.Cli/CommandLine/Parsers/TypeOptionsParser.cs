@@ -354,19 +354,30 @@ public static class TypeOptionsParser
             CloneCandidateRowSelectionAdoption.IsActive(
                 parseResult,
                 opts);
+        bool selectsBodyShapeRows =
+            !selectsCloneCandidateRows
+            && BodyShapeRowSelectionAdoption.IsActive(
+                parseResult,
+                opts,
+                args.TfmOption);
         bool selectsTypeListingRows =
             !selectsCloneCandidateRows
+            && !selectsBodyShapeRows
             && IsTypeListingRowSelection(
                 parseResult,
                 opts,
                 args);
         RowSelectionIntent<string>? semanticRowSelection = null;
-        if ((selectsCloneCandidateRows || selectsTypeListingRows)
+        if ((selectsCloneCandidateRows
+                || selectsBodyShapeRows
+                || selectsTypeListingRows)
             && !CliRowSelectionCommandRegistry
                 .TryGetPreparedSemanticIntent(
                     parseResult,
                     selectsCloneCandidateRows
                         ? "Clone Candidates"
+                        : selectsBodyShapeRows
+                        ? "Body Shapes"
                         : "Type",
                     out semanticRowSelection,
                     out string? rowSelectionError))
@@ -619,6 +630,10 @@ public static class TypeOptionsParser
                 : opts.ParseRows(parseResult),
             CloneCandidateRowSelection =
                 selectsCloneCandidateRows
+                    ? semanticRowSelection
+                    : null,
+            BodyShapeRowSelection =
+                selectsBodyShapeRows
                     ? semanticRowSelection
                     : null,
             PerformanceTriage = performanceTriage,

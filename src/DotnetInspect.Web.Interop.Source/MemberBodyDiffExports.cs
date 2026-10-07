@@ -9,6 +9,7 @@ using ILInspector.Research;
 using Markout;
 using DotnetInspector.Queries;
 using TsJsExport;
+using static DotnetInspect.Web.BrowserOrdinaryWorkerJsonBudget;
 
 namespace DotnetInspect.Web.Interop.Source;
 
@@ -56,11 +57,15 @@ public static partial class SourceExports
         };
         string json = JsonSerializer.Serialize(wire, BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffResult);
         using var parsed = JsonDocument.Parse(json);
-        if (json.Length > 16_777_216 || CountEntries(parsed.RootElement) > 524_288)
+        long characters = JsonStringifyCharacters(parsed.RootElement) + 2;
+        long entries = CollectionEntries(parsed.RootElement) + OrdinaryWorkerResultTupleOverhead;
+        if (characters > MaxOrdinaryWorkerTransportJsonCharacters || entries > MaxOrdinaryWorkerTransportCollectionEntries)
         {
             if (wire.Inventory is { } inventory) MemberBodyInventories.Remove(inventory.Id);
             return JsonSerializer.Serialize(new BrowserMemberBodyDiffResult("TooComplex", null, null,
-                "The complete Member Body result exceeds the Worker transport limits."),
+                $"The complete Member Body result exceeds the Worker transport limits "
+                + $"({characters} characters and {entries} collection entries; "
+                + $"limits {MaxOrdinaryWorkerTransportJsonCharacters} and {MaxOrdinaryWorkerTransportCollectionEntries})."),
                 BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffResult);
         }
         return json;
@@ -196,10 +201,4 @@ public static partial class SourceExports
         })], document.Before.Outcome.ToString(), document.After.Outcome.ToString(),
             document.Before.Detail, document.After.Detail);
 
-    static long CountEntries(JsonElement value) => value.ValueKind switch
-    {
-        JsonValueKind.Array => value.GetArrayLength() + value.EnumerateArray().Sum(CountEntries),
-        JsonValueKind.Object => value.EnumerateObject().Sum(property => 1 + CountEntries(property.Value)),
-        _ => 0,
-    };
 }

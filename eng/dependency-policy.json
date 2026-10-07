@@ -155,7 +155,6 @@
         "DotnetInspect.Web.Core",
         "DotnetInspector.Queries",
         "DotnetInspector.Sections",
-        "ILInspector.Metadata",
         "TsJsExport.Contracts"
       ]
     },
@@ -179,8 +178,6 @@
         "DotnetInspector.Packages",
         "DotnetInspector.Queries",
         "DotnetInspector.Sections",
-        "ILInspector.Metadata",
-        "ILInspector.MetadataPrimitives",
         "InertText",
         "TsJsExport.Contracts"
       ]
@@ -201,8 +198,7 @@
         "DotnetInspect.Web.Core",
         "DotnetInspector.Ecosystems",
         "DotnetInspector.Queries",
-        "DotnetInspector.Sections",
-        "ILInspector.Metadata"
+        "DotnetInspector.Sections"
       ]
     },
     {
@@ -227,10 +223,77 @@
         "DotnetInspector.Sections",
         "DotnetInspector.SourceSelection",
         "ILInspector.Decompiler",
-        "ILInspector.Metadata",
         "InertText",
         "NuGetFetch",
         "QuerySpace.Primitives"
+      ]
+    },
+    {
+      "id": "inspect-web-source-facade-project-dependencies-stay-within-capability-ratchet",
+      "source": "docs/design/member-source-acquisition.md#owner-and-claim; docs/design/inspect-web-jsexport-partitioning.md#source-facade-9-exports; composition tracker #8779",
+      "graphs": [
+        "project"
+      ],
+      "targets": [
+        "DotnetInspect.Web.Interop.Source"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web.Interop.Source/DotnetInspect.Web.Interop.Source.csproj"
+      ],
+      "allowOnly": [
+        "DotnetInspect.Web.Core",
+        "DotnetInspector.Packages",
+        "DotnetInspector.Presentation",
+        "DotnetInspector.Queries",
+        "DotnetInspector.ResearchQueries",
+        "DotnetInspector.ResearchSections",
+        "DotnetInspector.Sections",
+        "DotnetInspector.Services",
+        "ILInspector.Analysis",
+        "ILInspector.CSharp",
+        "ILInspector.Decompiler",
+        "ILInspector.Metadata",
+        "TsJsExport.Contracts"
+      ]
+    },
+    {
+      "id": "inspect-web-source-facade-assembly-dependencies-stay-within-capability-ratchet",
+      "source": "docs/design/member-source-acquisition.md#owner-and-claim; docs/design/inspect-web-jsexport-partitioning.md#source-facade-9-exports; composition tracker #8779",
+      "graphs": [
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspect.Web.Interop.Source"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web.Interop.Source/DotnetInspect.Web.Interop.Source.csproj"
+      ],
+      "allowOnly": [
+        "$platform",
+        "CSharpText",
+        "DotnetInspect.Web.Core",
+        "DotnetInspector.Packages",
+        "DotnetInspector.Presentation",
+        "DotnetInspector.Queries",
+        "DotnetInspector.ResearchQueries",
+        "DotnetInspector.ResearchSections",
+        "DotnetInspector.Sections",
+        "DotnetInspector.Services",
+        "DotnetInspector.SourceHouse",
+        "ILInspector.Analysis",
+        "ILInspector.CallGraph",
+        "ILInspector.CSharp",
+        "ILInspector.Decompiler",
+        "ILInspector.ILDiff",
+        "ILInspector.Metadata",
+        "ILInspector.MetadataPrimitives",
+        "ILInspector.Research",
+        "InertText",
+        "Inspector.Findings",
+        "Inspector.Text",
+        "Markout",
+        "NuGet.Versioning",
+        "TsJsExport.Contracts"
       ]
     },
     {

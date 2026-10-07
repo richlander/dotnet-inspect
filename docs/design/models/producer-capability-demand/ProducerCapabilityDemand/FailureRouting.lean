@@ -160,9 +160,8 @@ theorem any_sound (dependsOn : Nat → Nat → Bool) (results : List Result)
 
 /--
 Completeness: every result set in which each result that depends on a
-reported failure reports some failure it depends on is accepted. In
-particular, any execution that fails several provisions has an accepted
-result set.
+reported failure reports some failure it depends on is accepted. Such a report
+exists for every dependent, since the failure it depends on is one choice.
 -/
 theorem any_complete (dependsOn : Nat → Nat → Bool) (results : List Result)
     (h : ∀ r ∈ results, ∀ f, reportedFailed results f →

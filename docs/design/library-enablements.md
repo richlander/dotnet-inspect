@@ -189,6 +189,13 @@ derivation. The current Signals AOT reading, which also scans module, Type, and
 member attributes and lets the last value win, retires in the CLI adoption
 slice.
 
+Library document adoption immediately snapshots the derived result into
+detached immutable values in `DotnetInspector.LibraryMetadata`. That projection
+preserves this owner's identifiers, labels, states, reasons, and JSON spelling;
+label lookup delegates back to this owner rather than redefining the
+vocabulary. Hosts consume the detached projection and do not acquire ownership
+of enablement semantics.
+
 Badges and chips show only Enabled. Not enabled and Unavailable are silent in
 those presentations, so a badge is never a guess. Structured output and the
 Signals rows retain every state and reason. The CLI `Library Info` row that

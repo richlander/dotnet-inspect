@@ -3,6 +3,13 @@ namespace QuerySpace.Rows;
 
 public static class RowQueryExecutor
 {
+    /// <summary>Evaluates only the resolved predicates, before ordering and selection stages.</summary>
+    public static bool Matches<TRow>(TRow row, ResolvedRowQueryPlan<TRow> plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        return plan.Predicates.All(predicate => predicate(row));
+    }
+
     public static bool CanApplyCount<TRow>(
         ResolvedRowQueryPlan<TRow> plan)
     {

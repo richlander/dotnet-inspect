@@ -6,7 +6,6 @@ using DotnetInspector.Libraries;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
-using ILInspector.Metadata;
 using TsJsExport;
 
 using DotnetInspect.Web;
@@ -54,15 +53,6 @@ public static partial class LibraryExports
 internal static class BrowserLibraryDocumentOperation
 {
     private const long MaxAssemblyImageBytes = 64L * 1024 * 1024;
-
-    private static readonly ApiSurfaceExtractionBounds s_bounds =
-        new(
-            maxTypes: BrowserApiSurfacePolicy.MaxTypes,
-            maxMembers: BrowserApiSurfacePolicy.MaxMembers,
-            maxInspectionFailures: BrowserApiSurfacePolicy.MaxInspectionFailures,
-            maxTypeForwarders: BrowserApiSurfacePolicy.MaxTypeForwarders,
-            maxMetadataRows: BrowserApiSurfacePolicy.MaxMetadataRows,
-            maxRetainedTextCharacters: BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
 
     private static readonly AssemblyContextLibraryMaterializationLimits s_limits =
         new(MaxAssemblyImageBytes, MaxAssemblyImageBytes);
@@ -175,7 +165,7 @@ internal static class BrowserLibraryDocumentOperation
     internal static LibraryInspectionPlan Plan(BrowserLibraryInspectionPlan plan) =>
         new(
             types: null,
-            s_bounds,
+            BrowserApiSurfacePolicy.LibraryBounds,
             plan.Enablements ? new LibraryEnablementsRequest() : null);
 
     private static async Task<BrowserLibraryDocumentInspection> InspectAsync(

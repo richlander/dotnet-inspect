@@ -821,7 +821,7 @@ public class UntrustedPackageContainmentTests : IDisposable
     }
 
     /// <summary>
-    /// The file tree the <c>--layout</c> flag renders is a separate channel from
+    /// The file tree the <c>--files</c> flag renders is a separate channel from
     /// the package's file table, and it renders the ZIP entry name straight into
     /// the tree gutter.
     /// </summary>
@@ -832,7 +832,7 @@ public class UntrustedPackageContainmentTests : IDisposable
             () => PackageCommand.ExecuteAsync(new InspectionOptions
             {
                 PackageArgs = [_path],
-                ListLayout = true,
+                Select = ["Files"],
                 CompanionOutput = CompanionOutput.None,
             }));
 
@@ -845,7 +845,7 @@ public class UntrustedPackageContainmentTests : IDisposable
                 $"'{marker}' never rendered, so this gate proves nothing about its channel");
         }
 
-        HostileOutputAssert.NoRenderingHazard(output, "package --layout");
+        HostileOutputAssert.NoRenderingHazard(output, "package --files");
     }
 
     [Fact]

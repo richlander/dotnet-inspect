@@ -399,14 +399,16 @@ static partial class ReturnToSenderSourceProbe
                     ? suppliedPackage
                     : TryGetNuGetPackageCoordinate(assemblyPath);
 
-            SourceLinkService? source = null;
+            AuthoredSourceQuerySession? source = null;
             SourceAcquisitionAttempt? assemblyAcquisition = null;
             try
             {
-                source = SourceLinkService.Open(assemblyPath);
-                await AuthoredRebuildFidelity.AcquirePdbAsync(
-                    source,
+                source =
+                    AuthoredSourceQuerySession.Open(
+                    assemblyPath,
                     httpClient,
+                    fetcher,
+                    repositoryPaths,
                     package?.Id,
                     package?.Version,
                     pdbStore);
@@ -421,20 +423,7 @@ static partial class ReturnToSenderSourceProbe
                     Member: null);
             }
 
-            if (assemblyAcquisition is null
-                && source is not null
-                && source.Context.NeedsPdb)
-            {
-                assemblyAcquisition = new SourceAcquisitionAttempt(
-                    SourceAcquisitionOutcome.Absent,
-                    source.Context.WindowsPdbDetected
-                        ? "A Windows PDB was found, but portable-PDB source mapping is unavailable."
-                        : "No matching portable PDB is available.",
-                    SourcePath: null,
-                    Member: null);
-            }
-
-            using (source)
+            await using (source)
             {
                 foreach (var target in targets)
                 {
@@ -451,11 +440,25 @@ static partial class ReturnToSenderSourceProbe
                                 "Source acquisition completed without a source context or failure.");
                         }
 
-                        acquisition = await AcquireSourceAsync(
-                            source,
-                            fetcher,
-                            target,
-                            repositoryPaths);
+                        try
+                        {
+                            acquisition =
+                                await AcquireSourceAsync(
+                                    source,
+                                    target);
+                        }
+                        catch (Exception ex) when (
+                            AuthoredRebuildFidelity
+                                .IsPdbAcquisitionFailure(ex))
+                        {
+                            acquisition =
+                                new SourceAcquisitionAttempt(
+                                    SourceAcquisitionOutcome
+                                        .Failed,
+                                    $"Authored source acquisition failed: {ex.Message}",
+                                    SourcePath: null,
+                                    Member: null);
+                        }
                     }
 
                     acquisitions.Add(Key(target.Target), acquisition);
@@ -479,22 +482,12 @@ static partial class ReturnToSenderSourceProbe
     }
 
     internal static async Task<SourceAcquisitionAttempt> AcquireSourceAsync(
-        SourceLinkService source,
-        SourceFetch fetcher,
-        ProbeTarget target,
-        IReadOnlyList<string>? repositoryPaths = null)
+        AuthoredSourceQuerySession source,
+        ProbeTarget target)
     {
-        var subject = new FindingSubject(
-            TargetId(target.Target),
-            TargetDisplay(target.Target));
         PdbMemberSourceInspection authored =
-            await PdbMemberSourceAcquisition.AcquireAsync(
-            source,
-            target.MetadataToken,
-            target.Target.Method,
-            subject,
-            fetcher,
-            repositoryPaths);
+            await source.AcquireAsync(
+                target.MetadataToken);
         return CreateSourceAcquisition(target, authored);
     }
 
@@ -507,6 +500,17 @@ static partial class ReturnToSenderSourceProbe
 
         string? sourcePath = authored.Document?.CanonicalPath
             ?? authored.Mapping?.CanonicalPath;
+
+        if (authored.Outcome
+            == PdbMemberSourceOutcome
+                .PortablePdbUnavailable)
+        {
+            return new SourceAcquisitionAttempt(
+                SourceAcquisitionOutcome.Absent,
+                "No matching portable PDB is available.",
+                sourcePath,
+                Member: null);
+        }
 
         if (authored.Lines.Value is FindingInspection<string>.Absent absent)
         {

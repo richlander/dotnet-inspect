@@ -360,7 +360,7 @@ test("exact package coordinates are presented as direct listed-or-unlisted opens
 
   assert.match(html, /data-sl-pkg-load="WrongTurn"/);
   assert.match(html, /data-sl-pkg-version="0\.1\.14"/);
-  assert.match(html, /0\.1\.14 · exact coordinate · listed or unlisted/);
+  assert.match(html, /title="exact coordinate · listed or unlisted">0\.1\.14<\/span>/);
 });
 
 test("Add package dispatches rendered loaded, NuGet and recent rows only to Add", () => {
@@ -609,7 +609,7 @@ test("ordinary open and reset clear the Add callback and restore Search scopes a
     assert.match(html, /aria-label="Go to anything"/);
     assert.match(html, /data-sl-scope="commands"/);
     assert.match(html, /data-sl-remove/);
-    assert.match(html, /1\.0\.0 · open/);
+    assert.match(html, /class="spotlight-item-ns">1\.0\.0<\/span>/);
     assert.doesNotMatch(html, /already in Workspace|spotlight-cancel/);
     withBoundSpotlight(harness, dom => {
       dom.clickRow(0);
@@ -1184,12 +1184,12 @@ test("same-named Package and Library share one Ecosystem group with independent 
   const { spotlight } = createHarness({ searchResults: () => [external, packageResult, libraryResult] });
   const html = spotlight.modalHtml();
   assert.equal((html.match(/class="spotlight-group">Ecosystem/g) ?? []).length, 1);
-  assert.match(html, /aria-label="Package pruned for net10.0"/);
+  assert.match(html, /aria-label="Package: \.NET Runtime; pruned for net10.0"/);
   assert.match(html, /aria-label="Library: \.NET Runtime"/);
   assert.equal((html.match(/class="spotlight-svg-icon spotlight-pruned"/g) ?? []).length, 1);
   assert.match(html, /Supplied by net10.0 @ 10.0.12/);
-  assert.match(html, /\.NET Runtime · 4.3.0/);
-  assert.match(html, /\.NET Runtime · net10\.0/);
+  assert.match(html, /class="spotlight-item-ns" title="nuget.org">4\.3\.0<\/span>/);
+  assert.match(html, /title="\.NET Runtime · net10\.0 · 10\.0\.12 · 1 type">10\.0\.12 · net10\.0<\/span>/);
   assert.notEqual(spotlightResultIdentity(packageResult), spotlightResultIdentity(libraryResult));
   assert.deepEqual(spotlight.results(), [libraryResult, packageResult, external]);
 });
@@ -1211,9 +1211,9 @@ test("artifact rows use one leading pruning, ecosystem, or fallback glyph", () =
   const cases: { result: SpotlightResult; icon: string; label: string }[] = [
     { result: { kind: "pkg-nuget", hit: { id: "Aspire.Hosting", version: "9.0.0" }, ranges: [], ecosystem }, icon: "sl-ecosystem-aspire", label: "Package: Aspire" },
     { result: { kind: "pkg-nuget", hit: { id: "Example.External", version: "1.0.0" }, ranges: [] }, icon: "sl-package-icon", label: "Package" },
-    { result: { kind: "pkg-nuget", hit: { id: "Microsoft.Extensions.AI", version: "9.0.0" }, ranges: [], ecosystem: { ...ecosystem, id: "ecosystem.ai", title: "AI" } }, icon: "sl-package-icon", label: "Package" },
-    { result: { kind: "pkg-recent", entry: { id: "System.Linq", version: "4.3.0" }, ranges: [], ecosystem: prunedEcosystem }, icon: "spotlight-pruned", label: "Package pruned for net10.0" },
-    { result: { kind: "pkg-loaded", pkg: { id: "System.Linq", version: "4.3.0" }, ranges: [], ecosystem: prunedEcosystem }, icon: "spotlight-pruned", label: "Package pruned for net10.0" },
+    { result: { kind: "pkg-nuget", hit: { id: "Microsoft.Extensions.AI", version: "9.0.0" }, ranges: [], ecosystem: { ...ecosystem, id: "ecosystem.ai", title: "AI" } }, icon: "sl-package-icon", label: "Package: AI" },
+    { result: { kind: "pkg-recent", entry: { id: "System.Linq", version: "4.3.0" }, ranges: [], ecosystem: prunedEcosystem }, icon: "spotlight-pruned", label: "Package: .NET Runtime; pruned for net10.0" },
+    { result: { kind: "pkg-loaded", pkg: { id: "System.Linq", version: "4.3.0" }, ranges: [], ecosystem: prunedEcosystem }, icon: "spotlight-pruned", label: "Package: .NET Runtime; pruned for net10.0" },
     { result: { kind: "framework-lib", assembly: "System.Linq", pack: "netcore.app", publicTypes: 1, ranges: [] }, icon: "sl-ecosystem-runtime", label: "Library: .NET Runtime" },
     { result: { kind: "framework-lib", assembly: "Example.Library", pack: "other", publicTypes: 1, ranges: [] }, icon: "sl-library-icon", label: "Library" },
   ];
@@ -1254,13 +1254,23 @@ test("unavailable version comparison preserves pair order and unrelated hits sta
 test("Spotlight artifact rows show date-only metadata without changing activation identity", () => {
   const results: SpotlightResult[] = [
     { kind: "pkg-nuget", hit: { id: "System.Text.Json", version: "9.0.0" }, ranges: [], publication: { status: "available", date: "2024-11-12" } },
-    { kind: "framework-lib", assembly: "System.Text.Json", pack: "netcore.app", publicTypes: 1, ranges: [], version: "10.0.12", publication: { status: "available", date: "2026-09-08" } },
+    { kind: "framework-lib", assembly: "System.Text.Json", pack: "netcore.app", publicTypes: 1, ranges: [], version: "10.0.12", tfm: "net10.0", publication: { status: "available", date: "2026-09-08" } },
   ];
+  results.push(
+    { kind: "pkg-loaded", pkg: { id: "Example.Loaded", version: "1.0.0", activeFramework: "net8.0" }, highestFramework: "net10.0", ranges: [] },
+    { kind: "pkg-recent", entry: { id: "Example.Recent", version: "2.0.0", framework: "net8.0", highestFramework: "net10.0" }, ranges: [] },
+    { kind: "pkg-recent", entry: { id: "Example.Legacy", version: "3.0.0", framework: "net8.0" }, ranges: [] },
+  );
   const identities = results.map(spotlightResultIdentity);
   const { spotlight } = createHarness({ searchResults: () => results });
   const html = spotlight.inlineHtml(false);
   assert.match(html, /<time datetime="2024-11-12" aria-label="Published 2024-11-12" title="Published 2024-11-12">2024-11-12<\/time>/);
   assert.match(html, /<time datetime="2026-09-08" aria-label="Published 2026-09-08" title="Published 2026-09-08">2026-09-08<\/time>/);
+  assert.match(html, /class="spotlight-item-ns">1\.0\.0 · net10\.0<\/span>/);
+  assert.match(html, /class="spotlight-item-ns">2\.0\.0 · net10\.0<\/span>/);
+  assert.match(html, /class="spotlight-item-ns">3\.0\.0<\/span>/);
+  assert.match(html, /title="[^"\n]+">10\.0\.12 · net10\.0<\/span>/);
+  assert.doesNotMatch(html, />[^<]*net8\.0/);
   assert.deepEqual(spotlight.results().map(spotlightResultIdentity).sort((a, b) => a.localeCompare(b)), identities.sort((a, b) => a.localeCompare(b)));
 });
 
@@ -1273,4 +1283,25 @@ test("Libraries is beside Packages and admits only Library observations", () => 
   const html = spotlight.modalHtml();
   assert.match(html, /data-sl-scope="packages"[^>]*>Packages<\/button>\s*<button[^>]*data-sl-scope="libraries"/);
   assert.doesNotMatch(html, /data-sl-pkg-load|data-sl-package-activity/);
+});
+
+test("platform suggestions dismiss by keyboard without activation and remain searchable", () => {
+  const row: SpotlightResult = { kind: "framework-lib", assembly: "System.Runtime", pack: "netcore.app", publicTypes: 1, ranges: [] };
+  let dismissed = false;
+  let activated = 0;
+  const harness = createHarness({
+    searchResults: () => !harness.state.spotlightQuery && dismissed ? [] : [row],
+    removeResult: () => { dismissed = true; return true; },
+    pickResult: () => { activated++; },
+  });
+  assert.match(harness.spotlight.inlineHtml(false), /aria-label="Dismiss System.Runtime from Spotlight suggestions"/);
+  withBoundSpotlight(harness, dom => {
+    assert.equal(dom.press("Delete", true), true);
+    assert.equal(activated, 0);
+    assert.doesNotMatch(harness.spotlight.inlineHtml(false), /data-sl-framework-lib/);
+  });
+  harness.state.spotlightQuery = "System.Runtime";
+  const search = harness.spotlight.inlineHtml(false);
+  assert.match(search, /data-sl-framework-lib/);
+  assert.doesNotMatch(search, /data-sl-remove=/);
 });
