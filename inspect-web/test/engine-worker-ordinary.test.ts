@@ -215,6 +215,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformPerformance"),
   },
   source: {
+    queryMemberBodyDiff: () => { throw new Error("unused"); },
+    cancelMemberBodyDiff: () => { throw new Error("unused"); },
     queryMemberSource: () => unexpected("queryMemberSource"),
     queryPlatformMemberSource: () =>
       unexpected("queryPlatformMemberSource"),
@@ -2376,6 +2378,8 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformTypeMethodLeverage",
     ],
     source: [
+      "cancelMemberBodyDiff",
+      "queryMemberBodyDiff",
       "cancelMemberSourceComparison",
       "cancelMethodBodyComparison",
       "cancelSourceQuery",
@@ -2439,7 +2443,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 116);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 118);
 
   const state = fixture();
   const groups = [

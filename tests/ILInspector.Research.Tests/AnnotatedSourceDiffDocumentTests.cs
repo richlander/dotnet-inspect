@@ -95,7 +95,11 @@ public class AnnotatedSourceDiffDocumentTests
             document.Before.Document.Nodes,
             static node => node.Medium == SourceLineKind.Il);
         AnnotatedSourceDiffMedium medium = Assert.Single(document.Media);
-        Assert.Null(medium.Comparison);
+        Assert.NotNull(medium.Comparison);
+        Assert.NotEmpty(medium.Comparison.Analysis.Before);
+        Assert.Empty(medium.Comparison.Analysis.After);
+        Assert.All(medium.Comparison.Analysis.Relations,
+            relation => Assert.IsType<Inspector.Findings.AnalysisDiffRelation.Removal>(relation));
         Assert.Null(medium.TooComplex);
         Assert.Empty(medium.AfterLines);
     }
