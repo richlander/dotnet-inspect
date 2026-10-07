@@ -142,14 +142,7 @@ test("Integrations uses one Analysis tab and merges detected and suggested entri
   );
   assert.equal(html.match(/class="signal-row"/g)?.length, 4);
   assert.equal(html.match(/class="opp-row"/g)?.length, 2);
-  assert.match(
-    html,
-    /<footer[\s\S]*lib\/net10.0\/Example.Core.dll.*Example.Core, Version=1.0.0.0/,
-  );
-  assert.match(
-    html,
-    /<footer[\s\S]*net10.0 \/ Example.Package@1.0.0/,
-  );
+  assert.doesNotMatch(html, /<footer/);
 });
 
 test("detected rows retain category order and type-first sorting without mutating data", () => {
@@ -292,11 +285,6 @@ test("rendered facts, context, and errors use the supplied text escape boundary"
     suggestionsError: "Suggest <failed>",
   });
 
-  assert.match(
-    html,
-    /title="lib\/Core&amp;Other.dll.*Example.&quot;Core&quot;"/,
-  );
-  assert.match(html, /Example&lt;Package&gt;/);
   assert.match(html, /Detected integrations: Read &lt;failed&gt;/);
   assert.match(html, /Suggested integrations: Suggest &lt;failed&gt;/);
 });

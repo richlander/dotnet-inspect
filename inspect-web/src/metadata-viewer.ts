@@ -572,14 +572,11 @@ export interface PackageMetadataOptions extends MetadataTextHelpers {
  */
 export function renderPackageMetadata(options: PackageMetadataOptions): string {
   const {
-    isPlatform, scopedLibrary, packageId, packageVersion, activeFramework,
+    isPlatform, scopedLibrary, activeFramework,
     controlsHtml, fresh, loading, error, metadata, selectedRoot, escapeHtml,
     fmtBytes,
   } = options;
   const data = fresh ? metadata : null;
-  const context = scopedLibrary
-    ? `${activeFramework} · ${scopedLibrary}`
-    : activeFramework;
   const renderSurface = (content: string, status: string) => `
     <section class="package-metadata-surface" aria-labelledby="package-metadata-surface-title">
       <header class="metadata-surface-head package-metadata-surface-head">
@@ -590,10 +587,6 @@ export function renderPackageMetadata(options: PackageMetadataOptions): string {
       <div class="package-metadata-scroll">
         ${content}
       </div>
-      <footer class="metadata-surface-footer package-metadata-surface-footer">
-        <span title="${escapeHtml(`${packageId}@${packageVersion}`)}">${escapeHtml(`${packageId}@${packageVersion}`)}</span>
-        <span title="${escapeHtml(context)}">${escapeHtml(context)}</span>
-      </footer>
     </section>`;
   if (isPlatform && !scopedLibrary) {
     return renderSurface(

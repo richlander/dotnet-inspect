@@ -223,7 +223,8 @@ public static class MemberOverloadPopulationInspectionOperation
             ordering,
             query.Accessibility,
             query.Receiver,
-            query.IncludeHidden);
+            query.IncludeHidden,
+            subject.Spelling);
         MemberOverloadCountOutcome? count =
             !query.IncludesCount
                 ? null
@@ -339,6 +340,7 @@ public static class MemberOverloadPopulationInspectionOperation
             StringComparison.Ordinal)
         && binding.Category == subject.Category
         && binding.Role == subject.Role
+        && binding.Spelling == subject.Spelling
         && binding.Ordering == ordering
         && binding.Accessibility == accessibility
         && binding.Receiver == receiver
@@ -374,6 +376,8 @@ public static class MemberOverloadPopulationInspectionOperation
                 MetadataMethodReceiverFilter.Static,
             MemberOverloadReceiverFilter.Extension =>
                 MetadataMethodReceiverFilter.Extension,
+            MemberOverloadReceiverFilter.NonExtension =>
+                MetadataMethodReceiverFilter.NonExtension,
             _ => throw new InvalidOperationException(
                 "Unknown exact-Member receiver filter."),
         };

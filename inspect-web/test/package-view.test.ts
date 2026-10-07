@@ -53,6 +53,8 @@ function recordingActions(calls: string[]): PackageViewBindingActions {
   return {
     onPackageChildLibrarySelect: assetId =>
       calls.push(`package-child-library:${assetId}`),
+    onLibraryReferenceSelect: (packageKey, libraryId) =>
+      calls.push(`library-reference:${packageKey}:${libraryId}`),
     onRuntimeIdentifierPackageLoad: (packageId, packageVersion) =>
       calls.push(`package-child-package:${packageId}@${packageVersion}`),
     onDependencyGroupSelect: value => calls.push(`dependency-group:${value}`),
@@ -103,11 +105,16 @@ test("package view bindings decode navigation controls without eager work", () =
   const packageLibrary = new FakeElement({
     packageChildLibrary: "tools/net10.0/any/Example.dll",
   });
+  const libraryReference = new FakeElement({
+    libraryReferencePackage: "Other.Package|2.0.0|net10.0",
+    libraryReferenceLibrary: "lib/net10.0/Other.dll",
+  });
   const ridPackage = new FakeElement({
     packageChildPackage: "Example.linux-x64",
     packageChildVersion: "1.2.3",
   });
   root.addAll("[data-package-child-library]", packageLibrary);
+  root.addAll("[data-library-reference-package]", libraryReference);
   root.addAll("[data-package-child-package]", ridPackage);
   root.addAll("[data-dep-group]", group, defaultGroup);
   root.addAll("[data-dep-open]", open, secondOpen, emptyOpen);
@@ -125,6 +132,7 @@ test("package view bindings decode navigation controls without eager work", () =
 
   assert.deepEqual(calls, []);
   packageLibrary.dispatch("click");
+  libraryReference.dispatch("click");
   ridPackage.dispatch("click");
   group.dispatch("click");
   defaultGroup.dispatch("click");
@@ -147,6 +155,7 @@ test("package view bindings decode navigation controls without eager work", () =
 
   assert.deepEqual(calls, [
     "package-child-library:tools/net10.0/any/Example.dll",
+    "library-reference:Other.Package|2.0.0|net10.0:lib/net10.0/Other.dll",
     "package-child-package:Example.linux-x64@1.2.3",
     "dependency-group:2",
     "dependency-group:NaN",
@@ -203,38 +212,23 @@ test("package view binding tolerates an inactive surface", () => {
     recordingActions([])));
 });
 
-test("package navigation exposes every target framework", () => {
+test("package navigation lists versions and retains the active coordinate", () => {
   const html = renderPackageNav({
     frameworks: ["net10.0", "net9.0"],
     activeFramework: "net10.0",
-    versionFieldHtml:
-      '<label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option></select></label>',
+    versions: ["10.0.1", "10.0.0", "9.0.0-preview.1"],
+    unlistedVersions: ["10.0.1"],
+    activeVersion: "10.0.0",
     escapeHtml: value => String(value),
   });
-
-  assert.match(html, /aria-label="Frameworks"/);
-  assert.match(html, /package-framework-nav has-version-control/);
+  assert.match(html, /aria-label="Frameworks &amp; versions"/);
   assert.match(html, /id="content-navigation-close"/);
-  assert.match(
-    html,
-    /package-navigation-controls[\s\S]*id="package-version"[\s\S]*package-framework-list/);
-  assert.match(html, /data-package-framework="net10\.0"/);
-  assert.match(html, /data-package-framework="net9\.0"/);
+  assert.match(html, /data-package-version="10\.0\.0" aria-current="page"/);
+  assert.match(html, /data-package-version="9\.0\.0-preview\.1"/);
+  assert.match(html, /id="package-version-filter"/);
+  assert.match(html, /id="package-version-prerelease" type="checkbox">/);
+  assert.match(html, /id="package-version-unlisted" type="checkbox">/);
+  assert.match(html, /data-package-version="10\.0\.1" data-package-unlisted="true"/);
   assert.match(html, /data-package-framework="net10\.0" aria-current="page"/);
-  assert.match(html, /title="Use net9\.0"/);
-  assert.match(html, />current</);
-  assert.match(html, />available</);
-});
-
-test("empty package navigation retains its detail-return action", () => {
-  const html = renderPackageNav({
-    frameworks: [],
-    activeFramework: "",
-    escapeHtml: value => String(value),
-  });
-
-  assert.match(html, /No target frameworks are available/);
-  assert.match(html, /id="content-navigation-close"/);
-  assert.doesNotMatch(html, /has-version-control/);
-  assert.doesNotMatch(html, /package-navigation-controls|package-version/);
+  assert.ok(html.indexOf("data-nav-scope=\"frameworks\"") < html.indexOf("package-version-filter"));
 });

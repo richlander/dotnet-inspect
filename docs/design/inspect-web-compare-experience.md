@@ -173,7 +173,7 @@ Compare does not reserve a separate content row for the status.
 
 The compact header context explains the active Package-owned setting without
 repeating its controls or reserving another chrome row. **Change target**
-returns to Package Overview's Comparison targets work area. Compare does not
+returns to Package Compare's Comparison targets work area. Compare does not
 render a second version, breadth, discovery, or work-limit editor.
 
 Summary metrics precede the inventory or Member result. They report only

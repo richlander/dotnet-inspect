@@ -278,6 +278,7 @@ public sealed partial class PackageSourceClientTests
         Assert.False(handler.UseProxy);
         Assert.Null(handler.Credentials);
         Assert.NotNull(handler.ConnectCallback);
+        Assert.Equal(0, handler.MaxResponseDrainSize);
     }
 
     [Fact]
@@ -1021,15 +1022,17 @@ public sealed partial class PackageSourceClientTests
     [Fact]
     public void GalleryDesktopTransportDecompressesSemVer2Registration()
     {
-        using HttpClientHandler handler =
+        using HttpMessageHandler transport =
             PackageSourceClientFactory.CreateGalleryTransportHandler(
                 isBrowser: false);
 
+        SocketsHttpHandler handler = Assert.IsType<SocketsHttpHandler>(transport);
+        Assert.Equal(0, handler.MaxResponseDrainSize);
         Assert.Equal(
             DecompressionMethods.All,
             handler.AutomaticDecompression);
         Assert.False(handler.UseCookies);
-        Assert.False(handler.UseDefaultCredentials);
+        Assert.Null(handler.Credentials);
         Assert.False(handler.PreAuthenticate);
         Assert.False(handler.AllowAutoRedirect);
     }
@@ -1037,10 +1040,11 @@ public sealed partial class PackageSourceClientTests
     [Fact]
     public void GalleryBrowserTransportAvoidsUnsupportedHandlerConfiguration()
     {
-        using HttpClientHandler handler =
+        using HttpMessageHandler transport =
             PackageSourceClientFactory.CreateGalleryTransportHandler(
                 isBrowser: true);
 
+        HttpClientHandler handler = Assert.IsType<HttpClientHandler>(transport);
         Assert.Equal(
             DecompressionMethods.None,
             handler.AutomaticDecompression);

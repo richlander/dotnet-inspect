@@ -21,11 +21,11 @@ public partial class LibraryCommand
             LibraryNameFamilyInspectionJson.Write);
 
     private static readonly InspectionEnvelopeJsonContract<
-        LibraryFamilyRoleCompositionDocument> s_familyRoleJson =
+        LibraryArchitecturalFamilyCompositionDocument> s_architecturalFamilyJson =
         new(
-            "library-family-roles",
+            "architectural-families",
             1,
-            LibraryFamilyRoleInspectionJson.Write);
+            LibraryArchitecturalFamilyInspectionJson.Write);
 
     internal static bool IsExactNameFamilySelection(
         LibraryOptions options)
@@ -59,18 +59,18 @@ public partial class LibraryCommand
             || options.EnvelopeOutput
             || options.JsonOutput);
 
-    internal static bool IsExactNameFamilyRoleSelection(
+    internal static bool IsExactArchitecturalFamilySelection(
         LibraryOptions options) =>
         IsExactSectionSelection(
             options,
-            SectionNames.NameFamilyRoles)
+            SectionNames.ArchitecturalFamilies)
         || IsExactSectionSelection(
             options,
-            SectionNames.NameFamilyRoleTypes);
+            SectionNames.ArchitecturalFamilyTypes);
 
-    internal static bool RequestsNameFamilyRoleTransport(
+    internal static bool RequestsArchitecturalFamilyTransport(
         LibraryOptions options) =>
-        IsExactNameFamilyRoleSelection(options)
+        IsExactArchitecturalFamilySelection(options)
         && (options.Count
             || options.EnvelopeOutput
             || options.JsonOutput);
@@ -80,9 +80,9 @@ public partial class LibraryCommand
     {
         bool exactNameFamilies =
             IsExactNameFamilySelection(options);
-        bool exactFamilyRoles =
-            IsExactNameFamilyRoleSelection(options);
-        if ((!exactNameFamilies && !exactFamilyRoles)
+        bool exactArchitecturalFamilies =
+            IsExactArchitecturalFamilySelection(options);
+        if ((!exactNameFamilies && !exactArchitecturalFamilies)
             || (!options.EnvelopeOutput && !options.JsonOutput))
         {
             return true;
@@ -250,18 +250,18 @@ public partial class LibraryCommand
         return true;
     }
 
-    private static int WriteNameFamilyRoleTransport(
+    private static int WriteArchitecturalFamilyTransport(
         LibraryInspection inspection,
         LibraryOptions options)
     {
-        switch (inspection.FamilyRoleQueryResult)
+        switch (inspection.ArchitecturalFamilyQueryResult)
         {
-            case LibraryFamilyRoleQueryResult.Available available
+            case LibraryArchitecturalFamilyQueryResult.Available available
                 when options.Count:
                 if (available.Count is not { } count)
                 {
                     CommandError.Write(
-                        "Name Family Roles produced no Count result.");
+                        "Architectural Families produced no Count result.");
                     return 1;
                 }
                 CountOutput.WriteCount(
@@ -269,83 +269,83 @@ public partial class LibraryCommand
                     options.OutputPath);
                 return 0;
 
-            case LibraryFamilyRoleQueryResult.Available available:
+            case LibraryArchitecturalFamilyQueryResult.Available available:
                 InspectionEnvelope<
-                    LibraryFamilyRoleCompositionDocument> envelope =
-                        LibraryFamilyRoleInspection.Envelope(available);
+                    LibraryArchitecturalFamilyCompositionDocument> envelope =
+                        LibraryArchitecturalFamilyInspection.Envelope(available);
                 return InspectionEnvelopeOutput.TryWrite(
                     envelope,
-                    s_familyRoleJson,
+                    s_architecturalFamilyJson,
                     options.EnvelopeOutput,
                     options.CompactJson,
                     options.OutputPath)
                         ? 0
                         : 1;
 
-            case LibraryFamilyRoleQueryResult.NameFamiliesUnavailable
+            case LibraryArchitecturalFamilyQueryResult.NameFamiliesUnavailable
                 unavailable:
                 CommandError.Write(
-                    "Name Family Roles is unavailable: "
+                    "Architectural Families is unavailable: "
                         + unavailable.Outcome.Detail);
                 return 1;
 
-            case LibraryFamilyRoleQueryResult.NameFamiliesRejected rejected:
+            case LibraryArchitecturalFamilyQueryResult.NameFamiliesRejected rejected:
                 CommandError.Write(
-                    "Name Family Roles name-family input was rejected: "
+                    "Architectural Families name-family input was rejected: "
                         + rejected.Outcome.Detail);
                 return 1;
 
-            case LibraryFamilyRoleQueryResult.StructuralRejected rejected:
+            case LibraryArchitecturalFamilyQueryResult.StructuralRejected rejected:
                 CommandError.Write(
-                    "Name Family Roles structural input was rejected: "
+                    "Architectural Families structural input was rejected: "
                         + rejected.Outcome.Detail);
                 return 1;
 
-            case LibraryFamilyRoleQueryResult.CompositionRejected rejected:
+            case LibraryArchitecturalFamilyQueryResult.CompositionRejected rejected:
                 CommandError.Write(
-                    "Name Family Roles composition was rejected: "
+                    "Architectural Families composition was rejected: "
                         + rejected.Outcome.Detail);
                 return 1;
 
-            case LibraryFamilyRoleQueryResult.PopulationUnavailable missing:
+            case LibraryArchitecturalFamilyQueryResult.PopulationUnavailable missing:
                 CommandError.Write(
-                    "Name Family Roles population is unavailable: "
+                    "Architectural Families population is unavailable: "
                         + missing.RequestedPopulation);
                 return 1;
 
-            case LibraryFamilyRoleQueryResult.SelectionFailed failed:
+            case LibraryArchitecturalFamilyQueryResult.SelectionFailed failed:
                 CommandError.Write(
-                    "Name Family Roles selection failed: "
+                    "Architectural Families selection failed: "
                         + failed.Detail);
                 return 1;
 
-            case LibraryFamilyRoleQueryResult.Failed failed:
+            case LibraryArchitecturalFamilyQueryResult.Failed failed:
                 CommandError.Write(failed.Error);
                 return 1;
 
             case null:
                 CommandError.Write(
-                    "Name Family Roles produced no terminal result.");
+                    "Architectural Families produced no terminal result.");
                 return 1;
 
             default:
                 throw new InvalidOperationException(
-                    "Unknown Name Family Roles result.");
+                    "Unknown Architectural Families result.");
         }
     }
 
-    private static bool RejectUnavailableNameFamilyRoles(
+    private static bool RejectUnavailableArchitecturalFamilies(
         LibraryInspection inspection,
         LibraryOptions options)
     {
-        if (!IsExactNameFamilyRoleSelection(options)
-            || inspection.FamilyRoleQueryResult
-                is LibraryFamilyRoleQueryResult.Available)
+        if (!IsExactArchitecturalFamilySelection(options)
+            || inspection.ArchitecturalFamilyQueryResult
+                is LibraryArchitecturalFamilyQueryResult.Available)
         {
             return false;
         }
 
-        _ = WriteNameFamilyRoleTransport(inspection, options);
+        _ = WriteArchitecturalFamilyTransport(inspection, options);
         return true;
     }
 }

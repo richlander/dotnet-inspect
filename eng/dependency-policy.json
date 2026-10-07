@@ -85,6 +85,63 @@
       ]
     },
     {
+      "id": "inspect-web-package-facade-project-dependencies-stay-within-capability-ratchet",
+      "source": "docs/design/inspection-layers.md#current-migration-state; docs/design/inspect-web-jsexport-partitioning.md#package-facade-21-exports; composition tracker #8779",
+      "graphs": [
+        "project"
+      ],
+      "targets": [
+        "DotnetInspect.Web.Interop.Package"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web.Interop.Package/DotnetInspect.Web.Interop.Package.csproj"
+      ],
+      "allowOnly": [
+        "DotnetInspect.Web.Core",
+        "DotnetInspector.Ecosystems",
+        "DotnetInspector.PackageQueries",
+        "DotnetInspector.Packages",
+        "DotnetInspector.Presentation",
+        "DotnetInspector.Queries",
+        "DotnetInspector.Sections",
+        "DotnetInspector.Services",
+        "ILInspector.Metadata",
+        "QuerySpace"
+      ]
+    },
+    {
+      "id": "inspect-web-package-facade-assembly-dependencies-stay-within-capability-ratchet",
+      "source": "docs/design/inspection-layers.md#current-migration-state; docs/design/inspect-web-jsexport-partitioning.md#package-facade-21-exports; composition tracker #8779",
+      "graphs": [
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspect.Web.Interop.Package"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web.Interop.Package/DotnetInspect.Web.Interop.Package.csproj"
+      ],
+      "allowOnly": [
+        "$platform",
+        "DotnetInspect.Web.Core",
+        "DotnetInspector.Ecosystems",
+        "DotnetInspector.PackageQueries",
+        "DotnetInspector.Packages",
+        "DotnetInspector.PlatformHouse",
+        "DotnetInspector.Presentation",
+        "DotnetInspector.Queries",
+        "DotnetInspector.Sections",
+        "DotnetInspector.Services",
+        "DotnetInspector.SourceSelection",
+        "ILInspector.Analysis",
+        "ILInspector.Metadata",
+        "InertText",
+        "NuGetFetch",
+        "QuerySpace",
+        "QuerySpace.Primitives"
+      ]
+    },
+    {
       "id": "inspect-web-library-facade-project-dependencies-stay-within-capability-ratchet",
       "source": "docs/design/library-inspection-document.md#browser-request-lowering; docs/design/artifact-acquisition-and-workspaces.md#embedded-managed-library-inspection; composition tracker #8779",
       "graphs": [
@@ -147,7 +204,6 @@
         "DotnetInspector.Ecosystems",
         "DotnetInspector.Queries",
         "DotnetInspector.Sections",
-        "DotnetInspector.Vocabulary",
         "ILInspector.Metadata"
       ]
     },
@@ -172,7 +228,7 @@
         "DotnetInspector.Queries",
         "DotnetInspector.Sections",
         "DotnetInspector.SourceSelection",
-        "DotnetInspector.Vocabulary",
+        "ILInspector.Decompiler",
         "ILInspector.Metadata",
         "InertText",
         "NuGetFetch",
@@ -232,7 +288,6 @@
         "DotnetInspector.Sections.Local",
         "DotnetInspector.Services",
         "DotnetInspector.SourceSelection",
-        "DotnetInspector.Vocabulary",
         "ILInspector.Analysis",
         "ILInspector.CallGraph",
         "ILInspector.CSharp",
@@ -289,7 +344,6 @@
         "DotnetInspector.Services",
         "DotnetInspector.SourceHouse",
         "DotnetInspector.SourceSelection",
-        "DotnetInspector.Vocabulary",
         "ILInspector.Analysis",
         "ILInspector.CSharp",
         "ILInspector.CallGraph",
@@ -836,24 +890,6 @@
         "ILInspector.MetadataPrimitives",
         "ILInspector.SourceLink",
         "Inspector.Text"
-      ]
-    },
-    {
-      "id": "vocabulary-dependencies",
-      "source": "docs/design/vocabulary.md#ownership",
-      "graphs": [
-        "project",
-        "assembly"
-      ],
-      "targets": [
-        "DotnetInspector.Vocabulary"
-      ],
-      "allowOnly": [
-        "$platform",
-        "DotnetInspector.Queries",
-        "DotnetInspector.Sections",
-        "ILInspector.Decompiler",
-        "QuerySpace.Primitives"
       ]
     },
     {

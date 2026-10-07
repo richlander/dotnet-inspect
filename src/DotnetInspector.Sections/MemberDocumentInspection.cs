@@ -50,28 +50,135 @@ public sealed record MemberDocumentSelector
     public string? FingerprintPrefix { get; }
 }
 
-public sealed record MemberSubject(
-    MemberGroupSubject Group,
-    MemberOverloadPopulationBinding Population,
-    int MetadataToken,
-    MemberAnchor Anchor,
-    int BaselineOrdinal,
-    [property: JsonConverter(typeof(InertStringJsonConverter))]
-    InertString Fingerprint,
-    [property: JsonConverter(typeof(InertStringJsonConverter))]
-    InertString DocumentationId);
+public sealed record MemberSubject
+{
+    [JsonConstructor]
+    public MemberSubject(
+        MemberGroupSubject group,
+        MemberOverloadPopulationBinding population,
+        int metadataToken,
+        MemberAnchor anchor,
+        int baselineOrdinal,
+        InertString fingerprint,
+        InertString documentationId)
+    {
+        Group = group ?? throw new ArgumentNullException(nameof(group));
+        Population = population
+            ?? throw new ArgumentNullException(nameof(population));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(metadataToken);
+        Anchor = anchor ?? throw new ArgumentNullException(nameof(anchor));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            baselineOrdinal);
+        if (group.DeclaringType != population.DeclaringType
+            || !string.Equals(
+                group.Name,
+                population.Name,
+                StringComparison.Ordinal)
+            || group.Category != population.Category
+            || group.Role != population.Role
+            || group.Spelling != population.Spelling)
+        {
+            throw new ArgumentException(
+                "The Member group and exact-Member population binding must identify the same group.",
+                nameof(population));
+        }
+        if (!string.Equals(
+                fingerprint.ToString(),
+                anchor.Fingerprint,
+                StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "The exact-Member fingerprint must match its anchor.",
+                nameof(fingerprint));
+        }
 
-public sealed record MemberDocument(
-    MemberSubject Subject,
-    [property: JsonConverter(typeof(InertStringJsonConverter))]
-    InertString DisplaySignature,
-    [property: JsonConverter(typeof(InertStringJsonConverter))]
-    InertString CanonicalSignature,
-    [property: JsonConverter(typeof(InertStringJsonConverter))]
-    InertString Accessibility,
-    MemberReceiver Receiver,
-    MemberDocumentationAttachment? Documentation = null,
-    MemberSourceAttachment? Source = null);
+        MetadataToken = metadataToken;
+        BaselineOrdinal = baselineOrdinal;
+        Fingerprint = fingerprint;
+        DocumentationId = documentationId;
+    }
+
+    public MemberGroupSubject Group { get; }
+    public MemberOverloadPopulationBinding Population { get; }
+    public int MetadataToken { get; }
+    public MemberAnchor Anchor { get; }
+    public int BaselineOrdinal { get; }
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString Fingerprint { get; }
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString DocumentationId { get; }
+}
+
+public record MemberDeclaration
+{
+    [JsonConstructor]
+    public MemberDeclaration(
+        MemberSubject subject,
+        InertString displaySignature,
+        InertString canonicalSignature,
+        InertString accessibility,
+        MemberReceiver receiver)
+    {
+        Subject = subject
+            ?? throw new ArgumentNullException(nameof(subject));
+        if (!Enum.IsDefined(receiver))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(receiver),
+                receiver,
+                "Unknown Member receiver.");
+        }
+        if (canonicalSignature
+            != new InertString(
+                TextPolicy.Field,
+                subject.Anchor.CanonicalSignature))
+        {
+            throw new ArgumentException(
+                "The Member canonical signature must match its exact identity.",
+                nameof(canonicalSignature));
+        }
+
+        DisplaySignature = displaySignature;
+        CanonicalSignature = canonicalSignature;
+        Accessibility = accessibility;
+        Receiver = receiver;
+    }
+
+    public MemberSubject Subject { get; }
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString DisplaySignature { get; }
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString CanonicalSignature { get; }
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString Accessibility { get; }
+    public MemberReceiver Receiver { get; }
+}
+
+public sealed record MemberDocumentInspectionContent
+    : MemberDeclaration
+{
+    public MemberDocumentInspectionContent(
+        MemberSubject subject,
+        InertString displaySignature,
+        InertString canonicalSignature,
+        InertString accessibility,
+        MemberReceiver receiver,
+        MemberDocumentationAttachment? documentation = null,
+        MemberSourceAttachment? source = null)
+        : base(
+            subject,
+            displaySignature,
+            canonicalSignature,
+            accessibility,
+            receiver)
+    {
+        Documentation = documentation;
+        Source = source;
+    }
+
+    public MemberDocumentationAttachment? Documentation { get; init; }
+    public MemberSourceAttachment? Source { get; init; }
+}
 
 public sealed record MemberDocumentInspectionPlan
 {
@@ -88,6 +195,12 @@ public sealed record MemberDocumentInspectionPlan
         MemberSourceAttachmentRequest? source = null)
     {
         Group = group ?? throw new ArgumentNullException(nameof(group));
+        if (Group.Spelling is not TypeMemberGroupSpelling.CSharp)
+        {
+            throw new ArgumentException(
+                "The transitional exact-Member producer currently supports C# spelling only.",
+                nameof(group));
+        }
         Selector =
             selector ?? throw new ArgumentNullException(nameof(selector));
         Bounds = bounds ?? throw new ArgumentNullException(nameof(bounds));
@@ -172,7 +285,7 @@ public abstract record MemberDocumentInspectionOutcome
     {
     }
 
-    public sealed record Available(MemberDocument Document)
+    public sealed record Available(MemberDocumentInspectionContent Document)
         : MemberDocumentInspectionOutcome;
 
     public sealed record Rejected(MemberDocumentInspectionRejection Reason)
@@ -233,7 +346,7 @@ public static class MemberDocumentInspectionOperation
             return inspection;
         }
 
-        MemberDocument document = available.Document;
+        MemberDocumentInspectionContent document = available.Document;
         if (request.Plan.Documentation is { } documentation)
         {
             MemberDocumentationAttachmentResult attachment =

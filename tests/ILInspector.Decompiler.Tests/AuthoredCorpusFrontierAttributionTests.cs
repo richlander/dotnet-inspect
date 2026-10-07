@@ -9,7 +9,7 @@ public sealed class AuthoredCorpusFrontierAttributionTests
     [Fact]
     public void CurrentMethodology_PreservesV3FrontierAttribution()
     {
-        Assert.Equal(4, AuthoredCorpusMethodology.Version);
+        Assert.Equal(5, AuthoredCorpusMethodology.Version);
         Assert.Equal(AuthoredCorpusMethodology.Version, AuthoredCorpusBenchmark.MethodologyVersion);
     }
 

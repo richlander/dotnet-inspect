@@ -79,6 +79,7 @@ public sealed record MetadataTypeDeclarationEvidence(
     TypeAttributes Attributes,
     MetadataTypeDeclarationCategory Category,
     bool IsByRefLike,
+    bool IsReadOnly,
     bool DefinesCoreLibraryRoot,
     MetadataTypeDefinitionAddress? DeclaringType);
 
@@ -199,9 +200,10 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     attributes,
                     definesCoreLibraryRoot,
                     index);
-            bool isByRefLike =
+            (bool isByRefLike, bool isReadOnly) =
                 category == MetadataTypeDeclarationCategory.Struct
-                && ReadIsByRefLike(definition, handle);
+                    ? ReadStructModifiers(definition, handle)
+                    : default;
             bool isValueType =
                 category is MetadataTypeDeclarationCategory.Struct
                     or MetadataTypeDeclarationCategory.Enum;
@@ -272,6 +274,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     attributes,
                     category,
                     isByRefLike,
+                    isReadOnly,
                     definesCoreLibraryRoot,
                     declaringType),
                 _context.Counters);
@@ -348,7 +351,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
         return definition;
     }
 
-    bool ReadIsByRefLike(
+    (bool IsByRefLike, bool IsReadOnly) ReadStructModifiers(
         TypeDefinition definition,
         TypeDefinitionHandle handle)
     {
@@ -359,7 +362,12 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
         CustomAttributeHandleCollection attributes = Read(
             site,
             definition.GetCustomAttributes);
-        bool hasMarker = false;
+        MetadataTypeDefinitionName byRefLikeAttribute =
+            KnownAttributeName("IsByRefLikeAttribute");
+        MetadataTypeDefinitionName readOnlyAttribute =
+            KnownAttributeName("IsReadOnlyAttribute");
+        bool isByRefLike = false;
+        bool isReadOnly = false;
         foreach (CustomAttributeHandle attributeHandle in attributes)
         {
             _token.ThrowIfCancellationRequested();
@@ -374,12 +382,11 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                 () => attribute.Constructor);
             MetadataTypeDeclarationSite constructorSite =
                 site with { Handle = constructor };
-            AttributeTypeIdentityDisposition disposition = Read(
+            MetadataTypeDefinitionNameReadResult? result = Read(
                 constructorSite,
-                () => AttributeReader.ClassifyTopLevelAttributeType(
+                () => AttributeReader.ReadTopLevelAttributeTypeName(
                     _reader,
                     constructor,
-                    KnownAttributeNames.IsByRefLikeAttribute,
                     beforeMaterialize: amount => Charge(
                         site,
                         MetadataOperationDimension.StructuredNodes,
@@ -389,7 +396,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                         MetadataOperationDimension.RelationshipEdges,
                         amount),
                     out _));
-            if (disposition == AttributeTypeIdentityDisposition.Unresolved)
+            if (result is not MetadataTypeDefinitionNameReadResult.Read read)
             {
                 throw Refuse(
                     constructorSite,
@@ -397,12 +404,18 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     "A custom-attribute constructor owner could not be resolved.");
             }
 
-            if (disposition == AttributeTypeIdentityDisposition.Match)
-                hasMarker = true;
+            isByRefLike |= read.Name.Equals(byRefLikeAttribute);
+            isReadOnly |= read.Name.Equals(readOnlyAttribute);
         }
 
-        return hasMarker;
+        return (isByRefLike, isReadOnly);
     }
+
+    static MetadataTypeDefinitionName KnownAttributeName(string name) =>
+        ((MetadataTypeDefinitionNameResult.Valid)
+            MetadataTypeDefinitionName.Create(
+                "System.Runtime.CompilerServices",
+                [name])).Name;
 
     void ValidateRawTypeDefinitionRow(
         TypeDefinitionHandle handle,

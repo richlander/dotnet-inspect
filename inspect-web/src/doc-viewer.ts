@@ -1,5 +1,5 @@
 import { assertNever } from "./data.ts";
-import type { OpenDocumentViewerState } from "./document-inspection.ts";
+import type { PackageDocumentTitle, OpenDocumentViewerState } from "./document-inspection.ts";
 import type { InspectedPackageDocument } from "./package-acquisition.ts";
 
 type PackageDocumentSummary = Pick<
@@ -38,29 +38,30 @@ export function bindDocViewer(
 export function renderPackageDocuments(
   documents: readonly PackageDocumentSummary[],
   escapeHtml: (value: unknown) => string,
+  titleFor: (path: string) => PackageDocumentTitle | undefined = () => undefined,
 ): string {
   if (!documents.length) return "";
-  const kindLabels = new Map([
-    ["readme", "Readme"],
-    ["package", "Package"],
-    ["skill", "Skill"],
-  ]);
   const kindGlyphs = new Map([
     ["readme", "▤"],
     ["package", "▤"],
     ["skill", "◆"],
   ]);
-  const chips = documents
-    .map(document => `
-      <button class="doc-chip doc-${escapeHtml(document.kind)}" data-doc-path="${escapeHtml(document.path)}" title="${escapeHtml(document.path)} · ${document.size.toLocaleString()} bytes">
-        <span class="doc-glyph">${kindGlyphs.get(document.kind) ?? "▤"}</span>
+  const rows = documents.map(document => {
+    const state = titleFor(document.path);
+    const detail = state?.status === "ready" ? state.title ?? ""
+      : state?.status === "failed" ? "Title unavailable" : "Loading title…";
+    const error = state?.status === "failed" ? ` · ${state.error}` : "";
+    return `<li>
+      <button class="doc-chip doc-${escapeHtml(document.kind)}" data-doc-path="${escapeHtml(document.path)}" title="${escapeHtml(document.path)} · ${document.size.toLocaleString()} bytes${escapeHtml(error)}">
+        <span class="doc-glyph" aria-hidden="true">${kindGlyphs.get(document.kind) ?? "▤"}</span>
         <span class="doc-name">${escapeHtml(document.name)}</span>
-        <span class="doc-kind">${escapeHtml(kindLabels.get(document.kind) ?? document.kind)}</span>
-      </button>`)
-    .join("");
+        <span class="doc-title">${escapeHtml(detail)}</span>
+      </button>
+    </li>`;
+  }).join("");
   return `<section class="document-section">
       <div class="section-title"><h2>Documentation</h2><span>${documents.length} file${documents.length === 1 ? "" : "s"} — click to read</span></div>
-      <div class="doc-chip-list">${chips}</div>
+      <ul class="package-document-list">${rows}</ul>
     </section>`;
 }
 

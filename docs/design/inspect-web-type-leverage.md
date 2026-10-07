@@ -160,6 +160,14 @@ The facade may normalize the signature and body row shapes into common incoming
 and outgoing degree fields only because the evidence mode remains attached to
 the enclosing channel. It does not compare or combine those values.
 
+Schema version 3 adds `bodiesRejectedOwnership` to body coverage, counting
+Analysis-issued `RejectedLogicalOwner` diagnostics. It is a subset of
+physical-only coverage, not a new body population. Expected physical-only
+coverage is silent only when this count and all unavailable/limited counts
+are zero. Rejected attribution remains useful qualification information.
+Settled qualification does not offer Retry; acquisition failures retain their
+recovery action.
+
 The Browser validates the schema, methodology, evidence mode, namespace
 coverage, exact shard order, pole-order identities, and duplicate Type
 identities before publication. Malformed transport fails visibly rather than
@@ -206,10 +214,30 @@ rejecting them as duplicates.
 
 Pole cues add no row tint, badge, section, summary count, control, or filter.
 The existing namespace top-leverage glyph remains a surface namespace cue.
-Qualified cues stay visible alongside one concise warning. An unavailable
+Qualified cues stay visible. Qualification, failure, and Retry use the transient
+feedback presentation owned by
+[Data bar and Diagnostics](inspect-web-surface-composition.md#data-bar-and-diagnostics),
+so diagnostics never reduce the Type inventory's space. An unavailable
 implementation channel leaves surface cues visible and names the body
-unavailability. Retry is offered only through the existing failure-status
-affordance, not as a salience control.
+unavailability. Retry remains a failure-status action, not a salience control.
+
+Qualification messages identify the affected evidence mode. Implementation
+qualification does not change the surface presentation's disposition or
+diagnostics. Expected physical-only body coverage produces no data-bar
+feedback or Retry action. The presentation retains deduplicated implementation
+diagnostics separately from actionable warnings; unavailable or limited body,
+operand, or signature evidence does not become routine coverage.
+
+Markout 0.38.0 (`net10.0`), opened at `Markout.BlockWriter`, motivates this
+boundary: compiler-generated physical-only bodies produce an implementation
+qualification while signature-based surface cues remain usable. A focused
+TypeScript regression retains the surface disposition and cues, keeps the
+implementation diagnostics, and emits no feedback for routine body coverage.
+Running `AnalysisLibraryBodyUseService.ExecutePath` on the package's
+`lib/net10.0/Markout.dll` records 1,540 considered bodies, 820 logical-owner
+bodies, 720 physical-only bodies, and 9,139 examined typed operands, with zero
+unavailable or limited bodies or operands. This is a fidelity qualification,
+not a body-decoding failure.
 
 ## Validation
 
@@ -220,7 +248,9 @@ The contract is gated at four boundaries:
   the surface document.
 - Analysis-facade boundary tests prove package and platform wire projection,
   reference-only surface success, implementation unavailability, qualification,
-  and exact generic/nested Type identity.
+  and exact generic/nested Type identity. The
+  `StructuralSalience_SeparatesRoutineAndRejectedOwnership` package test proves
+  both typed ownership outcomes survive the production facade.
 - TypeScript unit tests prove independent channel validation, same-direction
   and opposing dual poles, cache replacement, retry, and stale-publication
   suppression.

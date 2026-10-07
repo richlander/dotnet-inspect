@@ -255,6 +255,13 @@ public record LibraryOptions : IProjectionOptions
     /// </summary>
     public HashSet<string>? ExactIncludeSectionsOverride { get; init; }
 
+    /// <summary>
+    /// Whether Count or Rows admission removed scalar sections from an explicit
+    /// mixed selection. The Count result keeps its per-section map even when one
+    /// inventory remains, because the gesture named several sections.
+    /// </summary>
+    public bool ScalarSectionsOmitted { get; init; }
+
     /// <summary>The selected sections that retain exact-selector provenance.</summary>
     public HashSet<string>? ExactIncludeSections
         => ExactIncludeSectionsOverride ?? IncludeSections;
@@ -374,9 +381,9 @@ public record LibraryOptions : IProjectionOptions
     { get; init; }
 
     /// <summary>
-    /// Selects exact Type support rows for the family-role operation.
+    /// Selects exact Type support rows for the architectural-family operation.
     /// </summary>
-    public bool NameFamilyRoleTypeRows { get; init; }
+    public bool ArchitecturalFamilyTypeRows { get; init; }
 
     /// <summary>
     /// Semantic namespace-edge selection for the exact Dependency Structure

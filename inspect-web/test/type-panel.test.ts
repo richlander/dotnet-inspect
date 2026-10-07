@@ -1072,7 +1072,7 @@ test("the member nav marks the active group and its selected overload", () => {
     html,
     /data-nav-selection="overload:method:Serialize:1"/);
   assert.match(html, /id="member-filters"/);
-  assert.match(html, /←→ sections/);
+  assert.doesNotMatch(html, /pane-footer/);
 });
 
 test("the member nav renders one active declaration as an exact member", () => {
@@ -1583,9 +1583,7 @@ test("type metadata renders a loading state while the projection is in flight", 
   assert.match(html, /Projecting type metadata…/);
   assert.match(
     html,
-    /class="metadata-surface"[\s\S]*?<h1 id="metadata-surface-title">Metadata<\/h1>[\s\S]*?class="metadata-surface-scroll"[\s\S]*?Projecting type metadata…[\s\S]*?class="metadata-surface-footer"/);
-  assert.match(html, /System\.Text\.Json\.JsonSerializer/);
-  assert.match(html, /net9\.0 · System\.Text\.Json\.dll · System\.Text\.Json@9\.0\.0/);
+    /class="metadata-surface"[\s\S]*?<h1 id="metadata-surface-title">Metadata<\/h1>[\s\S]*?class="metadata-surface-scroll"[\s\S]*?Projecting type metadata…/);
   assert.doesNotMatch(html, /class="type-heading"/);
 });
 
@@ -1650,7 +1648,7 @@ test("type metadata keeps projection failures inside the full-area surface", () 
 
   assert.match(
     html,
-    /class="metadata-surface"[\s\S]*?class="document-section metadata-surface-state empty-document"[\s\S]*?Metadata projection failed[\s\S]*?projection unavailable[\s\S]*?class="metadata-surface-footer"/);
+    /class="metadata-surface"[\s\S]*?class="document-section metadata-surface-state empty-document"[\s\S]*?Metadata projection failed[\s\S]*?projection unavailable/);
   assert.match(html, /data-type-graph-surface/);
 });
 
@@ -1780,11 +1778,11 @@ for (const nodeCount of [0, 1, 2]) {
       assert.match(html, /data-type-graph-surface>[\s\S]*?type-graph-diagram[\s\S]*?metadata-warning/);
     }
     assert.match(html, /Type shape/);
-    assert.match(html, /metadata-surface-footer/);
+    assert.doesNotMatch(html, /metadata-surface-footer/);
   });
 }
 
-test("type PDB source renders code above provenance once loaded", () => {
+test("type PDB source retains provenance above code once loaded", () => {
   const html = renderTypeSource({
     item: jsonSerializer,
     currentSignature: "sig",
@@ -1816,7 +1814,7 @@ test("type PDB source renders code above provenance once loaded", () => {
   assert.match(html, /SourceLink/);
   assert.match(
     html,
-    /<pre[^>]*role="region"[^>]*aria-label="Source code"[\s\S]*class JsonSerializer \{\}[\s\S]*<\/pre>[\s\S]*<footer class="source-provenance">/);
+    /<aside class="source-provenance"[\s\S]*<pre[^>]*role="region"[^>]*aria-label="Source code"[\s\S]*class JsonSerializer \{\}[\s\S]*<\/pre>/);
   assert.doesNotMatch(html, /copy-type-source|open source/);
 });
 

@@ -64,6 +64,7 @@ public sealed class ProductionFacadeContextTests
             "ActivateWorkspacePackageOccurrence",
             "CancelPackageActivity",
             "CancelPackageQuery",
+            "ClassifyEcosystemPackages",
             "ClassifyPackageGraphIdentities",
             "ClearWorkspacePackageOccurrences",
             "ClosePlatformForwarderView",
@@ -84,6 +85,7 @@ public sealed class ProductionFacadeContextTests
             "QueryPlatformMemberDocumentation",
             "QueryPackage",
             "QueryPackageDependencies",
+            "QueryPackageIcon",
             "QueryPackageRoot",
             "QueryPackageSummary",
             "QueryPackageVulnerabilities",
@@ -175,6 +177,7 @@ public sealed class ProductionFacadeContextTests
         [CallGraphAssembly] =
         [
             "ExpandPlatformCallGraph",
+            "QueryDirectUseClusters",
             "QueryMemberCallGraph",
         ],
         [CatalogAssembly] =
@@ -197,6 +200,7 @@ public sealed class ProductionFacadeContextTests
             "DecodeWorkspaceShareState",
             "DescribeWorkspacePackageSources",
             "EncodeWorkspaceShareState",
+            "ExplainVocabularies",
             "ListEcosystems",
             "ListHomeDemos",
             "InspectVocabulary",
@@ -256,7 +260,7 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(138, everyExport.Length);
+        Assert.Equal(142, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());

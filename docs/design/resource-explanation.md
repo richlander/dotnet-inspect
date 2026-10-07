@@ -10,9 +10,10 @@ document, route, operation facets, required-context links, and current-host
 binding resources. The target object model defined here generalizes that
 slice so installed resources, command resources, and detached resolved
 subjects can use one typed explanation contract. Migration of the current
-closed detail variants and Member-specific contextual wrapper remains staged,
-as do Value, broader result-contract, Browser/Wasm, and subject-reference
-adoption.
+closed detail variants remains staged. Member now uses one installed command
+resource or one detached resolved-subject snapshot in the common Document;
+Value, broader result-contract, Browser/Wasm, and subject-reference adoption
+remain staged.
 It is the focused design for
 [#9324](https://github.com/richlander/dotnet-inspect/issues/9324), continuing
 the installed-resource lineage from
@@ -68,7 +69,7 @@ dotnet-inspect has several introspection surfaces with different jobs:
 | --- | --- |
 | `-D` | Which structural resources are available here? |
 | `-Q` | Which query capabilities does this route expose? |
-| `vocabulary` | Which stable values may I supply? |
+| `explain vocabularies` | Which stable values may I supply? |
 | `explain <search text>` | Which installed product resources might match this text? |
 | `explain <resource path>` | What exactly is this one product resource, and how is it related to other resources? |
 | `<command> --explain` | Make complete or projected explanation the primary result on `stdout`. |
@@ -181,8 +182,8 @@ moving that concrete type into the common declaration floor.
 **Query vocabulary** means facets, bindings, operators, named orders, scopes,
 effects, terminals, and canonical query keys.
 
-**Value vocabulary** means stable legal values from
-`VocabularyDocument`. Query Space defines an optional opaque
+**Value vocabulary** means stable legal values from a host's composed
+Product Vocabulary snapshot. Query Space defines an optional opaque
 value-vocabulary identity and separate query-local operand constraints.
 Resource Explanation preserves those facts without claiming that the facet
 accepts the whole vocabulary or that the query-local constraints define one
@@ -226,7 +227,7 @@ and whole-value Base64 do not satisfy the canonical handoff requirement.
 | [Section Shapes](section-shapes.md) and [Section Cardinality](section-cardinality.md) | Owner-issued Table, Hierarchy, or Text shape and scalar or inventory cardinality for each adopted section. |
 | [Query Space Composition](query-space-composition.md) | Query spaces, scopes, row spaces, facets, bindings, operators, terminals, effects, continuation acceptance, and opaque value-vocabulary or result-contract references from `QuerySpaceDescriptor`. |
 | [QuerySpace Library Boundary](query-space-library.md) | Physical and API placement of the general declaration vocabulary after this owner defines the required object-model shapes. |
-| [Product Vocabulary](vocabulary.md) | Value-vocabulary identities, field schemas, legal operators, accepted query inputs, ordering, defaults, and stable values from `VocabularyDocument`. |
+| [Product Vocabulary](vocabulary.md) | Value-vocabulary identities, maps, accepted query inputs, ordering, defaults, and stable values from the host's composed snapshot. |
 | [Contextual Resource Explanation](contextual-resource-explanation.md) | Command-resource or resolved-subject selection, direct typed handoff, projection admission, primary-versus-companion placement, and host gesture binding. |
 | [Host-observable Content Kinds](host-observable-content-kinds.md) | The semantic meaning of Document Content. |
 | [Inspection Envelope](inspection-envelope.md) and [Output Shapes](output-shapes.md) | Completed service transport, Share, diagnostics, `(result_kind, schema_version)`, serializers, and output-contract identity. |
@@ -323,10 +324,11 @@ first slice adopts the complete Library structural domain from its
 `DiscoveryDocument`. The first query adoption adds the complete effective
 Package Query operation-facet domain from its `QuerySpaceBinding`, together
 with its document, route, required-context relation, and selected host
-bindings. Product Vocabulary remains staged. Within each adopted domain, an
-adapter cannot silently omit a newly added resource or owner-issued
-relationship. Later owner adoptions add their complete declared domains rather
-than cherry-picking resources by name.
+bindings. Product Vocabulary adopts its complete composed domain under
+[Value-vocabulary resources](#value-vocabulary-resources). Within each
+adopted domain, an adapter cannot silently omit a newly added resource or
+owner-issued relationship. Later owner adoptions add their complete declared
+domains rather than cherry-picking resources by name.
 
 ### Canonical path grammar
 
@@ -859,8 +861,8 @@ This keeps the common response concise while making the next exact gesture
 copyable.
 
 Owner-issued examples are direct facts only when they are bounded descriptor
-content. Explanation does not enumerate a value vocabulary's complete rows;
-the `vocabulary` command retains that bulk role.
+content. A value vocabulary's values are resources reached through an ordered
+relationship, so traversal, not a direct fact, enumerates them.
 
 Repeated owner collections are represented as relationships and are therefore
 subject to the relationship limit. Direct facts contain scalar values, typed
@@ -988,19 +990,105 @@ owner publishes the required schema and key projection.
 
 ### Value-vocabulary resources
 
-`VocabularyDocument` is the complete value-vocabulary input. Explanation
-preserves:
+Each product vocabulary a host composes under
+[Product Vocabulary ownership](vocabulary.md#ownership) is an installed
+explainable resource with a Value Vocabulary resource type, and each of its
+values is a resource with a Vocabulary Value resource type. Both types are
+issued by the Product Vocabulary owner. The host's composed snapshot is the
+complete input. Explanation reads vocabularies, maps, and values from it
+generically; it names no individual vocabulary and restates no value.
+`ResourceExplanationCatalog.CreateVocabularies` is the one catalog factory.
 
-- stable vocabulary identity;
-- summary and accepted query-input identities;
-- field schema and legal operators;
-- value count, ordering, and defaults; and
-- owner-issued bounded examples.
+- **Paths.** The collection is `vocabularies`, a vocabulary is
+  `vocabularies/<vocabulary-id>`, and a value is
+  `vocabularies/<vocabulary-id>/values/<value-segment>`. Vocabulary identities
+  satisfy the segment grammar and are reused unchanged. Value identities need
+  not: body kinds and style tiers are PascalCase, and some style choices
+  contain `:`. The Product Vocabulary adoption therefore registers each
+  value's segment explicitly as its owner identity in ASCII lower case with
+  `:` replaced by `.`. The rule depends only on the stable owner identity,
+  never on a display label. Construction fails visibly when a segment falls
+  outside the grammar or two values of one vocabulary share a segment. The
+  exact identity remains the value's identity fact, and it is the identity
+  queries accept. The segment is the only path spelling; an exact identity
+  that differs from it, such as `ObjectCreationExpression`, is not a canonical
+  path.
+- **Collection.** `vocabularies` lists every vocabulary in the composed
+  sections index, in index order. The index vocabulary itself is not a member;
+  the collection is its explanation. `vocabularies/<id>/values` is not a
+  resource, so depth 1 from a vocabulary reaches its values directly.
+- **Vocabulary facts.** Identity, display name, optional summary, value
+  count, accepted query-input identities, maps, and the values whose Boolean
+  `default` map is true. `maps` is an ordered-many record fact: each record
+  holds a map's identity, owner-issued display label and summary, value kind
+  (`text`, `integer`, `boolean`, or `term`), target vocabulary for a term map,
+  cardinality, and coverage, in owner map order. Accepted query inputs are
+  opaque external identities until their owners publish explanation
+  resources.
+- **Value facts.** Identity, display name, optional summary, and the value's
+  map entries. Resource-type schemas are closed, so the Vocabulary Value type
+  declares one ordered-many record fact with a declared maximum count, rather
+  than a per-map property or a per-vocabulary resource type. Each record holds
+  the map identity and a value that is a choice of the map's declared scalar
+  kind (text, integer, or Boolean) or, for a term map, the target value's
+  exact identity as text, resolved through the target vocabulary that the
+  vocabulary's `maps` fact names. Records follow owner map order and then each
+  map's value order, so a one-or-more map yields one record per value. The map
+  identity lives in this fact, so a vocabulary with several term maps stays
+  unambiguous.
+- **Relationships.** A vocabulary has an ordered relationship to every one of
+  its values, in owner order, and a relationship to each distinct vocabulary
+  its term maps target. A value has a relationship to each distinct value its
+  term-map entries name, in first-occurrence order. Term-map relationships are
+  unqualified navigation; the maps behind them are the vocabulary's `maps`
+  fact and the value's map-entry fact, because the explanation model's
+  relationship declarations and targets carry no qualifier. Construction
+  fails visibly for a term-map target that is not an explained vocabulary in
+  the snapshot rather than inventing one. A term
+  map into another snapshot already fails when the host composes its product
+  snapshot, because hosts supply no external snapshots.
 
-The explanation of a vocabulary is not its full value listing. It points to
-the ordinary `vocabulary` command for bulk rows. The initial query adapter
-preserves an optional opaque value-vocabulary identity and query-local operand
-constraints as separate facts. It does not claim whole-vocabulary acceptance
+The explanation is the complete listing. A vocabulary's values relationship
+names every value, and depth 1 returns each value's resource. The limit that
+binds is the resource limit, which counts the vocabulary itself and each
+vocabulary its term maps target, so a complete depth-1 listing holds for up to
+that many fewer values than the limit; beyond it the Document reports
+`ResourceLimit` truncation visibly. Depth 1 reports depth truncation for the
+links from values to further values. The largest current vocabulary,
+`csharp.body-kinds`, has about 70 values. Every product host issues
+`ResourceExplanationRequest.ForHost`, whose resource and relationship limits
+are the shared host limits. No separate command or document carries
+vocabulary values; the `vocabulary` command retired under
+[Product Vocabulary](vocabulary.md#retirement).
+
+Both hosts request the same explanation. The CLI's `explain` and Inspect
+Web's catalog-facade export `CatalogExports.ExplainVocabularies(path, depth)`
+resolve the same path against their own composed snapshots and return the
+same Document Content under `ResourceExplanationRequest.ForHost`. Inspect Web
+calls `VocabularyExplanation` in `DotnetInspector.Sections`, the host-neutral
+request surface over `CreateVocabularies`; the CLI dispatches its
+`vocabularies` root to `CreateVocabularies` with the same request. Equal
+Content is gated the way `ProductVocabularyPin` gates the snapshot:
+`ProductVocabularyPin.ExplanationContent`, a linked file, pins the SHA-256 of
+the Document JSON for representative requests, and the CLI suite hashes
+`explain --json` output while the Inspect Web suite hashes the export's
+Content. The Browser export carries the completed Document, serialized by
+`ResourceExplanationJsonContext`, as owner-issued content in the facade-local
+`BrowserVocabularyExplanation` record, the established form for owner content
+that crosses a facade boundary; its Share and diagnostics reuse the
+facade-local vocabulary records. A non-canonical path, a path outside
+`vocabularies`, an unknown path with its suggestions, or a negative depth is a
+typed rejection rather than an empty Document.
+
+A CLI query key whose values are one vocabulary's identities, such as the
+Body Shapes `Kind` key, carries that vocabulary's name and canonical path on
+its query-key descriptor, and query discovery presents the path. This is a
+navigation link for the key's legal values, not a Query Space facet
+relationship.
+
+For Query Space facets, the initial query adapter preserves an optional
+opaque value-vocabulary identity and query-local operand constraints as
+separate facts. It does not claim whole-vocabulary acceptance
 or a reusable subset identity. A later query-owner adoption may issue a typed
 complete, constrained-subset, or open-domain relationship for explanation to
 preserve.
@@ -1102,8 +1190,8 @@ general output-format spelling remains owned by its focused work. Human
 headings and tables are not machine identity.
 
 Diagnostics expose canonical paths that can be copied unchanged into
-`explain`. Compact `-D`, `-Q`, and `vocabulary` output should do the same when
-their owning adoptions can preserve current concise shapes.
+`explain`. Compact `-D` and `-Q` output should do the same when their owning
+adoptions can preserve current concise shapes.
 
 After Library structural explanation presents the same Formats facts from
 `DiscoveryDocument`, the temporary Library `-D --details` bridge is removed.
@@ -1115,7 +1203,10 @@ Browser/Wasm consumes the same completed
 `InspectionEnvelope<ResourceExplanationDocument>`.
 It may render links, breadcrumbs, expandable relationships, and
 purpose-specific controls, but it does not reconstruct the graph from CLI
-text or restate owner catalogs in TypeScript.
+text or restate owner catalogs in TypeScript. The first Browser request
+surface is the vocabulary explanation export under
+[Value-vocabulary resources](#value-vocabulary-resources); the structural
+explanation consumer remains adoption step 4.
 
 The shared implementation targets NativeAOT and single-threaded Browser/Wasm
 and uses explicit static registrations and source-generated serialization.
@@ -1244,7 +1335,13 @@ The original installed-resource slices remain:
 6. **In progress:** Package Query adopts operation query-resource variants,
    canonical paths, required-context links, and its current-host production
    binding. Remaining Query Space owners and row-query resources stay staged.
-7. Let Product Vocabulary adopt resource schemas, snapshots, and typed links.
+7. **Complete:** Product Vocabulary adopts resource schemas, snapshots, and
+   typed term-map links under
+   [Value-vocabulary resources](#value-vocabulary-resources), and a CLI query
+   key that accepts a value vocabulary links to its resource. Vocabulary and
+   value resources, generic snapshot reading, and the query-key link are
+   complete for the CLI, and Inspect Web requests the same explanation
+   through its catalog-facade export. The `vocabulary` command retired.
 8. Register the stable explanation result contract; then let the focused
    envelope-contract catalog adopt explanation paths and machine-readable
    schemas.
@@ -1264,6 +1361,7 @@ The object-model convergence sequence is:
    preserving current CLI Content.
 4. Have Contextual Resource Explanation adopt the same Document for Member and
    retire the Member-specific wrapper as the bounded first contextual adopter.
+   **Complete in #9418.**
 5. Let Section Shapes, Query Space, Product Vocabulary, result contracts,
    analyses, Findings, and reusable references adopt one owner at a time.
 6. Add Browser/Wasm over the same Content and decide whether HAL-JSON earns a

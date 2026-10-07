@@ -419,7 +419,10 @@ public static class OutputFormatter
     /// rather than disappearing, matching how a category renders.
     /// </remarks>
     internal static IReadOnlyList<string>? ResolveCountMapSections<TModel>(
-        SectionPipeline<TModel> pipeline, HashSet<string>? includeSections, bool fixedOverview)
+        SectionPipeline<TModel> pipeline,
+        HashSet<string>? includeSections,
+        bool fixedOverview,
+        bool keepSectionMap = false)
     {
         var requested = includeSections is { Count: > 0 }
             ? includeSections
@@ -427,8 +430,11 @@ public static class OutputFormatter
                 ? new HashSet<string>(pipeline.BareSelectSectionNames, StringComparer.OrdinalIgnoreCase)
                 : null;
 
-        if (requested is not { Count: > 1 })
+        if (requested is not { Count: > 1 }
+            && !(keepSectionMap && requested is { Count: 1 }))
+        {
             return null;
+        }
 
         return requested.OrderBy(
             section => section,
@@ -696,7 +702,11 @@ public static class OutputFormatter
         {
             var projection = CaptureLibraryCountProjection(
                 auditView, inspection, writerOpts, options.Rows, options.Fields, options.Columns);
-            var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
+            var ordered = ResolveCountMapSections(
+                pipeline,
+                options.IncludeSections,
+                options.FixedOverview,
+                keepSectionMap: options.ScalarSectionsOmitted);
             CountOutput.Write(
                 projection, ordered, options.Format, options.NoHeader, options.OutputPath, options.Rows);
             return;
@@ -920,7 +930,11 @@ public static class OutputFormatter
                 projection.Merge(CaptureLibraryCountProjection(
                     auditView, inspection, WriterOptions(inspection), options.Rows, options.Fields, options.Columns));
             }
-            var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
+            var ordered = ResolveCountMapSections(
+                pipeline,
+                options.IncludeSections,
+                options.FixedOverview,
+                keepSectionMap: options.ScalarSectionsOmitted);
             CountOutput.Write(
                 projection, ordered, options.Format, options.NoHeader, options.OutputPath, options.Rows);
             return;
@@ -1439,7 +1453,7 @@ public static class OutputFormatter
                 count);
         }
         ApplyClassificationCounts(projection, inspection, writerOptions.IncludeSections, rows);
-        ApplyNameFamilyRoleCounts(
+        ApplyArchitecturalFamilyCounts(
             projection,
             inspection,
             writerOptions.IncludeSections,
@@ -1456,31 +1470,31 @@ public static class OutputFormatter
         return projection;
     }
 
-    internal static void ApplyNameFamilyRoleCounts(
+    internal static void ApplyArchitecturalFamilyCounts(
         CountProjection projection,
         LibraryInspection inspection,
         IReadOnlyCollection<string>? includedSections,
         RowWindow? rows)
     {
         if (includedSections is null
-            || inspection.FamilyRoleQueryResult
-                is not LibraryFamilyRoleQueryResult.Available
+            || inspection.ArchitecturalFamilyQueryResult
+                is not LibraryArchitecturalFamilyQueryResult.Available
                 { Count: int count })
         {
             return;
         }
 
-        if (includedSections.Contains(SectionNames.NameFamilyRoles))
+        if (includedSections.Contains(SectionNames.ArchitecturalFamilies))
         {
             projection.SetRows(
-                SectionNames.NameFamilyRoles,
+                SectionNames.ArchitecturalFamilies,
                 WindowedCount(count, rows));
         }
         else if (includedSections.Contains(
-                     SectionNames.NameFamilyRoleTypes))
+                     SectionNames.ArchitecturalFamilyTypes))
         {
             projection.SetRows(
-                SectionNames.NameFamilyRoleTypes,
+                SectionNames.ArchitecturalFamilyTypes,
                 WindowedCount(count, rows));
         }
     }

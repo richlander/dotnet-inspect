@@ -1,29 +1,58 @@
+using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Sections;
 
+/// <summary>
+/// Library section cardinality under
+/// <c>docs/design/section-cardinality.md</c>. On an exact Library route, the
+/// field-set records that describe one subject are scalar: single-Library
+/// <c>Library Info</c>, the SourceLink availability and integrity records,
+/// <c>Symbols</c>, and <c>Metadata: Image</c>. The coordinate-scoped
+/// <c>Context:</c> sections are not field sets. Those that locate one thing
+/// (source location, member, instruction, callsite, return address) are,
+/// like a member <c>Signature</c>, one-row Tables whose row unit is the
+/// located coordinate, so Count observes that row (1); the exception,
+/// allocation, safety, and cost contexts list one row per region or fact at
+/// the coordinate. <c>Metadata: Heap</c> rows are heap entries. Every listing, including the Graph
+/// <c>Dependency Structure</c>, is an inventory with Rows and Count. The
+/// all-libraries survey declares its own library-row inventory.
+/// </summary>
 internal static class LibrarySectionCardinality
 {
+    private static readonly string[] ScalarSections =
+    [
+        SectionNames.LibraryInfo,
+        SectionNames.SourceLinkAvailability,
+        SectionNames.SourceLinkIntegrity,
+        SectionNames.Symbols,
+        MetadataSectionNames.Image,
+    ];
+
     public static IReadOnlyDictionary<
         string,
         SectionCardinalityDeclaration> ExactDeclarations
-    { get; } =
-        new Dictionary<string, SectionCardinalityDeclaration>(
-            StringComparer.OrdinalIgnoreCase)
-        {
-            [SectionNames.LibraryInfo] =
-                SectionCardinalityDeclaration.Scalar,
-            [SectionNames.NameFamilies] =
-                SectionCardinalityDeclaration.Inventory,
-            [SectionNames.NameFamilyRoles] =
-                SectionCardinalityDeclaration.Inventory,
-            [SectionNames.NameFamilyRoleTypes] =
-                SectionCardinalityDeclaration.Inventory,
-            [SectionNames.DependencyStructure] =
-                SectionCardinalityDeclaration.Inventory,
-        };
+    { get; } = CreateExactDeclarations();
+
+    private static Dictionary<string, SectionCardinalityDeclaration>
+        CreateExactDeclarations()
+    {
+        var scalar = new HashSet<string>(
+            ScalarSections,
+            StringComparer.OrdinalIgnoreCase);
+        return LibrarySections.CreateCatalog()
+            .Sections
+            .AllSectionNames
+            .ToDictionary(
+                static section => section,
+                section => scalar.Contains(section)
+                    ? SectionCardinalityDeclaration.Scalar
+                    : SectionCardinalityDeclaration.Inventory,
+                StringComparer.OrdinalIgnoreCase);
+    }
 
     public static IReadOnlyDictionary<
         string,
@@ -53,7 +82,16 @@ internal static class LibrarySectionCardinality
             "all",
             StringComparison.OrdinalIgnoreCase);
 
-    public static string? ValidateExactTerminals(
+    /// <summary>
+    /// Admits Count or Rows on an exact Library route. A scalar section has
+    /// no rows, so a lone scalar, a selection of scalars only, or an implicit
+    /// selection that includes one (the default overview always includes
+    /// <c>Library Info</c>) fails before acquisition. An explicit selection
+    /// that mixes scalars with inventories observes the inventories: the
+    /// scalars leave the selection, so a field count is never reported as a
+    /// row count.
+    /// </summary>
+    public static ExactTerminalAdmission AdmitExactTerminals(
         string[]? select,
         bool selectDefault,
         IReadOnlySet<string>? includeSections,
@@ -61,10 +99,11 @@ internal static class LibrarySectionCardinality
         Verbosity verbosity,
         bool count,
         bool rows,
-        bool discovery)
+        bool discovery,
+        StructuralSectionInput availableInputs)
     {
         if (discovery || (!count && !rows))
-            return null;
+            return default;
 
         if (selectDefault)
         {
@@ -90,24 +129,67 @@ internal static class LibrarySectionCardinality
             catalog.Sections.SelectionCategoryMap,
             selectDefault);
         if (resolution.HasError)
-            return null;
+            return default;
         if (resolution.Sections is not null)
-            selected = resolution.Sections;
+        {
+            // A category selects only what applies, so a section it reaches
+            // whose coordinate or filter this request lacks leaves the
+            // selection, as Library normalization drops it before execution.
+            // An exact selector keeps it and fails in that normalization.
+            selected = resolution.Sections
+                .Where(section =>
+                    resolution.ExactSections.Contains(section)
+                    || (LibraryCommand.GetStructuralSectionInput(section)
+                        & ~availableInputs) == 0)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
 
         HashSet<string> candidates =
             catalog.Pipeline.GetCandidateSections(
                 verbosity,
                 selected,
                 fixedOverview);
-        if (!candidates.Contains(
-                SectionNames.LibraryInfo,
-                StringComparer.OrdinalIgnoreCase))
+        // Candidates are unordered; read them in catalog order so the
+        // diagnostic names a stable section.
+        string[] scalars = [.. catalog.Sections.AllSectionNames
+            .Where(section =>
+                candidates.Contains(section, StringComparer.OrdinalIgnoreCase)
+                && IsScalar(section))];
+        if (scalars.Length == 0)
+            return default;
+
+        if (selected is { Count: > 0 }
+            && selected.Any(static section => !IsScalar(section)))
         {
-            return null;
+            // Prune the caller's normalized selection when it has one: a
+            // category already dropped the coordinate sections it cannot
+            // address, and re-resolving the selector would bring them back.
+            HashSet<string> inventories = (includeSections ?? selected)
+                .Where(static section => !IsScalar(section))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (inventories.Count > 0)
+                return new ExactTerminalAdmission(null, inventories);
         }
 
         string terminal = count ? "--count" : "--rows";
-        return $"Section '{SectionNames.LibraryInfo}' is scalar and does "
-            + $"not support {terminal}. Select an inventory section.";
+        return new ExactTerminalAdmission(
+            $"Section '{scalars[0]}' is scalar and does "
+                + $"not support {terminal}. Select an inventory section.",
+            null);
     }
+
+    private static bool IsScalar(string section) =>
+        ExactDeclarations.TryGetValue(
+            section,
+            out SectionCardinalityDeclaration? declaration)
+        && declaration.Kind == SectionCardinalityKind.Scalar;
 }
+
+/// <summary>
+/// The outcome of admitting Count or Rows on an exact Library route: a
+/// visible failure, or, for an explicit selection that mixes scalars with
+/// inventories, the inventory sections that the terminal observes.
+/// </summary>
+internal readonly record struct ExactTerminalAdmission(
+    string? Error,
+    HashSet<string>? InventorySections);

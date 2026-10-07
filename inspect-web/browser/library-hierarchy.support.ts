@@ -263,6 +263,7 @@ interface PlatformFixture {
   forwarderInternalType?: boolean;
   forwarderFailure?: boolean;
   forwarderPending?: boolean;
+  forwarderViewPendingAfterFirst?: boolean;
   warmup?: "pending" | "fail-once";
   discoveryFailure?: boolean;
   catalogFailure?: boolean;
@@ -284,6 +285,8 @@ interface HomeDemoFixture {
 }
 
 interface DiagnosticsFixture {
+  packageDocumentTitles?: "ready" | "deferred";
+  libraryApiDiffPilot?: "ready" | "empty";
   runtimeFailure?: boolean;
   buildIdentity?: "ready" | "pending" | "failed";
   cacheFailure?: boolean;
@@ -292,6 +295,9 @@ interface DiagnosticsFixture {
   libraryApiIncomplete?: boolean;
   deferTypeMemberPopulation?: boolean;
   qualifiedStructuralSalience?: boolean;
+  physicalOnlyStructuralSalience?: boolean;
+  rejectedOwnershipStructuralSalience?: boolean;
+  failedStructuralSalience?: boolean;
   slowStructuralSalience?: boolean;
 }
 
@@ -313,7 +319,7 @@ async function installFacades(
   page: Page,
   model = surface,
   additionalSurfaces: readonly BrowserPackageSurface[] = [],
-  references: "ready" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
+  references: "ready" | "workspace-library" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
   integrations: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   platform?: PlatformFixture,
   opportunities: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
@@ -549,6 +555,7 @@ async function installFacades(
       calleeScope: "Workspace",
     },
     targets: graphTarget ? [graphTarget] : [],
+    boundaries: [],
     diagnostics: {
       incompleteNodes: 0,
       incompleteEdges: 0,
@@ -603,6 +610,23 @@ async function installFacades(
       }`,
     package: `
       ${surfaceLookup}
+      ${diagnostics.packageDocumentTitles ? `
+      const documentTitleReads = new Set();
+      export async function getPackageDocument(packageId, version, path) {
+        document.documentElement.dataset.packageDocumentTitleRequest = JSON.stringify([packageId, version, path]);
+        if (${JSON.stringify(diagnostics.packageDocumentTitles)} === "deferred" && !documentTitleReads.has(path)) {
+          documentTitleReads.add(path);
+          await new Promise(resolve => document.addEventListener("package-document-titles", resolve));
+        }
+        if (path === "broken.md") throw new Error("Read failed");
+        const texts = ${JSON.stringify({
+          "README.md": "---\nname: frontmatter\n---\n\n```md\n# Code fence\n```\n\n# First **title** & <em>details</em>\n# Second title",
+          "guide.md": "Setext title\n============\nBody",
+          "untitled.md": "## Secondary heading\nNo H1",
+        })};
+        document.documentElement.dataset.packageDocumentTitleCompletion = JSON.stringify([version, path]);
+        return { kind: "Markdown", name: path, path, text: version === "0.9.0" ? "# Older package" : texts[path] ?? "# Document" };
+      }` : ""}
       const platformTarget = ${JSON.stringify(catalogTarget)};
       const platformOptions = ${JSON.stringify(platform ?? {})};
       const diagnosticsOptions = ${JSON.stringify(diagnostics)};
@@ -720,8 +744,12 @@ async function installFacades(
       }
       let forwarderView = null;
       let forwarderViewSequence = 0;
+      let forwarderViewRequestCount = 0;
       const forwarderSurfaces = new Map();
       export async function openPlatformForwarderView(tfm, version, file, pack) {
+        if (platformOptions.forwarderViewPendingAfterFirst
+          && ++forwarderViewRequestCount > 1)
+          await new Promise(resolve => document.addEventListener("finish-forwarder-view", resolve, { once: true }));
         const catalogRow = platformTarget.rows.find(row => row.assembly + ".dll" === file && row.pack === pack);
         document.documentElement.dataset.platformLibraryRequest =
           JSON.stringify([tfm, version, file, pack, catalogRow?.file ?? file]);
@@ -1262,7 +1290,12 @@ async function installFacades(
           package: id, version, activeFramework: framework, assembly: selected.name,
           dependencyGroups: [], declarationFailures: [], dependencyGroupError: null,
           assemblyReferences: scenario === "inspection-error" ? "Cannot decode AssemblyRef."
-            : { references: scenario === "empty" ? [] : scenario === "long"
+            : { references: scenario === "empty" ? [] : scenario === "workspace-library"
+            ? [{
+                name: "Reference.Target", version: "1.0.0.0",
+                culture: "neutral", publicKeyToken: null
+              }]
+            : scenario === "long"
             ? Array.from({ length: 80 }, (_, index) => ({
                 name: selected.name + "." + "LongNamespace.".repeat(20) + "Reference" + index,
                 version: "1.2.3.4", culture: "x-" + Array(20).fill("private").join("-"),
@@ -1352,6 +1385,43 @@ async function installFacades(
       }`,
     metadata: `
       ${surfaceLookup}
+      ${diagnostics.libraryApiDiffPilot ? `
+      export async function queryLibraryApiDiff(operationId, request) {
+        const endpoint = version => ({
+          packageId: request.packageId, version, framework: request.targetFramework,
+          asset: { id: request.compileAssetId, path: request.compileAssetId, assemblyName: "Example" },
+          assembly: { name: "Example", version, culture: null, publicKeyToken: null },
+          scope: "Public", isComplete: true, issues: [],
+        });
+        return {
+          schemaVersion: 3, request, kind: "Succeeded",
+          value: {
+            libraryIdentifier: "Example.Core", libraryDisplay: "Example.Core",
+            target: endpoint(request.targetVersion), current: endpoint(request.currentVersion),
+            aggregate: { changedTypeCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 1}, addedTypeCount: 0, removedTypeCount: 0, changedMemberCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 3}, breakingCount: 0, additiveCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 3}, potentiallyBreakingCount: 0 },
+            types: ${JSON.stringify(diagnostics.libraryApiDiffPilot === "empty" ? [] : [{
+              documentIdentifier: "Example.Widget", display: "Example.Widget", state: "Diff",
+              typeDefinitionChanged: false, changedMemberCount: 3,
+              breakingCount: 0, additiveCount: 3, potentiallyBreakingCount: 0,
+              before: { identifier: "before-widget", namespace: "Example", segments: ["Widget"], display: "Example.Widget" },
+              after: { identifier: "after-widget", namespace: "Example", segments: ["Widget"], display: "Example.Widget" },
+              members: [], changes: [],
+            }])},
+          },
+          unavailable: null, rejected: null, failureKind: null, error: null,
+          diagnostic: null, reason: null,
+          inspection: {
+            content: {
+              comparison: { name: request.packageId, beforeVersion: request.targetVersion, afterVersion: request.currentVersion, surface: "Library", views: "Changes", analyses: ["api"], predicates: [] },
+              outcomes: [{ analysis: "api", kind: "Compared", findings: ["metadata.type", "metadata.member"], detail: null }],
+              transitions: null, apiInspectionFailures: [], changes: { types: [] },
+              libraryApi: { outcome: "available", document: {} },
+            },
+            share: { kind: "nonProjectable", path: "comparison/endpoints", reason: "Ordered endpoints are not shareable.", fullUrl: null, packet: null },
+            diagnostics: [],
+          },
+        };
+      }` : ""}
       export async function queryMemberDeclaration(
         id, version, framework, assembly, typeIdentity, memberName,
         selectorKey, metadataToken, implementationMember) {
@@ -1850,6 +1920,10 @@ async function installFacades(
         document.documentElement.dataset.structuralSalienceRequestCount =
           String(++structuralSalienceRequestCount);
         const qualified = diagnosticsOptions.qualifiedStructuralSalience;
+        const rejectedOwnership = diagnosticsOptions.rejectedOwnershipStructuralSalience;
+        const physicalOnly = diagnosticsOptions.physicalOnlyStructuralSalience || rejectedOwnership;
+        if (diagnosticsOptions.failedStructuralSalience)
+          throw new Error("Structural evidence acquisition failed.");
         const exactNamespace = "Example";
         const selectedType = surface.types.find(
           item => item.assemblyId === selected.id
@@ -1873,7 +1947,7 @@ async function installFacades(
           pole: "SeaLevel"
         }));
         return {
-          schemaVersion: 2,
+          schemaVersion: 3,
           surface: {
             outcome: "available",
             methodologyVersion: "structural-salience.v3",
@@ -1925,7 +1999,7 @@ async function installFacades(
             namespaceIndex: null,
             typeLeverageShards: [{
               namespace: exactNamespace,
-              disposition: qualified ? "qualified" : "complete",
+              disposition: qualified || physicalOnly ? "qualified" : "complete",
               signatureCoverage: {
                 considered: 1,
                 examined: qualified ? 0 : 1,
@@ -1934,8 +2008,9 @@ async function installFacades(
               },
               bodyCoverage: {
                 bodiesConsidered: 2,
-                bodiesExamined: qualified ? 1 : 2,
-                bodiesPhysicalOnly: 0,
+                bodiesExamined: qualified || physicalOnly ? 1 : 2,
+                bodiesPhysicalOnly: physicalOnly ? 1 : 0,
+                bodiesRejectedOwnership: rejectedOwnership ? 1 : 0,
                 bodiesUnavailable: qualified ? 1 : 0,
                 bodiesLimited: 0,
                 operandsConsidered: 3,
@@ -1948,7 +2023,9 @@ async function installFacades(
                 item => item.typeDefinitionId),
               mountainPeakOrder: implementationTypes.map(
                 item => item.typeDefinitionId),
-              diagnostics: qualified ? ["One body was unavailable."] : []
+              diagnostics: rejectedOwnership ? ["Generated-body ownership evidence was rejected."]
+                : qualified ? ["One body was unavailable."]
+                : physicalOnly ? ["The physical body has no authenticated logical owner."] : []
             }],
             failure: null,
             failureKind: null
@@ -1963,6 +2040,46 @@ async function installFacades(
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
         const result = structuralSalience(surface, selected);
+        if (diagnosticsOptions.slowStructuralSalience) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        return result;
+      }
+      export async function queryPlatformLibraryStructuralSalience(
+        framework, version, file, pack
+      ) {
+        const row = ${JSON.stringify(catalogTarget.rows)}.find(
+          item => item.assembly + ".dll" === file && item.pack === pack);
+        if (!row) throw new Error("Unknown platform library: " + file);
+        const selected = {
+          ...surfaces[0].assemblies[0],
+          id: row.assembly,
+          name: row.assembly,
+          asset: file,
+          platformPack: pack,
+          publicTypes: row.publicTypes,
+          publicMembers: row.publicTypes
+        };
+        const types = row.publicTypes ? surfaces[0].types.map(item => ({
+          ...item,
+          id: selected.id + ":" + item.definitionId,
+          assembly: file,
+          assemblyId: selected.id,
+          assemblyName: selected.name,
+          platformPack: pack
+        })) : [];
+        const platformSurface = {
+          ...surfaces[0],
+          package: "Microsoft.NETCore.App",
+          version,
+          frameworks: [framework],
+          activeFramework: framework,
+          defaultAssemblyId: selected.id,
+          assemblies: [selected],
+          types,
+          totalMembers: row.publicTypes
+        };
+        const result = structuralSalience(platformSurface, selected);
         if (diagnosticsOptions.slowStructuralSalience) {
           await new Promise(resolve => setTimeout(resolve, 100));
         }

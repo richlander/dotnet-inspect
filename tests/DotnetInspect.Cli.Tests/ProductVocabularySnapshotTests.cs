@@ -2,9 +2,9 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.ProductVocabularyTesting;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
-using DotnetInspector.Vocabulary;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using QuerySpace.Explanation;
 using QuerySpace.Vocabulary;
 
 namespace DotnetInspect.Cli.Tests;
@@ -32,8 +32,8 @@ public sealed class ProductVocabularySnapshotTests
 
         foreach (VocabularyTerm choice in choices.Terms)
         {
-            VocabularyMapValue.Term value = Assert.IsType<
-                VocabularyMapValue.Term>(
+            ExplanationValue.VocabularyTerm value = Assert.IsType<
+                ExplanationValue.VocabularyTerm>(
                 Assert.Single(choice.GetRequiredValues(tier.Identity)));
             Assert.Same(
                 snapshot.GetTerm(value.Identity),
@@ -92,21 +92,6 @@ public sealed class ProductVocabularySnapshotTests
                 Assert.Equal(declaredEntry.Values, composedEntry.Values);
             }
         }
-    }
-
-    [Fact]
-    public void ProjectionOfASnapshotMissingAProductSectionFailsVisibly()
-    {
-        VocabularySnapshot partial = ProductVocabularyComposition.Compose(
-            [
-                new(
-                    ApiAccessibilityVocabulary.Declare(ProductVocabularyComposition.Catalog),
-                    "api.type-inventory"),
-            ]);
-
-        KeyNotFoundException error = Assert.Throws<KeyNotFoundException>(
-            () => VocabularyCatalog.ProjectDocument(partial));
-        Assert.Contains("csharp.style-tiers", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

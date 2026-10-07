@@ -118,7 +118,6 @@ export function renderLibrarySubjectNav(
             <small>${escapeHtml(subject.detail)}</small>
           </div>`).join("")}
       </div>
-      <footer class="pane-footer"><span>choose a Library subject</span><span>↵ open</span></footer>
     </aside>`;
 }
 

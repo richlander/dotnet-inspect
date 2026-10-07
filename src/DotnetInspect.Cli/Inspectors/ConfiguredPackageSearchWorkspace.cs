@@ -38,6 +38,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
     readonly PackageArtifactRootCorrespondence _correspondence;
     readonly ArtifactRootGenerationReference _generation;
     readonly string _packageDisplay;
+    readonly FindPackageSourceRequest _packageRequest;
     readonly SearchPackageStores _stores;
     bool _closed;
 
@@ -46,12 +47,14 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
         PackageArtifactRootCorrespondence correspondence,
         ArtifactRootGenerationReference generation,
         string packageDisplay,
+        FindPackageSourceRequest packageRequest,
         SearchPackageStores stores)
     {
         _workspace = workspace;
         _correspondence = correspondence;
         _generation = generation;
         _packageDisplay = packageDisplay;
+        _packageRequest = packageRequest;
         _stores = stores;
     }
 
@@ -203,6 +206,9 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 correspondence,
                 ready.Generation,
                 $"{binding.Root.PackageId}@{binding.Root.PackageVersion}",
+                new(
+                    targetFramework,
+                    requestedRuntimeIdentifier: null),
                 stores);
         }
         catch (Exception failure)
@@ -238,7 +244,8 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                         }
 
                         var sources = new PackageSearchQuerySources(
-                            realization.SurfaceParticipants);
+                            realization.SurfaceParticipants,
+                            _packageRequest);
                         var context = new PackageSearchQueryContext(
                             realization.SurfaceGroup,
                             sources);
@@ -599,13 +606,26 @@ internal sealed class PackageSearchQuerySources
     readonly Dictionary<
         AssemblyAcquisitionRegistration,
         SearchAssemblySource> _sources;
+    readonly Dictionary<
+        AssemblyAcquisitionRegistration,
+        ExactLibrarySourceCoordinate> _memberCoordinates;
+    readonly FindPackageSourceRequest _packageRequest;
+    readonly Dictionary<
+        FindSourceIdentity,
+        SearchAssemblySource> _memberSemanticSources = [];
 
     internal PackageSearchQuerySources(
-        ImmutableArray<PackageAssemblyRoleParticipant> participants)
+        ImmutableArray<PackageAssemblyRoleParticipant> participants,
+        FindPackageSourceRequest packageRequest)
     {
+        ArgumentNullException.ThrowIfNull(packageRequest);
         _sources = new(
             participants.Length,
             ReferenceEqualityComparer.Instance);
+        _memberCoordinates = new(
+            participants.Length,
+            ReferenceEqualityComparer.Instance);
+        _packageRequest = packageRequest;
         foreach (PackageAssemblyRoleParticipant participant
             in participants)
         {
@@ -614,6 +634,14 @@ internal sealed class PackageSearchQuerySources
                 SearchAssemblySource.FromPackage(
                     participant.Package,
                     participant.Asset));
+            _memberCoordinates.Add(
+                participant.Participant.Assembly.Registration,
+                new ExactLibrarySourceCoordinate.Package(
+                    PackageSourceCoordinate.Create(
+                        participant.Package.PackageId,
+                        participant.Package.PackageVersion),
+                    new ManagedMetadataIdentity.Assembly(
+                        participant.Participant.Assembly.Identity)));
         }
     }
 
@@ -628,34 +656,81 @@ internal sealed class PackageSearchQuerySources
             : throw new InspectionQueryException(
                 $"No committed package asset corresponds to "
                 + $"'{subject.Identity.Name}'.");
+
+    internal FindSourceIdentity MemberFindSourceFor(
+        AssemblyContextSubject subject,
+        int memberOrder)
+    {
+        SearchAssemblySource source = SourceFor(subject);
+        ExactLibrarySourceCoordinate coordinate =
+            _memberCoordinates.TryGetValue(
+                subject.Registration,
+                out ExactLibrarySourceCoordinate? candidate)
+                ? candidate
+                : throw new InspectionQueryException(
+                    "A package Member source requires an exact coordinate.");
+        var identity = new FindSourceIdentity(
+            coordinate,
+            subject.Provenance,
+            _packageRequest,
+            contextOrder: 0,
+            memberOrder,
+            subject.Identity);
+        _memberSemanticSources.Add(identity, source);
+        return identity;
+    }
+
+    internal SearchAssemblySource SourceFor(
+        FindSourceIdentity source) =>
+        _memberSemanticSources.TryGetValue(
+                source,
+                out SearchAssemblySource? searchSource)
+            ? searchSource
+            : throw new InspectionQueryException(
+                "No committed package asset corresponds to the semantic Member source.");
 }
 
 /// <summary>
 /// One authority-scoped desktop store per configured authority for one
-/// search or one package document export, and the temporary root that holds
-/// authorities without a durable cache identity. The root is deleted when
-/// the search or export closes.
+/// search, one package document export, or one pairwise package diff, and
+/// the temporary root that holds authorities without a durable cache
+/// identity. The root is deleted when the search, export, or diff closes.
 /// </summary>
-internal sealed class SearchPackageStores : IDisposable
+internal sealed class SearchPackageStores(string temporaryPrefix = "inspect-search")
+    : IDisposable
 {
     readonly Dictionary<ConfiguredPackageAuthority, IPackageStore> _stores =
         new(ReferenceEqualityComparer.Instance);
     string? _temporaryRoot;
 
+    readonly Lock _sync = new();
+
+    /// <summary>Safe to call from concurrent acquisitions, as a pairwise diff's endpoints are.</summary>
     internal IPackageStore GetStore(
         ConfiguredPackageAuthority authority,
         PackageProducerIdentity producer)
     {
-        if (!_stores.TryGetValue(authority, out IPackageStore? store))
+        lock (_sync)
         {
-            store = new AuthorityScopedFileSystemPackageStore(
-                authority,
-                producer,
-                () => _temporaryRoot ??=
-                    Directory.CreateTempSubdirectory("inspect-search").FullName);
-            _stores.Add(authority, store);
+            if (!_stores.TryGetValue(authority, out IPackageStore? store))
+            {
+                store = new AuthorityScopedFileSystemPackageStore(
+                    authority,
+                    producer,
+                    TemporaryRoot);
+                _stores.Add(authority, store);
+            }
+            return store;
         }
-        return store;
+    }
+
+    string TemporaryRoot()
+    {
+        lock (_sync)
+        {
+            return _temporaryRoot ??=
+                Directory.CreateTempSubdirectory(temporaryPrefix).FullName;
+        }
     }
 
     public void Dispose()

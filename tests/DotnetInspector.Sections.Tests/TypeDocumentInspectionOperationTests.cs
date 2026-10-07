@@ -34,7 +34,7 @@ public sealed class TypeDocumentInspectionOperationTests
             s_bounds.MaxMetadataRows,
             maxRetainedTextCharacters: 0);
 
-        TypeDocument document =
+        TypeDocumentInspectionContent document =
             Available(Execute(library, bounds: zeroPopulation));
 
         Assert.IsType<TypeDocumentDeclarations.NotRequested>(
@@ -82,7 +82,7 @@ public sealed class TypeDocumentInspectionOperationTests
             s_bounds.MaxMetadataRows,
             maxRetainedTextCharacters: 0);
 
-        TypeDocument document =
+        TypeDocumentInspectionContent document =
             Available(
                 Execute(
                     library,
@@ -114,6 +114,38 @@ public sealed class TypeDocumentInspectionOperationTests
     }
 
     [Fact]
+    public async Task ReadonlyStructSubject_RetainsDeclarationModifier()
+    {
+        byte[] content =
+            await File.ReadAllBytesAsync(
+                typeof(DateTime).Assembly.Location,
+                TestContext.Current.CancellationToken);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        TypeDocumentInspectionContent document =
+            Available(
+                Execute(
+                    library,
+                    type: Name("System", "DateTime")));
+
+        Assert.Equal(
+            MetadataTypeDeclarationCategory.Struct,
+            document.Subject.Category);
+        Assert.True(document.Subject.IsReadOnly);
+        Assert.False(document.Subject.IsByRefLike);
+
+        string json =
+            JsonSerializer.Serialize<TypeDocumentInspectionOutcome>(
+                new TypeDocumentInspectionOutcome.Available(document));
+        Assert.Contains("\"IsReadOnly\":true", json);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
     public async Task
         SubjectOnly_RetainsDistinctLibraryAuthorityForIdenticalBytes()
     {
@@ -130,9 +162,9 @@ public sealed class TypeDocumentInspectionOperationTests
                 content,
                 identity);
 
-        TypeDocument firstDocument =
+        TypeDocumentInspectionContent firstDocument =
             Available(Execute(first));
-        TypeDocument secondDocument =
+        TypeDocumentInspectionContent secondDocument =
             Available(Execute(second));
 
         await first.RetireAsync();
@@ -182,7 +214,7 @@ public sealed class TypeDocumentInspectionOperationTests
 
         InspectionEnvelope<TypeDocumentInspectionOutcome> inspection =
             Execute(library, count: new());
-        TypeDocument document = Available(inspection);
+        TypeDocumentInspectionContent document = Available(inspection);
         TypeMemberGroupPopulationResult population =
             Assert.IsType<TypeDocumentDeclarations.Available>(
                     document.Declarations)
@@ -226,11 +258,11 @@ public sealed class TypeDocumentInspectionOperationTests
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
-        TypeDocument document =
+        TypeDocumentInspectionContent document =
             Available(Execute(library, count: new()));
         TypeSubject source = document.Subject;
         var mismatched = new TypeSubject(
-            source.LibraryCorrespondence,
+            source.LibraryCorrespondence!,
             source.Assembly,
             source.ModuleVersionId,
             source.Type,
@@ -239,12 +271,13 @@ public sealed class TypeDocumentInspectionOperationTests
             source.Category,
             source.Attributes,
             source.IsByRefLike,
+            source.IsReadOnly,
             source.DefinesCoreLibraryRoot,
             source.DeclaringTypeDefinitionToken);
 
         ArgumentException exception =
             Assert.Throws<ArgumentException>(
-                () => new TypeDocument(
+                () => new TypeDocumentInspectionContent(
                     mismatched,
                     document.Declarations,
                     document.AssemblyBytes));
@@ -263,7 +296,7 @@ public sealed class TypeDocumentInspectionOperationTests
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
 
-        TypeDocument document =
+        TypeDocumentInspectionContent document =
             Available(
                 Execute(
                     library,
@@ -310,7 +343,7 @@ public sealed class TypeDocumentInspectionOperationTests
             s_bounds.MaxMetadataRows,
             s_bounds.MaxRetainedTextCharacters);
 
-        TypeDocument document =
+        TypeDocumentInspectionContent document =
             Available(
                 Execute(
                     library,
@@ -374,7 +407,7 @@ public sealed class TypeDocumentInspectionOperationTests
             s_bounds.MaxMetadataRows,
             s_bounds.MaxRetainedTextCharacters);
 
-        TypeDocument document =
+        TypeDocumentInspectionContent document =
             Available(
                 Execute(
                     library,
@@ -423,7 +456,7 @@ public sealed class TypeDocumentInspectionOperationTests
             s_bounds.MaxMetadataRows,
             s_bounds.MaxRetainedTextCharacters);
 
-        TypeDocument document =
+        TypeDocumentInspectionContent document =
             Available(
                 Execute(
                     library,
@@ -576,7 +609,7 @@ public sealed class TypeDocumentInspectionOperationTests
             TestContext.Current.CancellationToken);
     }
 
-    private static TypeDocument Available(
+    private static TypeDocumentInspectionContent Available(
         InspectionEnvelope<TypeDocumentInspectionOutcome> envelope) =>
         Assert.IsType<TypeDocumentInspectionOutcome.Available>(
                 envelope.Content)
@@ -590,4 +623,5 @@ public sealed class TypeDocumentInspectionOperationTests
                     @namespace,
                     [.. segments]))
             .Name;
+
 }

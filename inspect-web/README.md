@@ -71,6 +71,14 @@ Queries, and Sections in both graphs. Its project references declare that same
 set rather than relying on transitive access or retaining unused low-level
 projects, and it shares the narrow platform-hazard analyzer input.
 
+The separate `inspect-web-package-facade-*-dependencies-stay-within-capability-ratchet`
+rules preserve the Package facade's evaluated-project and compiled-assembly
+ceilings. Direct assembly-reference evidence now arrives as detached
+Queries-owned rows, so the facade does not project Metadata identities for that
+result, and the unused `DotnetInspector.Networking` project edge is retired.
+The broader compiled closure and remaining exact-Library Metadata projection
+stay explicit for focused #8779 successors.
+
 The separate `inspect-web-library-facade-*-dependencies-stay-within-capability-ratchet`
 rules preserve the Library facade's smaller evaluated-project boundary and its
 larger compiled-assembly boundary. The facade currently adapts the shared
@@ -784,7 +792,7 @@ that type identity; ambiguous and external nodes remain static. Platform-only
 type projection keeps its existing isolated runtime-pack scope.
 
 `QueryMemberAnnotatedSource` runs over one group participant. The Research query
-owns the `MetadataSource` and the whole-assembly `LibraryBodyIndex`, takes no
+owns the `MetadataSource` and focused whole-assembly Analysis results, takes no
 filesystem path, and resolves references through the participant's own binding
 policy rather than by matching simple names. Annotated source moves to its
 matching implementation participant and asks `CallGraphMemberResolver` to
@@ -793,8 +801,8 @@ selector when `ref/` and `lib/` row numbers differ. It then returns the
 product's portable `AnnotatedSourceDocument` serialized by its owning
 `AnnotatedSourceDocumentJsonContext` — the same artifact the CLI writes and
 the [#3964] viewer validates — inside an envelope carrying provenance and, when
-whole-assembly fact context could not be built, a visible `contextLimitation` so
-a short fact list is never read as an honest absence of facts. Printer options
+whole-assembly fact context could not be built, a visible `contextLimitation`
+so a short fact list is never read as an honest absence of facts. Printer options
 are resolved from `StyleOptionCatalog`; an id the catalog does not know is a
 visible failure, not a silently ignored selection.
 
@@ -902,7 +910,8 @@ against that manifest) and `QueryMemberDocumentation` (the XML file shipped
 beside a product-selected compile asset).
 
 Three exports touch **no artifact at all** and say so in place: `SearchTypes`
-(ranking names the client already holds, through `TypeMatcher`),
+(adapting names the client already holds through Queries-owned
+`LoadedTypeSearchRanking`),
 `PackageCacheStats`, and `ListVocabulary` (the shared product-owned vocabulary
 catalog).
 
@@ -1000,6 +1009,15 @@ compile participant's direct references come from the assembly-context query;
 the browser does not open another assembly session. Package Dependencies shows
 only NuGet dependency groups; Library References shows only the selected
 Library's assembly references.
+
+Each NuGet dependency row displays the package's embedded icon when its exact
+version resolves and the icon passes the existing package-icon bounds.
+`QueryPackageIcon` reads only the archive directory, root nuspec, and declared
+icon entry through byte ranges; it never acquires the complete nupkg as a
+fallback and never follows deprecated nuspec icon URLs. Rows use the NuGet
+default icon immediately and retain it when version resolution, range access,
+or icon admission is unavailable. Navigation matching completes before icon
+requests begin.
 
 `QueryPackageVulnerabilities` is a separate operation used by the Package
 Vulnerabilities lens for exact nuget.org package coordinates. It delegates
