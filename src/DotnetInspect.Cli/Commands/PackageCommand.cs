@@ -1379,7 +1379,7 @@ public partial class PackageCommand
                     admittedPackageInfoMeasurements(),
                     logger.Log);
             }
-            else
+            else if (!onlyTargetFrameworks)
             {
                 await ApplyPackageInfoMeasurementsAsync(
                     result,
@@ -1416,15 +1416,16 @@ public partial class PackageCommand
             await PopulatePackageSignatureAsync(
                 result,
                 resolution.NupkgPath,
-                ShouldVerifyPackageSignature(options, wantsSignals),
+                !onlyTargetFrameworks && ShouldVerifyPackageSignature(options, wantsSignals),
                 logger.Log);
 
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
-            PopulatePackageFileSectionsLegacy(
-                result,
-                extractPath,
-                options);
+            if (!onlyTargetFrameworks)
+                PopulatePackageFileSectionsLegacy(
+                    result,
+                    extractPath,
+                    options);
             if (ShouldPopulatePackageContentAudit(
                     producerOptions,
                     pipeline))

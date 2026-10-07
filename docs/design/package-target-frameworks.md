@@ -28,8 +28,9 @@ gesture over an existing section, not the browser's section capabilities.
 ## Execution and compatibility
 
 A lone Target Frameworks request reads folder names without binary signal
-scanning, registry metadata, or other package inspection. Composed requests
-use normal package inspection and the same folder collector. Semantic Head,
+scanning, registry metadata, signature verification, package-info measurements,
+or full file inventory. These facts do not contribute to the selected table.
+Composed requests use normal package inspection and the same folder collector. Semantic Head,
 Tail, and Window operate on priority-ordered rows for either lone entrance;
 Count observes the selected rows. Rendered-line clipping remains explicit.
 This is a reference slice over the existing extracted package acquisition;

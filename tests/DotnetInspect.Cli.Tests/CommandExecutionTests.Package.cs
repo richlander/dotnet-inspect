@@ -364,6 +364,10 @@ public partial class CommandExecutionTests
             Assert.Equal(0, composed.Exit);
             Assert.Contains("## Target Frameworks", composed.Output);
             Assert.Contains("## Package Info", composed.Output);
+            var signing = await RunAppAsync("package", packagePath, "--tfms", "-S", "Signature", "--markdown");
+            Assert.Equal(0, signing.Exit);
+            Assert.Contains("## Signature", signing.Output);
+            Assert.Contains("net8.0", signing.Output);
             foreach (string[] entrance in new[] { new[] { "--tfms" }, new[] { "-S", "Target Frameworks" } })
             {
                 var window = await RunAppAsync(["package", packagePath, .. entrance, "--rows", "2..3", "--json"]);
