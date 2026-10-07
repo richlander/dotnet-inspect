@@ -399,7 +399,7 @@ public static class TypeDocumentInspectionOperation
         {
             MetadataTypeDocumentInspectionOutcome.Available available =>
                 Available(
-                    correspondence.Subject,
+                    correspondence,
                     correspondence.AssemblyIdentity,
                     correspondence.AssemblyBytes,
                     plan,
@@ -424,8 +424,7 @@ public static class TypeDocumentInspectionOperation
 
     private static InspectionEnvelope<TypeDocumentInspectionOutcome>
         Project(
-            LibraryTypeDocumentSubjectCorrespondence?
-                libraryCorrespondence,
+            LibraryTypeDocumentCorrespondence? libraryCorrespondence,
             AssemblyReferenceIdentity assemblyIdentity,
             int assemblyBytes,
             MetadataTypeDocumentInspectionOutcome document,
@@ -463,8 +462,7 @@ public static class TypeDocumentInspectionOperation
 
     private static InspectionEnvelope<TypeDocumentInspectionOutcome>
         Available(
-            LibraryTypeDocumentSubjectCorrespondence?
-                libraryCorrespondence,
+            LibraryTypeDocumentCorrespondence? libraryCorrespondence,
             AssemblyReferenceIdentity assemblyIdentity,
             int assemblyBytes,
             TypeDocumentInspectionPlan plan,
@@ -517,18 +515,11 @@ public static class TypeDocumentInspectionOperation
                 document.Subject.IsByRefLike,
                 document.Subject.DefinesCoreLibraryRoot,
                 document.Subject.DeclaringType?.Definition.Value)
-            : new(
+            : ProjectSubject(
                 libraryCorrespondence,
-                assembly,
-                document.Subject.Type.ModuleVersionId,
                 plan.Type,
-                document.Subject.Type.Definition.Value,
-                signature,
-                document.Subject.Category,
-                document.Subject.Attributes,
-                document.Subject.IsByRefLike,
-                document.Subject.DefinesCoreLibraryRoot,
-                document.Subject.DeclaringType?.Definition.Value);
+                document.Subject,
+                assembly);
         return Envelope(
             new TypeDocumentInspectionOutcome.Available(
                 new(
@@ -538,6 +529,32 @@ public static class TypeDocumentInspectionOperation
                     document.Subject.BaseKind,
                     document.Subject.InterfaceCount)));
     }
+
+    internal static TypeSubject ProjectSubject(
+        LibraryTypeDocumentCorrespondence correspondence,
+        MetadataTypeDefinitionName type,
+        MetadataTypeDeclarationEvidence subject,
+        LibraryAssemblyIdentity assembly) =>
+        new(
+            correspondence.Subject,
+            assembly,
+            subject.Type.ModuleVersionId,
+            type,
+            subject.Type.Definition.Value,
+            new(
+                ImmutableArray.CreateRange(
+                    subject.Signature.GenericParameters.Select(
+                        parameter =>
+                            new TypeDocumentGenericParameter(
+                                parameter.DefinitionSegmentIndex,
+                                parameter.MetadataIndex,
+                                parameter.Name,
+                                parameter.Attributes)))),
+            subject.Category,
+            subject.Attributes,
+            subject.IsByRefLike,
+            subject.DefinesCoreLibraryRoot,
+            subject.DeclaringType?.Definition.Value);
 
     private static TypeDocumentDeclarations ProjectDeclarations(
         AssemblyReferenceIdentity assemblyIdentity,

@@ -208,6 +208,7 @@ test("package navigation lists versions and retains the active coordinate", () =
     frameworks: ["net10.0", "net9.0"],
     activeFramework: "net10.0",
     versions: ["10.0.1", "10.0.0", "9.0.0-preview.1"],
+    unlistedVersions: ["10.0.1"],
     activeVersion: "10.0.0",
     escapeHtml: value => String(value),
   });
@@ -216,7 +217,9 @@ test("package navigation lists versions and retains the active coordinate", () =
   assert.match(html, /data-package-version="10\.0\.0" aria-current="page"/);
   assert.match(html, /data-package-version="9\.0\.0-preview\.1"/);
   assert.match(html, /id="package-version-filter"/);
-  assert.match(html, /id="package-version-prerelease"/);
+  assert.match(html, /id="package-version-prerelease" type="checkbox">/);
+  assert.match(html, /id="package-version-unlisted" type="checkbox">/);
+  assert.match(html, /data-package-version="10\.0\.1" data-package-unlisted="true"/);
   assert.match(html, /data-package-framework="net10\.0" aria-current="page"/);
   assert.ok(html.indexOf("data-nav-scope=\"frameworks\"") < html.indexOf("package-version-filter"));
 });

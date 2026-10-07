@@ -539,13 +539,13 @@ internal static class MetadataTypeMemberGroupPopulationInspection
             };
     }
 
-    private static bool Matches(
+    internal static bool Matches(
         MetadataMethodAccessibilityFilter candidate,
         MetadataMethodAccessibilityFilter request) =>
         request is MetadataMethodAccessibilityFilter.All
         || candidate == request;
 
-    private static bool Matches(
+    internal static bool Matches(
         MetadataMethodReceiver candidate,
         MetadataTypeMemberGroupReceiverFilter request) =>
         request switch
@@ -575,7 +575,7 @@ internal static class MetadataTypeMemberGroupPopulationInspection
             _ => throw new ArgumentOutOfRangeException(nameof(receiver)),
         };
 
-    private static MetadataTypeMemberGroupCategory Category(
+    internal static MetadataTypeMemberGroupCategory Category(
         ClassifiedMemberKind kind) =>
         kind switch
         {
