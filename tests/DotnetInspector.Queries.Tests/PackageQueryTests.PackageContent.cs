@@ -125,7 +125,7 @@ public partial class PackageQueryTests
         Assert.All(
             anyTools,
             item => Assert.Equal(
-                "true",
+                "DotnetTool",
                 Assert.Single(item.Answers).Value));
         Assert.All(
             anyTools,

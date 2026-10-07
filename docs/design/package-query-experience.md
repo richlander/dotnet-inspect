@@ -772,7 +772,7 @@ and browser-history and focus-return outcomes are proved by
    event adapter, product-issued inspection controls, and typed Workspace
    handoff.
 4. **#5464** adds the bounded package-content tier, the embedded `SKILL.md`
-   predicate, and the segmented .NET tool format control.
+   predicate, and the segmented DotNetCliTool format control.
 5. **#5816** adds Browser-advertised match credit, scroll-pressure
    replenishment, and frame-batched query-region rendering through #5832. Its
    Browser-owned DOM follow-up retains the complete outcome in state while
