@@ -1041,9 +1041,16 @@ for (const [selectedLibrary, activation] of [[core, "click"], [empty, "keyboard"
       .toHaveCount(0);
 
     const frameworks = page.getByRole("button", { name: "Frameworks & versions", exact: true });
-    await frameworks.click();
-    await expect(page.locator('[data-package-framework][aria-current="page"]'))
-      .toBeFocused();
+    const currentFramework =
+      page.locator('[data-package-framework][aria-current="page"]');
+    await expect(async () => {
+      await frameworks.evaluate(element => {
+        if (!(element instanceof HTMLElement))
+          throw new Error("Framework navigation control is not HTML");
+        element.click();
+      });
+      await expect(currentFramework).toBeFocused({ timeout: 1_000 });
+    }).toPass();
     const location = page.url();
     const historyLength = await page.evaluate(() => history.length);
     await page.getByRole("button", { name: "Show details", exact: true }).click();

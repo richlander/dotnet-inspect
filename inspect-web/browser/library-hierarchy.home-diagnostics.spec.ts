@@ -600,7 +600,7 @@ test("Diagnostics cache refresh does not reclaim relinquished heading focus", as
   await expect(page.locator(".diagnostics-inline-loading")).toHaveCount(0);
 });
 
-test("Diagnostics cache refresh returns product-menu focus to the replacement brand", async ({
+test("Diagnostics cache refresh preserves the open product menu", async ({
   page,
 }) => {
   await installDiagnosticsFacades(page, { cachePending: true });
@@ -615,8 +615,11 @@ test("Diagnostics cache refresh returns product-menu focus to the replacement br
   await releaseFacade(page, "finish-package-cache-stats");
 
   await expect(page.locator(".diagnostics-inline-loading")).toHaveCount(0);
-  await expect(page.locator(".product-navigation-menu")).toBeHidden();
-  await expect(page.locator("#diagnostics-product")).toBeFocused();
+  await expect(page.locator(".product-navigation-menu")).toBeVisible();
+  await expect(page.locator("#diagnostics-product"))
+    .toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator('[data-product-destination="home"]'))
+    .toBeFocused();
 });
 
 test("Diagnostics parks recognized focus before refresh replacement", async ({
