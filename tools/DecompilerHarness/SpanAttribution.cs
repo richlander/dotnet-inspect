@@ -110,7 +110,7 @@ internal static class SpanAttribution
             return null;
         }
 
-        if (!ParsesAsBodyClause(tree.GetRoot(), decompiledSpan))
+        if (!ParsesAsBodyClause(tree.GetRoot(), decompiledSource, decompiledSpan))
             return null;
 
         // Shell-independent syntax error: the decompiled body text does not parse.
@@ -140,14 +140,20 @@ internal static class SpanAttribution
     /// True when the parse still sees the product range as one body clause: a
     /// block whose braces are the range's first and last tokens, or an
     /// expression body whose arrow opens the range and whose semicolon closes it.
-    /// Leading whitespace in the range is ignored.
+    /// The opening token must start exactly at the range's first non-whitespace
+    /// character; a brace or arrow found later (inside a swallowed literal or
+    /// after a comment that ends inside the body) is not the body's.
     /// </summary>
-    static bool ParsesAsBodyClause(SyntaxNode root, TextSpan range)
+    static bool ParsesAsBodyClause(SyntaxNode root, string source, TextSpan range)
     {
-        var first = root.FindToken(range.Start);
-        if (first.SpanStart < range.Start)
-            first = first.GetNextToken();
-        if (first.Span.IsEmpty || first.SpanStart >= range.End)
+        int open = range.Start;
+        while (open < range.End && char.IsWhiteSpace(source[open]))
+            open++;
+        if (open >= range.End)
+            return false;
+
+        var first = root.FindToken(open);
+        if (first.SpanStart != open)
             return false;
 
         return first.Parent switch

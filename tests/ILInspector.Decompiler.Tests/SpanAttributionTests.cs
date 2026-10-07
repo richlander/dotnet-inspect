@@ -301,6 +301,36 @@ public class SpanAttributionTests
         Assert.False(Isolated(decompiled, authored));
     }
 
+    [Theory]
+    // A sibling's unterminated verbatim string ends at the target's first quote.
+    [InlineData("return @\"abc;", "var s = \"{\"; return s.Length;")]
+    // A sibling's unterminated block comment ends at "*/" inside the target's literal.
+    [InlineData("/* x", "var s = \"*/{\"; return s.Length;")]
+    public void DecompiledBodyIsolated_DeclinesAStandInBraceInsideTheTarget(string siblingStatement, string targetStatement)
+    {
+        // The target's real opening brace is swallowed, so the next `{` the
+        // parser sees comes from the target's literal and the target's real `}`
+        // closes a block ending exactly at the product range end. The errors in
+        // the range do not belong to the target.
+        string decompiled =
+            "class C\n{\n    string N()\n    {\n        " + siblingStatement + "\n        return null;\n    }\n"
+            + "    int M()\n    {\n        " + targetStatement + "\n    }\n    int Filler = Shell.Broken;\n}\n";
+        const string authored =
+            "class C\n{\n    string N()\n    {\n        return null;\n    }\n"
+            + "    int M()\n    {\n        return 42;\n    }\n    int Filler = Shell.Broken;\n}\n";
+
+        var targetRange = ProductRange(decompiled, "{\n        var s", "s.Length;\n    }");
+        Assert.Contains(Compile(decompiled), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error
+            && targetRange.Start <= diagnostic.Location.SourceSpan.Start
+            && diagnostic.Location.SourceSpan.Start <= targetRange.End);
+        Assert.Null(SpanAttribution.IsolatingBodyError(
+            decompiled,
+            targetRange,
+            Compile(decompiled),
+            ProductRange(authored, "{\n        return 42", "42;\n    }"),
+            Compile(authored)));
+    }
+
     [Fact]
     public void DecompiledBodyIsolated_CreditsAnIndentedProductBlockRange()
     {
