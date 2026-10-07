@@ -10,6 +10,30 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserEngineBoundaryTests
 {
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public async Task MetadataOverview_DirectAbsentLibraryPreservesNoCompileAssets(string selector)
+    {
+        string id = $"metadata.empty.{Guid.NewGuid():N}";
+        byte[] package = PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(
+                $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
+            ("content/README.md", Encoding.UTF8.GetBytes("No managed Libraries.")));
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(id, "1.0.0", package, fromCache: false));
+        using JsonDocument metadata = JsonDocument.Parse(
+            await DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryPackageMetadata(
+                id, "1.0.0", "net11.0", selector));
+        Assert.Empty(metadata.RootElement.GetProperty("assemblies").EnumerateArray());
+        Assert.Equal("NoCompileAssets", metadata.RootElement.GetProperty("compileLibrary")
+            .GetProperty("status").GetString());
+        InvalidOperationException tableFailure = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryPackageMetadataTable(
+                id, "1.0.0", "net11.0", selector, "cli", 2, 1, 10));
+        Assert.Contains("NoCompileAssets", tableFailure.Message);
+    }
+
     [Fact]
     public async Task MetadataScope_ReferenceOnlyLibraryRetainsItsSurfaceFallback()
     {

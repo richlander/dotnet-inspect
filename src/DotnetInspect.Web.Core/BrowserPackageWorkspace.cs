@@ -2624,7 +2624,7 @@ internal static class BrowserPackageWorkspace
                         }
                     }
                 }
-                if (string.IsNullOrWhiteSpace(targetFramework))
+                if (string.IsNullOrWhiteSpace(targetFramework) || string.IsNullOrWhiteSpace(library))
                     return RequireRealization(await RealizeCoreAsync(packageId, version,
                         targetFramework, source, deadline).ConfigureAwait(false), deadline);
 
