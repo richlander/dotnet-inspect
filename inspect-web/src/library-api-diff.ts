@@ -1834,10 +1834,10 @@ function renderStringLiteralPresentation(
   );
   if (rows.length === 0 && failures.length === 0) {
     return {
-      status: "Comparison complete. No matching string literals.",
+      status: "Comparison complete. No literal changes.",
       content: renderCompareEmpty(
-        "No matching string literals",
-        "Neither Library contains a literal matching this predicate.",
+        "No literal changes",
+        "No literal matching this predicate was added, removed, or changed.",
         escapeHtml,
       ),
     };
@@ -1855,9 +1855,7 @@ function renderStringLiteralPresentation(
       ? renderValue("Current", row.new)
       : transition === "Removed"
         ? renderValue("Target", row.old)
-        : row.old === row.new
-          ? renderValue("Both", row.old)
-          : `${renderValue("Target", row.old)}${renderValue("Current", row.new)}`;
+        : `${renderValue("Target", row.old)}${renderValue("Current", row.new)}`;
     return `<li class="string-literal-diff-row" data-transition="${attributeText(transition, escapeHtml)}">
       <header>
         <span class="library-api-diff-state library-api-diff-state-${transition.toLowerCase()}">${escapeHtml(transition)}</span>
@@ -1880,8 +1878,8 @@ function renderStringLiteralPresentation(
     </section>`;
   const literalList = rows.length === 0
     ? ""
-    : `<ol class="string-literal-diff-rows" aria-label="Matching string literals">${renderedRows}</ol>`;
-  const matchCount = `${rows.length.toLocaleString()} matching ${
+    : `<ol class="string-literal-diff-rows" aria-label="Changed string literals">${renderedRows}</ol>`;
+  const matchCount = `${rows.length.toLocaleString()} changed ${
     rows.length === 1 ? "literal" : "literals"
   }`;
   return {

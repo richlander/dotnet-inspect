@@ -26,7 +26,7 @@ namespace DotnetInspect.Cli.Commands;
 /// <summary>
 /// Discovers types in a package or library (compact table, no docs by default).
 /// </summary>
-public static class TypeCommand
+public static partial class TypeCommand
 {
     public const string Name = "type";
 
@@ -261,6 +261,17 @@ public static class TypeCommand
                     ?? CreateWorkspaceContextLoadOptions(options),
                 packagePrefixRuntime,
                 cancellationToken).ConfigureAwait(false);
+        }
+
+        if (resolvedSource is null && loadedSurface is null)
+        {
+            int? directLibraryDiscovery =
+                TryExecuteDirectLibraryEffectiveDiscovery(
+                    options,
+                    memberPipeline,
+                    cancellationToken);
+            if (directLibraryDiscovery is { } directLibraryExitCode)
+                return directLibraryExitCode;
         }
 
         if (!options.EnvelopeOutput)

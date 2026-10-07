@@ -484,6 +484,29 @@ public sealed class MetadataTypeMemberGroupPopulationTests
     }
 
     [Fact]
+    public void PropertyOnlyType_SelectorCountsRetainBodyBacking()
+    {
+        MetadataTypeMemberGroupPopulation population = Inspect(
+            Request(
+                Name("System", "IAsyncResult"),
+                includeSelectorCounts: true),
+            typeof(IAsyncResult).Assembly.Location);
+        MetadataTypeMemberSelectorCounts selectors =
+            Required(population.SelectorCounts);
+
+        Assert.DoesNotContain(
+            selectors.Kinds,
+            count => count.Value
+                is "method"
+                    or "constructor"
+                    or "finalizer"
+                    or "operator"
+                    or "explicit-interface-implementation"
+                    or "extension-method");
+        Assert.True(selectors.Traits.BodyBacked > 0);
+    }
+
+    [Fact]
     public void BoundsRemainVisible()
     {
         MetadataTypeMemberGroupPopulationRequest count = Request(
@@ -676,6 +699,7 @@ public sealed class MetadataTypeMemberGroupPopulationTests
             kinds,
             new(
                 members.Count,
+                members.Count(ApiMemberBodyFacts.IsBodyBacked),
                 @static,
                 instance,
                 members.Count(member => member.IsVirtual),

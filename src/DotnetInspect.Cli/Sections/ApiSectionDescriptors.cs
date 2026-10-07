@@ -741,7 +741,7 @@ public static class ApiMemberSectionDescriptors
     /// body-less.
     /// </summary>
     internal static bool IsBodyBacked(ApiMember member) =>
-        IsMethodLike(member) || HasAccessorTokens(member);
+        ApiMemberBodyFacts.IsBodyBacked(member);
 
     internal static bool HasExecutableBody(
         ApiMember member,

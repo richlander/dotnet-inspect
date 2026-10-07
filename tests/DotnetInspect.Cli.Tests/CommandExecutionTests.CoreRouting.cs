@@ -367,9 +367,14 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync("System.Text.Json");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("# System.Text.Json.dll", output);
-        Assert.Contains("## Library Info", output);
+        Assert.Contains(
+            "Note: Routing to platform library 'System.Text.Json'",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
+        Assert.StartsWith("System.Text.Json ", output, StringComparison.Ordinal);
+        Assert.Contains("─ System.Text.Json (", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Library Info", output, StringComparison.Ordinal);
     }
 
     [Fact]

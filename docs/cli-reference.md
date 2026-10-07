@@ -199,6 +199,47 @@ exhaustive because fallback Member rows can precede Type rows and suppress weak
 Type matches. `--tail`, open-ended windows, and multi-stage row selection also
 remain exhaustive.
 
+### Library Type hierarchy
+
+A bare `library` command that resolves one Library renders its public-surface
+Type declarations as a Tree: the Library, its namespaces with declaration
+counts, and each declaration by name. Forwarded declarations are marked
+`(forwarded)`. The Tree shows no Member counts; use `type <Type>` for a Type's
+Members.
+
+```bash
+dotnet-inspect library System.Text.Json
+```
+
+```text
+System.Text.Json 11.0.0.0
+├─ System.Runtime.CompilerServices (3 types)
+│  ├─ IsExternalInit (forwarded)
+│  └─ …
+├─ System.Text.Json (20 types)
+│  ├─ enum JsonCommentHandling
+│  ├─ class JsonDocument
+│  └─ …
+└─ …
+```
+
+`--tree` and `-v:m` select the same Tree, and `--mermaid` renders the same
+nodes as a Mermaid graph. Platform, package, and file sources are accepted,
+together with `--framework`, `--version`, `--preview`, one `--tfm`,
+`--namesake-library`, NuGet source options, and `--verbose`. A package that
+contributes more than one Library keeps the multi-Library view; explicit
+`--tree` or `--mermaid` on such a package fails and asks for the assembly
+within the package. Any other option, including `-S`, `-v:n`, `-v:d`, and
+every format option, keeps the sectioned Library view; combined with such an
+option, `--tree` and `--mermaid` keep their `-S "Reference Hierarchy"`
+requirement. A `DOTNET_INSPECT_FORMAT` default also keeps the sectioned view
+unless `--tree`, `--mermaid`, or `-v:m` is given explicitly. Library facts
+remain available as `-S "Library Info"`.
+
+A Library with no public Types renders its identity line marked
+`(no public types)`. A Library whose Type population cannot be read completely
+fails with the reason instead of rendering a partial Tree.
+
 ### Library namespace Type listings
 
 An exact Library can list its public Type declarations from one exact
@@ -2058,7 +2099,9 @@ Omitting `--analysis` selects the default set, `api`, so `diff A B` output is
 unchanged. One selected analysis defaults to `Changes` for `api` and to
 `Transitions` otherwise; several default to one `Summary` row per analysis
 with its outcome (`Compared`, `Unavailable`, or `Failed`) and its `Added`,
-`Removed`, `Changed`, and `Present` counts. `-S Transitions` lists each
+`Removed`, `Changed`, and `Present` counts, each counted over the Transition
+rows its analysis emits (`string-literals` emits no `Present` rows, so its
+`Present` count is `0`). `-S Transitions` lists each
 selected analysis's per-Finding transitions in selection order; at the Type
 surface `api` shows its `api.type` rows and then its `api.member` rows.
 `Changes` requires `api`. `Transitions` requires a selected analysis that

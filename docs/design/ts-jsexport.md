@@ -1707,6 +1707,14 @@ The complete certification expansion adds these contract-defining gates:
   with host-independent LF output, proves the seven checked-in TypeScript
   sources are current, and type-checks authored consumers against the fourteen
   exact transient outputs;
+- `facades.sha256` beside the checked-in sources records each facade's SHA-256,
+  written by the generator and verified with
+  `eng/generate-inspect-web-engine-facade.sh --verify-digest` in about a
+  second with no build. It detects hand edits, not staleness against the C#
+  contracts. Pull-request CI runs it first, then `--fast-check` (the `--check`
+  comparison without the publish verification), whenever inspect-web validation
+  is selected; `--check` remains in Deep Inspect, release candidate, and the
+  staging deployment;
 - the deployment and promotion verifiers pin the exact rooted-assembly set (the
   seven names above) and structural invariants such as exactly one SDK
   `create()` call, one runtime, and zero entry-point invocations, but assert

@@ -170,6 +170,49 @@ internal static partial class MetadataRelationInspection
         var candidates =
             ImmutableArray.CreateBuilder<ExtensionDeclarationCandidate>();
         int excluded = 0;
+        VisitExtensionCandidates(
+            reader,
+            includesType,
+            includeNonPublic,
+            ExtensionCandidateAdmission.Relation,
+            cancellationToken,
+            candidate =>
+            {
+                included.Add(candidate.MetadataToken);
+                candidates.Add(candidate);
+                return false;
+            },
+            () => excluded++);
+        return new(
+            included,
+            excluded,
+            candidates.ToImmutable());
+    }
+
+    /// <summary>
+    /// Selects the hidden-member rule a visit applies. The relation
+    /// population treats non-compatibility <c>Obsolete</c> members as
+    /// hidden. The API method surface hides a member only by
+    /// <c>EditorBrowsable(Never)</c>, matching the rich API surface.
+    /// </summary>
+    private enum ExtensionCandidateAdmission
+    {
+        Relation,
+        ApiMethodSurface,
+    }
+
+    private static bool VisitExtensionCandidates(
+        MetadataReader reader,
+        Func<TypeDefinitionHandle, bool> includesType,
+        bool includeNonPublic,
+        ExtensionCandidateAdmission admission,
+        CancellationToken cancellationToken,
+        Func<ExtensionDeclarationCandidate, bool> visit,
+        Action observeExcluded)
+    {
+        ArgumentNullException.ThrowIfNull(includesType);
+        ArgumentNullException.ThrowIfNull(visit);
+        ArgumentNullException.ThrowIfNull(observeExcluded);
         foreach (TypeDefinitionHandle typeHandle
             in reader.TypeDefinitions)
         {
@@ -192,9 +235,12 @@ internal static partial class MetadataRelationInspection
 
             bool typeExcluded =
                 !includeNonPublic
-                && AttributeReader.HasHiddenAttribute(
-                    reader,
-                    type.GetCustomAttributes());
+                && (!IsPublicExtensionContainer(
+                        reader,
+                        typeHandle)
+                    || AttributeReader.HasHiddenAttribute(
+                        reader,
+                        type.GetCustomAttributes()));
             foreach (TypeDefinitionHandle groupingHandle
                 in type.GetNestedTypes())
             {
@@ -234,19 +280,23 @@ internal static partial class MetadataRelationInspection
                                         accessors.Setter,
                                         includeNonPublic: false))));
                     if (propertyExcluded)
-                        excluded++;
+                    {
+                        observeExcluded();
+                    }
                     else
                     {
                         int metadataToken =
                             MetadataTokens.GetToken(propertyHandle);
-                        included.Add(metadataToken);
-                        candidates.Add(
+                        if (visit(
                             new(
                                 typeHandle,
                                 groupingHandle,
                                 default,
                                 propertyHandle,
-                                metadataToken));
+                                metadataToken)))
+                        {
+                            return true;
+                        }
                     }
                 }
             }
@@ -270,31 +320,55 @@ internal static partial class MetadataRelationInspection
                         && ((method.Attributes
                                 & MethodAttributes.MemberAccessMask)
                                 != MethodAttributes.Public
-                            || AttributeReader.HasHiddenAttribute(
-                                reader,
-                                method.GetCustomAttributes())));
+                            || (admission
+                                    == ExtensionCandidateAdmission.Relation
+                                ? AttributeReader.HasHiddenAttribute(
+                                    reader,
+                                    method.GetCustomAttributes())
+                                : AttributeReader
+                                    .HasEditorBrowsableNeverAttribute(
+                                        reader,
+                                        method.GetCustomAttributes()))));
                 if (methodExcluded)
-                    excluded++;
+                {
+                    observeExcluded();
+                }
                 else
                 {
                     int metadataToken =
                         MetadataTokens.GetToken(methodHandle);
-                    included.Add(metadataToken);
-                    candidates.Add(
+                    if (visit(
                         new(
                             typeHandle,
                             default,
                             methodHandle,
                             default,
-                            metadataToken));
+                            metadataToken)))
+                    {
+                        return true;
+                    }
                 }
             }
         }
 
-        return new(
-            included,
-            excluded,
-            candidates.ToImmutable());
+        return false;
+    }
+
+    private static bool IsPublicExtensionContainer(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+    {
+        TypeDefinition definition =
+            reader.GetTypeDefinition(handle);
+        TypeAttributes visibility =
+            definition.Attributes
+            & TypeAttributes.VisibilityMask;
+        if (definition.GetDeclaringType().IsNil)
+            return visibility == TypeAttributes.Public;
+        return visibility == TypeAttributes.NestedPublic
+            && IsPublicExtensionContainer(
+                reader,
+                definition.GetDeclaringType());
     }
 
     private static bool TryReadExtensionDeclaration(
