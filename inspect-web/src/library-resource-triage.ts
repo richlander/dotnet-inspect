@@ -83,3 +83,25 @@ export function renderMemberResourceTriage(
       <p>An exception may bypass Return. Return the pooled array from finally or catch-all cleanup.</p>
     </article>`).join("")}</section>`;
 }
+
+
+/** Preserve the census outcome when lowering evidence for one selected member. */
+export function renderMemberResourceTriageSurface(
+  options: Pick<ResourceTriageOptions, "fresh" | "loading" | "error" | "data" | "escapeHtml">,
+  candidates: readonly BrowserResourceTriageCandidate[],
+): string {
+  const { fresh, loading, error, escapeHtml: escape } = options;
+  const data = fresh ? options.data : null;
+  const message = (title: string, detail: string) => `<section class="document-section empty-member-section"><h2>${escape(title)}</h2><p>${escape(detail)}</p></section>`;
+  if (fresh && error) return message("Resource triage failed", error);
+  if (loading || !data) return message("Analyzing resource cleanup…", "Inspecting resource lifecycle evidence for this member.");
+  if (data.outcome !== "available" && data.outcome !== "incomplete") {
+    return message(data.outcome === "failed" || data.outcome === "rejected" ? "Resource triage failed" : "Resource triage unavailable",
+      data.inspectionError || "No resource lifecycle evidence is available.");
+  }
+  const partial = data.outcome === "incomplete";
+  const warning = partial ? `<section class="document-section metadata-warning"><strong>This library could not be analyzed completely</strong></section>` : "";
+  return warning + (renderMemberResourceTriage(candidates, escape)
+    || message(partial ? "No candidates in the available evidence" : "No Resource Triage candidates found for this member",
+      partial ? "The census is incomplete; absence cannot be established." : "No candidates were found within the supported ArrayPool analysis."));
+}

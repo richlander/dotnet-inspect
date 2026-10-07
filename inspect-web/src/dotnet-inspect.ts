@@ -366,8 +366,8 @@ import {
   isAnalysisMode,
   restoreAnalysisTabFocus,
 } from "./analysis-inspector.ts";
-import { bindTriageCode, triageIssuePreview } from "./triage-code.ts";
-import { renderLibraryResourceTriageSurface, renderMemberResourceTriage } from "./library-resource-triage.ts";
+import { bindTriageCode, singlePerformanceBodyTarget, triageIssuePreview } from "./triage-code.ts";
+import { renderLibraryResourceTriageSurface, renderMemberResourceTriageSurface } from "./library-resource-triage.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   bindLibraryMetricsInteractions,
@@ -11999,7 +11999,7 @@ async function selectPerformanceMember(
       ? state.packagePerformance?.members.find(candidate => candidate.stableSelector === stableSelector
           && candidate.typeId === type.definitionId && candidate.assembly === type.assembly)
       : null;
-    const body = resourceMethodToken === undefined && ranked?.bodyTargets?.length === 1 ? ranked.bodyTargets[0] : null;
+    const body = resourceMethodToken === undefined ? singlePerformanceBodyTarget(ranked) : null;
     state.selectedBodyTarget = body ? { memberName: body.memberName, selectorKey: body.selectorKey, metadataToken: body.methodToken } : null;
     if (resourceMethodToken !== undefined) {
       const selector = group.overloads[overloadIndex]?.bodySelectors.find(candidateBody => candidateBody.token === resourceMethodToken);
@@ -13102,8 +13102,11 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     content = `<div data-call-graph-surface>${content}</div>`;
   } else if (state.memberSection === "facts" || state.memberSection === "resource-triage") {
     content = (state.memberSection === "resource-triage"
-      ? renderMemberResourceTriage(resourceCandidates, escapeHtml)
-        || `<section class="document-section empty-member-section"><p>${state.packageResourceTriageLoading ? "Analyzing resource cleanup…" : escapeHtml(state.packageResourceTriageError || "No Resource Triage candidates in the available evidence for this member.")}</p></section>`
+      ? renderMemberResourceTriageSurface({
+          fresh: state.packageResourceTriageKey === packageScopeSignature(),
+          loading: state.packageResourceTriageLoading, error: state.packageResourceTriageError,
+          data: state.packageResourceTriage, escapeHtml,
+        }, resourceCandidates)
       : "")
       + renderMemberFacts(state, !currentPackage().isRuntimePack);
   } else if (state.memberSection === "source") {

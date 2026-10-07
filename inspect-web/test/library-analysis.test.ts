@@ -200,3 +200,16 @@ test("a row without issued source targets keeps navigation without guessing a so
   assert.match(html, /data-perf-selector=/);
   assert.doesNotMatch(html, /data-triage-code/);
 });
+
+
+test("an unresolved contributing body or mismatched target suppresses a partial preview", () => {
+  for (const overrides of [
+    { bodyTokens: [0x06000001, 0x06000002] },
+    { bodyTokens: [0x06000002] },
+    { bodyTokens: [] },
+  ]) {
+    const html = renderLibraryAnalysisSurface({ ...baseOptions, data: result({ members: [member(overrides)] }) });
+    assert.match(html, /data-perf-selector="Run"/);
+    assert.doesNotMatch(html, /data-triage-code/);
+  }
+});

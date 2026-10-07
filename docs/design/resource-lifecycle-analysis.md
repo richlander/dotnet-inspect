@@ -330,7 +330,9 @@ than invoking the package-only method-Facts operation. Unrelated member navigati
 Code lines consume existing Annotated Source through exact implementation
 method identity. Performance rows retain their public
 navigation anchors separately from owner-issued implementation body targets;
-rows spanning multiple implementation bodies have no code line. The
+rows spanning multiple implementation bodies have no code line. A preview requires
+exactly one contributing body token and one resolved target with that token;
+a partial target projection does not establish single-body attribution. The
 implementation surface is acquired under the existing browser API bounds.
 Performance body targets retain the contributing issue IL offsets. When all
 issue offsets map unambiguously to one line through existing Annotated Source
@@ -345,7 +347,9 @@ cleanup findings concern control flow across acquisition, execution, and cleanup
 so this view does not attribute them to one isolated line. Code acquisition
 starts for visible rows and permits at most two concurrent requests; results
 for disconnected rows are discarded. Module/Finding IDs and detailed limitations remain in the transport but are omitted from this view;
-the incomplete-analysis warning remains visible. Unknown actionability means
+the incomplete-analysis warning remains visible in both Library and member views.
+Member views preserve failed and unavailable producer outcomes and errors;
+incomplete empty evidence never establishes absence. Unknown actionability means
 the model cannot classify the operation's impact; the user must inspect the code.
 
 The browser uses an HTML renderer rather than Markout because the tab needs

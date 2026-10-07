@@ -1,7 +1,7 @@
 import type { BrowserPackagePerformance } from "./facades/inspect-web-analysis.d.ts";
 import { renderAnalysisInspector } from "./analysis-inspector.ts";
 
-import { renderTriageCode, triageMemberLabel } from "./triage-code.ts";
+import { singlePerformanceBodyTarget, renderTriageCode, triageMemberLabel } from "./triage-code.ts";
 
 type LibraryAnalysisResult = Pick<
   BrowserPackagePerformance,
@@ -63,7 +63,8 @@ export function renderLibraryAnalysisSurface(options: LibraryAnalysisOptions): s
         const loopBadge = member.inLoopCount > 0
           ? `<span class="perf-loop" title="${member.inLoopCount} in a loop">&#x21BB; ${member.inLoopCount}</span>`
           : "";
-        const previews = (member.bodyTargets?.length === 1 ? member.bodyTargets : []).map(body => renderTriageCode({
+        const previewBody = singlePerformanceBodyTarget(member);
+        const previews = (previewBody ? [previewBody] : []).map(body => renderTriageCode({
           assembly: member.assembly, typeId: body.typeId, memberName: body.memberName,
           selector: body.selectorKey, methodToken: body.methodToken, issueOffsets: body.issueOffsets ?? null,
         }, escapeHtml)).join("");

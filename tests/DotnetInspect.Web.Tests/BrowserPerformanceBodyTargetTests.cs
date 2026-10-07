@@ -60,6 +60,29 @@ public sealed class BrowserPerformanceBodyTargetTests
         }
     }
 
+    [Fact]
+    public async Task LocalFunctionOpportunitiesRetainUnresolvedContributingBodyTokens()
+    {
+        var reference = ResolvedAssemblyReference.CreateFromPath(
+            typeof(MixedPerformanceBodyFixture).Assembly.Location,
+            AssemblyResolutionProvenance.Local("performance-local-function-test"));
+        await using var workspace = new InspectionWorkspace();
+        var participant = new AssemblyContextParticipant(reference, new MissingBindingPolicy());
+        using var group = workspace.CreateAssemblyContextGroup([participant]);
+        var ranking = AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(group, participant);
+        var surface = Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
+            AssemblyContextApiSurfaceQuery.ExecuteParticipant(group, participant)).Value.Surface;
+        var row = Assert.Single(ranking.RankedMembers.Where(row =>
+            row.Member.PublicMember?.Type == typeof(MixedPerformanceBodyFixture).FullName));
+        var member = row.Member.PublicMember!;
+        Assert.Equal(2, member.BodyTokens.Length);
+        var target = Assert.Single(AnalysisExports.PerformanceBodyTargets(surface,
+            member.Type, member.StableSelector, member.BodyTokens, row.Member.Ranking.Opportunities));
+        Assert.Contains(target.MethodToken, member.BodyTokens);
+        Assert.NotEmpty(target.IssueOffsets!);
+        // The browser must use both retained tokens, not this incomplete target projection.
+    }
+
     sealed class MissingBindingPolicy : IAssemblyBindingPolicy
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
@@ -78,5 +101,17 @@ public static class PerformanceAccessorFixture
     {
         get => s_value ?? 42;
         set => s_value = value ?? 43;
+    }
+}
+
+
+public static class MixedPerformanceBodyFixture
+{
+    public static bool Mixed<T>(T left, T right)
+    {
+        object boxed = 42;
+        GC.KeepAlive(boxed);
+        return EqualsCore(left, right);
+        static bool EqualsCore(T x, T y) => x!.Equals(y);
     }
 }

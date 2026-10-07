@@ -1,4 +1,12 @@
+import type { BrowserPerformanceMember } from "./facades/inspect-web-analysis.d.ts";
 import { buildLines, validateDocument } from "./document-model.ts";
+
+/** A partial projection must not stand in for all contributing implementation bodies. */
+export function singlePerformanceBodyTarget(member: Pick<BrowserPerformanceMember, "bodyTokens" | "bodyTargets"> | null | undefined) {
+  if (member?.bodyTokens.length !== 1 || member.bodyTargets?.length !== 1) return null;
+  const target = member.bodyTargets[0]!;
+  return target.methodToken === member.bodyTokens[0] ? target : null;
+}
 
 export interface TriageCodeTarget {
   assembly: string;

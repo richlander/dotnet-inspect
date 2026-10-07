@@ -30,6 +30,8 @@ export type BrowserLibraryStructuralTypePole = "SeaLevel" | "MountainPeak" | num
 
 export type BrowserMetadataRootMalformedReason = "UnmappableMetadataDirectory" | "TruncatedFixedPrefix" | "InvalidSignature" | "InvalidVersionLength" | "TruncatedVersionField" | "MissingVersionTerminator" | number;
 
+export type JsonValueKind = number;
+
 export interface BrowserAllocationFact {
   readonly kind: string;
   readonly type: string | null;
