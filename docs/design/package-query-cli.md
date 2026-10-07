@@ -363,6 +363,27 @@ different surrounding reference sets.
 `depends starts-with` is an absolute literal-prefix query and remains distinct
 from the candidate-relative `dependencies=cross-prefix` classification.
 
+### Inventory demand for skill presence
+
+The QuerySpace-bound plan determines content evidence demand before invoking
+`IPackageQueryContentProvider`. When every content predicate is `skill`, the
+provider receives a package-wide File List query and returns its typed
+inventory receipt. Skill evidence counts and previews those admitted entry
+names without opening their bodies. Combining `skill`
+with a body-dependent predicate retains entry-content acquisition. Manifest
+prequalification still precedes either demand.
+
+The motivating real asset is
+[Avalonia 12.1.3](https://www.nuget.org/packages/Avalonia/12.1.3): its archive
+has 121 entries, is 10,157,510 bytes, and contains no admitted skill documents
+(observed 2026-10-07). Proving this absence requires inventory rather than DLL
+bodies. Shared planning and execution tests cover positive inventory, exact
+counts, no body reads, and mixed predicates; host gates cover acquisition.
+Both website and CLI consume the same demand through PackageHouse. House owns
+range selection and the existing small-package whole-download policy.
+`tool-format` and `references` retain their existing body acquisition in this
+slice; narrowing those demands is successor work.
+
 ## Adaptive result section
 
 Package Query settles package population before choosing its default rendered
