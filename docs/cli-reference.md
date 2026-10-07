@@ -1938,9 +1938,9 @@ Diff, analysis-set views, and mixed-section requests retain their existing
 routes; this adoption does not add the website Compare UI.
 
 Use `-S @Diff` to compose the `Changes`, `Analysis Diff`, and `Implementation
-Diff` views. `Complexity Context`, `Structural Context`, `Summary`, and
-`Transitions` remain exact-name sections because their focused semantics do
-not compose with those comparison views.
+Diff` views. `Annotated Source Diff`, `Complexity Context`, `Structural
+Context`, `Summary`, and `Transitions` remain exact-name sections because
+their focused semantics do not compose with those comparison views.
 
 `--analysis` selects which keyed Finding comparisons a pairwise diff runs.
 It takes one or more analysis identities, comma-separated or repeated, and
@@ -1989,10 +1989,28 @@ Pairwise `--finding` and `-S "Finding Transitions"` are retired: they fail
 with guidance naming the `--analysis` identity and `-S Transitions`.
 `--history` keeps `--finding` and does not accept `--analysis` yet.
 `--analysis` does not combine with `Analysis Diff`, `Implementation Diff`,
-`Complexity Context`, or `Structural Context`. `--json` emits the shared
-`DiffAnalysisDocument`; `--envelope` emits that same Content plus Share and
-diagnostics. Both retain the exact string-literal predicate in the comparison
-context.
+`Annotated Source Diff`, `Complexity Context`, or `Structural Context`.
+`--json` emits the shared `DiffAnalysisDocument`; `--envelope` emits that same
+Content plus Share and diagnostics. Both retain the exact string-literal
+predicate in the comparison context.
+
+Select `Annotated Source Diff` with exactly one package Type and Member to
+emit the complete portable `AnnotatedSourceDiffDocument`. C# comparison is
+included by default; `--il` includes the corresponding IL instruction
+comparison. The document retains exact physical endpoints, type-forwarder
+hops, per-medium line maps into its contained source documents, and
+product-issued text comparisons. A Member present on only one endpoint has a
+typed absent side and no manufactured two-sided comparison. This route
+requires `--json`; `--compact` controls whitespace.
+
+```bash
+dotnet-inspect diff \
+  --package System.Text.Json@11.0.0-preview.6.26359.118..11.0.0-preview.7.26381.103 \
+  --tfm net10.0 \
+  --type System.Text.Json.JsonSerializerOptions \
+  --member .ctor:1 \
+  -S "Annotated Source Diff" --json --il
+```
 
 Select `Implementation Diff` directly to inspect body-level C#, IL, and
 normal-flow complexity evidence. Select `Complexity Context` directly for a

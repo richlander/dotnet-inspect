@@ -10,6 +10,20 @@ public sealed record AssemblyReferenceRow(
     string? Culture,
     string? PublicKeyToken);
 
+/// <summary>Why one participant could not issue detached assembly-reference rows.</summary>
+public enum AssemblyReferenceRowsRejectionKind
+{
+    Unreadable,
+    InvalidImage,
+    ResourceBudget,
+    UnsupportedMetadataFormat,
+}
+
+/// <summary>One detached assembly-reference row rejection.</summary>
+public readonly record struct AssemblyReferenceRowsRejection(
+    AssemblyReferenceRowsRejectionKind Kind,
+    string Detail);
+
 /// <summary>
 /// Reads direct assembly references from every participant in one binding-consistent context.
 /// </summary>
@@ -47,4 +61,26 @@ public static class AssemblyContextReferencesQuery
             group,
             participant,
             AssemblyReferencesQuery.ReadRows);
+
+    /// <summary>Detaches one participant rejection from Metadata failure types.</summary>
+    public static AssemblyReferenceRowsRejection GetRowsRejection(
+        AssemblyContextEntry<ImmutableArray<AssemblyReferenceRow>>.Rejected rejected)
+    {
+        ArgumentNullException.ThrowIfNull(rejected);
+        return new(
+            rejected.Failure.Kind switch
+            {
+                CandidateOpenFailureKind.Unreadable =>
+                    AssemblyReferenceRowsRejectionKind.Unreadable,
+                CandidateOpenFailureKind.InvalidImage =>
+                    AssemblyReferenceRowsRejectionKind.InvalidImage,
+                CandidateOpenFailureKind.ResourceBudget =>
+                    AssemblyReferenceRowsRejectionKind.ResourceBudget,
+                CandidateOpenFailureKind.UnsupportedMetadataFormat =>
+                    AssemblyReferenceRowsRejectionKind.UnsupportedMetadataFormat,
+                _ => throw new InvalidOperationException(
+                    "Unknown assembly-context candidate failure."),
+            },
+            rejected.Failure.Detail);
+    }
 }

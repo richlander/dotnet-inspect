@@ -60,7 +60,7 @@ test("Analysis opens on Relationships as its first tab", async ({ page }) => {
     .toHaveAttribute("aria-selected", "true");
 });
 
-test("Dependencies stays on demand and reveals one selected relationship", async ({
+test("Dependencies auto-loads and reveals one selected relationship", async ({
   page,
 }) => {
   await installFacades(page);
@@ -75,15 +75,6 @@ test("Dependencies stays on demand and reveals one selected relationship", async
   await page.getByRole("tab", { name: "Dependencies", exact: true }).click();
 
   const frame = page.locator(".analysis-inspector");
-  await expect(frame.getByRole("button", {
-    name: "Load dependency structure",
-  })).toBeVisible();
-  expect(await page.locator("html")
-    .getAttribute("data-dependency-structure-request")).toBeNull();
-
-  await frame.getByRole("button", {
-    name: "Load dependency structure",
-  }).click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-dependency-structure-request",
     core.id,

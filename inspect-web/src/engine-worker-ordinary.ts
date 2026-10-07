@@ -120,6 +120,8 @@ type AnalysisOperationName =
   | "queryPlatformPerformance";
 
 type SourceOperationName =
+  | "queryMemberBodyDiff"
+  | "cancelMemberBodyDiff"
   | "queryMemberSource"
   | "queryPlatformMemberSource"
   | "queryTypeMemberSource"
@@ -1672,6 +1674,14 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   source: {
+    queryMemberBodyDiff: valueOperation(
+      "ordinary-source-query-member-body-diff", 2,
+      (facades, ...args: Parameters<SourceFacade["queryMemberBodyDiff"]>) => facades.source.queryMemberBodyDiff(...args),
+    ),
+    cancelMemberBodyDiff: valueOperation(
+      "ordinary-source-cancel-member-body-diff", 2,
+      (facades, ...args: Parameters<SourceFacade["cancelMemberBodyDiff"]>) => facades.source.cancelMemberBodyDiff(...args),
+    ),
     queryMemberSource: valueOperation(
       "ordinary-source-query-member",
       11,
@@ -2476,6 +2486,8 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     source: {
+      queryMemberBodyDiff: bind(engineWorkerOrdinaryOperations.source.queryMemberBodyDiff),
+      cancelMemberBodyDiff: bind(engineWorkerOrdinaryOperations.source.cancelMemberBodyDiff),
       queryMemberSource: bind(
         engineWorkerOrdinaryOperations.source.queryMemberSource,
       ),

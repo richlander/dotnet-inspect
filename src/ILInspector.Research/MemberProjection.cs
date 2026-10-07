@@ -143,4 +143,17 @@ public sealed record MemberProjectionResult(
     /// exception-handler path.
     /// </summary>
     IReadOnlyList<AnnotatedSourceAllocationExceptionPath>?
-        AllocationExceptionPaths = null);
+        AllocationExceptionPaths = null,
+
+    /// <summary>
+    /// Typed reason portable-document production did not produce a document.
+    /// Null when no document was requested or production succeeded.
+    /// </summary>
+    MemberProjectionSourceDocumentFailureKind?
+        SourceDocumentFailureKind = null);
+
+public enum MemberProjectionSourceDocumentFailureKind
+{
+    NoManagedBody,
+    Failed,
+}

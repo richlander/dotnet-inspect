@@ -33,7 +33,7 @@ public static class ResearchMemberIdentity
             method,
             includeReturnType: false);
 
-    internal static ResearchSubjectKey SubjectFromMethod(
+    public static ResearchSubjectKey SubjectFromMethod(
         MethodIdentity method,
         bool includeReturnType)
     {
