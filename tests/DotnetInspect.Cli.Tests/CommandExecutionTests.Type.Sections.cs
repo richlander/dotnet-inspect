@@ -498,6 +498,47 @@ public partial class CommandExecutionTests
         Assert.Equal(platformOutput, directOutput);
     }
 
+    [Theory]
+    [InlineData("System.IDisposable")]
+    [InlineData("System.IObserver`1")]
+    public async Task
+        Type_DirectLibraryExactType_FactsDiscoveryMatchesPlatformProjection(
+            string typeName)
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--library",
+                assemblyPath,
+                "-D",
+                "-S",
+                SectionNames.Facts,
+                "--tsv");
+        var (platformExit, platformOutput, platformError) =
+            await RunAppAsync(
+                "type",
+                typeName,
+                "--platform",
+                "System.Private.CoreLib",
+                "-D",
+                "-S",
+                SectionNames.Facts,
+                "--tsv");
+
+        Assert.True(
+            directExit == 0,
+            $"Direct discovery failed: {directError}");
+        Assert.True(
+            platformExit == 0,
+            $"Platform discovery failed: {platformError}");
+        Assert.Empty(directError);
+        Assert.Empty(platformError);
+        Assert.Equal(platformOutput, directOutput);
+    }
+
     [Fact]
     public async Task Type_TypeInfoDiscovery_DoesNotRunUnrequestedUnsafeProbe()
     {

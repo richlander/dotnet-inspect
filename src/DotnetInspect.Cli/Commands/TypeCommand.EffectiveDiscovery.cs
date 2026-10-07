@@ -445,21 +445,8 @@ public static partial class TypeCommand
                 _ => throw new InvalidOperationException(
                     "Unknown exact Type discovery Member-group category."),
             };
-            var member =
-                new ApiMember
-                {
-                    Name = "<member>",
-                    Kind = kind,
-                    Signature = "<member>",
-                    Attributes = ["<attribute>"],
-                    IsFinalizer =
-                        count.Kind
-                            == MemberGroupCategory.Finalizer,
-                    IsExplicitInterfaceImplementation =
-                        count.Kind
-                            == MemberGroupCategory
-                                .ExplicitInterfaceImplementation,
-                };
+            ApiMember member =
+                DiscoveryMember(count.Kind, kind);
             members.Add(member);
             if (ApiMemberSectionDescriptors.IsMethodLike(kind))
             {
@@ -473,6 +460,15 @@ public static partial class TypeCommand
             {
                 accessorBackedPlaceholder = member;
             }
+        }
+        if (selectorCounts.Traits.All > 1
+            && members.Count == 1)
+        {
+            members.Add(
+                DiscoveryMember(
+                    selectorCounts.Kinds.Single(
+                        count => count.Count > 0).Kind,
+                    members[0].Kind));
         }
         if (selectorCounts.Traits.BodyBacked > methodLikeCount)
         {
@@ -508,6 +504,23 @@ public static partial class TypeCommand
         }
         return members;
     }
+
+    static ApiMember DiscoveryMember(
+        MemberGroupCategory category,
+        string kind) =>
+        new()
+        {
+            Name = "<member>",
+            Kind = kind,
+            Signature = "<member>",
+            Attributes = ["<attribute>"],
+            IsFinalizer =
+                category == MemberGroupCategory.Finalizer,
+            IsExplicitInterfaceImplementation =
+                category
+                    == MemberGroupCategory
+                        .ExplicitInterfaceImplementation,
+        };
 
     static string? TypeAccessibility(TypeAttributes attributes) =>
         (attributes & TypeAttributes.VisibilityMask) switch
