@@ -63,7 +63,7 @@ public partial class PackageCommand
         if (options.FilesExplicitlySet)
             conflicts.Add("--files");
         if (HasPathFilter(options)) conflicts.Add("--path");
-        if (options.ListTfms) conflicts.Add("--tfms");
+        if (options.TfmsExplicitlySet) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version");
         if (options.Print) conflicts.Add("--print");
         if (options.Roots) conflicts.Add("--roots");
@@ -85,7 +85,7 @@ public partial class PackageCommand
         if (options.FilesExplicitlySet)
             conflicts.Add("--files");
         if (HasPathFilter(options)) conflicts.Add("--path");
-        if (options.ListTfms) conflicts.Add("--tfms");
+        if (options.TfmsExplicitlySet) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version");
         if (options.Print) conflicts.Add("--print");
         if (options.Roots) conflicts.Add("--roots");

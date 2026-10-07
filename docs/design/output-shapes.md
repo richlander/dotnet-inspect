@@ -1375,7 +1375,7 @@ resolved by discarding one.
 ### Lens modes project their own payload
 
 A few requests select a *lens* rather than a section of the normal document:
-`package --versions`, `--tfms`, and `--content`, along with
+`package --versions` and `--content`, along with
 `library address --file` and the `-D`/`--discover` listing. Each renders a
 payload it computes itself and returns before the section pipeline, so the
 section-selection vocabulary does not describe what the caller is looking at.
@@ -1383,7 +1383,7 @@ section-selection vocabulary does not describe what the caller is looking at.
 The lens payload is still a payload, so the two-outcome rule above applies
 unchanged. Because the lens owns the shape, its answers are fixed:
 
-- `--count` counts the lens payload — versions, target frameworks, package
+- `--count` counts the lens payload — versions, package
   files, IL offsets, discovered artifacts — not the lines used to render it. A
   layout count is a count of files, even though the rendered tree also shows the
   directories that contain them.

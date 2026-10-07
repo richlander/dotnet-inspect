@@ -163,7 +163,7 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// List target frameworks in the package, one per line.
     /// </summary>
-    public bool ListTfms { get; init; }
+    public bool TfmsExplicitlySet { get; init; }
 
     /// <summary>
     /// List available versions of the package from nuget.org.
@@ -452,7 +452,7 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => EnvelopeOutput || Raw || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListTfms || ListVersions || Print || Value || Urls || Paths || Roots || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => EnvelopeOutput || Raw || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListVersions || Print || Value || Urls || Paths || Roots || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.

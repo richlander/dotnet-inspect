@@ -299,7 +299,7 @@ public partial class PackageCommand
             // filter, so requiring -S here would force the caller to name a section that is then
             // ignored. LensProjection answers the projection for those modes instead, and -S is
             // rejected outright below rather than silently dropped.
-            var lensMode = options.ListVersions || options.ListTfms
+            var lensMode = options.ListVersions
                 || options.ShowContent;
             var dependencyHierarchyProjection = options.Tree
                 && options.Discover == null
@@ -319,7 +319,6 @@ public partial class PackageCommand
                     || options.Tree))
             {
                 var lensName = options.ListVersions ? "--versions"
-                    : options.ListTfms ? "--tfms"
                     : "--content";
                 if (options.Tree
                     && !options.SelectExplicitlySet)
@@ -332,8 +331,6 @@ public partial class PackageCommand
 
             string? packageLens = options.ListVersions
                 ? GetVersionQueryLens(options)
-                : options.ListTfms
-                    ? "--tfms"
                     : options.ShowContent
                         ? "--content"
                         : null;
@@ -1236,10 +1233,6 @@ public partial class PackageCommand
             // Update version from resolution (may have been auto-discovered)
             version = resolution.Version ?? version;
 
-            // Handle --tfms mode: list target frameworks and exit early
-            if (options.ListTfms)
-                return ListPackageTfms(extractPath, options);
-
             bool wantsEcosystemDependencies =
                 RequestsPackageEcosystemDependencies(
                     producerOptions,
@@ -1353,7 +1346,17 @@ public partial class PackageCommand
                     producerOptions,
                     pipeline,
                     includeSignals: enrichesSignals);
-            var result = await PackageInspector.InspectAsync(
+            bool onlyTargetFrameworks = options.Discover is null
+                && options.IncludeSections is { Count: 1 }
+                && options.IncludeSections.Contains(PackageSections.TargetFrameworks);
+            var result = onlyTargetFrameworks
+                ? new InspectionResult
+                {
+                    PackageName = packageName,
+                    Version = version,
+                    TargetFrameworks = TfmSelector.GetPackageFrameworkFolders(extractPath),
+                }
+                : await PackageInspector.InspectAsync(
                 resolution, packageName, version, target.IsLocalFile,
                 target.IsLocalFile ? target.OriginalArgument : null,
                 nuspec, client, logger,
@@ -1515,6 +1518,9 @@ public partial class PackageCommand
                         PortableQueryIntent.Empty);
                 return ((DependencyQueryPlanResult.Accepted)result).Plan;
             }
+
+            if (!TrySelectPackageTargetFrameworks(result, options))
+                return 1;
 
             // Filter output based on options
             FilterResultForOutput(result, options);

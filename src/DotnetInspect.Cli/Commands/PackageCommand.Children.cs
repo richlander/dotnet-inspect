@@ -54,7 +54,6 @@ public partial class PackageCommand
         && !options.SelectDefault
         && !options.FixedOverview
         && !options.ListVersions
-        && !options.ListTfms
         && !options.ShowContent
         && !options.Raw
         && !options.Print
