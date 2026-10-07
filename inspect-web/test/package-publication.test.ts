@@ -21,11 +21,12 @@ test("publication dates preserve the feed day and reject missing, invalid and un
 });
 
 test("platform dates use the containing reference pack, not an assembly name or runtime patch for netstandard", () => {
-  assert.deepEqual(platformPublicationCoordinate("netcore.app", "10.0.12"), { id: "Microsoft.NETCore.App.Ref", version: "10.0.12" });
-  assert.deepEqual(platformPublicationCoordinate("aspnetcore.app", "10.0.12"), { id: "Microsoft.AspNetCore.App.Ref", version: "10.0.12" });
-  assert.equal(platformPublicationCoordinate("netstandard", "10.0.12"), null);
-  assert.equal(platformPublicationCoordinate("other", "10.0.12"), null);
-  assert.equal(platformPublicationCoordinate("netcore.app", undefined), null);
+  assert.deepEqual(platformPublicationCoordinate("netcore.app", "10.0.12", true), { id: "Microsoft.NETCore.App.Ref", version: "10.0.12" });
+  assert.deepEqual(platformPublicationCoordinate("aspnetcore.app", "10.0.12", true), { id: "Microsoft.AspNetCore.App.Ref", version: "10.0.12" });
+  assert.equal(platformPublicationCoordinate("netstandard", "10.0.12", true), null);
+  assert.equal(platformPublicationCoordinate("other", "10.0.12", true), null);
+  assert.equal(platformPublicationCoordinate("netcore.app", "10.0.12", false), null);
+  assert.equal(platformPublicationCoordinate("netcore.app", undefined, true), null);
 });
 
 test("dates return pending immediately, deduplicate coordinates, and isolate exact versions", async () => {
@@ -46,7 +47,7 @@ test("dates return pending immediately, deduplicate coordinates, and isolate exa
   dates.get(second);
   await tick();
   assert.equal(requests.length, 3);
-  assert.deepEqual(changes, []);
+  assert.equal(changes.length, 0);
   release(); await tick();
   assert.deepEqual(dates.get(first), { status: "available", date: "2020-01-02" });
   assert.deepEqual(dates.get(second), { status: "available", date: "2024-03-04" });

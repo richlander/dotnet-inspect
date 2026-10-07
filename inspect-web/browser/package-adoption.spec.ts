@@ -4355,16 +4355,13 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
       }
     }
     jsonVersion = "11.0.0-preview.7.26381.103";
-    const newerPage = await context.newPage();
-    await newerPage.goto("/");
-    const newerSearch = newerPage.locator("#spotlight-input");
-    await expect(newerSearch).toBeEditable({ timeout: 120_000 });
-    await newerSearch.fill("System.Text.Json");
-    await expect(newerPage.locator('[data-sl-pkg-load="System.Text.Json"]')).toContainText(jsonVersion);
-    const newerPair = newerPage.locator('[data-sl-framework-lib="System.Text.Json"], [data-sl-pkg-load="System.Text.Json"]');
+    // The preceding Aspire query makes this a fresh search in the same app.
+    await search.fill("System.Text.Json");
+    await expect(page.locator('[data-sl-pkg-load="System.Text.Json"]')).toContainText(jsonVersion);
+    const newerPair = page.locator('[data-sl-framework-lib="System.Text.Json"], [data-sl-pkg-load="System.Text.Json"]');
     await expect(newerPair.first()).toHaveAttribute("data-sl-pkg-load", "System.Text.Json");
-    await expect(newerPage.locator('[data-sl-framework-lib="System.Text.Json"]')).toContainText(".NET Runtime · Library");
-    await expect(newerPage.locator('[data-sl-pkg-load="System.Text.Json"] [aria-label="Package: .NET Runtime"]')).toBeVisible();
+    await expect(page.locator('[data-sl-framework-lib="System.Text.Json"]')).toContainText(".NET Runtime · Library");
+    await expect(page.locator('[data-sl-pkg-load="System.Text.Json"] [aria-label="Package: .NET Runtime"]')).toBeVisible();
     await expect(newerPair.locator(".spotlight-pruned")).toHaveCount(0);
     expect(packs).toEqual([]);
   });
@@ -4392,14 +4389,21 @@ test("publication dates remain visible in Package Overview and in-app Spotlight"
   await context.route("https://azuresearch-usnc.nuget.org/**", route => route.fulfill({
     contentType: "application/json", body: JSON.stringify({ data: [{ id: "System.Text.Json", version: "9.0.0" }] }),
   }));
-  await page.goto(`/packages/${healthy.packageId}/${healthy.version}#package`);
+  await page.goto("/");
+  const homeInput = page.locator("#spotlight-input");
+  await expect(homeInput).toBeEditable({ timeout: 120_000 });
+  await homeInput.fill(`${healthy.packageId}@${healthy.version}`);
+  await page.locator(`[data-sl-pkg-load="${healthy.packageId}"]`).click();
   const overview = page.locator(".package-overview-surface");
   await expect(overview).toBeVisible({ timeout: 180_000 });
   await expect(overview.locator(".overview-identity-detail")).toHaveText("Published 2026-09-08");
   await page.screenshot({ path: testInfo.outputPath("package-overview-date.png") });
-  await page.keyboard.press("ControlOrMeta+p");
+  await page.getByRole("button", { name: "Search types, members, packages", exact: true }).click();
   const input = page.locator("#spotlight-input");
   await expect(input).toBeEditable();
+  await input.fill(healthy.packageId);
+  await expect(page.locator(`[data-sl-pkg-open="${healthy.packageId}" i] time`)).toHaveText("Published 2026-09-08");
+  expect(publicationRequests.filter(url => url.includes(`/${healthy.packageId.toLowerCase()}/`))).toHaveLength(1);
   await input.fill("System.Text.Json");
   const packageRow = page.locator('[data-sl-pkg-load="System.Text.Json"]');
   const libraryRow = page.locator('[data-sl-framework-lib="System.Text.Json"]');
@@ -4415,9 +4419,4 @@ test("publication dates remain visible in Package Overview and in-app Spotlight"
   expect(geometry.right).toBeLessThanOrEqual(geometry.viewport);
   expect(publicationRequests.filter(url => url.includes("/system.text.json/"))).toHaveLength(1);
   await page.screenshot({ path: testInfo.outputPath("in-app-spotlight-dates.png") });
-  await page.keyboard.press("Escape");
-  await page.keyboard.press("ControlOrMeta+p");
-  await input.fill(healthy.packageId);
-  await expect(page.locator(`[data-sl-pkg-open="${healthy.packageId.toLowerCase()}"] time`)).toHaveText("Published 2026-09-08");
-  expect(publicationRequests.filter(url => url.includes(`/${healthy.packageId.toLowerCase()}/`))).toHaveLength(1);
 });

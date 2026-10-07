@@ -91,6 +91,7 @@ export interface SpotlightCapabilityResult {
 }
 
 interface FrameworkLibraryResult {
+  inReferencePack?: boolean;
   publication?: PublicationDate;
   kind: "framework-lib";
   assembly: string;

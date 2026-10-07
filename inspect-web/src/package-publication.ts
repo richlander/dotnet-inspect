@@ -37,9 +37,9 @@ export function publicationDateText(value: PublicationDate): string {
 }
 
 export function platformPublicationCoordinate(
-  pack: string, version: string | undefined,
+  pack: string, version: string | undefined, inReferencePack: boolean,
 ): PublicationCoordinate | null {
-  if (!version) return null;
+  if (!version || !inReferencePack) return null;
   switch (pack) {
     case "netcore.app": return { id: "Microsoft.NETCore.App.Ref", version };
     case "aspnetcore.app": return { id: "Microsoft.AspNetCore.App.Ref", version };

@@ -1013,7 +1013,7 @@ export interface PackageAcquisitionDependencies {
   parseRuntimeSurface(json: string): InspectedPackageSurface;
   runtimePackage(): AppPackage | null;
   retainPackage(packageModel: AppPackage, replacedPackage?: AppPackage | null): void;
-  recordRecentPackage(id: string, version: string, framework: string): void;
+  recordRecentPackage(id: string, version: string, framework: string, nugetOrg: boolean): void;
   refreshPackageStats(): void;
   beginRuntimeLoad(): void;
   failRuntimeLoad(error: unknown): void;
@@ -1190,7 +1190,8 @@ export function createPackageAcquisition(
       dependencies.recordRecentPackage(
         packageModel.id,
         packageModel.version,
-        packageModel.activeFramework);
+        packageModel.activeFramework,
+        packageModel.source.kind === "nuget.org");
       return packageModel;
     },
 

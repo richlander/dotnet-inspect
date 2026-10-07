@@ -15162,13 +15162,12 @@ function persistPlatformRecent() {
 // deduped by id, capped) and persist it, so the Home listing survives a refresh. Called
 // only from a successful open, never from search hits or prefetches. The resident runtime
 // pseudo-package has no nupkg and is excluded.
-function recordRecentPackage(id: string, version: string, framework: string) {
+function recordRecentPackage(id: string, version: string, framework: string, nugetOrg: boolean) {
   if (!id || isRuntimePackId(id)) return;
   const rest = (state.recentPackages || []).filter(entry => entry.id.toLowerCase() !== id.toLowerCase());
   state.recentPackages = [
     { id, version: version || "latest", framework: framework || "",
-      nugetOrg: state.packages.some(pkg => pkg.id.toLowerCase() === id.toLowerCase()
-        && pkg.version === version && pkg.source.kind === "nuget.org") },
+      nugetOrg },
     ...rest,
   ].slice(0, RECENT_PACKAGES_MAX);
   persistRecentPackages();
@@ -15232,7 +15231,7 @@ function annotateSpotlightPublicationDates(results: SpotlightResult[]): Spotligh
           coordinate = { id: result.entry.id, version: result.entry.version };
         break;
       case "framework-lib":
-        coordinate = platformPublicationCoordinate(result.pack, result.version);
+        coordinate = platformPublicationCoordinate(result.pack, result.version, result.inReferencePack ?? false);
         break;
       default: return result;
     }
@@ -24597,7 +24596,8 @@ function installPackageHomeDemoSource(
     recordRecentPackage(
       packageModel.id,
       packageModel.version,
-      packageModel.activeFramework);
+      packageModel.activeFramework,
+      packageModel.source.kind === "nuget.org");
   }
   if (state.packages.length !== source.packages.length
     || !state.packages.every((packageModel, index) =>

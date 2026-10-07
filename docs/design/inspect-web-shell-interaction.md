@@ -551,7 +551,10 @@ retain their order.
 Package and platform Library observations show `Published YYYY-MM-DD` on a
 separate metadata line. Dates describe the exact Package version or, for a
 platform Library, its containing `Microsoft.NETCore.App.Ref` or
-`Microsoft.AspNetCore.App.Ref` pack version. The runtime patch is not a
+`Microsoft.AspNetCore.App.Ref` pack version when the catalog confirms that
+reference pack contains the Library. Implementation-only Libraries without an
+exact containing package coordinate leave their date undisclosed. The runtime
+patch is not a
 NETStandard.Library.Ref coordinate; absent exact pack identity leaves that
 Library date undisclosed. Ordinary nuget.org Package Overview uses the same
 coordinate-keyed date observation. File and other-feed Packages never borrow a
