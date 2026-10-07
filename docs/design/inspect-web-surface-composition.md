@@ -1082,6 +1082,15 @@ inference. The preview is capped at 80 total nodes; when a Library exceeds that
 bound, the graph reports its shown count and the complete list remains
 authoritative immediately below it.
 
+An AssemblyRef name is a typed Library destination only when its
+case-insensitive assembly name and version, case-insensitive culture with null,
+empty, and `neutral` treated as equivalent, and normalized public-key token
+uniquely match one Library admitted to the active Workspace. The destination
+carries both the exact package identity and Library identifier; selecting it
+switches to that package and opens the Library Overview. An absent or ambiguous
+match remains static, and References never guesses a package from an assembly
+display name.
+
 The graph and list use the available width. The quiet header remains in place
 while the content scrolls; References has no bottom context row. This follows
 the Package Dependencies composition: structural graph first, complete

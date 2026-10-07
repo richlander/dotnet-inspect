@@ -318,7 +318,7 @@ async function installFacades(
   page: Page,
   model = surface,
   additionalSurfaces: readonly BrowserPackageSurface[] = [],
-  references: "ready" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
+  references: "ready" | "workspace-library" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
   integrations: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   platform?: PlatformFixture,
   opportunities: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
@@ -1289,7 +1289,12 @@ async function installFacades(
           package: id, version, activeFramework: framework, assembly: selected.name,
           dependencyGroups: [], declarationFailures: [], dependencyGroupError: null,
           assemblyReferences: scenario === "inspection-error" ? "Cannot decode AssemblyRef."
-            : { references: scenario === "empty" ? [] : scenario === "long"
+            : { references: scenario === "empty" ? [] : scenario === "workspace-library"
+            ? [{
+                name: "Reference.Target", version: "1.0.0.0",
+                culture: "neutral", publicKeyToken: null
+              }]
+            : scenario === "long"
             ? Array.from({ length: 80 }, (_, index) => ({
                 name: selected.name + "." + "LongNamespace.".repeat(20) + "Reference" + index,
                 version: "1.2.3.4", culture: "x-" + Array(20).fill("private").join("-"),

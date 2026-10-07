@@ -35,8 +35,11 @@ ordinary PDB Source adopts the shared member operation under #7819, and
 ordinary selected-member Decompiled Source adopts decompiled-only settlement
 under #7918. Exact-type decompilation and Browser Type Source fallback adopt
 the same settlement under #7953. Ordinary CLI whole-type Decompiled Source
-adopts the decompiled-only type operation under #7963. Broader CLI enrichment
-and the full source-policy contract remain later adoption.
+adopts the decompiled-only type operation under #7963. Ordinary exact-member
+Source adopts House-owned `BestAvailable` settlement under #9449: authored
+success short-circuits, otherwise decompilation runs under the same transferred
+Library lease and the result retains both attempts. Broader CLI enrichment and
+the remaining source-policy contract remain later adoption.
 The tracker contains 12 ordered steps from this specification through both
 host adoptions and retirement of the current duplicated composition.
 
@@ -732,6 +735,14 @@ Authored source is preferred because it carries checksum-verified provenance
 to producer text. Decompiled source remains a distinct reconstructed
 representation with its own diagnostics and fidelity boundaries.
 
+An admitted exact-member request may carry typed evidence that upstream
+Portable PDB opening has already settled as unavailable. When the request has
+no matching companion PDB and otherwise satisfies the selected-content, lease,
+and deadline contract, `BestAvailable` records a zero-work authored-unavailable
+attempt and proceeds directly to decompilation. A supplied companion or
+contradictory request state defeats that optimization and preserves ordinary
+authored settlement and typed validation.
+
 An operation that needs both authored and decompiled attempts for comparison
 is not `BestAvailable`. It is a separate explicit comparison demand or query
 because it deliberately defeats short-circuiting and incurs both producers'
@@ -899,6 +910,15 @@ Text alone is not the result contract. A caller can distinguish authored from
 decompiled source, identify which PDB contribution was used, inspect why an
 earlier attempt failed, and retain the exact input correspondence without
 parsing a label or diagnostic.
+
+The delivered exact-member `BestAvailable` result is
+`SourceHouseBestAvailableOutcome`. It retains the complete authored
+`SourceHouseOutcome`, the optional `SourceHouseDecompilationOutcome`, the
+selected provider and text when available, and one lease settlement. Its
+request evidence reports `BestAvailable`; authored-only and decompiled-only
+operations retain their existing closed result families. This focused
+delivery does not convert explicit same-member comparison into
+`BestAvailable`.
 
 Every result contains detached or independently owned values. It retains no
 Library lease, callback, borrow, span, stream, opener, or path-reopening
