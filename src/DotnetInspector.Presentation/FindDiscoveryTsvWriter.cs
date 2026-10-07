@@ -36,6 +36,44 @@ public sealed class FindDiscoveryTsvWriter : IDisposable
         _table = new(output, new TableFormatter(showHeader), _options);
     }
 
+    public FindDiscoveryTsvWriter(
+        TextWriter output,
+        bool showHeader,
+        string[]? columns,
+        string[]? fields)
+        : this(output, showHeader, CreateProjection(columns, fields))
+    {
+    }
+
+    private static MarkoutProjection? CreateProjection(
+        string[]? columns,
+        string[]? fields)
+    {
+        if (columns is null && fields is null)
+            return null;
+
+        RejectDuplicateNames(columns, "column");
+        RejectDuplicateNames(fields, "field");
+        return new MarkoutProjection
+        {
+            IncludeColumns = columns,
+            IncludeFields = fields,
+        };
+    }
+
+    private static void RejectDuplicateNames(string[]? names, string kind)
+    {
+        if (names is not { Length: > 1 })
+            return;
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string name in names)
+        {
+            if (!seen.Add(name))
+                throw new ArgumentException($"Duplicate {kind} name: {name}");
+        }
+    }
+
     public void Write(FindDiscoveryRow row)
     {
         string[] cells =
