@@ -269,6 +269,63 @@ this sequential reference before changing yield points.
   adapter stops any other adopter's stream; it does not introduce a second
   cancellation path.
 
+### Rendering admission, flashing, and scroll
+
+Package Query's result stream combines two mechanisms that this design must
+not conflate, and that an implementer could otherwise copy wholesale without
+checking whether either one applies here:
+
+- **Scroll-driven credit is backpressure on an already-live stream, not a
+  cache lookup.** Package Query's near-end-scroll pressure grants the engine
+  more room to keep emitting *already-computed* durable Items from its
+  ongoing search; it never issues a new Worker-side query or re-reads a
+  cache. Library Performance Analysis has no analogous need: Item publication
+  does not begin until the already-complete, already-capped (`≤200`-member)
+  list exists, so the full admitted set is always finite and known in
+  advance. This design does not add scroll-driven credit or any
+  scroll-triggered re-fetch; speculatively, none is needed, because the
+  publication wrapper's existing cooperative-yield interval already paces
+  delivery independent of scroll position.
+- **DOM virtualization and credit are independent.** Package Query mounts at
+  most 30 cards (the estimated visible range plus overscan) from its full
+  retained result state, regardless of how much credit has been granted, and
+  preserves the first visible row as a scroll anchor while the mounted window
+  moves. Speculatively, Library Performance Analysis's ≤200-row capped list
+  is small enough that bounded-window mounting may be unnecessary for
+  correctness, but is likely still worth adopting for render-cost parity with
+  Package Query and to avoid scroll-position disruption as rows keep
+  appending during publication; this design does not resolve that tuning
+  question and defers it to implementation measurement.
+
+Flashing and visual confusion during Item admission are a correctness
+concern, not only a polish concern, because a user watching the list must be
+able to tell a durable, admitted row from a still-replaceable Progress
+preview at a glance. Speculatively, this design expects the implementation
+to:
+
+- patch only the live result region on each admitted Item — never replace or
+  re-render the whole result pane — matching Package Query's existing
+  frame-batched patch discipline;
+- coalesce bursts of near-simultaneous Item events (for example, an entire
+  cooperative-yield batch) into at most one DOM update per animation frame,
+  rather than one update per event, so a fast-arriving batch does not produce
+  visible per-row flicker;
+- keep each admitted Item's row append-only at the end of the currently
+  rendered list in the final order already established by the contract
+  shape, so no row already rendered as a confirmed Item is ever moved,
+  restyled as preview, or removed — only Progress-preview rows carry that
+  replaceable state; and
+- give confirmed Item rows and replaceable Progress-preview rows distinct,
+  consistent visual treatment (for example, a pending/dimmed style for
+  preview rows) so a later Progress event replacing earlier preview rows
+  reads as "the preview is still settling," not as list corruption or lost
+  data.
+
+This subsection does not fix an implementation-ready visual design; it
+states the problem this design must not leave unaddressed, and the
+Package Query precedent an implementer should start from and adapt, not
+copy unexamined.
+
 ## Non-claims
 
 This design does not:
@@ -297,7 +354,13 @@ This design does not:
   and
 - address Wasm call-graph scope cost or peak memory
   ([#3333](https://github.com/richlander/dotnet-inspect/issues/3333)); a
-  faster perceived start does not change total analysis cost.
+  faster perceived start does not change total analysis cost; and
+- claim that scroll-driven credit, a Worker-side result cache, or Package
+  Query's exact virtualization ceiling are required here — the capped
+  (`≤200`-member) list makes a scroll-triggered re-fetch unnecessary by
+  construction, and whether bounded-window DOM mounting is independently
+  worth adopting for this list size is left to implementation measurement,
+  not asserted by this design.
 
 ## Required evidence
 
@@ -323,6 +386,12 @@ implementation must show:
 - a before/after measurement of time from classification completion to full
   row rendering on the `Aspire.Hosting` production witness, run through the
   repository's accepted performance evidence path rather than ad hoc timing;
-  and
 - confirmation that total time-to-completion for that same witness does not
-  regress beyond measurement noise relative to the current synchronous path.
+  regress beyond measurement noise relative to the current synchronous path;
+  and
+- a manual or automated check, on the `Aspire.Hosting` production witness,
+  that admitted Item rows render append-only with no visible full-list
+  replace or per-row flicker during a burst of near-simultaneous admissions,
+  and that confirmed rows remain visually distinct from any still-replaceable
+  Progress-preview rows once the
+  [prerequisite](#prerequisite-per-member-compute-observability) lands.
