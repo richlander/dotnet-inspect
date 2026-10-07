@@ -161,6 +161,8 @@ public static partial class AssemblyContextSourceQuery
             RetainedLibrary = authored.RetainedLibrary,
             RetainedAuthoredSession =
                 authored.RetainedAuthoredSession,
+            AcquisitionFailure =
+                authored.AcquisitionFailure,
         };
     }
 

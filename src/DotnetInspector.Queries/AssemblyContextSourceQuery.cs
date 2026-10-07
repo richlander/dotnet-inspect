@@ -2125,6 +2125,7 @@ public static partial class AssemblyContextSourceQuery
             .AuthoredSession?
             RetainedAuthoredSession
         { get; init; }
+        public Exception? AcquisitionFailure { get; init; }
 
         public AssemblyMemberPdbSourceAttempt ToAttempt()
         {

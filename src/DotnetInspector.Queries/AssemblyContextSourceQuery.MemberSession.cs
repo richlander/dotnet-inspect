@@ -38,7 +38,7 @@ public static partial class AssemblyContextSourceQuery
         AssemblyContextLibraryAdapterResult.Completed? _retainedLibrary;
         AuthoredSourceHouse.AuthoredSession? _authoredSession;
         AssemblyContextLibraryAdapterResult.Terminal? _libraryFailure;
-        MemberPdbInspection? _terminalPdb;
+        Exception? _pdbAcquisitionFailure;
         AssemblyPdbSourceProvenance? _provenance;
         bool _initializationSettled;
         bool _disposed;
@@ -178,7 +178,10 @@ public static partial class AssemblyContextSourceQuery
                     if (_retainedLibrary is null
                         && _libraryFailure is null)
                     {
-                        _terminalPdb = initialized;
+                        _pdbAcquisitionFailure =
+                            initialized.AcquisitionFailure
+                            ?? throw new InvalidOperationException(
+                                "The authored-member source session settled without a retained Library or a terminal failure.");
                     }
                     _provenance = initialized.Provenance;
                     _initializationSettled = true;
@@ -216,12 +219,27 @@ public static partial class AssemblyContextSourceQuery
                             LibraryFailure = terminal,
                         });
                 }
-                if (_terminalPdb is { } terminalPdb)
+                if (_pdbAcquisitionFailure is { } acquisitionFailure)
                 {
+                    var findingSubject = new FindingSubject(
+                        "member",
+                        request.Member.Format(
+                            MemberAnchorFormat.Qualified));
+                    PdbMemberSourceInspection terminalInspection =
+                        PdbSourceInspectionProjection
+                            .MemberAcquisitionFailed(
+                                findingSubject,
+                                acquisitionFailure);
                     return CreateMemberSourceEntry(
                         _subject,
                         request,
-                        terminalPdb);
+                        new(
+                            terminalInspection,
+                            Provenance: null)
+                        {
+                            AcquisitionFailure =
+                                acquisitionFailure,
+                        });
                 }
 
                 MemberPdbInspection inspection =
@@ -298,7 +316,7 @@ public static partial class AssemblyContextSourceQuery
             {
                 _authoredSession = null;
                 _retainedLibrary = null;
-                _terminalPdb = null;
+                _pdbAcquisitionFailure = null;
                 _targetIndex = null;
                 Volatile.Write(ref _operationInProgress, 0);
             }
