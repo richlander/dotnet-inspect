@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindContentFrame,
+  captureContentNavigationScroll,
   contentFrameFocusOwnerFor,
   contentFrameResizeFocusOwner,
   decideContentFrameResize,
@@ -9,8 +10,24 @@ import {
   focusContentNavigationToggle,
   renderContentNavigationBar,
   renderContentNavigationCloseButton,
+  restoreContentNavigationScroll,
 } from "../src/content-frame.ts";
 import { fakeDom } from "./fake-dom.ts";
+
+test("navigation scroll restores only the same inventory scope", () => {
+  const list = { dataset: { navScope: "types", navScrollScope: "types:LibraryA" }, scrollTop: 450, scrollLeft: 12 };
+  const root = fakeDom.parentNode({ querySelector: () => list });
+  const snapshot = captureContentNavigationScroll(root);
+  list.scrollTop = 0;
+  list.scrollLeft = 0;
+  restoreContentNavigationScroll(root, snapshot);
+  assert.equal(list.scrollTop, 450);
+  assert.equal(list.scrollLeft, 12);
+  list.dataset.navScrollScope = "types:LibraryB";
+  list.scrollTop = 0;
+  restoreContentNavigationScroll(root, snapshot);
+  assert.equal(list.scrollTop, 0);
+});
 
 class FakeElement {
   focused = false;

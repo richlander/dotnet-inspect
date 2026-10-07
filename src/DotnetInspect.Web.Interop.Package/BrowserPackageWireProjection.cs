@@ -2,7 +2,6 @@ using System.Runtime.Versioning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
-using ILInspector.Metadata;
 
 namespace DotnetInspect.Web.Interop.Package;
 
@@ -189,15 +188,15 @@ internal static class BrowserPackageWireProjection
                                 "Unknown exact-Library API inspection failure."),
                         },
                         failure.Detail,
-                        failure.SubjectAssembly is null
+                        failure.SubjectAssembly is not { } subjectAssembly
                             ? null
-                            : Project(failure.SubjectAssembly))),
+                            : Project(subjectAssembly))),
             ],
             result.IsComplete,
             result.IsAvailable);
 
     private static BrowserExactLibraryApiAssemblyReferenceIdentity Project(
-        AssemblyReferenceIdentity identity) =>
+        ExactLibraryApiAssemblyReferenceIdentity identity) =>
         new(
             identity.Name,
             identity.Version?.ToString(),
