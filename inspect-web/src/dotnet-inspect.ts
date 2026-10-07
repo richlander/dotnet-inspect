@@ -478,6 +478,7 @@ import {
 import {
   bindContentFrame,
   bindContentFrameMedia,
+  captureContentNavigationScroll,
   CONTENT_FRAME_NARROW_QUERY,
   contentFrameFocusOwnerFor,
   contentFrameResizeFocusOwner,
@@ -485,6 +486,7 @@ import {
   focusContentNavigation,
   focusContentNavigationToggle,
   renderContentNavigationBar,
+  restoreContentNavigationScroll,
   type ContentFrameFocusOwner,
   type ContentFrameFocusTarget,
   type ContentFramePane,
@@ -818,6 +820,7 @@ import type {
 } from "./facades/inspect-web-analysis.d.ts";
 import {
   createTypeLeverageCoordinator,
+  typeLeverageAchievements,
   typeLeverageFeedback,
 } from "./type-leverage.ts";
 import type {
@@ -8793,12 +8796,14 @@ function settingsOwnsHomeFocusTarget(target: HomeFocusTarget | null): boolean {
 }
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
+  const navigationScroll = captureContentNavigationScroll(document);
   dataBarFeedback.synchronize(dataBarViewKey());
   productNavigationBinding.beforeRender();
   try {
     renderCore(options);
   } finally {
     productNavigationBinding.afterRender();
+    restoreContentNavigationScroll(document, navigationScroll);
     memberListRevealer.afterRender(document);
     schedulePackageDocumentTitles();
     scheduleTypeHeat();
@@ -10168,6 +10173,14 @@ function renderTypeNavPane(
     accessibilityOptions: typeAccessibilityOptions(),
     traitOptions: typeTraitOptions(),
     library: activeLibrarySubjectName(),
+    navigationScrollScope: JSON.stringify([
+      "types",
+      retainedWorkspaces.activeWorkspaceId,
+      currentPackage().id,
+      currentPackage().version,
+      currentPackage().activeFramework,
+      state.libraryScope ? [...state.libraryScope].sort() : null,
+    ]),
     parentSubject: state.atLibraryRoot
       ? state.rootKind === "platform" && !currentViewHasPlatformRootParent()
         ? null
@@ -10200,18 +10213,10 @@ function renderTypeNavPane(
     itemAchievements: (item: TypeInventoryRow) => {
       if (isForwardedType(item)) return [];
       const presentation = currentTypeLeveragePresentation(item);
-      const achievements: ItemAchievement[] = [];
-      for (const leverage of presentation?.byType.get(
+      return typeLeverageAchievements(presentation?.byType.get(
         item.definitionId ?? item.id,
-      ) ?? []) {
-        achievements.push({
-          kind: `${leverage.evidenceMode}-${leverage.pole}`,
-          description: leverage.description,
-        });
-      }
-      if (diffPresence.typeIdentifiers.has(item.definitionId ?? item.id))
-        achievements.push(apiDiffAchievement);
-      return achievements;
+      ) ?? [], diffPresence.typeIdentifiers.has(item.definitionId ?? item.id)
+        ? apiDiffAchievement : null);
     },
     statusHtml: platformForwarderInventoryStatus(),
   });

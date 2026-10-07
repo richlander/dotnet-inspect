@@ -44,27 +44,30 @@ test("aggregate Type lists load icon-only cues automatically", async ({
     "data-structural-salience-request-count",
     "2",
   );
-  await expect(page.locator(".type-row.surface-sea-level")).toHaveCount(1);
-  await expect(page.locator(".type-row.surface-mountain-peak")).toHaveCount(1);
+  await expect(page.locator(".type-row.surface-sea-level")).toHaveCount(0);
+  await expect(page.locator(".type-row.surface-mountain-peak")).toHaveCount(0);
   await expect(page.locator(".type-row.implementation-sea-level"))
     .toHaveCount(2);
-  await expect(page.locator(
-    ".type-row.surface-sea-level.implementation-sea-level",
-  )).toHaveCount(1);
-  await expect(page.locator(
-    ".type-row.surface-mountain-peak.implementation-sea-level",
-  )).toHaveCount(1);
-  expect(await page.locator(
-    ".item-achievement-glyph.surface-sea-level",
-  ).first()
-    .evaluate(element => getComputedStyle(element).maskImage)).not.toBe("none");
+  const rails = page.locator(".type-row .item-achievement-rail");
+  for (const rail of await rails.all()) {
+    await expect(rail.locator(".item-achievement-glyph")).toHaveCount(1);
+    await expect(rail).toHaveAccessibleName(/surface.*implementation/);
+    const geometry = await rail.locator(".item-achievement-glyph").evaluate(element => ({
+      column: getComputedStyle(element).gridColumnStart,
+      width: getComputedStyle(element.parentElement!).width,
+      mask: getComputedStyle(element).maskImage,
+    }));
+    expect(geometry.column).toBe("2");
+    expect(geometry.width).toBe("34px");
+    expect(geometry.mask).not.toBe("none");
+  }
   await expect(page.locator(".metadata-warning")).toHaveCount(0);
   await page.locator("#clear-filter").click();
   await expect(page.locator(".item-achievement-glyph.surface-sea-level"))
-    .toHaveCount(1);
+    .toHaveCount(0);
   await expect(page.locator(
     ".item-achievement-glyph.surface-mountain-peak",
-  )).toHaveCount(1);
+  )).toHaveCount(0);
   await expect(page.locator(
     ".item-achievement-glyph.implementation-sea-level",
   )).toHaveCount(2);

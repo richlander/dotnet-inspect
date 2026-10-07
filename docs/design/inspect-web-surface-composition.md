@@ -1513,6 +1513,19 @@ its selected row into view. Activating an inventory row moves focus to the
 return button in the resulting narrow detail pane. A filter-focus command first
 switches to inventory, then opens and focuses the applicable filter.
 
+Selecting a row or receiving background inspection results preserves the
+navigation inventory's scroll position while its scope remains the same.
+Changing scope starts a new viewport; explicit keyboard navigation and restored
+Member reveals may still bring the selected row into view.
+
+The motivating real asset is Markout 0.38.0, net10.0, with
+`Markout.MarkoutField` selected in Type Compare on dotnet-inspect.ca. Selecting
+Types in its long inventory reset the list to the top because rendering
+replaced the scroll container. The deterministic browser navigation test
+`Type selection preserves a long inventory viewport across renders` exercises
+the production render path with an expanded inventory; the package coordinate
+and selected Type retain the reproducible real-world observation.
+
 When crossing into the narrow layout, focus inside Type or Member navigation
 keeps inventory visible; focus inside detail keeps detail visible. Otherwise
 the retained presentation-local pane remains visible. Widening reveals both

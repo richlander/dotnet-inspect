@@ -1200,6 +1200,7 @@ kbd {
   color: var(--text);
 }
 .type-browser.has-item-achievement-rail .type-row { padding-left: 66px; }
+.type-browser.has-item-achievement-rail:not(.member-nav) .type-row { padding-left: 48px; }
 .type-row > * { position: relative; z-index: 1; }
 .type-row:hover { background: rgba(255,255,255,.02); }
 .type-row.selected {
@@ -1246,20 +1247,20 @@ kbd {
   -webkit-mask-image: var(--item-achievement-mask);
   mask-image: var(--item-achievement-mask);
 }
-.item-achievement-glyph.surface-sea-level {
+.type-row > .item-achievement-rail {
+  grid-template-columns: repeat(2, 16px);
+  width: 34px;
+}
+.type-row > .item-achievement-rail > .item-achievement-glyph { grid-column: 2; }
+.type-row > .item-achievement-rail > .api-diff { grid-column: 1; }
+.item-achievement-glyph.surface-sea-level,
+.item-achievement-glyph.implementation-sea-level {
   --item-achievement-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.5 6c1 0 1-.8 2-.8s1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8'/%3E%3Cpath d='M2 9c1 0 1-.8 2-.8s1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8 1 .8 2 .8'/%3E%3Cpath d='M3 12c1 0 1-.8 2-.8s1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8 1 .8 2 .8'/%3E%3C/svg%3E");
   color: var(--salience-sea);
 }
-.item-achievement-glyph.surface-mountain-peak {
-  --item-achievement-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.5 13 5.5 7.25 7.2 9.4 10 3.5 14.5 13'/%3E%3Cpath d='M9 8.1 10 7.1 11.5 8.85'/%3E%3Cpath d='M3.5 13 5.75 9.8'/%3E%3C/svg%3E");
-  color: var(--salience-peak);
-}
-.item-achievement-glyph.implementation-sea-level {
-  --item-achievement-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M1.5 5.5c1 0 1-.8 2-.8s1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8'/%3E%3Cpath d='M2 9c1 0 1-.8 2-.8s1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8 1 .8 2 .8'/%3E%3Cpath d='M3 12.5c1 0 1-.8 2-.8s1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8 1 .8 2 .8'/%3E%3C/svg%3E");
-  color: var(--salience-sea);
-}
+.item-achievement-glyph.surface-mountain-peak,
 .item-achievement-glyph.implementation-mountain-peak {
-  --item-achievement-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1 14 5.4 6.9l1.8 2.2L10 2.5 15 14H1Zm7.8-5.7 1.1-1.2 1.7 2.1.8-1.1L10 4.5 8.8 8.3Z'/%3E%3C/svg%3E");
+  --item-achievement-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.5 13 5.5 7.25 7.2 9.4 10 3.5 14.5 13'/%3E%3Cpath d='M9 8.1 10 7.1 11.5 8.85'/%3E%3Cpath d='M3.5 13 5.75 9.8'/%3E%3C/svg%3E");
   color: var(--salience-peak);
 }
 .item-achievement-glyph.top-leverage {

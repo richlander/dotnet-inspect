@@ -10,9 +10,36 @@ import {
   createTypeLeverageCoordinator,
   projectTypeLeverage,
   typeLeverageFeedback,
+  typeLeverageAchievements,
 } from "../src/type-leverage.ts";
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
 import type { TypeLeverageLoadState } from "../src/type-leverage.ts";
+
+test("Type achievements put diff first and collapse salience with implementation precedence", () => {
+  const surfaceCue = {
+    evidenceMode: "surface" as const,
+    pole: "mountain-peak" as const,
+    description: "surface mountain peak",
+  };
+  const implementationCue = {
+    evidenceMode: "implementation" as const,
+    pole: "sea-level" as const,
+    description: "implementation sea level",
+  };
+  const diff = { kind: "api-diff" as const, description: "API differences" };
+  assert.deepEqual(typeLeverageAchievements([surfaceCue, implementationCue], diff), [
+    diff,
+    { kind: "implementation-sea-level", description: "surface mountain peak; implementation sea level" },
+  ]);
+  assert.deepEqual(typeLeverageAchievements([surfaceCue], null), [
+    { kind: "surface-mountain-peak", description: "surface mountain peak" },
+  ]);
+  assert.deepEqual(typeLeverageAchievements([], diff), [diff]);
+  assert.deepEqual(typeLeverageAchievements([], null), []);
+  assert.equal(typeLeverageAchievements([
+    { ...surfaceCue, pole: "sea-level" }, implementationCue,
+  ], null).length, 1);
+});
 
 const compileLibrary: BrowserCompileLibraryAvailability = {
   status: "Selected",
