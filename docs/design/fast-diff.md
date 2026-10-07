@@ -89,6 +89,34 @@ Fast Diff operation consumes their per-unit producer capabilities. This is the
 mechanism that makes early exit reduce execution rather than merely truncate a
 completed projection.
 
+### Raw producer boundary
+
+Fast Diff executes over raw QuerySpace producers:
+
+- Metadata-owned per-unit correspondence and Finding-transition producers
+  supply API witnesses;
+- a raw MethodDef census supplies one-sided and body-availability witnesses;
+  and
+- a raw canonical IL producer decodes paired method bodies lazily and stops at
+  the first unequal operation or owned body fact.
+
+Fast Diff does not route through `LibraryBodyAnalysisService`, an Analysis
+method population, Research target planning, `ImplementationComparisonQuery`,
+`MemberBodyDiffInspection`, a decompiler, or any complete-diff producer. Those
+paths answer richer questions, require identities and evidence Fast Diff does
+not consume, and prevent terminal pushdown.
+
+Raw Metadata handles and owner-issued correspondence identify each Type,
+Member, and MethodDef. Fast Diff does not round-trip a method through a textual
+Member selector to recover the body it already owns. This preserves distinct
+ordinary methods and conversion operators even when names such as `Explicit`
+or `Implicit` overlap selector grammar.
+
+Decode or resolution failure is local to the unresolved subject. QuerySpace
+settles that subject as `Indeterminate`; it does not fail the Library or Type
+request and does not invalidate subjects already settled as `Changed` or
+`Unchanged`.
+
 ## Subject states and equality
 
 | State | Meaning |
@@ -163,6 +191,14 @@ was skipped. Both paths still constructed the complete API comparison and
 returned no changed rows. Neither is an acceptable Fast Diff implementation;
 the accepted producer must demonstrate that QuerySpace `Exists` materially
 reduces that product-host latency.
+
+The existing Member Body path is a rejected baseline, not an implementation
+candidate. On the same Browser/Wasm host, its `System.Text.Json` 9.0.0 to
+10.0.0 inventory took 34,272 ms and one retained changed Member took another
+15,134.5 ms. `Aspire.Hosting` ran for 67,923 ms before a Research target
+resolution failure. These results prohibit using Library Body Analysis,
+Research target resolution, or Member Body inventory as a Fast Diff source;
+they do not predict the raw QuerySpace producer's latency.
 
 ## Hosts
 
@@ -258,3 +294,8 @@ The plan has **seven independently mergeable slices** under #9716:
 12. An unchanged Type exhausts its Library witness source and returns
     `Unchanged` without constructing a complete `ApiDiff`, shallow summary, or
     row inventory.
+13. Ordinary methods named `Explicit` and `Implicit` and conversion operators
+    in the same Type remain distinct raw MethodDef subjects; no textual
+    selector round-trip participates in body acquisition.
+14. One method whose raw body cannot be decoded is `Indeterminate`; other
+    subjects in the same request retain their independently settled states.
