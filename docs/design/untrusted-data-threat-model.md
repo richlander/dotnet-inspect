@@ -1511,8 +1511,8 @@ and
 Every product consumer that renders or derives output from fetched source
 requires the portable-PDB checksum before using network content.
 `VerifiedSourceTextFetch` supplies that composition directly for IL-offset
-source lines and within `PdbMemberSourceAcquisition`; SourceHouse supplies the
-same owner-issued predicate through its fetch capability. PDB Source, printed
+source lines; SourceHouse supplies the same owner-issued predicate through its
+fetch capability, including Query-owned certification sessions. PDB Source, printed
 Source Files and Source Locations, and documentation/sample enrichment preserve
 that
 same requirement.

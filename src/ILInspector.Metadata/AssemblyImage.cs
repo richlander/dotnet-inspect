@@ -104,6 +104,16 @@ public sealed class AssemblyImage : IDisposable
         }
     }
 
+    internal long Length
+    {
+        get
+        {
+            EnsureAlive();
+            return _stream?.Length
+                ?? PEReader.GetEntireImage().Length;
+        }
+    }
+
     /// <summary>Opens an image from a file path.</summary>
     public static AssemblyImage Open(string path) => FromStream(File.OpenRead(path));
 

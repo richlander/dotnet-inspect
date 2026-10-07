@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Models;
+using DotnetInspect.Cli.Planning;
 using DotnetInspector.Packages;
 using DotnetInspector.SourceSelection;
 using DotnetInspector.Sections;
@@ -282,6 +283,13 @@ public record LibraryOptions : IProjectionOptions
     public bool Effective { get; init; }
 
     public bool Tree { get; init; }
+
+    /// <summary>
+    /// The command-level plan selected from the explicit command line. The
+    /// Library Type hierarchy applies only to a bare Library subject request.
+    /// </summary>
+    internal LibraryCommandPlan CommandPlan { get; init; } =
+        new LibraryCommandPlan.Standard();
 
     /// <summary>
     /// Names to select (sections). Null means all.

@@ -346,6 +346,18 @@ eligible body, and that the plan either settles the cap or exhausts the
 population. It does not replace the scorecard fingerprint or NativeAOT
 evidence.
 
+Capped selection materializes API evidence only for the ranked prefix it can
+reach. It decodes the declaring Types of the first `cap` ranked candidates that
+pass the target-Type filter, then doubles that prefix only when evaluation runs
+past it. Types the filter rejects are never decoded. The receipt records the
+prepared prefix length and the number of Types decoded, so a regression to
+whole-assembly extraction fails
+`CappedSelectionMaterializesApiEvidenceOnlyForTheEvaluatedPrefix` instead of
+hiding in timing noise. Decisions are unchanged: deciding every ranked body of
+CoreLib, System.Linq, System.Text.Json, System.Collections.Immutable,
+System.Private.Xml, and ILInspector.Metadata (84,912 bodies) with whole-assembly
+and prefix-only evidence produces identical decisions and capped selections.
+
 The first production QuerySpace slice exposes exact eligible Count through one
 operation, one candidate row set, and the Count terminal. The operation-owned
 source performs the complete eligibility scan without constructing eligible

@@ -199,6 +199,47 @@ public class LibraryTypeHierarchyPresentationTests
         Assert.Empty(output.ToString());
     }
 
+    [Theory]
+    [InlineData(LibraryTypeHierarchyPresentationFormat.Tree)]
+    [InlineData(LibraryTypeHierarchyPresentationFormat.Mermaid)]
+    public void EmptyPopulation_RendersAsEmpty(
+        LibraryTypeHierarchyPresentationFormat format)
+    {
+        LibraryDocument document = Document();
+        var rows =
+            (LibraryTypePopulationRowsOutcome.Read)document.Types!.Rows!;
+        LibraryDocument empty =
+            document with
+            {
+                Types = document.Types with
+                {
+                    Rows = rows with { Items = [] },
+                },
+            };
+        using var output = new StringWriter();
+
+        LibraryTypeHierarchyPresentation.Write(
+            empty,
+            LibraryTypeHierarchyPresentation.CreateDefaultPlan(format),
+            output);
+
+        string result = output.ToString();
+        Assert.Contains(
+            "Example 1.2.3.4 (no public types)",
+            result,
+            StringComparison.Ordinal);
+        if (format == LibraryTypeHierarchyPresentationFormat.Tree)
+        {
+            Assert.Equal(
+                "Example 1.2.3.4 (no public types)" + Environment.NewLine,
+                result);
+        }
+        else
+        {
+            Assert.DoesNotContain(" --> ", result, StringComparison.Ordinal);
+        }
+    }
+
     [Fact]
     public void FacetedBinding_FailsBeforeAnyOutput()
     {

@@ -259,6 +259,7 @@ public sealed record TypeMemberKindCount(
 
 public sealed record TypeMemberTraitCounts(
     int All,
+    int BodyBacked,
     int Static,
     int Instance,
     int Virtual,

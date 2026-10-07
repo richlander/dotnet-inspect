@@ -82,6 +82,8 @@ public sealed record TypeSubject
         TypeDocumentDeclarationSignature signature,
         MetadataTypeDeclarationCategory category,
         TypeAttributes attributes,
+        bool isHidden,
+        bool isCompilerGenerated,
         bool isByRefLike,
         bool isReadOnly,
         bool definesCoreLibraryRoot,
@@ -112,6 +114,8 @@ public sealed record TypeSubject
         TypeDefinitionToken = typeDefinitionToken;
         Category = category;
         Attributes = attributes;
+        IsHidden = isHidden;
+        IsCompilerGenerated = isCompilerGenerated;
         IsByRefLike = isByRefLike;
         IsReadOnly = isReadOnly;
         DefinesCoreLibraryRoot = definesCoreLibraryRoot;
@@ -127,6 +131,8 @@ public sealed record TypeSubject
         TypeDocumentDeclarationSignature signature,
         MetadataTypeDeclarationCategory category,
         TypeAttributes attributes,
+        bool isHidden,
+        bool isCompilerGenerated,
         bool isByRefLike,
         bool isReadOnly,
         bool definesCoreLibraryRoot,
@@ -139,6 +145,8 @@ public sealed record TypeSubject
             signature,
             category,
             attributes,
+            isHidden,
+            isCompilerGenerated,
             isByRefLike,
             isReadOnly,
             definesCoreLibraryRoot,
@@ -170,6 +178,8 @@ public sealed record TypeSubject
     public TypeDocumentDeclarationSignature Signature { get; }
     public MetadataTypeDeclarationCategory Category { get; }
     public TypeAttributes Attributes { get; }
+    public bool IsHidden { get; }
+    public bool IsCompilerGenerated { get; }
     public bool IsByRefLike { get; }
     public bool IsReadOnly { get; }
     public bool DefinesCoreLibraryRoot { get; }
@@ -224,13 +234,18 @@ public sealed record TypeDocumentInspectionContent
     public TypeDocumentInspectionContent(
         TypeSubject subject,
         TypeDocumentDeclarations declarations,
-        int assemblyBytes)
+        int assemblyBytes,
+        MetadataTypeDeclarationBaseKind baseKind,
+        int interfaceCount)
     {
         Subject = subject
             ?? throw new ArgumentNullException(nameof(subject));
         Declarations = declarations
             ?? throw new ArgumentNullException(nameof(declarations));
         ArgumentOutOfRangeException.ThrowIfNegative(assemblyBytes);
+        if (!Enum.IsDefined(baseKind))
+            throw new ArgumentOutOfRangeException(nameof(baseKind));
+        ArgumentOutOfRangeException.ThrowIfNegative(interfaceCount);
         if (declarations
                 is TypeDocumentDeclarations.Available available
             && !Matches(
@@ -243,11 +258,15 @@ public sealed record TypeDocumentInspectionContent
         }
 
         AssemblyBytes = assemblyBytes;
+        BaseKind = baseKind;
+        InterfaceCount = interfaceCount;
     }
 
     public TypeSubject Subject { get; }
     public TypeDocumentDeclarations Declarations { get; }
     public int AssemblyBytes { get; }
+    public MetadataTypeDeclarationBaseKind BaseKind { get; }
+    public int InterfaceCount { get; }
 
     private static bool Matches(
         TypeSubject subject,

@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchQueries;
+using DotnetInspector.Presentation;
 using DotnetInspect.Cli.Views;
 using System.Globalization;
 using System.Text.Json;
@@ -346,27 +347,24 @@ public static class OutputFormatter
                 : new[] { v.Version, v.Feed })
             .ToArray();
 
-        WriteTable(output, showHeader: !options.NoHeader, (writer, formatter) =>
-        {
-            var markoutWriter = new MarkoutWriter(writer, formatter, CreateTableWriterOptions(options.Tsv, options.Jsonl));
-            markoutWriter.WriteTable(display, stable, rows);
-            markoutWriter.Flush();
-        });
+        SimpleTablePresentation.WriteTable(
+            output,
+            showHeader: !options.NoHeader,
+            SimpleFormat(options.Tsv, options.Jsonl),
+            display,
+            stable,
+            rows);
     }
 
     public static void WriteStringList(IEnumerable<string> values, string displayName, string stableName,
         bool tsv, bool jsonl, TextWriter output)
     {
-        var rows = values.Select(value => new[] { value }).ToArray();
-        WriteTable(output, showHeader: false, (writer, formatter) =>
-        {
-            var markoutWriter = new MarkoutWriter(writer, formatter, CreateTableWriterOptions(tsv, jsonl));
-            if (jsonl)
-                markoutWriter.WriteTable([displayName], [stableName], rows);
-            else
-                markoutWriter.WriteList(rows.Select(row => row[0]).ToArray());
-            markoutWriter.Flush();
-        });
+        SimpleTablePresentation.WriteList(
+            output,
+            SimpleFormat(tsv, jsonl),
+            displayName,
+            stableName,
+            values);
     }
 
     /// <summary>
@@ -394,17 +392,21 @@ public static class OutputFormatter
             return;
         }
 
-        var rows = items.Select(v => new[] { v.Version, v.Listed ? "listed" : "unlisted" }).ToArray();
-        WriteTable(output, showHeader: !options.NoHeader, (writer, formatter) =>
-        {
-            var markoutWriter = new MarkoutWriter(
-                writer,
-                formatter,
-                CreateTableWriterOptions(options.Tsv, options.Jsonl));
-            markoutWriter.WriteTable(["Version", "Listing"], ["version", "listing"], rows);
-            markoutWriter.Flush();
-        });
+        var rows = items.Select(v => new VersionListingJson(
+            v.Version, v.Listed ? "listed" : "unlisted"));
+        SimpleTablePresentation.WriteTypedRows(
+            output,
+            showHeader: !options.NoHeader,
+            SimpleFormat(options.Tsv, options.Jsonl),
+            ["Version", "Listing"],
+            ["version", "listing"],
+            rows,
+            row => [row.Version, row.Listing],
+            SimpleTableJsonlContext.Relaxed.VersionListingJson);
     }
+
+    private static SimpleTableFormat SimpleFormat(bool tsv, bool jsonl) =>
+        jsonl ? SimpleTableFormat.Jsonl : tsv ? SimpleTableFormat.Tsv : SimpleTableFormat.Table;
 
     /// <summary>
     /// The ordered sections a <c>--count</c> map should report, or <c>null</c> when the selection

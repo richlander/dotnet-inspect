@@ -97,7 +97,18 @@ The separate `inspect-web-catalog-facade-*-dependencies-stay-within-capability-r
 rules preserve the Catalog facade's evaluated-project and compiled-assembly
 boundaries. Home-demo call graphs use Web Core's shared lowering of the
 host-neutral call-graph projection, so neither graph admits
-`ILInspector.Analysis`.
+`ILInspector.Analysis`. Queries-owned demo selection now resolves the
+owner-issued member anchor over the already projected browser surface, and
+Queries-owned portable identities detach retained and Platform Library
+identity fields. The Catalog facade therefore has no project or compiled
+reference to `ILInspector.Metadata`.
+
+The separate `inspect-web-source-facade-*-dependencies-stay-within-capability-ratchet`
+rules establish the Source facade's evaluated-project and compiled-assembly
+ceilings. Services projects resolved and attributable browse URLs from typed
+PDB source inspections, so the facade preserves its existing source and
+comparison wire fields without interpreting SourceLink documents. Neither
+Source dependency graph admits `ILInspector.SourceLink`.
 
 Web Core and the capability facades other than CallGraph still use the broader
 `src/DotnetInspect.Web/BannedSymbols.txt` while their positive component
@@ -138,12 +149,16 @@ allow-list entry when the host does not consume them.
    rejected-operation contract. Settlement evidence is not stored on a
    reusable exact workspace.
 2. **Select and realize typed roles.** The ordinary package-open path requests
-   one PackageHouse compile realization. Its payload acquisition downloads and
-   admits the package from the Gallery package CDN through the shared typed
-   source, transport, archive, and Browser reservation policy. The Gallery
-   payload carries its advertised length into that policy before body
-   materialization. `PackageInfoMeasurementInspection` projects the retained
-   archive and selected slice from that realization, while
+   one PackageHouse compile realization. Acquisition applies the shared
+   1,000,000-byte size cut: small archives are acquired complete; larger
+   archives use Range reads for the selected surface and implementation
+   folders and package evidence. Sparse entries are charged before
+   materialization, including entry-cache hits, and retained under the same
+   bounded Browser cache. Matching realizations reuse their content generation;
+   complete-acquisition callers never receive sparse archives. The handoff is
+   owned by [Package payload capacity](../docs/design/package-payload-capacity.md).
+   `PackageInfoMeasurementInspection` projects the validated archive length and
+   selected slice from that realization, while
    `PackageHouseRootContributionAdapter` creates the exact package Root used by
    the Browser workspace without another acquisition or selection.
    `PackageAssemblyContextSelection` applies
@@ -726,6 +741,8 @@ Release to `artifacts/inspect-web-publish`.
 | `QueryPackageIntegrations` | one exact library in a package/version/framework | `AssemblyContextIntegrationsQuery.ExecuteParticipant(...)` |
 | `QueryPackageOpportunities` | one exact library in a package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipant(...)` |
 | `QueryPackagePerformance` | one exact library in a package/version/framework | `AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(...)` |
+| `QueryPackageResourceTriage` | one selected package Library plus admitted runtime context | `AssemblyResourceTriageInspection.ExecuteWithRuntimeAsync(...)` |
+| `QueryPlatformResourceTriage` | one selected platform participant | `AssemblyResourceTriageInspection.Execute(...)` |
 | `QueryPackageMetadata` | one exact library in a package/version/framework | root-aware `AssemblyContextMetadataImageQuery.ExecuteParticipant(...)` plus `AssemblyContextReadyToRunImageQuery.ExecuteParticipant(...)` |
 | `QueryMemberCallGraph` | every open package coordinate, implementation group | `MemberCallGraphSession` |
 | `LoadRuntimePack`, `LoadRuntimePackAssembly` | selected platform assemblies accumulated per target framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
@@ -735,11 +752,52 @@ Release to `artifacts/inspect-web-publish`.
 
 <!-- markdownlint-enable MD013 -->
 
-`QueryPackage` is the site's default path. It runs against the product-selected
-compile assets, so `ref/` assemblies remain authoritative when the package ships
-them. It asks the API-surface query for the composed scope — the default consumer
-surface plus non-public types — so a public type keeps its public member list
-while non-public types remain reachable through the accessibility filter. Public
+The initial package open calls `QueryPackageSummary`, which carries the
+complete bounded Library inventory and the product-selected default asset ID.
+The application selects that Library from the inventory even before a broad
+surface is loaded. Library Overview asks `QueryLibraryApi` for that exact
+Library's bounded public API summary and `InspectLibrary` for its Enablements;
+both reuse the admitted PackageHouse realization. It does not automatically
+request the package-wide Type surface. All Libraries Overview, explicit Type
+navigation, and API browsing retain that broad request. Explicit links and
+restored subjects keep their requested selection.
+
+The initial package overview does not prefetch the package icon. The subject
+header displays its default icon immediately; after the initial render has had
+an opportunity to paint, the UI independently requests the embedded icon through
+`QueryPackageIcon`. Repeated renders share that request. A late result cannot
+update a different package's header; unavailable or failed icon requests retain
+the default. Complete archives below the shared size threshold can already
+contain the icon, but icon acquisition never gates the initial page.
+
+Package Metadata overview, table windows, and heap listings also reuse the
+admitted realization. They retain their exact Library selection and existing
+metadata bounds; visiting Metadata does not require another complete archive.
+A standalone exact Metadata request uses the existing exact-Library realization
+with one named implementation demand, no PDB companions, no framework-reference
+evidence, and no icon prefetch. Reference-only Libraries retain the surface
+fallback. Surface folders and aligned implementation chunks keep their existing
+expansion rules, so a chunk can include neighboring files. The complete logical
+Library inventory and product selection remain authoritative.
+
+The narrowed realization has a selection-specific cache and scope demand; it
+cannot satisfy a later broad Package/API request. If Summary already admitted
+a full realization, Metadata reuses it instead. Table windows and heap listings
+remain lazy, bounded requests over that retained scope. Legacy assembly-name
+selectors and unavailable targets preserve their existing resolution outcomes.
+`Avalonia` 12.1.2 targeting net10.0 motivates this demand: Metadata for the exact
+`Avalonia.Base.dll` should not eagerly acquire every other implementation or its
+package icon. `MetadataScope_NamesOneImplementationAndDoesNotReplaceTheFullScope`
+gates implementation narrowing, warm reuse, a neighboring Library, later broad
+acquisition, and Summary-first reuse; `MetadataScope_ReferenceOnlyLibraryRetainsItsSurfaceFallback`
+gates the reference-only boundary.
+
+`QueryPackage` is the broad Type-navigation path. It runs against the
+product-selected compile assets, so `ref/` assemblies remain authoritative
+when the package ships them. It asks the API-surface query for the composed
+scope — the default consumer surface plus non-public types — so a public type
+keeps its public member list while non-public types remain reachable through
+the accessibility filter. Public
 types hidden by the extractor stay hidden rather than re-entering the default
 bucket with private members. That scope is one extraction inside
 `ApiSurfaceExtractor`, not two composed in the query layer, so a package load
@@ -2659,6 +2717,334 @@ text escaping.
 
 ## Deploy
 
+### Website archive-acquisition audit
+
+At the local `web-range-metadata` slice, the website flows below use these
+package acquisition paths. A selected Library in the UI does not by itself
+make a legacy request Range-capable.
+
+<!-- markdownlint-disable MD013 -->
+
+| Flow | Package acquisition | Remaining work |
+| --- | --- | --- |
+| Initial package Summary and broad Type surface | House realization, shared complete/Range size policy | Broad extraction is still expensive when explicitly requested. |
+| Exact Library Overview API and Enablements | Reuses ranged realization | Existing Roslyn API retained-text truncation remains visible. |
+| Metadata overview, table windows, heap listings | Reuses ranged realization | This local slice; ordinary platform Metadata remains separate. |
+| Exact Type member population, Member and Member-group documents | Unbound `OpenScopeAsync`, complete archive | Adopt exact requests without changing selection/documentation contracts. |
+| Package Library query/provider and dependency views | Unbound `OpenScopeAsync`, complete archive | Preserve provider demand and explicit dependency framework semantics. |
+| Package Analysis, integrations, opportunities and call graphs | Unbound single-package scopes, complete archives | Participant-scoped queries still need ranged acquisition adoption. |
+| Package source/decompilation and pairwise API/body/source comparisons | Unbound endpoint scopes, complete archives | Adopt each endpoint while preserving source, body and correspondence demand. |
+| Multi-package Gallery queries and clone candidates | Public `ResolveAsync` uses House realization; single-request `ResolveAndOpenScopeAsync` uses complete acquisition | Preserve composed binding semantics when adopting the remaining single-request and configured-source paths. |
+| Workspace occurrence activation | Bound coordinate scope | Reuses its retained generation. |
+| Platform and platform dependency composition | Platform workspace and package adapters | Separate from ordinary package realization; not covered by these slices. |
+
+<!-- markdownlint-enable MD013 -->
+
+The transport distinction is the argument to `OpenScopeAsync`: an admitted
+realization or bound coordinate can reuse its retained generation; the overload
+accepting package ID/version/framework calls `OpenUnboundScopeAsync`, which
+uses complete `AcquireAsync`. Therefore an occurrence of the method name alone
+is insufficient evidence of a whole download. Uploads have no remote archive
+acquisition. Package vulnerability service requests are also outside archive
+Range policy. Remaining adoption is tracked in #9678; the CLI audit follows
+the website work.
+
+### Measure package Library opening
+
+The earlier `measure-inspect-web-package-open.cs` probe measured the broad
+`QueryPackage` export, not the website's initial summary-to-Library sequence.
+Reduced transfer alone did not remove broad metadata extraction. This follow-up
+measures entering Library Overview after summary acquisition:
+`QueryPackageSummary`, exact
+`QueryLibraryApi`, and `InspectLibrary` with Enablements. The legacy sequence
+also launches `QueryPackage`; single-Library Overview omits that request.
+
+Measurements on 2026-10-07 compare base `46fb3137a7752d9553ec32d2920a5b9dc82398a2`
+with candidate `d85a41e4f` (production changes in `d98171a75`). Both use the same
+corrected harness in
+[`eng/measure-inspect-web-library-open.cs`](../eng/measure-inspect-web-library-open.cs).
+They are Linux x64 NativeAOT Release publications with SDK
+`11.0.100-rc.1.26425.128`, on an AMD Ryzen 9 9900X, Linux `7.0.0-38-generic`.
+Builds and test runs had finished before measurement. CDN state is uncontrolled;
+"cold" means a fresh process and empty Browser cache, not a cold CDN.
+
+Publish the harness separately from each worktree:
+
+```bash
+dotnet publish eng/measure-inspect-web-library-open.cs -c Release \
+  -p:IsPublishable=true -o /tmp/library-open-before
+# In the candidate worktree, use -o /tmp/library-open-after.
+/tmp/library-open-before/measure-inspect-web-library-open \
+  Avalonia 12.1.2 net10.0 legacy compile:ref/net10.0/Avalonia.Base.dll
+/tmp/library-open-after/measure-inspect-web-library-open \
+  Avalonia 12.1.2 net10.0 overview compile:ref/net10.0/Avalonia.Base.dll
+```
+
+The baseline summary-only default did not activate Library navigation because
+its assembly surface was empty. These pairs compare entering Library Overview
+from that summary with the new Library-first opening. They do not claim that
+the previous automatic Package landing made these extra requests. The baseline
+summary-only cold medians were 381.6 ms for the Avalonia.Base control,
+398.8 ms for Roslyn, and 116.3 ms for Dapper; the new default adds actual Library
+inspection and presents a different landing view.
+
+Run seven fresh-process pairs, alternating before/after ordering each pair.
+Each process performs one cold and one warm open, without an excluded warmup.
+Pinned fixtures are Avalonia 12.1.2/net10.0 (explicit Base and default selection),
+Microsoft.CodeAnalysis.CSharp 4.11.0/net8.0, Dapper 2.1.66/net8.0, and
+Microsoft.NETCore.Platforms 7.0.0/net8.0 (zero Libraries).
+The native executable SHA-256 identities are:
+
+```text
+before: 7550ce41d61d2c5c51df96b2c6b302d48c752b5061d4e7891f49de334430b564
+after:  5ffaed9ff39da4b573d643f641e2a1285ad9c37e56a76665c36e7ac8987a6a25
+```
+
+Export-sequence milliseconds, median / empirical p95 (maximum with seven
+samples), including acquisition, inspection, JSON serialization and summary
+consumption, but excluding process startup and browser rendering:
+
+<!-- markdownlint-disable MD013 -->
+
+| Fixture | Before cold | After cold | Before warm | After warm |
+| --- | ---: | ---: | ---: | ---: |
+| avalonia-base | 1288.6 / 8439.6 | 617.7 / 1745.9 | 767.1 / 778.8 | 157.6 / 162.7 |
+| avalonia-default | 1358.0 / 3019.5 | 431.3 / 527.1 | 767.8 / 773.0 | 0.4 / 0.4 |
+| roslyn | 1445.6 / 3119.0 | 468.3 / 1012.7 | 863.2 / 884.8 | 48.6 / 49.7 |
+| dapper | 144.7 / 175.1 | 119.1 / 149.0 | 21.3 / 23.2 | 8.7 / 9.5 |
+| zero | 76.0 / 219.5 | 75.1 / 96.1 | 0.2 / 0.5 | 0.2 / 0.2 |
+
+The full native process includes startup, both opens, output consumption and
+shutdown. Wall-clock milliseconds, median / empirical p95:
+
+| Fixture | Before process | After process |
+| --- | ---: | ---: |
+| avalonia-base | 2086.4 / 9224.8 | 791.4 / 1916.1 |
+| avalonia-default | 2158.1 / 3795.6 | 442.6 / 538.9 |
+| roslyn | 2325.4 / 3995.9 | 529.6 / 1074.8 |
+| dapper | 176.5 / 205.5 | 137.0 / 166.2 |
+| zero | 84.4 / 228.0 | 83.2 / 105.0 |
+
+<!-- markdownlint-enable MD013 -->
+
+Avalonia.Base returns the same available API result in every paired sample:
+962 public Types, 6,741 public Members and an identical SHA-256. Dapper likewise
+returns the same available result: 22 Types and 270 Members. The zero-Library
+fixture launches no Library or broad request. Avalonia's default changes from
+the first inventory entry, Avalonia.Base.dll, to the product-selected
+Avalonia.dll facade, which has zero public Types and Members; its default-row
+gain includes changed work and must not substitute for the Base control.
+Roslyn returns the same unavailable, truncated result in every run: the exact
+API hits the existing 32,000,000 RetainedTextCharacters limit. Its timing is
+for that bounded failure, not successful full API rendering. This slice does
+not resolve that pre-existing projection limit.
+
+One separate strace run per side measured successful TCP read bytes, including
+TLS and HTTP overhead, across both opens. Count IPv4 and IPv6 reads and resumed
+syscalls; exclude MSG_PEEK. Do not use traced timings. Avalonia.Base falls from
+14,985,970 to 4,823,861 bytes; Roslyn from 21,086,632 to 4,136,928; Dapper stays
+446,592. Browser-retained bytes fall from 26,618,595 to 16,475,372 for Avalonia,
+and 29,512,357 to 12,593,086 for Roslyn. Dapper stays 437,579. These are cache
+charges, not total process memory.
+
+The research-only `web-range-stage-profile` branch at `d3cbe40a8` instruments
+the native operations; its stderr instrumentation and analyzer suppressions
+must not ship. A single diagnostic Overview run measured Avalonia's central
+directory at 56.2 ms, entry batches at 199.2 ms wall time, and entry expansion
+and checks at 59.9 ms summed work; Library scope and inspection took 157.7 ms,
+and API serialization 0.3 ms. Roslyn measured 55.3 ms, 243.7 ms, 39.4 ms,
+51.9 ms, and 0.2 ms respectively. Expansion is included in batch wall time;
+parallel spans and entry work must not be summed into end-to-end latency.
+A legacy-demand run on that research candidate measured broad requests at
+about 600 ms warm for Avalonia and 780 ms for Roslyn. Avalonia's broad JSON
+serialization alone took 36.4 ms warm; Roslyn's 0.04 ms reflects its bounded
+result. Broad extraction remains the main avoided CPU work.
+
+Raw evidence:
+[`opens`](../eng/inspect-web-library-open-evidence.tsv),
+[`traffic`](../eng/inspect-web-library-open-traffic.tsv), and
+[`diagnostic stages`](../eng/inspect-web-library-open-stages.tsv).
+This is native-host evidence for the same website exports, not a Browser/Wasm
+render-time comparison. Local validation: Release engine build with zero
+warnings/errors, 345 Browser boundary tests passing, frontend typecheck
+passing, and 2,406 of 2,411 frontend tests passing with the same five inherited
+failures tracked in #9659 and #9663. CI and independent review remain pending
+while GitHub operations are paused.
+
+### Measure package Metadata requests
+
+The local `web-range-metadata` successor adopts three exports:
+`QueryPackageMetadata`, `QueryPackageMetadataTable`, and
+`QueryPackageHeapEntries`. It calls the existing admitted-realization helper
+instead of unbound complete acquisition, preserving their query and wire
+contracts. The owner is this README's Browser opening and retention contract;
+shared PackageHouse selection, Range expansion, and size policy are consumed
+unchanged.
+
+On 2026-10-07, exact NativeAOT base `21956c2a8` was compared with candidate
+`b0d44988a720981d9e60b7dd4f4a9f4da95d9feb`. Later commits add only audit and
+evidence. The same harness,
+[`measure-inspect-web-metadata.cs`](../eng/measure-inspect-web-metadata.cs),
+is published separately from each worktree. SDK
+`11.0.100-rc.1.26425.128`, Linux x64 Release NativeAOT, AMD Ryzen 9 9900X,
+Linux `7.0.0-38-generic`. All builds and tests for this slice finished before
+measurement. This is a shared development machine, not an exclusive benchmark
+host; at measurement start load averages were 14.94/11.66/8.04 with two runnable
+threads after compilation. Other contributor activity and CDN state were not
+controlled. These local paired measurements do not establish Browser/Wasm
+render latency or production tail guarantees.
+
+Publish and invoke from each worktree:
+
+```bash
+dotnet publish eng/measure-inspect-web-metadata.cs -c Release \
+  -p:IsPublishable=true -o /tmp/web-range-metadata-before
+# Candidate uses -o /tmp/web-range-metadata-after.
+/tmp/web-range-metadata-before/measure-inspect-web-metadata \
+  Avalonia 12.1.2 net10.0 compile:ref/net10.0/Avalonia.Base.dll overview
+# Replace overview with table or heap to measure each terminal.
+# Append summary to include QueryPackageSummary before each Metadata request.
+```
+
+Seven fresh-process pairs alternate before/after order. Each process performs
+one cold and one warm request; no warmup is excluded. Cold means an empty
+Browser cache, not a cold CDN. Fixtures and selected assets are:
+
+- Avalonia 12.1.2/net10.0, `compile:ref/net10.0/Avalonia.Base.dll`;
+- Microsoft.CodeAnalysis.CSharp 4.11.0/net8.0,
+  `compile:lib/net8.0/Microsoft.CodeAnalysis.CSharp.dll`;
+- Dapper 2.1.66/net8.0, `compile:lib/net8.0/Dapper.dll`; and
+- Microsoft.NETCore.Platforms 7.0.0/net8.0, overview with selector `None`,
+  the zero-Library case. Table and heap requests require a Library.
+
+The table request is CLI metadata TypeDef (index 2), start row 1, maximum 10
+rows; heap requests are the CLI String heap with existing Browser bounds.
+The binary SHA-256 identities are:
+
+```text
+before: 43fd5a798d6684e5ec0174b6cf4e1d55764912e2bfe472ce301a34573477f61a
+after:  367ed1ba06ef3d2598bdddb8eb589e13d74984acdcbf13ca4639a690019f8467
+```
+
+Milliseconds below are median / empirical p95, the maximum of seven samples.
+Request timing includes acquisition, inspection, serialization and JSON
+consumption. `summary` flow also includes acquiring and serializing the
+initial package summary. Hashing, printing and process startup are outside
+request timing and included in the full-process comparison below.
+
+Direct Metadata requests:
+
+<!-- markdownlint-disable MD013 -->
+
+| Fixture / export | Before cold | After cold | Before warm | After warm |
+| --- | ---: | ---: | ---: | ---: |
+| avalonia-base / overview | 316.8 / 500.6 | 404.2 / 566.1 | 0.4 / 0.5 | 0.3 / 0.4 |
+| avalonia-base / table | 306.6 / 395.8 | 423.9 / 431.3 | 0.2 / 0.4 | 0.2 / 0.3 |
+| avalonia-base / heap | 383.8 / 452.7 | 505.7 / 770.0 | 83.2 / 90.4 | 80.4 / 85.8 |
+| roslyn / overview | 366.0 / 457.3 | 384.3 / 412.7 | 0.7 / 0.9 | 0.7 / 1.0 |
+| roslyn / table | 414.0 / 467.6 | 378.9 / 488.7 | 0.2 / 0.3 | 0.2 / 0.4 |
+| roslyn / heap | 505.2 / 525.9 | 500.3 / 708.8 | 102.2 / 166.5 | 101.4 / 269.3 |
+| dapper / overview | 112.3 / 147.9 | 116.1 / 141.3 | 0.1 / 0.3 | 0.3 / 1.0 |
+| dapper / table | 120.1 / 213.5 | 122.4 / 151.7 | 0.2 / 0.3 | 0.3 / 0.5 |
+| dapper / heap | 141.2 / 146.6 | 136.8 / 166.6 | 11.7 / 14.5 | 11.0 / 12.5 |
+| zero / overview | 80.8 / 258.4 | 71.8 / 86.5 | 0.1 / 0.1 | 0.1 / 0.2 |
+
+Metadata after summary acquisition:
+
+| Fixture / export | Before cold | After cold | Before warm | After warm |
+| --- | ---: | ---: | ---: | ---: |
+| avalonia-base / overview | 580.0 / 1812.9 | 415.7 / 553.7 | 0.5 / 0.6 | 0.5 / 0.6 |
+| avalonia-base / table | 611.8 / 674.7 | 428.7 / 642.1 | 0.4 / 0.4 | 0.3 / 0.6 |
+| avalonia-base / heap | 646.9 / 827.3 | 501.7 / 532.5 | 83.3 / 92.8 | 81.8 / 96.5 |
+| roslyn / overview | 593.7 / 707.6 | 403.6 / 416.3 | 0.5 / 0.9 | 0.9 / 0.9 |
+| roslyn / table | 601.4 / 686.8 | 403.0 / 444.9 | 0.4 / 0.6 | 0.3 / 0.6 |
+| roslyn / heap | 774.5 / 969.3 | 489.5 / 956.1 | 105.6 / 264.8 | 101.6 / 193.3 |
+| dapper / overview | 117.3 / 282.8 | 117.4 / 152.7 | 0.4 / 0.6 | 0.4 / 0.7 |
+| dapper / table | 126.4 / 170.7 | 117.1 / 189.7 | 0.4 / 0.5 | 0.4 / 0.5 |
+| dapper / heap | 148.3 / 156.4 | 139.9 / 150.9 | 11.2 / 12.6 | 11.5 / 13.7 |
+| zero / overview | 74.0 / 83.7 | 77.8 / 121.9 | 0.2 / 0.3 | 0.2 / 0.3 |
+
+Full-process wall clock includes startup, both requests, result hashing,
+stdout consumption and shutdown:
+
+| Flow / fixture / export | Before process | After process |
+| --- | ---: | ---: |
+| direct / avalonia-base / overview | 328.6 / 510.8 | 416.0 / 578.8 |
+| direct / avalonia-base / table | 316.9 / 405.7 | 435.6 / 442.7 |
+| direct / avalonia-base / heap | 479.2 / 537.2 | 603.4 / 861.1 |
+| direct / roslyn / overview | 378.7 / 470.1 | 397.1 / 426.3 |
+| direct / roslyn / table | 424.6 / 481.5 | 390.8 / 510.9 |
+| direct / roslyn / heap | 619.3 / 751.2 | 617.9 / 1047.7 |
+| direct / dapper / overview | 121.2 / 168.3 | 126.1 / 164.9 |
+| direct / dapper / table | 129.3 / 233.0 | 131.3 / 163.6 |
+| direct / dapper / heap | 167.5 / 171.4 | 159.0 / 190.0 |
+| direct / zero / overview | 90.7 / 267.1 | 80.2 / 95.5 |
+| summary / avalonia-base / overview | 592.6 / 1826.2 | 426.9 / 565.9 |
+| summary / avalonia-base / table | 624.6 / 686.1 | 441.1 / 653.0 |
+| summary / avalonia-base / heap | 743.2 / 924.1 | 604.3 / 631.0 |
+| summary / roslyn / overview | 607.2 / 719.2 | 416.1 / 429.1 |
+| summary / roslyn / table | 623.6 / 702.4 | 414.5 / 458.4 |
+| summary / roslyn / heap | 903.6 / 1270.7 | 607.6 / 1179.9 |
+| summary / dapper / overview | 126.7 / 300.8 | 127.1 / 172.9 |
+| summary / dapper / table | 136.4 / 199.8 | 126.4 / 203.2 |
+| summary / dapper / heap | 172.0 / 179.9 | 161.7 / 175.5 |
+| summary / zero / overview | 84.0 / 93.2 | 86.8 / 130.7 |
+
+<!-- markdownlint-enable MD013 -->
+
+Every fixture/export/flow has identical before/after JSON hashes across all
+cold and warm samples. The three Library fixtures return available metadata:
+overview has one assembly; TypeDef windows contain ten rows with total table
+row counts 2,126 for Avalonia.Base, 2,656 for Roslyn and 135 for Dapper.
+Heap listings contain 4,096 entries for Avalonia and Roslyn, preserving their
+existing rows/entries-truncated flags, and 1,669 entries for Dapper without
+truncation. The zero-Library overview returns zero assemblies and
+`NoCompileAssets` on both sides. Unlike exact API Overview, Roslyn's Metadata
+requests succeed; its separate API retained-text limit is unchanged.
+
+One separate strace run per side/flow measures successful IPv4 and IPv6 TCP
+reads, including resumed syscalls and excluding MSG_PEEK. Traced timings are
+not used. Overview transfer bytes:
+
+<!-- markdownlint-disable MD013 -->
+
+| Fixture | Direct before → after | Summary before → after |
+| --- | ---: | ---: |
+| Avalonia.Base | 10,167,904 → 4,822,309 | 14,973,667 → 4,811,482 |
+| Roslyn | 16,955,677 → 4,132,616 | 21,082,624 → 4,133,347 |
+| Dapper | 446,592 → 446,592 | 446,591 → 446,592 |
+
+<!-- markdownlint-enable MD013 -->
+
+With a prior summary, retained cache charges fall from 26,618,595 to
+16,475,372 bytes for Avalonia, and 29,512,357 to 12,593,086 for Roslyn.
+Dapper stays 437,579 and Platforms stays 48,954. A standalone request instead
+replaces the compressed complete archive with the selected expanded content;
+these charges are not total process memory.
+
+Interpretation: reuse after a summary eliminates the second whole download
+and improves large-package cold navigation. Standalone cold Avalonia is
+slower, particularly table and heap requests, because Range adds directory
+and entry round trips. Warm requests preserve essentially the same work;
+heap inspection remains the main warm cost. This slice improves transfer and
+shared policy adoption; it is not a universal latency win. The shared
+1,000,000-byte size cut is unchanged. The direct-request regression is retained
+for review rather than hidden by the summary-flow results.
+
+Validation: Release test graph build has zero warnings/errors; the Browser
+boundary suite passes 344/345. The sole authored-documentation failure
+reproduces on the unchanged parent rebuilt at `21956c2a8`: its PDB SourceLink
+points at that unpublished local commit, so the expected authored source is
+unavailable. An older parent build referencing published `46fb3137a` passes
+the same test. No test or source-publication fallback was changed. Markdown
+lint and diff checks pass. Frontend code and wire types are unchanged in this
+slice. The failed gate, CI, independent review and publication remain pending;
+this local branch is not declared merge-ready.
+
+Raw [`request evidence`](../eng/inspect-web-metadata-evidence.tsv) and
+[`transfer evidence`](../eng/inspect-web-metadata-traffic.tsv) retain the
+per-export samples, hashes, cardinalities, availability and cache charges.
+
 ### Compare deployed runtime performance
 
 [`docs/inspect-web-runtime-performance.md`](../docs/inspect-web-runtime-performance.md)
@@ -2849,3 +3235,19 @@ domains are public infrastructure and are not confidentiality boundaries.
 
 See [architecture-spike.md](architecture-spike.md) for the proposed .NET 11
 browser engine and the NativeAOT decision.
+
+## Resource Triage
+
+Library → Analysis → Resource Triage exposes the existing shared ArrayPool
+exception-cleanup candidates. Selecting the tab requests whole-library analysis;
+package analysis also requests runtime context acquisition to resolve the
+shipped resource model. Acquisition and producer failures remain visible.
+
+Each candidate retains its identity, resource, method token, acquisition and
+boundary IL offsets, actionability, and confidence. Public members have API
+navigation; candidates without a navigable public member retain their evidence.
+Partial findings appear beside their limitations, and an incomplete empty
+census never claims absence. This tab does not expose the other generic
+lifecycle outcomes. See the
+[owning contract](../docs/design/resource-lifecycle-analysis.md#browser-resource-triage-adoption)
+and [tracking issue #9607](https://github.com/richlander/dotnet-inspect/issues/9607).

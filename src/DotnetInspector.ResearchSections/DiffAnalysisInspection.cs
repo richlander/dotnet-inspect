@@ -867,7 +867,8 @@ public static class DiffAnalysisInspection
         IEnumerable<DiffAnalysisTransitionRow> Rows<T>(
             bool emitEmptyComparison,
             Func<ResearchSubjectKey, PairFinding<T>, string, string,
-                DiffAnalysisTransitionRow> toTransitionRow)
+                DiffAnalysisTransitionRow> toTransitionRow,
+            Func<PairFinding<T>, bool>? includePair = null)
             where T : notnull
             => comparisons.Get<T>(descriptor)
                 .SelectMany(comparison => RetainedComparisonRows(
@@ -875,7 +876,8 @@ public static class DiffAnalysisInspection
                     beforeVersion,
                     afterVersion,
                     emitEmptyComparison,
-                    toTransitionRow))
+                    toTransitionRow,
+                    includePair))
                 .OrderBy(row => row.Target, StringComparer.Ordinal)
                 .ThenBy(row => row.Transition, StringComparer.Ordinal);
 
@@ -899,9 +901,12 @@ public static class DiffAnalysisInspection
                     emitEmptyComparison: false,
                     ToUnsafetyTransitionRow),
             var id when id == StringLiteralUseFindings.Descriptor.Id =>
+                // A literal on both sides is not a Diff transition; the
+                // single-population search is the Analysis experience.
                 Rows<StringLiteralUseOccurrence>(
                     emitEmptyComparison: false,
-                    ToStringLiteralTransitionRow),
+                    ToStringLiteralTransitionRow,
+                    pair => pair.Kind != PairKind.Present),
             var id when id == CSharpFindings.LineDescriptor.Id =>
                 Rows<CSharpCanonicalLine>(
                     emitEmptyComparison: true,
@@ -922,7 +927,8 @@ public static class DiffAnalysisInspection
             string afterVersion,
             bool emitEmptyComparison,
             Func<ResearchSubjectKey, PairFinding<T>, string, string,
-                DiffAnalysisTransitionRow> toTransitionRow)
+                DiffAnalysisTransitionRow> toTransitionRow,
+            Func<PairFinding<T>, bool>? includePair = null)
         where T : notnull
         => ComparisonRows(
             retained.Comparison,
@@ -935,7 +941,8 @@ public static class DiffAnalysisInspection
                 retained.Subject,
                 pair,
                 beforeVersion,
-                afterVersion));
+                afterVersion),
+            includePair);
 
     private static IEnumerable<DiffAnalysisTransitionRow> ComparisonRows<T>(
         FindingComparison<T> comparison,

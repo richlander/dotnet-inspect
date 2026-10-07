@@ -29,65 +29,6 @@ public class PdbSourceInspectionTests
         """;
 
     [Fact]
-    public async Task UnresolvedPortablePdbFailsMemberInspection()
-    {
-        using SourceLinkService source = OpenSourceNeedingPdb();
-        using var client = new HttpClient(new QueueHandler());
-        var fetcher = new SourceFetch(
-            client,
-            new InMemorySourceContentStore());
-        PdbMemberSourceInspection member =
-            await PdbMemberSourceAcquisition.AcquireAsync(
-                source,
-                0x06000001,
-                "M",
-                Subject,
-                fetcher,
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
-        Assert.Contains(
-            "remains unresolved",
-            Assert.IsType<FindingInspection<string>.Failed>(
-                member.Lines.Value).Error.Reason);
-        Assert.Equal(
-            PdbMemberSourceOutcome.PortablePdbUnavailable,
-            member.Outcome);
-    }
-
-    [Fact]
-    public async Task WindowsPdbIsNoApplicableInputForMember()
-    {
-        using SourceLinkService source = OpenSourceNeedingPdb();
-        source.Context.LoadPdbFromStream(new MemoryStream(
-            Encoding.ASCII.GetBytes(
-                "Microsoft C/C++ MSF 7.00\r\n\u001ADS\0\0\0"),
-            writable: false));
-        Assert.True(source.Context.WindowsPdbDetected);
-        using var client = new HttpClient(new QueueHandler());
-        var fetcher = new SourceFetch(
-            client,
-            new InMemorySourceContentStore());
-        PdbMemberSourceInspection member =
-            await PdbMemberSourceAcquisition.AcquireAsync(
-                source,
-                0x06000001,
-                "M",
-                Subject,
-                fetcher,
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
-        var memberAbsent =
-            Assert.IsType<FindingInspection<string>.Absent>(
-                member.Lines.Value);
-        Assert.Equal(
-            FindingInspectionAbsenceKind.NoApplicableInput,
-            memberAbsent.Kind);
-        Assert.Equal(
-            PdbMemberSourceOutcome.SourceMappingUnavailable,
-            member.Outcome);
-    }
-
-    [Fact]
     public void FromContent_VerifiedSourceProducesCompleteLineCensus()
     {
         byte[] content = Encoding.UTF8.GetBytes(Source);
@@ -114,6 +55,65 @@ public class PdbSourceInspectionTests
             finding => finding.Payload.Contains(
                 "return 1;",
                 StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(
+        "https://raw.githubusercontent.com/example/repository/0123456789abcdef0123456789abcdef01234567/src/Widget.cs",
+        "https://github.com/example/repository/blob/0123456789abcdef0123456789abcdef01234567/src/Widget.cs")]
+    [InlineData(
+        "https://raw.githubusercontent.com/example/repository/v1/src/Widget.cs",
+        null)]
+    [InlineData("https://example.test/src/Widget.cs", null)]
+    public void Inspection_ProjectsDetachedSourceLocation(
+        string resolvedUrl,
+        string? expectedBrowseUrl)
+    {
+        byte[] content = Encoding.UTF8.GetBytes(Source);
+        SourceDocumentObservation document =
+            Document(content) with { ResolvedUrl = resolvedUrl };
+
+        PdbMemberSourceInspection result =
+            PdbSourceInspectionProjection.FromMemberContent(
+                Mapping(),
+                document,
+                content,
+                "M",
+                Subject);
+
+        Assert.Equal(resolvedUrl, result.ResolvedUrl);
+        Assert.Equal(expectedBrowseUrl, result.VerifiedBrowseUrl);
+    }
+
+    [Fact]
+    public void Inspection_BrowseUrlRequiresVerifiedChecksum()
+    {
+        const string resolvedUrl =
+            "https://raw.githubusercontent.com/example/repository/"
+            + "0123456789abcdef0123456789abcdef01234567/src/Widget.cs";
+        byte[] content = Encoding.UTF8.GetBytes(Source);
+        SourceDocumentObservation document =
+            Document(content) with { ResolvedUrl = resolvedUrl };
+        PdbMemberSourceInspection result =
+            PdbSourceInspectionProjection.FromMemberContent(
+                Mapping(),
+                document,
+                content,
+                "M",
+                Subject);
+
+        Assert.NotNull(result.VerifiedBrowseUrl);
+        Assert.NotNull(
+            (result with
+            {
+                ChecksumVerification =
+                    SourceChecksumVerification.LineEndingNormalized,
+            }).VerifiedBrowseUrl);
+        Assert.Null(
+            (result with
+            {
+                ChecksumVerification = SourceChecksumVerification.Mismatch,
+            }).VerifiedBrowseUrl);
     }
 
     [Fact]
@@ -740,38 +740,6 @@ public class PdbSourceInspectionTests
             finding => finding.Payload.Contains("Preceding", StringComparison.Ordinal));
     }
 
-    [Fact]
-    public void SelectMappedDocument_UsesDocumentRowWhenPathsAreDuplicated()
-    {
-        byte[] firstContent = "first"u8.ToArray();
-        byte[] secondContent = "second"u8.ToArray();
-        var first = Document(firstContent);
-        var second = Document(secondContent) with { DocumentRowId = 2 };
-        var mapping = Mapping() with { DocumentRowId = 2 };
-
-        SourceDocumentObservation? selected =
-            PdbMemberSourceAcquisition.SelectMappedDocument(
-                mapping,
-                [first, second]);
-
-        Assert.Same(second, selected);
-    }
-
-    [Fact]
-    public void SelectMappedDocument_RejectsAMismatchedRowPathPair()
-    {
-        var mapping = Mapping() with { DocumentRowId = 2 };
-        var document = Document("content"u8.ToArray()) with
-        {
-            DocumentRowId = 2,
-            OriginalPath = "/_/Other.cs",
-        };
-
-        Assert.Null(PdbMemberSourceAcquisition.SelectMappedDocument(
-            mapping,
-            [document]));
-    }
-
     static MemberSourceObservation DestructorMapping(
         string memberName, int startLine, int endLine, bool isFinalizer)
         => new(
@@ -845,33 +813,6 @@ public class PdbSourceInspectionTests
 
         throw new DirectoryNotFoundException(
             "Could not locate the dotnet-inspect repository root.");
-    }
-
-    static SourceLinkService OpenSourceNeedingPdb()
-    {
-        byte[] assemblyBytes = File.ReadAllBytes(
-            typeof(PdbSourceInspectionTests).Assembly.Location);
-        AssemblyReferenceIdentity identity;
-        using (var stream = new MemoryStream(
-                   assemblyBytes,
-                   writable: false))
-        using (var reader = new PEReader(stream))
-        {
-            identity = AssemblyReferenceIdentity.FromAssemblyDefinition(
-                reader.GetMetadataReader());
-        }
-
-        var assembly = ResolvedAssemblyReference.Create(
-            identity,
-            path: null,
-            () => new MemoryStream(
-                assemblyBytes,
-                writable: false),
-            AssemblyResolutionProvenance.Local(
-                "unresolved portable PDB test"));
-        SourceLinkService source = SourceLinkService.Open(assembly);
-        Assert.True(source.Context.NeedsPdb);
-        return source;
     }
 
     sealed class QueueHandler(params byte[][] responses) : HttpMessageHandler
