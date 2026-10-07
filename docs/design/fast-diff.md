@@ -112,19 +112,12 @@ The producer is host-neutral and returns the shared `InspectionEnvelope<T>`
 shape. Browser Compare is the first adopter; the CLI follows by exposing the
 same producer rather than a second implementation.
 
-Browser adoption, owned by [Compare experience](inspect-web-compare-experience.md):
-
-- the Library pass runs when Compare opens and advertises changed Types in the
-  Type list and the Compare frame. Library Compare no longer renders complete
-  rows and counts on open; the result contract is "changed or not, no counts",
-  and complete rows are computed only on demand;
-- the Type pass runs when a Type opens and advertises changed Members in the
-  Member list; and
-- the Complete pass runs only at the Member boundary.
-
-The existing **API differences** navigation cue becomes a Fast Diff cue, and the
-result-contract change above is a Compare experience owner edit made in the
-Browser Library slice, not here.
+Consumers decide how to present the result. Browser Compare presentation, the
+Library result contract, the navigation cues, and the Member Compare default
+belong to their owners ([Compare experience](inspect-web-compare-experience.md)
+and [Member Body Diff](inspect-web-member-body-diff.md)) and are specified in
+those owners' adoption slices, not here. Fast Diff supplies only the
+per-subject state those slices consume.
 
 ## Caching and prefetch handoff
 
@@ -144,15 +137,6 @@ host policy, not producer behavior, and are outside this document. A separate
 Browser owner will define them. This document supplies only the per-subject state
 that policy consumes.
 
-## Member compare hybrid
-
-On Member Compare, the default becomes a hybrid: show the full body diff when
-the implementation changed, and otherwise show the API diff, as the type
-printer diff. Fast Diff does not choose between them. The Member boundary runs the Complete
-pass, so the hybrid selects from that complete result. The presentation
-contract belongs to [Member Body Diff](inspect-web-member-body-diff.md) and is
-its own slice; Fast Diff supplies only the Member `Changed` marker in the list.
-
 ## Non-claims
 
 - Fast Diff does not define API semantics, canonical IL, or correspondence.
@@ -170,31 +154,24 @@ Each step is independently mergeable under #9716.
 1. **Producer.** Library and Type passes over one exact Library pair, with
    typed states, early exit, and the soundness corpus gate. Includes
    NativeAOT numbers against the complete diff for the same pairs.
-2. **Browser Library pass.** Operation, Compare frame status, and Type list
-   cues; changes the Compare experience owner's Library result contract to
-   changed-or-not with no counts.
-3. **Browser Type pass.** Member list cues on opening a Type.
-4. **Member hybrid.** Default Member Compare presentation; updates the Member
-   Body Diff owner.
-5. **CLI.** Expose the producer through `diff`.
-6. **Speculative Member streaming.** Owned and gated by a separate Browser
-   design; not part of the first adoption slices.
+2. **Consumer slices.** Each is a separate focused effort that updates its own
+   owner and is not specified here: Browser Library pass and Type pass
+   (Compare experience), the Member Compare hybrid (Member Body Diff), the CLI
+   `diff` surface, and Browser caching and speculative prefetch (a separate
+   Browser owner).
 
 ## Open design questions
 
 - Whether `Indeterminate` should offer a one-step promotion to the Complete
   pass in the list, or only at the Member boundary.
-- Whether added and removed Types and Members are reported as `Changed` with an
-  occupied-side marker or as their own states.
 
 ## Acceptance scenarios
 
-1. Opening Compare for a version pair marks only changed Types, and shows no counts and no complete rows until
-   requested.
-2. Opening a changed Type marks only its changed Members; an unchanged Member
-   is never marked.
-3. A Member the Fast Diff marks `Changed` opens the Complete pass; the hybrid
-   shows the body diff when the implementation changed, otherwise the API diff.
+1. A Library request returns `Unchanged` or `Changed` per Type, stopping at the
+   first sign of change per Type, with no counts and no complete rows.
+2. A Type request returns `Unchanged` or `Changed` per Member; an unchanged
+   Member is never reported `Changed`.
+3. Added and removed subjects are reported `Changed` with no further kind.
 4. A decode failure yields `Indeterminate`, never `Unchanged`.
 5. Across the corpus, no subject reported `Unchanged` appears in the complete
    diff.
