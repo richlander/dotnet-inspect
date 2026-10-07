@@ -45,15 +45,20 @@ public sealed record PackageDependencyMemberCallGraphPlatformPruning
             return false;
         }
 
-        PlatformPruneFamily[] families = [.. inventory.Families];
+        string[] families =
+        [
+            .. inventory.Families.Select(
+                static family => family.Name),
+        ];
         if (families is not [var family]
-            || !family.Name.Equals(
+            || !family.Equals(
                 DotNetRuntimeFramework,
                 StringComparison.OrdinalIgnoreCase)
-            || family.Precision != PlatformPrunePrecision.Exact
-            || !family.DescribesTarget
+            || !inventory.TryGetExactFamilyTargetVersion(
+                DotNetRuntimeFramework,
+                out string targetVersion)
             || !PlatformVersion.TryParse(
-                family.TargetPackVersion.ToNormalizedString(),
+                targetVersion,
                 out PlatformVersion? version))
         {
             return false;
