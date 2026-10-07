@@ -19,8 +19,9 @@ namespace ILInspector.Decompiler.Tests;
 /// <item>zero pass-bugs — pins the "exception-safe by construction" guarantee
 /// across the whole corpus, not just the curated fixtures;</item>
 /// <item>zero semantic-invariant violations — every method's final IR satisfies
-/// the semantic invariants (local-slot range) that only hold on fully-formed
-/// output, so a pass that leaves a dangling local slot fails here (#3241). Since
+/// the semantic invariants (local-slot range and eliminated-local liveness)
+/// that only hold on fully-formed output, so a pass that leaves a dangling
+/// local slot or revives an eliminated slot fails here (#3241, #9564). Since
 /// #3302 the per-pass hooks check semantics by default too, so this is no longer
 /// the only place they execute; it remains the place they are checked over the
 /// whole corpus on a final tree, and the only one that reports a count rather
@@ -163,7 +164,7 @@ public class CorpusSweepGateTests
                 + Sample(r.PassBugCount, r.PassBugs));
 
         Assert.True(r.SemanticViolationCount == 0,
-            "Every method's final IR must satisfy the semantic invariants (local-slot range), but "
+            "Every method's final IR must satisfy the semantic invariants (local-slot range and eliminated-local liveness), but "
                 + Sample(r.SemanticViolationCount, r.SemanticViolations));
     }
 
