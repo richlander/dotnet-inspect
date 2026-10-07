@@ -625,7 +625,7 @@ public sealed class NavigationLensRecommendationTests
             ViewFacetRole.PackageOverview);
         yield return (
             StructuralSubjectIdentity.ForAllLibraries(context.Subject),
-            ViewFacetRole.LibraryTypes);
+            ViewFacetRole.LibraryReferences);
         yield return (
             StructuralSubjectIdentity.ForLibrary(
                 context.Subject,

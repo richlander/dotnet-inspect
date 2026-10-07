@@ -19,7 +19,7 @@ public sealed class ViewFacetRegistryTests
     }
 
     [Fact]
-    public void LibraryDefaultRole_ResolvesTypesBeforeInfoAndReferences()
+    public void LibraryRoles_ResolveTypesForLibraryAndReferencesForAllLibraries()
     {
         ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
 
@@ -35,10 +35,12 @@ public sealed class ViewFacetRegistryTests
                 .Where(static d => d.Kind == StructuralSubjectKind.Library)
                 .Take(3)
                 .Select(static d => d.Id.Value));
-        Assert.Null(
-            registry.Descriptors
-                .Single(static d => d.Id.Value == "library.references")
-                .Role);
+        Assert.Equal(
+            "library.references",
+            registry.GetRequiredDescriptor(
+                    StructuralSubjectKind.Library,
+                    ViewFacetRole.LibraryReferences)
+                .Id.Value);
     }
 
     [Theory]
@@ -669,7 +671,7 @@ public sealed class ViewFacetRegistryTests
                 75),
             new("library.references", StructuralSubjectKind.Library, "References",
                 "Direct assembly references for the active Library.",
-                100),
+                100, ViewFacetRole.LibraryReferences),
             new("library.ecosystem-dependencies", StructuralSubjectKind.Library,
                 "Ecosystem Dependencies",
                 "Product-relative ecosystem recognition and candidate evidence "

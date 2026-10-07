@@ -335,15 +335,22 @@ issues the Library default facet and the Library facts facet:
 `library.types` identifies the Content of the Library hierarchy projection in
 [Library inspection documents](library-inspection-document.md#hierarchy-projection):
 Library, namespaces, public Type declarations, and Member Counts. `library.info`
-identifies the Library facts that the CLI `Library Info` section composes under
+identifies the Library document facts (identity, Image, Description, and
+Enablements); it does not identify the non-fact rows that the CLI
+`Library Info` section composes beside them under
 [Library Info composition](library-info-composition.md). Relative names
 `.types` and `.info` resolve to these IDs only in a Library context.
 
-The Library types role moves the Library default from `library.references`,
-which keeps its ID, kind, purpose, and order 100 but no longer carries a role.
-The `Library references` role is removed rather than left unassigned. Order 50
-and 75 place both new descriptors before References without renumbering any
-issued descriptor, so registry fallback after an unavailable Types facet is
+Both descriptors are single-library lenses: their Content has one exact Library
+root, and neither reports an aggregate for `All libraries`. An aggregate Types
+lens requires its own aggregate Content owner and is not issued here.
+
+`library.types` carries the new Library types role, which Navigation prefers
+for an exact Library subject. `library.references` keeps its ID, kind, purpose,
+order 100, and the Library references role, which Navigation continues to
+prefer for the aggregate `All libraries` subject. Order 50 and 75 place both
+new descriptors before References without renumbering any issued descriptor,
+so registry fallback for an exact Library after an unavailable Types facet is
 Info, then References.
 
 Both descriptors have private execution bindings and no executor in this

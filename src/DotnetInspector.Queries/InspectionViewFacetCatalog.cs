@@ -154,7 +154,8 @@ public static class InspectionViewFacetCatalog
                 StructuralSubjectKind.Library,
                 "References",
                 "Direct assembly references for the active Library.",
-                100),
+                100,
+                ViewFacetRole.LibraryReferences),
             "Direct assembly references for the active Library.",
             AppliesToLibrary),
         Active(
