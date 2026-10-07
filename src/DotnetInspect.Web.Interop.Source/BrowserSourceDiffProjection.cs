@@ -3,7 +3,6 @@ using System.Text;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using Inspector.Findings;
-using ILInspector.SourceLink;
 using Markout;
 
 namespace DotnetInspect.Web.Interop.Source;
@@ -86,9 +85,6 @@ internal static class BrowserSourceDiffProjection
                 statistics.MovedAfter),
             [.. mapped.Changes.Select(Change)]);
     }
-
-    internal static string? BrowseUrl(string? resolvedUrl)
-        => SourceLinkProvenance.BrowseUrl(resolvedUrl);
 
     internal static void AdmitAuxiliaryText(IEnumerable<string?> values)
     {

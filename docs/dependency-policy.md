@@ -151,6 +151,11 @@ The checked-in rules provide full gate coverage for these dependency claims:
    assembly edges. Its home-demo call-graph path reaches the host-neutral
    projection through Web Core, so both graph rules reject a direct
    `ILInspector.Analysis` dependency.
+11. The Inspect Web Source facade cannot expand beyond its current thirteen
+    evaluated project edges or its current twenty-five repository and external
+    assembly edges. Services projects detached resolved and attributable browse
+    URLs from typed PDB source inspections, so both graph rules reject the
+    retired direct `ILInspector.SourceLink` dependency.
 
 Claims not represented by a JSON rule remain unverified by this gate. Changing
 an allowed set requires changing the rule's cited owner contract or showing
