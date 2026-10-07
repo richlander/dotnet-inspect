@@ -609,6 +609,14 @@ public sealed class PackageSourcePayload
 
     internal bool HasIssuer(object issuer) =>
         ReferenceEquals(_issuer, issuer);
+
+    /// <summary>
+    /// Abandons the payload before its body: a streamed response's transfer
+    /// ends rather than draining the unread body, then the content is
+    /// disposed.
+    /// </summary>
+    public ValueTask AbandonAsync() => Content.DisposeAsync();
+
 }
 
 /// <summary>The expected failure classes produced by source operations.</summary>
