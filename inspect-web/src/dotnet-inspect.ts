@@ -1,3 +1,8 @@
+import {
+  createPackagePublicationDates,
+  platformPublicationCoordinate,
+  publicationDateText,
+} from "./package-publication.ts";
 import { createSpotlightEcosystemClassification } from "./spotlight-ecosystem.ts";
 import {
   accessibilityFilterIncludingType,
@@ -478,6 +483,7 @@ import {
 import {
   bindContentFrame,
   bindContentFrameMedia,
+  captureContentNavigationScroll,
   CONTENT_FRAME_NARROW_QUERY,
   contentFrameFocusOwnerFor,
   contentFrameResizeFocusOwner,
@@ -485,6 +491,7 @@ import {
   focusContentNavigation,
   focusContentNavigationToggle,
   renderContentNavigationBar,
+  restoreContentNavigationScroll,
   type ContentFrameFocusOwner,
   type ContentFrameFocusTarget,
   type ContentFramePane,
@@ -818,6 +825,7 @@ import type {
 } from "./facades/inspect-web-analysis.d.ts";
 import {
   createTypeLeverageCoordinator,
+  typeLeverageAchievements,
   typeLeverageFeedback,
 } from "./type-leverage.ts";
 import type {
@@ -1264,6 +1272,7 @@ function loadRecentPackages() {
         id: entry.id,
         version: typeof entry.version === "string" && entry.version ? entry.version : "latest",
         framework: typeof entry.framework === "string" ? entry.framework : "",
+        nugetOrg: entry.nugetOrg === true,
       }))
       .slice(0, RECENT_PACKAGES_MAX);
   } catch {
@@ -1340,6 +1349,7 @@ interface PendingGraphMemberDeepLink {
 }
 
 interface RecentPackage {
+  nugetOrg?: boolean;
   id: string;
   version: string;
   framework: string;
@@ -8793,12 +8803,14 @@ function settingsOwnsHomeFocusTarget(target: HomeFocusTarget | null): boolean {
 }
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
+  const navigationScroll = captureContentNavigationScroll(document);
   dataBarFeedback.synchronize(dataBarViewKey());
   productNavigationBinding.beforeRender();
   try {
     renderCore(options);
   } finally {
     productNavigationBinding.afterRender();
+    restoreContentNavigationScroll(document, navigationScroll);
     memberListRevealer.afterRender(document);
     schedulePackageDocumentTitles();
     scheduleTypeHeat();
@@ -10169,6 +10181,14 @@ function renderTypeNavPane(
     accessibilityOptions: typeAccessibilityOptions(),
     traitOptions: typeTraitOptions(),
     library: activeLibrarySubjectName(),
+    navigationScrollScope: JSON.stringify([
+      "types",
+      retainedWorkspaces.activeWorkspaceId,
+      currentPackage().id,
+      currentPackage().version,
+      currentPackage().activeFramework,
+      state.libraryScope ? [...state.libraryScope].sort() : null,
+    ]),
     parentSubject: state.atLibraryRoot
       ? state.rootKind === "platform" && !currentViewHasPlatformRootParent()
         ? null
@@ -10201,18 +10221,10 @@ function renderTypeNavPane(
     itemAchievements: (item: TypeInventoryRow) => {
       if (isForwardedType(item)) return [];
       const presentation = currentTypeLeveragePresentation(item);
-      const achievements: ItemAchievement[] = [];
-      for (const leverage of presentation?.byType.get(
+      return typeLeverageAchievements(presentation?.byType.get(
         item.definitionId ?? item.id,
-      ) ?? []) {
-        achievements.push({
-          kind: `${leverage.evidenceMode}-${leverage.pole}`,
-          description: leverage.description,
-        });
-      }
-      if (diffPresence.typeIdentifiers.has(item.definitionId ?? item.id))
-        achievements.push(apiDiffAchievement);
-      return achievements;
+      ) ?? [], diffPresence.typeIdentifiers.has(item.definitionId ?? item.id)
+        ? apiDiffAchievement : null);
     },
     statusHtml: platformForwarderInventoryStatus(),
   });
@@ -12144,6 +12156,9 @@ function renderPackageOverview() {
     subject: "package",
     subjectLabel: pkg.isRuntimePack ? "Shared framework" : "Package",
     displayName: packageDisplayName(pkg),
+    details: pkg.source.kind === "nuget.org"
+      ? [publicationDateText(packagePublicationDates.get({ id: pkg.id, version: pkg.version }))]
+      : [],
     iconHtml: renderInspectedSubjectIcon(pkg),
     packageId: pkg.id,
     packageVersion: pkg.version,
@@ -15152,11 +15167,12 @@ function persistPlatformRecent() {
 // deduped by id, capped) and persist it, so the Home listing survives a refresh. Called
 // only from a successful open, never from search hits or prefetches. The resident runtime
 // pseudo-package has no nupkg and is excluded.
-function recordRecentPackage(id: string, version: string, framework: string) {
+function recordRecentPackage(id: string, version: string, framework: string, nugetOrg: boolean) {
   if (!id || isRuntimePackId(id)) return;
   const rest = (state.recentPackages || []).filter(entry => entry.id.toLowerCase() !== id.toLowerCase());
   state.recentPackages = [
-    { id, version: version || "latest", framework: framework || "" },
+    { id, version: version || "latest", framework: framework || "",
+      nugetOrg },
     ...rest,
   ].slice(0, RECENT_PACKAGES_MAX);
   persistRecentPackages();
@@ -15170,13 +15186,13 @@ function persistRecentPackages() {
   }
 }
 
-function frameworkLibrarySpotlightResults(query: string): SpotlightResult[] {
+function frameworkLibrarySpotlightResults(query: string, includeApiResults = true): SpotlightResult[] {
   const results: SpotlightResult[] = [];
   const roster = platformLibraryRoster(query);
   for (const lib of roster.filter(row => row.hasImplementation).slice(0, 200)) {
     results.push({ ...lib, kind: "framework-lib" });
   }
-  if (platformSurfaceLoaded()
+  if (includeApiResults && platformSurfaceLoaded()
     && activeRetainedWorkspacePosting === null) {
     const typeSource = query ? spotlightTypeMatches(query) : [];
     for (const match of typeSource.filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
@@ -15189,6 +15205,43 @@ function frameworkLibrarySpotlightResults(query: string): SpotlightResult[] {
     }
   }
   return results;
+}
+
+const packagePublicationDates = createPackagePublicationDates(fetch, coordinate => {
+  if (state.spotlightOpen || state.home) spotlight.updateResults();
+  if (!state.home && !state.spotlightOpen && state.atPackageRoot
+    && state.packageLens === "overview"
+    && state.package?.id.toLowerCase() === coordinate.id.toLowerCase()
+    && state.package.version.toLowerCase() === coordinate.version.toLowerCase()) render();
+});
+
+function annotateSpotlightPublicationDates(results: SpotlightResult[]): SpotlightResult[] {
+  if (!state.home && !state.spotlightOpen) return results;
+  return results.map(result => {
+    let coordinate = null;
+    switch (result.kind) {
+      case "pkg-nuget":
+        if (result.hit.version && result.hit.version !== "latest")
+          coordinate = { id: result.hit.id, version: result.hit.version };
+        break;
+      case "pkg-loaded": {
+        const pkg = state.packages.find(candidate => candidate === result.pkg);
+        if (pkg?.source.kind === "nuget.org")
+          coordinate = { id: pkg.id, version: pkg.version };
+        break;
+      }
+      case "pkg-recent":
+        if (result.entry.nugetOrg
+          && result.entry.version && result.entry.version !== "latest")
+          coordinate = { id: result.entry.id, version: result.entry.version };
+        break;
+      case "framework-lib":
+        coordinate = platformPublicationCoordinate(result.pack, result.version, result.inReferencePack ?? false);
+        break;
+      default: return result;
+    }
+    return coordinate ? { ...result, publication: packagePublicationDates.get(coordinate) } : result;
+  });
 }
 
 const spotlightEcosystemClassification = createSpotlightEcosystemClassification({
@@ -15219,6 +15272,7 @@ function spotlightResults(): SpotlightResult[] {
       throw new Error("Spotlight delegated the command scope to the workspace search results.");
     case "all":
     case "packages":
+    case "libraries":
     case "types":
     case "members":
       break;
@@ -15256,7 +15310,7 @@ function spotlightResults(): SpotlightResult[] {
           ranges: [[0, parsedPackageQuery.packageId.length]],
         });
       }
-      return annotateSpotlightEcosystems(results);
+      return annotateSpotlightPublicationDates(annotateSpotlightEcosystems(results));
     }
     const loaded = spotlightLoadedPackageMatches(query).slice(0, all ? 3 : 20);
     for (const match of loaded) results.push({ kind: "pkg-loaded", pkg: match.pkg, ranges: match.ranges });
@@ -15329,10 +15383,12 @@ function spotlightResults(): SpotlightResult[] {
   if ((all || spotlightScope === "members") && query) {
     for (const match of spotlightMemberMatches(query).slice(0, all ? 6 : 50)) results.push({ ...match, kind: "member" });
   }
-  if (all) {
-    results.push(...frameworkLibrarySpotlightResults(query).slice(0, 5));
+  if (all || spotlightScope === "libraries") {
+    const libraries = frameworkLibrarySpotlightResults(query, all);
+    results.push(...(all ? libraries.slice(0, 5)
+      : libraries.filter(result => result.kind === "framework-lib")));
   }
-  return annotateSpotlightEcosystems(results);
+  return annotateSpotlightPublicationDates(annotateSpotlightEcosystems(results));
 }
 
 interface NugetSearchResult {
@@ -24548,7 +24604,8 @@ function installPackageHomeDemoSource(
     recordRecentPackage(
       packageModel.id,
       packageModel.version,
-      packageModel.activeFramework);
+      packageModel.activeFramework,
+      packageModel.source.kind === "nuget.org");
   }
   if (state.packages.length !== source.packages.length
     || !state.packages.every((packageModel, index) =>

@@ -312,7 +312,7 @@ Show me just the Package section for System.CommandLine.
 ```
 
 ```bash
-dotnet-inspect System.CommandLine@2.0.3 -S "Package Info"
+dotnet-inspect System.CommandLine@2.0.3 -S "Package Info" --markdown
 ```
 
 ```expect
@@ -337,7 +337,7 @@ Show me the extension methods for System.Text.Json.
 ```
 
 ```bash
-dotnet-inspect System.Text.Json -S "Extension Methods"
+dotnet-inspect System.Text.Json -S "Extension Methods" --markdown
 ```
 
 ```expect

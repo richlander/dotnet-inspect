@@ -44,6 +44,18 @@ public readonly record struct RowWindow
     public bool IsUnlimited => Kind != RowWindowKind.Range && _count < 0;
 
     /// <summary>
+    /// Finite producer prefix needed to satisfy this window without first
+    /// materializing the complete row population. Null means the window is
+    /// unbounded or selects from the tail.
+    /// </summary>
+    public int? ProducerPrefixBound => Kind switch
+    {
+        RowWindowKind.Head when _count > 0 => _count,
+        RowWindowKind.Range when _end is int end => end,
+        _ => null,
+    };
+
+    /// <summary>
     /// Keep the first <paramref name="count"/> data rows. A negative count means
     /// "no limit", which the row limiters rely on to render a table untouched.
     /// </summary>

@@ -124,7 +124,8 @@ public partial class CommandExecutionTests
             "library",
             TestAssemblyPath,
             "-S",
-            SectionNames.ArrayPoolEscapes);
+            SectionNames.ArrayPoolEscapes,
+            "--markdown");
         var jsonl = await RunAppAsync(
             "library",
             TestAssemblyPath,
@@ -610,7 +611,7 @@ public partial class CommandExecutionTests
     public async Task PerformanceSection_SingleKind_RendersOnlyThatKind()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Performance: Boxing");
+            "library", "System.Text.Json", "-S", "Performance: Boxing", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -626,7 +627,7 @@ public partial class CommandExecutionTests
         // machine <GetAsyncEnumerator>d__1). It must render as a code span like the Member and
         // Allocation columns, showing the brackets literally — not HTML-escaped as &lt;/&gt;.
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Performance: Async");
+            "library", "System.Text.Json", "-S", "Performance: Async", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -651,7 +652,8 @@ public partial class CommandExecutionTests
             "-S",
             "Performance: Async",
             "--triage-shape",
-            "sync-call-in-async");
+            "sync-call-in-async",
+            "--markdown");
 
         Assert.Equal(0, exit);
         AssertOnlyPerformanceAnalysisWarnings(error);

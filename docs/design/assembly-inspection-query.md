@@ -1233,7 +1233,8 @@ project every package participant and filter afterward.
 The detached `InspectionEnvelope<ExactLibraryApiInspectionResult>` contains:
 
 - the exact acquisition source coordinate, requested TFM, selected compile
-  asset id/path and TFM, assembly identity, and MVID;
+  asset id/path and TFM, Queries-owned detached assembly identity fields, and
+  MVID;
 - public type/member totals, type-kind facets from `ApiInventoryQuery`, and
   ordered namespace counts;
 - typed selection, participant, extraction, and truncation failures, plus an
@@ -1260,8 +1261,10 @@ or transport resources may back both hosts; semantic association and lifetime
 authority remain explicit in each composition.
 
 The Browser/Wasm interop adapter losslessly projects every field of the same
-complete envelope into its assembly-local generated wire records. The adapter
-does not recompute semantic content or transport the declaration-row
+complete envelope into its assembly-local generated wire records. Assembly
+identity reaches that adapter only through the Queries-owned detached value;
+the adapter does not reference Metadata identity types, recompute semantic
+content, or transport the declaration-row
 `ApiSurface` execution companion, because this slice adopts only Library
 Overview counts and facets; Browser Type/member navigation keeps its separately
 owned package-wide projection.
