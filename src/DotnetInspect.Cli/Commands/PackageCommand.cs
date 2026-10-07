@@ -1233,16 +1233,22 @@ public partial class PackageCommand
             // Update version from resolution (may have been auto-discovered)
             version = resolution.Version ?? version;
 
+            bool onlyTargetFrameworks = options.Discover is null
+                && options.IncludeSections is { Count: 1 }
+                && options.IncludeSections.Contains(PackageSections.TargetFrameworks);
+
             bool wantsEcosystemDependencies =
                 RequestsPackageEcosystemDependencies(
                     producerOptions,
                     pipeline);
 
             // Parse nuspec for full package inspection.
-            NuspecData? nuspec = FindPackageNuspecForInspection(
-                extractPath,
-                resolution,
-                wantsEcosystemDependencies);
+            NuspecData? nuspec = onlyTargetFrameworks
+                ? null
+                : FindPackageNuspecForInspection(
+                    extractPath,
+                    resolution,
+                    wantsEcosystemDependencies);
 
             // Handle file content modes and exit early.
             if (options.ShowContent)
@@ -1346,9 +1352,6 @@ public partial class PackageCommand
                     producerOptions,
                     pipeline,
                     includeSignals: enrichesSignals);
-            bool onlyTargetFrameworks = options.Discover is null
-                && options.IncludeSections is { Count: 1 }
-                && options.IncludeSections.Contains(PackageSections.TargetFrameworks);
             var result = onlyTargetFrameworks
                 ? new InspectionResult
                 {
@@ -1430,23 +1433,26 @@ public partial class PackageCommand
                     producerOptions,
                     pipeline))
                 PopulatePackageContentAudit(result, extractPath);
-            PackageSourceQueryPlan sourceQueryPlan = CreatePackageSourceQueryPlan(
-                sectionCatalog,
-                queryCatalog,
-                producerOptions,
-                excludeUnbounded: effectiveDiscovery);
-            if (ShouldPopulatePackageSourceFiles(producerOptions)
-                || !sourceQueryPlan.SectionPlan.Queries.IsEmpty)
+            if (!onlyTargetFrameworks)
             {
-                await PopulatePackageSourceLinkAsync(
-                    result,
-                    extractPath,
-                    packageName,
-                    version,
+                PackageSourceQueryPlan sourceQueryPlan = CreatePackageSourceQueryPlan(
+                    sectionCatalog,
+                    queryCatalog,
                     producerOptions,
-                    context,
-                    logger,
-                    sourceQueryPlan);
+                    excludeUnbounded: effectiveDiscovery);
+                if (ShouldPopulatePackageSourceFiles(producerOptions)
+                    || !sourceQueryPlan.SectionPlan.Queries.IsEmpty)
+                {
+                    await PopulatePackageSourceLinkAsync(
+                        result,
+                        extractPath,
+                        packageName,
+                        version,
+                        producerOptions,
+                        context,
+                        logger,
+                        sourceQueryPlan);
+                }
             }
 
             if (!effectiveDiscovery
