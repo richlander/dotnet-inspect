@@ -24,7 +24,8 @@ every difference to be computed.
 
 Design basis: user direction in the Fast Diff session, "Unchanged is exact;
 Changed/Maybe may over-report", canonical IL operation equality per paired
-method, and a host-neutral producer with Browser Compare as first adopter.
+method, and a host-neutral QuerySpace `Exists` producer with Browser Compare as
+first adopter.
 
 ## Why
 
@@ -38,7 +39,7 @@ are unchanged, and proving that is far cheaper than describing a change.
 
 | Pass | Scope | Returns | Facts compared |
 | --- | --- | --- | --- |
-| Fast | Library | One state per Type | API (Finding transitions and `ApiDiff` classifications) and the one-sided method census; no body comparison |
+| Fast | Library | One state per Type | API (Finding transitions and compatibility classifications) and the one-sided method census; no body comparison |
 | Fast | Type | One state per Member | The Library facts for that Type's Members, plus canonical body equality for its paired methods |
 | Complete | Member | Full API and body diff for one exact Member | Existing [Annotated Source diff](annotated-source-diff-document.md) cost |
 
@@ -56,6 +57,38 @@ whether any body changed in a Type requests the Type pass; the producer states
 the facts each pass compares so no consumer reads more into a state than it
 carries.
 
+## QuerySpace execution
+
+Fast Diff is a terminal-specialized QuerySpace query, not a projection over a
+completed `ApiDiff` or shallow summary. It follows
+[Open and closed queries](open-and-closed-queries.md) and
+[Query space composition](query-space-composition.md):
+
+- the Library pass issues one owner-scoped `Exists` request per Type over its
+  API and method-inventory difference witnesses;
+- the Type pass issues one owner-scoped `Exists` request per Member over its
+  API and implementation difference witnesses;
+- a successful `Exists` settles as `Changed` at the first witness, before row
+  projection;
+- an exhausted complete source settles as `Unchanged`; and
+- a failure or incomplete source before settlement yields `Indeterminate`, not
+  `Unchanged`.
+
+The request-set planner may share a source traversal across compatible
+subjects. Sharing does not turn `Exists` into Rows or Count: after one subject
+settles, it stops receiving work and stops being charged while unresolved
+subjects continue. A later shared-source failure does not invalidate an
+already settled `Changed`; it makes only unresolved subjects
+`Indeterminate`.
+
+The producer must expose terminal-specialized difference-witness capabilities.
+It must not construct a complete `AssemblyContextApiComparisonResult`,
+`ApiDiff`, shallow summary, or row inventory before executing `Exists`.
+Correspondence and classification remain Metadata-owned semantics, but the
+Fast Diff operation consumes their per-unit producer capabilities. This is the
+mechanism that makes early exit reduce execution rather than merely truncate a
+completed projection.
+
 ## Subject states and equality
 
 | State | Meaning |
@@ -69,11 +102,12 @@ changed and may offer the Complete pass.
 
 Equality is decided per paired subject:
 
-- **API.** The facts that Metadata's `ApiDiff` classifies over the two endpoint
-  API surfaces, together with the changed Type Finding pairs the complete API
-  comparison includes even when no `ApiChange` is classified (signature, accessibility, modifiers, constraints, attributes
-  the complete diff reports). Fast Diff consumes that Metadata correspondence
-  and classification directly, with early exit. It does not consume
+- **API.** Metadata-owned Type and Member Finding transitions, including
+  changed pairs with no classified `ApiChange`, and the compatibility
+  classifications the complete API comparison reports (signature,
+  accessibility, modifiers, constraints, and attributes). Fast Diff consumes
+  those semantics through terminal-specialized QuerySpace producer
+  capabilities. It does not consume
   [Library API diff presentation](library-api-diff-presentation.md), which
   admits only a completed Library comparison and would force the complete diff
   first. The presentation remains the owner of how complete results are shown;
@@ -119,7 +153,16 @@ still have a changed body; that is by design and is not a soundness failure. The
 converse is not required. The gate is a corpus comparison over real package
 pairs with zero `Unchanged` subjects, per pass, that the complete diff reports
 changed in the facts that pass compares. Each pass also publishes exact-head
-NativeAOT numbers against the complete diff for the same pairs.
+NativeAOT and Browser/Wasm numbers against the complete diff for the same
+pairs.
+
+The performance gate includes `Aspire.Hosting` 13.6.0 to 13.6.1. Diagnostic
+evidence on #9686 found a warmed Firefox/Mono Browser/Wasm Library request took
+5,425 ms with whole-Library body comparison and 3,567.5 ms when body comparison
+was skipped. Both paths still constructed the complete API comparison and
+returned no changed rows. Neither is an acceptable Fast Diff implementation;
+the accepted producer must demonstrate that QuerySpace `Exists` materially
+reduces that product-host latency.
 
 ## Hosts
 
@@ -164,17 +207,22 @@ that policy consumes.
 
 ## Adoption
 
-Each step is independently mergeable under #9716.
+The plan has **seven independently mergeable slices** under #9716:
 
-1. **Producer.** Library and Type passes over one exact Library pair, with
-   typed states, early exit, and the per-pass soundness corpus gate. Includes
-   NativeAOT numbers against the complete diff for the same pairs and, where it
-   exists, against the shallow-summary strategy of #9686.
-2. **Consumer slices.** Each is a separate focused effort that updates its own
-   owner and is not specified here: Browser Library pass and Type pass
-   (Compare experience), the Member Compare hybrid (Member Body Diff), the CLI
-   `diff` surface, and Browser caching and speculative prefetch (a separate
-   Browser owner).
+1. **QuerySpace producer.** Library and Type `Exists` requests over one exact
+   Library pair, typed states, terminal-specialized producer capabilities,
+   request-set execution, and per-pass soundness gates. Includes exact-head
+   NativeAOT and Browser/Wasm numbers against the complete and #9686 shallow
+   paths for the same pairs.
+2. **Browser Library pass.** Consume Library states and update the Compare
+   experience owner.
+3. **Browser Type pass.** Consume Member states and update the Compare
+   experience owner.
+4. **Member hybrid.** Update the Member Body Diff owner.
+5. **CLI.** Expose the same producer through the `diff` surface.
+6. **Browser cache.** Define result retention in a separate Browser owner.
+7. **Speculative prefetch.** A later, measurement-gated Browser design; not
+   part of the first adoption.
 
 ## Open design questions
 
@@ -201,3 +249,12 @@ Each step is independently mergeable under #9716.
    or `Indeterminate` at Type scope, never `Unchanged`.
 9. A Type whose only change is a Type-facet Finding with no classified
    `ApiChange` is `Changed` at Library scope.
+10. A Type whose only API difference is a changed Member Finding with no
+    classified `ApiChange` is `Changed` at Library scope, and that Member is
+    `Changed` at Type scope.
+11. A changed Type settles its Library `Exists` request at its first witness;
+    no later member of that Type is classified, projected, or charged to that
+    request.
+12. An unchanged Type exhausts its Library witness source and returns
+    `Unchanged` without constructing a complete `ApiDiff`, shallow summary, or
+    row inventory.
