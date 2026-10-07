@@ -288,6 +288,38 @@ public partial class ApiCommand
         // A lone Text with a bare payload writes its own facts-plus-content JSON
         // once its payload is populated (below), not the type document.
         bool textPayloadJson = IsTextPayloadJson(options) && !typeApiDeclarationsJson;
+        if (options.JsonOutput
+            && !options.Count
+            && !IsProjectionRequested(options)
+            && options is TypeOptions
+            {
+                TypeHierarchyRelations: { } hierarchy,
+            } hierarchyOptions)
+        {
+            if (hierarchyOptions.IncludeSections?.Any(
+                    static section =>
+                        section is not SectionNames.Implementers
+                        and not SectionNames.DerivedTypes) == true)
+            {
+                CommandError.Write(
+                    "Hierarchy Document --json cannot combine Implementers "
+                        + "or Derived Types with other Type sections. Use "
+                        + "--jsonl, --tsv, or --table for mixed section "
+                        + "output.");
+                return 1;
+            }
+
+            TypeHierarchyRelationsJsonResult result =
+                TypeHierarchyRelationsJsonResult.From(hierarchy);
+            JsonOutputHelper.Write(
+                result,
+                TypeHierarchyRelationsJsonContext.Default
+                    .TypeHierarchyRelationsJsonResult,
+                TypeHierarchyRelationsCompactJsonContext.Default
+                    .TypeHierarchyRelationsJsonResult,
+                options.CompactJson);
+            return 0;
+        }
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options)
             && !typeApiDeclarationsJson
             && !textPayloadJson

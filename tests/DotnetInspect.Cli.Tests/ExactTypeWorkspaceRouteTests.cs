@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -12,6 +13,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
@@ -1259,6 +1261,122 @@ public sealed class ExactTypeWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task WorkspaceExactTypeExecutesHierarchySections()
+    {
+        var store = await CachedStoreAsync(
+            ($"lib/{Framework}/Hierarchy.dll",
+                BuildHierarchyTypeAssembly()));
+        using var client = new HttpClient(new FailingHandler());
+        string packet = EncodePacket(
+            format: 4,
+            [(PackageId, Version, Framework)],
+            [[0]],
+            focusedTab: 0,
+            selectedContext: 0,
+            registerPackagePrefix: false);
+        var options = new TypeOptions
+        {
+            WorkspacePacket = packet,
+            TypeName = "Exact.Hierarchy.IContract",
+            IncludeSections =
+                new(StringComparer.OrdinalIgnoreCase)
+                {
+                    SectionNames.Implementers,
+                },
+            Count = true,
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    new WorkspaceContextLoadOptions
+                    {
+                        HttpClient = client,
+                        SourceAuthorization =
+                            new UniformPackageSourceAuthorization([Source]),
+                        PackageStore = store,
+                    }));
+
+        Assert.True(
+            exitCode == 0,
+            $"Expected success. Output: {output} Error: {error}");
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task WorkspacePackagePrefixExecutesHierarchySections()
+    {
+        const string implementationPackage =
+            "ILInspector.Implementation";
+        (byte[] contract, byte[] implementation) =
+            BuildHierarchyPackageAssemblies();
+        SearchResult[] matches =
+        [
+            new(PackageId, Version),
+            new(implementationPackage, Version),
+        ];
+        var prefixSource = new PrefixPackageSource(matches);
+        var store = (InMemoryPackageStore)await CachedStoreAsync(
+            ($"lib/{Framework}/Hierarchy.Contract.dll", contract));
+        await AddPackageAsync(
+            store,
+            PackageId,
+            contract,
+            PackageSource.NuGetOrg.Url);
+        await AddPackageAsync(
+            store,
+            implementationPackage,
+            implementation,
+            PackageSource.NuGetOrg.Url);
+        using var client = new HttpClient(new FailingHandler());
+        string packet = EncodePacket(
+            format: 4,
+            [(PackageId, Version, Framework)],
+            [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        var options = new TypeOptions
+        {
+            WorkspacePacket = packet,
+            TypeName = "Exact.Hierarchy.IContract",
+            IncludeSections =
+                new(StringComparer.OrdinalIgnoreCase)
+                {
+                    SectionNames.Implementers,
+                },
+            Count = true,
+            CompanionOutput = CompanionOutput.None,
+        };
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    new WorkspaceContextLoadOptions
+                    {
+                        HttpClient = client,
+                        SourceAuthorization =
+                            new UniformPackageSourceAuthorization(
+                                [Source, PackageSource.NuGetOrg]),
+                        PackageStore = store,
+                    },
+                    new(
+                        () => prefixSource,
+                        DateTimeOffset.UtcNow.AddMinutes(1)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task EligibleRoutePreservesEscapedDefinitionIdentity()
     {
         var store = await CachedStoreAsync(
@@ -1347,14 +1465,15 @@ public sealed class ExactTypeWorkspaceRouteTests
     static async Task AddPackageAsync(
         InMemoryPackageStore store,
         string packageId,
-        byte[] assembly)
+        byte[] assembly,
+        string sourceUrl = SourceUrl)
     {
         byte[] package = Archive(
             ($"lib/{Framework}/{packageId}.dll", assembly));
         await store.CommitAsync(
             packageId,
             Version,
-            NuGetCache.GetSourceKey(SourceUrl),
+            NuGetCache.GetSourceKey(sourceUrl),
             new MemoryStream(package),
             TestContext.Current.CancellationToken);
     }
@@ -1364,7 +1483,8 @@ public sealed class ExactTypeWorkspaceRouteTests
         (string Package, string Version, string Framework)[] tabs,
         int[][] contexts,
         int focusedTab,
-        int selectedContext)
+        int selectedContext,
+        bool registerPackagePrefix = true)
     {
         string tabJson = string.Join(
             ',',
@@ -1386,7 +1506,11 @@ public sealed class ExactTypeWorkspaceRouteTests
             "{\"f\":" + format
                 + ",\"t\":[" + tabJson
                 + "],\"g\":[" + contextJson
-                + "],\"r\":[[\"p\",\"ILInspector.\"]],\"a\":"
+                + "],\"r\":"
+                + (registerPackagePrefix
+                    ? "[[\"p\",\"ILInspector.\"]]"
+                    : "[]")
+                + ",\"a\":"
                 + focusedTab
                 + ",\"x\":" + selectedContext
                 + ",\"v\":[" + viewJson + "]}";
@@ -1492,6 +1616,219 @@ public sealed class ExactTypeWorkspaceRouteTests
         var image = new BlobBuilder();
         builder.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildHierarchyTypeAssembly()
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("Hierarchy"),
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule("Hierarchy");
+        TypeBuilder contract = module.DefineType(
+            "Exact.Hierarchy.IContract",
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract);
+        Type contractType = contract.CreateType();
+        TypeBuilder implementation = module.DefineType(
+            "Exact.Hierarchy.Implementation",
+            TypeAttributes.Public
+                | TypeAttributes.Class
+                | TypeAttributes.Abstract);
+        implementation.AddInterfaceImplementation(contractType);
+        implementation.CreateType();
+
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
+    }
+
+    static (byte[] Contract, byte[] Implementation)
+        BuildHierarchyPackageAssemblies()
+    {
+        var contractAssembly = new PersistedAssemblyBuilder(
+            new AssemblyName("Hierarchy.Contract"),
+            typeof(object).Assembly);
+        ModuleBuilder contractModule =
+            contractAssembly.DefineDynamicModule("Hierarchy.Contract");
+        TypeBuilder contract = contractModule.DefineType(
+            "Exact.Hierarchy.IContract",
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract);
+        Type contractType = contract.CreateType();
+        using var contractStream = new MemoryStream();
+        contractAssembly.Save(contractStream);
+
+        var implementationAssembly = new PersistedAssemblyBuilder(
+            new AssemblyName("Hierarchy.Implementation"),
+            typeof(object).Assembly);
+        ModuleBuilder implementationModule =
+            implementationAssembly.DefineDynamicModule(
+                "Hierarchy.Implementation");
+        TypeBuilder implementation = implementationModule.DefineType(
+            "Exact.Hierarchy.Implementation",
+            TypeAttributes.Public
+                | TypeAttributes.Class
+                | TypeAttributes.Abstract);
+        implementation.AddInterfaceImplementation(contractType);
+        implementation.CreateType();
+        using var implementationStream = new MemoryStream();
+        implementationAssembly.Save(implementationStream);
+        return (
+            contractStream.ToArray(),
+            implementationStream.ToArray());
+    }
+
+    static PackageSourceResultFactory CreateResultFactory()
+    {
+        PackageSourceResultFactory? captured = null;
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.CreateCustom(
+                PackageSourceDescriptor.NuGetGallery,
+                PackageSourceAssociation.Create(),
+                factory =>
+                {
+                    captured = factory;
+                    return new FactoryOnlyPackageSourceClient(
+                        factory.Source);
+                });
+        return Assert.IsType<PackageSourceResultFactory>(captured);
+    }
+
+    sealed class PrefixPackageSource(
+        IReadOnlyList<SearchResult> matches) : IPackageSourceClient
+    {
+        readonly PackageSourceResultFactory _results =
+            CreateResultFactory();
+
+        public PackageSourceResultIdentity Source => _results.Source;
+
+        public PackageSourceCapabilities Capabilities =>
+            PackageSourceCapabilities.Search;
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchByPrefixAsync(
+                string prefix,
+                int take = 100,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(
+                _results.SucceededSearch(
+                    _results.Search(
+                        matches,
+                        PackageSearchTruncationReason.None)));
+        }
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchAsync(
+                string query,
+                int take = 20,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageVersionResult>>
+            GetVersionsAsync(
+                string packageId,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourceManifest>>
+            GetManifestAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            GetPackageAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            TryGetSymbolsAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public void Dispose()
+        {
+        }
+    }
+
+    sealed class FactoryOnlyPackageSourceClient(
+        PackageSourceResultIdentity source) : IPackageSourceClient
+    {
+        public PackageSourceResultIdentity Source { get; } = source;
+
+        public PackageSourceCapabilities Capabilities =>
+            PackageSourceCapabilities.None;
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchByPrefixAsync(
+                string prefix,
+                int take = 100,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchAsync(
+                string query,
+                int take = 20,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageVersionResult>>
+            GetVersionsAsync(
+                string packageId,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourceManifest>>
+            GetManifestAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            GetPackageAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            TryGetSymbolsAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null) =>
+            throw new NotSupportedException();
+
+        public void Dispose()
+        {
+        }
     }
 
     static byte[] BuildModuleConstraintAssembly()

@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Models;
+using DotnetInspect.Cli.Options;
 
 namespace DotnetInspect.Cli.Output;
 
@@ -31,21 +32,29 @@ internal sealed record ExtensionMethodJsonResult(
         result.ReachableFromType);
 }
 
-internal sealed record ImplementerJsonResult(
+internal sealed record TypeHierarchyRelationJsonResult(
     string Type,
-    string? Namespace,
-    string Kind,
-    string Relationship,
-    string? Library,
-    string? Source,
-    string? SourceVersion)
+    string Library,
+    string Source)
 {
-    internal static ImplementerJsonResult From(ImplementerResult result) => new(
-        result.TypeName,
-        result.Namespace,
-        result.Kind,
-        result.Relationship,
-        result.Assembly,
-        result.Source,
-        result.SourceVersion);
+    internal static TypeHierarchyRelationJsonResult From(
+        TypeHierarchyRelationCandidate candidate) =>
+        new(candidate.Type, candidate.Library, candidate.Source);
+}
+
+internal sealed record TypeHierarchyRelationsJsonResult(
+    List<TypeHierarchyRelationJsonResult>? Implementers,
+    List<TypeHierarchyRelationJsonResult>? DerivedTypes)
+{
+    internal static TypeHierarchyRelationsJsonResult From(
+        TypeHierarchyRelationsInspection inspection) =>
+        new(
+            inspection.Implementers is { } implementers
+                ? [.. implementers.Candidates.Select(
+                    TypeHierarchyRelationJsonResult.From)]
+                : null,
+            inspection.DerivedTypes is { } derivedTypes
+                ? [.. derivedTypes.Candidates.Select(
+                    TypeHierarchyRelationJsonResult.From)]
+                : null);
 }

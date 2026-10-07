@@ -474,10 +474,12 @@ internal sealed record TypeHierarchyRelationsInspection(
 internal sealed record TypeHierarchyRelationSectionInspection(
     InspectionEnvelope<WorkspaceTypeHierarchySubjectRelationsDocument>
         Inspection,
-    IReadOnlyList<TypeHierarchyRelationCandidate> Candidates)
+    IReadOnlyList<TypeHierarchyRelationCandidate> Candidates,
+    bool AdditionalEvidenceComplete = true)
 {
     internal bool IsComplete =>
-        (Inspection.Content.Relations.Count is null
+        AdditionalEvidenceComplete
+        && (Inspection.Content.Relations.Count is null
             or SubjectRelationPopulationCountOutcome.Counted)
         && (Inspection.Content.Relations.Rows is null
             or SubjectRelationPopulationRowsOutcome.Read

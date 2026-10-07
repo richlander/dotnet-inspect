@@ -37,7 +37,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                 maximumMetadataRows: int.MaxValue,
                 maximumRetainedTextCharacters: int.MaxValue);
 
-    private static readonly MetadataOperationPolicy OperationPolicy =
+    internal static readonly MetadataOperationPolicy OperationPolicy =
         new(
             maxMetadataRows: MaxMetadataRows,
             maxMethodImplementationRows: MaxMetadataRows,
@@ -665,10 +665,35 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                         + "owner-issued hierarchy focus occurrence.");
             }
 
+            WorkspaceDeclarationPopulation relationPopulation =
+                captured.Population;
+            if (IsPlatformSource(options, source)
+                && !ReferenceEquals(
+                    relationFocus.Observation.Occurrence,
+                    focus.Observation.Occurrence))
+            {
+                WorkspaceDeclarationPopulationCapture relationCapture =
+                    workspace.CaptureDeclarationPopulation(
+                        selectedContexts.Where(context =>
+                            !ReferenceEquals(context, focusContext))
+                        .ToImmutableArray());
+                if (relationCapture
+                    is not WorkspaceDeclarationPopulationCapture.Captured
+                        capturedRelations)
+                {
+                    return (
+                        null,
+                        "The Platform hierarchy relation population could "
+                            + "not exclude the duplicate implementation "
+                            + "focus occurrence.");
+                }
+                relationPopulation = capturedRelations.Population;
+            }
+
             TypeHierarchyRelationsInspection relations =
                 Execute(
                     options,
-                    captured.Population,
+                    relationPopulation,
                     relationFocus.Observation.Occurrence,
                     relationFocus.Name,
                     candidateSources,
@@ -735,7 +760,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
             ]);
     }
 
-    private static TypeHierarchyRelationCandidate Project(
+    internal static TypeHierarchyRelationCandidate Project(
         WorkspaceTypeHierarchyCandidate candidate,
         IReadOnlyDictionary<
             object,
