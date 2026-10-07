@@ -581,7 +581,10 @@ its exact declaration Count over that complete population. A Type node carries
 the owner-issued row and its owner-issued spelling: FullSpelling is the
 qualified display name, and Name removes only the namespace qualifier, so a
 nested declaration keeps its containing Type (`JsonElement.ArrayEnumerator`).
-The empty namespace is the global namespace.
+The namespace and qualified name are independently encoded values, so the
+owner removes the qualifier from their raw text and re-encodes only the
+remainder. The empty namespace is the global namespace. The owner forms every
+node, including its spelling, before the sink receives the first one.
 
 A definition's Member Count is the row's counted outcome. A forwarder remains a
 first-class declaration node whose Member Count is not applicable; the

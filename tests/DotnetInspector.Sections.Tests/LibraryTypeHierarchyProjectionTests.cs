@@ -173,6 +173,17 @@ public sealed class LibraryTypeHierarchyProjectionTests
             Assert.IsType<LibraryTypeMemberCountOutcome.Counted>(
                     serializerNode.Value.MemberCount)
                 .Value > 0);
+        LibraryTypeHierarchyNode.Type enumerator =
+            Assert.Single(
+                declarations,
+                static d => d.Value.DisplayName.ToString()
+                    == "System.Text.Json.JsonElement.ArrayEnumerator");
+        Assert.Equal(
+            "JsonElement.ArrayEnumerator",
+            enumerator.Spelling.ToString());
+        Assert.Equal(
+            "System.Text.Json",
+            enumerator.Value.Namespace.ToString());
         Assert.Equal(
             1,
             sink.Events.Count(static e =>
@@ -292,6 +303,53 @@ public sealed class LibraryTypeHierarchyProjectionTests
     }
 
     [Fact]
+    public async Task Projection_SpellsNameFromRawTextWhenEncodingModesDiffer()
+    {
+        // The namespace keeps its literal backslash when encoded alone, while
+        // the qualified name contains an escapable "\\" and so doubles every
+        // backslash. The qualifier must be removed from raw text.
+        byte[] content =
+            LibraryInspectionTestLibrary.BuildMetadataImage(
+                publicInterface: (@"A\B", @"C\\D"));
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.ProbeIdentity());
+        LibraryDocument document = Execute(library, Types());
+        LibraryTypeShape row =
+            Assert.Single(
+                Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                        document.Types!.Rows)
+                    .Items);
+        Assert.False(
+            row.DisplayName.ToString().StartsWith(
+                row.Namespace.ToString() + ".",
+                StringComparison.Ordinal));
+        var sink = new RecordingSink();
+
+        LibraryTypeHierarchyProjection.Write(
+            document,
+            Hierarchy(InspectionHierarchyNodeSpelling.Name),
+            sink);
+
+        Assert.Collection(
+            sink.Events,
+            static e =>
+            {
+                var node =
+                    Assert.IsType<LibraryTypeHierarchyNode.Namespace>(e.Node);
+                Assert.Equal(@"A\B", Decoded(node.Name));
+                Assert.Equal(1, node.DeclarationCount);
+            },
+            static e => Assert.Equal(
+                @"C\\D",
+                Decoded(
+                    Assert.IsType<LibraryTypeHierarchyNode.Type>(e.Node)
+                        .Spelling)));
+        await library.RetireAsync();
+    }
+
+    [Fact]
     public async Task Projection_MarksFacadeForwardersWithoutMemberCounts()
     {
         byte[] content =
@@ -366,6 +424,12 @@ public sealed class LibraryTypeHierarchyProjectionTests
                         TestContext.Current.CancellationToken)
                     .Content)
             .Document;
+
+    private static string Decoded(InertText.InertString value) =>
+        Assert.IsType<string>(
+            InertText.Encoding.VisualEncoder.TryDecode(value.ToString(), out string? raw)
+                ? raw
+                : null);
 
     private sealed class RecordingSink :
         IInspectionHierarchySink<LibraryTypeHierarchyNode>

@@ -1,5 +1,6 @@
 using ILInspector.Metadata;
 using InertText;
+using InertText.Encoding;
 
 namespace DotnetInspector.Sections;
 
@@ -44,21 +45,12 @@ public static class LibraryTypeHierarchyProjection
         IInspectionHierarchySink<LibraryTypeHierarchyNode> sink)
     {
         ArgumentNullException.ThrowIfNull(sink);
-        LibraryTypePopulationRowsOutcome.Read rows =
-            GetValidatedRows(document, request);
-        var typeRows =
-            (InspectionHierarchyPopulationRequest.Rows)
-            ((InspectionHierarchyPopulationRequest.Rows)request.Children)
-                .Children!;
-
-        NamespaceGroup[] groups = Group(rows.Items);
+        NamespaceGroup[] groups = GetValidatedGroups(document, request);
         for (int groupIndex = 0; groupIndex < groups.Length; groupIndex++)
         {
             NamespaceGroup group = groups[groupIndex];
             sink.WriteNode(
-                new LibraryTypeHierarchyNode.Namespace(
-                    group.Name,
-                    group.Declarations.Length),
+                group.Node,
                 isLastSibling: groupIndex == groups.Length - 1,
                 children =>
                 {
@@ -66,12 +58,8 @@ public static class LibraryTypeHierarchyProjection
                          typeIndex < group.Declarations.Length;
                          typeIndex++)
                     {
-                        LibraryTypeShape declaration =
-                            group.Declarations[typeIndex];
                         children.WriteNode(
-                            new LibraryTypeHierarchyNode.Type(
-                                declaration,
-                                Spell(declaration, typeRows.Spelling)),
+                            group.Declarations[typeIndex],
                             isLastSibling:
                                 typeIndex
                                 == group.Declarations.Length - 1);
@@ -85,7 +73,7 @@ public static class LibraryTypeHierarchyProjection
         InspectionHierarchyRequest<LibraryTypeHierarchyTopology> request,
         LibraryTypePopulationRequest types)
     {
-        _ = GetValidatedRows(document, request);
+        _ = GetValidatedGroups(document, request);
         ArgumentNullException.ThrowIfNull(types);
         ValidateRequest(request, types, nameof(types));
         if (!Matches(document.Types!.Binding, types))
@@ -229,44 +217,71 @@ public static class LibraryTypeHierarchyProjection
     }
 
     /// <summary>
-    /// Groups the complete Metadata-ordered population by namespace. The
-    /// hierarchy orders namespaces, then declarations within each namespace,
-    /// by ordinal spelling; Rows ordering itself remains Metadata order.
+    /// Validates the document and forms every node before any is written.
+    /// The hierarchy groups the complete Metadata-ordered population by
+    /// namespace and orders namespaces, then declarations within each
+    /// namespace, by ordinal spelling; Rows ordering itself remains Metadata
+    /// order.
     /// </summary>
-    private static NamespaceGroup[] Group(
-        IReadOnlyList<LibraryTypeShape> rows)
+    private static NamespaceGroup[] GetValidatedGroups(
+        LibraryDocument document,
+        InspectionHierarchyRequest<LibraryTypeHierarchyTopology> request)
     {
+        LibraryTypePopulationRowsOutcome.Read rows =
+            GetValidatedRows(document, request);
+        InspectionHierarchyNodeSpelling spelling =
+            ((InspectionHierarchyPopulationRequest.Rows)
+                ((InspectionHierarchyPopulationRequest.Rows)request.Children)
+                    .Children!)
+            .Spelling;
+
         return
         [
-            .. rows
+            .. rows.Items
                 .GroupBy(
                     static row => row.Namespace.ToString(),
                     StringComparer.Ordinal)
                 .OrderBy(static group => group.Key, StringComparer.Ordinal)
                 .Select(
-                    static group =>
-                        new NamespaceGroup(
-                            group.First().Namespace,
-                            [
-                                .. group.OrderBy(
-                                    static row =>
-                                        row.DisplayName.ToString(),
-                                    StringComparer.Ordinal),
-                            ])),
+                    group =>
+                    {
+                        LibraryTypeHierarchyNode.Type[] declarations =
+                        [
+                            .. group
+                                .OrderBy(
+                                    static row => row.DisplayName.ToString(),
+                                    StringComparer.Ordinal)
+                                .Select(
+                                    row => new LibraryTypeHierarchyNode.Type(
+                                        row,
+                                        Spell(row, spelling))),
+                        ];
+                        return new NamespaceGroup(
+                            new LibraryTypeHierarchyNode.Namespace(
+                                group.First().Namespace,
+                                declarations.Length),
+                            declarations);
+                    }),
         ];
     }
 
+    /// <summary>
+    /// Issues one declaration's spelling. Name removes the namespace qualifier
+    /// from the raw qualified name and re-encodes only the remainder, because
+    /// the namespace and the qualified name are encoded as independent values.
+    /// </summary>
     private static InertString Spell(
         LibraryTypeShape declaration,
         InspectionHierarchyNodeSpelling spelling)
     {
-        if (spelling is InspectionHierarchyNodeSpelling.FullSpelling)
+        if (spelling is InspectionHierarchyNodeSpelling.FullSpelling
+            || declaration.Namespace.IsEmpty)
+        {
             return declaration.DisplayName;
+        }
 
-        string displayName = declaration.DisplayName.ToString();
-        string @namespace = declaration.Namespace.ToString();
-        if (@namespace.Length == 0)
-            return declaration.DisplayName;
+        string displayName = Decode(declaration.DisplayName);
+        string @namespace = Decode(declaration.Namespace);
         if (displayName.Length <= @namespace.Length + 1
             || !displayName.StartsWith(@namespace, StringComparison.Ordinal)
             || displayName[@namespace.Length] != '.')
@@ -275,12 +290,18 @@ public static class LibraryTypeHierarchyProjection
                 "A Library Type declaration display name is not qualified by its namespace.");
         }
 
-        return InertString.FromEncoded(
+        return new InertString(
             TextPolicy.Field,
             displayName.AsSpan(@namespace.Length + 1));
     }
 
+    private static string Decode(InertString value) =>
+        VisualEncoder.TryDecode(value.ToString(), out string? decoded)
+            ? decoded
+            : throw new InvalidOperationException(
+                "A Library Type declaration spelling is not well-formed encoded text.");
+
     private sealed record NamespaceGroup(
-        InertString Name,
-        LibraryTypeShape[] Declarations);
+        LibraryTypeHierarchyNode.Namespace Node,
+        LibraryTypeHierarchyNode.Type[] Declarations);
 }
