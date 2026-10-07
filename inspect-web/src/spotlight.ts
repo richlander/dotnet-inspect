@@ -45,6 +45,7 @@ export interface SpotlightEcosystemAnnotation {
 }
 
 interface PackageLoadedResult {
+  highestFramework?: string;
   publication?: PublicationDate;
   ecosystem?: SpotlightEcosystemAnnotation;
   kind: "pkg-loaded";
@@ -70,7 +71,7 @@ interface PackageRecentResult {
   publication?: PublicationDate;
   ecosystem?: SpotlightEcosystemAnnotation;
   kind: "pkg-recent";
-  entry: { id: string; version?: string; framework?: string; nugetOrg?: boolean };
+  entry: { id: string; version?: string; framework?: string; highestFramework?: string; nugetOrg?: boolean };
   ranges: readonly HighlightRange[];
 }
 
@@ -485,20 +486,14 @@ export function createSpotlight(options: SpotlightOptions) {
       "data-sl-remove", identity, label, escapeHtml)}</div>`;
   }
 
-  function ecosystemMetadata(result: SpotlightPackageResult): string {
-    const annotation = result.ecosystem;
-    if (!annotation) return "";
-    return `${escapeHtml(annotation.title)} · `;
-  }
-
   function artifactIcon(
     kind: "Package" | "Library",
     ecosystem: { id: string; title: string } | undefined,
     pruning: { traversalTfm: string; platformVersion: string | null } | undefined,
   ): string {
     if (kind === "Package" && pruning) {
-      const label = "Package pruned";
-      return `<span class="spotlight-svg-icon spotlight-pruned" role="img" aria-label="${label} for ${escapeHtml(pruning.traversalTfm)}" title="${escapeHtml(`Supplied by ${pruning.traversalTfm}${pruning.platformVersion ? ` @ ${pruning.platformVersion}` : ""}; eligible for package pruning`)}"></span>`;
+      const label = ecosystem ? `Package: ${ecosystem.title}; pruned` : "Package pruned";
+      return `<span class="spotlight-svg-icon spotlight-pruned" role="img" aria-label="${escapeHtml(label)} for ${escapeHtml(pruning.traversalTfm)}" title="${escapeHtml(`Supplied by ${pruning.traversalTfm}${pruning.platformVersion ? ` @ ${pruning.platformVersion}` : ""}; eligible for package pruning`)}"></span>`;
     }
     const classes: Readonly<Record<string, string>> = {
       "ecosystem.runtime": "sl-ecosystem-runtime",
@@ -507,9 +502,10 @@ export function createSpotlight(options: SpotlightOptions) {
       "ecosystem.aspire": "sl-ecosystem-aspire",
     };
     const icon = ecosystem ? classes[ecosystem.id] : undefined;
+    const label = escapeHtml(ecosystem ? `${kind}: ${ecosystem.title}` : kind);
     return icon
-      ? `<span class="spotlight-icon-slot spotlight-ecosystem-icon ${icon}" role="img" aria-label="${kind}: ${escapeHtml(ecosystem?.title)}" title="${escapeHtml(ecosystem?.title)}"></span>`
-      : `<span class="spotlight-svg-icon ${kind === "Package" ? "sl-package-icon" : "sl-library-icon"}" role="img" aria-label="${kind}"></span>`;
+      ? `<span class="spotlight-icon-slot spotlight-ecosystem-icon ${icon}" role="img" aria-label="${label}" title="${escapeHtml(ecosystem?.title)}"></span>`
+      : `<span class="spotlight-svg-icon ${kind === "Package" ? "sl-package-icon" : "sl-library-icon"}" role="img" aria-label="${label}"${ecosystem ? ` title="${escapeHtml(ecosystem.title)}"` : ""}></span>`;
   }
 
   function packageIcon(result: SpotlightPackageResult): string {
@@ -543,7 +539,7 @@ export function createSpotlight(options: SpotlightOptions) {
       return withRemoveButton(result, `<button ${base} data-sl-pkg-open="${escapeHtml(result.pkg.id)}">
         ${packageIcon(result)}
         <span class="spotlight-item-name">${options.highlightRanges(result.pkg.id, result.ranges)}</span>
-        <span class="spotlight-item-ns">${ecosystemMetadata(result)}${escapeHtml(result.pkg.version)} · ${packageAddition ? "already in Workspace" : "open"}</span>
+        <span class="spotlight-item-ns">${escapeHtml(result.pkg.version)}${result.highestFramework ? ` · ${escapeHtml(result.highestFramework)}` : ""}${packageAddition ? " · already in Workspace" : ""}</span>
         ${dateHtml}
       </button>`);
     }
@@ -554,7 +550,7 @@ export function createSpotlight(options: SpotlightOptions) {
       return `<button ${base} data-sl-pkg-load="${escapeHtml(result.hit.id)}" data-sl-pkg-version="${escapeHtml(result.hit.version || "")}">
         ${packageIcon(result)}
         <span class="spotlight-item-name">${options.highlightRanges(result.hit.id, result.ranges)}</span>
-        <span class="spotlight-item-ns">${ecosystemMetadata(result)}${escapeHtml(result.hit.version || "")} · ${source}</span>
+        <span class="spotlight-item-ns" title="${escapeHtml(source)}">${escapeHtml(result.hit.version || "")}</span>
         ${dateHtml}
       </button>`;
     }
@@ -565,7 +561,7 @@ export function createSpotlight(options: SpotlightOptions) {
       return withRemoveButton(result, `<button ${base} data-sl-pkg-recent="${escapeHtml(result.entry.id)}">
         ${packageIcon(result)}
         <span class="spotlight-item-name">${options.highlightRanges(result.entry.id, result.ranges)}</span>
-        <span class="spotlight-item-ns">${ecosystemMetadata(result)}${version ? `${escapeHtml(version)} · ` : ""}recent</span>
+        <span class="spotlight-item-ns">${escapeHtml(version)}${result.entry.highestFramework ? `${version ? " · " : ""}${escapeHtml(result.entry.highestFramework)}` : ""}</span>
         ${dateHtml}
       </button>`);
     }
@@ -601,7 +597,7 @@ export function createSpotlight(options: SpotlightOptions) {
               title: result.pack === "aspnetcore.app" ? "ASP.NET Core" : ".NET Runtime" }
           : undefined, undefined)}
         <span class="spotlight-item-name">${options.highlightRanges(result.assembly, result.ranges)}</span>
-        <span class="spotlight-item-ns">${escapeHtml(meta)}</span>
+        <span class="spotlight-item-ns" title="${escapeHtml(meta)}">${escapeHtml([result.version, result.tfm].filter(Boolean).join(" · "))}</span>
         ${dateHtml}
       </button>`;
     }

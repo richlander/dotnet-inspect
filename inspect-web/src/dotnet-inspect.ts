@@ -1289,6 +1289,8 @@ function loadRecentPackages() {
         id: entry.id,
         version: typeof entry.version === "string" && entry.version ? entry.version : "latest",
         framework: typeof entry.framework === "string" ? entry.framework : "",
+        ...(typeof entry.highestFramework === "string"
+          ? { highestFramework: entry.highestFramework } : {}),
         nugetOrg: entry.nugetOrg === true,
       }))
       .slice(0, RECENT_PACKAGES_MAX);
@@ -1366,6 +1368,7 @@ interface PendingGraphMemberDeepLink {
 }
 
 interface RecentPackage {
+  highestFramework?: string;
   nugetOrg?: boolean;
   id: string;
   version: string;
@@ -7797,7 +7800,6 @@ function currentMemberBodyDiffContext(): MemberBodyDiffContext | null {
     typeIdentity: subject.kind === "library" ? null : typeIdentifierOf(subject.type),
     memberFingerprint: subject.kind === "member" ? subject.overload?.anchorDigest ?? null : null,
     methodToken: subject.kind === "member" ? state.selectedBodyTarget?.metadataToken ?? subject.overload?.metadataToken ?? null : null,
-    tools: renderLibraryDiffTools(subject),
   };
 }
 
@@ -7829,7 +7831,7 @@ function renderCompareSurface(): string {
   if (packageComparisonTargets.get(subject.pkg).diffContent.kind === "member-body") {
     const body = memberBodyDiff.render();
     if (body) return body;
-    return renderCompareFrame({ subjectKind, subjectLabel, mode, targetText, tools: renderLibraryDiffTools(subject),
+    return renderCompareFrame({ subjectKind, subjectLabel, mode, targetText, externalToolbar: true,
       status: "Member Body unavailable", content: "<p>Select an available Gallery comparison target.</p>", escapeHtml });
   }
   const options = libraryApiDiffRenderOptions(subject);
@@ -7842,7 +7844,7 @@ function renderCompareSurface(): string {
     resultSummaryInDataBar: currentDataBarResult() !== null,
     subjectLabel,
     targetText,
-    tools: renderLibraryDiffTools(subject),
+    tools: "",
     ...(memberContext === null
       ? {}
       : { memberDiffSection: memberDiffExplorer.renderInline(memberContext) }),
@@ -9240,7 +9242,10 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     activeScope === "package" && state.packageLens === "vulnerabilities";
   const libraryMetadataWorkingSurface =
     activeScope === "library" && state.libraryLens === "metadata";
-  const compareWorkingSurface = currentCompareSubject() !== null;
+  const compareSubject = currentCompareSubject();
+  const compareWorkingSurface = compareSubject !== null;
+  const memberBodyWorkingSurface = compareSubject !== null && currentCompareMode() === "diff"
+    && packageComparisonTargets.get(compareSubject.pkg).diffContent.kind === "member-body";
   const memberDiffExploreTarget = currentMemberDiffExploreContext();
   const libraryReferencesWorkingSurface =
     activeScope === "library" && state.libraryLens === "references";
@@ -9272,7 +9277,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
         ? "Libraries"
       : navMode() === "member" && current ? "Members" : "Types";
   const contentNavigationIntegrated =
-    apiWorkingSurface
+    !memberBodyWorkingSurface && (apiWorkingSurface
     || metadataWorkingSurface
     || overviewWorkingSurface
     || packageDependenciesWorkingSurface
@@ -9280,7 +9285,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     || libraryMetadataWorkingSurface
     || libraryReferencesWorkingSurface
     || libraryAnalysisWorkingSurface
-    || memberWorkingSurface;
+    || memberWorkingSurface);
 
   if (scopeBarOwnsFocus) {
     app.tabIndex = -1;
@@ -9291,8 +9296,11 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   replaceChildrenPreservingRenderedInteractions(app, `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
-        contextualActionsHtml: !loadingPackageContent && (memberDiffExploreTarget || sourcePageKind || packageDependenciesWorkingSurface || metadataWorkingSurface)
-          ? `<div class="working-surface-actions" role="group" aria-label="${memberDiffExploreTarget ? "Member Diff actions" : metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : sourcePageKind ? "Source actions" : "Member actions"}">
+        contextualActionsHtml: !loadingPackageContent && (compareWorkingSurface || memberDiffExploreTarget || sourcePageKind || packageDependenciesWorkingSurface || metadataWorkingSurface)
+          ? `<div class="working-surface-actions" role="group" aria-label="${compareWorkingSurface ? "Compare actions" : memberDiffExploreTarget ? "Member Diff actions" : metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : sourcePageKind ? "Source actions" : "Member actions"}">
+              ${compareSubject !== null && currentCompareMode() === "diff"
+                ? `<div class="compare-page-actions">${renderLibraryDiffTools(compareSubject)}${memberBodyWorkingSurface
+                  ? `${memberBodyDiff.renderActions()}` : ""}</div>` : ""}
               ${memberDiffExploreTarget
                 ? '<button type="button" id="member-diff-explore" data-member-diff-explore>Explore</button>'
                 : ""}
@@ -15335,12 +15343,12 @@ function persistPlatformRecent() {
 // deduped by id, capped) and persist it, so the Home listing survives a refresh. Called
 // only from a successful open, never from search hits or prefetches. The resident runtime
 // pseudo-package has no nupkg and is excluded.
-function recordRecentPackage(id: string, version: string, framework: string, nugetOrg: boolean) {
+function recordRecentPackage(id: string, version: string, framework: string, nugetOrg: boolean, highestFramework?: string) {
   if (!id || isRuntimePackId(id)) return;
   const rest = (state.recentPackages || []).filter(entry => entry.id.toLowerCase() !== id.toLowerCase());
   state.recentPackages = [
     { id, version: version || "latest", framework: framework || "",
-      nugetOrg },
+      ...(highestFramework ? { highestFramework } : {}), nugetOrg },
     ...rest,
   ].slice(0, RECENT_PACKAGES_MAX);
   persistRecentPackages();
@@ -15383,10 +15391,11 @@ const packagePublicationDates = createPackagePublicationDates(fetch, coordinate 
     && state.package.version.toLowerCase() === coordinate.version.toLowerCase()) render();
 });
 
-function annotateSpotlightPublicationDates(results: SpotlightResult[]): SpotlightResult[] {
+function annotateSpotlightPackageMetadata(results: SpotlightResult[]): SpotlightResult[] {
   if (!state.home && !state.spotlightOpen) return results;
   return results.map(result => {
     let coordinate = null;
+    let highestFramework: string | undefined;
     switch (result.kind) {
       case "pkg-nuget":
         if (result.hit.version && result.hit.version !== "latest")
@@ -15394,6 +15403,9 @@ function annotateSpotlightPublicationDates(results: SpotlightResult[]): Spotligh
         break;
       case "pkg-loaded": {
         const pkg = state.packages.find(candidate => candidate === result.pkg);
+        // The Package owner orders this measured inventory highest first; the
+        // selected framework alone is not evidence of the highest framework.
+        highestFramework = pkg?.packageInfo?.content.availableTargetFrameworks?.[0];
         if (pkg?.source.kind === "nuget.org")
           coordinate = { id: pkg.id, version: pkg.version };
         break;
@@ -15408,7 +15420,9 @@ function annotateSpotlightPublicationDates(results: SpotlightResult[]): Spotligh
         break;
       default: return result;
     }
-    return coordinate ? { ...result, publication: packagePublicationDates.get(coordinate) } : result;
+    const annotated = result.kind === "pkg-loaded" && highestFramework
+      ? { ...result, highestFramework } : result;
+    return coordinate ? { ...annotated, publication: packagePublicationDates.get(coordinate) } : annotated;
   });
 }
 
@@ -15467,7 +15481,7 @@ function spotlightResults(): SpotlightResult[] {
         results.push(pkg ? { kind: "pkg-loaded", pkg, ranges: [] }
           : { kind: "pkg-nuget", hit, ranges: [] });
       }
-      return annotateSpotlightPublicationDates(annotateSpotlightEcosystems(results));
+      return annotateSpotlightPackageMetadata(annotateSpotlightEcosystems(results));
     }
     const parsedPackageQuery = parsePackageQuery(query);
     if (parsedPackageQuery?.explicitVersion) {
@@ -15489,7 +15503,7 @@ function spotlightResults(): SpotlightResult[] {
           ranges: [[0, parsedPackageQuery.packageId.length]],
         });
       }
-      return annotateSpotlightPublicationDates(annotateSpotlightEcosystems(results));
+      return annotateSpotlightPackageMetadata(annotateSpotlightEcosystems(results));
     }
     const loaded = spotlightLoadedPackageMatches(query).slice(0, all ? 3 : 20);
     for (const match of loaded) results.push({ kind: "pkg-loaded", pkg: match.pkg, ranges: match.ranges });
@@ -15562,7 +15576,7 @@ function spotlightResults(): SpotlightResult[] {
     results.push(...(all ? libraries.slice(0, 5)
       : libraries.filter(result => result.kind === "framework-lib")));
   }
-  return annotateSpotlightPublicationDates(annotateSpotlightEcosystems(results));
+  return annotateSpotlightPackageMetadata(annotateSpotlightEcosystems(results));
 }
 
 interface NugetSearchResult {
@@ -24867,7 +24881,8 @@ function installPackageHomeDemoSource(
       packageModel.id,
       packageModel.version,
       packageModel.activeFramework,
-      packageModel.source.kind === "nuget.org");
+      packageModel.source.kind === "nuget.org",
+      packageModel.packageInfo?.content.availableTargetFrameworks?.[0]);
   }
   if (state.packages.length !== source.packages.length
     || !state.packages.every((packageModel, index) =>
