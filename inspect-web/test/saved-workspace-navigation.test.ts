@@ -479,7 +479,7 @@ function harness() {
   const acquisitions: string[] = [];
   const queries: string[][] = [];
   const retained: { packageModel: Package; replacedPackage: Package | null }[] = [];
-  const recent: string[][] = [];
+  const recent: Array<Array<string | boolean>> = [];
   const invalidations: string[] = [];
   const publications: unknown[] = [];
   const toasts: string[] = [];
@@ -689,7 +689,7 @@ function harness() {
     },
     runtimePackPackage: () => null,
     selectedMember: () => null,
-    recordRecentPackage: (...coordinate: string[]) => recent.push(coordinate),
+    recordRecentPackage: (...coordinate: Array<string | boolean>) => recent.push(coordinate),
     packageInspection: { invalidatePackageResults: () => invalidations.push("package-results") },
     inspectClearWorkspacePackageOccurrences: () => invalidations.push("occurrences"),
     reportAsyncFailure: (_description: string, error: unknown) => {
@@ -2435,7 +2435,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
   assert.equal(h.retained[0]!.packageModel, added);
   assert.equal(h.retained[0]!.replacedPackage, null);
   assert.equal(added.types[0]?.id, "Added.Widget");
-  assert.deepEqual(h.recent, [["Added.Package", "4.5.6", "net10.0"]]);
+  assert.deepEqual(h.recent, [["Added.Package", "4.5.6", "net10.0", true]]);
   assert.equal(h.state.loading, false);
   assert.equal(h.state.queryNotice, "");
   assert.equal(h.state.queryNoticeRetryAction, null);
@@ -2719,7 +2719,7 @@ test("Add whose last slot fills during query refuses before retention and preser
   ]);
   assert.equal(h.retained.length, 1);
   assert.equal(h.retained[0]!.packageModel, arrived);
-  assert.deepEqual(h.recent, [["Arrived", "8.9.0", "net9.0"]]);
+  assert.deepEqual(h.recent, [["Arrived", "8.9.0", "net9.0", true]]);
   assert.deepEqual(h.state.packages, admitted);
   admitted.forEach((pkg, index) => assert.equal(h.state.packages[index], pkg));
   assert.deepEqual(h.state.workspaceDependencies, dependencies);
