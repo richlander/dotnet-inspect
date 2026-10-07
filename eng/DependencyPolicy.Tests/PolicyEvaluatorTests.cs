@@ -1229,6 +1229,7 @@ public sealed class PolicyEvaluatorTests
             [
                 "DotnetInspect.Web.Core",
                 "DotnetInspector.Ecosystems",
+                "DotnetInspector.InspectionContracts",
                 "DotnetInspector.PackageQueries",
                 "DotnetInspector.Packages",
                 "DotnetInspector.Presentation",
@@ -1237,6 +1238,7 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Services",
                 "ILInspector.Metadata",
                 "QuerySpace",
+                "TsJsExport.Contracts",
             ],
             Assert.IsType<string[]>(projectRule.AllowOnly));
         Assert.Null(projectRule.Deny);
@@ -1252,6 +1254,7 @@ public sealed class PolicyEvaluatorTests
                 "$platform",
                 "DotnetInspect.Web.Core",
                 "DotnetInspector.Ecosystems",
+                "DotnetInspector.InspectionContracts",
                 "DotnetInspector.PackageQueries",
                 "DotnetInspector.Packages",
                 "DotnetInspector.PlatformHouse",
@@ -1266,6 +1269,7 @@ public sealed class PolicyEvaluatorTests
                 "NuGetFetch",
                 "QuerySpace",
                 "QuerySpace.Primitives",
+                "TsJsExport.Contracts",
             ],
             Assert.IsType<string[]>(assemblyRule.AllowOnly));
         Assert.Null(assemblyRule.Deny);

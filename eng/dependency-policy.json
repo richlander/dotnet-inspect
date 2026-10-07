@@ -100,6 +100,7 @@
       "allowOnly": [
         "DotnetInspect.Web.Core",
         "DotnetInspector.Ecosystems",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.PackageQueries",
         "DotnetInspector.Packages",
         "DotnetInspector.Presentation",
@@ -107,7 +108,8 @@
         "DotnetInspector.Sections",
         "DotnetInspector.Services",
         "ILInspector.Metadata",
-        "QuerySpace"
+        "QuerySpace",
+        "TsJsExport.Contracts"
       ]
     },
     {
@@ -126,6 +128,7 @@
         "$platform",
         "DotnetInspect.Web.Core",
         "DotnetInspector.Ecosystems",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.PackageQueries",
         "DotnetInspector.Packages",
         "DotnetInspector.PlatformHouse",
@@ -139,7 +142,8 @@
         "InertText",
         "NuGetFetch",
         "QuerySpace",
-        "QuerySpace.Primitives"
+        "QuerySpace.Primitives",
+        "TsJsExport.Contracts"
       ]
     },
     {
