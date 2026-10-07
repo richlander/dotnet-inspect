@@ -55,6 +55,17 @@ test("Member Body opens an added property across the former Worker limits", asyn
   await expect(reopened.locator('[data-member-body-medium="Il"]')).toHaveAttribute("aria-pressed", "true");
   await reopened.locator('[data-member-body-medium="CSharp"]').click();
   await expect(reopened.locator(".member-body-reader")).toContainText("AllowDuplicateProperties");
+  await reopened.getByRole("button", { name: "Search types, members, packages", exact: true }).click();
+  await reopened.locator("#spotlight-input").fill("Newtonsoft.Json@13.0.3");
+  await reopened.locator('[data-sl-pkg-load="Newtonsoft.Json"]').click();
+  await expect(reopened.locator(".inspected-target")).toContainText("Newtonsoft.Json", { timeout: 120_000 });
+  await reopened.locator("[data-product-navigation-button]").click();
+  await reopened.locator('[data-product-destination="workspace"]').click();
+  await reopened.locator("[data-workspace-switch]").first().click();
+  await expect(reopened.locator(".member-body-reader .source-diff-viewer")).toContainText("AllowDuplicateProperties", { timeout: 180_000 });
+  await expect(reopened.locator(".compare-target-value")).toHaveText("9.0.20 → 10.0.12");
+  await expect(reopened.locator("#compare-diff-content")).toHaveValue("member-body");
+  await expect(reopened.locator('[data-member-body-medium="CSharp"]')).toHaveAttribute("aria-pressed", "true");
   await reopened.screenshot({ path: test.info().outputPath("shared-added-property.png") });
   await reopened.close();
 });

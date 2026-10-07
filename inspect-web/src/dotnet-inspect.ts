@@ -1869,6 +1869,7 @@ CanonicalWorkspaceRestoreSnapshot {
     catalogRequests.copyPackage(original, copy);
   }
   packageComparisonTargets.copyPackages(copies);
+  memberBodyDiff.copyPackages(copies);
   const uploadedLibrary = state.uploadedLibrary
     ? structuredClone(state.uploadedLibrary)
     : null;
@@ -2113,6 +2114,7 @@ function cloneCanonicalWorkspaceSnapshotForRetention(
     catalogRequests.copyPackage(original, copy);
   }
   packageComparisonTargets.copyPackages(copies);
+  memberBodyDiff.copyPackages(copies);
   return {
     state: retainedState,
     hasWorkspace: snapshot.hasWorkspace,

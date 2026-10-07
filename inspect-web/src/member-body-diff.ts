@@ -214,6 +214,16 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
     if (scroller) scroller.scrollTop = reader.scrollTop;
   }
   return {
+    copyPackages(copies: ReadonlyMap<object, object>) {
+      for (const [original, copy] of copies) {
+        const body = restoredBodies.get(original);
+        if (body) restoredBodies.set(copy, body);
+        const medium = context?.packageModel === original
+          ? currentReader()?.medium ?? restoredMedia.get(original)
+          : restoredMedia.get(original);
+        if (medium) restoredMedia.set(copy, medium);
+      }
+    },
     restoreBodySelector(packageModel: object, type: string, anchor: string, selector: string) {
       restoredBodies.set(packageModel, { type, anchor, selector });
     },
