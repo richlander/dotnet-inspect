@@ -1094,8 +1094,8 @@ public class SourceOracleCandidateLedgerTests
     [Fact]
     public void HarvestInspection_AFailedFetchIsAnAcquisitionFailureNotMissingMapping()
     {
-        var inspection = DotnetInspector.Services.PdbSourceHouse
-            .MemberPdbAcquisitionFailed(
+        var inspection = DotnetInspector.Services.PdbSourceInspectionProjection
+            .MemberAcquisitionFailed(
                 new FindingSubject("M~source", "N.T.M"),
                 new IOException("Could not fetch PDB source."));
 
@@ -1127,12 +1127,14 @@ public class SourceOracleCandidateLedgerTests
             ChecksumAlgorithm: "SHA256",
             Checksum: Convert.ToHexString(
                 System.Security.Cryptography.SHA256.HashData(content)));
-        var inspection = DotnetInspector.Services.PdbSourceHouse.FromContent(
-            mapping,
-            document,
-            content,
-            "M",
-            new FindingSubject("M~source", "N.T.M"));
+        var inspection =
+            DotnetInspector.Services.PdbSourceInspectionProjection
+                .FromMemberContent(
+                    mapping,
+                    document,
+                    content,
+                    "M",
+                    new FindingSubject("M~source", "N.T.M"));
 
         Assert.IsType<FindingInspection<string>.Absent>(inspection.Lines.Value);
         Assert.Equal(

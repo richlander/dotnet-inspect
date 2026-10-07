@@ -132,7 +132,12 @@ settlement.
 
 This is the settlement-core portion of step 5. The public `PdbSourceHouse`
 retirement obligation remains open until shared source-query adoption replaces
-its callers. The [six-delivery adapter-first path](type-source-acquisition.md#production-adoption-and-retirement)
+its callers. The compatibility member/type checksum, decoded-content, and
+acquisition-failure projections formerly owned by `PdbSourceHouse` have moved
+to `PdbSourceInspectionProjection`; local verified-source reads and the
+remaining legacy acquisition entry points stay in the separately focused final
+retirement slice. The
+[six-delivery adapter-first path](type-source-acquisition.md#production-adoption-and-retirement)
 and overall twelve-step plan below retain both CLI and Browser/Wasm consumers. The member-source-pair
 cutover in #7448 supplies the first shared completed
 `InspectionEnvelope<TContent>` adoption, extended to member Source and same-member comparison in #7497
