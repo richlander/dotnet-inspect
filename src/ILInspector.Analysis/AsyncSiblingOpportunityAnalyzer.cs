@@ -67,8 +67,19 @@ internal sealed class AsyncSiblingOpportunityAnalyzer
     /// </summary>
     internal ImmutableArray<AsyncSiblingMatch> FindMatches(
         IEnumerable<DirectCall> calls,
-        MethodIdentity asyncSource)
+        MethodIdentity asyncSource) =>
+        FindMatches(calls, asyncSource, out _);
+
+    /// <summary>
+    /// As <see cref="FindMatches(IEnumerable{DirectCall}, MethodIdentity)"/>,
+    /// also returning the calls whose declaring type could not be resolved.
+    /// </summary>
+    internal ImmutableArray<AsyncSiblingMatch> FindMatches(
+        IEnumerable<DirectCall> calls,
+        MethodIdentity asyncSource,
+        out ImmutableArray<DirectCall> unresolvedCalls)
     {
+        var unresolved = ImmutableArray.CreateBuilder<DirectCall>();
         var matches = ImmutableArray.CreateBuilder<AsyncSiblingMatch>();
         DirectCall[] candidateCalls = calls
             .Where(call => call.Kind is
@@ -97,6 +108,12 @@ internal sealed class AsyncSiblingOpportunityAnalyzer
                     call,
                     asyncSource);
             if (sibling is null
+                && _candidateResolver.IsDeclaringTypeUnresolved(call))
+            {
+                unresolved.Add(call);
+            }
+
+            if (sibling is null
                 || LibraryBodyAsyncSiblingSignatureMatcher.AsyncSiblingMethodMatchesSource(
                     sibling,
                     asyncSource)
@@ -113,6 +130,7 @@ internal sealed class AsyncSiblingOpportunityAnalyzer
 
             matches.Add(new(call, sibling));
         }
+        unresolvedCalls = unresolved.ToImmutable();
         return matches.ToImmutable();
     }
 }

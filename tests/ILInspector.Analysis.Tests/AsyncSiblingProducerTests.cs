@@ -41,6 +41,46 @@ public class AsyncSiblingProducerTests
             new AssemblyReferenceBindingPolicy(resolver));
     }
 
+    sealed class NoResolver : IAssemblyReferenceResolver
+    {
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope) => null;
+    }
+
+    [Fact]
+    public void Producer_ReportsUnresolvedReferencesAsDiagnostics()
+    {
+        var operation = CreateOperation();
+        using var session = AssemblyInspectionSession.Open(FixturePath);
+        var binding = new AssemblyReferenceBindingAccess(
+            ResolvedAssemblyReference.CreateFromPath(
+                FixturePath,
+                AssemblyResolutionProvenance.Local("async sibling test")),
+            new AssemblyReferenceBindingPolicy(new NoResolver()));
+
+        AsyncSiblingProducerResult result = session.SnapshotOperation(
+            operation,
+            binding,
+            access =>
+            {
+                var completed = Assert.IsType<
+                    AssemblyAnalysisServiceResult<AsyncSiblingProducerResult>
+                        .Completed>(
+                    AssemblyAnalysisService.Instance.Execute(
+                        operation,
+                        access));
+                return completed.Execution.ResultOf(
+                    AsyncSiblingProducer.Instance).Value!;
+            });
+
+        Assert.Contains(
+            result.Diagnostics,
+            d => d.Message.Contains(
+                "could not be resolved",
+                StringComparison.Ordinal));
+    }
+
     [Fact]
     public void Service_RejectsMissingReferenceBinding()
     {

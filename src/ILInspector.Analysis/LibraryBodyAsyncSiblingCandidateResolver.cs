@@ -68,6 +68,27 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
             int CalleeDefinitionToken),
         AsyncSiblingLookup?> _lookupCache = [];
 
+    readonly HashSet<(
+        MemberRef Callee,
+        string ExactCalleeIdentity,
+        int CalleeDefinitionToken)> _unresolvedLookups = [];
+
+    /// <summary>
+    /// True when the callee's declaring type could not be resolved, so the
+    /// absence of a sibling is unknown rather than proven.
+    /// </summary>
+    internal bool IsDeclaringTypeUnresolved(DirectCall call)
+    {
+        MemberRef callee = call.Callee;
+        var key = (
+            callee,
+            LibraryBodyAsyncSiblingSignatureMatcher
+                .ExactAsyncSiblingMemberIdentity(callee),
+            call.CalleeDefinitionToken);
+        lock (_lookupCacheGate)
+            return _unresolvedLookups.Contains(key);
+    }
+
     internal MemberRef? FindAsyncSibling(
         DirectCall call,
         MethodIdentity asyncSource)
@@ -108,7 +129,10 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
             {
                 lookup = PrepareAsyncSiblingLookup(
                     callee,
-                    calleeDefinitionToken);
+                    calleeDefinitionToken,
+                    out bool unresolved);
+                if (unresolved)
+                    _unresolvedLookups.Add(lookupKey);
                 _lookupCache.Add(
                     lookupKey,
                     lookup);
@@ -177,13 +201,16 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
 
     AsyncSiblingLookup? PrepareAsyncSiblingLookup(
         MemberRef callee,
-        int calleeDefinitionToken)
+        int calleeDefinitionToken,
+        out bool unresolved)
     {
+        unresolved = false;
         if (TryResolveTypeDefinition(
                 callee.DeclaringType,
                 calleeDefinitionToken)
             is not { } resolved)
         {
+            unresolved = true;
             return null;
         }
 

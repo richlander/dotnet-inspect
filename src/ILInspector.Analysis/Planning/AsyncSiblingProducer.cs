@@ -66,19 +66,19 @@ public sealed class AsyncSiblingProducer
     internal override BodyFact Visit(scoped MethodDefinitionView view)
     {
         if (!view.HasManagedBody)
-            return new([], null);
+            return new([], []);
 
         try
         {
-            return new(
+            AsyncSiblingBodyResult result =
                 view.Lookup.AnalyzeAsyncSiblings(
                     view.TypeHandle,
                     view.TypeDefinition,
                     view.MethodHandle,
                     view.MethodDefinition,
                     view.GetBody(),
-                    CancellationToken.None),
-                null);
+                    CancellationToken.None);
+            return new(result.Rows, result.Diagnostics);
         }
         catch (Exception exception)
             when (exception
@@ -89,10 +89,12 @@ public sealed class AsyncSiblingProducer
         {
             return new(
                 [],
-                new(
-                    view.Token,
-                    $"0x{view.Token:X8}",
-                    ProducerFailure.Describe(exception)));
+                [
+                    new(
+                        view.Token,
+                        $"0x{view.Token:X8}",
+                        ProducerFailure.Describe(exception)),
+                ]);
         }
     }
 
@@ -103,8 +105,7 @@ public sealed class AsyncSiblingProducer
         BodyFact fact)
     {
         accumulator.Rows.AddRange(fact.Rows);
-        if (fact.Diagnostic is { } diagnostic)
-            accumulator.Diagnostics.Add(diagnostic);
+        accumulator.Diagnostics.AddRange(fact.Diagnostics);
         return accumulator;
     }
 
@@ -117,7 +118,7 @@ public sealed class AsyncSiblingProducer
 
     public sealed record BodyFact(
         ImmutableArray<AsyncSiblingRow> Rows,
-        AnalysisDiagnostic? Diagnostic);
+        ImmutableArray<AnalysisDiagnostic> Diagnostics);
 
     public sealed class Accumulator
     {

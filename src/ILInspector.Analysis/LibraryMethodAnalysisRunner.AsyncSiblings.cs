@@ -6,13 +6,17 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
+internal readonly record struct AsyncSiblingBodyResult(
+    ImmutableArray<AsyncSiblingRow> Rows,
+    ImmutableArray<AnalysisDiagnostic> Diagnostics);
+
 internal sealed partial class LibraryMethodAnalysisRunner
 {
     /// <summary>
     /// Finds the synchronous calls with async siblings in one method body when
     /// the method executes an async source; any other method yields no rows.
     /// </summary>
-    internal ImmutableArray<AsyncSiblingRow> AnalyzeAsyncSiblings(
+    internal AsyncSiblingBodyResult AnalyzeAsyncSiblings(
         TypeDefinitionHandle typeHandle,
         TypeDefinition typeDefinition,
         MethodDefinitionHandle methodHandle,
@@ -38,7 +42,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 typeSourceGenerated,
                 ref asyncSource))
         {
-            return [];
+            return new([], []);
         }
 
         MethodBodyData metadataBody = RequireMethodBody(
@@ -67,10 +71,12 @@ internal sealed partial class LibraryMethodAnalysisRunner
             includeCallValueFlow: false);
 
         var rows = ImmutableArray.CreateBuilder<AsyncSiblingRow>();
-        foreach ((DirectCall call, MemberRef sibling)
-            in _infrastructure.AsyncSiblingAnalyzer.FindMatches(
+        ImmutableArray<AsyncSiblingMatch> matches =
+            _infrastructure.AsyncSiblingAnalyzer.FindMatches(
                 calls,
-                asyncSource))
+                asyncSource,
+                out ImmutableArray<DirectCall> unresolvedCalls);
+        foreach ((DirectCall call, MemberRef sibling) in matches)
         {
             cancellationToken.ThrowIfCancellationRequested();
             rows.Add(new(
@@ -85,6 +91,17 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 call.InLoop,
                 caller.MetadataToken));
         }
-        return rows.ToImmutable();
+        var diagnostics = ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
+        foreach (DirectCall call in unresolvedCalls)
+        {
+            diagnostics.Add(new(
+                caller.MetadataToken,
+                caller.Name,
+                $"The declaring type of '{call.Callee.Name}' could not be resolved at IL offset {call.ILOffset}, so an async sibling was neither found nor ruled out.",
+                caller.MetadataToken,
+                caller.DeclaringType,
+                caller.DeclaringType));
+        }
+        return new(rows.ToImmutable(), diagnostics.ToImmutable());
     }
 }
