@@ -79,3 +79,29 @@ test("Overview binds declaration identity and escapes destination and failures",
   assert.doesNotMatch(unavailable, /data-platform-forwarder=/);
   assert.match(unavailable, /System.Xml.ReaderWriter/);
 });
+
+// PR-fast: the user-reported System.Runtime declaration uses metadata facts.
+test("SafeHandle forwarder uses metadata rows and quiet exact traversal", () => {
+  const row = {
+    id: "System.Runtime:Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid",
+    name: "Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid",
+    namespace: "Microsoft.Win32.SafeHandles",
+    targetAssembly: "System.Private.CoreLib",
+    action: "opaque-corelib-action",
+  };
+  const html = renderForwardedTypeOverview(row, "System.Runtime",
+    { pending: true, error: "" }, escapeHtml);
+  assert.match(html, /class="metadata-surface forwarded-type-overview"/);
+  assert.match(html, /<dl class="fact-rows">/);
+  assert.match(html, /<dt>Declaring assembly<\/dt><dd><code>System.Runtime/);
+  assert.match(html, /<dt>Implementation<\/dt>/);
+  assert.match(html, /class="forwarder-destination"/);
+  assert.match(html, /aria-label="Open Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid in System.Private.CoreLib"/);
+  assert.match(html, /disabled aria-busy="true"/);
+  assert.match(html, /role="status"/);
+  assert.doesNotMatch(html, /does not define members|type-chip|opaque-corelib-action/);
+  const unavailable = renderForwardedTypeOverview(row, "System.Runtime",
+    { pending: false, error: "Unavailable", available: false }, escapeHtml);
+  assert.doesNotMatch(unavailable, /data-platform-forwarder=/);
+  assert.match(unavailable, /<dd><code>System.Private.CoreLib<\/code>/);
+});

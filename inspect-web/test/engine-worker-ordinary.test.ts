@@ -2123,8 +2123,8 @@ test("malformed and oversized inputs are rejected before facade invocation", asy
 });
 
 test("large generated results cross the former ordinary transport bounds", async () => {
-  const formerMaximumJsonCharacters = 8_388_608;
-  const formerMaximumCollectionEntries = 262_144;
+  const formerMaximumJsonCharacters = 33_554_432;
+  const formerMaximumCollectionEntries = 1_310_720;
   const versions = Array.from(
     { length: formerMaximumCollectionEntries },
     (_unused, index) => index === 0

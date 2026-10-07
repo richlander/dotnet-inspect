@@ -602,6 +602,7 @@ declare global {
         platformPack: string,
         documentationId: string,
       ): Promise<CompiledDocumentationOutcome>;
+      loadPlatformLibrary(framework: string, version: string, assembly: string, pack: string): Promise<string>;
       openPlatformForwarderView(
         framework: string,
         version: string,
@@ -733,6 +734,8 @@ async function boot(page: Page): Promise<void> {
         platformPack,
         documentationId,
       ),
+      loadPlatformLibrary: (framework, platformVersion, assembly, pack) =>
+        client.package.loadRuntimePackAssembly(framework, platformVersion, assembly, pack, assembly),
       openPlatformForwarderView: (framework, platformVersion, assembly, pack) =>
         client.package.openPlatformForwarderView(
           framework, platformVersion, assembly, pack),
@@ -3673,6 +3676,36 @@ test.describe("bounded network-backed Worker smoke", () => {
     await expect(copyType).toHaveText("System.Xml.XmlReader");
     await expect(page.locator("#inspector-panel")).toContainText("Read");
     await expect(page.locator("[data-platform-forwarder]")).toHaveCount(0);
+  });
+
+  test("opens CoreLib directly and through its SafeHandle forwarder over the production Worker", async ({ page }) => {
+    await boot(page);
+    const platformVersion = "11.0.0-rc.1.26425.128";
+    const name = "Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid";
+    try {
+      const raw = await page.evaluate(ver => window.__adoption!.loadPlatformLibrary(
+        "net11.0", ver, "System.Private.CoreLib.dll", "netcore.app"), platformVersion);
+      const direct: unknown = JSON.parse(raw);
+      if (!direct || typeof direct !== "object" || !("types" in direct) || !Array.isArray(direct.types)) {
+        throw new Error("CoreLib omitted its Type surface.");
+      }
+      expect(direct.types.some((type: unknown) => type !== null && typeof type === "object"
+        && "id" in type && type.id === `System.Private.CoreLib:${name}`)).toBe(true);
+      const initial = await page.evaluate(ver => window.__adoption!.openPlatformForwarderView(
+        "net11.0", ver, "System.Runtime.dll", "netcore.app"), platformVersion);
+      expect(initial.status, initial.message ?? "System.Runtime").toBe("opened");
+      const forwarder = initial.view?.forwarders.find(candidate => candidate.id === `System.Runtime:${name}`);
+      if (!forwarder) throw new Error("System.Runtime omitted the SafeHandle forwarder.");
+      expect(forwarder.targetAssembly).toBe("System.Private.CoreLib");
+      const result = await page.evaluate(action => window.__adoption!.activatePlatformForwarder(action), forwarder.action);
+      expect(result.status, result.message ?? "CoreLib activation").toBe("opened");
+      expect(result.view?.assembly).toBe("System.Private.CoreLib");
+      expect(result.view?.selectedTypeId).toBe(`System.Private.CoreLib:${name}`);
+      expect(result.view?.surface.types.some(type => type.id === result.view?.selectedTypeId)).toBe(true);
+      expect(result.view?.forwarders.some(candidate => candidate.id === result.view?.selectedTypeId)).toBe(false);
+    } finally {
+      await page.evaluate(() => window.__adoption!.dispose());
+    }
   });
 
   test("opens each real XML forwarding occurrence through the production Worker", async ({
