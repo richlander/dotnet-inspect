@@ -1590,6 +1590,8 @@ public sealed partial class CSharpPrinter
         ExpressionStatement e => e.Expression switch
         {
             UnsupportedNode u => UnsupportedStatement(e, u),
+            { } expr when e.DiscardTargetType is not null
+                => DiscardStatement(e, expr),
             { } expr when ShouldDiscardForUnsafeExpression(expr)
                 => DiscardStatement(e, expr),
             // A safe user-defined checked ++/-- as a statement spells
@@ -1936,7 +1938,10 @@ public sealed partial class CSharpPrinter
     string DiscardStatement(ExpressionStatement owner, IrExpression expression)
     {
         _printedRangeMetadata?.SetNodeKind(owner, "AssignmentStatement");
-        return $"_ = {UnsafeExpressionText(expression, Expression(expression))};";
+        string value = Expression(expression);
+        if (owner.DiscardTargetType is { } target)
+            value = $"({TypeText(target)})({value})";
+        return $"_ = {UnsafeExpressionText(expression, value)};";
     }
 
     /// <summary>Renders a diagnostic comment payload without publishing it as surface syntax.</summary>

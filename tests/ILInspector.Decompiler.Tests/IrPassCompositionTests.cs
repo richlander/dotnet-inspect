@@ -61,6 +61,7 @@ public sealed class IrPassCompositionTests
         var error = AssertInvalid(
             [
                 new ExpressionInliningPass(slotsOnly: true),
+                new ProducerOnlySlotRetirementPass(),
                 new SlotMaterializationPass(),
                 new CoercionInsertionPass(),
                 new ScalarSelfUpdatePass(),
@@ -77,6 +78,7 @@ public sealed class IrPassCompositionTests
         var error = AssertInvalid(
             [
                 new ExpressionInliningPass(slotsOnly: true),
+                new ProducerOnlySlotRetirementPass(),
                 new SlotMaterializationPass(),
                 new CoercionInsertionPass(),
             ],
@@ -187,6 +189,7 @@ public sealed class IrPassCompositionTests
         yield return new ReferenceCoalesceBindingPass();
         yield return new ReferenceConditionalBindingPass();
         yield return new PrimitiveJoinBindingPass();
+        yield return new ProducerOnlySlotRetirementPass();
         yield return new SlotMaterializationPass();
         yield return new ResidualSlotBindingPass();
         yield return new PdbScopeEntryLocalPass();
@@ -210,6 +213,7 @@ public sealed class IrPassCompositionTests
     static ImmutableArray<IIrPass> CompleteStorageTail() =>
     [
         new ExpressionInliningPass(slotsOnly: true),
+        new ProducerOnlySlotRetirementPass(),
         new SlotMaterializationPass(),
         new CoercionInsertionPass(),
         new ResidualSlotBindingPass(),
