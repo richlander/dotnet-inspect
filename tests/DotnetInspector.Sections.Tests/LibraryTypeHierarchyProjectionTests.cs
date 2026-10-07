@@ -14,7 +14,7 @@ public sealed class LibraryTypeHierarchyProjectionTests
             maxRetainedTextCharacters: 20_000_000);
 
     [Fact]
-    public void Request_RejectsUnsupportedTerminalAndSpelling()
+    public void Request_AdmitsLeafTypesAndRejectsUnsupportedShapes()
     {
         var namespaceCount =
             new InspectionHierarchyRequest<LibraryTypeHierarchyTopology>(
@@ -42,11 +42,11 @@ public sealed class LibraryTypeHierarchyProjectionTests
                         new InspectionHierarchyPopulationRequest
                             .Count())));
 
+        LibraryTypeHierarchyProjection.ValidateRequest(typeLeaves);
         foreach (InspectionHierarchyRequest<LibraryTypeHierarchyTopology>
                      request in new[]
                      {
                          namespaceCount,
-                         typeLeaves,
                          fullNamespaces,
                      })
         {
@@ -96,6 +96,94 @@ public sealed class LibraryTypeHierarchyProjectionTests
                         "types"))
                 .Message,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LeafRequest_RejectsMemberCountsItCannotPresent()
+    {
+        ArgumentException exception =
+            Assert.Throws<ArgumentException>(
+                () => LibraryTypeHierarchyProjection.ValidateRequest(
+                    LeafHierarchy(),
+                    Types(memberCount: true),
+                    "types"));
+
+        Assert.Contains(
+            "does not request Member Counts",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LeafProjection_ListsRealTypesWithoutCountingMembers()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        LibraryTypePopulationRequest types =
+            Types(count: true, memberCount: false);
+        LibraryDocument document = Execute(library, types);
+        InspectionHierarchyRequest<LibraryTypeHierarchyTopology> request =
+            LeafHierarchy();
+        var sink = new RecordingSink();
+
+        LibraryTypeHierarchyProjection.ValidateDocument(
+            document,
+            request,
+            types);
+        LibraryTypeHierarchyProjection.Write(document, request, sink);
+
+        // Work bound: the default requests no Member Count, and the owner
+        // counts members only when a Rows request asks for them.
+        Assert.Null(types.Rows!.MemberCount);
+        var rows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                document.Types!.Rows);
+        Assert.All(rows.Items, static row => Assert.Null(row.MemberCount));
+        var count =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                document.Types.Count);
+        LibraryTypeHierarchyNode.Type[] declarations =
+        [
+            .. sink.Events
+                .Select(static e => e.Node)
+                .OfType<LibraryTypeHierarchyNode.Type>(),
+        ];
+        Assert.Equal(count.Total, declarations.Length);
+        Assert.Contains(
+            declarations,
+            static d => d.Spelling.ToString() == "JsonSerializer");
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task LeafProjection_RejectsCountedRowsBeforeWriting()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        LibraryDocument document = Execute(library, Types());
+        var sink = new RecordingSink();
+
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(
+                () => LibraryTypeHierarchyProjection.Write(
+                    document,
+                    LeafHierarchy(),
+                    sink));
+
+        Assert.Contains(
+            "without Member Counts",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Empty(sink.Events);
+        await library.RetireAsync();
     }
 
     [Fact]
@@ -398,6 +486,16 @@ public sealed class LibraryTypeHierarchyProjectionTests
                 new InspectionHierarchyPopulationRequest.Rows(
                     typeSpelling,
                     new InspectionHierarchyPopulationRequest.Count())));
+
+    private static InspectionHierarchyRequest<LibraryTypeHierarchyTopology>
+        LeafHierarchy() =>
+        new(
+            LibraryTypeHierarchyTopology.LibraryNamespacesAndTypes,
+            InspectionHierarchyNodeSpelling.FullSpelling,
+            new InspectionHierarchyPopulationRequest.Rows(
+                InspectionHierarchyNodeSpelling.Name,
+                new InspectionHierarchyPopulationRequest.Rows(
+                    InspectionHierarchyNodeSpelling.Name)));
 
     private static LibraryTypePopulationRequest Types(
         bool count = false,
