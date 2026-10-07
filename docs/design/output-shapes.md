@@ -823,9 +823,12 @@ knobs handle remaining cell narrowing and formatting:
 For the CLI Markout-dependency migration in #9579, a shared presentation
 adapter may accept settled version-feed, version-listing, and string-list rows
 with a host-neutral Table/TSV/JSONL choice, then construct the existing
-`TableFormatter` and Markout writer. It writes the rendered result to the
-destination in one call so destination-specific line limits do not enter the
-CLI's table-rendering path. The CLI retains row acquisition, JSON array output,
+`TableFormatter` and Markout writer. It passes rows through Markout's
+begin/row/end table API rather than buffering a second copy of the complete
+rendered output. Markout owns any format-specific buffering. The companion
+[Markout streaming change](https://github.com/richlander/markout/pull/231)
+emits TSV and JSONL rows as they arrive; pretty tables still need all rows to
+calculate column widths. The CLI retains row acquisition, JSON array output,
 and destination handling. This adapter's approved consumer is the
 CLI; Browser/Wasm continues using its existing presentation paths and has no
 planned adoption of this text-table adapter. The user approved this exact

@@ -21,12 +21,12 @@ public static class SimpleTablePresentation
         string[] stableColumns,
         IEnumerable<string[]> rows)
     {
-        WriteComplete(output, writer =>
-        {
-            var table = CreateWriter(writer, showHeader, format);
-            table.WriteTable(displayColumns, stableColumns, rows);
-            table.Flush();
-        });
+        var writer = CreateWriter(output, showHeader, format);
+        writer.WriteTableStart(displayColumns, stableColumns);
+        foreach (var row in rows)
+            writer.WriteTableRow(row);
+        writer.WriteTableEnd();
+        writer.Flush();
     }
 
     public static void WriteList(
@@ -36,23 +36,17 @@ public static class SimpleTablePresentation
         string stableName,
         IEnumerable<string> values)
     {
-        string[] items = values.ToArray();
-        WriteComplete(output, writer =>
+        var writer = CreateWriter(output, showHeader: false, format);
+        if (format == SimpleTableFormat.Jsonl)
         {
-            var table = CreateWriter(writer, showHeader: false, format);
-            if (format == SimpleTableFormat.Jsonl)
-                table.WriteTable([displayName], [stableName], items.Select(value => new[] { value }).ToArray());
-            else
-                table.WriteList(items);
-            table.Flush();
-        });
-    }
-
-    private static void WriteComplete(TextWriter output, Action<TextWriter> render)
-    {
-        using var buffer = new StringWriter { NewLine = output.NewLine };
-        render(buffer);
-        output.Write(buffer.ToString());
+            writer.WriteTableStart([displayName], [stableName]);
+            foreach (var value in values)
+                writer.WriteTableRow(value);
+            writer.WriteTableEnd();
+        }
+        else
+            writer.WriteList(values.ToArray());
+        writer.Flush();
     }
 
     private static MarkoutWriter CreateWriter(
