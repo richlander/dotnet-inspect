@@ -384,6 +384,7 @@ public static class RouterCommandDefinition
                 rootCommand);
             ParseResult childParse = rootCommand.Parse(rewritten);
             if (childParse.Errors.Count == 0
+                && !RouterTokenRewriter.HasExplicitApiSource(tokens)
                 && !opts.IsDiscoveryMode(sourceParseResult)
                 && !CommandLineBuilder.HasParsedOption(childParse, "--workspace")
                 && !CommandLineBuilder.HasParsedOption(childParse, "--version"))
@@ -1736,7 +1737,7 @@ public static class RouterCommandDefinition
                 ]
                 : ["member", target, .. tail];
 
-        private static bool HasExplicitApiSource(string[] tokens) =>
+        internal static bool HasExplicitApiSource(string[] tokens) =>
             ContainsOption(tokens, "--package")
             || ContainsOption(tokens, "--library")
             || ContainsOption(tokens, "--platform")
