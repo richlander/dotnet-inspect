@@ -52,7 +52,7 @@ test("Analysis opens on Relationships as its first tab", async ({ page }) => {
     "Relationships",
     "Dependencies",
     "Complexity",
-    "Performance",
+    "Triage",
     "Integrations",
   ]);
   await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
@@ -113,12 +113,13 @@ async function expectCompactAnalysisHeader(page: Page) {
     "Relationships",
     "Dependencies",
     "Complexity",
-    "Performance",
+    "Triage",
     "Integrations",
   ]) {
     const tab = tabs.getByRole("tab", { name, exact: true });
     await tab.scrollIntoViewIfNeeded();
-    await expect(tab).toBeInViewport({ ratio: 1 });
+    // IntersectionObserver can round a fully visible edge by a fraction of a pixel.
+    await expect(tab).toBeInViewport({ ratio: 0.999 });
     expect(await tab.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   }
   const headerBox = await header.boundingBox();
@@ -141,7 +142,7 @@ for (const width of [1440, 390, 320]) {
     await openIntegrations(page);
     const frame = page.locator(".analysis-inspector");
     const integrations = frame.getByRole("tab", { name: "Integrations", exact: true });
-    const performance = frame.getByRole("tab", { name: "Performance", exact: true });
+    const performance = frame.getByRole("tab", { name: "Triage", exact: true });
     await expect(page.locator('[data-library-lens="opportunities"]')).toHaveCount(0);
     await expect(frame.getByRole("tab", { name: "Opportunities", exact: true }))
       .toHaveCount(0);
@@ -288,7 +289,7 @@ for (const width of [1440, 390]) {
         await expect(frame.locator(".perf-row")).toHaveCount(0);
       }
       if (scenario.startsWith("partial")) {
-        await expect(frame).toContainText("A method body could not be analyzed.");
+        await expect(frame).toContainText("This library could not be analyzed completely");
         await expect(frame).not.toContainText("No public allocation hot spots");
       }
       await expect(frame.locator("footer")).toHaveCount(0);
@@ -1115,4 +1116,18 @@ test("Library navigation exposes the complete long Library name on hover", async
   await row.hover();
   await expect(row).toHaveAttribute("title", `Inspect ${longLibrary.name}`);
   await expect(page).toHaveURL(location);
+});
+
+test("triage code expansion keeps the selected Library analysis view", async ({ page }) => {
+  await installFacades(page);
+  await openAnalysis(page);
+  const preview = page.locator(".library-performance-surface [data-triage-code]").first();
+  await expect(preview).toBeVisible();
+  const location = page.url();
+  await preview.locator("summary").click();
+  await expect(preview).toHaveJSProperty("open", true);
+  await expect(page.locator(".library-performance-surface")).toBeVisible();
+  await expect(inspectorTab(page, "data-library-lens", "analysis"))
+    .toHaveAttribute("aria-selected", "true");
+  expect(page.url()).toBe(location);
 });

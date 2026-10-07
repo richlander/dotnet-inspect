@@ -17,7 +17,7 @@ export function triageMemberLabel(typeId: string, memberName: string): string {
 }
 
 export function renderTriageCode(target: TriageCodeTarget, escape: (value: string) => string): string {
-  return `<details class="triage-code" data-triage-code data-assembly="${escape(target.assembly)}" data-type="${escape(target.typeId)}" data-member="${escape(target.memberName)}" data-selector="${escape(target.selector)}" data-token="${target.methodToken}"><summary>Decompiled method</summary><pre><code>Expand to decompile this method.</code></pre></details>`;
+  return `<details class="triage-code" data-triage-code data-triage-assembly="${escape(target.assembly)}" data-triage-type="${escape(target.typeId)}" data-triage-member="${escape(target.memberName)}" data-triage-selector="${escape(target.selector)}" data-triage-token="${target.methodToken}"><summary>Decompiled method</summary><pre><code>Expand to decompile this method.</code></pre></details>`;
 }
 
 export function bindTriageCode(
@@ -35,11 +35,11 @@ export function bindTriageCode(
       code.textContent = "Decompiling…";
       try {
         const result = await load({
-          assembly: details.dataset.assembly ?? "",
-          typeId: details.dataset.type ?? "",
-          memberName: details.dataset.member ?? "",
-          selector: details.dataset.selector ?? "",
-          methodToken: Number(details.dataset.token),
+          assembly: details.dataset.triageAssembly ?? "",
+          typeId: details.dataset.triageType ?? "",
+          memberName: details.dataset.triageMember ?? "",
+          selector: details.dataset.triageSelector ?? "",
+          methodToken: Number(details.dataset.triageToken),
         });
         if (!details.isConnected) return;
         const source = result.value;

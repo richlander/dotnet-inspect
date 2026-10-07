@@ -7,7 +7,7 @@ import type { BrowserMemberSourceResult } from "../src/facades/inspect-web-sourc
 class Preview extends EventTarget {
   open = false;
   isConnected = true;
-  dataset = { assembly: "Fixture.dll", type: "Fixture.Private", member: "Read", selector: "triage", token: "100663297" };
+  dataset = { triageAssembly: "Fixture.dll", triageType: "Fixture.Private", triageMember: "Read", triageSelector: "triage", triageToken: "100663297" };
   code = { textContent: "" };
   querySelector() { return this.code; }
   toggle(open: boolean) { this.open = open; this.dispatchEvent(new Event("toggle")); }
@@ -65,8 +65,9 @@ test("source failures stay visible and can be retried by expanding again", async
 
 test("triage source controls escape their metadata attributes", () => {
   const html = renderTriageCode({ assembly: '"<Fixture>', typeId: "Private", memberName: "Read", selector: "triage", methodToken: 1 }, value => value.replaceAll('"', "&quot;").replaceAll("<", "&lt;"));
-  assert.match(html, /data-assembly="&quot;&lt;Fixture>"/);
+  assert.match(html, /data-triage-assembly="&quot;&lt;Fixture>"/);
   assert.match(html, /Decompiled method/);
+  assert.doesNotMatch(html, /data-(?:type|member|selector|assembly|token)=/);
 });
 
 test("the preview uses owner-issued member spans rather than neighboring declarations", async () => {
