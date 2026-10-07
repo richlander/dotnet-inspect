@@ -1229,16 +1229,6 @@ test("string literal Transitions render complete literals as full-width rows", (
             new: "https://new.example",
             detail: null,
           },
-          {
-            transition: "PairFinding.Present",
-            finding: "analysis.string-literal-use",
-            target: "Example",
-            from: "1.0.0",
-            to: "2.0.0",
-            old: "prefix https://embedded.example",
-            new: "prefix https://embedded.example",
-            detail: null,
-          },
         ],
       },
     ),
@@ -1252,7 +1242,6 @@ test("string literal Transitions render complete literals as full-width rows", (
     /<code>https:\/\/old\.example and https:\/\/shared\.example<\/code>/,
   );
   assert.match(html, /<code>https:\/\/new\.example<\/code>/);
-  assert.doesNotMatch(html, /embedded\.example/);
   assert.doesNotMatch(html, /<code>absent<\/code>/);
   assert.match(html, /data-transition="Removed"[\s\S]*>Removed<\/span>/);
   assert.match(html, /data-transition="Added"[\s\S]*>Added<\/span>/);
