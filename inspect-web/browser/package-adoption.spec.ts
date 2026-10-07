@@ -4250,6 +4250,22 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
       await catalogGate;
       await route.fulfill({ contentType: "application/json", body: JSON.stringify(catalog) });
     });
+    const publicationRequests: string[] = [];
+    const publicationGate = deferred<void>();
+    await context.route("https://api.nuget.org/v3/index.json", route => route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ resources: [{ "@type": "RegistrationsBaseUrl/3.6.0",
+        "@id": "https://api.nuget.org/v3/registration5-gz-semver2/" }] }),
+    }));
+    await context.route("https://api.nuget.org/v3/registration5-gz-semver2/*/*.json", async route => {
+      const url = route.request().url();
+      publicationRequests.push(url);
+      await publicationGate.promise;
+      const published = url.includes("/system.linq/") ? "2016-11-15T23:00:00Z"
+        : url.includes("/system.text.json/9.0.0") ? "2024-11-12T23:00:00Z"
+          : "2026-09-08T00:00:00Z";
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify({ "@id": url, published }) });
+    });
     let jsonVersion = "9.0.0";
     await context.route("https://azuresearch-usnc.nuget.org/**", route => {
       const query = new URL(route.request().url()).searchParams.get("q");
@@ -4275,6 +4291,7 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
     const packageHit = page.locator('[data-sl-pkg-load="System.Linq"]');
     await expect(packageHit).toBeVisible();
     await expect(packageHit.locator(".spotlight-pruned")).toHaveCount(0);
+    await expect(packageHit.locator(".spotlight-item-date")).toHaveText("Published …");
     const alignment = await packageHit.evaluate(element => ({
       nameLeft: element.querySelector(".spotlight-item-name")!.getBoundingClientRect().left,
       metadataRight: element.querySelector(".spotlight-item-ns")!.getBoundingClientRect().right,
@@ -4307,6 +4324,11 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
     expect(packs).toEqual([]);
     await expect(search).toBeFocused();
     expect(await packageHit.evaluate((element, original) => element === original, originalControl)).toBe(true);
+    publicationGate.resolve();
+    await expect(packageHit.locator("time")).toHaveText("Published 2016-11-15");
+    await expect(libraryHit.locator("time")).toHaveText("Published 2026-09-08");
+    await expect(libraryHit.locator("time")).toHaveAttribute("datetime", "2026-09-08");
+    expect(publicationRequests.filter(url => url.includes("/microsoft.netcore.app.ref/"))).toHaveLength(1);
     await search.fill("System.Text.Json");
     const jsonPackage = page.locator('[data-sl-pkg-load="System.Text.Json"]');
     await expect(jsonPackage.locator('[aria-label="Package pruned for net10.0"]')).toBeVisible();
@@ -4346,4 +4368,56 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
     await expect(newerPair.locator(".spotlight-pruned")).toHaveCount(0);
     expect(packs).toEqual([]);
   });
+});
+
+
+test("publication dates remain visible in Package Overview and in-app Spotlight", async ({ page, context }, testInfo) => {
+  test.setTimeout(240_000);
+  const registry = new GalleryFixtureRegistry([healthy]);
+  await installGalleryRoutes(context, registry);
+  await context.route("https://api.nuget.org/v3/index.json", route => route.fulfill({
+    contentType: "application/json", headers: corsHeaders,
+    body: JSON.stringify({ version: "3.0.0", resources: [
+      { "@type": "PackageBaseAddress/3.0.0", "@id": "https://api.nuget.org/v3-flatcontainer/" },
+      { "@type": "RegistrationsBaseUrl/3.6.0", "@id": "https://api.nuget.org/v3/registration5-gz-semver2/" },
+    ] }),
+  }));
+  const publicationRequests: string[] = [];
+  await context.route("https://api.nuget.org/v3/registration5-gz-semver2/*/*.json", route => {
+    const url = route.request().url(); publicationRequests.push(url);
+    const published = url.includes("/system.text.json/") ? "2024-11-12T23:00:00-08:00" : "2026-09-08T00:00:00Z";
+    return route.fulfill({ contentType: "application/json", headers: corsHeaders,
+      body: JSON.stringify({ "@id": url, published }) });
+  });
+  await context.route("https://azuresearch-usnc.nuget.org/**", route => route.fulfill({
+    contentType: "application/json", body: JSON.stringify({ data: [{ id: "System.Text.Json", version: "9.0.0" }] }),
+  }));
+  await page.goto(`/packages/${healthy.packageId}/${healthy.version}#package`);
+  const overview = page.locator(".package-overview-surface");
+  await expect(overview).toBeVisible({ timeout: 180_000 });
+  await expect(overview.locator(".overview-identity-detail")).toHaveText("Published 2026-09-08");
+  await page.screenshot({ path: testInfo.outputPath("package-overview-date.png") });
+  await page.keyboard.press("ControlOrMeta+p");
+  const input = page.locator("#spotlight-input");
+  await expect(input).toBeEditable();
+  await input.fill("System.Text.Json");
+  const packageRow = page.locator('[data-sl-pkg-load="System.Text.Json"]');
+  const libraryRow = page.locator('[data-sl-framework-lib="System.Text.Json"]');
+  await expect(packageRow.locator("time")).toHaveText("Published 2024-11-12");
+  await expect(libraryRow.locator("time")).toHaveText("Published 2026-09-08");
+  await expect(input).toBeFocused();
+  const geometry = await packageRow.locator("time").evaluate(element => ({
+    width: element.getBoundingClientRect().width,
+    right: element.getBoundingClientRect().right,
+    viewport: window.innerWidth,
+  }));
+  expect(geometry.width).toBeGreaterThan(100);
+  expect(geometry.right).toBeLessThanOrEqual(geometry.viewport);
+  expect(publicationRequests.filter(url => url.includes("/system.text.json/"))).toHaveLength(1);
+  await page.screenshot({ path: testInfo.outputPath("in-app-spotlight-dates.png") });
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("ControlOrMeta+p");
+  await input.fill(healthy.packageId);
+  await expect(page.locator(`[data-sl-pkg-open="${healthy.packageId.toLowerCase()}"] time`)).toHaveText("Published 2026-09-08");
+  expect(publicationRequests.filter(url => url.includes(`/${healthy.packageId.toLowerCase()}/`))).toHaveLength(1);
 });

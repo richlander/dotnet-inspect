@@ -546,7 +546,32 @@ even when their names match. For a same-named Package and platform Library pair,
 the platform Library precedes a pruned Package. Otherwise the higher version
 leads, using shared NuGet version precedence; ties put the platform Library first.
 Unavailable comparison preserves the existing order. Unrelated observations
-retain their order. Calendar-date metadata remains the next slice tracked by #9513.
+retain their order.
+
+Package and platform Library observations show `Published YYYY-MM-DD` on a
+separate metadata line. Dates describe the exact Package version or, for a
+platform Library, its containing `Microsoft.NETCore.App.Ref` or
+`Microsoft.AspNetCore.App.Ref` pack version. The runtime patch is not a
+NETStandard.Library.Ref coordinate; absent exact pack identity leaves that
+Library date undisclosed. Ordinary nuget.org Package Overview uses the same
+coordinate-keyed date observation. File and other-feed Packages never borrow a
+same-named nuget.org date. Recent entries without retained nuget.org provenance
+leave the date undisclosed.
+
+Date enrichment does not delay discovery, classification, or activation. The
+Browser's existing nuget.org discovery boundary reads the service index once
+and exact-version registration leaves, with four concurrent requests, an
+8-second per-request deadline, and at most 256 session observations. It acquires
+no archives or pack payloads and does not enumerate version histories. A
+pending date displays `Published …`; absent, invalid, year-1900 unlisted
+sentinel, and failed metadata display `Published unavailable`, with failure
+reason disclosed in Spotlight's tooltip. Retained observations, including
+unavailable outcomes, expire with the page session. Dates preserve the feed's
+calendar day without local-time conversion; time of day is never displayed or
+used to order results. A completion refreshes current results from their
+identities and cannot publish old result rows. The existing native HTML
+Spotlight and Overview renderers lower this small typed metadata directly;
+this adds no inspection output format or ranking contract.
 
 Classification is a resource-free annotation helper in the Package facade,
 following `ClassifyPackageGraphIdentities`, rather than an inspection or

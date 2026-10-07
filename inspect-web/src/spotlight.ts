@@ -1,3 +1,4 @@
+import { publicationDateText, type PublicationDate } from "./package-publication.ts";
 import {
   commandPaletteResults,
   commandPaletteRowHtml,
@@ -44,6 +45,7 @@ export interface SpotlightEcosystemAnnotation {
 }
 
 interface PackageLoadedResult {
+  publication?: PublicationDate;
   ecosystem?: SpotlightEcosystemAnnotation;
   kind: "pkg-loaded";
   pkg: SpotlightPackage;
@@ -57,6 +59,7 @@ export interface SpotlightPackageHit {
 }
 
 interface PackageNugetResult {
+  publication?: PublicationDate;
   ecosystem?: SpotlightEcosystemAnnotation;
   kind: "pkg-nuget";
   hit: SpotlightPackageHit;
@@ -64,9 +67,10 @@ interface PackageNugetResult {
 }
 
 interface PackageRecentResult {
+  publication?: PublicationDate;
   ecosystem?: SpotlightEcosystemAnnotation;
   kind: "pkg-recent";
-  entry: { id: string; version?: string; framework?: string };
+  entry: { id: string; version?: string; framework?: string; nugetOrg?: boolean };
   ranges: readonly HighlightRange[];
 }
 
@@ -87,6 +91,7 @@ export interface SpotlightCapabilityResult {
 }
 
 interface FrameworkLibraryResult {
+  publication?: PublicationDate;
   kind: "framework-lib";
   assembly: string;
   pack: string;
@@ -533,11 +538,15 @@ export function createSpotlight(options: SpotlightOptions) {
       ? " spotlight-artifact" : "";
     const escapedIdentity = escapeHtml(identity);
     const base = `id="spotlight-result-${index}" class="spotlight-item${artifactClass} ${selectedClass}" role="option" aria-selected="${selected}" data-sl-index="${index}" data-sl-result-identity="${escapedIdentity}" data-rendered-interaction-key="spotlight-result:${escapedIdentity}"${packageAddition ? ' tabindex="-1"' : ""}`;
+    const dateHtml = "publication" in result && result.publication
+      ? `<span class="spotlight-item-date"${result.publication.status === "unavailable" ? ` title="${escapeHtml(result.publication.reason)}"` : ""}>${result.publication.status === "available" ? `<time datetime="${escapeHtml(result.publication.date)}">${escapeHtml(publicationDateText(result.publication))}</time>` : escapeHtml(publicationDateText(result.publication))}</span>`
+      : "";
     if (result.kind === "pkg-loaded") {
       return withRemoveButton(result, `<button ${base} data-sl-pkg-open="${escapeHtml(result.pkg.id)}">
         ${packageIcon(result)}
         <span class="spotlight-item-name">${options.highlightRanges(result.pkg.id, result.ranges)}</span>
         <span class="spotlight-item-ns">${ecosystemMetadata(result)}${escapeHtml(result.pkg.version)} · ${packageAddition ? "already in Workspace" : "open"}</span>
+        ${dateHtml}
       </button>`);
     }
     if (result.kind === "pkg-nuget") {
@@ -548,6 +557,7 @@ export function createSpotlight(options: SpotlightOptions) {
         ${packageIcon(result)}
         <span class="spotlight-item-name">${options.highlightRanges(result.hit.id, result.ranges)}</span>
         <span class="spotlight-item-ns">${ecosystemMetadata(result)}${escapeHtml(result.hit.version || "")} · ${source}</span>
+        ${dateHtml}
       </button>`;
     }
     if (result.kind === "pkg-recent") {
@@ -558,6 +568,7 @@ export function createSpotlight(options: SpotlightOptions) {
         ${packageIcon(result)}
         <span class="spotlight-item-name">${options.highlightRanges(result.entry.id, result.ranges)}</span>
         <span class="spotlight-item-ns">${ecosystemMetadata(result)}${version ? `${escapeHtml(version)} · ` : ""}recent</span>
+        ${dateHtml}
       </button>`);
     }
     if (result.kind === "package-query") {
@@ -603,6 +614,7 @@ export function createSpotlight(options: SpotlightOptions) {
           : undefined, undefined)}
         <span class="spotlight-item-name">${options.highlightRanges(result.assembly, result.ranges)}</span>
         <span class="spotlight-item-ns">${escapeHtml(meta)}</span>
+        ${dateHtml}
       </button>`;
     }
     if (result.kind === "member") {
@@ -613,6 +625,7 @@ export function createSpotlight(options: SpotlightOptions) {
         <span class="kind-icon sl-member">ƒ</span>
         <span class="spotlight-item-name">${options.highlightRanges(result.name, result.ranges)}</span>
         <span class="spotlight-item-ns">${escapeHtml(result.type.name)}${packageName}</span>
+        ${dateHtml}
       </button>`;
     }
     if (result.kind === "managed-type") {

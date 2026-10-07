@@ -1271,3 +1271,17 @@ test("unavailable version comparison preserves pair order and unrelated hits sta
   pkg.ecosystem!.isPruned = true;
   assert.deepEqual(spotlight.results(), [library, unrelated, pkg]);
 });
+
+
+test("Spotlight artifact rows show date-only metadata without changing activation identity", () => {
+  const results: SpotlightResult[] = [
+    { kind: "pkg-nuget", hit: { id: "System.Text.Json", version: "9.0.0" }, ranges: [], publication: { status: "available", date: "2024-11-12" } },
+    { kind: "framework-lib", assembly: "System.Text.Json", pack: "netcore.app", publicTypes: 1, ranges: [], version: "10.0.12", publication: { status: "available", date: "2026-09-08" } },
+  ];
+  const identities = results.map(spotlightResultIdentity);
+  const { spotlight } = createHarness({ searchResults: () => results });
+  const html = spotlight.inlineHtml(false);
+  assert.match(html, /<time datetime="2024-11-12">Published 2024-11-12<\/time>/);
+  assert.match(html, /<time datetime="2026-09-08">Published 2026-09-08<\/time>/);
+  assert.deepEqual(spotlight.results().map(spotlightResultIdentity).sort((a, b) => a.localeCompare(b)), identities.sort((a, b) => a.localeCompare(b)));
+});

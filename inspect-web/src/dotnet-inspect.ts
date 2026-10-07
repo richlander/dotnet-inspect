@@ -1,3 +1,8 @@
+import {
+  createPackagePublicationDates,
+  platformPublicationCoordinate,
+  publicationDateText,
+} from "./package-publication.ts";
 import { createSpotlightEcosystemClassification } from "./spotlight-ecosystem.ts";
 import {
   accessibilityFilterIncludingType,
@@ -1264,6 +1269,7 @@ function loadRecentPackages() {
         id: entry.id,
         version: typeof entry.version === "string" && entry.version ? entry.version : "latest",
         framework: typeof entry.framework === "string" ? entry.framework : "",
+        nugetOrg: entry.nugetOrg === true,
       }))
       .slice(0, RECENT_PACKAGES_MAX);
   } catch {
@@ -1340,6 +1346,7 @@ interface PendingGraphMemberDeepLink {
 }
 
 interface RecentPackage {
+  nugetOrg?: boolean;
   id: string;
   version: string;
   framework: string;
@@ -12132,6 +12139,9 @@ function renderPackageOverview() {
     subject: "package",
     subjectLabel: pkg.isRuntimePack ? "Shared framework" : "Package",
     displayName: packageDisplayName(pkg),
+    details: pkg.source.kind === "nuget.org"
+      ? [publicationDateText(packagePublicationDates.get({ id: pkg.id, version: pkg.version }))]
+      : [],
     iconHtml: renderInspectedSubjectIcon(pkg),
     packageId: pkg.id,
     packageVersion: pkg.version,
@@ -15146,7 +15156,9 @@ function recordRecentPackage(id: string, version: string, framework: string) {
   if (!id || isRuntimePackId(id)) return;
   const rest = (state.recentPackages || []).filter(entry => entry.id.toLowerCase() !== id.toLowerCase());
   state.recentPackages = [
-    { id, version: version || "latest", framework: framework || "" },
+    { id, version: version || "latest", framework: framework || "",
+      nugetOrg: state.packages.some(pkg => pkg.id.toLowerCase() === id.toLowerCase()
+        && pkg.version === version && pkg.source.kind === "nuget.org") },
     ...rest,
   ].slice(0, RECENT_PACKAGES_MAX);
   persistRecentPackages();
@@ -15179,6 +15191,43 @@ function frameworkLibrarySpotlightResults(query: string): SpotlightResult[] {
     }
   }
   return results;
+}
+
+const packagePublicationDates = createPackagePublicationDates(fetch, coordinate => {
+  if (state.spotlightOpen || state.home) spotlight.updateResults();
+  if (!state.home && !state.spotlightOpen && state.atPackageRoot
+    && state.packageLens === "overview"
+    && state.package?.id.toLowerCase() === coordinate.id.toLowerCase()
+    && state.package.version.toLowerCase() === coordinate.version.toLowerCase()) render();
+});
+
+function annotateSpotlightPublicationDates(results: SpotlightResult[]): SpotlightResult[] {
+  if (!state.home && !state.spotlightOpen) return results;
+  return results.map(result => {
+    let coordinate = null;
+    switch (result.kind) {
+      case "pkg-nuget":
+        if (result.hit.version && result.hit.version !== "latest")
+          coordinate = { id: result.hit.id, version: result.hit.version };
+        break;
+      case "pkg-loaded": {
+        const pkg = state.packages.find(candidate => candidate === result.pkg);
+        if (pkg?.source.kind === "nuget.org")
+          coordinate = { id: pkg.id, version: pkg.version };
+        break;
+      }
+      case "pkg-recent":
+        if (result.entry.nugetOrg
+          && result.entry.version && result.entry.version !== "latest")
+          coordinate = { id: result.entry.id, version: result.entry.version };
+        break;
+      case "framework-lib":
+        coordinate = platformPublicationCoordinate(result.pack, result.version);
+        break;
+      default: return result;
+    }
+    return coordinate ? { ...result, publication: packagePublicationDates.get(coordinate) } : result;
+  });
 }
 
 const spotlightEcosystemClassification = createSpotlightEcosystemClassification({
@@ -15246,7 +15295,7 @@ function spotlightResults(): SpotlightResult[] {
           ranges: [[0, parsedPackageQuery.packageId.length]],
         });
       }
-      return annotateSpotlightEcosystems(results);
+      return annotateSpotlightPublicationDates(annotateSpotlightEcosystems(results));
     }
     const loaded = spotlightLoadedPackageMatches(query).slice(0, all ? 3 : 20);
     for (const match of loaded) results.push({ kind: "pkg-loaded", pkg: match.pkg, ranges: match.ranges });
@@ -15322,7 +15371,7 @@ function spotlightResults(): SpotlightResult[] {
   if (all) {
     results.push(...frameworkLibrarySpotlightResults(query).slice(0, 5));
   }
-  return annotateSpotlightEcosystems(results);
+  return annotateSpotlightPublicationDates(annotateSpotlightEcosystems(results));
 }
 
 interface NugetSearchResult {
