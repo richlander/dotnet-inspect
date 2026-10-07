@@ -246,6 +246,8 @@ coordinates, and the API surface initially loaded for a package or platform.
 surface without opening another artifact. The facade adapts its existing
 candidate and hit records through Queries-owned `LoadedTypeSearchRanking`; it
 does not execute Type-matching, tier, fuzzy-ranking, or result-limit semantics.
+Exact-Library API identity likewise reaches the facade as a Queries-owned
+detached value, so the wire adapter does not reference Metadata identity types.
 
 ### Metadata facade: 8 exports
 
