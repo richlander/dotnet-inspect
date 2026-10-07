@@ -910,7 +910,8 @@ against that manifest) and `QueryMemberDocumentation` (the XML file shipped
 beside a product-selected compile asset).
 
 Three exports touch **no artifact at all** and say so in place: `SearchTypes`
-(ranking names the client already holds, through `TypeMatcher`),
+(adapting names the client already holds through Queries-owned
+`LoadedTypeSearchRanking`),
 `PackageCacheStats`, and `ListVocabulary` (the shared product-owned vocabulary
 catalog).
 
