@@ -1233,17 +1233,20 @@ public partial class PackageCommand
             // Update version from resolution (may have been auto-discovered)
             version = resolution.Version ?? version;
 
-            bool onlyTargetFrameworks = options.Discover is null
+            bool lightweightTargetFrameworks = options.Discover is null
                 && options.IncludeSections is { Count: 1 }
-                && options.IncludeSections.Contains(PackageSections.TargetFrameworks);
+                && options.IncludeSections.Contains(PackageSections.TargetFrameworks)
+                && (!options.JsonOutput || options.Count);
 
             bool wantsEcosystemDependencies =
                 RequestsPackageEcosystemDependencies(
                     producerOptions,
                     pipeline);
 
-            // Parse nuspec for full package inspection.
-            NuspecData? nuspec = onlyTargetFrameworks
+            // Typed JSON needs full inspection; local packages and Markdown titles need nuspec identity.
+            NuspecData? nuspec = lightweightTargetFrameworks
+                && !target.IsLocalFile
+                && (options.Count || options.Format != OutputFormat.Markdown)
                 ? null
                 : FindPackageNuspecForInspection(
                     extractPath,
@@ -1352,11 +1355,11 @@ public partial class PackageCommand
                     producerOptions,
                     pipeline,
                     includeSignals: enrichesSignals);
-            var result = onlyTargetFrameworks
+            var result = lightweightTargetFrameworks
                 ? new InspectionResult
                 {
-                    PackageName = packageName,
-                    Version = version,
+                    PackageName = nuspec?.PackageName ?? packageName,
+                    Version = nuspec?.Version ?? version,
                     TargetFrameworks = TfmSelector.GetPackageFrameworkFolders(extractPath),
                 }
                 : await PackageInspector.InspectAsync(
@@ -1382,7 +1385,7 @@ public partial class PackageCommand
                     admittedPackageInfoMeasurements(),
                     logger.Log);
             }
-            else if (!onlyTargetFrameworks)
+            else if (!lightweightTargetFrameworks)
             {
                 await ApplyPackageInfoMeasurementsAsync(
                     result,
@@ -1419,12 +1422,12 @@ public partial class PackageCommand
             await PopulatePackageSignatureAsync(
                 result,
                 resolution.NupkgPath,
-                !onlyTargetFrameworks && ShouldVerifyPackageSignature(options, wantsSignals),
+                !lightweightTargetFrameworks && ShouldVerifyPackageSignature(options, wantsSignals),
                 logger.Log);
 
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
-            if (!onlyTargetFrameworks)
+            if (!lightweightTargetFrameworks)
                 PopulatePackageFileSectionsLegacy(
                     result,
                     extractPath,
@@ -1433,7 +1436,7 @@ public partial class PackageCommand
                     producerOptions,
                     pipeline))
                 PopulatePackageContentAudit(result, extractPath);
-            if (!onlyTargetFrameworks)
+            if (!lightweightTargetFrameworks)
             {
                 PackageSourceQueryPlan sourceQueryPlan = CreatePackageSourceQueryPlan(
                     sectionCatalog,

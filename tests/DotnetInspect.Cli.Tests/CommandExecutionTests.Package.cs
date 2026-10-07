@@ -324,6 +324,17 @@ public partial class CommandExecutionTests
         Assert.Equal(section.Output, shortcut.Output);
         Assert.Equal(new[] { "net10.0", "net9.0", "net8.0", "netstandard2.0", "net462" },
             shortcut.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        foreach (string[] entrance in new[] { new[] { "--tfms" }, new[] { "-S", "Target Frameworks" } })
+        {
+            var json = await RunAppAsync(["package", package, .. entrance, "--json"]);
+            Assert.True(json.Exit == 0, json.Error);
+            using var document = JsonDocument.Parse(json.Output);
+            var root = document.RootElement;
+            Assert.Equal("Microsoft", root.GetProperty("authors").GetString());
+            Assert.Equal("2013/05", root.GetProperty("manifest_version").GetString());
+            Assert.True(root.GetProperty("package_size").GetInt64() > 0);
+            Assert.Equal(5, root.GetProperty("target_frameworks").GetArrayLength());
+        }
     }
 
     [Theory]
@@ -347,9 +358,48 @@ public partial class CommandExecutionTests
             Assert.Equal(section.Exit, shortcut.Exit);
             Assert.Equal(section.Output, shortcut.Output);
             Assert.Equal(section.Error, shortcut.Error);
-            Assert.DoesNotContain("net10.0", shortcut.Output);
+            if (format == "--json")
+            {
+                using var document = JsonDocument.Parse(shortcut.Output);
+                var frameworks = document.RootElement.GetProperty("target_frameworks");
+                Assert.Equal(1, frameworks.GetArrayLength());
+                Assert.Equal("net8.0", frameworks[0].GetString());
+            }
+            else Assert.DoesNotContain("net10.0", shortcut.Output);
             if (format == "--count") Assert.Equal("1", shortcut.Output.Trim());
             else if (format != "--value") Assert.Contains("net8.0", shortcut.Output);
+        }
+        finally { Directory.Delete(tempDir, recursive: true); }
+    }
+
+    [Fact]
+    public async Task Tfms_LocalArchivePreservesTypedFactsAndNuspecIdentity()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.TfmIdentity", "README.md", "readme",
+            extraFiles: [("lib/net8.0/_._", "")]);
+        try
+        {
+            string renamedPath = Path.Combine(tempDir, "unrelated-filename.nupkg");
+            File.Move(packagePath, renamedPath);
+            foreach (string[] entrance in new[] { new[] { "--tfms" }, new[] { "-S", "Target Frameworks" } })
+            {
+                var json = await RunAppAsync(["package", renamedPath, .. entrance, "--json"]);
+                Assert.True(json.Exit == 0, json.Error);
+                using var document = JsonDocument.Parse(json.Output);
+                var root = document.RootElement;
+                Assert.Equal("Test.TfmIdentity", root.GetProperty("package_name").GetString());
+                Assert.Equal("1.0.0", root.GetProperty("version").GetString());
+                Assert.Equal("nuspec", root.GetProperty("manifest_version").GetString());
+                Assert.Equal("tests", root.GetProperty("authors").GetString());
+                Assert.Equal("test package", root.GetProperty("description").GetString());
+                Assert.Equal(new FileInfo(renamedPath).Length, root.GetProperty("package_size").GetInt64());
+                Assert.Equal("net8.0", root.GetProperty("target_frameworks")[0].GetString());
+                var markdown = await RunAppAsync(["package", renamedPath, .. entrance, "--markdown"]);
+                Assert.True(markdown.Exit == 0, markdown.Error);
+                Assert.Contains("Test.TfmIdentity", markdown.Output);
+                Assert.DoesNotContain("unrelated-filename", markdown.Output);
+            }
         }
         finally { Directory.Delete(tempDir, recursive: true); }
     }
