@@ -1249,10 +1249,10 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
     /--assembly-search-path "\$source_assembly_directory"/);
   assert.match(
     engineGenerationScript,
-    /generator_build_properties\+=\("-p:VersionPrefix=\$contract_version_prefix"\)/);
+    /generator_build_properties\+=\(\s*"-p:VersionPrefix=\$generation_version_prefix"\)/);
   assert.match(
     engineGenerationScript,
-    /verify_msbuild_facade_build "-p:VersionPrefix=\$version_prefix"[\s\S]*--contract[\s\S]*"\$version_prefix"[\s\S]*verify_msbuild_facade_publish "-p:VersionPrefix=\$version_prefix"/);
+    /verify_msbuild_facade_build\s*\\\s*"-p:VersionPrefix=\$generation_version_prefix"[\s\S]*verify_msbuild_facade_publish\s*\\\s*"-p:VersionPrefix=\$generation_version_prefix"/);
   // `--contract` produces the complete declaration set into a directory, which is what the
   // paired async deployment lanes compare against their independently compiled set.
   assert.match(

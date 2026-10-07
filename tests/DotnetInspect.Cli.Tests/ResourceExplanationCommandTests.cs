@@ -61,20 +61,57 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.Empty(catalog.Error);
         Assert.Contains("Kind: Catalog | Name: Package", catalog.Output);
 
-        var library = await RunAsync(
+    }
+
+    [Theory]
+    [InlineData("references", "table", "inventory")]
+    [InlineData("library-info", "table", "scalar")]
+    [InlineData("symbols", "table", "scalar")]
+    [InlineData("source-link-availability", "table", "scalar")]
+    [InlineData("metadata-image", "table", "scalar")]
+    [InlineData("metadata-type-def", "table", "inventory")]
+    [InlineData("reference-hierarchy", "hierarchy", "inventory")]
+    // Coordinate sections resolve through the Library address route.
+    [InlineData("context-member", "table", "inventory")]
+    [InlineData("context-exception", "table", "inventory")]
+    [InlineData("metadata-heap", "table", "inventory")]
+    public async Task Explain_LibrarySection_ReportsDeclaredShapeAndCardinality(
+        string section,
+        string shape,
+        string cardinality)
+    {
+        // Library adopts Section shapes: every section declares its shape,
+        // and field-set records that describe one subject are scalar.
+        var result = await RunAsync(
             "explain",
-            "library/sections/references",
+            $"library/sections/{section}",
             "--json");
 
-        Assert.Equal(0, library.ExitCode);
-        JsonElement libraryRoot =
-            JsonDocument.Parse(library.Output).RootElement
-                .GetProperty("resources")[0];
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement.GetProperty("resources")[0];
+        Assert.Equal(shape, TextFact(root, "shape"));
+        Assert.Equal(cardinality, TextFact(root, "cardinality"));
+    }
+
+    [Fact]
+    public async Task Explain_LibraryDependencyStructure_IsAGraphWithoutShape()
+    {
+        // Dependency Structure is a Graph of namespace nodes and edges, not
+        // one of the three shapes, so it keeps its diagram formats.
+        var result = await RunAsync(
+            "explain",
+            "library/sections/dependency-structure",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement.GetProperty("resources")[0];
         Assert.Equal(
             "Absent",
-            Fact(libraryRoot, "shape")
-                .GetProperty("state")
-                .GetString());
+            Fact(root, "shape").GetProperty("state").GetString());
+        Assert.Equal("inventory", TextFact(root, "cardinality"));
     }
 
     [Theory]
