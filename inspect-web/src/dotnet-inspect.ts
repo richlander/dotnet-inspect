@@ -1870,6 +1870,7 @@ CanonicalWorkspaceRestoreSnapshot {
     catalogRequests.copyPackage(original, copy);
   }
   packageComparisonTargets.copyPackages(copies);
+  memberBodyDiff.copyPackages(copies);
   const uploadedLibrary = state.uploadedLibrary
     ? structuredClone(state.uploadedLibrary)
     : null;
@@ -2114,6 +2115,7 @@ function cloneCanonicalWorkspaceSnapshotForRetention(
     catalogRequests.copyPackage(original, copy);
   }
   packageComparisonTargets.copyPackages(copies);
+  memberBodyDiff.copyPackages(copies);
   return {
     state: retainedState,
     hasWorkspace: snapshot.hasWorkspace,
@@ -7793,6 +7795,8 @@ function currentMemberBodyDiffContext(): MemberBodyDiffContext | null {
     typeIdentity: subject.kind === "library" ? null : typeIdentifierOf(subject.type),
     memberFingerprint: subject.kind === "member" ? subject.overload?.anchorDigest ?? null : null,
     methodToken: subject.kind === "member" ? state.selectedBodyTarget?.metadataToken ?? subject.overload?.metadataToken ?? null : null,
+    bodySelector: subject.kind === "member" ? memberBodyDiff.restoredBodySelector(subject.pkg,
+      typeIdentifierOf(subject.type), subject.overload?.anchorDigest ?? null) : null,
   };
 }
 
@@ -17041,6 +17045,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
         "The selected overload has no portable product identity and cannot be shared.");
     }
     if (state.memberSection !== "overview"
+      && state.memberSection !== "compare"
       && overload.bodySelectors.length > 1) {
       throw new Error(
         "This accessor-specific section cannot be shared until workspace packets carry portable body identity.");
@@ -17052,6 +17057,28 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     && state.libraryScope.size > 1) {
     throw new Error(
       "Select one library before sharing this Browser workspace.");
+  }
+  const compare = currentCompareSubject();
+  let comparison: BrowserWorkspaceShareState["view"]["comparison"] = null;
+  if (compare !== null) {
+    if (currentCompareMode() !== "diff") throw new Error("Clone comparisons cannot yet be shared.");
+    if (compare.pkg.source.kind !== "nuget.org") throw new Error("Shared Diff requires a Gallery Package.");
+    const settings = packageComparisonTargets.get(compare.pkg);
+    const baseline = resolveEffectiveDiffTarget(settings.diff, catalogRequests.packageVersions(compare.pkg));
+    if (baseline.kind !== "available") throw new Error(baseline.message);
+    const body = settings.diffContent.kind === "member-body" && compare.kind === "member"
+      ? memberBodyDiff.captureBodySelector() : null;
+    if (settings.diffContent.kind === "member-body" && compare.kind === "member" && !body)
+      throw new Error("Select one exact Member body before sharing this Diff.");
+    comparison = {
+      baseline: baseline.version, content: settings.diffContent.kind, asset: compare.library.id,
+      medium: settings.diffContent.kind === "member-body" ? memberBodyDiff.captureMedium() : "CSharp",
+      body,
+      libraryName: compare.library.name, libraryVersion: compare.library.version,
+      libraryCulture: compare.library.culture || null, libraryPublicKeyToken: compare.library.publicKeyToken || null,
+      predicateOperator: settings.diffContent.kind === "string-literals" ? settings.diffContent.operator : null,
+      predicateValue: settings.diffContent.kind === "string-literals" ? settings.diffContent.value : null,
+    };
   }
   const library = selectedLibraryShareKey();
   const libraries =
@@ -17075,13 +17102,16 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
             : state.lens,
       type: structuralRootOpen
         ? null
-        : state.selectedTypeId || null,
+        : comparison && compare && compare.kind !== "library"
+          ? typeIdentifierOf(compare.type)
+          : state.selectedTypeId || null,
       memberAnchor,
       memberSignature,
       section: member && state.memberSection !== "overview"
         ? state.memberSection
         : null,
       libraries,
+      comparison,
       sourceView: member
         && state.memberSection === "source"
         && state.memberSourceRequestedView === "decompiler-source"
@@ -24193,6 +24223,7 @@ function navigateToMember(
   bodyTarget: BodyTarget | null = null,
   section: "overview" | "source" | "compare" = "overview",
 ) {
+  memberBodyDiff.clearRestoredBodySelector(pkg);
   closeGraphExplorerForNavigation();
   invalidateGraphMemberNavigation();
   const preserveAggregate = navigationPreservesAggregateLibraryScope(pkg);
@@ -24920,6 +24951,7 @@ function retainPackageHomeDemoShareBasis(
       section: selection.member ? "call-graph" : null,
       libraries: [],
       sourceView: null,
+      comparison: null,
     },
   };
 }
@@ -25321,6 +25353,34 @@ async function restoreWorkspaceFromLocation(
         failRestore(libraryFailure);
         return;
       }
+    }
+    const comparison = loc.shareState?.view.comparison;
+    if (comparison) {
+      const library = selectedLibrary();
+      if (!library || library.id !== comparison.asset || library.name !== comparison.libraryName
+        || library.version !== comparison.libraryVersion || (library.culture || null) !== comparison.libraryCulture
+        || (library.publicKeyToken || null) !== comparison.libraryPublicKeyToken) {
+        failRestore("The shared Diff Library identity does not match the acquired asset."); return;
+      }
+      if (deep.type) {
+        const types = targetModel.types.filter(candidate => typeIdentifierOf(candidate) === deep.type
+          && libraryKey(candidate) === comparison.asset);
+        if (types.length !== 1) { failRestore("The shared Diff Type is unavailable or ambiguous in its Library."); return; }
+        deep = { ...deep, type: types[0]!.id };
+      }
+      if (comparison.body !== null) {
+        if (!deep.type || !deep.memberAnchor) {
+          failRestore("The shared Diff body requires an exact Member anchor."); return;
+        }
+        memberBodyDiff.restoreBodySelector(targetModel,
+          loc.shareState!.view.type!,
+          deep.memberAnchor, comparison.body);
+      }
+      packageComparisonTargets.restoreExactDiff(targetModel, comparison.baseline,
+        comparison.content === "string-literals"
+          ? { kind: "string-literals", operator: comparison.predicateOperator === "starts-with" ? "starts-with" : "contains", value: comparison.predicateValue! }
+          : comparison.content === "member-body" ? { kind: "member-body" } : { kind: "api" });
+      memberBodyDiff.restoreMedium(targetModel, comparison.medium === "Il" ? "Il" : "CSharp");
     }
     applyLocationView(loc);
     const viewFailure = loc.shareState

@@ -6,7 +6,6 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
-using ILInspector.Metadata;
 
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Catalog;
@@ -233,20 +232,8 @@ public static partial class CatalogExports
         BrowserHomeDemoSelectedMember selectedMember =
             SelectMember(
                 plan,
-                type,
-                focusProjection.ApiSurfaces
-                ?? throw new InvalidOperationException(
-                    "The product home demo focus has no compile-library API surface."));
-        AssemblyContextSubject subject = selectedMember.Subject;
+                type);
         BrowserMemberSurfaceInfo member = selectedMember.Surface;
-        if (!string.Equals(
-                type.AssemblyName,
-                subject.Identity.Name,
-                StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException(
-                "The product home demo type projection lost its owning assembly identity.");
-        }
         BrowserMemberResolution.Resolved resolvedMember =
             BrowserMemberResolution.ResolveImplementationMember(
                 scope,
@@ -371,8 +358,7 @@ public static partial class CatalogExports
                 return BrowserPlatformSurfaceProjection.Project(
                     resolution.Scope,
                     participant,
-                    coordinate,
-                    participant.Participant.Assembly.AssetFileName);
+                    coordinate);
             }),
         ];
         if (projections
@@ -391,7 +377,7 @@ public static partial class CatalogExports
         string focusFramework =
             BrowserFrameworkText.Require(resolution.Scope.Framework);
         string focusAssembly =
-            focusProjection.Participant.Participant.Assembly.Identity.Name;
+            focusProjection.AssemblyIdentity.Name;
         BrowserTypeSurfaceInfo[] types =
         [
             .. focusProjection.Surface.Types.Where(type =>
@@ -438,11 +424,10 @@ public static partial class CatalogExports
         BrowserHomeDemoSelectedMember selectedMember =
             SelectMember(
                 plan,
-                type,
-                focusProjection.ApiSurfaces);
+                type);
         BrowserMemberSurfaceInfo member = selectedMember.Surface;
-        AssemblyReferenceIdentity assemblyIdentity =
-            focusProjection.Participant.Participant.Assembly.Identity;
+        PortableLibraryIdentity assemblyIdentity =
+            focusProjection.AssemblyIdentity;
         return new BrowserPlatformHomeDemoPreparation(
             new BrowserHomeDemoRunResult(
                 true,
@@ -469,10 +454,7 @@ public static partial class CatalogExports
                 focusCoordinate.Version,
                 focusAssembly,
                 BrowserPlatformWorkspace.Pack(focusCoordinate.Family),
-                (assemblyIdentity.Version
-                    ?? throw new InvalidOperationException(
-                        "The Platform home demo assembly has no metadata version."))
-                    .ToString(),
+                assemblyIdentity.Version,
                 assemblyIdentity.Culture,
                 assemblyIdentity.PublicKeyToken,
                 type.DefinitionId,
@@ -578,72 +560,23 @@ public static partial class CatalogExports
 
     static BrowserHomeDemoSelectedMember SelectMember(
         BrowserHomeDemoRunPlan plan,
-        BrowserTypeSurfaceInfo type,
-        AssemblyContextApiSurfaceResult apiSurfaces)
+        BrowserTypeSurfaceInfo type)
     {
         BrowserHomeDemoRunMember memberPlan =
             plan.Member
             ?? throw new InvalidOperationException(
                 "The product home demo run plan has no member selection.");
-        (ApiType Type, AssemblyContextSubject Subject)[] apiTypes =
-        [
-            .. apiSurfaces.Assemblies.Assemblies
-                .OfType<AssemblyContextEntry<AssemblyApiSurface>.Available>()
-                .SelectMany(entry => entry.Value.Surface.Types
-                    .Where(candidate => string.Equals(
-                        AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(
-                            candidate),
-                        type.DefinitionId,
-                        StringComparison.Ordinal))
-                    .Select(candidate => (candidate, entry.Subject))),
-        ];
-        if (apiTypes.Length != 1)
-        {
-            throw new InvalidOperationException(
-                $"The product home demo type '{plan.TypeId}' resolved to "
-                + $"{apiTypes.Length} product API rows.");
-        }
-
-        (ApiType apiType, AssemblyContextSubject subject) = apiTypes[0];
-        var selector = new MemberTargetSelector(
-            $"{memberPlan.Name}~{memberPlan.AnchorDigest}",
-            memberPlan.Name,
-            DigestPrefix: memberPlan.AnchorDigest,
-            Kind: memberPlan.MemberKind);
-        MemberTargetResolution target =
-            MemberTargetResolver.Resolve(apiType, selector);
-        if (target.Diagnostic is { } diagnostic)
-        {
-            throw new InvalidOperationException(
-                $"The product home demo member could not be selected: {diagnostic.Message}");
-        }
-
-        BrowserMemberSurfaceInfo projectedMember =
-            BrowserSurfaceProjection.Member(
-                apiType,
-                target.Target!.ApiMember.Member);
-        BrowserMemberSurfaceInfo[] transportedMembers =
-        [
-            .. type.Api.Where(member =>
-                string.Equals(
-                    member.AnchorDigest,
-                    projectedMember.AnchorDigest,
-                    StringComparison.OrdinalIgnoreCase)),
-        ];
-        if (transportedMembers.Length != 1)
-        {
-            throw new InvalidOperationException(
-                $"The selected product home demo member projected to "
-                + $"{transportedMembers.Length} browser surface rows.");
-        }
-
-        return new BrowserHomeDemoSelectedMember(
-            subject,
-            transportedMembers[0]);
+        BrowserMemberSurfaceInfo member =
+            memberPlan.Selection.Resolve(
+                type.Api,
+                static candidate => new(
+                    candidate.Name,
+                    candidate.Kind,
+                    candidate.AnchorDigest));
+        return new BrowserHomeDemoSelectedMember(member);
     }
 
     sealed record BrowserHomeDemoSelectedMember(
-        AssemblyContextSubject Subject,
         BrowserMemberSurfaceInfo Surface);
 
     internal sealed record BrowserPlatformHomeDemoPreparation(

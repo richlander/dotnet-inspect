@@ -12,7 +12,7 @@ namespace DotnetInspector.Services;
 /// SourceLink commit + repo-relative path and authenticated against the portable-PDB checksum.
 ///
 /// This is the opt-in local-repository counterpart to
-/// <see cref="PdbMemberSourceAcquisition"/>'s remote SourceLink fetch. For a
+/// SourceHouse's remote SourceLink fetch. For a
 /// reproducible (published) build the PDB records a normalized, non-local
 /// document path plus a raw.githubusercontent URL that encodes the commit SHA
 /// and the repo-relative path. When the user names one or more local clones

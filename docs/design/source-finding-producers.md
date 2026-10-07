@@ -167,10 +167,10 @@ token. Member queries now use
 The [type query](type-source-acquisition.md) uses the same internal handoff with
 its own bounds and primary-document projection, preserving the correlation and
 fallback semantics below.
-`PdbMemberSourceAcquisition` remains the diagnostic consumer of the same
-token-scoped mapping and document census, fetches exact bytes through the
-SSRF-hardened Services path, verifies the portable-PDB checksum, extracts the
-member body, and returns a
+The reusable `AssemblyContextSourceQuery` session remains the diagnostic
+consumer of the same token-scoped mapping and document census, fetches exact
+bytes through the SSRF-hardened Services path, verifies the portable-PDB
+checksum, extracts the member body, and returns a
 `FindingInspection<string>`. Its type operation resolves only the exact
 `MetadataTypeDefinitionName`, verifies the primary document through the same
 path, and returns the complete checksum-verified PDB document with its typed
