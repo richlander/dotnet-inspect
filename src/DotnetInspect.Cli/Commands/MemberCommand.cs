@@ -218,6 +218,10 @@ public static class MemberCommand
                 return directCallCountExitCode;
             }
 
+            var singleTypeSelector =
+                loadedSurface is null && !options.RouterDeferredTypeOrMember
+                    ? SingleTypeSurfaceSelector(typeName, options)
+                    : null;
             var loaded = loadedSurface
                 ?? (options.RouterDeferredTypeOrMember
                     ? ApiServices.LoadTypeApi(source, options)
@@ -225,8 +229,18 @@ public static class MemberCommand
                         searchPath, runtimeAssemblyPath, options.PackagePath,
                         packageName, apiSource, source.ApiVersion, selectedTfm,
                         logger, options, source.PackageExtractPath,
-                        selectDeclaredType:
-                            SingleTypeSurfaceSelector(typeName, options)));
+                        selectDeclaredType: singleTypeSelector));
+            // A Type the scope excludes, such as a hidden or obsolete Type
+            // without --all, leaves the single-Type surface empty. The
+            // complete surface owns the not-found report and its suggestions.
+            if (singleTypeSelector is not null
+                && loaded is { Api.Types.Count: 0 })
+            {
+                loaded = ApiServices.LoadFullApi(
+                    searchPath, runtimeAssemblyPath, options.PackagePath,
+                    packageName, apiSource, source.ApiVersion, selectedTfm,
+                    logger, options, source.PackageExtractPath);
+            }
             if (loaded == null)
             {
                 CommandError.Write("Could not extract API from library.");
