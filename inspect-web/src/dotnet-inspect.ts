@@ -25093,6 +25093,7 @@ function retainPackageHomeDemoShareBasis(
       section: selection.member ? "call-graph" : null,
       libraries: [],
       sourceView: null,
+      comparison: null,
     },
   };
 }
