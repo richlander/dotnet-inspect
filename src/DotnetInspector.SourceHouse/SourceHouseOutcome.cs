@@ -414,6 +414,7 @@ public enum SourceHouseIncompleteBoundary
     CandidateAttempts,
     SourceBytes,
     SourceTextCharacters,
+    BodyProjections,
 }
 
 public sealed record SourceHouseWorkCharge(
@@ -464,6 +465,7 @@ public sealed record SourceHouseRequestEvidence
 
 public enum SourceHouseSourcePolicy
 {
+    BestAvailable,
     AuthoredOnly,
     DecompiledOnly,
 }

@@ -1076,6 +1076,33 @@ test("production References retains a loading frame and does not show a previous
   await expect(page.locator(".library-references-scroll")).toContainText("Example.Other.Dependency");
 });
 
+test("production References opens a uniquely resolved Workspace Library destination", async ({ page }) => {
+  const target = library("asset:reference-target", "Reference.Target", 1);
+  await installFacades(page, {
+    ...surface,
+    assemblies: [...surface.assemblies, target],
+    types: [...surface.types, type("Example.ReferenceTarget", target)],
+    accessibility: surface.accessibility.map(bucket =>
+      bucket.id === "public" ? { ...bucket, count: 3 } : bucket),
+    totalMembers: 3,
+  }, [], "workspace-library");
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseInspector(page, "data-library-lens", "references", "References");
+
+  await page.getByRole(
+    "button",
+    { name: "Reference.Target", exact: true },
+  ).click();
+
+  await expect(page.locator(".inspected-target")).toContainText("Example.Package");
+  await expect(subjectTab(page, "library")).toHaveAttribute(
+    "aria-selected",
+    "true");
+  await expect(page.locator(".library-overview-surface h1"))
+    .toHaveText("Reference.Target");
+});
+
 test("Library navigation exposes the complete long Library name on hover", async ({ page }) => {
   const longLibrary = {
     ...core,
