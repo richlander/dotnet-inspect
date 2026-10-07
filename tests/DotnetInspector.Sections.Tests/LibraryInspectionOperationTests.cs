@@ -97,6 +97,50 @@ public sealed class LibraryInspectionOperationTests
 
     [Fact]
     public async Task
+        AllAccessibilityCountAndRowsIncludeNonPublicDefinitions()
+    {
+        byte[] content =
+            await File.ReadAllBytesAsync(
+                typeof(LibraryInspectionOperationTests).Assembly.Location,
+                TestContext.Current.CancellationToken);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        LibraryDocument document = Document(
+            Execute(
+                library,
+                count: true,
+                new(maximumRows: 5_000),
+                accessibility: LibraryTypeAccessibility.All));
+        LibraryTypePopulationCountOutcome.Counted count =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                document.Types!.Count);
+        LibraryTypePopulationRowsOutcome.Read rows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                document.Types.Rows);
+
+        Assert.Equal(
+            LibraryTypeAccessibility.All,
+            document.Types.Binding.Accessibility);
+        Assert.Equal(count.Total, rows.Items.Length);
+        Assert.Contains(
+            rows.Items,
+            row =>
+                row.Identity
+                    == Name(
+                        "DotnetInspector.Sections.Tests",
+                        nameof(LibraryInspectionTestLibrary))
+                && row.DefinitionAccessibility
+                    == LibraryTypeDefinitionAccessibility.NonPublic
+                && !row.IsPublicSurface);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
         GenericDefinitionWithoutArityMarkerRetainsTypeParameterDisplay()
     {
         byte[] content =
@@ -986,6 +1030,16 @@ public sealed class LibraryInspectionOperationTests
                     maximumRows: 1,
                     memberCount: new(),
                     continuation: continuation)),
+            LibraryTypePopulationRowsRejection
+                .IncompatibleContinuation);
+        AssertRowsRejection(
+            Execute(
+                json,
+                count: false,
+                new(
+                    maximumRows: 1,
+                    continuation: continuation),
+                accessibility: LibraryTypeAccessibility.All),
             LibraryTypePopulationRowsRejection
                 .IncompatibleContinuation);
         AssertRowsRejection(
@@ -2030,13 +2084,15 @@ public sealed class LibraryInspectionOperationTests
             ApiTypeInventoryKinds.All,
         string? @namespace = null,
         MetadataNamespaceMatch namespaceMatch =
-            MetadataNamespaceMatch.Exact) =>
+            MetadataNamespaceMatch.Exact,
+        LibraryTypeAccessibility accessibility =
+            LibraryTypeAccessibility.Public) =>
         LibraryInspectionOperation.Execute(
             new(
                 library.Reference,
                 new(
                     new(
-                        LibraryTypeAccessibility.Public,
+                        accessibility,
                         count
                             ? new LibraryTypePopulationCountRequest()
                             : null,

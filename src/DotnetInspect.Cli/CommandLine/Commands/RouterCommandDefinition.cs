@@ -1242,7 +1242,8 @@ public static class RouterCommandDefinition
             if (hasExplicitApiSource)
             {
                 rewritten =
-                    structuralSchema
+                    (structuralSchema
+                        || ContainsOption(tail, "--mermaid"))
                     && hasExplicitGenericNotation
                     && StructuralViewRegistry
                         .HasExplicitGenericTypeTail(target)

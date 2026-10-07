@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Sections;
+using DotnetInspector.Presentation;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -108,6 +109,7 @@ public static class ApiCommandDefinitions
         opts.AddPerformanceTriageOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(opts.PlainText);
+        typeCommand.Options.Add(opts.Mermaid);
         opts.AddEnvelopeOptionTo(
             typeCommand,
             opts.Discover,
@@ -179,6 +181,19 @@ public static class ApiCommandDefinitions
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
+            TypeOverviewHierarchyPresentationFormat? hierarchyFormat =
+                TypeOverviewHierarchyRoute.Select(
+                    parseResult,
+                    opts,
+                    commandArgs,
+                    matchOption,
+                    out string? hierarchyError);
+            if (hierarchyError is not null)
+            {
+                CommandError.Write(hierarchyError);
+                return 1;
+            }
+
             if (parseResult.GetValue(opts.Envelope)
                 && parseResult.GetResult(opts.Verbosity)
                     is { Implicit: false }
@@ -304,7 +319,7 @@ public static class ApiCommandDefinitions
 
                 case TypeOptionsParser.Success success:
                     return await TypeCommand.ExecuteAsync(
-                        success.Options,
+                        success.Options with { HierarchyFormat = hierarchyFormat },
                         success.Plan,
                         ct);
 
