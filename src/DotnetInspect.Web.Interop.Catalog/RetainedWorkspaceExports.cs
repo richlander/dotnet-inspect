@@ -1769,13 +1769,11 @@ internal static class BrowserRetainedWorkspaceActivationService
     static BrowserRetainedWorkspaceExactLibrary ExactLibrary(
         ExactLibrarySourceCoordinate coordinate)
     {
-        ILInspector.Metadata.AssemblyReferenceIdentity identity =
-            coordinate.LibraryIdentity.Identity;
+        PortableLibraryIdentity identity =
+            PortableIdentityProjection.FromExactLibrary(coordinate);
         var library = new BrowserRetainedWorkspaceLibraryIdentity(
             identity.Name,
-            identity.Version?.ToString(4)
-                ?? throw new InvalidOperationException(
-                    "A completed exact Library registration requires an assembly version."),
+            identity.Version,
             identity.Culture,
             identity.PublicKeyToken);
         return coordinate switch

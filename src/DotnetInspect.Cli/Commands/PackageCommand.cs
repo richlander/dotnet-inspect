@@ -299,7 +299,7 @@ public partial class PackageCommand
             // filter, so requiring -S here would force the caller to name a section that is then
             // ignored. LensProjection answers the projection for those modes instead, and -S is
             // rejected outright below rather than silently dropped.
-            var lensMode = options.ListVersions || options.ListLayout || options.ListTfms
+            var lensMode = options.ListVersions || options.ListTfms
                 || options.ShowContent;
             var dependencyHierarchyProjection = options.Tree
                 && options.Discover == null
@@ -319,7 +319,6 @@ public partial class PackageCommand
                     || options.Tree))
             {
                 var lensName = options.ListVersions ? "--versions"
-                    : options.ListLayout ? "--layout"
                     : options.ListTfms ? "--tfms"
                     : "--content";
                 if (options.Tree
@@ -333,13 +332,11 @@ public partial class PackageCommand
 
             string? packageLens = options.ListVersions
                 ? GetVersionQueryLens(options)
-                : options.ListLayout
-                    ? "--layout"
-                    : options.ListTfms
-                        ? "--tfms"
-                        : options.ShowContent
-                            ? "--content"
-                            : null;
+                : options.ListTfms
+                    ? "--tfms"
+                    : options.ShowContent
+                        ? "--content"
+                        : null;
 
             // Opaque lens payload projections are target-independent failures. Reject them
             // before version lookup, package resolution, or extraction; --count needs the rows.
@@ -1238,10 +1235,6 @@ public partial class PackageCommand
             packageName = resolution.PackageName ?? packageName;
             // Update version from resolution (may have been auto-discovered)
             version = resolution.Version ?? version;
-
-            // Handle --layout mode: show file tree and exit early
-            if (options.ListLayout)
-                return ListPackageLayout(extractPath, options, packageName, options.CompanionOutput);
 
             // Handle --tfms mode: list target frameworks and exit early
             if (options.ListTfms)

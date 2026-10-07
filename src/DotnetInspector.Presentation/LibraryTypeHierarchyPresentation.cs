@@ -44,8 +44,9 @@ public static class LibraryTypeHierarchyPresentation
 {
     /// <summary>
     /// Creates the default Library hierarchy plan: the Library, its
-    /// namespaces, each namespace's public-surface Type declarations by Name,
-    /// and each definition's Member Count.
+    /// namespaces, and each namespace's public-surface Type declarations by
+    /// Name. The default requests no Member Counts; deeper data belongs to the
+    /// inner <c>type</c> command.
     /// </summary>
     public static LibraryTypeHierarchyPresentationPlan CreateDefaultPlan(
         LibraryTypeHierarchyPresentationFormat format)
@@ -55,8 +56,7 @@ public static class LibraryTypeHierarchyPresentation
                 LibraryTypeAccessibility.Public,
                 count: null,
                 rows: new LibraryTypePopulationRowsRequest(
-                    LibraryTypeHierarchyPresentationPlan.MaximumTypeRows,
-                    memberCount: new LibraryTypeMemberCountRequest()));
+                    LibraryTypeHierarchyPresentationPlan.MaximumTypeRows));
         var hierarchy =
             new InspectionHierarchyRequest<LibraryTypeHierarchyTopology>(
                 LibraryTypeHierarchyTopology.LibraryNamespacesAndTypes,
@@ -64,9 +64,7 @@ public static class LibraryTypeHierarchyPresentation
                 new InspectionHierarchyPopulationRequest.Rows(
                     InspectionHierarchyNodeSpelling.Name,
                     new InspectionHierarchyPopulationRequest.Rows(
-                        InspectionHierarchyNodeSpelling.Name,
-                        new InspectionHierarchyPopulationRequest
-                            .Count())));
+                        InspectionHierarchyNodeSpelling.Name)));
         return new(format, types, hierarchy);
     }
 
@@ -174,28 +172,29 @@ public static class LibraryTypeHierarchyPresentation
     {
         LibraryTypeShape declaration = type.Value;
         string spelling = type.Spelling.ToString();
-        switch (declaration.MemberCount)
+        if (declaration.DeclarationKind is LibraryTypeDeclarationKind.Forwarder)
+            return $"{spelling} (forwarded)";
+
+        string kind = declaration.DefinitionKind switch
         {
-            case LibraryTypeMemberCountOutcome.NotApplicable:
-                return $"{spelling} (forwarded)";
-            case LibraryTypeMemberCountOutcome.Counted counted:
-                string kind = declaration.DefinitionKind switch
-                {
-                    ApiTypeInventoryKind.Class => "class",
-                    ApiTypeInventoryKind.Struct => "struct",
-                    ApiTypeInventoryKind.Interface => "interface",
-                    ApiTypeInventoryKind.Enum => "enum",
-                    ApiTypeInventoryKind.Delegate => "delegate",
-                    _ => throw new InvalidOperationException(
-                        "A Library hierarchy Type definition is missing its kind."),
-                };
-                return counted.Value == 1
-                    ? $"{kind} {spelling} (1 member)"
-                    : $"{kind} {spelling} ({counted.Value} members)";
-            default:
-                throw new InvalidOperationException(
-                    "A Library hierarchy Type is missing its Member Count outcome.");
-        }
+            ApiTypeInventoryKind.Class => "class",
+            ApiTypeInventoryKind.Struct => "struct",
+            ApiTypeInventoryKind.Interface => "interface",
+            ApiTypeInventoryKind.Enum => "enum",
+            ApiTypeInventoryKind.Delegate => "delegate",
+            _ => throw new InvalidOperationException(
+                "A Library hierarchy Type definition is missing its kind."),
+        };
+        return declaration.MemberCount switch
+        {
+            null => $"{kind} {spelling}",
+            LibraryTypeMemberCountOutcome.Counted { Value: 1 } =>
+                $"{kind} {spelling} (1 member)",
+            LibraryTypeMemberCountOutcome.Counted counted =>
+                $"{kind} {spelling} ({counted.Value} members)",
+            _ => throw new InvalidOperationException(
+                "A Library hierarchy Type definition has an unsupported Member Count outcome."),
+        };
     }
 
     private static string FormatLibrary(

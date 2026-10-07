@@ -27,7 +27,7 @@ export interface MemberBodyDiffContext {
   readonly typeIdentity: string | null;
   readonly memberFingerprint: string | null;
   readonly methodToken: number | null;
-  readonly tools: string;
+  readonly bodySelector?: string | null;
 }
 
 interface Dependencies {
@@ -54,6 +54,7 @@ interface Retained {
   readonly positions: Map<string, number>;
 }
 interface Input {
+  readonly packageModel: object;
   readonly request: BrowserMemberBodyDiffRequest;
   readonly retained: Retained;
   readonly member: BrowserMemberBodyMember | null;
@@ -64,11 +65,12 @@ type Session = OperationSession<Input, BrowserMemberBodyDiffResult, unknown, nev
 
 export function memberBodyDestination(
   inventory: BrowserMemberBodyDiffInventory,
-  context: Pick<MemberBodyDiffContext, "typeIdentity" | "memberFingerprint" | "methodToken">,
+  context: Pick<MemberBodyDiffContext, "typeIdentity" | "memberFingerprint" | "methodToken" | "bodySelector">,
 ): BrowserMemberBodyMember | null {
   const candidates = inventory.destinations.filter(member => member.typeIdentity === context.typeIdentity && member.fingerprint !== null
     && member.fingerprint === context.memberFingerprint
-    && (context.methodToken === null || member.methodToken === context.methodToken));
+    && (context.bodySelector ? member.selector === context.bodySelector
+      : context.methodToken === null || member.methodToken === context.methodToken));
   return candidates.length === 1 ? candidates[0]! : null;
 }
 
@@ -77,14 +79,12 @@ export function renderMemberBodyReader(reader: Pick<Reader, "document" | "medium
   const document = reader.document;
   const medium = document.media.find(candidate => candidate.medium === reader.medium);
   if (!medium) return '<p role="status">This medium is unavailable.</p>';
-  const absent = document.beforeOutcome === "Absent"
-    ? '<p class="member-body-side-state">Before: Not present on this side.</p>' : "";
-  if (medium.limit) return `${absent}<p role="status">${escapeHtml(medium.limit)}</p>`;
+  if (medium.limit) return `<p role="status">${escapeHtml(medium.limit)}</p>`;
   if (medium.diff) {
     const diff = decodeMemberBodyMappedDiff(medium.diff);
-    return `${absent}${diff.changes.length === 0
+    return diff.changes.length === 0
       ? '<p role="status">Identical</p>'
-      : renderSourceDiffViewer(diff, escapeHtml, { mode: reader.mode })}`;
+      : renderSourceDiffViewer(diff, escapeHtml, { mode: reader.mode });
   }
   return `<p role="status">Before: ${escapeHtml(document.beforeDetail ?? document.beforeOutcome)}<br>After: ${escapeHtml(document.afterDetail ?? document.afterOutcome)}</p>${medium.beforeText ? `<pre aria-label="Available Before text">${escapeHtml(medium.beforeText)}</pre>` : ""}${medium.afterText ? `<pre aria-label="Available After text">${escapeHtml(medium.afterText)}</pre>` : ""}`;
 }
@@ -100,6 +100,8 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
   let dialog: HTMLDialogElement | null = null;
   const escape = dependencies.escapeHtml;
 
+  const restoredMedia = new WeakMap<object, "CSharp" | "Il">();
+  const restoredBodies = new WeakMap<object, { type: string; anchor: string; selector: string }>();
   const session: Session = dependencies.authority.createSession({
     feature: { publish(event) {
       if (event.kind === "started") { pending = true; failure = null; }
@@ -116,7 +118,7 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
             for (const medium of result.document.media)
               if (medium.diff) decodeMemberBodyMappedDiff(medium.diff);
             completed.retained.readers.set(completed.member.id, {
-              document: result.document, medium: "CSharp", mode: "unified", scrollTop: 0,
+              document: result.document, medium: restoredMedia.get(completed.packageModel) ?? "CSharp", mode: "unified", scrollTop: 0,
             });
           } else {
             if (result.kind === "Unavailable" && completed.member) {
@@ -184,6 +186,7 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
     root.querySelectorAll<HTMLButtonElement>("[data-member-body-medium]").forEach(button =>
       button.addEventListener("click", () => {
         reader.medium = button.dataset.memberBodyMedium === "Il" ? "Il" : "CSharp";
+        if (context) restoredMedia.set(context.packageModel, reader.medium);
         if (expanded) paintExplore(reader);
         else { savePosition(); dependencies.render(); }
       }));
@@ -193,9 +196,9 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
       writeClipboardText: text => dependencies.document.defaultView!.navigator.clipboard.writeText(text),
     });
   }
-  function mediaControls(reader: Reader): string {
+  function mediaControls(reader: Reader, toolbar = false): string {
     return reader.document.media.map(medium =>
-      `<button type="button" data-member-body-medium="${escape(medium.medium)}" aria-pressed="${medium.medium === reader.medium}">${medium.medium === "CSharp" ? "C#" : "IL"}</button>`).join("");
+      `<button type="button"${toolbar ? ` id="member-body-medium-${escape(medium.medium)}"` : ""} data-member-body-medium="${escape(medium.medium)}" aria-pressed="${medium.medium === reader.medium}">${medium.medium === "CSharp" ? "C#" : "IL"}</button>`).join("");
   }
   function paintExplore(reader: Reader): void {
     if (!dialog) return;
@@ -212,14 +215,43 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
     if (scroller) scroller.scrollTop = reader.scrollTop;
   }
   return {
+    copyPackages(copies: ReadonlyMap<object, object>) {
+      for (const [original, copy] of copies) {
+        const body = restoredBodies.get(original);
+        if (body) restoredBodies.set(copy, body);
+        const medium = context?.packageModel === original
+          ? currentReader()?.medium ?? restoredMedia.get(original)
+          : restoredMedia.get(original);
+        if (medium) restoredMedia.set(copy, medium);
+      }
+    },
+    restoreBodySelector(packageModel: object, type: string, anchor: string, selector: string) {
+      restoredBodies.set(packageModel, { type, anchor, selector });
+    },
+    clearRestoredBodySelector(packageModel: object) { restoredBodies.delete(packageModel); },
+    restoredBodySelector(packageModel: object, type: string | null, anchor: string | null) {
+      const body = restoredBodies.get(packageModel);
+      return body?.type === type && body?.anchor === anchor ? body.selector : null;
+    },
+    captureBodySelector() {
+      return context && retained?.inventory
+        ? memberBodyDestination(retained.inventory, context)?.selector ?? context.bodySelector ?? null
+        : context?.bodySelector ?? null;
+    },
+    captureMedium() { return currentReader()?.medium ?? (context ? restoredMedia.get(context.packageModel) : null) ?? "CSharp"; },
+    restoreMedium(packageModel: object, medium: "CSharp" | "Il") { restoredMedia.set(packageModel, medium); },
     get isOpen() { return dialog !== null; },
+    renderActions(): string {
+      const reader = currentReader();
+      return reader ? `${mediaControls(reader, true)}<button type="button" class="primary-action" id="member-body-explore" data-member-body-explore>Explore</button>` : "";
+    },
     reconcile(next: MemberBodyDiffContext | null): void {
       savePosition();
       const prior = context;
       if (prior?.packageModel !== next?.packageModel
         || JSON.stringify(prior?.request) !== JSON.stringify(next?.request)
         || prior?.subject !== next?.subject || prior?.typeIdentity !== next?.typeIdentity
-        || prior?.memberFingerprint !== next?.memberFingerprint || prior?.methodToken !== next?.methodToken)
+        || prior?.memberFingerprint !== next?.memberFingerprint || prior?.methodToken !== next?.methodToken || prior?.bodySelector !== next?.bodySelector)
         closeExplore();
       context = next;
       if (!next) {
@@ -240,7 +272,7 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
         closeExplore();
       }
       if (pending || failure || (retained.inventory && (!member || retained.readers.has(member.id)))) return;
-      input = { key: operationKey, retained, member,
+      input = { packageModel: next.packageModel, key: operationKey, retained, member,
         request: member && retained.inventory ? { ...next.request, inventoryId: retained.inventory.id, memberId: member.id } : next.request };
       const prepared = input;
       pending = true;
@@ -263,7 +295,7 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
       else if (!inventory) content = '<p role="status">Loading implementation changes…</p>';
       else if (context.subject === "member") {
         const reader = currentReader();
-        content = `<section class="member-body-reader"><header class="section-title"><h2>Member Body</h2>${reader ? `${mediaControls(reader)}<button type="button" id="member-body-explore" data-member-body-explore>Explore</button>` : ""}</header><div class="member-body-scroll" data-member-body-scroll>${reader
+        content = `<section class="member-body-reader"><div class="member-body-scroll" data-member-body-scroll>${reader
           ? renderMemberBodyReader(reader, escape)
           : pending ? '<p role="status">Loading exact Member diff…</p>'
             : inventory.isComplete ? '<p role="status">No exact body comparison destination is available for this Member.</p>'
@@ -279,10 +311,10 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
           : types.flatMap(type => type.members).map(member => member.fingerprint !== null && member.methodToken !== null
             ? `<button type="button" class="library-api-diff-member" data-member-body-member="${escape(member.id)}">${escape(member.display)} <span>${escape(member.outcome)} · ${escape(member.mechanisms.join(" · "))}</span></button>`
             : `<div class="library-api-diff-member">${escape(member.display)} <span>${escape(member.identityFailure ?? member.outcome)}</span></div>`).join("");
-        content = `<p class="member-body-coverage">${escape(coverage)}</p><div class="member-body-inventory member-body-scroll" data-member-body-scroll>${rows || `<p role="status">${inventory.isComplete ? "No implementation changes found" : "No changed rows; comparison coverage is incomplete."}</p>`}</div>`;
+        content = `<p class="member-body-coverage" role="status">${escape(status)} · ${escape(coverage)}</p><div class="member-body-inventory member-body-scroll" data-member-body-scroll>${rows || `<p role="status">${inventory.isComplete ? "No implementation changes found" : "No changed rows; comparison coverage is incomplete."}</p>`}</div>`;
       }
       return renderCompareFrame({ subjectKind: context.subject, subjectLabel: context.subjectLabel,
-        mode: "diff", targetText: context.targetText, status, content, tools: context.tools, escapeHtml: escape });
+        mode: "diff", targetText: context.targetText, status, content, externalToolbar: true, escapeHtml: escape });
     },
     bind(root: ParentNode): void {
       root.querySelectorAll<HTMLButtonElement>("[data-member-body-type]").forEach(button =>

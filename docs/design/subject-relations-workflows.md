@@ -372,6 +372,8 @@ continuation. Count may continue through the whole population after Rows stop.
 Changing the focus, population generation, semantic selection, visibility, or
 operation policy makes continuation stale or incompatible.
 
+### Workspace hierarchy composition
+
 The completed Workspace hierarchy content contains the settled canonical
 population plus focused `Implementers` or `Derived Types` candidates grouped
 by exact acquired source Type. Its `InspectionEnvelope<TContent>` is
@@ -385,6 +387,45 @@ A compatible row-query binding may apply residual shaping to a returned
 segment, but it cannot widen acquisition, authorize another producer, change
 the canonical population, or strengthen completion. Sections and convenience
 commands lower their gestures to the same typed population request.
+
+Issue [#9661](https://github.com/richlander/dotnet-inspect/issues/9661)
+composes one owner-issued package-prefix Scope realization with that existing
+Workspace hierarchy operation. Given one exact Type focus context, one
+caller-selected current Scope snapshot, and one committed or no-effect
+package-prefix realization from #9660, the adapter admits the realization's
+current `Existing` and `Admitted` Package occurrences through
+`AdmitPackageScopeDeclarationAsync`, captures the focus plus successfully
+admitted contexts, and executes the ordinary
+`WorkspaceTypeHierarchySubjectRelationsOperation`.
+
+The adapter does not search packages, acquire Roots, construct assembly groups,
+or match hierarchy relations. It retains the complete #9660 query and
+candidate evidence beside the unchanged Subject Relations envelope, including
+search completion, source dispositions, preparation and capacity failures, and
+the Scope operation. Each selected occurrence also retains its exact admission
+context or typed admission failure. A failed or non-ready neighbor therefore
+makes composition incomplete without discarding useful Rows from admitted
+candidates. When Count was requested, it is incomplete rather than an exact
+count over only the successfully admitted subset.
+
+When the focus context already represents the same exact realized Package
+coordinate as a selected Scope occurrence, the adapter still exercises
+ordinary Package declaration admission. For a direct focus context, population
+capture excludes only the admitted assembly occurrence with the same exact
+assembly identity and module version; sibling assemblies from that Package
+remain candidates. For an already admitted Package Scope focus, ordinary
+context identity prevents duplicate capture. The exact selected focus context
+remains the sole occurrence of its physical assembly source. Other admitted
+members retain Workspace publication order, and the existing hierarchy
+operation preserves canonical rows when equal-looking logical Types arise from
+distinct exact source occurrences.
+
+Composition continuation retains the exact captured population and #9660
+evidence. It does not repeat admission or recapture a later population.
+Changing the realization, selected Scope revision, or focus context makes that
+process-local continuation authority invalid. The ordinary hierarchy
+continuation continues to own focus, selection, ordering, visibility, producer
+position, and Metadata policy compatibility.
 
 ### Preserve one exact Type focus
 

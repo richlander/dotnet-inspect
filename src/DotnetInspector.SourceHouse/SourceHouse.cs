@@ -20,6 +20,19 @@ public static partial class SourceHouse
         SourceHouseAuthoredRequest request,
         LibraryOperationLease operationLease,
         CancellationToken cancellationToken = default)
+        => await ExecuteAndCompleteAsync(
+                request,
+                operationLease,
+                session: null,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    private static async ValueTask<SourceHouseOutcome>
+        ExecuteAndCompleteAsync(
+        SourceHouseAuthoredRequest request,
+        LibraryOperationLease operationLease,
+        AuthoredSession? session,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(operationLease);
 
@@ -31,6 +44,7 @@ public static partial class SourceHouse
             provisional = await ExecuteCoreAsync(
                     request,
                     operationLease,
+                    session,
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -49,6 +63,7 @@ public static partial class SourceHouse
     private static async ValueTask<ProvisionalOutcome> ExecuteCoreAsync(
         SourceHouseAuthoredRequest request,
         LibraryOperationLease operationLease,
+        AuthoredSession? session,
         CancellationToken cancellationToken)
     {
         SourceHouseWorkCharge emptyWork = EmptyWork();
@@ -91,6 +106,20 @@ public static partial class SourceHouse
                 noPdb,
                 emptyWork);
         }
+        if (session is not null
+            && (!ReferenceEquals(
+                    request.Library,
+                    session.Library)
+                || !ReferenceEquals(
+                    request.SelectedAssembly,
+                    session.SelectedAssembly)
+                || !ReferenceEquals(
+                    request.Plan.Limits,
+                    session.Limits)))
+        {
+            throw new InvalidOperationException(
+                "The authored-source request does not match its session binding.");
+        }
         if (DeadlineExpired(request.Plan))
         {
             return Incomplete(
@@ -124,38 +153,52 @@ public static partial class SourceHouse
         LibraryContentReference? companion =
             companions.Length == 0 ? null : companions[0];
         DetachedInputs detached;
-        try
+        if (session?.Detached is { } preparedInputs)
         {
-            detached = SnapshotInputs(
-                request,
-                operationLease,
-                companion,
-                cancellationToken);
+            detached = preparedInputs;
         }
-        catch (OperationCanceledException)
+        else
         {
-            throw;
-        }
-        catch (SourceHouseSnapshotException exception)
-        {
-            string detail = ExceptionDetail(exception.InnerException!);
-            return Failed(
-                exception.Stage,
-                "ContentAccessFailed",
-                new SourceHousePdbContribution(
-                    SourceHousePdbContributionKind.Failed,
-                    exception.Stage
-                        == SourceHouseFailureStage.PortablePdbSnapshot
-                            ? companion
-                            : null,
-                    bytesObserved: 0,
-                    sourceLinkMap: null,
-                    observations:
-                    [
-                        new(exception.ObservationStage, detail),
-                    ]),
-                emptyWork,
-                detail: detail);
+            try
+            {
+                detached = SnapshotInputs(
+                    request,
+                    operationLease,
+                    companion,
+                    cancellationToken);
+                if (session is not null)
+                    session.Detached = detached;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (SourceHouseSnapshotException exception)
+            {
+                string detail =
+                    ExceptionDetail(
+                        exception.InnerException!);
+                return Failed(
+                    exception.Stage,
+                    "ContentAccessFailed",
+                    new SourceHousePdbContribution(
+                        SourceHousePdbContributionKind.Failed,
+                        exception.Stage
+                            == SourceHouseFailureStage
+                                .PortablePdbSnapshot
+                                ? companion
+                                : null,
+                        bytesObserved: 0,
+                        sourceLinkMap: null,
+                        observations:
+                        [
+                            new(
+                                exception.ObservationStage,
+                                detail),
+                        ]),
+                    emptyWork,
+                    detail: detail);
+            }
         }
 
         SourceHouseWorkCharge snapshotWork = emptyWork with
@@ -193,6 +236,7 @@ public static partial class SourceHouse
                 detached.PortablePdbBytes,
                 companion,
                 snapshotWork,
+                session,
                 cancellationToken);
         }
         catch (OperationCanceledException)
@@ -360,88 +404,192 @@ public static partial class SourceHouse
         byte[]? portablePdbBytes,
         LibraryContentReference? companion,
         SourceHouseWorkCharge work,
+        AuthoredSession? reusable,
         CancellationToken cancellationToken)
     {
-        ResolvedAssemblyReference? descriptor =
-            ResolvedAssemblyReference.CreateFromArtifactIfManaged(
-                request.SelectedAssembly.Registration,
-                () => new MemoryStream(
-                    assemblyBytes,
-                    writable: false),
-                AssemblyResolutionProvenance.Designated(
-                    "SourceHouse selected Library content"));
-        if (descriptor is null)
+        if (reusable?.Terminal is { } terminal)
         {
             return PreparedAuthoredSource.TerminalOutcome(
-                Failed(
-                    SourceHouseFailureStage.AssemblyInspection,
-                    "NotManagedAssembly",
-                    PdbUnavailable(),
-                    work));
+                terminal);
         }
 
-        ManagedMetadataIdentity.Assembly? expectedIdentity =
-            request.SelectedAssembly.AssemblyIdentity;
-        if (expectedIdentity is null
-            || !descriptor.Identity.IsEquivalentTo(
-                expectedIdentity.Identity))
+        ResolvedAssemblyReference? descriptor =
+            reusable?.Descriptor;
+        if (descriptor is null)
         {
-            return PreparedAuthoredSource.TerminalOutcome(
-                Rejected(
-                    SourceHouseRejectionKind.AssemblyIdentityMismatch,
-                    PdbUnavailable(),
-                    work));
+            descriptor =
+                ResolvedAssemblyReference
+                    .CreateFromArtifactIfManaged(
+                        request.SelectedAssembly
+                            .Registration,
+                        () => new MemoryStream(
+                            assemblyBytes,
+                            writable: false),
+                        AssemblyResolutionProvenance
+                            .Designated(
+                                "SourceHouse selected Library content"));
+            if (descriptor is null)
+            {
+                ProvisionalOutcome notManaged =
+                    Failed(
+                        SourceHouseFailureStage
+                            .AssemblyInspection,
+                        "NotManagedAssembly",
+                        PdbUnavailable(),
+                        work);
+                if (reusable is not null)
+                    reusable.Terminal = notManaged;
+                return PreparedAuthoredSource
+                    .TerminalOutcome(
+                        notManaged);
+            }
+
+            ManagedMetadataIdentity.Assembly?
+                expectedIdentity =
+                    request.SelectedAssembly
+                        .AssemblyIdentity;
+            if (expectedIdentity is null
+                || !descriptor.Identity
+                    .IsEquivalentTo(
+                        expectedIdentity.Identity))
+            {
+                ProvisionalOutcome identityMismatch =
+                    Rejected(
+                        SourceHouseRejectionKind
+                            .AssemblyIdentityMismatch,
+                        PdbUnavailable(),
+                        work);
+                if (reusable is not null)
+                    reusable.Terminal =
+                        identityMismatch;
+                return PreparedAuthoredSource
+                    .TerminalOutcome(
+                        identityMismatch);
+            }
+
+            if (reusable is not null)
+                reusable.Descriptor = descriptor;
         }
 
         ApiSurface surface;
         bool targetExists;
-        using (AssemblyInspectionSession session =
-               AssemblyInspectionSession.Open(descriptor))
+        AssemblyInspectionSession? inspection =
+            reusable?.Inspection;
+        bool disposeInspection = false;
+        if (inspection is null)
         {
+            inspection =
+                AssemblyInspectionSession.Open(
+                    descriptor);
+            disposeInspection = true;
             ApiSurfaceExtractionResult extraction =
-                session.BoundedCompatibilityApiSurface(
+                inspection.BoundedCompatibilityApiSurface(
                     ApiSurfaceExtractionScope.IncludeAll,
                     request.Plan.Limits.TargetBounds);
             if (extraction
                 is ApiSurfaceExtractionResult.Exceeded)
             {
-                return PreparedAuthoredSource.TerminalOutcome(
+                if (disposeInspection)
+                    inspection.Dispose();
+                ProvisionalOutcome exceeded =
                     Incomplete(
-                        SourceHouseIncompleteBoundary.TargetSurface,
+                        SourceHouseIncompleteBoundary
+                            .TargetSurface,
                         PdbUnavailable(),
-                        work));
+                        work);
+                if (reusable is not null)
+                    reusable.Terminal = exceeded;
+                return PreparedAuthoredSource.TerminalOutcome(
+                    exceeded);
             }
 
             surface =
                 ((ApiSurfaceExtractionResult.Extracted)extraction)
                     .Surface;
+            if (reusable is not null)
+            {
+                reusable.Inspection = inspection;
+                reusable.Surface = surface;
+                reusable.TargetIndex =
+                    new AuthoredTargetIndex(surface);
+                disposeInspection = false;
+            }
+        }
+        else
+        {
+            surface =
+                reusable!.Surface
+                ?? throw new InvalidOperationException(
+                    "An authored-source session metadata reader requires its extracted API surface.");
+        }
 
+        try
+        {
             targetExists =
-                TargetExists(session, surface, request.Target);
+                TargetExists(
+                    inspection,
+                    surface,
+                    request.Target,
+                    reusable?.TargetIndex);
             if (!targetExists
                 && RequiresCompilerGeneratedSurface(request.Target))
             {
-                extraction =
-                    session.BoundedCompatibilityApiSurface(
-                        ApiSurfaceExtractionScope.IncludeAll,
-                        request.Plan.Limits.TargetBounds,
-                        includeCompilerGenerated: true);
-                if (extraction
-                    is ApiSurfaceExtractionResult.Exceeded)
+                ApiSurface? compilerGeneratedSurface =
+                    reusable?.CompilerGeneratedSurface;
+                if (compilerGeneratedSurface is null)
                 {
-                    return PreparedAuthoredSource.TerminalOutcome(
-                        Incomplete(
-                            SourceHouseIncompleteBoundary.TargetSurface,
-                            PdbUnavailable(),
-                            work));
+                    ApiSurfaceExtractionResult extraction =
+                        inspection
+                            .BoundedCompatibilityApiSurface(
+                                ApiSurfaceExtractionScope
+                                    .IncludeAll,
+                                request.Plan.Limits
+                                    .TargetBounds,
+                                includeCompilerGenerated:
+                                    true);
+                    if (extraction
+                        is ApiSurfaceExtractionResult
+                            .Exceeded)
+                    {
+                        return PreparedAuthoredSource
+                            .TerminalOutcome(
+                                Incomplete(
+                                    SourceHouseIncompleteBoundary
+                                        .TargetSurface,
+                                    PdbUnavailable(),
+                                    work));
+                    }
+
+                    compilerGeneratedSurface =
+                        ((ApiSurfaceExtractionResult
+                            .Extracted)extraction)
+                            .Surface;
+                    if (reusable is not null)
+                    {
+                        reusable
+                            .CompilerGeneratedSurface =
+                                compilerGeneratedSurface;
+                        reusable
+                            .CompilerGeneratedTargetIndex =
+                                new AuthoredTargetIndex(
+                                    compilerGeneratedSurface);
+                    }
                 }
 
-                surface =
-                    ((ApiSurfaceExtractionResult.Extracted)extraction)
-                        .Surface;
+                surface = compilerGeneratedSurface;
                 targetExists =
-                    TargetExists(session, surface, request.Target);
+                    TargetExists(
+                        inspection,
+                        surface,
+                        request.Target,
+                        reusable
+                            ?.CompilerGeneratedTargetIndex);
             }
+        }
+        finally
+        {
+            if (disposeInspection)
+                inspection.Dispose();
         }
 
         if (!targetExists)
@@ -467,149 +615,242 @@ public static partial class SourceHouse
                     work));
         }
 
+        AuthoredSourcePreparation? sourcePreparation =
+            reusable?.SourcePreparation;
         var observations =
-            new List<SourceHouseNativeObservation>();
+            sourcePreparation is null
+                ? []
+                : new List<SourceHouseNativeObservation>(
+                    sourcePreparation.Observations);
         void Log(string detail) =>
             observations.Add(
                 new(
                     SourceHouseNativeObservationStage.SourceLink,
                     detail));
 
-        SourceLinkService? source = null;
+        SourceLinkService? source =
+            sourcePreparation?.Source;
         SourceHousePdbContributionKind contributionKind =
-            SourceHousePdbContributionKind.Unavailable;
+            sourcePreparation?.ContributionKind
+            ?? SourceHousePdbContributionKind.Unavailable;
         SourceHouseFailureStage failureStage =
             SourceHouseFailureStage.PortablePdbInspection;
         SourceHouseNativeObservationStage observationStage =
             SourceHouseNativeObservationStage.PortablePdb;
-        long pdbBytesObserved = portablePdbBytes?.Length ?? 0;
-        SourceHouseWorkCharge observedWork = work;
+        long pdbBytesObserved =
+            sourcePreparation?.PortablePdbBytesObserved
+            ?? portablePdbBytes?.Length
+            ?? 0;
+        SourceHouseWorkCharge observedWork =
+            sourcePreparation?.Work
+            ?? work;
         SourceHouseAuthoredMapping? observedMapping = null;
+        SourceLinkMapAudit? map =
+            sourcePreparation?.Map;
         try
         {
-            if (portablePdbBytes is not null)
+            if (sourcePreparation is null)
             {
-                contributionKind =
-                    SourceHousePdbContributionKind.SuppliedCompanion;
-                source = SourceLinkService.OpenMetadataOnly(
-                    descriptor,
-                    Log,
-                    cache: null,
-                    request.Plan.Limits.EffectiveSourceLinkReadLimits);
-                source.LoadPdbFromStream(
-                    new MemoryStream(
-                        portablePdbBytes,
-                        writable: false),
-                    pdbLocation: "Library companion",
-                    throwOnReadFailure: true);
-                if (!source.HasPdb)
+                if (portablePdbBytes is not null)
                 {
-                    SourceHousePdbContribution rejectedPdb = Pdb(
-                        SourceHousePdbContributionKind.Rejected,
-                        companion,
-                        portablePdbBytes.Length,
-                        source,
-                        observations);
-                    return PreparedAuthoredSource.TerminalOutcome(
+                    contributionKind =
+                        SourceHousePdbContributionKind
+                            .SuppliedCompanion;
+                    source =
+                        SourceLinkService.OpenMetadataOnly(
+                            descriptor,
+                            Log,
+                            cache: null,
+                            request.Plan.Limits
+                                .EffectiveSourceLinkReadLimits);
+                    source.LoadPdbFromStream(
+                        new MemoryStream(
+                            portablePdbBytes,
+                            writable: false),
+                        pdbLocation: "Library companion",
+                        throwOnReadFailure: true);
+                    if (!source.HasPdb)
+                    {
+                        SourceHousePdbContribution
+                            rejectedPdb = Pdb(
+                                SourceHousePdbContributionKind
+                                    .Rejected,
+                                companion,
+                                portablePdbBytes.Length,
+                                source,
+                                observations);
+                        ProvisionalOutcome mismatch =
                         Rejected(
                             SourceHouseRejectionKind
                                 .PortablePdbCorrespondenceMismatch,
                             rejectedPdb,
-                            work));
+                            work);
+                        if (reusable is not null)
+                            reusable.Terminal = mismatch;
+                        return PreparedAuthoredSource
+                            .TerminalOutcome(
+                                mismatch);
+                    }
                 }
-            }
-            else
-            {
-                contributionKind =
-                    SourceHousePdbContributionKind.Embedded;
-                source = SourceLinkService.OpenEmbeddedPdbOnly(
-                    descriptor,
-                    request.Plan.Limits.EffectiveSourceLinkReadLimits,
-                    Log);
-                pdbBytesObserved = source.Context.EmbeddedPdbSize;
-                observedWork = work with
+                else
                 {
-                    PortablePdbBytesObserved = pdbBytesObserved,
-                };
-                if (!source.HasPdb)
-                {
-                    SourceHousePdbContribution unavailablePdb = Pdb(
-                        SourceHousePdbContributionKind.Unavailable,
-                        content: null,
-                        pdbBytesObserved,
-                        source,
-                        observations);
-                    return PreparedAuthoredSource.TerminalOutcome(
+                    contributionKind =
+                        SourceHousePdbContributionKind
+                            .Embedded;
+                    source =
+                        SourceLinkService
+                            .OpenEmbeddedPdbOnly(
+                                descriptor,
+                                request.Plan.Limits
+                                    .EffectiveSourceLinkReadLimits,
+                                Log);
+                    pdbBytesObserved =
+                        source.Context.EmbeddedPdbSize;
+                    observedWork = work with
+                    {
+                        PortablePdbBytesObserved =
+                            pdbBytesObserved,
+                    };
+                    if (!source.HasPdb)
+                    {
+                        SourceHousePdbContribution
+                            unavailablePdb = Pdb(
+                                SourceHousePdbContributionKind
+                                    .Unavailable,
+                                content: null,
+                                pdbBytesObserved,
+                                source,
+                                observations);
+                        ProvisionalOutcome unavailable =
                         SettleUnavailable(
                             request.Plan,
                             unavailablePdb,
-                            observedWork));
+                            observedWork);
+                        if (reusable is not null)
+                        {
+                            CacheReusableTerminal(
+                                reusable,
+                                unavailable);
+                        }
+                        return PreparedAuthoredSource
+                            .TerminalOutcome(
+                                unavailable);
+                    }
+                }
+
+                failureStage =
+                    SourceHouseFailureStage
+                        .SourceLinkInspection;
+                observationStage =
+                    SourceHouseNativeObservationStage
+                        .SourceLink;
+                cancellationToken
+                    .ThrowIfCancellationRequested();
+                if (DeadlineExpired(request.Plan))
+                {
+                    return PreparedAuthoredSource
+                        .TerminalOutcome(
+                            Incomplete(
+                                SourceHouseIncompleteBoundary
+                                    .Deadline,
+                                Pdb(
+                                    SourceHousePdbContributionKind
+                                        .Incomplete,
+                                    companion,
+                                    pdbBytesObserved,
+                                    source,
+                                    observations),
+                                observedWork));
+                }
+
+                map = source.InspectSourceLinkMap();
+                if (map.LimitKind
+                    == SourceLinkMapLimitKind
+                        .EncodedBytes)
+                {
+                    ProvisionalOutcome mapBytes =
+                        Incomplete(
+                            SourceHouseIncompleteBoundary
+                                .SourceLinkMapBytes,
+                            Pdb(
+                                SourceHousePdbContributionKind
+                                    .Incomplete,
+                                companion,
+                                pdbBytesObserved,
+                                source,
+                                observations),
+                            observedWork);
+                    if (reusable is not null)
+                        reusable.Terminal = mapBytes;
+                    return PreparedAuthoredSource
+                        .TerminalOutcome(
+                            mapBytes);
+                }
+                if (map.LimitKind
+                    == SourceLinkMapLimitKind
+                        .Mappings)
+                {
+                    ProvisionalOutcome mapCount =
+                        Incomplete(
+                            SourceHouseIncompleteBoundary
+                                .SourceLinkMappings,
+                            Pdb(
+                                SourceHousePdbContributionKind
+                                    .Incomplete,
+                                companion,
+                                pdbBytesObserved,
+                                source,
+                                observations),
+                            observedWork);
+                    if (reusable is not null)
+                        reusable.Terminal = mapCount;
+                    return PreparedAuthoredSource
+                        .TerminalOutcome(
+                            mapCount);
+                }
+                if (map.Map.Status
+                    == SourceLinkMapStatus.Unusable)
+                {
+                    observations.Add(
+                        new(
+                            SourceHouseNativeObservationStage
+                                .SourceLink,
+                            map.Map.Error
+                            ?? "The SourceLink map is unusable."));
+                }
+
+                if (reusable is not null)
+                {
+                    sourcePreparation =
+                        new(
+                            source,
+                            map,
+                            contributionKind,
+                            companion,
+                            pdbBytesObserved,
+                            observedWork,
+                            [.. observations]);
+                    reusable.SourcePreparation =
+                        sourcePreparation;
                 }
             }
 
-            failureStage = SourceHouseFailureStage.SourceLinkInspection;
-            observationStage =
-                SourceHouseNativeObservationStage.SourceLink;
-            cancellationToken.ThrowIfCancellationRequested();
-            if (DeadlineExpired(request.Plan))
-            {
-                return PreparedAuthoredSource.TerminalOutcome(
-                    Incomplete(
-                        SourceHouseIncompleteBoundary.Deadline,
-                        Pdb(
-                            SourceHousePdbContributionKind.Incomplete,
-                            companion,
-                            pdbBytesObserved,
-                            source,
-                            observations),
-                        observedWork));
-            }
-
-            SourceLinkMapAudit map = source.InspectSourceLinkMap();
-            if (map.LimitKind
-                == SourceLinkMapLimitKind.EncodedBytes)
-            {
-                return PreparedAuthoredSource.TerminalOutcome(
-                    Incomplete(
-                        SourceHouseIncompleteBoundary.SourceLinkMapBytes,
-                        Pdb(
-                            SourceHousePdbContributionKind.Incomplete,
-                            companion,
-                            pdbBytesObserved,
-                            source,
-                            observations),
-                        observedWork));
-            }
-            if (map.LimitKind
-                == SourceLinkMapLimitKind.Mappings)
-            {
-                return PreparedAuthoredSource.TerminalOutcome(
-                    Incomplete(
-                        SourceHouseIncompleteBoundary.SourceLinkMappings,
-                        Pdb(
-                            SourceHousePdbContributionKind.Incomplete,
-                            companion,
-                            pdbBytesObserved,
-                            source,
-                            observations),
-                        observedWork));
-            }
-            if (map.Map.Status == SourceLinkMapStatus.Unusable)
-            {
-                observations.Add(
-                    new(
-                        SourceHouseNativeObservationStage.SourceLink,
-                        map.Map.Error
-                        ?? "The SourceLink map is unusable."));
-            }
-
+            SourceLinkService preparedSource =
+                source
+                ?? throw new InvalidOperationException(
+                    "Authored-source preparation completed without a SourceLink service.");
+            SourceLinkMapAudit preparedMap =
+                map
+                ?? throw new InvalidOperationException(
+                    "Authored-source preparation completed without a SourceLink map audit.");
             failureStage = SourceHouseFailureStage.TargetMapping;
             observationStage =
                 SourceHouseNativeObservationStage.Mapping;
             MappingPreparation mapping = PrepareMapping(
                 request.Target,
-                source,
+                preparedSource,
                 request.Plan.Limits,
+                sourcePreparation,
                 cancellationToken);
             observedWork = observedWork with
             {
@@ -625,11 +866,11 @@ public static partial class SourceHouse
                         SourceHouseNativeObservationStage.Mapping,
                         mappingDetail));
             }
-            SourceHousePdbContribution pdb = Pdb(
+            var pdb = new SourceHousePdbContribution(
                 contributionKind,
                 companion,
                 pdbBytesObserved,
-                source,
+                preparedMap,
                 observations);
             if (mapping.IncompleteBoundary is { } boundary)
             {
@@ -669,8 +910,8 @@ public static partial class SourceHouse
                 request.Target,
                 mapping.Document,
                 mapping.Mapping,
-                source.RepositoryUrl,
-                source.CommitHash);
+                preparedSource.RepositoryUrl,
+                preparedSource.CommitHash);
             return new PreparedAuthoredSource(
                 pdb,
                 mapping.Mapping,
@@ -706,6 +947,10 @@ public static partial class SourceHouse
         finally
         {
             if (source is not null
+                && !ReferenceEquals(
+                    source,
+                    reusable?.SourcePreparation
+                        ?.Source)
                 && source.DisposeWithFailure() is { } failure)
             {
                 observations.Add(
@@ -714,6 +959,12 @@ public static partial class SourceHouse
                         ExceptionDetail(failure)));
                 if (!cancellationToken.IsCancellationRequested)
                 {
+                    if (reusable is not null
+                        && reusable.SourcePreparation
+                            is null)
+                    {
+                        reusable.Terminal = null;
+                    }
                     throw new SourceHouseDisposalException(
                         new SourceHousePdbContribution(
                             SourceHousePdbContributionKind.Failed,
@@ -729,10 +980,29 @@ public static partial class SourceHouse
         }
     }
 
+    private static void CacheReusableTerminal(
+        AuthoredSession reusable,
+        ProvisionalOutcome terminal)
+    {
+        if (terminal
+            is IncompleteOutcome
+            {
+                Boundary:
+                    SourceHouseIncompleteBoundary
+                        .Deadline,
+            })
+        {
+            return;
+        }
+
+        reusable.Terminal = terminal;
+    }
+
     private static MappingPreparation PrepareMapping(
         SourceHouseTarget target,
         SourceLinkService source,
         SourceHouseLimits limits,
+        AuthoredSourcePreparation? reusable,
         CancellationToken cancellationToken)
     {
         var findingSubject = new FindingSubject(
@@ -741,9 +1011,15 @@ public static partial class SourceHouse
                 : "type",
             target.Type.ToMetadataFullName());
         FindingInspection<SourceDocumentObservation> documentInspection =
-            SourceLinkFindings.InspectSourceDocuments(
+            reusable?.Documents
+            ?? SourceLinkFindings.InspectSourceDocuments(
                 source,
                 findingSubject);
+        if (reusable is not null
+            && reusable.Documents is null)
+        {
+            reusable.Documents = documentInspection;
+        }
         if (documentInspection.Value
             is FindingInspection<SourceDocumentObservation>.Failed
                 documentFailure)
@@ -1453,14 +1729,18 @@ public static partial class SourceHouse
     private static bool TargetExists(
         AssemblyInspectionSession session,
         ApiSurface surface,
-        SourceHouseTarget target)
+        SourceHouseTarget target,
+        AuthoredTargetIndex? index = null)
     {
         ApiType[] types =
-        [
-            .. surface.Types.Where(
-                candidate =>
-                    candidate.DefinitionName == target.Type),
-        ];
+            index?.Types(target.Type)
+            ??
+            [
+                .. surface.Types.Where(
+                    candidate =>
+                        candidate.DefinitionName
+                            == target.Type),
+            ];
         if (types.Length != 1)
             return false;
         if (target is not SourceHouseTarget.MemberTarget memberTarget)
@@ -1469,7 +1749,8 @@ public static partial class SourceHouse
         return ResolveMemberTarget(
             session,
             surface,
-            memberTarget) is not null;
+            memberTarget,
+            index) is not null;
     }
 
     private static (
@@ -1479,46 +1760,60 @@ public static partial class SourceHouse
         ResolveMemberTarget(
             AssemblyInspectionSession session,
             ApiSurface surface,
-            SourceHouseTarget.MemberTarget target)
+            SourceHouseTarget.MemberTarget target,
+            AuthoredTargetIndex? index = null)
     {
-        ApiType[] types =
-        [
-            .. surface.Types.Where(
-                candidate =>
-                    candidate.DefinitionName == target.Type),
-        ];
+            ApiType[] types =
+                index?.Types(target.Type)
+                ??
+                [
+                    .. surface.Types.Where(
+                        candidate =>
+                            candidate.DefinitionName
+                                == target.Type),
+                ];
         if (types.Length != 1)
             return null;
 
         ApiType type = types[0];
         // An explicit accessor can appear as both a physical method and an
         // accessor projection; the same token and anchor still name one target.
+        IEnumerable<ApiMember> directCandidates =
+            index?.DirectMembers(
+                target.Type,
+                target.MetadataToken)
+            ?? (IEnumerable<ApiMember>)type.Members;
         ApiMember[] direct =
         [
-            .. type.Members.Where(
+            .. directCandidates.Where(
                 candidate =>
                     candidate.MetadataToken
                         == target.MetadataToken
-                   && (session.MethodAnchorMatches(
-                       target.Type,
-                       target.MetadataToken,
-                       target.Member)
-                       || ApiMemberIdentity.GetMemberAnchor(
-                       type,
-                       candidate)
-                       == target.Member)),
+                    && (session.MethodAnchorMatches(
+                            target.Type,
+                            target.MetadataToken,
+                            target.Member)
+                        || ApiMemberIdentity.GetMemberAnchor(
+                            type,
+                            candidate)
+                            == target.Member)),
         ];
         if (direct.Length == 1)
             return (type, direct[0], false);
         if (direct.Length > 1)
             return null;
 
+        IEnumerable<ApiMember> accessorCandidates =
+            index?.Accessors(
+                target.Type,
+                target.MetadataToken)
+            ?? type.Members.SelectMany(
+                owner => ApiMemberAccessors.Create(
+                    owner,
+                    type));
         ApiMember[] accessors =
         [
-            .. type.Members
-                .SelectMany(
-                    owner => ApiMemberAccessors.Create(owner, type))
-                .Where(
+            .. accessorCandidates.Where(
                     candidate =>
                         candidate.MetadataToken
                             == target.MetadataToken
@@ -1780,7 +2075,7 @@ public static partial class SourceHouse
             work);
     }
 
-    private sealed record DetachedInputs(
+    internal sealed record DetachedInputs(
         byte[]? AssemblyBytes,
         byte[]? PortablePdbBytes,
         int AssemblyLength,
@@ -1988,7 +2283,7 @@ public static partial class SourceHouse
                 new(stage, code, detail));
     }
 
-    private abstract record ProvisionalOutcome(
+    internal abstract record ProvisionalOutcome(
         SourceHousePdbContribution PdbContribution,
         SourceHouseAuthoredAttempt AuthoredAttempt,
         SourceHouseWorkCharge Work)

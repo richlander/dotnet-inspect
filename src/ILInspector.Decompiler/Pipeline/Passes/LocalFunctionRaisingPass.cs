@@ -1640,6 +1640,11 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         for (int i = 0; i < statements.Count; i++)
         {
             var statement = statements[i];
+            // A throw is a complete terminal body for any return type, just as
+            // a return is. Admit the already-raised statement without changing
+            // its exception expression or the preceding effect order.
+            if (statement is Throw)
+                return i == statements.Count - 1;
             if (statement is Return returnStatement)
                 return i == statements.Count - 1
                     && (returnStatement.Value is not null

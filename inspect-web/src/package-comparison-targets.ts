@@ -105,6 +105,11 @@ export function createPackageComparisonTargets<T extends ComparisonPackage>(
         });
       }
     },
+    restoreExactDiff(pkg: T, version: string, content: DiffContent) {
+      requireResident(pkg);
+      if (pkg.source.kind !== "nuget.org") throw new Error("Shared Diff requires a Gallery Package.");
+      settings.set(pkg, { ...get(pkg), diff: { kind: "exact", version }, diffContent: content, mode: "diff" });
+    },
     selectDiff(pkg: T, diff: DiffTarget, versions: PackageVersionState) {
       requireResident(pkg);
       if (pkg.source.kind !== "nuget.org")
@@ -224,7 +229,7 @@ export function renderPackageComparisonTargets<T extends ComparisonPackage>(
         </div>
       </section>
     </div>
-    <p class="comparison-target-policy">Session only. Choosing a target does not run a comparison or change shared links.</p>`;
+    <p class="comparison-target-policy">Shared Diff links preserve the exact baseline shown. Choosing a target does not run a comparison. Clone scope is session only.</p>`;
 }
 
 export function bindPackageComparisonTargets<T extends ComparisonPackage>(

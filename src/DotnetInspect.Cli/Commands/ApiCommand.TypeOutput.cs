@@ -441,6 +441,8 @@ public partial class ApiCommand
                             mo4.PdbPath,
                             methods,
                             mo4);
+                        if (!ApiOutputFormatter.TrySelectBodyShapeRows(view, mo4))
+                            return 1;
                     }
                     var analysisInspection = new ApiMemberAnalysisInspection(
                         mo4.DllPath!, methods, requestedSections, mo4.CallerScopeAssemblies, mo4);
@@ -449,6 +451,11 @@ public partial class ApiCommand
                         requestedSections, analysisInspection, mo4.PdbPath,
                         mo4.IncludeSections, mo4,
                         memberCodeSourceAssembly);
+                }
+                else if (BodyKindQueryOptions.IsSelected(requestedSections)
+                    && !ApiOutputFormatter.TrySelectBodyShapeRows(view, mo4))
+                {
+                    return 1;
                 }
             }
 
@@ -464,6 +471,8 @@ public partial class ApiCommand
                         BuildFilteredTypeForBodyShapes(type, options)),
                     options,
                     sourceAssembly);
+                if (!ApiOutputFormatter.TrySelectBodyShapeRows(view, options))
+                    return 1;
             }
 
             // Type-scope analysis sections share one execution per type (opened lazily, only

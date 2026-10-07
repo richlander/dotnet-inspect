@@ -402,17 +402,52 @@ public static class WorkspaceContextLoader
             return new WorkspacePackageRootAcquisitionOutcome.Failed([failure]);
 
         AcquiredPackagePayload payload = acquisition.Payload!;
-        WorkspacePackageRootAcquisitionOutcome binding =
-            BindPackageRoot(member, payload, framework!);
-        if (binding is WorkspacePackageRootAcquisitionOutcome.Acquired acquired
-            && acquired.Root.Root.AssetSelection.Status
-                == PackageCompileAssetSelectionStatus.NoMatchingTargetFramework
-            && PackageAssetSelector.Select(payload.Content, framework!, rid)
-                is PackageAssetSelection.Selected compatible)
+        return BindPackageRootWithCompatibleSelection(
+            member,
+            payload,
+            framework!,
+            rid);
+    }
+
+    /// <summary>
+    /// Re-acquires one exact producer-pinned Package Root without constructing
+    /// assembly contexts.
+    /// </summary>
+    public static async Task<WorkspacePackageRootAcquisitionOutcome>
+        AcquireRealizedPackageRootAsync(
+            RealizedMemberCoordinate.Package coordinate,
+            WorkspaceContextLoadOptions options,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(options.HttpClient);
+        ArgumentNullException.ThrowIfNull(options.SourceAuthorization);
+        ArgumentNullException.ThrowIfNull(options.PackageStore);
+        ArgumentNullException.ThrowIfNull(options.PayloadLimits);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        WorkspaceMemberCoordinate declared = Declare(coordinate);
+        PinnedPackagePayloadAcquisition acquisition =
+            await AcquirePinnedPackagePayloadAsync(
+                    coordinate,
+                    declared,
+                    options,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (acquisition.Failure is { } failure)
         {
-            return BindPackageRoot(member, payload, compatible.Universe.TargetFramework);
+            return new WorkspacePackageRootAcquisitionOutcome.Failed(
+                [failure]);
         }
-        return binding;
+
+        return BindPackageRootWithCompatibleSelection(
+            (WorkspaceMemberCoordinate.PackageMember)declared,
+            acquisition.Payload!,
+            coordinate.Framework!,
+            coordinate.RuntimeIdentifier,
+            coordinate.Producer,
+            acquisition.SourceProducer);
     }
 
     /// <summary>
@@ -2292,10 +2327,49 @@ public static class WorkspaceContextLoader
         WorkspaceContextLoadOptions options,
         CancellationToken cancellationToken)
     {
+        PinnedPackagePayloadAcquisition acquisition =
+            await AcquirePinnedPackagePayloadAsync(
+                    pinned,
+                    declared,
+                    options,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (acquisition.Failure is { } failure)
+            return new MemberRealization(failure);
+
+        MemberRealization realization = RealizeAcquiredPackage(
+            declared,
+            acquisition.Payload!,
+            pinned.Framework!,
+            pinned.RuntimeIdentifier,
+            options.IncludePackageRootBindings,
+            cancellationToken,
+            pinned.Producer,
+            acquisition.SourceProducer);
+
+        // A re-acquired member reports the coordinate it was asked for, so a
+        // caller can compare the round trip by value.
+        return realization.Failure is null
+            ? new MemberRealization(
+                pinned,
+                realization.Assemblies,
+                realization.PackageRoot)
+            : realization;
+    }
+
+    static async Task<PinnedPackagePayloadAcquisition>
+        AcquirePinnedPackagePayloadAsync(
+            RealizedMemberCoordinate.Package pinned,
+            WorkspaceMemberCoordinate declared,
+            WorkspaceContextLoadOptions options,
+            CancellationToken cancellationToken)
+    {
         string? framework = pinned.Framework;
         if (framework is null)
         {
-            return new MemberRealization(
+            return new(
+                null,
+                null,
                 Failure(
                     WorkspaceContextLoadFailureKind.MissingAcquisitionTarget,
                     declared,
@@ -2305,17 +2379,15 @@ public static class WorkspaceContextLoader
         PackageSourceAuthorization authorization =
             options.SourceAuthorization.AuthorizeSourcesFor(pinned.PackageId);
 
-        // The intersection, not a preference: only authorities for the
-        // recorded producer may answer, so a host that authorizes several
-        // producers for this id still re-acquires the bytes the coordinate was
-        // realized from.
         PackageRootProducerAuthorization.MatchResult producerMatch =
             PackageRootProducerAuthorization.Match(
                 authorization.Sources,
                 pinned.Producer);
         if (producerMatch.Ambiguous)
         {
-            return new MemberRealization(
+            return new(
+                null,
+                null,
                 Failure(
                     WorkspaceContextLoadFailureKind.PackageProducerUnavailable,
                     declared,
@@ -2323,7 +2395,9 @@ public static class WorkspaceContextLoader
         }
         if (producerMatch.Candidates.Count == 0)
         {
-            return new MemberRealization(
+            return new(
+                null,
+                null,
                 Failure(
                     WorkspaceContextLoadFailureKind.PackageProducerUnavailable,
                     declared,
@@ -2349,18 +2423,17 @@ public static class WorkspaceContextLoader
         switch (resolution)
         {
             case PackageCoordinateResolution.Invalid invalid:
-                return new MemberRealization(
+                return new(
+                    null,
+                    null,
                     Failure(
                         WorkspaceContextLoadFailureKind.InvalidCoordinate,
                         declared,
                         invalid.Message));
             case PackageCoordinateResolution.Unavailable unavailable:
-                // Authorization has already narrowed to the one recorded
-                // producer, so an unavailable resolution here is that producer
-                // failing to answer for this coordinate — not the package being
-                // unavailable in general, which is what a caller would read
-                // PackageUnavailable to mean.
-                return new MemberRealization(
+                return new(
+                    null,
+                    null,
                     Failure(
                         WorkspaceContextLoadFailureKind
                             .PackageProducerUnavailable,
@@ -2379,7 +2452,9 @@ public static class WorkspaceContextLoader
                 options.PackageTransferPolicy).ConfigureAwait(false);
         if (payload is PackagePayloadResult.Unavailable payloadFailure)
         {
-            return new MemberRealization(
+            return new(
+                null,
+                null,
                 Failure(
                     WorkspaceContextLoadFailureKind.PackageProducerUnavailable,
                     declared,
@@ -2395,31 +2470,16 @@ public static class WorkspaceContextLoader
                     StringComparison.Ordinal));
         if (acquiredCandidate is null)
         {
-            return new MemberRealization(
+            return new(
+                null,
+                null,
                 Failure(
                     WorkspaceContextLoadFailureKind.PackageProducerUnavailable,
                     declared,
                     $"Package '{pinned.PackageId}' was served by a producer other than the one its realized coordinate names."));
         }
 
-        MemberRealization realization = RealizeAcquiredPackage(
-            declared,
-            acquired,
-            framework,
-            pinned.RuntimeIdentifier,
-            options.IncludePackageRootBindings,
-            cancellationToken,
-            pinned.Producer,
-            acquiredCandidate.Producer);
-
-        // A re-acquired member reports the coordinate it was asked for, so a
-        // caller can compare the round trip by value.
-        return realization.Failure is null
-            ? new MemberRealization(
-                pinned,
-                realization.Assemblies,
-                realization.PackageRoot)
-            : realization;
+        return new(acquired, acquiredCandidate.Producer, null);
     }
 
     static MemberRealization RealizeAcquiredPackage(
@@ -2632,6 +2692,47 @@ public static class WorkspaceContextLoader
                     $"The package Root for '{acquired.Coordinate.PackageId}' could not be bound to its acquired content.")]);
         }
     }
+
+    static WorkspacePackageRootAcquisitionOutcome
+        BindPackageRootWithCompatibleSelection(
+            WorkspaceMemberCoordinate.PackageMember member,
+            AcquiredPackagePayload acquired,
+            string framework,
+            string? runtimeIdentifier,
+            string? coordinateProducer = null,
+            PackageProducerIdentity? sourceProducer = null)
+    {
+        WorkspacePackageRootAcquisitionOutcome binding =
+            BindPackageRoot(
+                member,
+                acquired,
+                framework,
+                coordinateProducer,
+                sourceProducer);
+        if (binding is WorkspacePackageRootAcquisitionOutcome.Acquired acquiredRoot
+            && acquiredRoot.Root.Root.AssetSelection.Status
+                == PackageCompileAssetSelectionStatus.NoMatchingTargetFramework
+            && PackageAssetSelector.Select(
+                    acquired.Content,
+                    framework,
+                    runtimeIdentifier)
+                is PackageAssetSelection.Selected compatible)
+        {
+            return BindPackageRoot(
+                member,
+                acquired,
+                compatible.Universe.TargetFramework,
+                coordinateProducer,
+                sourceProducer);
+        }
+
+        return binding;
+    }
+
+    sealed record PinnedPackagePayloadAcquisition(
+        AcquiredPackagePayload? Payload,
+        PackageProducerIdentity? SourceProducer,
+        WorkspaceContextLoadFailure? Failure);
 
     static MemberRealization RealizeEmbedded(
         WorkspaceMemberCoordinate.EmbeddedMember member,
