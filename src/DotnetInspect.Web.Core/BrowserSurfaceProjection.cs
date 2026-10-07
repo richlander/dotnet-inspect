@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Runtime.Versioning;
 using CSharpText;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using Analysis = ILInspector.Analysis;
@@ -197,6 +198,36 @@ internal static class BrowserSurfaceProjection
     }
 
     internal static Surface Project(
+        EmbeddedLibraryInspectionExecution execution)
+    {
+        EmbeddedLibraryInspectionResult content = execution.Inspection.Content;
+        ApiSurface surface = execution.Surface
+            ?? throw new InvalidOperationException(
+                "An available embedded Library has no API surface.");
+        EmbeddedLibraryAssemblyIdentity identity = content.Assembly
+            ?? throw new InvalidOperationException(
+                "An available embedded Library has no assembly identity.");
+        string assembly = content.DeclaredName.ToString();
+        string assemblyId = $"sha256:{content.Digest}";
+        string asset = assembly;
+        if (content.InspectionFailures.IsDefault)
+            throw new ArgumentException(
+                "Detached API inspection failures must be initialized.",
+                nameof(content.InspectionFailures));
+        return Project(
+            surface,
+            content.Accessibility,
+            identity.Name,
+            identity.Version,
+            identity.Culture,
+            identity.PublicKeyToken,
+            assembly,
+            assemblyId,
+            asset,
+            content.InspectionFailures.Length);
+    }
+
+    internal static Surface Project(
         ApiSurface surface,
         ImmutableArray<ApiAccessibilityBucket> accessibility,
         AssemblyReferenceIdentity identity,
@@ -205,19 +236,43 @@ internal static class BrowserSurfaceProjection
         string asset,
         ImmutableArray<ApiSurfaceInspectionFailure> inspectionFailures)
     {
+        if (inspectionFailures.IsDefault)
+            throw new ArgumentException(
+                "API inspection failures must be initialized.",
+                nameof(inspectionFailures));
+        return Project(
+            surface,
+            accessibility,
+            identity.Name,
+            identity.Version,
+            identity.Culture,
+            identity.PublicKeyToken,
+            assembly,
+            assemblyId,
+            asset,
+            inspectionFailures.Length);
+    }
+
+    static Surface Project(
+        ApiSurface surface,
+        ImmutableArray<ApiAccessibilityBucket> accessibility,
+        string identityName,
+        Version? identityVersion,
+        string? identityCulture,
+        string? identityPublicKeyToken,
+        string assembly,
+        string assemblyId,
+        string asset,
+        int inspectionFailureCount)
+    {
         ArgumentNullException.ThrowIfNull(surface);
-        ArgumentNullException.ThrowIfNull(identity);
         ArgumentException.ThrowIfNullOrWhiteSpace(assembly);
         ArgumentException.ThrowIfNullOrWhiteSpace(assemblyId);
         ArgumentException.ThrowIfNullOrWhiteSpace(asset);
         if (accessibility.IsDefault)
             throw new ArgumentException(
-                "Detached API accessibility buckets must be initialized.",
+                "API accessibility buckets must be initialized.",
                 nameof(accessibility));
-        if (inspectionFailures.IsDefault)
-            throw new ArgumentException(
-                "Detached API inspection failures must be initialized.",
-                nameof(inspectionFailures));
 
         var transportTextBudget = new BrowserSurfaceTextBudget(
             BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
@@ -232,7 +287,7 @@ internal static class BrowserSurfaceProjection
                     type,
                     assembly,
                     assemblyId,
-                    identity.Name,
+                    identityName,
                     transportTextBudget)),
             ];
             transportTextBudget.CommitParticipant();
@@ -262,9 +317,9 @@ internal static class BrowserSurfaceProjection
         [
             .. identified.Where(type => IsDefaultBucket(accessibility, type)),
         ];
-        string[] inspectionErrors = inspectionFailures.IsEmpty
+        string[] inspectionErrors = inspectionFailureCount == 0
             ? []
-            : [PartialApiSurface(inspectionFailures.Length)];
+            : [PartialApiSurface(inspectionFailureCount)];
         string[] noticeEntries = truncation is null
             ? inspectionErrors
             : [.. inspectionErrors, truncation];
@@ -275,10 +330,10 @@ internal static class BrowserSurfaceProjection
                 [
                     new BrowserAssemblySurfaceInfo(
                         assemblyId,
-                        identity.Name,
-                        identity.Version?.ToString() ?? "",
-                        identity.Culture,
-                        identity.PublicKeyToken,
+                        identityName,
+                        identityVersion?.ToString() ?? "",
+                        identityCulture,
+                        identityPublicKeyToken,
                         asset,
                         publicTypes.Length,
                         publicTypes.Sum(type => type.Members),
