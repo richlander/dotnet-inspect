@@ -608,6 +608,7 @@ import {
   visibleSpotlightPackageHits,
   type SpotlightPackageSearchResultState,
 } from "./spotlight-package-search.ts";
+import { createPlatformSpotlightSuggestions } from "./spotlight-platform-suggestions.ts";
 import { createPackageRemoval } from "./package-removal.ts";
 import {
   replaceChildrenPreservingRenderedInteractions,
@@ -6257,9 +6258,16 @@ function finishPackageRemoval(removed: AppPackage): void {
   }
 }
 
+const platformSpotlightSuggestions = createPlatformSpotlightSuggestions({
+  getItem: key => localStorage.getItem(key),
+  setItem: (key, value) => localStorage.setItem(key, value),
+});
+
 function removeSpotlightPackage(result: RemovableSpotlightResult): boolean {
   try {
-    if (result.kind === "pkg-recent") {
+    if (result.kind === "framework-lib") {
+      platformSpotlightSuggestions.dismiss(result);
+    } else if (result.kind === "pkg-recent") {
       packageRemoval.forgetRecent(result.entry.id);
     } else {
       packageRemoval.removeLoaded(workspacePackageRemovalKey({
@@ -6269,7 +6277,7 @@ function removeSpotlightPackage(result: RemovableSpotlightResult): boolean {
     }
     return true;
   } catch (error) {
-    showToast(`Could not remove package: ${errorMessage(error)}`);
+    showToast(`Could not remove Spotlight item: ${errorMessage(error)}`);
     return false;
   }
 }
@@ -15212,6 +15220,11 @@ function recordPlatformRecent(assembly: string, pack: string | null) {
     : pack === "netcore.app" ? "netcore.app"
     : platformPackForAssembly(key);
   if (!normPack) return;
+  try {
+    platformSpotlightSuggestions.remember({ assembly: key, pack: normPack });
+  } catch (error) {
+    showToast(`Could not restore Spotlight suggestion: ${errorMessage(error)}`);
+  }
   const rest = (state.platformRecent || []).filter(entry => entry.assembly !== key);
   state.platformRecent = [{ assembly: key, pack: normPack }, ...rest].slice(0, PLATFORM_RECENT_MAX);
   persistPlatformRecent();
@@ -15251,7 +15264,8 @@ function persistRecentPackages() {
 function frameworkLibrarySpotlightResults(query: string, includeApiResults = true): SpotlightResult[] {
   const results: SpotlightResult[] = [];
   const roster = platformLibraryRoster(query);
-  for (const lib of roster.filter(row => row.hasImplementation).slice(0, 200)) {
+  for (const lib of roster.filter(row => row.hasImplementation
+    && (query.trim() || !platformSpotlightSuggestions.isDismissed(row))).slice(0, 200)) {
     results.push({ ...lib, kind: "framework-lib" });
   }
   if (includeApiResults && platformSurfaceLoaded()

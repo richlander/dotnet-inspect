@@ -609,6 +609,21 @@ A selected Package framework alone does not establish the highest TFM. Recent
 entries retain the highest-framework fact when recorded; legacy entries without
 that fact leave it undisclosed. Missing metadata remains undisclosed, without
 additional metadata or package-content acquisition solely to fill a row.
+All artifact rows reserve the same columns for glyph, name, version/TFM,
+publication date and trailing control. Missing facts leave empty columns rather
+than shifting the other fields. Rows remain single-line, with truncation at
+narrow widths.
+
+Pre-search platform Library suggestions have a trailing dismissal control and
+support Shift+Delete. Dismissal persists by pack and assembly in browser-local
+preferences, without unloading Platform, changing its catalog, or acquiring
+anything. It filters suggestions before their display limit, so another catalog
+suggestion can take the vacant position. Nonempty searches continue to find
+and open dismissed Libraries. A successful explicit open restores the suggestion.
+A preference-write failure is visible and leaves dismissal state unchanged.
+This suggestion interaction is distinct from Package Workspace removal owned by
+[Package-row removal](inspect-web-package-removal.md).
+
 Library role and source details remain in tooltips. This compact presentation
 applies to Home pre-search lists and modal Spotlight alike. The Add package
 dialog retains its actionable already-in-Workspace disclosure. Ecosystem icons
