@@ -2098,7 +2098,9 @@ Omitting `--analysis` selects the default set, `api`, so `diff A B` output is
 unchanged. One selected analysis defaults to `Changes` for `api` and to
 `Transitions` otherwise; several default to one `Summary` row per analysis
 with its outcome (`Compared`, `Unavailable`, or `Failed`) and its `Added`,
-`Removed`, `Changed`, and `Present` counts. `-S Transitions` lists each
+`Removed`, `Changed`, and `Present` counts, each counted over the Transition
+rows its analysis emits (`string-literals` emits no `Present` rows, so its
+`Present` count is `0`). `-S Transitions` lists each
 selected analysis's per-Finding transitions in selection order; at the Type
 surface `api` shows its `api.type` rows and then its `api.member` rows.
 `Changes` requires `api`. `Transitions` requires a selected analysis that
