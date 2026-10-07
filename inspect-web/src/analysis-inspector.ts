@@ -3,6 +3,7 @@ export type AnalysisMode =
   | "dependencies"
   | "relationships"
   | "performance"
+  | "resource-triage"
   | "integrations";
 
 export const defaultAnalysisMode: AnalysisMode = "relationships";
@@ -14,6 +15,7 @@ export function isAnalysisMode(
     || value === "dependencies"
     || value === "relationships"
     || value === "performance"
+    || value === "resource-triage"
     || value === "integrations";
 }
 
@@ -29,8 +31,9 @@ const modes = [
   [defaultAnalysisMode, "Relationships"],
   ["dependencies", "Dependencies"],
   ["complexity", "Complexity"],
-  ["performance", "Performance"],
   ["integrations", "Integrations"],
+  ["performance", "Performance Triage"],
+  ["resource-triage", "Resource Triage"],
 ] as const satisfies readonly (readonly [AnalysisMode, string])[];
 
 export function renderAnalysisInspector(
@@ -40,9 +43,9 @@ export function renderAnalysisInspector(
   content: string,
 ): string {
   const { pickerHtml, escapeHtml } = context;
-  const tabs = modes.map(([value, label]) =>
-    `<button type="button" role="tab" id="analysis-mode-${value}" data-analysis-mode="${value}" aria-selected="${value === mode}" aria-controls="analysis-results" tabindex="${value === mode ? 0 : -1}">${label}</button>`
-  ).join("");
+  const tabs = modes.map(([value, label]) => {
+    return `<button type="button" role="tab" id="analysis-mode-${value}" data-analysis-mode="${value}" aria-selected="${value === mode}" aria-controls="analysis-results" tabindex="${value === mode ? 0 : -1}">${label}</button>`
+  }).join("");
   return `<section class="analysis-inspector library-analysis-surface library-${mode}-surface${pickerHtml ? ` library-analysis-with-controls library-${mode}-with-controls` : ""}" aria-labelledby="library-analysis-title">
     <header class="api-surface-head">
       <h1 id="library-analysis-title">Analysis</h1>
