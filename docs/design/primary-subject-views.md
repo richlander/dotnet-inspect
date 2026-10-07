@@ -237,10 +237,10 @@ adopts it, in that owner's document, with its own gates.
   `System.Security.Cryptography.Pkcs.dll` both at the slice root and under
   `runtimes/win/lib/net10.0/`. A candidate spelling is
   `library P --library <path>`, where a bare file name is accepted only when it
-  is unique in the slice. A
-  namesake or first-Library recommendation under
-  [Package library scope](package-library-scope.md#exact-scope) may appear as
-  a tip on that failure, never as the silent subject.
+  is unique in the slice. A `--namesake-library` or `--first-library` request,
+  as defined by
+  [Inspection Subject Navigation](inspection-subject-navigation.md#initial-aggregate-and-package),
+  may appear as a tip on that failure, never as the silent subject.
 - **Narrowing:** `library L --namespace N`, so that every collapsed row can be
   expanded.
 - **Namespace as input:** `library N`, where `N` names a namespace rather

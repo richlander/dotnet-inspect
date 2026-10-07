@@ -1195,15 +1195,40 @@ Explicit subject requests take precedence over this recommendation:
   could change either conclusion. Every non-applied outcome retains the
   ordered candidates and participant evidence and never falls back to
   declaration order, the aggregate, or Package.
+- **First Library** takes the first namesake in Library order, or the first
+  Library in that order when there is no namesake. It is the shape of LINQ's
+  `FirstOrDefault(isNamesake) ?? First()`. Namesake comparison is the
+  Namesake Library comparison above. Because the request asks for the first
+  match, several namesakes are not ambiguous. An unresolved candidate identity
+  fails the request, because it could change which Library is first. An empty
+  admitted population is unavailable. The chosen Library activates that exact
+  one-Library subject. If the chosen Library is unavailable or fails
+  inspection, the result is that Library's typed non-success; the request never
+  moves to a sibling Library, the aggregate, or Package.
 - **Package, Type, Member, and restored subject** requests keep their existing
   exact precedence and do not run Library recommendation.
 
-Hosts own syntax such as `--library` and `--namesake-library`, but they submit
-the corresponding typed gesture and render the returned outcome. Exact token
-resolution remains a shared selected-asset operation; hosts do not turn token
-text into subject identity. They also do not repeat namesake matching.
-Navigation never derives a namesake from an asset path, file stem, display
-label, or package-relative text.
+**Library order** sorts the admitted Libraries of one selected projection by
+owner-issued assembly simple name, comparing ordinally and ignoring case. Ties
+are broken by an ordinal case-sensitive name comparison, then by the exact
+asset path. It depends on no culture, display label, or arrival order. First
+Library is its only consumer here; candidate lists in other outcomes keep their
+existing order.
+
+Hosts own syntax such as `--library`, `--namesake-library`, and
+`--first-library`, but they submit the corresponding typed gesture and render
+the returned outcome. Exact token resolution remains a shared selected-asset
+operation; hosts do not turn token text into subject identity. They also do
+not repeat namesake matching or Library ordering. Navigation never derives a
+namesake from an asset path, file stem, display label, or package-relative
+text.
+
+First Library remains **unverified** until
+`FirstLibraryRequest_PrefersFirstNamesakeInLibraryOrder`,
+`FirstLibraryRequest_WithoutNamesakeSelectsFirstInLibraryOrder`,
+`FirstLibraryRequest_UnresolvedIdentityFailsClosed`, and
+`FirstLibraryRequest_ChosenLibraryNonSuccessDoesNotFallback` gate it, under
+[#9683](https://github.com/richlander/dotnet-inspect/issues/9683).
 
 One Navigation evaluation consumes one selected framework projection. A
 coordinator requesting multiple frameworks presents separately associated
@@ -1471,10 +1496,12 @@ unsupported arity is reported as `Unavailable` for that lens while the current
 Library subject remains active and selectable for a supported lens.
 
 A host may expose a compound subject-and-lens gesture when the user moves from
-`All libraries` to a single-library-only inspector. Inspect Web defines that
-gesture by selecting the first case-insensitive Package-ID namesake in its
-alphabetically ordered Library inventory, or the first Library in that
-inventory when no namesake exists, and then activating the requested inspector.
+`All libraries` to a single-library-only inspector. That gesture submits the
+[First Library](#initial-aggregate-and-package) request, then activates the
+requested inspector. Inspect Web currently implements the same preference
+host-locally in `preferredLibrarySubjectId`, using a culture-sensitive
+alphabetical order. Its adoption under #9683 replaces that copy with the
+shared result.
 The transition runs only for user inspector navigation. Restoration,
 rerendering, and asynchronous settlement do not repeat it. A later explicit
 `All libraries` gesture remains active and receives the unsupported-arity
@@ -2452,6 +2479,10 @@ The eventual subject-navigation implementation must include named gates for:
 - `NamesakeLibraryNarrowing_ZeroOrMultipleMatchesDoNotFallback`
 - `NamesakeLibraryNarrowing_UnresolvedIdentityFailsClosed`
 - `NamesakeLibraryNarrowing_RetainsCandidatesAndParticipantEvidence`
+- `FirstLibraryRequest_PrefersFirstNamesakeInLibraryOrder`
+- `FirstLibraryRequest_WithoutNamesakeSelectsFirstInLibraryOrder`
+- `FirstLibraryRequest_UnresolvedIdentityFailsClosed`
+- `FirstLibraryRequest_ChosenLibraryNonSuccessDoesNotFallback`
 - `AggregateRecommendation_UsesOneSelectedFrameworkProjection`
 - `SeparateFrameworkSelections_NeverMergeAggregateIdentity`
 - `TypeRecommendation_UsesPrimaryLibraryAccessibilityAndProducerOrder`
@@ -2743,6 +2774,8 @@ must preserve the same typed outcomes and fresh destination content.
 | Exact Library gesture | Exact selected one-Library subject, or typed non-success with no aggregate, sibling-Library, or Package fallback |
 | Unique namesake gesture | Exact one-Library subject whose owner-issued assembly simple name uniquely matches the Package ID ignoring case |
 | Missing, ambiguous, or indeterminate namesake | Typed unavailable, ambiguous, or failed result with ordered candidates and participant evidence; no declaration-order, aggregate, or Package fallback |
+| First Library gesture | The first namesake in Library order, otherwise the first Library in Library order; several namesakes select the first |
+| First Library with an unresolved identity, no admitted Library, or a failed chosen Library | Typed failed or unavailable result; no sibling-Library, aggregate, or Package fallback |
 | Multiple framework selection | One separately associated aggregate per selected framework; no cross-framework subject or API merge |
 | Preferred role is not first | Preferred available role, not the earlier available descriptor |
 | Preferred lens unavailable | First available registry-ordered fallback with preferred evidence retained |
