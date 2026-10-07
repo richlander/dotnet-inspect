@@ -228,6 +228,21 @@ public sealed class ProducerPlanningTests
     }
 
     [Fact]
+    public void UntrackedUnboundedExecutionDoesNotTrackTerminalWork()
+    {
+        MethodDefinitionExecution execution = Run(
+            BuildImage(Method.Safe("A"), Method.Safe("B")),
+            UnsafeEvidencePresence.Description);
+
+        Assert.Null(execution.TerminalWork);
+        Assert.Equal(
+            0,
+            execution.ResultOf(
+                    UnsafeEvidencePresenceProducer.Instance)
+                .Value);
+    }
+
+    [Fact]
     public void FailureContainment_SparesIndependentAndFailsDependents()
     {
         ImmutableArray<byte> image = BuildImage(

@@ -479,7 +479,9 @@ public sealed class MethodDefinitionRequestSetTests
         MethodDefinitionHandle second =
             MetadataTokens.MethodDefinitionHandle(2);
 
+        budget.RequireBodyCapacity(first);
         budget.Admit(first, encodedIlBytes: 1);
+        budget.RequireBodyCapacity(second);
         budget.Admit(second, encodedIlBytes: 1);
         budget.RequireBodyCapacity(first);
         budget.Admit(first, encodedIlBytes: 1);

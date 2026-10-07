@@ -22,7 +22,7 @@ public sealed class MethodDefinitionExecution
 {
     readonly WorkDescription _description;
     readonly ProducerState[] _states;
-    readonly MethodDefinitionTerminalWorkBudget _terminalWork;
+    readonly MethodDefinitionTerminalWorkBudget? _terminalWork;
     MethodDefinitionSourceBreadth _breadth;
     readonly MethodDefinitionSourceCoverageBuilder _sourceCoverage;
     MethodRowGate? _gate;
@@ -43,7 +43,9 @@ public sealed class MethodDefinitionExecution
     {
         _description = description;
         _breadth = breadth;
-        _terminalWork = new(terminalWorkLimits);
+        _terminalWork = tracksSourceCoverage
+            ? new(terminalWorkLimits)
+            : null;
         _sourceCoverage =
             new MethodDefinitionSourceCoverageBuilder(tracksSourceCoverage);
         _states = new ProducerState[description.Producers.Length];
@@ -68,7 +70,7 @@ public sealed class MethodDefinitionExecution
 
     internal LibraryMethodAnalysisRunner? Lookup => _lookup;
 
-    internal MethodDefinitionTerminalWorkBudget TerminalWork =>
+    internal MethodDefinitionTerminalWorkBudget? TerminalWork =>
         _terminalWork;
 
     internal int CurrentOrdinal { get; private set; } = -1;
@@ -1131,6 +1133,14 @@ public sealed class MethodDefinitionExecution
                 state.Execution.Abort(abort.Failure);
                 return false;
             }
+            catch (MethodDefinitionTerminalWorkLimitExceededException ex)
+            {
+                state.UnitsFailed++;
+                FailActiveSource(
+                    MetadataTokens.GetToken(unit.MethodHandle),
+                    unit.Label,
+                    ex);
+            }
             anyActive |= state.IsActive;
         }
 
@@ -1261,17 +1271,12 @@ public sealed class MethodDefinitionExecution
         {
             settled = state.Visit(new MethodDefinitionView(ref unit, state));
         }
-        catch (MethodDefinitionTerminalWorkLimitExceededException ex)
-        {
-            state.UnitsFailed++;
-            FailActiveSource(
-                MetadataTokens.GetToken(unit.MethodHandle),
-                unit.Label,
-                ex);
-            return;
-        }
         catch (Exception ex)
-            when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+            when (ex
+                    is not
+                        MethodDefinitionTerminalWorkLimitExceededException
+                && LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(ex))
         {
             state.UnitsFailed++;
             state.Outcome = ProducerOutcome.Failed;
@@ -1406,7 +1411,8 @@ public sealed class MethodDefinitionExecution
 
     void PublishSourceCoverage()
     {
-        _sourceCoverage.RecordTerminalWork(_terminalWork.Build());
+        if (_terminalWork is not null)
+            _sourceCoverage.RecordTerminalWork(_terminalWork.Build());
         SourceCoverage = _sourceCoverage.Build();
     }
 

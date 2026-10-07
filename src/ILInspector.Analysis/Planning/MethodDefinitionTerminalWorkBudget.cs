@@ -36,8 +36,6 @@ internal sealed class MethodDefinitionTerminalWorkBudget
         if (_admittedMethods.Contains(method))
             return;
 
-        RequireBodyCapacity(method);
-
         if (encodedIlBytes > _limits.MaximumEncodedIlBytes - _encodedIlBytes)
         {
             ReachLimit(
