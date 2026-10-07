@@ -95,7 +95,7 @@ public sealed class BrowserUploadedLibraryTests
         byte[] content = await File.ReadAllBytesAsync(
             typeof(BrowserUploadedLibraryTests).Assembly.Location,
             TestContext.Current.CancellationToken);
-        InspectionEnvelope<EmbeddedLibraryInspectionResult> inspection =
+        EmbeddedLibraryInspectionExecution execution =
             await EmbeddedLibraryInspection.ExecuteAsync(
                 "DotnetInspect.Web.Tests.dll",
                 [.. content],
@@ -114,14 +114,11 @@ public sealed class BrowserUploadedLibraryTests
                 },
             ],
         };
-        var oversizedInspection =
-            new InspectionEnvelope<EmbeddedLibraryInspectionResult>(
-                inspection.Content with { Surface = oversizedSurface },
-                inspection.Share,
-                inspection.Diagnostics);
+        EmbeddedLibraryInspectionExecution oversizedExecution =
+            execution with { Surface = oversizedSurface };
 
         BrowserUploadedLibraryInspection projected =
-            BrowserLibraryWireProjection.Project(oversizedInspection);
+            BrowserLibraryWireProjection.Project(oversizedExecution);
 
         Assert.Equal(
             BrowserUploadedLibraryInspectionOutcome.Rejected,
@@ -143,12 +140,74 @@ public sealed class BrowserUploadedLibraryTests
     }
 
     [Fact]
+    public async Task OpenUploadedLibrary_ProjectsDetachedInspectionFailure()
+    {
+        byte[] content = await File.ReadAllBytesAsync(
+            typeof(BrowserUploadedLibraryTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        EmbeddedLibraryInspectionExecution execution =
+            await EmbeddedLibraryInspection.ExecuteAsync(
+                "DotnetInspect.Web.Tests.dll",
+                [.. content],
+                BrowserApiSurfacePolicy.Limits,
+                cancellationToken: TestContext.Current.CancellationToken);
+        var subject = new EmbeddedLibraryAssemblyIdentity(
+            "Subject",
+            new Version(1, 2, 3, 4),
+            "neutral",
+            "0123456789abcdef");
+        var dependency = new EmbeddedLibraryAssemblyIdentity(
+            "Dependency",
+            Version: null,
+            Culture: null,
+            PublicKeyToken: null);
+        var detachedFailure =
+            new EmbeddedLibraryApiSurfaceInspectionFailure(
+                "resolve signature",
+                0x02000001,
+                EmbeddedLibraryApiSurfaceFailureMechanism.Signature,
+                "InvalidType",
+                "The signature type could not be resolved.",
+                subject,
+                dependency);
+        EmbeddedLibraryInspectionResult result =
+            execution.Inspection.Content with
+            {
+                InspectionFailures = [detachedFailure],
+                IsComplete = false,
+            };
+        execution = execution with
+        {
+            Inspection = new(
+                result,
+                execution.Inspection.Share,
+                execution.Inspection.Diagnostics),
+        };
+
+        BrowserUploadedLibraryInspection projected =
+            BrowserLibraryWireProjection.Project(execution);
+
+        BrowserLibraryInspectionFailure failure =
+            Assert.Single(projected.Content.InspectionFailures);
+        Assert.Equal(detachedFailure.Operation, failure.Operation);
+        Assert.Equal(detachedFailure.SubjectToken, failure.SubjectToken);
+        Assert.Equal("Signature", failure.Mechanism);
+        Assert.Equal(detachedFailure.Kind, failure.Kind);
+        Assert.Equal(detachedFailure.Detail, failure.Detail);
+        Assert.Equal("Subject", failure.SubjectAssembly?.Name);
+        Assert.Equal("1.2.3.4", failure.SubjectAssembly?.Version);
+        Assert.Equal("Dependency", failure.DependencyAssembly?.Name);
+        Assert.Equal("", failure.DependencyAssembly?.Version);
+        Assert.False(projected.Content.IsComplete);
+    }
+
+    [Fact]
     public async Task OpenUploadedLibrary_RejectsWorkerCollectionEntryOverflow()
     {
         byte[] content = await File.ReadAllBytesAsync(
             typeof(BrowserUploadedLibraryTests).Assembly.Location,
             TestContext.Current.CancellationToken);
-        InspectionEnvelope<EmbeddedLibraryInspectionResult> inspection =
+        EmbeddedLibraryInspectionExecution execution =
             await EmbeddedLibraryInspection.ExecuteAsync(
                 "DotnetInspect.Web.Tests.dll",
                 [.. content],
@@ -182,14 +241,11 @@ public sealed class BrowserUploadedLibraryTests
                 },
             ],
         };
-        var oversizedInspection =
-            new InspectionEnvelope<EmbeddedLibraryInspectionResult>(
-                inspection.Content with { Surface = oversizedSurface },
-                inspection.Share,
-                inspection.Diagnostics);
+        EmbeddedLibraryInspectionExecution oversizedExecution =
+            execution with { Surface = oversizedSurface };
 
         BrowserUploadedLibraryInspection projected =
-            BrowserLibraryWireProjection.Project(oversizedInspection);
+            BrowserLibraryWireProjection.Project(oversizedExecution);
 
         Assert.Equal(
             BrowserUploadedLibraryInspectionOutcome.Rejected,

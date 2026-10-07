@@ -5111,6 +5111,7 @@ const spotlight = createSpotlight({
     spotlightPackageSearchIsLoading(state.spotlightPackageSearch),
   packageSearchError: () =>
     spotlightPackageSearchError(state.spotlightPackageSearch),
+  openPackageQuery: query => { openPackageQueryRoute(query); },
   packageSearchNotice: () => state.spotlightQuery.includes("*")
     ? `Package prefix search · up to ${SPOTLIGHT_PACKAGE_PREFIX_LIMIT} matches` : "",
   typeSearchLoading: () => spotlightTypeFind.loading(),
