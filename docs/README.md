@@ -122,7 +122,9 @@ root README remains current without cataloging every focused capability.
 | Multi-PR work | [Stacked PRs](stacked-prs.md) |
 | Release candidate identity and readiness | [Nightly Release Candidate](release-candidate.md) |
 | Release certification and publication | [Release Workflow](release-workflow.md) |
+| Choosing formal models | [Proof Methodology](proof-methodology.md) |
 | TLA+ setup and modeling | [TLA+ Methodology](tla-plus-methodology.md) and [TLA+ Setup](runbooks/tla-plus-setup.md) |
+| Lean setup and proofs | [Lean Methodology](lean-methodology.md) |
 | Markout co-development | [Markout Co-development](markout-co-development.md) |
 
 ## Finding focused documentation

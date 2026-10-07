@@ -4,6 +4,8 @@ TLA+ is used per
 [`docs/design-scope.md`](design-scope.md#keep-specifications-readable-model-interactions) to
 check stateful or concurrent interactions that are hard to reason about in
 prose alone.
+[Proof methodology](proof-methodology.md) covers when to use TLA+, Lean, or
+both, and [Lean methodology](lean-methodology.md) owns Lean models.
 
 Keep each model in its own directory, normally under `docs/models/` or the
 owning design's `models/` directory. Keep its `.tla` module and any companion
