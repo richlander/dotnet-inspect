@@ -27,7 +27,6 @@ export interface MemberBodyDiffContext {
   readonly typeIdentity: string | null;
   readonly memberFingerprint: string | null;
   readonly methodToken: number | null;
-  readonly tools: string;
 }
 
 interface Dependencies {
@@ -77,12 +76,10 @@ export function renderMemberBodyReader(reader: Pick<Reader, "document" | "medium
   const document = reader.document;
   const medium = document.media.find(candidate => candidate.medium === reader.medium);
   if (!medium) return '<p role="status">This medium is unavailable.</p>';
-  const absent = document.beforeOutcome === "Absent"
-    ? '<p class="member-body-side-state">Before: Not present on this side.</p>' : "";
-  if (medium.limit) return `${absent}<p role="status">${escapeHtml(medium.limit)}</p>`;
+  if (medium.limit) return `<p role="status">${escapeHtml(medium.limit)}</p>`;
   if (medium.diff) {
     const diff = decodeMemberBodyMappedDiff(medium.diff);
-    return `${absent}${diff.changes.length === 0
+    return `${diff.changes.length === 0
       ? '<p role="status">Identical</p>'
       : renderSourceDiffViewer(diff, escapeHtml, { mode: reader.mode })}`;
   }
@@ -193,9 +190,9 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
       writeClipboardText: text => dependencies.document.defaultView!.navigator.clipboard.writeText(text),
     });
   }
-  function mediaControls(reader: Reader): string {
+  function mediaControls(reader: Reader, toolbar = false): string {
     return reader.document.media.map(medium =>
-      `<button type="button" data-member-body-medium="${escape(medium.medium)}" aria-pressed="${medium.medium === reader.medium}">${medium.medium === "CSharp" ? "C#" : "IL"}</button>`).join("");
+      `<button type="button"${toolbar ? ` id="member-body-medium-${escape(medium.medium)}"` : ""} data-member-body-medium="${escape(medium.medium)}" aria-pressed="${medium.medium === reader.medium}">${medium.medium === "CSharp" ? "C#" : "IL"}</button>`).join("");
   }
   function paintExplore(reader: Reader): void {
     if (!dialog) return;
@@ -213,6 +210,10 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
   }
   return {
     get isOpen() { return dialog !== null; },
+    renderActions(): string {
+      const reader = currentReader();
+      return reader ? `${mediaControls(reader, true)}<button type="button" class="primary-action" id="member-body-explore" data-member-body-explore>Explore</button>` : "";
+    },
     reconcile(next: MemberBodyDiffContext | null): void {
       savePosition();
       const prior = context;
@@ -263,7 +264,7 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
       else if (!inventory) content = '<p role="status">Loading implementation changes…</p>';
       else if (context.subject === "member") {
         const reader = currentReader();
-        content = `<section class="member-body-reader"><header class="section-title"><h2>Member Body</h2>${reader ? `${mediaControls(reader)}<button type="button" id="member-body-explore" data-member-body-explore>Explore</button>` : ""}</header><div class="member-body-scroll" data-member-body-scroll>${reader
+        content = `<section class="member-body-reader"><div class="member-body-scroll" data-member-body-scroll>${reader
           ? renderMemberBodyReader(reader, escape)
           : pending ? '<p role="status">Loading exact Member diff…</p>'
             : inventory.isComplete ? '<p role="status">No exact body comparison destination is available for this Member.</p>'
@@ -279,10 +280,10 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
           : types.flatMap(type => type.members).map(member => member.fingerprint !== null && member.methodToken !== null
             ? `<button type="button" class="library-api-diff-member" data-member-body-member="${escape(member.id)}">${escape(member.display)} <span>${escape(member.outcome)} · ${escape(member.mechanisms.join(" · "))}</span></button>`
             : `<div class="library-api-diff-member">${escape(member.display)} <span>${escape(member.identityFailure ?? member.outcome)}</span></div>`).join("");
-        content = `<p class="member-body-coverage">${escape(coverage)}</p><div class="member-body-inventory member-body-scroll" data-member-body-scroll>${rows || `<p role="status">${inventory.isComplete ? "No implementation changes found" : "No changed rows; comparison coverage is incomplete."}</p>`}</div>`;
+        content = `<p class="member-body-coverage" role="status">${escape(status)} · ${escape(coverage)}</p><div class="member-body-inventory member-body-scroll" data-member-body-scroll>${rows || `<p role="status">${inventory.isComplete ? "No implementation changes found" : "No changed rows; comparison coverage is incomplete."}</p>`}</div>`;
       }
       return renderCompareFrame({ subjectKind: context.subject, subjectLabel: context.subjectLabel,
-        mode: "diff", targetText: context.targetText, status, content, tools: context.tools, escapeHtml: escape });
+        mode: "diff", targetText: context.targetText, status, content, externalToolbar: true, escapeHtml: escape });
     },
     bind(root: ParentNode): void {
       root.querySelectorAll<HTMLButtonElement>("[data-member-body-type]").forEach(button =>

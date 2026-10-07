@@ -28,6 +28,13 @@ instead of rendering the ordinary whole-scope section. The source owns
 resource-free planning, exact subject binding, serial reference execution,
 source-receipt translation, and detached publication.
 
+Exact-member `Calls --count` is the first body-producing CLI consumer. Direct
+invocation Count and Calls-row Count each use one Body-only producer over exact
+MethodDef breadth plus authenticated generated execution bodies. Their scalar
+path decodes call opcodes without module lookup, target resolution, signature
+enrichment, canonical method context, or `DirectCall` row construction. The
+two superseded `LibraryBodyAnalysis` Count request branches are deleted.
+
 Compatible all-definition request sets now execute as one physical MethodDef
 traversal with independent terminal-specialized lanes. Each lane retains its
 own gate, optional module lookup, traversal ordinal, Producer Planning work,
@@ -522,12 +529,13 @@ Migration is incremental:
    charged by the first lookup.
 6. Add request-owned terminal body and encoded-IL bounds before migrating a
    body-producing consumer. This slice is implemented with exact per-lane
-   receipts and typed source-incomplete exhaustion; exact-member Calls Count is
-   its immediate stacked production adopter.
+   receipts and typed source-incomplete exhaustion. Exact-member direct-call
+   and Calls-row Count now implement its first body-producing CLI adoption.
 7. Add referenced-body expansion only with a consumer that requires it.
 8. Let the host-neutral request-set planner from #8574 group compatible
    requests. Method Classification implements the first mixed-terminal CLI
-   operation; a body-producer CLI adoption and Browser/Wasm operation remain.
+   operation, and exact-member Calls Count implements a direct body-producer
+   CLI operation. Grouped body-producer and Browser/Wasm operations remain.
 9. Move remaining producers and delete each superseded legacy scan and index
    when its final consumer moves.
 
@@ -566,6 +574,18 @@ Terminal work bounds are gated in Release:
 - `Execute_TerminalEncodedIlByteBoundPublishesPartialWork`
 - `TerminalWorkBudget_OrderedAdmissionsUseCompactRetention`
 - `TerminalWorkBudget_MultipassRevisitIsNotChargedTwice`
+
+Exact-member scalar Count adoption is gated in Release:
+
+- `Execute_CountsExactLogicalMemberWithoutRows`
+- `Execute_SumsGeneratedPhysicalBodiesForLogicalMember`
+- `Execute_BodilessMethodCompletesWithZero`
+- `Execute_CallSiteCountIncludesFunctionLoads`
+- `Execute_AttributionExhaustionWithholdsCallSiteCount`
+- `Execute_TerminalBodyExhaustionWithholdsCount`
+- `MethodCallCountProducer_DoesNotResolveMalformedTarget`
+- `MethodCallCountProducer_DiscoveryFailureIsVisible`
+- `MethodCallCountProducer_DoesNotDecodeDamagedSignature`
 
 The first production adoption is gated in Release:
 
