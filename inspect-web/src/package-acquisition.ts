@@ -1167,6 +1167,7 @@ export function createPackageAcquisition(
           await dependencies.queryPackageRoot(request.rootRequest);
         packageChildren = rootLoad.packageChildren;
         documents = rootLoad.documents;
+        defaultLibraryId = rootLoad.defaultLibraryId;
       } else {
         const loadResult = await dependencies.queryPackageSummary(
           request.packageId,
