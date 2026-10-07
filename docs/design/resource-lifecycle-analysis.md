@@ -318,7 +318,11 @@ is adopted. Browser transport preserves that Share and envelope diagnostics.
 The browser presents Performance and Resources under one Triage tab, using
 compact rows and the same explicitly expanded decompiled-method preview.
 The preview consumes the existing member Source API and exact implementation
-method identity, including private methods. It displays the complete decompiled
+method identity, including private methods. Performance rows retain their public
+navigation anchors separately from owner-issued implementation body targets;
+property and event rows offer each contributing accessor separately. The
+implementation surface is acquired under the existing browser API bounds.
+The preview displays the complete decompiled
 method, not an asserted IL-to-source block correspondence. Module/Finding IDs
 and detailed limitations remain in the transport but are omitted from this view;
 the incomplete-analysis warning remains visible. Unknown actionability means

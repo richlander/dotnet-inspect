@@ -263,6 +263,7 @@ test(
       memberName: "Bounds",
       stableSelector: "Bounds~surface",
       bodyTokens: [0x06001000],
+      bodyTargets: [],
       opportunityCount: 1,
       inLoopCount: 0,
       shapes: ["box-value-type"],

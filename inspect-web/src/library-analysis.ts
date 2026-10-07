@@ -63,13 +63,15 @@ export function renderLibraryAnalysisSurface(options: LibraryAnalysisOptions): s
         const loopBadge = member.inLoopCount > 0
           ? `<span class="perf-loop" title="${member.inLoopCount} in a loop">&#x21BB; ${member.inLoopCount}</span>`
           : "";
+        const previews = (member.bodyTargets ?? []).map(body => renderTriageCode({
+          assembly: member.assembly, typeId: body.typeId, memberName: body.memberName,
+          selector: body.selectorKey, methodToken: body.methodToken,
+        }, escapeHtml, body.memberName)).join("");
         return `<article class="triage-item"><button class="perf-row" data-perf-selector="${escapeHtml(member.stableSelector)}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} &mdash; open member">
           <span class="perf-count">${member.opportunityCount}</span>
           <span class="perf-member"><span class="perf-name">${escapeHtml(display)}</span><span class="perf-shapes">${shapes}</span></span>
           <span class="perf-meta">${loopBadge}<span class="perf-confidence perf-${escapeHtml((member.confidence || "").toLowerCase())}">${escapeHtml(member.confidence || "\u2014")}</span></span>
-        </button>${renderTriageCode({ assembly: member.assembly, typeId: member.typeId,
-          memberName: member.memberName, selector: member.stableSelector,
-          methodToken: member.bodyTokens.length === 1 ? member.bodyTokens[0]! : 0 }, escapeHtml)}</article>`;
+        </button>${previews}</article>`;
       }).join("");
       const nonPublicNote = resolved.nonPublicOpportunities > 0
         ? ` ${resolved.nonPublicOpportunities.toLocaleString()} opportunit${resolved.nonPublicOpportunities === 1 ? "y is" : "ies are"} in non-public members.`

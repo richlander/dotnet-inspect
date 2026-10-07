@@ -16,8 +16,8 @@ export function triageMemberLabel(typeId: string, memberName: string): string {
   return short ? `${short}.${memberName}` : memberName;
 }
 
-export function renderTriageCode(target: TriageCodeTarget, escape: (value: string) => string): string {
-  return `<details class="triage-code" data-triage-code data-triage-assembly="${escape(target.assembly)}" data-triage-type="${escape(target.typeId)}" data-triage-member="${escape(target.memberName)}" data-triage-selector="${escape(target.selector)}" data-triage-token="${target.methodToken}"><summary>Decompiled method</summary><pre><code>Expand to decompile this method.</code></pre></details>`;
+export function renderTriageCode(target: TriageCodeTarget, escape: (value: string) => string, memberLabel?: string): string {
+  return `<details class="triage-code" data-triage-code data-triage-assembly="${escape(target.assembly)}" data-triage-type="${escape(target.typeId)}" data-triage-member="${escape(target.memberName)}" data-triage-selector="${escape(target.selector)}" data-triage-token="${target.methodToken}"><summary>Decompiled method${memberLabel ? ` · ${escape(memberLabel)}` : ""}</summary><pre><code>Expand to decompile this method.</code></pre></details>`;
 }
 
 export function bindTriageCode(

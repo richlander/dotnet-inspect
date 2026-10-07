@@ -447,7 +447,11 @@ public sealed record BrowserPerformanceMember(
     int OpportunityCount,
     int InLoopCount,
     string[] Shapes,
-    string Confidence);
+    string Confidence,
+    BrowserPerformanceBodyTarget[]? BodyTargets = null);
+
+public sealed record BrowserPerformanceBodyTarget(
+    string TypeId, string MemberName, string SelectorKey, int MethodToken);
 
 public sealed record BrowserMemberFacts(
     int MetadataToken,

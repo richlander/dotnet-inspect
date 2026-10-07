@@ -30,8 +30,6 @@ export type BrowserLibraryStructuralTypePole = "SeaLevel" | "MountainPeak" | num
 
 export type BrowserMetadataRootMalformedReason = "UnmappableMetadataDirectory" | "TruncatedFixedPrefix" | "InvalidSignature" | "InvalidVersionLength" | "TruncatedVersionField" | "MissingVersionTerminator" | number;
 
-export type JsonValueKind = number;
-
 export interface BrowserAllocationFact {
   readonly kind: string;
   readonly type: string | null;
@@ -786,6 +784,13 @@ export interface BrowserPackagePerformance {
   readonly compileLibrary: BrowserCompileLibraryAvailability;
 }
 
+export interface BrowserPerformanceBodyTarget {
+  readonly typeId: string;
+  readonly memberName: string;
+  readonly selectorKey: string;
+  readonly methodToken: number;
+}
+
 export interface BrowserPerformanceMember {
   readonly assembly: string;
   readonly typeId: string;
@@ -796,6 +801,7 @@ export interface BrowserPerformanceMember {
   readonly inLoopCount: number;
   readonly shapes: ReadonlyArray<string>;
   readonly confidence: string;
+  readonly bodyTargets: ReadonlyArray<BrowserPerformanceBodyTarget> | null;
 }
 
 export interface BrowserPerformanceOpportunity {

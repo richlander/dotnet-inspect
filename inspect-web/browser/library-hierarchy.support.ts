@@ -2779,6 +2779,7 @@ async function installFacades(
           memberName,
           stableSelector: "Run",
           bodyTokens: [100663297],
+          bodyTargets: [{ typeId: selectedType.definitionId, memberName, selectorKey: "Run", methodToken: 100663297 }],
           opportunityCount,
           inLoopCount,
           shapes,
