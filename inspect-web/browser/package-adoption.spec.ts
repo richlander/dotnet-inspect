@@ -4219,11 +4219,15 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
     });
     await context.route("https://azuresearch-usnc.nuget.org/**", route => {
       const query = new URL(route.request().url()).searchParams.get("q");
+      const versions: Readonly<Record<string, string>> = {
+        "System.Linq": "4.3.0", "System.Text.Json": "9.0.0",
+        "Microsoft.AspNetCore.Http": "2.2.2", "Microsoft.Extensions.Logging": "9.0.0",
+        "Aspire.Hosting": "9.0.0",
+      };
+      const id = query && versions[query] ? query : "System.Linq";
       return route.fulfill({
         contentType: "application/json",
-        body: JSON.stringify({ data: [query === "System.Text.Json"
-          ? { id: "System.Text.Json", version: "9.0.0" }
-          : { id: "System.Linq", version: "4.3.0" }] }),
+        body: JSON.stringify({ data: [{ id, version: versions[id] }] }),
       });
     });
     await context.route(/https:\/\/.*\/(?:microsoft\.netcore\.app|microsoft\.aspnetcore\.app)[^/]*\/.*\.nupkg(?:\?.*)?$/i, route => {
@@ -4237,11 +4241,27 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
     const packageHit = page.locator('[data-sl-pkg-load="System.Linq"]');
     await expect(packageHit).toBeVisible();
     await expect(packageHit.locator(".spotlight-pruned")).toHaveCount(0);
+    const alignment = await packageHit.evaluate(element => ({
+      nameLeft: element.querySelector(".spotlight-item-name")!.getBoundingClientRect().left,
+      metadataRight: element.querySelector(".spotlight-item-ns")!.getBoundingClientRect().right,
+    }));
     const originalControl = await packageHit.elementHandle();
     expect(packs).toEqual([]);
     releaseCatalog();
     await expect(packageHit.locator('[aria-label="Pruned for net10.0"]')).toBeVisible();
     await expect(page.locator('[data-sl-framework-lib="System.Linq"]')).toBeVisible();
+    const annotatedAlignment = await packageHit.evaluate(element => ({
+      nameLeft: element.querySelector(".spotlight-item-name")!.getBoundingClientRect().left,
+      metadataRight: element.querySelector(".spotlight-item-ns")!.getBoundingClientRect().right,
+    }));
+    expect(annotatedAlignment.nameLeft).toBeCloseTo(alignment.nameLeft, 2);
+    expect(annotatedAlignment.metadataRight).toBeCloseTo(alignment.metadataRight, 2);
+    expect(await packageHit.locator(".spotlight-pruned").evaluate(element => ({
+      width: element.getBoundingClientRect().width,
+      mask: getComputedStyle(element).maskImage,
+    }))).toMatchObject({ width: 20, mask: expect.stringContaining("data:image/svg+xml") });
+    await expect(packageHit.getByRole("img", { name: ".NET Runtime", exact: true })).toBeVisible();
+    await expect(page.locator('[data-sl-framework-lib="System.Linq"]').getByRole("img", { name: ".NET Runtime", exact: true })).toBeVisible();
     await expect(page.locator(".spotlight-group").filter({ hasText: /^Ecosystem$/ })).toHaveCount(1);
     await expect(packageHit).toContainText("Package");
     await expect(page.locator('[data-sl-framework-lib="System.Linq"]')).toContainText(".NET library");
@@ -4253,6 +4273,19 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
     await expect(jsonPackage.locator('[aria-label="Pruned for net10.0"]')).toBeVisible();
     await expect(page.locator('[data-sl-framework-lib="System.Text.Json"]')).toBeVisible();
     await expect(page.locator(".spotlight-group").filter({ hasText: /^Ecosystem$/ })).toHaveCount(1);
+    expect(packs).toEqual([]);
+    for (const [id, ecosystem] of [
+      ["Microsoft.AspNetCore.Http", "ASP.NET Core"],
+      ["Microsoft.Extensions.Logging", "Microsoft.Extensions"],
+      ["Aspire.Hosting", "Aspire"],
+    ]) {
+      await search.fill(id!);
+      const row = page.locator(`[data-sl-pkg-load="${id}"]`);
+      const icon = row.getByRole("img", { name: ecosystem!, exact: true });
+      await expect(icon).toBeVisible();
+      expect(await icon.evaluate(element => getComputedStyle(element).backgroundImage))
+        .toContain("data:image/svg+xml");
+    }
     expect(packs).toEqual([]);
   });
 });
