@@ -189,6 +189,31 @@ public class TypeOptionsParserTests
         Assert.IsType<TypeCommandPlan.Standard>(success.CommandPlan);
     }
 
+    [Theory]
+    [InlineData("--top", "0")]
+    [InlineData("--tree")]
+    public async Task TargetFreeMermaidCompetingRequest_UsesStandaloneDiagnostic(
+        params string[] competingArgs)
+    {
+        ArgumentPreprocessor.Reset();
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        ParseResult parseResult = root.Parse(
+            ["type", "--mermaid", .. competingArgs]);
+        Assert.Empty(parseResult.Errors);
+
+        TypeOptionsParser.TypeParseResult result =
+            await TypeOptionsParser.ParseAsync(
+                parseResult,
+                opts,
+                cmdArgs);
+
+        var error =
+            Assert.IsType<TypeOptionsParser.VersionError>(result);
+        Assert.Equal(
+            TypeCommandPlanner.StandaloneMermaidError,
+            error.Error.Message);
+    }
+
     [Fact]
     public void ImplicitPlatformPrefixFallback_IsNotAnExactTypePlan()
     {

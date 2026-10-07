@@ -95,6 +95,22 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("best-effort platform prefix", error);
     }
 
+    [Theory]
+    [InlineData("--top", "0")]
+    [InlineData("--tree")]
+    public async Task TypeHierarchy_TargetFreeMermaidCompetingRequest_UsesStandaloneDiagnostic(
+        params string[] competingArgs)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            ["type", "--mermaid", .. competingArgs]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--mermaid requires a standalone exact Type",
+            error);
+    }
+
     [Fact]
     public async Task TypeHierarchy_ExplicitZeroTopKeepsOrdinaryTypeRoute()
     {

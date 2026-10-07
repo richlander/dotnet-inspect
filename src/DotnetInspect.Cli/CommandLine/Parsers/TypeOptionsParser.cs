@@ -299,15 +299,9 @@ public static class TypeOptionsParser
         if (sourceInputs.Args.Length == 0
             && !sourceInputs.HasExplicitSource
             && !hasProjectSource
-            && workspacePacket is null)
+            && workspacePacket is null
+            && !mermaidExplicitlySet)
         {
-            if (mermaidExplicitlySet)
-            {
-                return new VersionError(
-                    opts.IsDiscoveryMode(parseResult)
-                        ? TypeCommandPlanner.StandaloneMermaidError
-                        : TypeCommandPlanner.ExactTypeMermaidError);
-            }
             if (opts.IsDiscoveryMode(parseResult))
                 return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));
             return new ShowHelp();
