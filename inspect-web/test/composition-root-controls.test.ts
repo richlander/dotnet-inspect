@@ -685,7 +685,6 @@ test("typed package inspection owns package-root request coordination", () => {
   for (const engine of [
     "inspectPackageIntegrations",
     "inspectPackageOpportunities",
-    "inspectPackagePerformance",
     "inspectPackageMetadata",
   ]) {
     assert.match(
@@ -694,6 +693,9 @@ test("typed package inspection owns package-root request coordination", () => {
         `${engine}\\(\\s*packageModel\\.id,\\s*`
         + "packageModel\\.version,\\s*packageModel\\.activeFramework,\\s*library\\)"));
   }
+  assert.match(
+    appSource,
+    /queryPackagePerformance: \(packageModel, library\) =>\s*queryPackagePerformanceStreamed\(packageModel, library\)/);
   for (const engine of [
     "inspectPlatformIntegrations",
     "inspectPlatformOpportunities",
