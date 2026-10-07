@@ -1130,7 +1130,7 @@ test("triage rows have no collapsed code control and preserve Library Analysis",
 
 test("Resource rows open member Analysis with detailed evidence and Explore", async ({ page }) => {
   const stop = { ...run, name: "Stop", stableSelector: "Stop", graphSelectorKey: "Stop", signature: "void Stop()", documentationId: "M:Example.Widget.Stop" };
-  await installFacades(page, { ...surface, types: surface.types.map(type => type.definitionId === "Example.Widget" ? { ...type, members: 2, api: [run, stop] } : type) });
+  await installFacades(page, { ...surface, types: surface.types.map(candidate => candidate.definitionId === "Example.Widget" ? { ...candidate, queryId: "Example.Widget.QuerySpelling", members: 2, api: [run, stop] } : candidate) });
   await openAnalysis(page);
   await page.getByRole("tab", { name: "Resource Triage", exact: true }).click();
   const list = page.locator(".library-resource-triage-surface");

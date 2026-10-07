@@ -11984,7 +11984,7 @@ async function selectPerformanceMember(
     render();
     const ranked = state.packagePerformanceKey === packageScopeSignature()
       ? state.packagePerformance?.members.find(candidate => candidate.stableSelector === stableSelector
-          && candidate.typeId === (type.queryId ?? type.id) && candidate.assembly === type.assembly)
+          && candidate.typeId === type.definitionId && candidate.assembly === type.assembly)
       : null;
     const body = ranked?.bodyTargets?.length === 1 ? ranked.bodyTargets[0] : null;
     state.selectedBodyTarget = body ? { memberName: body.memberName, selectorKey: body.selectorKey, metadataToken: body.methodToken } : null;
@@ -13079,12 +13079,11 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
     content = `<div data-call-graph-surface>${content}</div>`;
   } else if (state.memberSection === "facts") {
-    const overload = selectedMemberOverload(selectedType(), member);
     const resourceCandidates = state.packageResourceTriageKey === packageScopeSignature()
       ? (state.packageResourceTriage?.candidates ?? []).filter(candidate =>
           candidate.assembly === selectedType()?.assembly
-          && candidate.typeId === (selectedType()?.queryId ?? selectedType()?.id)
-          && candidate.stableSelector === overload?.stableSelector)
+          && candidate.typeId === type.definitionId
+          && candidate.stableSelector === selectedOverload?.stableSelector)
       : [];
     content = renderMemberResourceTriage(resourceCandidates, escapeHtml) + renderMemberFacts(state, !currentPackage().isRuntimePack);
   } else if (state.memberSection === "source") {
