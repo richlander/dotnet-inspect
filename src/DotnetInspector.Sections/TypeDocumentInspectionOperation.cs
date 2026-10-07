@@ -275,6 +275,7 @@ public static class TypeDocumentInspectionOperation
             subject.Category,
             subject.Attributes,
             subject.IsByRefLike,
+            subject.IsReadOnly,
             subject.DefinesCoreLibraryRoot,
             subject.DeclaringType?.Definition.Value);
 
