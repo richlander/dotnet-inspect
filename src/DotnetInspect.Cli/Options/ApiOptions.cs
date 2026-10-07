@@ -399,6 +399,7 @@ public record TypeOptions : ApiOptions
     internal bool NonHierarchyFormatExplicitlySet { get; init; }
     internal bool LineWindowExplicitlySet { get; init; }
     internal bool ShapeOrDiscoveryControlExplicitlySet { get; init; }
+    internal bool PerformanceTriageControlExplicitlySet { get; init; }
     public string? WorkspacePacket { get; init; }
     public WorkspaceShareFormat? ShareFormat { get; init; }
     public string? TypeFilter { get; init; }

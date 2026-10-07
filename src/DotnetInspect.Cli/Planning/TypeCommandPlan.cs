@@ -106,6 +106,7 @@ internal static class TypeCommandPlanner
         || options.LineWindowExplicitlySet
         || options.ShapeOrDiscoveryControlExplicitlySet
         || options.PerformanceTriage.HasFilters
+        || options.PerformanceTriageControlExplicitlySet
         || options.RequestAllTaste
         || options.RequestReadableLocalNames;
 }

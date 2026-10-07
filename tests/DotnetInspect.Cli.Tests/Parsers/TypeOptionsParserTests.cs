@@ -61,6 +61,7 @@ public class TypeOptionsParserTests
         typeCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Details);
+        opts.AddPerformanceTriageOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(opts.PlainText);
         typeCommand.Options.Add(opts.Mermaid);
@@ -178,6 +179,7 @@ public class TypeOptionsParserTests
     [InlineData("type", "System.Math", "--platform", "System.Private.CoreLib", "-S", "Methods")]
     [InlineData("type", "System.Math", "--platform", "System.Private.CoreLib", "-m", "M")]
     [InlineData("type", "System.Math", "--platform", "System.Private.CoreLib", "-n", "2")]
+    [InlineData("type", "System.Math", "--platform", "System.Private.CoreLib", "--top", "0")]
     public async Task CompetingTypeRequests_KeepStandardPlan(
         params string[] args)
     {

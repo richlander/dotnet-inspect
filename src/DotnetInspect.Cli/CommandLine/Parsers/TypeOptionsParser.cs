@@ -592,6 +592,19 @@ public static class TypeOptionsParser
                     is { Implicit: false }
                 || parseResult.GetResult(opts.Details)
                     is { Implicit: false },
+            PerformanceTriageControlExplicitlySet =
+                parseResult.GetResult(opts.PerformanceTriageTop)
+                    is { Implicit: false }
+                || parseResult.GetResult(
+                    opts.PerformanceTriageShape)
+                    is { Implicit: false }
+                || parseResult.GetResult(
+                    opts.PerformanceTriageMinConfidence)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.RowWhere)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.RowOrderBy)
+                    is { Implicit: false },
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),

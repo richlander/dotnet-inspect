@@ -80,6 +80,7 @@ public partial class CommandExecutionTests
     [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--columns", "Name")]
     [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--fields", "Name")]
     [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--row", "1")]
+    [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--top", "0")]
     [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "-t", "System.*")]
     public async Task TypeHierarchy_Mermaid_RejectsOtherRoutesBeforeOutput(
         params string[] args)
@@ -91,6 +92,24 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains("--mermaid", error);
         Assert.DoesNotContain("best-effort platform prefix", error);
+    }
+
+    [Fact]
+    public async Task TypeHierarchy_ExplicitZeroTopKeepsOrdinaryTypeRoute()
+    {
+        var compact = await RunAppAsync(
+            "type", "System.Math",
+            "--platform", "System.Private.CoreLib");
+        var ordinary = await RunAppAsync(
+            "type", "System.Math",
+            "--platform", "System.Private.CoreLib",
+            "--top", "0");
+
+        Assert.Equal(0, ordinary.Exit);
+        Assert.Empty(ordinary.Error);
+        Assert.NotEqual(compact.Output, ordinary.Output);
+        Assert.Contains("Inherits", ordinary.Output);
+        Assert.Contains("double Acos(double d)", ordinary.Output);
     }
 
     [Fact]
