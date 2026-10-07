@@ -557,8 +557,8 @@ public sealed class AuthoredRebuildFidelityTests
 
     [Theory]
     [InlineData(HttpStatusCode.NotFound, false, "No matching portable PDB")]
-    [InlineData(HttpStatusCode.InternalServerError, true, "sources did not answer")]
-    [InlineData(HttpStatusCode.OK, true, "invalid or mismatched")]
+    [InlineData(HttpStatusCode.InternalServerError, true, "External PDB providers")]
+    [InlineData(HttpStatusCode.OK, true, "External PDB providers")]
     public async Task SourceCorrespondencePdbAcquisition_DistinguishesAbsenceFromFailure(
         HttpStatusCode statusCode,
         bool expectedFailure,
@@ -617,7 +617,7 @@ public sealed class AuthoredRebuildFidelityTests
                 SourceAcquisitionOutcome.Failed,
                 result.SourceAcquisition);
             Assert.Contains(
-                "invalid or mismatched",
+                "External PDB providers",
                 result.SourceAcquisitionDetail,
                 StringComparison.OrdinalIgnoreCase);
         }
@@ -756,7 +756,7 @@ public sealed class AuthoredRebuildFidelityTests
                 SourceAcquisitionOutcome.Failed,
                 result.SourceAcquisition);
             Assert.Contains(
-                "identity cannot be verified",
+                "Portable PDB companion rejected",
                 result.SourceAcquisitionDetail,
                 StringComparison.OrdinalIgnoreCase);
         }
@@ -873,7 +873,7 @@ public sealed class AuthoredRebuildFidelityTests
             SourceAcquisitionOutcome.Failed,
             result.SourceAcquisition);
         Assert.Contains(
-            "SourceLink map is unusable",
+            "SourceLinkMapUnusable",
             result.SourceAcquisitionDetail,
             StringComparison.Ordinal);
         Assert.True(
@@ -905,7 +905,7 @@ public sealed class AuthoredRebuildFidelityTests
                 SourceAcquisitionOutcome.Failed,
                 result.SourceAcquisition);
         Assert.Contains(
-                "mapping for the selected source document was rejected",
+                "SourceLinkDocumentMappingRejected",
                 result.SourceAcquisitionDetail,
                 StringComparison.Ordinal);
         Assert.True(
@@ -937,7 +937,7 @@ public sealed class AuthoredRebuildFidelityTests
                 SourceAcquisitionOutcome.Absent,
                 result.SourceAcquisition);
         Assert.Contains(
-                "resolved SourceLink document was not found",
+                "SourceNotFound",
                 result.SourceAcquisitionDetail,
                 StringComparison.Ordinal);
         Assert.False(
@@ -969,7 +969,7 @@ public sealed class AuthoredRebuildFidelityTests
                     SourceAcquisitionOutcome.Failed,
                     result.SourceAcquisition);
         Assert.Contains(
-                    "Could not fetch PDB source",
+                    "Unavailable",
                     result.SourceAcquisitionDetail,
                     StringComparison.Ordinal);
         Assert.True(
