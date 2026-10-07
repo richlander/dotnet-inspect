@@ -555,14 +555,13 @@ accessible text naming the traversal TFM and a tooltip identifying its pack
 version. False and unavailable comparisons never render a pruning badge.
 The badge describes pruning eligibility, not an observed restore decision.
 
-Each Package and Library row has one leading 20-pixel SVG glyph. Positive
-pruning evidence takes precedence, followed by an illustrated ecosystem, then
-the existing Package or Library icon as fallback. A pruned Package uses scissors
-in place of its kind icon. A framework Library uses scissors only when a
-same-named Package observation has positive shared-classifier pruning evidence
-for that Library's exact platform family, TFM, and pack version. This links the
-supplying Library to the pruned Package without inventing pruning from a name
-match. False or unavailable comparisons do not produce pruning glyphs.
+Each Package and Library row has one leading 20-pixel SVG glyph. For Packages,
+positive pruning evidence takes precedence, followed by an illustrated ecosystem,
+then the existing Package icon as fallback. A pruned Package uses scissors in
+place of its kind icon. A platform Library always uses its normal ecosystem icon,
+or the existing Library icon as fallback, even when it supplies a pruned Package.
+Pruning applies to the Package, not to the supplying Library. False or unavailable
+comparisons do not produce pruning glyphs.
 Accessible glyph labels preserve Package or Library kind; text metadata retains
 source disclosure. Ecosystem icons consume the classifier's owning identity, or
 the framework Library's known source family. There is no trailing icon rail.

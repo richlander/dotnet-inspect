@@ -85,13 +85,7 @@ export interface SpotlightCapabilityResult {
   ranges: readonly HighlightRange[];
 }
 
-export interface SpotlightPruningEvidence {
-  traversalTfm: string;
-  platformVersion: string;
-}
-
 interface FrameworkLibraryResult {
-  pruning?: SpotlightPruningEvidence;
   kind: "framework-lib";
   assembly: string;
   pack: string;
@@ -461,8 +455,8 @@ export function createSpotlight(options: SpotlightOptions) {
     ecosystem: { id: string; title: string } | undefined,
     pruning: { traversalTfm: string; platformVersion: string | null } | undefined,
   ): string {
-    if (pruning) {
-      const label = kind === "Package" ? "Package pruned" : "Library supplies pruned package";
+    if (kind === "Package" && pruning) {
+      const label = "Package pruned";
       return `<span class="spotlight-svg-icon spotlight-pruned" role="img" aria-label="${label} for ${escapeHtml(pruning.traversalTfm)}" title="${escapeHtml(`Supplied by ${pruning.traversalTfm}${pruning.platformVersion ? ` @ ${pruning.platformVersion}` : ""}; eligible for package pruning`)}"></span>`;
     }
     const classes: Readonly<Record<string, string>> = {
@@ -568,7 +562,7 @@ export function createSpotlight(options: SpotlightOptions) {
         ${artifactIcon("Library", result.pack === "netcore.app" || result.pack === "aspnetcore.app" || result.pack === "netstandard"
           ? { id: result.pack === "aspnetcore.app" ? "ecosystem.aspnetcore" : "ecosystem.runtime",
               title: result.pack === "aspnetcore.app" ? "ASP.NET Core" : ".NET Runtime" }
-          : undefined, result.pruning)}
+          : undefined, undefined)}
         <span class="spotlight-item-name">${options.highlightRanges(result.assembly, result.ranges)}</span>
         <span class="spotlight-item-ns">${escapeHtml(meta)}</span>
       </button>`;

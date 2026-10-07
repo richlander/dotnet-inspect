@@ -4250,7 +4250,8 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
     releaseCatalog();
     await expect(packageHit.locator('[aria-label="Package pruned for net10.0"]')).toBeVisible();
     const libraryHit = page.locator('[data-sl-framework-lib="System.Linq"]');
-    await expect(libraryHit.locator('[aria-label="Library supplies pruned package for net10.0"]')).toBeVisible();
+    await expect(libraryHit.locator('[aria-label="Library: .NET Runtime"]')).toBeVisible();
+    await expect(libraryHit.locator(".spotlight-pruned")).toHaveCount(0);
     await expect(packageHit.locator('.sl-package-icon')).toHaveCount(0);
     await expect(packageHit.locator('[role="img"]')).toHaveCount(1);
     await expect(libraryHit.locator('[role="img"]')).toHaveCount(1);
@@ -4273,7 +4274,7 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
     await search.fill("System.Text.Json");
     const jsonPackage = page.locator('[data-sl-pkg-load="System.Text.Json"]');
     await expect(jsonPackage.locator('[aria-label="Package pruned for net10.0"]')).toBeVisible();
-    await expect(page.locator('[data-sl-framework-lib="System.Text.Json"] [aria-label="Library supplies pruned package for net10.0"]')).toBeVisible();
+    await expect(page.locator('[data-sl-framework-lib="System.Text.Json"] [aria-label="Library: .NET Runtime"]')).toBeVisible();
     await expect(page.locator(".spotlight-group").filter({ hasText: /^Ecosystem$/ })).toHaveCount(1);
     expect(packs).toEqual([]);
     for (const [id, ecosystem] of [
@@ -4291,7 +4292,8 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
           .toContain("data:image/svg+xml");
       } else {
         await expect(row.getByRole("img", { name: "Package pruned for net10.0", exact: true })).toBeVisible();
-        await expect(page.locator(`[data-sl-framework-lib="${id}"]`).getByRole("img", { name: "Library supplies pruned package for net10.0", exact: true })).toBeVisible();
+        await expect(page.locator(`[data-sl-framework-lib="${id}"] .spotlight-pruned`)).toHaveCount(0);
+        await expect(page.locator(`[data-sl-framework-lib="${id}"]`).getByRole("img", { name: id === "Microsoft.AspNetCore.Http" ? "Library: ASP.NET Core" : "Library: .NET Runtime", exact: true })).toBeVisible();
       }
     }
     expect(packs).toEqual([]);

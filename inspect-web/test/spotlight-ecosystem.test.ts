@@ -106,29 +106,17 @@ test("returning to an earlier batch ignores its superseded success and failure",
 });
 
 
-test("Library pruning links only positive same-name evidence at the exact layer and target", async () => {
-  const library: SpotlightResult = { kind: "framework-lib", assembly: "system.text.json", pack: "netcore.app", tfm: "net10.0", version: "10.0.12", publicTypes: 1, ranges: [] };
-  const variants: SpotlightResult[] = [library,
-    { ...library, assembly: "System.Text.Json.Nodes" },
-    { ...library, pack: "aspnetcore.app" },
-    { ...library, tfm: "net9.0" },
-    { ...library, version: "10.0.13" },
-  ];
+test("Package pruning does not annotate the supplying Library", async () => {
+  const library: SpotlightResult = { kind: "framework-lib", assembly: "System.Text.Json", pack: "netcore.app", tfm: "net10.0", version: "10.0.12", publicTypes: 1, ranges: [] };
   for (const isPruned of [true, false, null]) {
     const coordinator = createSpotlightEcosystemClassification({
       classify: async () => [{ ...annotation, isPruned }], updateResults: () => {},
     });
-    const batch = [...hits, ...variants];
-    assert.deepEqual(coordinator.project(batch, "net10.0", target), batch);
+    const batch = [...hits, library];
+    coordinator.project(batch, "net10.0", target);
     await tick();
     const results = coordinator.project(batch, "net10.0", target);
-    for (const [index, result] of results.slice(1).entries()) {
-      assert.equal(result.kind, "framework-lib");
-      if (result.kind === "framework-lib") assert.deepEqual(result.pruning,
-        isPruned === true && index === 0
-          ? { traversalTfm: "net10.0", platformVersion: "10.0.12" } : undefined);
-    }
-    const reset = coordinator.project(results, "net9.0", null);
-    for (const result of reset) if (result.kind === "framework-lib") assert.equal(result.pruning, undefined);
+    assert.deepEqual(results[1], library);
+    if (results[0]?.kind === "pkg-nuget") assert.equal(results[0].ecosystem?.isPruned, isPruned);
   }
 });

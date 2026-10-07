@@ -1207,6 +1207,8 @@ test("same-named Package and Library share one Ecosystem group with independent 
   const html = spotlight.modalHtml();
   assert.equal((html.match(/class="spotlight-group">Ecosystem/g) ?? []).length, 1);
   assert.match(html, /aria-label="Package pruned for net10.0"/);
+  assert.match(html, /aria-label="Library: \.NET Runtime"/);
+  assert.equal((html.match(/class="spotlight-svg-icon spotlight-pruned"/g) ?? []).length, 1);
   assert.match(html, /Supplied by net10.0 @ 10.0.12/);
   assert.match(html, /\.NET Runtime · Package · 4.3.0/);
   assert.notEqual(spotlightResultIdentity(packageResult), spotlightResultIdentity(libraryResult));
@@ -1233,7 +1235,6 @@ test("artifact rows use one leading pruning, ecosystem, or fallback glyph", () =
     { result: { kind: "pkg-nuget", hit: { id: "Microsoft.Extensions.AI", version: "9.0.0" }, ranges: [], ecosystem: { ...ecosystem, id: "ecosystem.ai", title: "AI" } }, icon: "sl-package-icon", label: "Package" },
     { result: { kind: "pkg-recent", entry: { id: "System.Linq", version: "4.3.0" }, ranges: [], ecosystem: prunedEcosystem }, icon: "spotlight-pruned", label: "Package pruned for net10.0" },
     { result: { kind: "pkg-loaded", pkg: { id: "System.Linq", version: "4.3.0" }, ranges: [], ecosystem: prunedEcosystem }, icon: "spotlight-pruned", label: "Package pruned for net10.0" },
-    { result: { kind: "framework-lib", assembly: "System.Linq", pack: "netcore.app", publicTypes: 1, ranges: [], pruning: { traversalTfm: "net10.0", platformVersion: "10.0.12" } }, icon: "spotlight-pruned", label: "Library supplies pruned package for net10.0" },
     { result: { kind: "framework-lib", assembly: "System.Linq", pack: "netcore.app", publicTypes: 1, ranges: [] }, icon: "sl-ecosystem-runtime", label: "Library: .NET Runtime" },
     { result: { kind: "framework-lib", assembly: "Example.Library", pack: "other", publicTypes: 1, ranges: [] }, icon: "sl-library-icon", label: "Library" },
   ];
