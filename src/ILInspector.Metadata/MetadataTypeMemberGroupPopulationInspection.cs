@@ -327,6 +327,7 @@ internal static class MetadataTypeMemberGroupPopulationInspection
         private MetadataTypeMemberCompositionInspection.CompositionCounts?
             _composition;
         private int _members;
+        private int _bodyBacked;
         private int _static;
         private int _instance;
         private int _virtual;
@@ -385,6 +386,12 @@ internal static class MetadataTypeMemberGroupPopulationInspection
             {
                 _kindCounts[category] =
                     checked(_kindCounts.GetValueOrDefault(category) + 1);
+                if (ApiMemberBodyFacts.IsBodyBacked(
+                        _reader,
+                        member))
+                {
+                    _bodyBacked = checked(_bodyBacked + 1);
+                }
                 switch (member.Receiver)
                 {
                     case MetadataMethodReceiver.Static:
@@ -437,6 +444,7 @@ internal static class MetadataTypeMemberGroupPopulationInspection
                         ],
                         new(
                             checked(_static + _instance + _extensions),
+                            _bodyBacked,
                             _static,
                             _instance,
                             _virtual,

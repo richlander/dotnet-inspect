@@ -385,6 +385,7 @@ public static class TypeMemberGroupPopulationInspectionOperation
             ],
             new(
                 counts.Traits.All,
+                counts.Traits.BodyBacked,
                 counts.Traits.Static,
                 counts.Traits.Instance,
                 counts.Traits.Virtual,

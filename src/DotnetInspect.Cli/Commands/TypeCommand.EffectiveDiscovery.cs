@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Reflection.Metadata.Ecma335;
 
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -130,11 +131,6 @@ public static partial class TypeCommand
             }
             hasExtensionMethods = availablePresence.Exists;
         }
-        if (RequiresSafetyApplicability(options)
-            && !CanProjectAuditApplicability(selectorCounts))
-        {
-            return null;
-        }
 
         WriteInspectionDiagnostics(envelope.Diagnostics);
         ApiType type = ProjectDirectLibraryDiscoveryType(
@@ -183,39 +179,6 @@ public static partial class TypeCommand
                 || section.Equals(
                     SectionNames.UnsafeMembers,
                     StringComparison.OrdinalIgnoreCase)) == true;
-
-    static bool RequiresSafetyApplicability(
-        TypeOptions options) =>
-        options.Discover?.Any(
-            section =>
-                section.Equals(
-                    SectionCategoryNames.Audit,
-                    StringComparison.OrdinalIgnoreCase)
-                || section.Equals(
-                    SectionNames.SafetyFacts,
-                    StringComparison.OrdinalIgnoreCase)) == true;
-
-    static bool CanProjectAuditApplicability(
-        TypeMemberSelectorCounts selectorCounts)
-    {
-        bool hasMethodLike = selectorCounts.Kinds.Any(
-            count => count.Count > 0
-                && count.Kind
-                    is MemberGroupCategory.Method
-                        or MemberGroupCategory.Constructor
-                        or MemberGroupCategory.Operator
-                        or MemberGroupCategory.Finalizer
-                        or MemberGroupCategory
-                            .ExplicitInterfaceImplementation);
-        if (hasMethodLike)
-            return true;
-
-        return !selectorCounts.Kinds.Any(
-            count => count.Count > 0
-                && count.Kind
-                    is MemberGroupCategory.Property
-                        or MemberGroupCategory.Event);
-    }
 
     static DocumentSchema DirectDiscoverySchema(
         SectionPipeline<ApiType> memberPipeline)
@@ -277,6 +240,7 @@ public static partial class TypeCommand
             [],
             new(
                 All: 0,
+                BodyBacked: 0,
                 Static: 0,
                 Instance: 0,
                 Virtual: 0,
@@ -460,6 +424,8 @@ public static partial class TypeCommand
         bool hasExtensionMethods)
     {
         List<ApiMember> members = [];
+        int methodLikeCount = 0;
+        ApiMember? accessorBackedPlaceholder = null;
         foreach (TypeMemberKindCount count in selectorCounts.Kinds)
         {
             if (count.Count == 0)
@@ -479,7 +445,7 @@ public static partial class TypeCommand
                 _ => throw new InvalidOperationException(
                     "Unknown exact Type discovery Member-group category."),
             };
-            members.Add(
+            var member =
                 new ApiMember
                 {
                     Name = "<member>",
@@ -493,7 +459,41 @@ public static partial class TypeCommand
                         count.Kind
                             == MemberGroupCategory
                                 .ExplicitInterfaceImplementation,
-                });
+                };
+            members.Add(member);
+            if (ApiMemberSectionDescriptors.IsMethodLike(kind))
+            {
+                methodLikeCount =
+                    checked(methodLikeCount + count.Count);
+            }
+            else if (accessorBackedPlaceholder is null
+                && count.Kind
+                    is MemberGroupCategory.Property
+                        or MemberGroupCategory.Event)
+            {
+                accessorBackedPlaceholder = member;
+            }
+        }
+        if (selectorCounts.Traits.BodyBacked > methodLikeCount)
+        {
+            if (accessorBackedPlaceholder is null)
+            {
+                throw new InvalidOperationException(
+                    "Exact Type discovery reported accessor-backed Members without a property or event population.");
+            }
+            // This applicability-only Type needs accessor presence, not identity.
+            if (accessorBackedPlaceholder.Kind == "property")
+            {
+                accessorBackedPlaceholder.GetterToken =
+                    MetadataTokens.GetToken(
+                        MetadataTokens.MethodDefinitionHandle(1));
+            }
+            else
+            {
+                accessorBackedPlaceholder.AdderToken =
+                    MetadataTokens.GetToken(
+                        MetadataTokens.MethodDefinitionHandle(1));
+            }
         }
         if (hasExtensionMethods)
         {

@@ -352,6 +352,7 @@ public sealed record BrowserTypeMemberFacetCount(
 
 public sealed record BrowserTypeMemberTraitCounts(
     int All,
+    int BodyBacked,
     int Static,
     int Instance,
     int Virtual,

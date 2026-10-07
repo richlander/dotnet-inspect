@@ -268,6 +268,7 @@ public partial class CommandExecutionTests
     [InlineData("System.IDisposable")]
     [InlineData("System.Action")]
     [InlineData("System.Delegate")]
+    [InlineData("System.IAsyncResult")]
     public async Task
         Type_DirectLibraryExactType_BareDiscoveryMatchesPlatformProjection(
             string typeName)
