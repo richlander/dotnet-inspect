@@ -16,6 +16,51 @@ public sealed partial class BrowserEngineBoundaryTests
 {
     const string ForwarderPlatformVersion = "11.0.0-rc.1.26425.128";
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [Trait("Speed", "Slow")]
+    public async Task PlatformForwarders_CoreLibWireBudget(bool throughForwarder)
+    {
+        var handler = new PlatformCatalogHandler(ForwarderPlatformVersion)
+        {
+            Packages = new()
+            {
+                [CatalogPackages[1]] = await File.ReadAllBytesAsync(
+                    Path.Combine(AppContext.BaseDirectory, "RealAssets", "PlatformForwarderActivation", "runtime.nupkg"),
+                    TestContext.Current.CancellationToken),
+            },
+        };
+        PackageSourceAuthorization authority = PackageSourceAuthorization.Authorize([PackageSource.NuGetOrg]);
+        using IPackageSourceClient packageClient = PackageSourceClientFactory.CreateGallery(
+            authority.Authorities[0].Association, handler);
+        using var networkClient = new HttpClient(handler, disposeHandler: false);
+        using var navigation = new BrowserPlatformForwarderNavigation(
+            networkClient, packageClient, new FixedPackageSourceAuthorization(authority), TimeSpan.FromSeconds(30));
+        CancellationToken token = TestContext.Current.CancellationToken;
+        var opened = RequireForwarderView(await navigation.OpenAsync(
+            "net11.0", ForwarderPlatformVersion,
+            throughForwarder ? "System.Runtime.dll" : "System.Private.CoreLib.dll", "netcore.app", token));
+        if (throughForwarder)
+        {
+            var row = Assert.Single(opened.View.Forwarders,
+                row => row.Declaration.Identity.ToEscapedFullName()
+                    == "Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid");
+            opened = RequireForwarderView(await navigation.ActivateAsync(row.Action, token));
+            Assert.Equal("System.Private.CoreLib:Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid", opened.View.SelectedTypeId);
+        }
+        Assert.Equal("System.Private.CoreLib", opened.View.Coordinate.Assembly);
+        string json = Interop.Package.PackageExports.SerializeForwarderResult(opened);
+        using JsonDocument wire = JsonDocument.Parse(json);
+        long entries = BrowserOrdinaryWorkerJsonBudget.CollectionEntries(wire.RootElement) + 2;
+        long characters = BrowserOrdinaryWorkerJsonBudget.JsonStringifyCharacters(wire.RootElement) + 2;
+        Console.WriteLine($"CORELIB_WIRE forwarder={throughForwarder} characters={characters} entries={entries}");
+        Assert.InRange(characters, 33_554_433, 83_886_080);
+        Assert.InRange(entries, 1_310_721, 2_621_440);
+        Assert.NotEmpty(opened.View.Surface.Types);
+        Assert.True(navigation.Close(opened.View.Id));
+    }
+
     [Fact]
     [Trait("Speed", "Slow")]
     public async Task PlatformForwarders_ProductionSourceOpensEachXmlLibraryAndRenewsActions()

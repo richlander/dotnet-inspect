@@ -338,7 +338,7 @@ public sealed record BrowserExceptionSurface(
 public sealed record BrowserTypeCandidate(
     string Key,
     string Name,
-    string Full);
+    string Full) : LoadedTypeSearchCandidate(Key, Name, Full);
 
 public sealed record BrowserTypeSearchHit(
     string Key,
@@ -368,7 +368,7 @@ public sealed record BrowserEcosystemPackageInventory(
 
 public sealed record BrowserEcosystemPackageClassification(
     string Id, string? Version, string? EcosystemId, string? EcosystemTitle,
-    string? PlatformLayer, bool? IsPruned);
+    string? PlatformLayer, bool? IsPruned, int? PlatformVersionComparison);
 
 public sealed record BrowserPlatformCatalog(
     string Tfm,

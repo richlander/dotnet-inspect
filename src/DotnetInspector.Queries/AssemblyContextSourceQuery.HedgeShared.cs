@@ -33,7 +33,7 @@ public static partial class AssemblyContextSourceQuery
                 context.TypeSourceLimits,
                 context.TypeSourceTimeout,
                 cancellationToken,
-                retainLibrary: false)
+                pdbEvidence: null)
             : null;
 
     static AssemblyTypeSourceEntry PdbSourceEntry(

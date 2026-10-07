@@ -55,12 +55,13 @@ trap cleanup EXIT
 dotnet=${DOTNET:-dotnet}
 node=${NODE:-node}
 
-usage="Usage: generate-inspect-web-engine-facade.sh [--compile | --fast-check | --check | --contract <assembly> <declaration-output-directory> <version-prefix>]"
+usage="Usage: generate-inspect-web-engine-facade.sh [--compile | --fast-check | --check | --contract <assembly> <declaration-output-directory> <version-prefix> [<source-output-directory>]]"
 
 mode=write
 source_assembly="$engine_dll"
 contract_output=
 contract_version_prefix=
+contract_sources_output=
 case "${1:-}" in
   "")
     ;;
@@ -86,7 +87,7 @@ case "${1:-}" in
     mode=check
     ;;
   --contract)
-    if [[ "$#" != 4 ]]; then
+    if [[ "$#" != 4 && "$#" != 5 ]]; then
       echo "$usage" >&2
       exit 1
     fi
@@ -94,12 +95,21 @@ case "${1:-}" in
     source_assembly="$2"
     contract_output="$3"
     contract_version_prefix="$4"
+    contract_sources_output="${5:-}"
     if [[ ! -f "$source_assembly" ]]; then
       echo "Assembly not found: $source_assembly" >&2
       exit 1
     fi
     if [[ -z "$contract_version_prefix" ]]; then
       echo "Version prefix must not be empty." >&2
+      exit 1
+    fi
+    if [[ "$#" == 5 && -z "$contract_sources_output" ]]; then
+      echo "Source output directory must not be empty." >&2
+      exit 1
+    fi
+    if [[ -n "$contract_sources_output" && -e "$contract_sources_output" ]]; then
+      echo "Source output directory already exists: $contract_sources_output" >&2
       exit 1
     fi
     ;;
@@ -272,6 +282,12 @@ typecheck_consumers() {
 }
 
 if [[ "$mode" == contract ]]; then
+  if [[ -n "$contract_sources_output" ]]; then
+    mkdir "$contract_sources_output"
+    cp "$context_output"/*.ts "$contract_sources_output/"
+    assert_directory_inventory \
+      "$contract_sources_output" '*.ts' "$expected_artifacts"
+  fi
   mkdir -p "$contract_output"
   for module in "${facade_modules[@]}"; do
     cp "$compiled/$module.d.ts" "$contract_output/$module.d.ts"

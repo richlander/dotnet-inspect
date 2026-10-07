@@ -4,7 +4,7 @@ import type {
   BrowserEcosystemPackageInventory,
 } from "./facades/inspect-web-package.d.ts";
 import type { PlatformCatalogTarget } from "./platform-index.ts";
-import type { SpotlightPruningEvidence, SpotlightResult } from "./spotlight.ts";
+import type { SpotlightResult } from "./spotlight.ts";
 
 function coordinate(result: SpotlightResult): { id: string; version?: string } | null {
   switch (result.kind) {
@@ -73,27 +73,7 @@ export function createSpotlightEcosystemClassification(options: {
           });
         }
       }
-      const libraryPruning = new Map<string, SpotlightPruningEvidence>();
-      if (target) {
-        for (const annotation of annotations.values()) {
-          if (annotation.isPruned !== true) continue;
-          const pack = annotation.platformLayer === "DotNetRuntime" ? "netcore.app"
-            : annotation.platformLayer === "AspNetCore" ? "aspnetcore.app" : null;
-          if (pack) libraryPruning.set(
-            JSON.stringify([annotation.id.toLowerCase(), pack, target.tfm, target.version]),
-            { traversalTfm, platformVersion: target.version });
-        }
-      }
       return results.map(result => {
-        if (result.kind === "framework-lib") {
-          const pruning = libraryPruning.get(JSON.stringify([
-            result.assembly.toLowerCase(), result.pack, result.tfm, result.version,
-          ]));
-          if (pruning) return { ...result, pruning };
-          if (!result.pruning) return result;
-          const { pruning: _pruning, ...unannotated } = result;
-          return unannotated;
-        }
         const value = coordinate(result);
         const annotation = value ? annotations.get(coordinateKey(value)) : null;
         return annotation?.ecosystemId && annotation.ecosystemTitle
@@ -103,6 +83,7 @@ export function createSpotlightEcosystemClassification(options: {
               isPruned: annotation.isPruned,
               traversalTfm,
               platformVersion: target?.version ?? null,
+              platformVersionComparison: annotation.platformVersionComparison,
             } }
           : result;
       });
