@@ -174,7 +174,7 @@ public static class ExactTypeInspectionOperation
             ProjectShare(request, result),
             Diagnostics(result));
 
-    static InspectionShare ProjectShare(
+    internal static InspectionShare ProjectShare(
         ExactTypeInspectionRequest request,
         ExactTypeInspectionResult result)
     {

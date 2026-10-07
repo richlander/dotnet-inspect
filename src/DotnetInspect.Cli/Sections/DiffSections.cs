@@ -62,6 +62,7 @@ public static class DiffSections
                 Transitions.Name,
                 ComplexityContext.Name,
                 StructuralContext.Name,
+                AnnotatedSourceDiff.Name,
             ],
             StringComparer.OrdinalIgnoreCase);
 
@@ -105,6 +106,7 @@ public static class DiffSections
             .Add<Changes>(ApiComparisonQuery.Definition)
             .Add<AnalysisDiff>(BodySignalComparisonQuery.Definition)
             .Add<ImplementationDiff>(ImplementationComparisonQuery.Definition)
+            .Add<AnnotatedSourceDiff>()
             .Add<ComplexityContext>(ImplementationComparisonQuery.Definition)
             .Add<StructuralContext>(ImplementationComparisonQuery.Definition)
             .Add<Summary>()
@@ -184,6 +186,13 @@ public static class DiffSections
                 "Population Size",
                 "Cohort Size",
                 "Kind")
+            .Add(
+                AnnotatedSourceDiff.Name,
+                "section",
+                "Before",
+                "After",
+                "C#",
+                "IL")
             .Add(Summary.Name, "section", "Analysis", "Outcome", "Added", "Removed", "Changed", "Present", "Detail")
             .Add(Transitions.Name, "section", "Transition", "Finding", "Target", "From", "To", "Old", "New", "Detail");
     }
@@ -240,6 +249,15 @@ public static class DiffSections
     public sealed class ImplementationDiff : ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Implementation Diff";
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool CanRender(DiffDiscoveryModel model) => true;
+    }
+
+    public sealed class AnnotatedSourceDiff :
+        ISectionDescriptor<DiffDiscoveryModel>
+    {
+        public static string Name => "Annotated Source Diff";
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;

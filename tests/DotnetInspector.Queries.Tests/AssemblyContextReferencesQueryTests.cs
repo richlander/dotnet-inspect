@@ -77,9 +77,15 @@ public sealed class AssemblyContextReferencesQueryTests
                 AssemblyContextReferencesQuery.ExecuteParticipantRows(
                     group,
                     group.Participants[0]));
+        AssemblyReferenceRowsRejection rejection =
+            AssemblyContextReferencesQuery.GetRowsRejection(portableRejected);
         Assert.Equal(
-            CandidateOpenFailureKind.InvalidImage,
-            portableRejected.Failure.Kind);
+            AssemblyReferenceRowsRejectionKind.InvalidImage,
+            rejection.Kind);
+        Assert.Equal(portableRejected.Failure.Detail, rejection.Detail);
+        Assert.Equal(
+            typeof(AssemblyContextReferencesQuery).Assembly,
+            typeof(AssemblyReferenceRowsRejection).Assembly);
     }
 
     [Fact]

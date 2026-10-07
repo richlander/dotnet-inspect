@@ -19,6 +19,9 @@ namespace ILInspector.Decompiler;
 /// </remarks>
 public static class AnnotatedSourceNodeKinds
 {
+    /// <summary>The producer-rendered declaration preceding an exact Member body.</summary>
+    public const string MemberDeclaration = nameof(MemberDeclaration);
+
     /// <summary>An exact-offset rendered IL instruction.</summary>
     public const string Instruction = nameof(Instruction);
 
@@ -32,6 +35,7 @@ public static class AnnotatedSourceNodeKinds
         new[]
         {
             Unknown,
+            MemberDeclaration,
             "MemberBody",
             "Block",
             "IfStatement",

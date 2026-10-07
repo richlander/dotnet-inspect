@@ -14,6 +14,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using ILInspector.Research;
 using CoreHttpClientFactory =
     DotnetInspector.Networking.HttpClientFactory;
 
@@ -311,6 +312,49 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
         Assert.Contains(
             rows,
             row => row.Mechanism == "IL");
+    }
+
+    [Fact]
+    public async Task DirectPackageTargets_ProducePortableAnnotatedSourceDiff()
+    {
+        TestSide before = CreateDirectSide(
+            "1.0.0",
+            methodResult: 1);
+        TestSide after = CreateDirectSide(
+            "2.0.0",
+            methodResult: 2);
+
+        AnnotatedSourceDiffDocumentQueryResult result =
+            await WorkspaceImplementationComparisonRunner
+                .ExecuteAnnotatedSourceDiffAsync(
+                    before.AssemblySet,
+                    after.AssemblySet,
+                    Facade,
+                    TypeName,
+                    MemberTargetSelector.Parse("Value"),
+                    includeIl: true,
+                    new HttpClient(),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+
+        AnnotatedSourceDiffDocument document =
+            Assert.IsType<
+                AnnotatedSourceDiffDocumentQueryResult.Published>(
+                result).Document;
+        Assert.Equal(
+            [
+                AnnotatedSourceDiffMediumKind.CSharp,
+                AnnotatedSourceDiffMediumKind.Il,
+            ],
+            document.Media.Select(static medium => medium.Medium));
+        Assert.All(
+            document.Media,
+            static medium => Assert.NotNull(medium.Comparison));
+        Assert.Empty(document.Forwarders);
+        Assert.NotEmpty(
+            AnnotatedSourceDiffJson.Serialize(
+                document,
+                indented: false));
     }
 
     [Fact]
@@ -625,6 +669,66 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
         Assert.NotEmpty(output);
     }
 
+    [Fact]
+    public async Task PackageCommand_EmitsCompleteAnnotatedSourceDiffJson()
+    {
+        _ = CreateForwardedSide(
+            "1.0.0",
+            methodResult: 1);
+        _ = CreateForwardedSide(
+            "2.0.0",
+            methodResult: 2);
+
+        var (exitCode, output, error) =
+            await RunPackageCommandAsync(
+                type: "N.Type",
+                member: "Value",
+                sections: "Annotated Source Diff",
+                includeIl: true);
+
+        Assert.True(exitCode == 0, error);
+        Assert.True(string.IsNullOrEmpty(error), error);
+        AnnotatedSourceDiffDocument document =
+            AnnotatedSourceDiffJson.Deserialize(output);
+        Assert.Equal("N.Type", document.Subject.DeclaringType);
+        Assert.Equal("Value", document.Subject.Selector);
+        Assert.Equal(2, document.Media.Count);
+        Assert.Equal(2, document.Forwarders.Count);
+        Assert.All(
+            document.Media,
+            static medium => Assert.NotNull(medium.Comparison));
+    }
+
+    [Fact]
+    public async Task PackageCommand_ReportsDivergentDomainOutcomes()
+    {
+        _ = CreateForwardedSide(
+            "1.0.0",
+            methodResult: 1,
+            terminalName: "BeforeTerminal");
+        _ = CreateForwardedSide(
+            "2.0.0",
+            methodResult: 2,
+            terminalName: "AfterTerminal");
+
+        var (exitCode, output, error) =
+            await RunPackageCommandAsync(
+                type: "N.Type",
+                member: "Value",
+                sections: "Annotated Source Diff");
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "DivergentTerminalDomains",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "BeforeOnly, AfterOnly",
+            error,
+            StringComparison.Ordinal);
+    }
+
     Task<(int ExitCode, string Output, string Error)>
         RunPackageCommandAsync(
         string type,
@@ -632,7 +736,8 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
         string sections,
         bool json = true,
         bool allocRegressions = false,
-        bool table = false)
+        bool table = false,
+        bool includeIl = false)
     {
         Dictionary<string, byte[]> packages =
             PackagePayloads();
@@ -663,6 +768,8 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
                     arguments.Add("--alloc-regressions");
                 if (table)
                     arguments.Add("--table");
+                if (includeIl)
+                    arguments.Add("--il");
                 arguments.AddRange(
                     [
                         "--source",
@@ -698,6 +805,14 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
         AddPackage(
             packages,
             Terminal,
+            "2.0.0");
+        AddPackage(
+            packages,
+            "BeforeTerminal",
+            "1.0.0");
+        AddPackage(
+            packages,
+            "AfterTerminal",
             "2.0.0");
         return packages;
     }

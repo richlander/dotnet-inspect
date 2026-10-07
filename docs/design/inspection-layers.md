@@ -1610,12 +1610,14 @@ canaries:
 - `AssemblyContextReferencesQuery` owns session access for every participant in
   a binding-consistent group. Its participant entry point also issues detached
   `AssemblyReferenceRow` values for hosts that need reference fields but do not
-  own Metadata identity semantics. `PackageDependencyGroupsQuery` reads one
-  bounded root manifest through `IPackageContent`, validates its package ID and
-  version, retains its groups as declared, and reports exact-framework absence
-  separately from an empty dependency set. Browser-Wasm composes those two
-  typed results without parsing XML, opening an assembly session, or projecting
-  Metadata identities itself.
+  own Metadata identity semantics, plus a typed detached rejection for hosts
+  that do not own Metadata candidate-open failures.
+  `PackageDependencyGroupsQuery` reads one bounded root manifest through
+  `IPackageContent`, validates its package ID and version, retains its groups as
+  declared, and reports exact-framework absence separately from an empty
+  dependency set. Browser-Wasm composes those two typed results without parsing
+  XML, opening an assembly session, or projecting Metadata identities or
+  failures itself.
 - `LoadedTypeSearchRanking` owns direct, broadened, and fuzzy ranking over one
   finite caller-authorized population of already-loaded Type names. It consumes
   Metadata's matching grammar and tier predicates, applies the product result

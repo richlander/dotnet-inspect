@@ -102,6 +102,8 @@ type AnalysisOperations =
   | "queryPlatformPerformance";
 
 type SourceOperations =
+  | "queryMemberBodyDiff"
+  | "cancelMemberBodyDiff"
   | "cancelMemberSourceComparison"
   | "cancelMethodBodyComparison"
   | "cancelSourceQuery"

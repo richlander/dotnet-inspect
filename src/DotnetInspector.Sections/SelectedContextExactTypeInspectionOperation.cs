@@ -316,6 +316,85 @@ public static class SelectedContextExactTypeInspectionOperation
             liveTargetConsumer);
     }
 
+    public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        ExecuteWithLiveTarget(
+            InspectionWorkspace workspace,
+            WorkspaceDeclarationContext context,
+            AssemblyAcquisitionRegistration definingRegistration,
+            SelectedContextExactTypeInspectionRequest request,
+            Action<SelectedContextExactTypeLiveTarget> liveTargetConsumer,
+            ExactTypeInspectionRequest? shareRequest = null,
+            ApiSurfaceProjectionLimits? projectionLimits = null,
+            CompleteWorkspaceActivation? activation = null,
+            ViewFacetId? facet = null,
+            ApiSurfaceScope scope =
+                ApiSurfaceScope.PublicWithNonPublicTypes)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(definingRegistration);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(liveTargetConsumer);
+
+        InspectionEnvelope<SelectedContextExactTypeInspectionResult> result =
+            Complete(
+                ExactTypeInspectionQuery.ExecuteSelectedContext(
+                    workspace,
+                    context,
+                    request,
+                    definingRegistration,
+                    scope,
+                    projectionLimits),
+                context,
+                request,
+                activation,
+                facet,
+                liveTargetConsumer);
+        return shareRequest is null
+            ? result
+            : new(
+                result.Content,
+                ProjectSelectedContextShare(
+                    workspace,
+                    context,
+                    definingRegistration,
+                    shareRequest,
+                    result.Content.Inspection,
+                    projectionLimits),
+                result.Diagnostics);
+    }
+
+    static InspectionShare ProjectSelectedContextShare(
+        InspectionWorkspace workspace,
+        WorkspaceDeclarationContext context,
+        AssemblyAcquisitionRegistration definingRegistration,
+        ExactTypeInspectionRequest request,
+        ExactTypeInspectionResult selected,
+        ApiSurfaceProjectionLimits? projectionLimits)
+    {
+        ExactTypeInspectionExecution portable =
+            ExactTypeInspectionQuery.ExecutePackageContext(
+                workspace,
+                context,
+                request,
+                projectionLimits);
+        if (!selected.IsAvailable
+            || portable.Target is not { } target
+            || !ReferenceEquals(
+                target.Occurrence.Assembly.Registration,
+                definingRegistration))
+        {
+            return new InspectionShare.NonProjectable(
+                "exact-type/share",
+                "The portable package coordinate cannot restore the exact "
+                    + "selected Type occurrence.");
+        }
+
+        return ExactTypeInspectionOperation.ProjectShare(
+            request,
+            selected);
+    }
+
     static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
         ExecuteCore(
             InspectionWorkspace workspace,

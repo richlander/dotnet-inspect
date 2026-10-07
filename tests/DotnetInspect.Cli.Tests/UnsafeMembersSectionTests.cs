@@ -1,7 +1,8 @@
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
-using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.Fixtures;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -215,6 +216,32 @@ public class UnsafeMembersSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Unsafe Members\tsection", result.Output);
+    }
+
+    [Fact]
+    public async Task
+        TypeAuditEffectiveDiscovery_ListsGeneratedUnsafeMembers()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(new TypeOptions
+            {
+                TypeName =
+                    "ILInspector.Analysis.ImplementationProfileFixtures."
+                    + "GeneratedUnsafeEvidenceSample",
+                AssemblyPath =
+                    FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                Discover = [SectionCategoryNames.Audit],
+                CompanionOutput = CompanionOutput.None,
+                Verbosity = Verbosity.Minimal,
+                Tabular = true,
+                Tsv = true,
+                TabularExplicitlySet = true,
+                FormatExplicitlySet = true,
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
         Assert.Contains("Unsafe Members\tsection", result.Output);
     }
 

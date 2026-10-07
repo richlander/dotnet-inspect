@@ -4,6 +4,15 @@ using System.Text;
 namespace ILInspector.Decompiler;
 
 /// <summary>
+/// One C# line retained from an interleaved annotated-source document, mapped
+/// into the projected C#-only document.
+/// </summary>
+public readonly record struct CSharpAnnotatedSourceLine(
+    int SourceStart,
+    int ProjectedStart,
+    int ContentLength);
+
+/// <summary>
 /// The C# plane of one annotated-source document and the explicit identity map
 /// from retained source nodes to projected nodes.
 /// </summary>
@@ -11,10 +20,12 @@ public sealed class CSharpAnnotatedSourceProjection
 {
     CSharpAnnotatedSourceProjection(
         AnnotatedSourceDocument document,
-        ImmutableDictionary<int, int> originalToProjectedNodeIds)
+        ImmutableDictionary<int, int> originalToProjectedNodeIds,
+        ImmutableArray<CSharpAnnotatedSourceLine> lines)
     {
         Document = document;
         OriginalToProjectedNodeIds = originalToProjectedNodeIds;
+        Lines = lines;
     }
 
     /// <summary>The projected C#-only document.</summary>
@@ -25,6 +36,12 @@ public sealed class CSharpAnnotatedSourceProjection
     /// id in <see cref="Document"/>.
     /// </summary>
     public ImmutableDictionary<int, int> OriginalToProjectedNodeIds { get; }
+
+    /// <summary>
+    /// Retained C# lines in source order, with exact coordinates in both the
+    /// original and projected text buffers.
+    /// </summary>
+    public ImmutableArray<CSharpAnnotatedSourceLine> Lines { get; }
 
     /// <summary>Projects one annotated-source document onto its C# plane.</summary>
     /// <exception cref="InvalidOperationException">
@@ -40,11 +57,22 @@ public sealed class CSharpAnnotatedSourceProjection
             .ToArray();
         if (csharpNodes.Length == source.Nodes.Count)
         {
+            ImmutableArray<CSharpAnnotatedSourceLine> identityLines =
+            [
+                .. SplitLines(source.Text)
+                    .Where(static line => line.TotalLength > 0)
+                    .Select(static line =>
+                        new CSharpAnnotatedSourceLine(
+                            line.Start,
+                            line.Start,
+                            line.ContentLength)),
+            ];
             return new(
                 source,
                 csharpNodes.ToImmutableDictionary(
                     static node => node.Id,
-                    static node => node.Id));
+                    static node => node.Id),
+                identityLines);
         }
 
         var lines = SplitLines(source.Text);
@@ -118,7 +146,8 @@ public sealed class CSharpAnnotatedSourceProjection
             segments.Add(new ProjectedSegment(
                 line.Start,
                 line.TotalLength,
-                projectedStart));
+                projectedStart,
+                line.ContentLength));
             projectedStart += line.TotalLength;
         }
 
@@ -184,7 +213,25 @@ public sealed class CSharpAnnotatedSourceProjection
                 facts,
                 targets,
                 source.Source),
-            nodeIds.ToImmutable());
+            nodeIds.ToImmutable(),
+            ProjectLines(segments));
+    }
+
+    static ImmutableArray<CSharpAnnotatedSourceLine> ProjectLines(
+        IReadOnlyList<ProjectedSegment> segments)
+    {
+        var lines =
+            ImmutableArray.CreateBuilder<CSharpAnnotatedSourceLine>(
+                segments.Count);
+        foreach (ProjectedSegment segment in segments.Where(
+            static segment => segment.Length > 0))
+        {
+            lines.Add(new(
+                segment.SourceStart,
+                segment.ProjectedStart,
+                segment.ContentLength));
+        }
+        return lines.ToImmutable();
     }
 
     static IReadOnlyList<AnnotatedSourceSpan> ProjectSpans(
@@ -265,5 +312,6 @@ public sealed class CSharpAnnotatedSourceProjection
     readonly record struct ProjectedSegment(
         int SourceStart,
         int Length,
-        int ProjectedStart);
+        int ProjectedStart,
+        int ContentLength);
 }

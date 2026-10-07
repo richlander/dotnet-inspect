@@ -196,7 +196,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task BrowserWorkspace_CompositeScopeKeepsBindingConsistentRoles()
+    public async Task BrowserWorkspace_CompositeScopeIsArtifactBacked()
     {
         byte[] surfaceImage =
             File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
@@ -219,7 +219,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 TestContext.Current.CancellationToken);
         BrowserInspectionScope scope = scopeLease.Scope;
 
-        Assert.False(scope.ArtifactBacked);
+        Assert.True(scope.ArtifactBacked);
         Assert.Equal(2, scope.SurfaceParticipants.Length);
         Assert.Equal(firstId, scope.Coordinate(first).PackageId);
         Assert.Equal(secondId, scope.Coordinate(second).PackageId);

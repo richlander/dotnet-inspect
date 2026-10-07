@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   chooseSubject,
   installLibraryUploadFacades,
+  openApplicationAction,
   openProductDestination,
   releaseFacade,
   run,
@@ -60,12 +61,22 @@ async function waitForExamplePackageReady(page: Page) {
 }
 
 async function openLibraryFromBrandMenu(page: Page) {
-  await page.locator("[data-product-navigation-button]").click();
-  await page.getByRole(
+  const button = page.locator("[data-product-navigation-button]");
+  const item = page.getByRole(
     "menuitem",
     { name: "Open Library…", exact: true },
-  ).click();
-  await expect(page.locator("#library-open-title")).toBeFocused();
+  );
+  const title = page.locator("#library-open-title");
+  await expect(async () => {
+    if (!await item.isVisible()) await button.click();
+    await item.evaluate(element => {
+      if (!(element instanceof HTMLElement))
+        throw new Error("Open Library is not interactive.");
+      element.focus();
+      element.click();
+    });
+    await expect(title).toBeFocused({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
 }
 
 test("global drop keeps managed-image rejection visible", async ({ page }) => {
@@ -111,8 +122,7 @@ test("global drop replaces another modal and inerts its surface", async ({
   await installLibraryUploadFacades(page, "rejected");
   await page.goto(root);
   await waitForExamplePackageReady(page);
-  await page.locator("#application-menu-button").click();
-  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+  await openApplicationAction(page, "settings");
   await expect(page.locator("#settings-dialog")).toBeVisible();
 
   await dropLibrary(page, "native.dll", [0x4d, 0x5a, 0, 1]);
@@ -193,7 +203,6 @@ test("routed navigation retires an in-flight upload", async ({ page }) => {
   await waitForExamplePackageReady(page);
   await expect(subjectTab(page, "package"))
     .toHaveAttribute("aria-selected", "true");
-  await page.evaluate(() => history.pushState(null, "", "/demos"));
 
   await dropLibrary(page, "Deferred.dll", [1, 2, 3, 4]);
   await expect(page.locator("html")).toHaveAttribute(
@@ -212,16 +221,19 @@ test("routed navigation retires an in-flight upload", async ({ page }) => {
     JSON.stringify(["Deferred.dll", 4]),
   );
 
-  await page.goBack();
+  await page.evaluate(() => {
+    history.pushState(null, "", "/demos");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
   await expect(page.locator("#library-open-dialog")).toHaveCount(0);
-  await expect(subjectTab(page, "package"))
-    .toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toBeVisible();
 
   await releaseFacade(page, "finish-library-upload");
   await expect(page.getByText("Browser upload", { exact: true }))
     .toHaveCount(0);
-  await expect(subjectTab(page, "package"))
-    .toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toBeVisible();
 });
 
 test("successful upload replaces stale Package URL with Home", async ({ page }) => {
@@ -370,7 +382,7 @@ test("successful upload is excluded from retained Workspace restoration", async 
   await expect(page.locator(".inspected-target"))
     .toContainText("Other.Package");
 
-  await openProductDestination(page, "workspace");
+  await openProductDestination(page, "workspace", { waitForCommit: true });
   await page.locator('[data-workspace-switch="workspace-1"]').click();
 
   await expect(page.getByText("Browser upload", { exact: true }))

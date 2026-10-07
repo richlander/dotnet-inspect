@@ -690,6 +690,9 @@ public class AnnotatedSourceDocumentProjectionTests
 
         Assert.Null(projection.SourceDocument);
         Assert.NotNull(projection.SourceDocumentFailure);
+        Assert.Equal(
+            MemberProjectionSourceDocumentFailureKind.NoManagedBody,
+            projection.SourceDocumentFailureKind);
         Assert.Contains(
             projection.SourceDocumentFailure.Diagnostics,
             diagnostic => diagnostic.Message.Contains("has no IL body", StringComparison.Ordinal));
@@ -712,6 +715,9 @@ public class AnnotatedSourceDocumentProjectionTests
 
         Assert.Null(projection.SourceDocument);
         Assert.NotNull(projection.SourceDocumentFailure);
+        Assert.Equal(
+            MemberProjectionSourceDocumentFailureKind.Failed,
+            projection.SourceDocumentFailureKind);
         Assert.Contains(
             projection.SourceDocumentFailure.Diagnostics,
             diagnostic => diagnostic.Message.Contains("header failed", StringComparison.Ordinal));

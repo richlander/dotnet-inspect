@@ -6,6 +6,8 @@ namespace DotnetInspector.Queries;
 /// Content-shaped inputs for comparing C# and IL implementation evidence
 /// across two already-acquired assembly versions.
 /// </summary>
+public sealed record ComparisonMemberPairSelection(ComparisonMemberSelection Before, ComparisonMemberSelection After);
+
 public abstract record ImplementationComparisonPopulation
 {
     private protected ImplementationComparisonPopulation()
@@ -16,7 +18,8 @@ public abstract record ImplementationComparisonPopulation
 
     public sealed record Selected : ImplementationComparisonPopulation
     {
-        public Selected(IReadOnlyList<ComparisonMemberSelection> members)
+        public Selected(IReadOnlyList<ComparisonMemberSelection> members,
+            IReadOnlyList<ComparisonMemberPairSelection>? designatedPairs = null)
         {
             ArgumentNullException.ThrowIfNull(members);
             if (members.Any(static member => member is null))
@@ -27,9 +30,11 @@ public abstract record ImplementationComparisonPopulation
             }
 
             Members = members;
+            DesignatedPairs = designatedPairs ?? [];
         }
 
         public IReadOnlyList<ComparisonMemberSelection> Members { get; }
+        public IReadOnlyList<ComparisonMemberPairSelection> DesignatedPairs { get; }
     }
 }
 
@@ -224,7 +229,7 @@ public static class ImplementationComparisonQuery
                     input,
                     population,
                     selected.Members,
-                    cancellationToken),
+                    cancellationToken, selected.DesignatedPairs),
             ImplementationComparisonPopulation.All
                 => new ImplementationComparisonResult.Compared(
                     ImplementationDiff.Compare(
@@ -263,7 +268,8 @@ public static class ImplementationComparisonQuery
         ImplementationComparisonInput input,
         QueryComparisonPopulation<ImplementationComparisonBinding> population,
         IReadOnlyList<ComparisonMemberSelection> selections,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<ComparisonMemberPairSelection> designatedSelections)
     {
         QueryResearchTargetPlanningStep step = QueryResearchTargetPlanner.Plan(
             population,
@@ -323,10 +329,30 @@ public static class ImplementationComparisonQuery
                             })));
         }
 
+        var designatedPairs = new List<ResearchDesignatedPair>();
+        foreach (var selection in designatedSelections)
+        {
+            ResearchTargetAttempt Find(ComparisonMemberSelection endpoint, ResearchComparisonSide side)
+                => resolved.Resolution.Attempts.Single(attempt => attempt.Request.Side == side
+                    && attempt.Request.DeclaringType.Equals(endpoint.DeclaringType)
+                    && attempt.Request.Selector.NormalizedSelector == endpoint.Selector.NormalizedSelector
+                    && attempt.Outcome is ResearchTargetOutcome.Resolved);
+            var before = Find(selection.Before, ResearchComparisonSide.Before);
+            var after = Find(selection.After, ResearchComparisonSide.After);
+            if (!resolved.Resolution.Correspondences.OfType<ResearchTargetCorrespondenceOutcome.CounterpartUnavailable>()
+                .Any(outcome => ReferenceEquals(outcome.Attempt, before) || ReferenceEquals(outcome.Attempt, after))) continue;
+            if (ResearchDesignatedPairAdmission.Admit(resolved.Projected.Admission, resolved.Resolution, before, after)
+                is not ResearchDesignatedPairOutcome.Admitted admitted)
+                throw new InspectionQueryException("Selected API pair designation was unavailable or rejected.");
+            designatedPairs.Add(admitted.Pair);
+        }
         ResearchTargetCorrespondenceOutcome[] unavailableCorrespondences =
         [
             .. resolved.Resolution.Correspondences.Where(correspondence =>
-                correspondence is
+                !(correspondence is ResearchTargetCorrespondenceOutcome.CounterpartUnavailable unavailable
+                    && designatedPairs.Any(pair => ReferenceEquals(pair.Before, unavailable.Attempt)
+                        || ReferenceEquals(pair.After, unavailable.Attempt)))
+                && correspondence is
                     ResearchTargetCorrespondenceOutcome.CounterpartUnavailable
                     or ResearchTargetCorrespondenceOutcome.DomainUnavailable),
         ];
@@ -381,7 +407,7 @@ public static class ImplementationComparisonQuery
                     new ResearchProducerSessionRequest(
                         resolved.Projected.Admission,
                         resolved.Resolution,
-                        producers),
+                        producers, designatedPairs),
                     cancellationToken);
             if (session is
                 ResearchProducerSessionOutcome.Rejected producerRejected)

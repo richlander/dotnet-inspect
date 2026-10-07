@@ -52,8 +52,12 @@ internal static class BrowserSourceDiffProjection
         MemberSourcePairDiffPresentation presentation)
     {
         ArgumentNullException.ThrowIfNull(presentation);
-        AnalysisDiff<string> analysis = presentation.Analysis;
-        MappedTextDiff mapped = presentation.Diff;
+        return Project(presentation.Analysis, presentation.Diff, presentation.Statistics);
+    }
+
+    internal static BrowserSourceDiff Project(AnalysisDiff<string> analysis,
+        MappedTextDiff mapped, MemberSourceDiffStatistics statistics)
+    {
 
         int coordinateOccurrences = analysis.Relations.Sum(CoordinateOccurrences);
         int innerMappings = mapped.Changes.Sum(change => change.InnerMappings.Length);
@@ -74,12 +78,12 @@ internal static class BrowserSourceDiffProjection
             Sequence(mapped.After),
             [.. analysis.Relations.Select(Relation)],
             new(
-                presentation.Statistics.Added,
-                presentation.Statistics.Removed,
-                presentation.Statistics.ChangedBefore,
-                presentation.Statistics.ChangedAfter,
-                presentation.Statistics.MovedBefore,
-                presentation.Statistics.MovedAfter),
+                statistics.Added,
+                statistics.Removed,
+                statistics.ChangedBefore,
+                statistics.ChangedAfter,
+                statistics.MovedBefore,
+                statistics.MovedAfter),
             [.. mapped.Changes.Select(Change)]);
     }
 
