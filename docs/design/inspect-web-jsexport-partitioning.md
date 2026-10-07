@@ -318,6 +318,15 @@ and ResearchQueries comparison endpoints perform the projection at their
 owning boundaries; the Source facade transports those values without
 constructing or inspecting
 `MetadataPrimitives.MemberAnchor`.
+Physical MethodDef identity crosses through Metadata-owned
+`ProjectedMethodAddress` values. Queries issues participant-scoped
+designations, while Decompiler documents and Research outcomes project their
+owned addresses before the Source facade consumes them. The facade therefore
+does not construct, inspect, or reference
+`MetadataPrimitives.MetadataMethodAddress`.
+Metadata, Decompiler, and ILDiff similarly project failure mechanism names at
+their owning boundaries, so Source diagnostics do not inspect the primitive
+Metadata failure enum.
 
 ### Call-graph facade: 2 exports
 
