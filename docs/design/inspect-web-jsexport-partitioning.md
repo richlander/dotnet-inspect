@@ -243,8 +243,9 @@ ordered workspace package occurrences and their opaque activation actions,
 package-query streaming, package-shipped documents, package dependency
 coordinates, and the API surface initially loaded for a package or platform.
 `SearchTypes` stays here because it ranks candidates from that loaded package
-surface without opening another artifact. It does not transfer type-matching
-semantics from the product query owner.
+surface without opening another artifact. The facade adapts its existing
+candidate and hit records through Queries-owned `LoadedTypeSearchRanking`; it
+does not execute Type-matching, tier, fuzzy-ranking, or result-limit semantics.
 
 ### Metadata facade: 8 exports
 
