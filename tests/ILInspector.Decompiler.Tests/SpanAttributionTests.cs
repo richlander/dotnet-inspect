@@ -273,6 +273,9 @@ public class SpanAttributionTests
             // v4 changes source-outcome admission and compilation context without
             // changing the invalid-row span rule.
             KeyValuePair.Create(4, ImmutableHashSet.Create(StringComparer.Ordinal, "CS0128")),
+            // v5 takes body ranges from the product artifact instead of a name
+            // search; the allow list is unchanged.
+            KeyValuePair.Create(5, ImmutableHashSet.Create(StringComparer.Ordinal, "CS0128")),
         ]);
 
     [Fact]
