@@ -944,8 +944,9 @@ equivalents. The following map distinguishes those contracts:
 
 `--lib` and `--tools` have the same Files-only meaning throughout the package
 command. They require one package and exactly Files, are mutually exclusive,
-and do not select managed libraries. In particular, `--tools` does not enter a
-.NET tool's library inspection or redirect to its payload package.
+and do not select managed libraries. `--tools` does not request Library
+inspection. Package acquisition retains its existing .NET tool-wrapper
+redirection, so Files can inventory a wrapper's redirected payload package.
 
 For example, `System.Text.Json@10.0.12 --files --lib --tfm net8.0` inventories
 its DLL and XML entries under `lib/net8.0`. `--library System.Text.Json.dll
