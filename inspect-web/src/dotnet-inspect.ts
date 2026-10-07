@@ -570,7 +570,7 @@ import {
 } from "./brand.ts";
 import {
   loadPlatformIndex, parsePlatformCatalogTarget,
-  platformCatalogFramework,
+  platformCatalogFramework, platformRuntimePruningInventory,
   type PlatformAssemblyRow, type PlatformIndex, type PlatformCatalogTarget,
 } from "./platform-index.ts";
 import {
@@ -3988,18 +3988,25 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
 });
 const callGraphInspection = createCallGraphInspectionCoordinator({
   state,
-  queryPackage: request => inspectMemberCallGraph(
-    request.packageId,
-    request.version,
-    request.framework,
-    request.assembly,
-    request.typeIdentity,
-    request.type,
-    request.member,
-    request.memberSignature,
-    request.selectorKey,
-    request.metadataToken,
-    request.traversalFramework),
+  queryPackage: async request => {
+    const target = await ensurePlatformCatalog(
+      platformCatalogFramework(request.traversalFramework));
+    return inspectMemberCallGraph(
+      request.packageId,
+      request.version,
+      request.framework,
+      request.assembly,
+      request.typeIdentity,
+      request.type,
+      request.member,
+      request.memberSignature,
+      request.selectorKey,
+      request.metadataToken,
+      request.traversalFramework,
+      platformRuntimePruningInventory(
+        target,
+        request.traversalFramework));
+  },
   queryPlatform: request =>
     queryPlatformCallGraph(inspectExpandPlatformCallGraph, request),
   describeError: errorMessage,

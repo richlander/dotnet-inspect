@@ -36,11 +36,27 @@ public static partial class CallGraphExports
         string memberSignature,
         string selectorKey,
         int metadataToken,
-        string traversalTargetFramework)
+        string traversalTargetFramework,
+        string pruningInventoryJson)
     {
         _ = memberSignature;
         _ = typeQueryId;
 
+        BrowserCallGraphPruningInventory? pruningInventory =
+            JsonSerializer.Deserialize(
+                pruningInventoryJson,
+                BrowserCallGraphJsonContext.Default
+                    .BrowserCallGraphPruningInventory);
+        PackageDependencyMemberCallGraphPlatformPruning? pruning =
+            pruningInventory?.Supplies is { } supplies
+                ? BrowserPackageDependencyMemberCallGraphContinuationSource
+                    .CreateCurrentRuntimePruning(
+                        pruningInventory.Tfm,
+                        pruningInventory.Version,
+                        supplies.Select(
+                            static supply =>
+                                $"{supply.Package}|{supply.Version}"))
+                : null;
         InspectionEnvelope<
             PackageDependencyMemberCallGraphInspectionOutcome> envelope =
             await BrowserPackageWorkspace
@@ -56,7 +72,8 @@ public static partial class CallGraphExports
                 metadataToken,
                 BrowserPackageWorkspace.ProductWorkspacePlan,
                 PackageSupplyChainBaseline
-                    .SelfAndRegisteredEcosystems);
+                    .SelfAndRegisteredEcosystems,
+                pruning);
         if (envelope.Content
             is PackageDependencyMemberCallGraphInspectionOutcome
                 .Unavailable unavailable)

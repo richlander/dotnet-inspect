@@ -1353,6 +1353,8 @@ internal static class BrowserPackageWorkspace
             int metadataToken,
             WorkspacePlan workspacePlan,
             PackageSupplyChainBaseline supplyChainBaseline,
+            PackageDependencyMemberCallGraphPlatformPruning?
+                platformPruning = null,
             CancellationToken cancellationToken = default) =>
         RunPackageOperationAsync(
             async deadline =>
@@ -1531,7 +1533,9 @@ internal static class BrowserPackageWorkspace
                             supplyChainBaseline:
                                 supplyChainBaseline,
                             workspacePlan:
-                                workspacePlan),
+                                workspacePlan,
+                            platformPruning:
+                                platformPruning),
                         inspectionSource,
                         continuation,
                         deadline.Token)
