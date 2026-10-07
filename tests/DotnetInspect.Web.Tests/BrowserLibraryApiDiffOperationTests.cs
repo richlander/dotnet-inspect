@@ -31,6 +31,28 @@ public sealed class BrowserLibraryApiDiffOperationTests
     const string AssemblyName = "LibraryApiDiffFixture.dll";
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task SystemTextJson_ComparesCompatibleBaselineSliceAcrossFrameworkIncrease()
+    {
+        var request = new BrowserLibraryApiDiffRequest(
+            BrowserLibraryApiDiffSchema.Version, "System.Text.Json", "11.0.0-rc.1.26425.128", "10.0.0",
+            "net11.0", "compile:lib/net11.0/System.Text.Json.dll", BrowserDiffAnalysisSurface.Library,
+            ["api"], BrowserDiffAnalysisViews.Changes, [], []);
+        string json = await MetadataExports.QueryLibraryApiDiff(Guid.NewGuid().ToString(),
+            JsonSerializer.Serialize(request, BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffRequest));
+        var result = JsonSerializer.Deserialize(json, BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult)!;
+
+        Assert.True(result.Kind == BrowserLibraryApiDiffResultKind.Succeeded, result.Error);
+        Assert.NotNull(result.Inspection);
+        var value = Assert.IsType<BrowserLibraryApiDiffSucceeded>(result.Value);
+        Assert.Equal("compile:lib/net10.0/System.Text.Json.dll", value.Target.Asset.Id);
+        Assert.Equal(request.CompileAssetId, value.Current.Asset.Id);
+        Assert.NotEmpty(value.Types);
+        Assert.Contains(value.Types.SelectMany(type => type.Members),
+            member => member.PairKind == BrowserLibraryApiDiffMemberPairKind.Added);
+    }
+
+    [Fact]
     public async Task MicrosoftAzureSignalR_DoesNotRequireFrameworkConstraintResolution()
     {
         const string packageId = "Microsoft.Azure.SignalR";
@@ -885,7 +907,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
             result.FailureKind);
         Assert.Null(result.Value);
         Assert.Contains("exact compile asset", result.Error);
-        Assert.Contains("target package endpoint", result.Error);
+        Assert.Contains("current package endpoint", result.Error);
         Assert.Null(result.Inspection);
     }
 

@@ -117,9 +117,12 @@ One immutable request contains:
 - exact Type names and Member target identities required by that surface; and
 - an optional typed predicate consumed only by an analysis that declares one.
 
-The selected asset ID applies independently at both package versions. Managed
-code resolves that exact ID in each acquired scope. It never falls back to
-assembly display name, simple name, or the first matching asset.
+The selected asset ID identifies the exact current Library. The baseline
+selects its compile slice independently for the requested framework and consumes
+the package owner's
+[comparison counterpart](package-asset-selection-correspondence.md#comparison-counterparts).
+The result retains each endpoint's exact selected asset. Managed code never
+falls back to assembly display name, simple name, or the first matching asset.
 
 The request context additionally retains the active Package object identity.
 A replacement Package model with equal displayed coordinates is a different
@@ -148,7 +151,8 @@ admission. Only an admitted request proceeds. For each endpoint, it then:
 
 1. opens the requested Gallery package and framework through
    `BrowserPackageWorkspace`;
-2. resolves the exact compile asset;
+2. resolves the exact current compile asset or its owner-issued baseline
+   counterpart;
 3. projects `ApiSurfaceScope.Public` with the fixed
    `BrowserApiSurfacePolicy.Limits`; and
 4. passes both participants to `DiffAnalysisLibraryInspection.Execute`, the
