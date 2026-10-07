@@ -258,6 +258,156 @@ public sealed record BrowserPackagePerformance(
     int TotalOpportunities,
     BrowserCompileLibraryAvailability CompileLibrary);
 
+/// <summary>
+/// Streaming-adopter event vocabulary for one Library Performance Analysis
+/// operation. <c>Item</c> is the only populated kind today: each carries one
+/// member of the existing, already-ranked, already-capped
+/// <see cref="BrowserPackagePerformance.Members"/> array, in that array's
+/// existing order, published incrementally instead of returned as one array.
+/// See <c>docs/design/streaming-library-performance-analysis.md</c>.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPerformanceAnalysisEventKind>))]
+public enum BrowserPerformanceAnalysisEventKind
+{
+    Item,
+}
+
+public sealed record BrowserPerformanceAnalysisEvent(
+    BrowserPerformanceAnalysisEventKind Kind,
+    BrowserPerformanceMember? Item);
+
+/// <summary>
+/// The streaming operation's terminal accounting. This intentionally omits
+/// <c>Members</c>: every member already crossed the host boundary as an
+/// <see cref="BrowserPerformanceAnalysisEvent"/> Item, and this design does
+/// not re-derive or duplicate that array at completion.
+/// </summary>
+public sealed record BrowserPackagePerformanceSummary(
+    string? InspectionError,
+    int NonPublicOpportunities,
+    int TotalOpportunities,
+    BrowserCompileLibraryAvailability CompileLibrary);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPerformanceAnalysisResultKind>))]
+public enum BrowserPerformanceAnalysisResultKind
+{
+    Succeeded,
+    Failed,
+    Canceled,
+}
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<BrowserPerformanceAnalysisOperationFailureKind>))]
+public enum BrowserPerformanceAnalysisOperationFailureKind
+{
+    Expected,
+    Unexpected,
+}
+
+public sealed record BrowserPerformanceAnalysisResult(
+    int Version,
+    BrowserPerformanceAnalysisResultKind Kind,
+    BrowserPackagePerformanceSummary? Summary,
+    BrowserPerformanceAnalysisOperationFailureKind? FailureKind,
+    string? Error,
+    string? Diagnostic,
+    string? Reason)
+{
+    internal static BrowserPerformanceAnalysisResult From(
+        BrowserManagedOperationResult<
+            BrowserPackagePerformanceSummary,
+            string,
+            string> result) =>
+        result switch
+        {
+            BrowserManagedOperationResult<
+                BrowserPackagePerformanceSummary,
+                string,
+                string>.Succeeded succeeded =>
+                new(
+                    1,
+                    BrowserPerformanceAnalysisResultKind.Succeeded,
+                    succeeded.Value,
+                    null,
+                    null,
+                    null,
+                    null),
+            BrowserManagedOperationResult<
+                BrowserPackagePerformanceSummary,
+                string,
+                string>.Failed failed =>
+                new(
+                    1,
+                    BrowserPerformanceAnalysisResultKind.Failed,
+                    null,
+                    failed.FailureKind switch
+                    {
+                        BrowserManagedOperationFailureKind.Expected =>
+                            BrowserPerformanceAnalysisOperationFailureKind
+                                .Expected,
+                        BrowserManagedOperationFailureKind.Unexpected =>
+                            BrowserPerformanceAnalysisOperationFailureKind
+                                .Unexpected,
+                        _ => throw new ArgumentOutOfRangeException(
+                            nameof(result)),
+                    },
+                    failed.Error,
+                    failed.Diagnostic,
+                    null),
+            BrowserManagedOperationResult<
+                BrowserPackagePerformanceSummary,
+                string,
+                string>.Canceled canceled =>
+                new(
+                    1,
+                    BrowserPerformanceAnalysisResultKind.Canceled,
+                    null,
+                    null,
+                    null,
+                    null,
+                    BrowserManagedOperationCancelReasons.Format(
+                        canceled.Reason)),
+            _ => throw new ArgumentOutOfRangeException(nameof(result)),
+        };
+}
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<BrowserPerformanceAnalysisCancellationKind>))]
+public enum BrowserPerformanceAnalysisCancellationKind
+{
+    Requested,
+    AlreadyRequested,
+    NotActive,
+}
+
+public sealed record BrowserPerformanceAnalysisCancellation(
+    BrowserPerformanceAnalysisCancellationKind Kind,
+    string? Reason)
+{
+    internal static BrowserPerformanceAnalysisCancellation From(
+        BrowserManagedCancellationRequestResult result) =>
+        result switch
+        {
+            BrowserManagedCancellationRequestResult.Requested requested =>
+                new(
+                    BrowserPerformanceAnalysisCancellationKind.Requested,
+                    BrowserManagedOperationCancelReasons.Format(
+                        requested.Reason)),
+            BrowserManagedCancellationRequestResult.AlreadyRequested
+                requested =>
+                new(
+                    BrowserPerformanceAnalysisCancellationKind
+                        .AlreadyRequested,
+                    BrowserManagedOperationCancelReasons.Format(
+                        requested.Reason)),
+            BrowserManagedCancellationRequestResult.NotActive =>
+                new(
+                    BrowserPerformanceAnalysisCancellationKind.NotActive,
+                    null),
+            _ => throw new ArgumentOutOfRangeException(nameof(result)),
+        };
+}
+
 public sealed record BrowserLibraryMetrics(
     string Outcome,
     string? MethodologyVersion,
@@ -612,6 +762,9 @@ public sealed record BrowserImplementationHeatRelationship(
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserResourceTriage))]
+[JsonSerializable(typeof(BrowserPerformanceAnalysisEvent))]
+[JsonSerializable(typeof(BrowserPerformanceAnalysisResult))]
+[JsonSerializable(typeof(BrowserPerformanceAnalysisCancellation))]
 [JsonSerializable(typeof(BrowserLibraryMetrics))]
 [JsonSerializable(typeof(BrowserLibraryDependencyStructure))]
 [JsonSerializable(typeof(BrowserLibraryStructuralSalience))]
