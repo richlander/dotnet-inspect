@@ -94,7 +94,11 @@ synchronous-policy and rejected-payload evidence.
 The [probe](../../eng/measure-inspect-web-package-open.cs) calls the production
 `PackageExports.QueryPackage` export twice per process. Both revisions were
 published as Release NativeAOT Linux executables with the repository SDK.
-Baseline is `5e415b31a`; the candidate adopts selected ranged content.
+Baseline is `5e415b31a`; measured candidate source is `e33e547d6`.
+Both use the same probe. Publish it with `dotnet publish
+eng/measure-inspect-web-package-open.cs -c Release -p:IsPublishable=true
+-o <output>`, then run `<output>/measure-inspect-web-package-open
+<package> <version> <framework>`.
 [Raw timings and output hashes](../../eng/inspect-web-package-open-evidence.tsv)
 record seven alternating baseline/candidate process pairs per package. Cold
 means a fresh process; warm means its second export call. Times below are
