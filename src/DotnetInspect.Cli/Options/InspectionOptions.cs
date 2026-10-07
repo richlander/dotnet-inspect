@@ -296,6 +296,11 @@ public record InspectionOptions : IProjectionOptions
     public RowSelectionIntent<string>? CloneCandidateRowSelection { get; init; }
 
     /// <summary>
+    /// Semantic row selection for Body Shapes on a delegated Library route.
+    /// </summary>
+    public RowSelectionIntent<string>? BodyShapeRowSelection { get; init; }
+
+    /// <summary>
     /// Output as JSON instead of MDF.
     /// </summary>
     public bool JsonOutput { get; init; }

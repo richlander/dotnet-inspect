@@ -114,14 +114,14 @@ public sealed class BodyShapeSummaryTests
         Assert.Equal(groups[1].GetProperty("count").GetInt32(),
             selectedGroup.GetProperty("count").GetInt32());
 
-        var projected = await Library("--columns", "Match;Count", "--rows", "1", "--jsonl");
+        var projected = await Library("--columns", "Match;Count", "-n", "1", "--jsonl");
         Assert.Equal(0, projected.ExitCode);
         using var row = JsonDocument.Parse(projected.Output);
         Assert.Equal(first.GetProperty("match").GetString(), row.RootElement.GetProperty("match").GetString());
         Assert.Equal(first.GetProperty("count").ToString(), row.RootElement.GetProperty("count").ToString());
         Assert.Equal(2, row.RootElement.EnumerateObject().Count());
 
-        var count = await Library("--columns", "Match", "--rows", "1", "--count");
+        var count = await Library("--columns", "Match", "-n", "1", "--count");
         Assert.Equal(0, count.ExitCode);
         Assert.Equal("1", count.Output.Trim());
     }

@@ -2810,6 +2810,45 @@ public static class ApiOutputFormatter
             view.OptimizationOpportunityRows = rows;
     }
 
+    /// <summary>
+    /// Selects the lone Body Shapes view's rows once, before any format or
+    /// Count renders them, so every lowering observes the same rows.
+    /// </summary>
+    internal static bool TrySelectBodyShapeRows(
+        TypeView view,
+        ApiOptions options)
+    {
+        if (options.BodyShapeRowSelection is not { } intent)
+            return true;
+
+        if (BodyShapeRowSelection.SelectsSummary(options.IncludeSections))
+        {
+            if (!BodyShapeRowSelection.TrySelectRows(
+                    intent,
+                    SectionNames.BodyShapeSummary,
+                    view.BodyShapeSummaryRows ?? [],
+                    out IReadOnlyList<ApiBodyShapeSummaryRow> groups))
+            {
+                return false;
+            }
+
+            view.BodyShapeSummaryRows = [.. groups];
+            return true;
+        }
+
+        if (!BodyShapeRowSelection.TrySelectRows(
+                intent,
+                SectionNames.BodyShapes,
+                view.BodyShapeRows ?? [],
+                out IReadOnlyList<ApiBodyShapeRow> occurrences))
+        {
+            return false;
+        }
+
+        view.BodyShapeRows = [.. occurrences];
+        return true;
+    }
+
     internal static void PopulateBodyShapes(
         TypeView view,
         string assemblyPath,
