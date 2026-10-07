@@ -59,8 +59,8 @@ Each finding's payload is a member-level record, since the inventory's
 - the declared member's `MethodIdentity`;
 - whether that member carries an explicit updated-model caller-unsafe
   contract;
-- every contributing evidence item with its role, physical body, and IL offset
-  when the role has one;
+- every contributing evidence item with its role, physical body, IL offset
+  when the role has one, and contract source for an explicit-contract call;
 - whether its evidence is partial, with the uninspected attributed bodies; and
 - the member's exposure.
 
@@ -111,8 +111,8 @@ ignored. An `[ExtensionMarker]` method outside that shape is unconfirmed and
 needs an authenticated owner like any other generated body.
 
 An explicit caller-unsafe contract belongs to the member that declares it.
-Generated bodies contribute body evidence and same-image explicit-contract
-calls; they never confer or remove the owner's contract.
+Generated bodies contribute body evidence and explicit-contract calls; they
+never confer or remove the owner's contract.
 
 ## Exposure
 
@@ -170,8 +170,8 @@ never stands in for a body without evidence.
 ## Completeness and unknown evidence
 
 The census is measured against a declared scope: the inventory's admission
-rule together with its stated non-claims, such as cross-assembly explicit
-contracts and field-focused roles. Those standing non-claims bound what
+rule together with its stated non-claims, such as non-platform cross-assembly
+explicit contracts and field-focused roles. Those standing non-claims bound what
 "complete" means; they are not per-run limitations, and their absence of
 evidence is not a negative claim.
 
