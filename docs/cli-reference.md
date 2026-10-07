@@ -1516,6 +1516,8 @@ or closed-range `--rows` window reaches the producer as a finite prefix bound.
 An unbounded request uses a 10,000-row safety bound and reports continuation as
 incomplete output. Tail selection is rejected because the forward-only producer
 cannot satisfy it without privately materializing the complete population.
+Package relation rows include the package-relative asset in `Source`, so
+distinct `ref`, `lib`, or runtime occurrences remain distinguishable.
 
 Every other type or member Text with a bare payload (`API Declarations` on the
 `type` command, `Decompiled Source`, `Annotated Source`, `PDB Source`, `IL`,

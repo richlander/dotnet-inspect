@@ -104,6 +104,38 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        Type_HierarchyComposedTypeInfoRetainsPackageRelativeAsset()
+    {
+        string package = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "fixtures",
+            "services",
+            "signatures",
+            "system.text.json.9.0.4.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Text.Json.Serialization.JsonConverter",
+            "--package",
+            package,
+            "--library",
+            "System.Text.Json.dll",
+            "-S",
+            SectionNames.TypeInfo,
+            "-S",
+            SectionNames.DerivedTypes,
+            "--markdown");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "| Library | lib/net9.0/System.Text.Json.dll |",
+            output);
+        Assert.DoesNotContain("inspect-type-hierarchy", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task
         Type_HierarchyPrefersSelectedReferenceAssetOverEquivalentLibrary()
     {
         string package = Path.Combine(
@@ -134,6 +166,57 @@ public partial class CommandExecutionTests
                 CultureInfo.InvariantCulture,
                 out _),
             $"Expected a hierarchy count, got '{output}'.");
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task
+        Type_HierarchyRowsRetainDistinctPackageAssetCoordinates()
+    {
+        string package = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "fixtures",
+            "cli",
+            "package-archives",
+            "avalonia.12.1.2.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "Avalonia.Controls.Button",
+            "--package",
+            package,
+            "--library",
+            "Avalonia.Controls.dll",
+            "--tfm",
+            "net10.0",
+            "-S",
+            SectionNames.DerivedTypes,
+            "--rows",
+            "50",
+            "--tsv");
+
+        Assert.Equal(0, exit);
+        string[] rows =
+        [
+            .. output.Split(
+                Environment.NewLine,
+                StringSplitOptions.RemoveEmptyEntries)
+                .Skip(1),
+        ];
+        Assert.Equal(14, rows.Length);
+        Assert.Equal(14, rows.Distinct(StringComparer.Ordinal).Count());
+        Assert.Contains(
+            rows,
+            row => row.Contains(
+                "avalonia@12.1.2 "
+                    + "(ref/net10.0/Avalonia.Controls.dll)",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            rows,
+            row => row.Contains(
+                "avalonia@12.1.2 "
+                    + "(lib/net10.0/Avalonia.Controls.dll)",
+                StringComparison.Ordinal));
         Assert.Empty(error);
     }
 

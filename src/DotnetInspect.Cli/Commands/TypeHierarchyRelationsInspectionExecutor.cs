@@ -231,6 +231,10 @@ internal static class TypeHierarchyRelationsInspectionExecutor
             assemblySet.Dispose();
             return (null, preferredError);
         }
+        string? packageExtractPath =
+            PackagePopulationRoot(
+                assemblySet.Assemblies[preferredIndex.Value],
+                source);
         AssemblyContextGroup? focusGroup = null;
         bool transferredFocusGroup = false;
 
@@ -241,7 +245,10 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                 cancellationToken.ThrowIfCancellationRequested();
                 AssemblySetEntry entry = assemblySet.Assemblies[index];
                 AssemblyResolutionProvenance provenance =
-                    ProvenanceFor(entry, options);
+                    ProvenanceFor(
+                        entry,
+                        options,
+                        packageExtractPath);
                 ResolvedAssemblyReference? assembly =
                     ResolvedAssemblyReference.CreateFromPathIfManaged(
                         entry.Path,
@@ -417,7 +424,10 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                         artifactRegistration,
                         new(
                             acquiredAssembly.Identity.Name,
-                            SourceFor(entry, options)));
+                            SourceFor(
+                                entry,
+                                options,
+                                packageExtractPath)));
                     continue;
                 }
 
@@ -453,7 +463,10 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                     artifactRegistration,
                     new(
                         assembly.Identity.Name,
-                        SourceFor(entry, options)));
+                        SourceFor(
+                            entry,
+                            options,
+                            packageExtractPath)));
             }
 
             if (focusGroup is null)
@@ -560,6 +573,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                         Target: null,
                         Source: null,
                         Relations: null,
+                        packageExtractPath,
                         focusGroup,
                         assemblySet),
                     null);
@@ -599,6 +613,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                                 + "inspection target."),
                     exactSource,
                     relations,
+                    packageExtractPath,
                     focusGroup,
                     assemblySet),
                 null);
@@ -839,6 +854,48 @@ internal static class TypeHierarchyRelationsInspectionExecutor
             StringComparison.OrdinalIgnoreCase);
     }
 
+    private static string? PackagePopulationRoot(
+        AssemblySetEntry selectedEntry,
+        ApiSourceResult source)
+    {
+        if (selectedEntry.SourceKind != AssemblySetSourceKind.Package
+            || PackageRelativePath(source) is not { } relativePath)
+        {
+            return null;
+        }
+
+        string normalizedPath =
+            Path.GetFullPath(selectedEntry.Path).Replace('\\', '/');
+        string suffix = "/" + relativePath;
+        if (!normalizedPath.EndsWith(
+                suffix,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return normalizedPath[..^suffix.Length]
+            .Replace('/', Path.DirectorySeparatorChar);
+    }
+
+    private static string? PackageAssetPath(
+        AssemblySetEntry entry,
+        string? packageExtractPath)
+    {
+        if (entry.SourceKind != AssemblySetSourceKind.Package
+            || packageExtractPath is null)
+        {
+            return null;
+        }
+
+        string relativePath =
+            Path.GetRelativePath(packageExtractPath, entry.Path)
+                .Replace('\\', '/');
+        return PackageEntryPath.IsSafeRelativePath(relativePath)
+            ? relativePath
+            : null;
+    }
+
     private static bool PathsEqual(string left, string right) =>
         string.Equals(
             Path.GetFullPath(left),
@@ -873,7 +930,8 @@ internal static class TypeHierarchyRelationsInspectionExecutor
 
     private static AssemblyResolutionProvenance ProvenanceFor(
         AssemblySetEntry entry,
-        TypeOptions options) =>
+        TypeOptions options,
+        string? packageExtractPath) =>
         entry.SourceKind switch
         {
             AssemblySetSourceKind.Package
@@ -882,7 +940,10 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                     entry.Source,
                     version,
                     entry.Tfm,
-                    rid: null),
+                    rid: null,
+                    assetPath: PackageAssetPath(
+                        entry,
+                        packageExtractPath)),
             AssemblySetSourceKind.PlatformAssembly
                 or AssemblySetSourceKind.PlatformFramework =>
                 AssemblyResolutionProvenance.Platform(
@@ -938,13 +999,14 @@ internal static class TypeHierarchyRelationsInspectionExecutor
 
     private static string SourceFor(
         AssemblySetEntry entry,
-        TypeOptions options) =>
+        TypeOptions options,
+        string? packageExtractPath) =>
         entry.SourceKind switch
         {
             AssemblySetSourceKind.Package =>
-                entry.Version is null
-                    ? entry.Source
-                    : $"{entry.Source}@{entry.Version}",
+                PackageSourceFor(
+                    entry,
+                    packageExtractPath),
             AssemblySetSourceKind.Project =>
                 options.ProjectPath
                     ?? options.ProjectAssetsPath
@@ -956,6 +1018,21 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                     : $"{entry.Source}@{entry.Version}",
             _ => entry.Path,
         };
+
+    private static string PackageSourceFor(
+        AssemblySetEntry entry,
+        string? packageExtractPath)
+    {
+        string package =
+            entry.Version is null
+                ? entry.Source
+                : $"{entry.Source}@{entry.Version}";
+        return PackageAssetPath(
+                entry,
+                packageExtractPath) is { } assetPath
+            ? $"{package} ({assetPath})"
+            : package;
+    }
 
     private static async Task<string> DigestAsync(
         string path,
@@ -998,6 +1075,7 @@ internal sealed record TypeHierarchyExactTypeInspection(
     SelectedContextExactTypeLiveTarget? Target,
     SelectedContextExactTypeSource? Source,
     TypeHierarchyRelationsInspection? Relations,
+    string? PackageExtractPath,
     AssemblyContextGroup? FocusGroup,
     AssemblySet AssemblySet);
 

@@ -380,7 +380,8 @@ public static class TypeCommand
                                             ?? throw new InvalidOperationException(
                                                 "An available hierarchy Type "
                                                     + "requires one live "
-                                                    + "inspection target."))
+                                                    + "inspection target."),
+                                        execution.PackageExtractPath)
                                     .ConfigureAwait(false);
                             },
                             cancellationToken)
@@ -1464,7 +1465,8 @@ public static class TypeCommand
         ExactTypeInspectionResult result,
         IEnumerable<InspectionDiagnostic> diagnostics,
         ExactTypeRenderSource renderSource,
-        SelectedContextExactTypeLiveTarget target)
+        SelectedContextExactTypeLiveTarget target,
+        string? packageExtractPathOverride = null)
     {
         WriteInspectionDiagnostics(diagnostics);
 
@@ -1514,7 +1516,9 @@ public static class TypeCommand
                 PackageName: renderSource.PackageName,
                 PackageVersion: renderSource.PackageVersion,
                 ResolvedPackagePath: renderSource.ResolvedPackagePath,
-                PackageExtractPath: target.PackageExtractPath,
+                PackageExtractPath:
+                    packageExtractPathOverride
+                    ?? target.PackageExtractPath,
                 ApiSource: renderSource.Source,
                 ApiVersion: renderSource.Version,
                 PlatformFramework: renderSource.PlatformFramework,
