@@ -1417,11 +1417,13 @@ namespace DotnetInspect.Web.Interop.Package
     {
         public ValueTask<PackageQueryContentResult> GetContentAsync(
             PackageQueryPackage package,
+            PackageQueryContentDemand demand,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             return BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
                 package,
+                demand,
                 BrowserPackageWorkspace.Gallery,
                 deadline);
         }

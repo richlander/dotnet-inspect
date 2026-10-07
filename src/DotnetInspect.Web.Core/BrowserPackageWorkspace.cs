@@ -577,7 +577,8 @@ internal static class BrowserPackageWorkspace
         PackageSourceCoordinate coordinate,
         PackageHouseContentQuery query,
         IPackageSourceClient source,
-        BrowserPackageOperationDeadline deadline)
+        BrowserPackageOperationDeadline deadline,
+        IPackagePayloadTransferPolicy? transferPolicy = null)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
         ArgumentNullException.ThrowIfNull(query);
@@ -630,7 +631,7 @@ internal static class BrowserPackageWorkspace
                         : throw new InvalidOperationException(
                             "Portable PDB settlement requested another configured package source."),
                 PayloadLimits,
-                new BrowserPackageOperationTransferPolicy(
+                transferPolicy ?? new BrowserPackageOperationTransferPolicy(
                     store,
                     deadline)));
         return await house.ExecuteAsync(
@@ -2852,10 +2853,12 @@ internal static class BrowserPackageWorkspace
     internal static ValueTask<PackageQueryContentResult>
         AcquirePackageQueryContentAsync(
             PackageQueryPackage package,
+            PackageQueryContentDemand demand,
             IPackageSourceClient source,
             BrowserPackageOperationDeadline deadline) =>
         AcquirePackageQueryContentAsync(
             package,
+            demand,
             source,
             ConfiguredSourceIdentityFor(source),
             deadline);
@@ -2863,6 +2866,7 @@ internal static class BrowserPackageWorkspace
     internal static async ValueTask<PackageQueryContentResult>
         AcquirePackageQueryContentAsync(
             PackageQueryPackage package,
+            PackageQueryContentDemand demand,
             IPackageSourceClient source,
             PackageSourceIdentity configuredSourceIdentity,
             BrowserPackageOperationDeadline deadline)
@@ -2879,6 +2883,15 @@ internal static class BrowserPackageWorkspace
         PackageSourcePayloadResult result;
         try
         {
+            if (demand.ContentQuery is { } query)
+            {
+                return PackageQueryContentResult.FromSettlement(
+                    await AcquireContentCoreAsync(
+                        coordinate, query, source, deadline,
+                        new BrowserPackageQueryTransferPolicy(
+                            new BrowserPackageOperationTransferPolicy(store, deadline)))
+                        .ConfigureAwait(false));
+            }
             result = await PackagePayloadAcquisition.AcquireAsync(
                     source,
                     configuredSourceIdentity,
