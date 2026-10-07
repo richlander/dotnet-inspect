@@ -333,8 +333,12 @@ package or Platform workspace services through `DotnetInspect.Web.Core`; it
 does not call sibling facades or reuse their wire DTOs.
 Home-demo call graphs likewise ask Web Core to lower the owner-issued neutral
 call-graph projection. The catalog facade does not open Analysis sessions or
-reference the Analysis component directly. It composes the product vocabulary
-from its owners' declarations (`BrowserVocabularyComposition`, under
+reference the Analysis component directly. Queries resolves the product-issued
+member anchor over caller-shaped projected candidates, so Catalog does not
+reparse demo member semantics or consume raw Metadata API surfaces. Portable
+Queries identities likewise carry retained and Platform Library identity
+fields without admitting Metadata into the facade. Catalog composes the product
+vocabulary from its owners' declarations (`BrowserVocabularyComposition`, under
 [Product Vocabulary ownership](vocabulary.md#ownership)), so its assembly
 ratchet admits `ILInspector.Decompiler` for the Decompiler's vocabulary
 declaration factories; it reaches that project transitively and adds no project

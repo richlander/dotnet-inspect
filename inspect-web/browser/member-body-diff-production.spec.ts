@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { chooseSubject, selectFirstExactLibrary } from "./library-subject-actions.ts";
 
@@ -6,6 +7,11 @@ const site = process.env.INSPECT_WEB_SOURCE_DIFF_URL;
 test("Member Body opens an added property across the former Worker limits", async ({ page }) => {
   test.skip(!site, "Set INSPECT_WEB_SOURCE_DIFF_URL to the published Wasm site.");
   test.setTimeout(300_000);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", { value: { write: async (items: ClipboardItem[]) => {
+      (window as Window & { copiedShare?: string }).copiedShare = await (await items[0]!.getType("text/plain")).text();
+    } } });
+  });
   await page.goto(`${new URL(site!).origin}/?package=System.Text.Json&version=10.0.12&framework=netstandard2.0#pkg`);
   await page.locator('[data-package-lens="compare"][role="tab"]').click({ timeout: 120_000 });
   await page.locator("#package-diff-target").selectOption("exact:9.0.20", { timeout: 120_000 });
@@ -35,6 +41,33 @@ test("Member Body opens an added property across the former Worker limits", asyn
   await page.locator('[data-member-body-medium="Il"]').click();
   await expect(page.locator('.targetbar [data-member-body-medium="Il"]')).toBeFocused();
   await expect(page.locator(".member-body-reader .source-diff-viewer")).toContainText("IL_");
+  await page.locator("#application-menu-button").click();
+  await page.locator('[data-application-action="share"]').click();
+  await expect.poll(() => page.evaluate(() => (window as Window & { copiedShare?: string }).copiedShare ?? "")).not.toBe("");
+  const shared = await page.evaluate(() => (window as Window & { copiedShare?: string }).copiedShare!);
+  await writeFile(test.info().outputPath("shared-packet.txt"), new URL(shared).searchParams.get("w")!);
+  const reopened = await page.context().newPage();
+  await reopened.goto(shared);
+  await expect(reopened.locator(".member-body-reader .source-diff-viewer")).toContainText("IL_", { timeout: 180_000 });
+  await expect(reopened.locator(".compare-target-value")).toHaveText("9.0.20 → 10.0.12");
+  await expect(reopened.locator("#compare-diff-content")).toHaveValue("member-body");
+  await expect(reopened.locator(".inspected-target")).toContainText("AllowDuplicateProperties");
+  await expect(reopened.locator('[data-member-body-medium="Il"]')).toHaveAttribute("aria-pressed", "true");
+  await reopened.locator('[data-member-body-medium="CSharp"]').click();
+  await expect(reopened.locator(".member-body-reader")).toContainText("AllowDuplicateProperties");
+  await reopened.getByRole("button", { name: "Search types, members, packages", exact: true }).click();
+  await reopened.locator("#spotlight-input").fill("Newtonsoft.Json@13.0.3");
+  await reopened.locator('[data-sl-pkg-load="Newtonsoft.Json"]').click();
+  await expect(reopened.locator(".inspected-target")).toContainText("Newtonsoft.Json", { timeout: 120_000 });
+  await reopened.locator("[data-product-navigation-button]").click();
+  await reopened.locator('[data-product-destination="workspace"]').click();
+  await reopened.locator("[data-workspace-switch]").first().click();
+  await expect(reopened.locator(".member-body-reader .source-diff-viewer")).toContainText("AllowDuplicateProperties", { timeout: 180_000 });
+  await expect(reopened.locator(".compare-target-value")).toHaveText("9.0.20 → 10.0.12");
+  await expect(reopened.locator("#compare-diff-content")).toHaveValue("member-body");
+  await expect(reopened.locator('[data-member-body-medium="CSharp"]')).toHaveAttribute("aria-pressed", "true");
+  await reopened.screenshot({ path: test.info().outputPath("shared-added-property.png") });
+  await reopened.close();
 });
 
 test("Member Body opens inline and retains the document through media and Explore", async ({ page }) => {

@@ -203,9 +203,11 @@ public sealed partial class BrowserEngineBoundaryTests
                 type.Id,
                 ProductDemoSections.CallGraph,
                 new BrowserHomeDemoRunMember(
-                    member.Name,
-                    member.Kind,
-                    member.AnchorDigest[..6],
+                    new ProductDemoMemberSelection(
+                        member.Name,
+                        member.Kind,
+                        member.AnchorDigest[..6],
+                        Signature: null),
                     MemberSection: "call-graph"));
             var resolution = new BrowserScopeResolution(
                 scopeLease,
@@ -600,9 +602,11 @@ public sealed partial class BrowserEngineBoundaryTests
                 type.DefinitionId,
                 ProductDemoSections.CallGraph,
                 new BrowserHomeDemoRunMember(
-                    member.Name,
-                    member.Kind,
-                    member.AnchorDigest,
+                    new ProductDemoMemberSelection(
+                        member.Name,
+                        member.Kind,
+                        member.AnchorDigest,
+                        Signature: null),
                     MemberSection: "call-graph"));
             var preparation =
                 DotnetInspect.Web.Interop.Catalog.CatalogExports

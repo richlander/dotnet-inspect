@@ -97,7 +97,11 @@ The separate `inspect-web-catalog-facade-*-dependencies-stay-within-capability-r
 rules preserve the Catalog facade's evaluated-project and compiled-assembly
 boundaries. Home-demo call graphs use Web Core's shared lowering of the
 host-neutral call-graph projection, so neither graph admits
-`ILInspector.Analysis`.
+`ILInspector.Analysis`. Queries-owned demo selection now resolves the
+owner-issued member anchor over the already projected browser surface, and
+Queries-owned portable identities detach retained and Platform Library
+identity fields. The Catalog facade therefore has no project or compiled
+reference to `ILInspector.Metadata`.
 
 Web Core and the capability facades other than CallGraph still use the broader
 `src/DotnetInspect.Web/BannedSymbols.txt` while their positive component

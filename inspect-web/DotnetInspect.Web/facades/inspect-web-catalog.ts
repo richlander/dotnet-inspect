@@ -822,6 +822,20 @@ export interface BrowserVocabularyTermIdentity {
   readonly value: string;
 }
 
+export interface BrowserWorkspaceDiffShare {
+  readonly baseline: string;
+  readonly content: string;
+  readonly asset: string;
+  readonly medium: string;
+  readonly body: string | null;
+  readonly libraryName: string;
+  readonly libraryVersion: string;
+  readonly libraryCulture: string | null;
+  readonly libraryPublicKeyToken: string | null;
+  readonly predicateOperator: string | null;
+  readonly predicateValue: string | null;
+}
+
 export interface BrowserWorkspacePackageSourceRequirement {
   readonly endpoint: string;
   readonly authentication: BrowserWorkspacePackageSourceAuthentication;
@@ -881,6 +895,7 @@ export interface BrowserWorkspaceShareView {
   readonly section: string | null;
   readonly libraries: ReadonlyArray<string>;
   readonly sourceView: string | null;
+  readonly comparison: BrowserWorkspaceDiffShare | null;
 }
 
 export interface BrowserVocabularyAvailableShare {
