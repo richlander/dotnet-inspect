@@ -144,7 +144,7 @@ export type SpotlightResult =
   | ManagedTypeResult
   | MemberResult;
 
-export type RemovableSpotlightResult = PackageLoadedResult | PackageRecentResult;
+export type RemovableSpotlightResult = PackageLoadedResult | PackageRecentResult | FrameworkLibraryResult;
 
 export interface SpotlightState {
   spotlightOpen: boolean;
@@ -470,19 +470,28 @@ export function createSpotlight(options: SpotlightOptions) {
   function removable(result: SpotlightResult): result is RemovableSpotlightResult {
     return !packageAddition && options.removeResult !== undefined
       && (result.kind === "pkg-recent"
-        || (result.kind === "pkg-loaded" && !result.pkg.isRuntimePack));
+        || (result.kind === "pkg-loaded" && !result.pkg.isRuntimePack)
+        || (result.kind === "framework-lib" && !state.spotlightQuery.trim()));
   }
 
   function withRemoveButton(
     result: SpotlightResult,
     row: string,
   ): string {
-    if (!removable(result)) return row;
+    const artifact = result.kind === "pkg-loaded" || result.kind === "pkg-recent"
+      || result.kind === "pkg-nuget" || result.kind === "framework-lib";
+    if (!removable(result)) {
+      return artifact
+        ? `<div class="package-search-row spotlight-artifact-row" role="presentation">${row}<span aria-hidden="true"></span></div>`
+        : row;
+    }
     const identity = spotlightResultIdentity(result);
     const label = result.kind === "pkg-recent"
       ? `Forget ${result.entry.id} from recent packages`
-      : `Remove ${result.pkg.id} ${result.pkg.version} ${result.pkg.activeFramework ?? ""} from Workspace`;
-    return `<div class="package-search-row" role="presentation">${row}${packageRemoveButton(
+      : result.kind === "framework-lib"
+        ? `Dismiss ${result.assembly} from Spotlight suggestions`
+        : `Remove ${result.pkg.id} ${result.pkg.version} ${result.pkg.activeFramework ?? ""} from Workspace`;
+    return `<div class="package-search-row spotlight-artifact-row" role="presentation">${row}${packageRemoveButton(
       "data-sl-remove", identity, label, escapeHtml)}</div>`;
   }
 
@@ -529,12 +538,12 @@ export function createSpotlight(options: SpotlightOptions) {
     const selectedClass = selected ? "selected" : "";
     const artifactClass = result.kind === "pkg-loaded" || result.kind === "pkg-nuget"
       || result.kind === "pkg-recent" || result.kind === "framework-lib"
-      ? ` spotlight-artifact${"publication" in result && result.publication ? " has-publication" : ""}` : "";
+      ? " spotlight-artifact" : "";
     const escapedIdentity = escapeHtml(identity);
     const base = `id="spotlight-result-${index}" class="spotlight-item${artifactClass} ${selectedClass}" role="option" aria-selected="${selected}" data-sl-index="${index}" data-sl-result-identity="${escapedIdentity}" data-rendered-interaction-key="spotlight-result:${escapedIdentity}"${packageAddition ? ' tabindex="-1"' : ""}`;
     const dateHtml = "publication" in result && result.publication
       ? `<span class="spotlight-item-date"${result.publication.status === "unavailable" ? ` title="${escapeHtml(result.publication.reason)}"` : ""}>${result.publication.status === "available" ? `<time datetime="${escapeHtml(result.publication.date)}" aria-label="${escapeHtml(publicationDateText(result.publication))}" title="${escapeHtml(publicationDateText(result.publication))}">${escapeHtml(result.publication.date)}</time>` : escapeHtml(publicationDateText(result.publication))}</span>`
-      : "";
+      : artifactClass ? `<span class="spotlight-item-date" aria-hidden="true"></span>` : "";
     if (result.kind === "pkg-loaded") {
       return withRemoveButton(result, `<button ${base} data-sl-pkg-open="${escapeHtml(result.pkg.id)}">
         ${packageIcon(result)}
@@ -547,12 +556,12 @@ export function createSpotlight(options: SpotlightOptions) {
       const source = result.hit.exact
         ? "exact coordinate · listed or unlisted"
         : "nuget.org";
-      return `<button ${base} data-sl-pkg-load="${escapeHtml(result.hit.id)}" data-sl-pkg-version="${escapeHtml(result.hit.version || "")}">
+      return withRemoveButton(result, `<button ${base} data-sl-pkg-load="${escapeHtml(result.hit.id)}" data-sl-pkg-version="${escapeHtml(result.hit.version || "")}">
         ${packageIcon(result)}
         <span class="spotlight-item-name">${options.highlightRanges(result.hit.id, result.ranges)}</span>
         <span class="spotlight-item-ns" title="${escapeHtml(source)}">${escapeHtml(result.hit.version || "")}</span>
         ${dateHtml}
-      </button>`;
+      </button>`);
     }
     if (result.kind === "pkg-recent") {
       const version = result.entry.version && result.entry.version !== "latest"
@@ -591,7 +600,7 @@ export function createSpotlight(options: SpotlightOptions) {
       const label = PLATFORM_PACK_LABEL[result.pack] || result.pack;
       const types = `${result.publicTypes} type${result.publicTypes === 1 ? "" : "s"}`;
       const meta = `${label}${result.tfm ? ` · ${result.tfm}` : ""}${result.version ? ` · ${result.version}` : ""} · ${result.role ?? types}${result.loaded ? " · loaded" : ""}`;
-      return `<button ${base} data-sl-framework-lib="${escapeHtml(result.assembly)}" data-sl-framework-pack="${escapeHtml(result.pack)}">
+      return withRemoveButton(result, `<button ${base} data-sl-framework-lib="${escapeHtml(result.assembly)}" data-sl-framework-pack="${escapeHtml(result.pack)}">
         ${artifactIcon("Library", result.pack === "netcore.app" || result.pack === "aspnetcore.app" || result.pack === "netstandard"
           ? { id: result.pack === "aspnetcore.app" ? "ecosystem.aspnetcore" : "ecosystem.runtime",
               title: result.pack === "aspnetcore.app" ? "ASP.NET Core" : ".NET Runtime" }
@@ -599,7 +608,7 @@ export function createSpotlight(options: SpotlightOptions) {
         <span class="spotlight-item-name">${options.highlightRanges(result.assembly, result.ranges)}</span>
         <span class="spotlight-item-ns" title="${escapeHtml(meta)}">${escapeHtml([result.version, result.tfm].filter(Boolean).join(" · "))}</span>
         ${dateHtml}
-      </button>`;
+      </button>`);
     }
     if (result.kind === "member") {
       const packageName = options.packageCount() > 1
@@ -862,8 +871,10 @@ export function createSpotlight(options: SpotlightOptions) {
     const start = input?.selectionStart ?? state.spotlightQuery.length;
     const end = input?.selectionEnd ?? start;
     if (!options.removeResult?.(result)) return true;
-    dismissedPackageIds.add((result.kind === "pkg-loaded"
-      ? result.pkg.id : result.entry.id).toLowerCase());
+    if (result.kind !== "framework-lib") {
+      dismissedPackageIds.add((result.kind === "pkg-loaded"
+        ? result.pkg.id : result.entry.id).toLowerCase());
+    }
     updateResults();
     const replacement = document.querySelector<HTMLInputElement>("#spotlight-input");
     replacement?.focus({ preventScroll: true });

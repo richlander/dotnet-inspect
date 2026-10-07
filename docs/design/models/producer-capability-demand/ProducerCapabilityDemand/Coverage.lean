@@ -4,8 +4,10 @@
 `ProducerCapabilityPlanValidator` walks one satisfaction path: it starts from
 the selected provision's offer, requires each covering edge's source to match
 the current offer, replaces the offer with the edge's target, and finally
-compares the offer with the requirement. `Offer.FromTarget` takes the target
-offer's structural properties from the last edge alone.
+compares the offer with the requirement. It shipped taking the offer's
+structural properties from the last edge alone (`walkLastEdge`) and now
+conjoins the provision's and every edge's properties (`walkConjunctive`,
+`Offer.Through` in C#).
 
 The key `K` abstracts the scope, capability, completion, and outcome identities
 that the validator compares by reference equality. `exact` abstracts
@@ -20,8 +22,10 @@ design. Two readings are stated below:
   matching the enum's documentation, "The result preserves exact source
   cardinality."
 
-The validator's last-edge rule is sound under the absolute reading and unsound
-under the preserving reading. A conjunctive rule is sound under both.
+The last-edge rule is sound under the absolute reading and unsound under the
+preserving reading
+([#9483](https://github.com/richlander/dotnet-inspect/issues/9483)). The
+conjunctive rule the validator now uses is sound under both.
 -/
 
 namespace ProducerCapabilityDemand

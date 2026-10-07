@@ -6523,5 +6523,11 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 .forwarder-status { margin: 16px; color: var(--dim); font-size: 13px; }
 .forwarder-status[role="alert"] { color: var(--text); }
 
-.spotlight-artifact.has-publication { grid-template-columns: 20px minmax(0, 1fr) minmax(0, auto) auto; }
+.spotlight-artifact-row { display: grid; grid-template-columns: minmax(0, 1fr) 28px; }
+.spotlight-artifact { grid-template-columns: 20px minmax(0, 1fr) min(220px, 30vw) 100px; }
+.spotlight-artifact .spotlight-item-ns { max-width: 100%; }
+.spotlight-artifact .spotlight-item-date { justify-self: end; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+@media (max-width: 600px) {
+  .spotlight-artifact { grid-template-columns: 20px minmax(0, 1fr) min(150px, 28vw) 82px; gap: 6px; }
+}
 .spotlight-item-date { color: var(--muted); font: 11px var(--mono); white-space: nowrap; }
