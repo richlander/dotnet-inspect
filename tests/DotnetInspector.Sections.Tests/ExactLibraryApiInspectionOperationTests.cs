@@ -54,6 +54,12 @@ public sealed class ExactLibraryApiInspectionOperationTests
         Assert.Equal(
             typeof(ExactLibraryApiInspectionOperation).Module.ModuleVersionId,
             result.Assembly?.ModuleVersionId);
+        Assert.Equal(
+            typeof(ExactLibraryApiInspectionOperation).Assembly.GetName().Name,
+            result.Assembly?.Identity.Name);
+        Assert.Equal(
+            typeof(ExactLibraryApiInspectionOperation).Assembly.GetName().Version,
+            result.Assembly?.Identity.Version);
         Assert.NotNull(execution.Surface);
         Assert.Equal(
             execution.Surface.PublicTypeCount,
@@ -439,6 +445,7 @@ public sealed class ExactLibraryApiInspectionOperationTests
             typeof(ExactLibraryApiInspectionResult),
             typeof(ExactLibraryApiSourceCoordinate),
             typeof(ExactLibraryApiAsset),
+            typeof(ExactLibraryApiAssemblyReferenceIdentity),
             typeof(ExactLibraryApiAssemblyIdentity),
             typeof(ExactLibraryApiInventory),
             typeof(ExactLibraryApiInspectionFailure),
@@ -457,6 +464,17 @@ public sealed class ExactLibraryApiInspectionOperationTests
                         candidate.IsAssignableFrom(property.PropertyType));
             }
         }
+
+        Assert.Equal(
+            typeof(ExactLibraryApiAssemblyReferenceIdentity),
+            typeof(ExactLibraryApiAssemblyIdentity)
+                .GetProperty(nameof(ExactLibraryApiAssemblyIdentity.Identity))!
+                .PropertyType);
+        Assert.Equal(
+            typeof(ExactLibraryApiAssemblyReferenceIdentity?),
+            typeof(ExactLibraryApiInspectionFailure)
+                .GetProperty(nameof(ExactLibraryApiInspectionFailure.SubjectAssembly))!
+                .PropertyType);
     }
 
     static byte[] Archive(

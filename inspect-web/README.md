@@ -75,9 +75,12 @@ The separate `inspect-web-package-facade-*-dependencies-stay-within-capability-r
 rules preserve the Package facade's evaluated-project and compiled-assembly
 ceilings. Direct assembly-reference evidence now arrives as detached
 Queries-owned rows, so the facade does not project Metadata identities for that
-result, and the unused `DotnetInspector.Networking` project edge is retired.
-The broader compiled closure and remaining exact-Library Metadata projection
-stay explicit for focused #8779 successors.
+result, exact-Library identity arrives as a detached Queries-owned value, and
+the unused `DotnetInspector.Networking` and exact-Library
+`ILInspector.Metadata` project edges are retired. The broader compiled closure
+still contains Metadata types reached by Platform-forwarder and
+assembly-context failure adaptation; the separate graph rules preserve that
+explicit residual for focused #8779 successors.
 
 The separate `inspect-web-library-facade-*-dependencies-stay-within-capability-ratchet`
 rules preserve the Library facade's smaller evaluated-project boundary and its

@@ -1,4 +1,5 @@
 import type { DataBarError } from "./data-bar.ts";
+import type { ItemAchievement } from "./item-achievements.ts";
 import type {
   BrowserLibraryNamespaceLeverageIndex,
   BrowserLibraryNamespaceLeverageRow,
@@ -23,6 +24,22 @@ interface TypeLeverageCue {
   readonly evidenceMode: TypeLeverageEvidenceMode;
   readonly pole: TypeLeveragePole;
   readonly description: string;
+}
+
+export function typeLeverageAchievements(
+  cues: readonly TypeLeverageCue[],
+  diff: ItemAchievement | null,
+): readonly ItemAchievement[] {
+  const selected = cues.find(cue => cue.evidenceMode === "implementation")
+    ?? cues.find(cue => cue.evidenceMode === "surface");
+  const salience: ItemAchievement[] = selected ? [{
+    kind: `${selected.evidenceMode}-${selected.pole}`,
+    description: cues.map(cue => cue.description).join("; "),
+  }] : [];
+  return [
+    ...(diff ? [diff] : []),
+    ...salience,
+  ];
 }
 
 interface NamespaceLeverageCue {

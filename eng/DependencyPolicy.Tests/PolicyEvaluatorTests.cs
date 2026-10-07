@@ -1236,7 +1236,6 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Queries",
                 "DotnetInspector.Sections",
                 "DotnetInspector.Services",
-                "ILInspector.Metadata",
                 "QuerySpace",
                 "TsJsExport.Contracts",
             ],
