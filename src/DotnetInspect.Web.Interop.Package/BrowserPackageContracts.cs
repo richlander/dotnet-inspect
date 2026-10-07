@@ -368,7 +368,7 @@ public sealed record BrowserEcosystemPackageInventory(
 
 public sealed record BrowserEcosystemPackageClassification(
     string Id, string? Version, string? EcosystemId, string? EcosystemTitle,
-    string? PlatformLayer, bool? IsPruned);
+    string? PlatformLayer, bool? IsPruned, int? PlatformVersionComparison);
 
 public sealed record BrowserPlatformCatalog(
     string Tfm,

@@ -1174,7 +1174,7 @@ test("framework assemblies are Library results without a Platform destination", 
   const html = spotlight.modalHtml();
   assert.match(html, /class="spotlight-group">Ecosystem/);
   assert.match(html, /data-sl-framework-lib="System\.Text\.Json"/);
-  assert.match(html, /\.NET library · net11\.0 · 11\.0\.0 · 42 types/);
+  assert.match(html, /\.NET Runtime · Library · net11\.0 · 11\.0\.0 · 42 types/);
   assert.doesNotMatch(html, /data-sl-scope="runtime"|>Platform</);
 });
 
@@ -1207,10 +1207,13 @@ test("same-named Package and Library share one Ecosystem group with independent 
   const html = spotlight.modalHtml();
   assert.equal((html.match(/class="spotlight-group">Ecosystem/g) ?? []).length, 1);
   assert.match(html, /aria-label="Package pruned for net10.0"/);
+  assert.match(html, /aria-label="Library: \.NET Runtime"/);
+  assert.equal((html.match(/class="spotlight-svg-icon spotlight-pruned"/g) ?? []).length, 1);
   assert.match(html, /Supplied by net10.0 @ 10.0.12/);
   assert.match(html, /\.NET Runtime · Package · 4.3.0/);
+  assert.match(html, /\.NET Runtime · Library · net10\.0/);
   assert.notEqual(spotlightResultIdentity(packageResult), spotlightResultIdentity(libraryResult));
-  assert.deepEqual(spotlight.results(), [packageResult, libraryResult, external]);
+  assert.deepEqual(spotlight.results(), [libraryResult, packageResult, external]);
 });
 
 test("false or unavailable pruning never renders a positive badge", () => {
@@ -1233,7 +1236,6 @@ test("artifact rows use one leading pruning, ecosystem, or fallback glyph", () =
     { result: { kind: "pkg-nuget", hit: { id: "Microsoft.Extensions.AI", version: "9.0.0" }, ranges: [], ecosystem: { ...ecosystem, id: "ecosystem.ai", title: "AI" } }, icon: "sl-package-icon", label: "Package" },
     { result: { kind: "pkg-recent", entry: { id: "System.Linq", version: "4.3.0" }, ranges: [], ecosystem: prunedEcosystem }, icon: "spotlight-pruned", label: "Package pruned for net10.0" },
     { result: { kind: "pkg-loaded", pkg: { id: "System.Linq", version: "4.3.0" }, ranges: [], ecosystem: prunedEcosystem }, icon: "spotlight-pruned", label: "Package pruned for net10.0" },
-    { result: { kind: "framework-lib", assembly: "System.Linq", pack: "netcore.app", publicTypes: 1, ranges: [], pruning: { traversalTfm: "net10.0", platformVersion: "10.0.12" } }, icon: "spotlight-pruned", label: "Library supplies pruned package for net10.0" },
     { result: { kind: "framework-lib", assembly: "System.Linq", pack: "netcore.app", publicTypes: 1, ranges: [] }, icon: "sl-ecosystem-runtime", label: "Library: .NET Runtime" },
     { result: { kind: "framework-lib", assembly: "Example.Library", pack: "other", publicTypes: 1, ranges: [] }, icon: "sl-library-icon", label: "Library" },
   ];
@@ -1245,4 +1247,27 @@ test("artifact rows use one leading pruning, ecosystem, or fallback glyph", () =
     assert.doesNotMatch(html, /spotlight-result-icons/);
     assert.equal(spotlightResultIdentity(spotlight.results()[0]!), spotlightResultIdentity(result));
   }
+});
+
+
+test("same-named platform and Package pairs prefer platform for pruning, otherwise highest version", () => {
+  const library: SpotlightResult = { kind: "framework-lib", assembly: "System.Text.Json", pack: "netcore.app", publicTypes: 1, tfm: "net10.0", version: "10.0.12", ranges: [] };
+  for (const [isPruned, comparison, packageFirst] of [[true, 1, false], [true, -1, false], [false, 1, true], [false, -1, false], [false, 0, false], [null, 1, true]] as const) {
+    const pkg: SpotlightResult = { kind: "pkg-nuget", hit: { id: "system.text.json", version: "11.0.0" }, ranges: [], ecosystem: { id: "ecosystem.runtime", title: ".NET Runtime", isPruned, traversalTfm: "net10.0", platformVersion: "10.0.12", platformVersionComparison: comparison } };
+    for (const input of [[pkg, library], [library, pkg]]) {
+      const { spotlight } = createHarness({ searchResults: () => input });
+      assert.deepEqual(spotlight.results(), packageFirst ? [pkg, library] : [library, pkg]);
+    }
+  }
+});
+
+
+test("unavailable version comparison preserves pair order and unrelated hits stay in place", () => {
+  const library: SpotlightResult = { kind: "framework-lib", assembly: "System.Text.Json", pack: "netcore.app", publicTypes: 1, tfm: "net10.0", version: "10.0.12", ranges: [] };
+  const pkg: SpotlightResult = { kind: "pkg-nuget", hit: { id: "System.Text.Json" }, ranges: [], ecosystem: { id: "ecosystem.runtime", title: ".NET Runtime", isPruned: null, traversalTfm: "net10.0", platformVersion: "10.0.12", platformVersionComparison: null } };
+  const unrelated: SpotlightResult = { kind: "framework-lib", assembly: "System.Linq", pack: "netcore.app", publicTypes: 1, ranges: [] };
+  const { spotlight } = createHarness({ searchResults: () => [pkg, unrelated, library] });
+  assert.deepEqual(spotlight.results(), [pkg, unrelated, library]);
+  pkg.ecosystem!.isPruned = true;
+  assert.deepEqual(spotlight.results(), [library, unrelated, pkg]);
 });
