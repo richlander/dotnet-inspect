@@ -389,7 +389,7 @@ test("upload retires an older in-flight Package transition", async ({ page }) =>
   await page.goto(root);
   await waitForExamplePackageReady(page);
 
-  await page.locator("#package-version").selectOption("1.0.1");
+  await page.locator('[data-package-version="1.0.1"]').click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-package-query-pending",
     JSON.stringify(["Example.Package", "1.0.1", "net10.0"]),
