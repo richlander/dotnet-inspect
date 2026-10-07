@@ -16,7 +16,9 @@ brew install elan-init
 On other platforms, use the
 [elan installer](https://github.com/leanprover/elan). Each model pins its
 compiler in `lean-toolchain`, so `lake build` fetches the right version on
-first use. Models currently pin `leanprover/lean4:v4.34.1`.
+first use. Every model pins the one release that `eng/run-lean-checks.sh`
+names in `LEAN_TOOLCHAIN`. Moving to a new release updates that constant, the
+CI archive pin, and every model together.
 
 ## Placement and project shape
 
@@ -87,7 +89,8 @@ Every model README states:
 - **Limits:** what the model does not cover.
 - **Build:** the command, run from the model directory.
 
-Models that predate this contract meet it when they are next changed.
+Models that predate this contract, including its rule that a code model names
+its commit, meet it when they are next changed.
 
 When a code model's C# changes, update the correspondence and re-run the build,
 or mark the README stale. A proof about an outdated model is not evidence about
@@ -110,8 +113,19 @@ declarations. Report the axioms that each headline theorem depends on:
 ```
 
 Only Lean's standard axioms are acceptable: `propext`, `Classical.choice`, and
-`Quot.sound`. Report the build result and axioms in the PR. Lean models have no
-CI gate yet, so reviewers run the build at the exact head.
+`Quot.sound`. Report the build result and axioms in the PR.
+
+`eng/run-lean-checks.sh` enforces this bar for every model and runs in the
+per-PR `lean` CI job whenever Lean model content or the runner changes. Lean
+reports every `sorry` as a warning, so the build check catches it. After the
+build, `eng/lean/CheckAxioms.lean` loads the model's compiled modules and fails
+when a declaration is an axiom or when any constant depends on an axiom
+outside the standard three. Because it inspects the elaborated environment
+rather than source text, it catches every spelling, including attributes,
+modifiers, docstrings, and `native_decide`. The runner also checks that each
+model pins the repository toolchain, has no package dependencies, and ignores
+`.lake`. Run it locally from the repository root; `eng/test-lean-checks.sh`
+checks the runner itself.
 
 ## Evidence limits
 
