@@ -830,8 +830,10 @@ public static partial class PackageExports
                     break;
                 case AssemblyContextEntry<
                     ImmutableArray<AssemblyReferenceRow>>.Rejected rejected:
+                    AssemblyReferenceRowsRejection rejection =
+                        AssemblyContextReferencesQuery.GetRowsRejection(rejected);
                     assemblyReferences = new(
-                        $"{rejected.Failure.Kind} ({rejected.Failure.Detail})");
+                        $"{rejection.Kind} ({rejection.Detail})");
                     break;
                 case AssemblyContextEntry<
                     ImmutableArray<AssemblyReferenceRow>>.Failed failed:
