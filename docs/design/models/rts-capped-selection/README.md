@@ -1,12 +1,12 @@
 # Rank-first capped RTS selection Lean proof
 
-This Lean 4 prototype is proof evidence for
+This Lean 4 model is proof evidence for
 [issue #9492](https://github.com/richlander/dotnet-inspect/issues/9492), the
 second slice of the Lean pilot in
 [#9482](https://github.com/richlander/dotnet-inspect/issues/9482). The
 normative owner remains
-[`fact-planned-compile-back-harness.md#standalone-method-target-selection`](../../docs/design/fact-planned-compile-back-harness.md#standalone-method-target-selection).
-This prototype changes no product contract or runtime path.
+[`fact-planned-compile-back-harness.md#standalone-method-target-selection`](../../fact-planned-compile-back-harness.md#standalone-method-target-selection).
+This model changes no product contract or runtime path.
 
 ## Why Lean here
 
@@ -79,10 +79,10 @@ plans can select different targets.
 
 ## Run
 
-The prototype pins Lean 4.34.1 and has no package dependencies:
+The model pins Lean 4.34.1 and has no package dependencies:
 
 ```bash
-cd prototypes/rts-capped-selection
+cd docs/design/models/rts-capped-selection
 lake build
 ```
 
