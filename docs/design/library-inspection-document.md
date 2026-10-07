@@ -552,26 +552,33 @@ admits the `LibraryNamespacesAndTypes` topology:
 Library
   -> Namespace
     -> Type declaration
-      -> Member
+      -> Member (optional Count)
 ```
 
-The admitted profile requests namespace Rows by Name, Type declaration Rows by
-Name or FullSpelling, and Member Count beneath each declaration. The root may
-be spelled by Name (the Library name) or FullSpelling (name and version).
+The default profile requests namespace Rows by Name and Type declaration Rows
+by Name or FullSpelling as leaves. The Type declarations are the one row
+population; namespaces group those same rows. Member detail belongs to the
+inner `type` command, so the default requests no Member Count and the
+producer enumerates no members. The root may be spelled by Name (the Library
+name) or FullSpelling (name and version).
 
 ```text
 System.Text.Json 10.0.0.0
 ├─ System.Text.Json (20 types)
-│  ├─ class JsonSerializer (104 members)
+│  ├─ class JsonSerializer
 │  └─ …
 └─ System.Text.Json.Nodes (5 types)
    └─ …
 ```
 
-The plan requests complete, unfaceted, public-surface Type Rows with a Member
-Count on every definition. The owner rejects a continued, partial, faceted, or
-uncounted population and any other terminal or spelling choice before the sink
-receives a node; it never emits a shortened hierarchy.
+An explicit profile may add a Member Count beneath each declaration. Its plan
+must request a Member Count on every definition; the leaf profile must request
+none, so a plan never pays for a Count it cannot present.
+
+Every profile requests complete, unfaceted, public-surface Type Rows. The owner
+rejects a continued, partial, or faceted population, a Member Count outcome
+that disagrees with the profile, and any other terminal or spelling choice
+before the sink receives a node; it never emits a shortened hierarchy.
 
 The owner defines the hierarchy's sibling order: namespaces by ordinal name,
 then declarations within each namespace by ordinal display name. Rows ordering
@@ -586,9 +593,9 @@ owner removes the qualifier from their raw text and re-encodes only the
 remainder. The empty namespace is the global namespace. The owner forms every
 node, including its spelling, before the sink receives the first one.
 
-A definition's Member Count is the row's counted outcome. A forwarder remains a
-first-class declaration node whose Member Count is not applicable; the
-hierarchy neither reports zero nor resolves a target definition.
+A forwarder remains a first-class declaration node and never resolves a target
+definition. In the Member Count profile, a definition's Count is the row's
+counted outcome and a forwarder's is not applicable, never zero.
 
 [Host-neutral hierarchy projection](host-neutral-hierarchy-projection.md)
 owns the request vocabulary, the streaming sink, and shared format lowering.
