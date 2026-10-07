@@ -26,7 +26,7 @@ attribution, exposure, or completeness, which
 inventory, a library method whose only unsafe work is a call to
 `Unsafe.As`, `MemoryMarshal.GetReference`, or `Marshal.ReadInt32` has no role
 and no finding, because the first slice resolves explicit contracts only within
-the primary image. Reading the callee's own metadata cannot close the gap yet:
+the primary image. Reading the callee's own metadata cannot close the gap:
 the .NET 11 implementation assemblies that a library binds to at run time,
 including `System.Private.CoreLib`, carry no caller-unsafe markers.
 
@@ -160,14 +160,18 @@ changes beside the version that caused them; a gate enforces that the recorded
 pack version is the pinned SDK's reference-pack version. No inspection-time download or
 pack probe is added, and the data loads lazily only when the inventory runs.
 
-## Retirement
+## Lifetime
 
-The projection is a bridge until implementation assemblies carry the markers,
-expected with .NET 12. Exact contract consumption for a resolved callee image,
-platform or not, is the general cross-assembly successor; once it lands,
-callee metadata is authoritative for any image that declares
-`MemorySafetyRulesAttribute`, and the projection is consulted only for older
-platform images.
+Upstream has not said whether implementation assemblies will ever carry the
+markers; in .NET 12 and later they may remain reference-assembly-only. The
+projection is therefore the standing source of platform contracts, regenerated
+with each pinned pack, not a bridge tied to a release.
+
+If platform implementation assemblies do start carrying the markers, exact
+contract consumption for a resolved callee image is the general cross-assembly
+successor: callee metadata becomes authoritative for any image that declares
+`MemorySafetyRulesAttribute`, and the projection is then consulted only for
+platform images that do not.
 
 ## Non-claims
 
