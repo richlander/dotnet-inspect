@@ -2,21 +2,21 @@
 
 ## Owner and claim
 
-`DotnetInspector.Queries` owns the retained-type authored acquisition handoff.
+`DotnetInspector.Queries` owns exact-type acquisition and publication.
 The initial delivery is tracked by #7522; explicit CLI document adoption is
 tracked by #7546, following the selection and collection prerequisites in
 PRs #7549 and #7580. Member Source Locations document printing adopts the
 same operation under #7679.
 
-> Settle authored source for one independently resolved retained type through
+> Settle source for one independently resolved retained type through
 > SourceHouse, retain its selected-document mapping and native evidence, and
-> publish only after owned cleanup and query-currency checks complete.
-> Serial Type Source retains one admitted Library across authored and
-> SourceHouse decompilation operations, with a fresh lease for each. The
-> opt-in latency hedge may instead admit independent immutable Libraries so
-> authored acquisition and decompilation have independent settlement
-> lifetimes. An explicitly selected authored document never substitutes
-> another document or decompilation.
+> publish only after owned cleanup and query-currency checks complete. Serial
+> ordinary Type Source delegates authored-first fallback to one
+> `BestAvailable` operation under one transferred Library lease. The opt-in
+> latency hedge may instead admit independent immutable Libraries so authored
+> acquisition and decompilation have independent settlement lifetimes. An
+> explicitly selected authored document remains authored-only and never
+> substitutes another document or decompilation.
 
 This adopts the existing SourceHouse type target; it does not extend the
 House's supported source-policy matrix. SourceLink owns mapping and checksum
@@ -32,7 +32,8 @@ that all parts of a partial type are contained in one document.
 Type and [member acquisition](member-source-acquisition.md) share the same
 internal Library/House lifetime handoff rather than duplicate acquisition,
 capabilities, decompilation, or retirement. One upstream Portable PDB
-acquisition supplies authored settlement and optional decompilation. External
+acquisition supplies serial ordinary `BestAvailable` settlement and its
+optional decompilation under one admitted Library operation lease. External
 companions retain independent provenance; embedded symbols remain embedded for
 Library admission.
 
@@ -42,17 +43,18 @@ Artifact session. Cleanup failure prevents publication. Caller cancellation
 and binding-policy invalidation retain their existing terminal precedence.
 The borrowed assembly-context group remains caller-owned.
 
-Published results retain the projected PDB/authored inspection and any native
-authored and decompilation House outcomes or terminal Library-admission
-evidence. Fallback does not erase an unsuccessful PDB/authored attempt. When
-hedged PDB preparation settles unavailable, the query may skip SourceHouse
-admission; the typed PDB outcome remains the evidence and the authored House
-outcome is absent. The projection preserves the selected type's document scope,
-mapping strength, partiality, and additional-document references. The native
-mapping's resolved type and homogeneous document collection, including each
-browse URL, resolution method, and checksum facts, survive unchanged; the
-query does not reconstruct them from paths. It does not fabricate a complete
-type declaration from a document.
+Published serial results retain the composite `BestAvailable` outcome, the
+projected PDB/authored inspection, both native authored and optional
+decompilation outcomes, or terminal Library-admission evidence. Fallback does
+not erase an unsuccessful PDB/authored attempt. When hedged PDB preparation
+settles unavailable, the query may skip authored SourceHouse admission; the
+typed PDB outcome remains the evidence and the authored House outcome is
+absent. The projection preserves the selected type's document scope, mapping
+strength, partiality, and additional-document references. The native mapping's
+resolved type and homogeneous document collection, including each browse URL,
+resolution method, and checksum facts, survive unchanged; the query does not
+reconstruct them from paths. It does not fabricate a complete type declaration
+from a document.
 
 `TypeSourceLimits` and `TypeSourceTimeout` bound authored settlement independently
 from the existing member and member-pair settings. Defaults are the same finite
@@ -68,9 +70,11 @@ These are not upstream transport or process-memory bounds.
 The serial `TypeSourceInspection.ExecuteAsync` operation and latency-sensitive
 operations remain separate rather than sharing one algorithm that infers
 execution capability from host identity or processor count. Each composes
-existing PDB acquisition, authored SourceHouse, and decompiled SourceHouse
-contracts without changing their internal policies. Explicit authored-document
-requests remain serial.
+existing PDB acquisition and SourceHouse contracts without changing their
+internal policies. The serial ordinary operation uses SourceHouse
+`BestAvailable`; the hedge composes independent authored and decompiled
+settlements because their separate timing and cleanup are the feature.
+Explicit authored-document requests remain serial and authored-only.
 
 `TypeSourceInspection.ExecuteWithPdbLatencyHedgeAsync` is the conservative
 single-thread-compatible operation:
@@ -79,9 +83,9 @@ single-thread-compatible operation:
    external PDB has been published to the operation-scoped `IPdbStore`; it does
    not mean authored source is available.
 2. Wait the configured Portable PDB preference window. If the PDB settles
-   successfully, complete the existing serial authored-first path: await
-   authored source under its independent timeout and limits, then decompile
-   with the prepared companion only when authored source is unavailable.
+   successfully, complete the hedge's authored-first branch: await authored
+   source under its independent timeout and limits, then decompile with the
+   prepared companion only when authored source is unavailable.
 3. If the PDB is unavailable inside the window, decompile immediately without
    a supplied companion. If the window elapses first, decompile without a
    supplied companion while PDB acquisition remains live.
@@ -256,8 +260,11 @@ remaining callers. #7953 retires the shared query's direct
 `CSharpDecompilerService.ProduceType` fallback in favor of exact-type
 SourceHouse settlement and adopts that result in Browser Type Source. #7963
 adopts the decompiled-only facade for ordinary CLI whole-type Decompiled Source
-and retires that host's direct `MemberBodyProducer.Project` call. Member and
-pair acquisition retain their current policies.
+and retires that host's direct `MemberBodyProducer.Project` call. #9565 moves
+serial ordinary exact-type authored-first fallback into one SourceHouse
+`BestAvailable` operation and removes the query-owned second operation lease.
+The Browser PDB-latency hedge retains independent operation lifetimes. Member
+and pair acquisition retain their current policies.
 
 The overall twelve-step plan in [SourceHouse](source-house.md#production-adoption)
 and #6512 includes both CLI and Browser/Wasm adoption. The CLI document slice
@@ -289,7 +296,7 @@ The following PR-fast Release gates define the delivery:
 
 | Gate | Claim |
 | --- | --- |
-| `AssemblyContextSourceQueryTests`, including `TypeSourceInspection_*` | Authored preference, native authored/decompilation House and Library evidence, one retained Library with fresh leases, independent finite bounds, type-document scope, and existing cancellation/currency/disposal behavior. |
+| `AssemblyContextSourceQueryTests`, including `TypeSourceInspection_*` | Serial authored preference, native composite/authored/decompilation House and Library evidence, one `BestAvailable` lease, independent finite bounds, type-document scope, and existing cancellation/currency/disposal behavior. |
 | `TypeSourcePdbLatencyHedge_*` | Deterministic scheduling with an injected clock: the PDB-only operation preserves the serial authored path after prompt PDB settlement, publishes no-PDB decompilation after PDB-window expiry, preserves late authored source when decompilation is unavailable, and aligns typed PDB diagnostics with the evidence envelope. |
 | `TypeDecompilationInspection_*` | Decompiled-only exact type identity, complete-type behavior despite a filtered request model, supplied/no-PDB input, native incomplete status, terminal Library admission, binding currency, settled operation leases, detached envelopes, and no authored or network requests. |
 | `TypeSourceInspection_Explicit*` | Exact primary/additional selection, ordinal membership, selected checksums, detached evidence, package/Platform authority and fallback coordinates, and unavailable/checksum/deadline results without decompiler substitution. |
