@@ -432,21 +432,6 @@ public static class TypeCommand
             }
             else
             {
-                TypeOptions documentOptions =
-                    ShouldDefaultToShape(options)
-                        ? options with
-                        {
-                            ShapeOutput = true,
-                        }
-                        : options;
-                int? documentResult =
-                    await TypeOverviewHierarchyCommand.TryExecuteAsync(
-                        source,
-                        documentOptions,
-                        cancellationToken);
-                if (documentResult is not null)
-                    return documentResult.Value;
-
                 var loaded = loadedSurface
                     ?? ApiServices.LoadTypeApi(source, options);
                 if (loaded == null)

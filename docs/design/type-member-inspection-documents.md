@@ -381,9 +381,9 @@ production adoption as focused slices:
 8. Retire transitional document names and superseded host-local composition.
 
 Rendering work is not part of slices 1 through 6 and does not define the object
-model. CLI Tree and Mermaid adoption select shared presentation profiles over
-the owner-issued hierarchy; Count and other projections retain their
-independently admitted routes.
+model. Future CLI Tree and Mermaid adoption will select shared presentation
+profiles over the owner-issued hierarchy; Count and other projections retain
+their independently admitted routes.
 
 ## Required evidence
 

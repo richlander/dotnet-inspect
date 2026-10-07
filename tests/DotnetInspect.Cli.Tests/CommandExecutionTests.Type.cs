@@ -104,12 +104,6 @@ public partial class CommandExecutionTests
                 "N.Widget",
                 "--library",
                 path);
-            var mermaidResult = await RunAppAsync(
-                "type",
-                "N.Widget",
-                "--library",
-                path,
-                "--mermaid");
 
             Assert.Empty(typeResult.Error);
             Assert.Empty(memberResult.Error);
@@ -117,12 +111,6 @@ public partial class CommandExecutionTests
             Assert.Equal(0, memberResult.Exit);
             Assert.Contains("N.Widget", typeResult.Output);
             Assert.Contains("N.Widget", memberResult.Output);
-            Assert.Equal(1, mermaidResult.Exit);
-            Assert.Empty(mermaidResult.Output);
-            Assert.Contains(
-                "could not be produced by the compact Type document path",
-                mermaidResult.Error,
-                StringComparison.Ordinal);
         }
         finally
         {
@@ -512,62 +500,24 @@ public partial class CommandExecutionTests
             () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        // Default single-Type navigation streams compact owner-issued groups.
+        // Default single-type invocation renders the tree shape.
         Assert.Contains("├─", output);
-        Assert.Contains("Properties (1)", output);
-        Assert.Contains("Methods (10 logical, 107 overloads)", output);
-        Assert.DoesNotContain("Inherits", output);
-        Assert.DoesNotContain(
-            "bool IsReflectionEnabledByDefault",
-            output);
-    }
-
-    [Theory]
-    [InlineData("m")]
-    [InlineData("n")]
-    [InlineData("d")]
-    public async Task Type_SingleType_VerbosityStaysCompactHierarchy(
-        string verbosity)
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "type",
-            "System.Text.Json.JsonSerializer",
-            $"-v:{verbosity}");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("├─", output);
-        Assert.Contains("Methods (10 logical, 107 overloads)", output);
-        Assert.Contains("Deserialize (40 overloads)", output);
-        Assert.DoesNotContain(
-            "Deserialize<TValue>(System.IO.Stream utf8Json",
-            output);
-        Assert.DoesNotContain("# System.Text.Json.JsonSerializer", output);
+        Assert.Contains("Inherits", output);
     }
 
     [Fact]
-    public async Task Type_SingleType_TreeRetainsTypeGenericParameters()
+    public async Task Type_SingleType_NormalVerbosity_StaysShapeAndExpandsOverloads()
     {
-        string path = Path.Combine(
-            AppContext.BaseDirectory,
-            "RealAssets",
-            "DiffAnalysis",
-            "10.0.0",
-            "System.Text.Json.dll");
         var (exit, output, error) = await RunAppAsync(
-            "type",
-            "System.Text.Json.Serialization.JsonConverter<T>",
-            "--library",
-            path,
-            "--tree");
+            "type", "System.Text.Json.JsonSerializer", "-v:n");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains(
-            "System.Text.Json.Serialization.JsonConverter<T>",
-            output);
-        Assert.Contains("Read", output);
-        Assert.DoesNotContain("Read(", output);
+        Assert.Contains("├─", output);
+        Assert.Contains("Methods (10 logical, 107 overloads)", output);
+        Assert.Contains("Deserialize<TValue>(System.IO.Stream utf8Json", output);
+        Assert.DoesNotContain("Deserialize (40 overloads)", output);
+        Assert.DoesNotContain("# System.Text.Json.JsonSerializer", output);
     }
 
     [Fact]
@@ -677,15 +627,15 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SingleType_QuietVerbosity_StreamsCompactHierarchy()
+    public async Task Type_SingleType_QuietVerbosity_RequiresMarkdown()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "System.Text.Json.JsonSerializer", "-v:q");
 
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("Methods (10 logical, 107 overloads)", output);
-        Assert.Contains("Deserialize (40 overloads)", output);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("-v:q is not supported by the type shape renderer", error);
+        Assert.Contains("--markdown -v:q", error);
     }
 
     [Fact]

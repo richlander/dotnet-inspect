@@ -246,11 +246,6 @@ public class UntrustedTypeSpellingContainmentTests : IDisposable
                 AssemblyPath = _path,
                 TypeName = typeName,
                 Verbosity = Verbosity.Detailed,
-                MemberFilter =
-                    typeName == "NormalType"
-                        ? ["Method2"]
-                        : [],
-                SelectDefault = typeName == "DerivedType",
             }));
 
         Assert.Equal(0, exit);
@@ -1286,7 +1281,7 @@ public class UntrustedDeclarationSpellingContainmentTests : IDisposable
     {
         // A finalizer is protected, so it renders in the complete population.
         var (_, output, error) = await HostileCli.RunAsync(
-            "type", $"DeclNs.Bad{Hazard}INJECTEDCTOR", "--library", _path, "--tree", "--all", "-k", "finalizer");
+            "type", $"DeclNs.Bad{Hazard}INJECTEDCTOR", "--library", _path, "--tree", "--all");
 
         var combined = output + "\n" + error;
         // The finalizer node spells `~Bad<hazard>INJECTEDCTOR()`, so the marker
@@ -1294,30 +1289,6 @@ public class UntrustedDeclarationSpellingContainmentTests : IDisposable
         Assert.Contains("~Bad", combined, StringComparison.Ordinal);
         HostileOutputAssert.MarkersRendered(combined, "shape", "INJECTEDCTOR");
         HostileOutputAssert.NoRenderingHazard(combined, "shape");
-    }
-
-    [Fact]
-    public async Task CompactHierarchy_WithHostileTypeName_RendersNoHazard()
-    {
-        var (_, output, error) = await HostileCli.RunAsync(
-            "type",
-            $"DeclNs.Bad{Hazard}INJECTEDCTOR",
-            "--library",
-            _path,
-            "--tree",
-            "--all");
-
-        var combined = output + "\n" + error;
-        HostileOutputAssert.MarkersRendered(
-            combined,
-            "compact hierarchy",
-            "INJECTEDCTOR");
-        HostileOutputAssert.NoRenderingHazard(
-            combined,
-            "compact hierarchy");
-        HostileOutputAssert.NoLineSplit(
-            combined,
-            ["INJECTEDCTOR"]);
     }
 
     private static void WriteHostileAssembly(string path)

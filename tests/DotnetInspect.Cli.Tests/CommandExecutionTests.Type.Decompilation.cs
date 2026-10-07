@@ -992,163 +992,6 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task Type_ExactType_MermaidUsesSharedHierarchy()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "type",
-            "System.Math",
-            "--mermaid");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.StartsWith(
-            "graph TD",
-            output,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "static class System.Math",
-            output,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "Methods",
-            output,
-            StringComparison.Ordinal);
-        Assert.Contains(" --> ", output, StringComparison.Ordinal);
-        Assert.DoesNotContain("└─", output, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task
-        Type_ExactType_MermaidWithMemberFilterFailsBeforeLegacyRendering()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "type",
-            "System.Math",
-            "--platform",
-            "System.Private.CoreLib",
-            "--mermaid",
-            "--member",
-            "Abs");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "cannot be combined with filters or other projections",
-            error,
-            StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("discovery")]
-    [InlineData("listing")]
-    [InlineData("glob")]
-    [InlineData("match")]
-    public async Task
-        Type_MermaidRejectsNonHierarchyRoutesBeforeOutput(
-            string route)
-    {
-        string[] arguments =
-            route switch
-            {
-                "discovery" =>
-                [
-                    "type",
-                    "System.Math",
-                    "--platform",
-                    "System.Private.CoreLib",
-                    "--mermaid",
-                    "--schema",
-                    "--discover",
-                ],
-                "listing" =>
-                [
-                    "type",
-                    "--platform",
-                    "System.Private.CoreLib",
-                    "--mermaid",
-                ],
-                "glob" =>
-                [
-                    "type",
-                    "System.Math*",
-                    "--platform",
-                    "System.Private.CoreLib",
-                    "--mermaid",
-                ],
-                "match" =>
-                [
-                    "type",
-                    "System.Math",
-                    "--platform",
-                    "System.Private.CoreLib",
-                    "--mermaid",
-                    "--match",
-                ],
-                _ => throw new InvalidOperationException(
-                    $"Unknown route '{route}'."),
-            };
-
-        var (exit, output, error) =
-            await RunAppAsync(arguments);
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "requires one exact Type",
-            error,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task
-        Type_ExactType_MermaidWithXmlSidecarUsesSharedHierarchy()
-    {
-        string directory =
-            Directory.CreateTempSubdirectory(
-                "mermaid-sidecar-").FullName;
-        string path =
-            Path.Combine(directory, "Sidecar.dll");
-        try
-        {
-            await File.WriteAllBytesAsync(
-                path,
-                MetadataTestImages
-                    .BuildNoncanonicalBacktickTypeImage(),
-                TestContext.Current.CancellationToken);
-            await File.WriteAllTextAsync(
-                Path.ChangeExtension(path, ".xml"),
-                "",
-                TestContext.Current.CancellationToken);
-
-            var (exit, output, error) = await RunAppAsync(
-                "type",
-                "Example.Widget`1Extra",
-                "--library",
-                path,
-                "--mermaid");
-
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
-            Assert.StartsWith(
-                "graph TD",
-                output,
-                StringComparison.Ordinal);
-            Assert.Contains(
-                "Widget`1Extra",
-                output,
-                StringComparison.Ordinal);
-            Assert.DoesNotContain(
-                "└─",
-                output,
-                StringComparison.Ordinal);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
-    }
-
     public abstract class FullTypeDecompilationFixture
     {
         static FullTypeDecompilationFixture()
@@ -1245,7 +1088,8 @@ public partial class CommandExecutionTests
             "Properties",
             "Methods",
             "Operators",
-            "Explicit Interface Implementations"
+            "Explicit Interface Implementations",
+            "Extension Methods"
         ];
 
         var previous = -1;
@@ -1269,155 +1113,6 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("static abstract sealed class", output);
     }
 
-    [Theory]
-    [InlineData("System.DateTime", "readonly struct System.DateTime")]
-    [InlineData(
-        "System.ReadOnlySpan<T>",
-        "readonly ref struct System.ReadOnlySpan<T>")]
-    public async Task Type_Tree_RetainsReadonlyStructModifiers(
-        string typeName,
-        string expectedHeader)
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "type",
-            typeName,
-            "--platform",
-            "System.Private.CoreLib",
-            "--tree",
-            "-n",
-            "1",
-            "--lines");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.StartsWith(
-            expectedHeader,
-            output,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task
-        Type_Tree_FallsBackWhenCompactTypeInventoryExceedsBound()
-    {
-        string directory =
-            Directory.CreateTempSubdirectory(
-                "oversized-type-inventory-").FullName;
-        string path =
-            Path.Combine(directory, "OversizedTypeInventory.dll");
-        try
-        {
-            await File.WriteAllBytesAsync(
-                path,
-                MetadataTestImages.BuildOversizedTypeInventoryImage(
-                    unrelatedTypeCount: 15_001),
-                TestContext.Current.CancellationToken);
-
-            var (exit, output, error) = await RunAppAsync(
-                "type",
-                "Oversized.Target",
-                "--library",
-                path,
-                "--tree");
-
-            Assert.Equal(0, exit);
-            Assert.Contains("Oversized.Target", output);
-            Assert.DoesNotContain(
-                "Library Type Rows",
-                error,
-                StringComparison.Ordinal);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task
-        Type_Mermaid_FailsWhenCompactTypeInventoryExceedsBound()
-    {
-        string directory =
-            Directory.CreateTempSubdirectory(
-                "oversized-mermaid-inventory-").FullName;
-        string path =
-            Path.Combine(directory, "OversizedTypeInventory.dll");
-        try
-        {
-            await File.WriteAllBytesAsync(
-                path,
-                MetadataTestImages.BuildOversizedTypeInventoryImage(
-                    unrelatedTypeCount: 15_001),
-                TestContext.Current.CancellationToken);
-
-            var (exit, output, error) = await RunAppAsync(
-                "type",
-                "Oversized.Target",
-                "--library",
-                path,
-                "--mermaid");
-
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains(
-                "Type Mermaid hierarchy could not be produced",
-                error,
-                StringComparison.Ordinal);
-            Assert.DoesNotContain(
-                "Oversized.Target",
-                output,
-                StringComparison.Ordinal);
-            Assert.DoesNotContain(
-                "└─",
-                output,
-                StringComparison.Ordinal);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Type_Tree_PreservesNoncanonicalMetadataBacktick()
-    {
-        string directory =
-            Directory.CreateTempSubdirectory(
-                "noncanonical-backtick-").FullName;
-        string path =
-            Path.Combine(directory, "NoncanonicalBacktick.dll");
-        try
-        {
-            await File.WriteAllBytesAsync(
-                path,
-                MetadataTestImages
-                    .BuildNoncanonicalBacktickTypeImage(),
-                TestContext.Current.CancellationToken);
-
-            var (exit, output, error) = await RunAppAsync(
-                "type",
-                "Example.Widget`1Extra",
-                "--library",
-                path,
-                "--tree");
-
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
-            Assert.Contains(
-                "Widget`1Extra",
-                output,
-                StringComparison.Ordinal);
-            Assert.DoesNotContain(
-                "class Example.Widget\n",
-                output,
-                StringComparison.Ordinal);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
-    }
-
     [Fact]
     public async Task Type_BareStringAlias_RendersCoreLibString()
     {
@@ -1433,7 +1128,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("Dictionary<TKey,TValue>")]
     [InlineData("Dictionary`2")]
-    public async Task Type_BareDictionaryGeneric_RendersCompactCoreLibDictionary(string typeName)
+    public async Task Type_BareDictionaryGeneric_RendersCoreLibDictionary(string typeName)
     {
         var (exit, output, error) = await RunAppAsync(
             "type", typeName, "--tree");
@@ -1441,8 +1136,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("System.Collections.Generic.Dictionary<TKey, TValue>", output);
-        Assert.Contains("─ Add", output);
-        Assert.DoesNotContain("void Add(TKey key, TValue value)", output);
+        Assert.Contains("void Add(TKey key, TValue value)", output);
     }
 
     [Fact]

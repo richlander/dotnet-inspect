@@ -221,27 +221,6 @@ public static class TypeOptionsParser
         || new TypeGestureIntent(typeFilter)
             .SelectsListingCatalog(typeTarget);
 
-    internal static bool SelectsExactTypeHierarchyTarget(
-        ParseResult parseResult,
-        TypeCommandArgs args)
-    {
-        SharedParsers.SourceSelectionInputs sourceInputs =
-            SharedParsers.ReadSourceSelectionInputs(
-                parseResult,
-                args.ArgsArg,
-                args.PackageOption,
-                args.AssemblyOption,
-                args.PlatformOption);
-        string? typeTarget =
-            sourceInputs.Args.FirstOrDefault();
-        string? typeFilter =
-            SharedParsers.ParseTypeFilter(
-                parseResult.GetValue(args.TypeFilterOption));
-        return !SelectsTypeListingCatalog(
-            typeTarget,
-            typeFilter);
-    }
-
     /// <summary>
     /// Result of parsing type command options.
     /// </summary>
@@ -548,9 +527,6 @@ public static class TypeOptionsParser
             Format = outputFormat,
             MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
             PlainText = !envelopeOutput && parseResult.GetValue(opts.PlainText),
-            MermaidOutput =
-                !envelopeOutput
-                && outputFormat == OutputFormat.Mermaid,
             RequestAllTaste = parseResult.GetValue(opts.Taste),
             RequestReadableLocalNames = parseResult.GetValue(opts.ReadableNames),
             Print = parseResult.GetValue(opts.Print),

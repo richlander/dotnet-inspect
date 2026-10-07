@@ -5,11 +5,11 @@
 This document is the normative design for **Host-neutral hierarchy
 projection**. The substrate is tracked by
 [#9458](https://github.com/richlander/dotnet-inspect/issues/9458).
-Type Overview is the first adopter under
+Type Overview and shared presentation are the first adopters under
 [#8430](https://github.com/richlander/dotnet-inspect/issues/8430), whose
-counted adoption reaches both the CLI and Inspect Web.
+counted transport-host adoption will reach both the CLI and Inspect Web.
 
-The first production profile is the compact Type hierarchy:
+The first shared presentation profile is the compact Type hierarchy:
 
 ```text
 Type (FullSpelling)
@@ -64,11 +64,12 @@ It does not define:
 `DeserializeAsync`, whose exact overloads can be counted in the compact Type
 overview and enumerated by the complete Type document.
 
-Tree, Mermaid, CLI, and Browser consumers need the same identities and edges.
-If each host discovers Member families, recounts overloads, or constructs its
-own hierarchy, topology and cost drift by host. If rendering first copies the
-owner-issued hierarchy into Markout `TreeNode` values, large hierarchies pay
-for a second retained graph before the first output byte.
+Tree and Mermaid presentation, plus eventual CLI and Browser consumers, need
+the same identities and edges. If each host discovers Member families,
+recounts overloads, or constructs its own hierarchy, topology and cost drift
+by host. If rendering first copies the owner-issued hierarchy into Markout
+`TreeNode` values, large hierarchies pay for a second retained graph before
+the first output byte.
 
 The shared pattern therefore keeps semantic work in the owner and format
 lowering in shared presentation while preserving streaming delivery.
@@ -253,9 +254,11 @@ Shared presentation owns both initial lowerings:
 - Mermaid writes the same semantic nodes and edges with format-local stable
   identifiers and Mermaid escaping.
 
-The CLI passes only Tree or Mermaid intent, accessibility policy, and the
-destination to that shared API. Inspect Web may request either format or a
-later Browser transport without duplicating hierarchy formation.
+The shared presentation API accepts only Tree or Mermaid intent,
+accessibility policy, the completed owner document, and the destination. A
+focused CLI adoption will pass those values without owning Markout, node
+formatting, or hierarchy formation. Inspect Web may request either format or
+a later Browser transport without duplicating hierarchy formation.
 
 The expanded Mermaid example
 `JsonSerializer -> DeserializeAsync -> exact DeserializeAsync overloads`
@@ -273,7 +276,8 @@ The first adoption proves:
 - Tree and Mermaid lower the same owner-issued node sequence and identities;
 - Count branches do not materialize exact-Member Rows;
 - Tree streaming constructs no Markout `TreeNode`;
-- the new Type CLI path contains no Markout or owner-node formatting logic;
+- the shared presentation path contains no transport-host routing or
+  destination policy;
 - canonical metadata arity is removed while noncanonical backticks remain;
 - destination and formatter failures remain visible; and
 - the implementation builds and runs on the existing NativeAOT- and
