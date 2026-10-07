@@ -42,6 +42,12 @@ public static class SectionNames
     /// <summary>Section for base class.</summary>
     public const string Baseclass = "Baseclass";
 
+    /// <summary>Types that implement the selected interface.</summary>
+    public const string Implementers = "Implementers";
+
+    /// <summary>Types that derive from the selected base type.</summary>
+    public const string DerivedTypes = "Derived Types";
+
     /// <summary>Section for remote source file links (SourceLink).</summary>
     public const string RemoteSource = "Remote Source";
 
