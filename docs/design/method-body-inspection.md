@@ -844,6 +844,56 @@ optimization-opportunity classification.
 `SemanticFactProjection` remains the coordinate projection substrate.
 Coordinate scope should be added in Analysis, not rebuilt in CLI code.
 
+### Updated-semantics unsafe-member uses
+
+**Owner and claim:** Analysis publishes a positive unsafe-member-use inventory
+from compiled evidence. The inventory applies updated language semantics to
+every input assembly; the input assembly's declared memory-safety model does
+not select a different body-operation policy.
+
+A method enters the inventory when Analysis proves at least one of these roles:
+
+- the declaration has an explicit updated-model caller-unsafe contract;
+- its body contains a reconstructed operation that requires an unsafe context;
+- it calls a same-image member with an explicit updated-model caller-unsafe
+  contract.
+
+The declaration role records only an explicit caller contract. A legacy
+pointer-bearing signature (`CallerUnsafeMode.Implicit`) is not propagation
+evidence for this inventory. Pointer-bearing signatures and locals, calls to
+`System.Runtime.CompilerServices.Unsafe`, and opcode presence by themselves do
+not admit a method. In particular, `localloc` lowered into an initialized
+`Span<T>` does not require an unsafe context; raw-pointer stack allocation and
+Span-backed stack allocation under skipped-local-initialization semantics do.
+That holds through Roslyn's collection-initializer lowerings
+(`RuntimeHelpers.CreateSpan` or RVA `cpblk` copies and per-element stores
+through the allocation pointer), whatever the element expressions contain.
+Recognition runs on the shared typed stack
+([Instruction substrate](instruction-substrate.md)): producer provenance must
+carry the `localloc` result, through `dup`, pointer conversion, and constant
+`add`, to the `Span<T>(void*, int)` constructor at displacement zero. A store
+into that allocation is not a pointer dereference when its displacement and
+extent are provably within the allocation size, counting constants and
+`sizeof(T)` multiples. Because IL arithmetic wraps, the proof admits only
+non-negative terms and an exactly computed size: an `int32`-range constant, or
+`sizeof`-scaled arithmetic through overflow-trapping operators. An `int32`-typed
+term must also stay provably in `int32` range, since it is sign-extended when
+added to the pointer. Stores that are unprovable or out of bounds keep their
+roles, as does an allocation whose pointer passes through a local the compiler
+keeps. An incomplete typed stack recognizes nothing. Release builds elide a
+single-use pointer local, so source pointer stores that match the initializer
+shape exactly are indistinguishable in IL and are reported as the safe form.
+
+The inventory reports compiled roles, not source spelling. It does not claim
+that an `unsafe` block existed, distinguish block and expression forms, grade a
+finding, or infer a source modifier that metadata cannot preserve.
+
+The first publication slice resolves explicit call-target contracts only
+within the primary image. Cross-assembly explicit-contract consumption,
+field-focused operation roles, and additional reconstructed operation families
+remain focused successors; callers must not interpret their absence as a
+whole-closure negative claim.
+
 ### `ILInspector.Research`
 
 Owns offset-keyed overlays that join Analysis (R1) and Decompiler (R2):

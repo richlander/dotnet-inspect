@@ -92,7 +92,6 @@ public partial class PackageCommand
             options.AllLibraries
             || options.PackageLibrary is not null;
         if (options.ListVersions
-            || options.ListLayout
             || options.ListTfms
             || options.ShowContent
             || (!packageLibraryMode
@@ -331,126 +330,6 @@ public partial class PackageCommand
         options.IncludeSections is { } sections
         && sections.Contains(PackageSections.EcosystemDependencies)
         && !sections.Contains(PackageSections.PackageInfo);
-
-    private static int ListPackageLayout(string extractPath, InspectionOptions options, string packageName, CompanionOutput companionOutput)
-    {
-        string searchPath;
-        string relativeBase;
-
-        // Scope to a specific TFM if requested
-        if (!string.IsNullOrEmpty(options.Tfm))
-        {
-            string? scope = options.ScopeLib
-                ? "lib"
-                : options.ScopeTools
-                    ? "tools"
-                    : null;
-            string scopedDirectory =
-                Path.Combine(extractPath, scope ?? "lib", options.Tfm);
-            string toolsDirectory =
-                Path.Combine(extractPath, "tools", options.Tfm);
-
-            if (Directory.Exists(scopedDirectory))
-                searchPath = scopedDirectory;
-            else if (scope is null && Directory.Exists(toolsDirectory))
-                searchPath = toolsDirectory;
-            else
-            {
-                CommandError.Write($"TFM '{options.Tfm}' not found. Use --tfms to list available frameworks.");
-                return 1;
-            }
-
-            // Show paths relative to parent of TFM dir so TFM appears as root node
-            relativeBase = Path.GetDirectoryName(searchPath)!;
-        }
-        else
-        {
-            var (resolved, error) = ResolveScopedPath(extractPath, options);
-            if (error != null)
-            {
-                CommandError.Write(error);
-                return 1;
-            }
-            searchPath = resolved;
-            relativeBase = extractPath;
-        }
-
-        string[] files = Directory.GetFiles(searchPath, "*", SearchOption.AllDirectories);
-
-        var relativePaths = files
-            .Select(
-                f => Path.GetRelativePath(relativeBase, f)
-                    .Replace('\\', '/'))
-            .Where(p => !PackageFileLister.IsPlumbing(
-                p))
-            .OrderBy(p => p);
-
-        var results = relativePaths.ToList();
-        if (!SemanticRowSelection.TrySelectOrApplyLegacy(
-                options.PackageLayoutRowSelection,
-                options.Rows,
-                results,
-                "Package layout files",
-                failure =>
-                    $"Package layout file row selection stage "
-                    + $"{failure.Failure.StageNumber} requires row "
-                    + $"{failure.Failure.RequiredPosition}, but only "
-                    + $"{failure.Failure.AvailableCount} layout file rows are available.",
-                out IReadOnlyList<string> visibleResults))
-        {
-            return 1;
-        }
-
-        if (LensProjection.TryProject(options, "--layout", visibleResults.Count, out var projectionExitCode))
-            return projectionExitCode;
-
-        if (options.JsonOutput)
-        {
-            Console.Out.WriteLine(
-                JsonSerializer.Serialize(
-                    visibleResults
-                        .Select(path => new PackageLayoutFileJson(path))
-                        .ToList(),
-                    JsonContext.Default.ListPackageLayoutFileJson));
-            return 0;
-        }
-
-        if (options.Jsonl)
-        {
-            OutputFormatter.WriteStringList(
-                visibleResults,
-                "Path",
-                "path",
-                tsv: false,
-                jsonl: true,
-                output: Console.Out);
-            return 0;
-        }
-
-        PackageOutputFormatter.WriteFileTree([.. visibleResults]);
-        WriteFileLayoutTips(extractPath, options, packageName, companionOutput, isLayout: true);
-        return 0;
-    }
-
-    internal static void WriteFileLayoutTips(string extractPath, InspectionOptions options, string packageName, CompanionOutput companionOutput, bool isLayout)
-    {
-        // Tips are not shown for --layout mode
-    }
-
-    private static (string path, string? error) ResolveScopedPath(string extractPath, InspectionOptions options)
-    {
-        if (options.ScopeLib)
-        {
-            var dir = Path.Combine(extractPath, "lib");
-            return Directory.Exists(dir) ? (dir, null) : (dir, "No lib/ directory found in package.");
-        }
-        if (options.ScopeTools)
-        {
-            var dir = Path.Combine(extractPath, "tools");
-            return Directory.Exists(dir) ? (dir, null) : (dir, "No tools/ directory found in package.");
-        }
-        return (extractPath, null);
-    }
 
     private static int ListPackageTfms(string extractPath, InspectionOptions options)
     {

@@ -427,7 +427,7 @@ public sealed class ExactPackageWorkspaceRouteTests
         {
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
-            ListLayout = true,
+            Select = ["Files"],
             CompanionOutput = CompanionOutput.None,
         };
 
@@ -913,7 +913,7 @@ public sealed class ExactPackageWorkspaceRouteTests
     }
 
     [Fact]
-    public async Task LayoutShareRefusalPreservesLayoutOutput()
+    public async Task FilesShareRefusalPreservesFileOutput()
     {
         var store = await StoreAsync(SelectedPackage);
         string packet = EncodePacket(
@@ -928,8 +928,8 @@ public sealed class ExactPackageWorkspaceRouteTests
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
             ShareFormat = WorkspaceShareFormat.Packet,
-            ListLayout = true,
-            ListLayoutExplicitlySet = true,
+            Select = ["Files"],
+            FilesExplicitlySet = true,
             CompanionOutput = CompanionOutput.None,
         };
 
@@ -945,7 +945,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains(
-            "--share is not projectable at package/lens",
+            "--share is not projectable at package/section",
             result.Error,
             StringComparison.Ordinal);
     }
@@ -976,9 +976,9 @@ public sealed class ExactPackageWorkspaceRouteTests
         {
             PackageArgs = [SelectedPackage],
             WorkspacePacket = packet,
-            ListLayout = true,
-            ListLayoutExplicitlySet = true,
-            ScopeTools = true,
+            Select = ["Files"],
+            FilesExplicitlySet = true,
+            PackageFilePredicates = [new("Root", QuerySpace.PortableQueryOperator.Equal, "tools")],
             CompanionOutput = CompanionOutput.None,
         };
 
@@ -1455,7 +1455,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             EvidenceEnvelopePath = Path.Combine(
                 Path.GetTempPath(),
                 "package-workspace-evidence.json"),
-            ListLayout = true,
+            ListTfms = true,
             CompanionOutput = CompanionOutput.None,
         };
 

@@ -455,7 +455,10 @@ public class QueryDiscoveryTests
         var result = await Run("package", mode, section, option, value, "--json");
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
-        Assert.Contains($"Unrecognized option '{option}'", result.Error);
+        if (option == "--where")
+            Assert.Contains("--where cannot be combined with query discovery", result.Error);
+        else
+            Assert.Contains($"Unrecognized option '{option}'", result.Error);
     }
 
     [Theory]

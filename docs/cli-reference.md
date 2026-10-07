@@ -262,7 +262,7 @@ ordinary section query options still control columns and rows:
 ```bash
 dnx dotnet-inspect -y -- library System.Text.Json \
   --where "Kind=ObjectCreationExpression" \
-  --columns "Member;Token;Match" --rows 3
+  --columns "Member;Token;Match" -n 3
 ```
 
 ```text
@@ -779,7 +779,7 @@ dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
 dotnet-inspect package Newtonsoft.Json@13.0.4 \
-  --layout --tfm net6.0 -n 1 --tail --json
+  --files --tfm net6.0 -n 1 --tail --json
 dotnet-inspect package Markout@0.35.2 \
   --path "skills/*/SKILL.md" -n 1 --tail --paths
 dotnet-inspect package Markout@0.35.2 \
@@ -899,11 +899,27 @@ target-framework filters, path globs and roles, scoped documents, .NET
 tool-wrapper redirection, and other package files retain their existing
 behavior.
 
-For one package with `--layout`, `-n`, `--tail`, and `--rows A..B` select
-complete sorted file paths after archive extraction and `--lib`, `--tools`, or
-layout-specific `--tfm` scoping. Count, JSONL, and JSON observe the same
-selected paths; human output renders a tree derived from them. Add `--lines`
-only to clip the rendered tree.
+The `--files` flag selects exactly the same section as `-S Files`.
+File predicates compose before row windows and Count:
+
+```bash
+dotnet-inspect package System.Text.Json@10.0.12 --files \
+  --where "Root=lib" --where "Target=net8.0"
+dotnet-inspect package System.Text.Json@10.0.12 -S Files \
+  --lib --tfm net8.0
+dotnet-inspect package System.Text.Json@10.0.12 --files \
+  --where "Name=*.xml" --paths
+```
+
+Files admits `Path` (complete package-relative path), `Name` (filename),
+`Directory` (exact parent directory), `Root` (top-level folder), and
+`Target` (a complete directory segment). Text fields support
+case-insensitive `=` and `!=` with `*` and `?` wildcards; Target
+matches an exact segment case-insensitively. Repeated predicates combine
+with AND. `--lib` and `--tools` wrap Root equality and require exactly
+Files for one package; `--tfm` wraps Target equality for Files.
+All formats preserve package-relative paths. A filter with no matching
+files succeeds with zero rows. The old `--layout` spelling is removed.
 
 For one package with `--tfms`, `-n`, `--tail`, and `--rows A..B` select
 complete target-framework rows after archive extraction, framework

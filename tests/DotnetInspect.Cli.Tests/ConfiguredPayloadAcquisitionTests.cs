@@ -266,7 +266,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     [Fact]
-    public async Task PackageCommand_LayoutDoesNotValidatePackageInfoTarget()
+    public async Task PackageCommand_FilesValidatesTargetBeforeAcquisition()
     {
         string id = $"Pinned.Layout.{Guid.NewGuid():N}";
         byte[] archive = CreatePackage(
@@ -284,17 +284,17 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         var (exit, output, error) = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
-                "--layout", "--tfm", "bad tfm"]);
+                "--files", "--tfm", "bad tfm"]);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "TFM 'bad tfm' not found. Use --tfms to list available frameworks.",
+            "Invalid --tfm value 'bad tfm'",
             error);
         Assert.DoesNotContain("ArgumentException", error);
-        Assert.DoesNotContain("bounded ASCII target moniker", error);
+        Assert.Contains("bounded ASCII target moniker", error);
         Assert.Equal(
-            1,
+            0,
             requests.Count(request =>
                 request.EndsWith(".nupkg", StringComparison.Ordinal)));
     }

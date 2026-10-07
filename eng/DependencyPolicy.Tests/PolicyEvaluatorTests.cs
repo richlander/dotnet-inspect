@@ -1326,7 +1326,6 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspect.Web.Core",
                 "DotnetInspector.Queries",
                 "DotnetInspector.Sections",
-                "ILInspector.Metadata",
                 "TsJsExport.Contracts",
             ],
             Assert.IsType<string[]>(projectRule.AllowOnly));
@@ -1347,8 +1346,6 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Packages",
                 "DotnetInspector.Queries",
                 "DotnetInspector.Sections",
-                "ILInspector.Metadata",
-                "ILInspector.MetadataPrimitives",
                 "InertText",
                 "TsJsExport.Contracts",
             ],
@@ -1358,6 +1355,24 @@ public sealed class PolicyEvaluatorTests
         Assert.Empty(assemblyRule.ExcludeProjectPaths);
         Assert.Empty(assemblyRule.Except);
 
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            projectRule.Id,
+            target[0],
+            "ILInspector.Metadata",
+            DependencyGraphKind.Project,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            assemblyRule.Id,
+            target[0],
+            "ILInspector.Metadata",
+            DependencyGraphKind.Assembly,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            assemblyRule.Id,
+            target[0],
+            "ILInspector.MetadataPrimitives",
+            DependencyGraphKind.Assembly,
+            projectPath[0]);
         AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
             projectRule.Id,
             target[0],
