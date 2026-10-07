@@ -2,6 +2,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries.Definitions;
+using QuerySpace;
 
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Catalog;
@@ -92,6 +93,17 @@ namespace DotnetInspect.Web.Interop.Catalog
             try
             {
                 WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(encoded);
+                BrowserWorkspaceDiffShare? comparison = null;
+                if (packet.FormatVersion == WorkspaceSharePacketCodec.Format4Version
+                    && packet.Queries.Any(query => query.Vocabulary == WorkspaceDiffIntent.QueryId))
+                {
+                    WorkspaceDiffShare diff = WorkspaceDiffShareProjection.Read(packet);
+                    packet = diff.Presentation;
+                    comparison = new(diff.Intent.Baseline, diff.Intent.Content, diff.Intent.Asset,
+                        diff.Intent.Medium, diff.Intent.Body, diff.Library.Name, diff.Library.Version,
+                        diff.Library.Culture, diff.Library.PublicKeyToken,
+                        diff.Intent.PredicateOperator, diff.Intent.PredicateValue);
+                }
                 if (packet.FormatVersion
                     != WorkspaceSharePacketCodec.LegacyFormatVersion)
                 {
@@ -145,8 +157,17 @@ namespace DotnetInspect.Web.Interop.Catalog
                             definitions.View.MemberSignature,
                             definitions.View.Section,
                             [.. definitions.View.Libraries],
-                            definitions.View.SourceView)),
+                            definitions.View.SourceView,
+                            comparison)),
                     Failure: null);
+            }
+            catch (ArgumentException ex)
+            {
+                return new(false, null, new("NonProjectable", "view.comparison", ex.Message));
+            }
+            catch (InspectionDefinitionException ex)
+            {
+                return new(false, null, new("InvalidDefinitionSet", "view.comparison", ex.Message));
             }
             catch (WorkspaceSharePacketException ex)
             {
@@ -185,13 +206,17 @@ namespace DotnetInspect.Web.Interop.Catalog
                             failure.Message));
                 }
 
-                return new BrowserWorkspaceShareEncodeResult(
-                    Succeeded: true,
-                    WorkspaceSharePacketCodec.Encode(
-                        projection.Packet
-                        ?? throw new InvalidOperationException(
-                            "A successful workspace share projection requires a packet.")),
-                    Failure: null);
+                WorkspaceSharePacket packet = projection.Packet
+                    ?? throw new InvalidOperationException("A successful projection requires a packet.");
+                if (state.View.Comparison is { } comparison)
+                {
+                    packet = WorkspaceDiffShareProjection.Create(packet,
+                        new PortableLibraryIdentity(comparison.LibraryName, comparison.LibraryVersion,
+                            comparison.LibraryCulture, comparison.LibraryPublicKeyToken),
+                        new WorkspaceDiffIntent(comparison.Baseline, comparison.Content, comparison.Asset,
+                            comparison.Medium, comparison.Body, comparison.PredicateOperator, comparison.PredicateValue));
+                }
+                return new(true, WorkspaceSharePacketCodec.Encode(packet), null);
             }
             catch (WorkspaceSharePacketException ex)
             {
@@ -202,6 +227,14 @@ namespace DotnetInspect.Web.Interop.Catalog
                         ex.Kind.ToString(),
                         "state",
                         ex.Message));
+            }
+            catch (PortableQueryPayloadException ex)
+            {
+                return new(false, null, new("NonProjectable", "view.comparison", ex.Message));
+            }
+            catch (InspectionDefinitionException ex)
+            {
+                return InvalidState(ex.Message);
             }
             catch (ArgumentException ex)
             {
