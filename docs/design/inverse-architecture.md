@@ -121,6 +121,37 @@ Adoption uses the existing shared Decompiler pipeline in CLI and Browser/Wasm.
 DeepEquals's ordinary loop helper remains outside this independently coherent
 terminal-throw slice.
 
+## Structured loops in local-function bodies
+
+An otherwise admissible local-function body may contain already-structured
+`WhileLoop` or `DoWhileLoop` statements. The ordinary pipeline owns loop
+formation and the targets of their nested returns, breaks, and continues.
+Local-function admission keeps those nodes and conditions intact; it does not
+reconstruct control flow or retarget transfers. Standalone and static
+component bodies use the same loop admission. Existing reference closure,
+capture, receiver, generic, unsupported-node, and isolated-scope proofs remain
+required. Foreach, iterator, and exception-handler admission retain their
+existing separate boundaries.
+
+The motivating asset is System.Text.Json 11.0.0-rc.1.26425.128
+`JsonElement.DeepEquals` (`0x0600031F`). Its static
+`UnorderedObjectDeepEquals` helper contains two structured do/while loops,
+including an early false return; the helper already reports Full when
+inspected separately. Source is pinned to dotnet/runtime
+[`ab19415702aa8139d5369e47c73edb47343c34ad`, JsonElement.cs](https://github.com/dotnet/runtime/blob/ab19415702aa8139d5369e47c73edb47343c34ad/src/libraries/System.Text.Json/src/System/Text/Json/Document/JsonElement.cs).
+The admission rule must preserve the dictionary, managed-reference queue,
+loop conditions, call ordering, and early return without replacing their IR.
+
+`LoopLocalFunctionTests.CompilerStructuredLoop_RaisesCompleteLocalFunctions`
+gates compiler-produced do/while, while with break/continue, and a static
+dependency with an early-return loop. `LoopDependencyWithUnavailableBody_RemainsPartial`
+pins incomplete-component decline. `CompilerStructuredLoops_CompileBackExact`
+checks immutable product whole members in raised and lowered modes. Existing
+try/foreach decline tests retain neighboring boundaries. Runtime render A/B
+and revision-bound structural review supplement fixtures; projection Full is
+not compile-back Exact. The existing shared Decompiler pipeline adopts this
+change in CLI and Browser/Wasm without a new host path.
+
 ## Two references, used differently
 
 The architecture relates to the two forward compilers in fundamentally different ways.
