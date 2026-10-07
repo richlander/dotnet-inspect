@@ -101,6 +101,7 @@ type MetadataFacadeOperationName =
 
 type AnalysisOperationName =
   | "queryCloneCandidates"
+  | "renderTriageCaret"
   | "queryMemberFacts"
   | "queryPackageIntegrations"
   | "queryPlatformIntegrations"
@@ -1608,6 +1609,11 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<AnalysisFacade["queryPackagePerformance"]>
       ) => facades.analysis.queryPackagePerformance(...args),
     ),
+    renderTriageCaret: valueOperation(
+      "ordinary-analysis-render-triage-caret",
+      3,
+      (facades, ...args: Parameters<AnalysisFacade["renderTriageCaret"]>) => facades.analysis.renderTriageCaret(...args),
+    ),
     queryPackageResourceTriage: valueOperation(
       "ordinary-analysis-query-package-resource-triage",
       4,
@@ -2474,6 +2480,7 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.analysis
           .queryPackagePerformance,
       ),
+      renderTriageCaret: bind(engineWorkerOrdinaryOperations.analysis.renderTriageCaret),
       queryPackageResourceTriage: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPackageResourceTriage,

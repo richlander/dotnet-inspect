@@ -18,12 +18,23 @@ export function renderTriageCode(target: TriageCodeTarget, escape: (value: strin
   return `<pre hidden class="triage-code language-csharp" data-triage-code data-triage-assembly="${escape(target.assembly)}" data-triage-type="${escape(target.typeId)}" data-triage-member="${escape(target.memberName)}" data-triage-selector="${escape(target.selector)}" data-triage-token="${target.methodToken}" data-triage-offsets="${target.issueOffsets.join(",")}"><code class="language-csharp"></code></pre>`;
 }
 
-/** Returns one line only when all issue offsets have a unique nearest C# location. */
-export function triageIssueLine(document: unknown, offsets: readonly number[]): string | null {
+export interface TriageCodePreview {
+  code: string;
+  carets: readonly string[];
+}
+
+export interface TriageIssuePreview {
+  code: string;
+  focus: readonly { column: number; length: number }[];
+}
+
+/** Selects exact source spans on one line; caret geometry remains owned by the managed printer. */
+export function triageIssuePreview(document: unknown, offsets: readonly number[]): TriageIssuePreview | null {
   validateDocument(document);
   if (offsets.length === 0) return null;
   const lines = buildLines(document.text);
   let selectedLine: number | null = null;
+  const spans = new Map<string, { start: number; length: number }>();
   for (const offset of offsets) {
     const matches = document.nodes.filter(node => node.medium === "CSharp"
       && node.provenance?.il_offsets.includes(offset) && node.spans.length > 0);
@@ -31,8 +42,13 @@ export function triageIssueLine(document: unknown, offsets: readonly number[]): 
     const width = (node: (typeof matches)[number]) => node.spans.reduce((sum, span) => sum + span.length, 0);
     const nearestWidth = Math.min(...matches.map(width));
     const touched = new Set<number>();
+    let nearestSpans: string | null = null;
     for (const node of matches.filter(candidate => width(candidate) === nearestWidth)) {
+      const identity = node.spans.map(span => `${span.start}:${span.length}`).sort().join(",");
+      if (nearestSpans !== null && nearestSpans !== identity) return null;
+      nearestSpans = identity;
       for (const span of node.spans) {
+        spans.set(`${span.start}:${span.length}`, span);
         if (span.length === 0) return null;
         const first = lines.findIndex(line => span.start >= line.start && span.start <= line.end);
         const last = lines.findIndex(line => span.start + span.length - 1 >= line.start
@@ -46,12 +62,23 @@ export function triageIssueLine(document: unknown, offsets: readonly number[]): 
     if (selectedLine !== null && selectedLine !== line) return null;
     selectedLine = line;
   }
-  return selectedLine === null ? null : lines[selectedLine]!.text.trim();
+  if (selectedLine === null) return null;
+  const line = lines[selectedLine]!;
+  const indent = line.text.length - line.text.trimStart().length;
+  // The existing comment-caret renderer needs space for its // gutter.
+  const code = `    ${line.text.trim()}`;
+  const focus = [...spans.values()].map(span => ({ column: span.start - line.start - indent + 4, length: span.length }));
+  if (focus.some(span => span.column < 4 || span.column + span.length > code.length)) return null;
+  return { code, focus };
+}
+
+export function triageIssueLine(document: unknown, offsets: readonly number[]): string | null {
+  return triageIssuePreview(document, offsets)?.code.trim() ?? null;
 }
 
 export function bindTriageCode(
   root: ParentNode,
-  load: (target: TriageCodeTarget) => Promise<string | null>,
+  load: (target: TriageCodeTarget) => Promise<TriageCodePreview | null>,
   highlight: (source: string) => string,
 ): void {
   const queue: HTMLElement[] = [];
@@ -73,8 +100,10 @@ export function bindTriageCode(
             issueOffsets: (element.dataset.triageOffsets ?? "").split(",").filter(Boolean).map(Number),
           });
           const code = element.querySelector("code");
-          if (!element.isConnected || !code || !text || /[\r\n]/.test(text)) return;
-          code.innerHTML = highlight(text);
+          if (!element.isConnected || !code || !text || /[\r\n]/.test(text.code)
+            || text.carets.some(caret => /[\r\n]/.test(caret) || !caret.startsWith("//"))) return;
+          code.innerHTML = `<span class="triage-source-line">${highlight(text.code)}</span>`
+            + text.carets.map(caret => `\n<span class="triage-caret">${highlight(caret)}</span>`).join("");
           element.hidden = false;
         } catch (error) {
           // This view permits only an attributed line; failed acquisition leaves no code.

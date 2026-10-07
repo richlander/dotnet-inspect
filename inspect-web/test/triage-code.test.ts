@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bindTriageCode, renderTriageCode, triageIssueLine } from "../src/triage-code.ts";
+import { bindTriageCode, renderTriageCode, triageIssueLine, triageIssuePreview } from "../src/triage-code.ts";
 import Prism from "prismjs";
 import "prismjs/components/prism-clike.js";
 import "prismjs/components/prism-csharp.js";
@@ -21,7 +21,7 @@ test("an attributed code line appears automatically with escaped Prism syntax", 
   const preview = new Preview();
   bindTriageCode(root(preview), async target => {
     assert.deepEqual(target, { assembly: "Fixture.dll", typeId: "Fixture.Private", memberName: "Read", selector: "triage", methodToken: 0x06000001, issueOffsets: [7] });
-    return 'string value = "<inert>";';
+    return { code: '    string value = "<inert>";', carets: ["//     ^^^^^"] };
   }, highlight);
   await settle();
   assert.equal(preview.hidden, false);
@@ -32,10 +32,10 @@ test("an attributed code line appears automatically with escaped Prism syntax", 
 
 test("an obsolete line cannot publish a late result", async () => {
   const preview = new Preview();
-  let complete!: (value: string | null) => void;
+  let complete!: (value: { code: string; carets: string[] } | null) => void;
   bindTriageCode(root(preview), () => new Promise(resolve => { complete = resolve; }), highlight);
   preview.isConnected = false;
-  complete("obsolete source");
+  complete({ code: "obsolete source", carets: [] });
   await settle();
   assert.equal(preview.hidden, true);
   assert.equal(preview.code.innerHTML, "");
@@ -44,7 +44,7 @@ test("an obsolete line cannot publish a late result", async () => {
 test("unattributed and multi-line results show no code", async () => {
   for (const value of [null, "one\ntwo", "one\rtwo"]) {
     const preview = new Preview();
-    bindTriageCode(root(preview), async () => value, highlight);
+    bindTriageCode(root(preview), async () => value === null ? null : ({ code: value, carets: [] }), highlight);
     await settle();
     assert.equal(preview.hidden, true);
     assert.equal(preview.code.innerHTML, "");
@@ -53,7 +53,7 @@ test("unattributed and multi-line results show no code", async () => {
 
 test("automatic code acquisition permits at most two concurrent requests", async () => {
   const previews = [new Preview(), new Preview(), new Preview()];
-  const completions: ((value: string | null) => void)[] = [];
+  const completions: ((value: { code: string; carets: string[] } | null) => void)[] = [];
   bindTriageCode(root(...previews), () => new Promise(resolve => completions.push(resolve)), highlight);
   assert.equal(completions.length, 2);
   completions[0]!(null);
@@ -97,4 +97,21 @@ test("ambiguous nearest provenance does not pick a line arbitrarily", () => {
     { id: 3, kind: "Statement", medium: "CSharp", spans: [{ start: 36, length: 18 }], provenance: { il_offsets: [3] } },
   ] };
   assert.equal(triageIssueLine(document, [3]), null);
+});
+
+
+test("focus extents remain aligned when source indentation is removed", () => {
+  const preview = triageIssuePreview(mappedDocument, [3, 4]);
+  assert.ok(preview);
+  assert.equal(preview.code, "    object boxed = 42;");
+  assert.deepEqual(preview.focus, [{ column: 4, length: 18 }]);
+});
+
+test("different nearest spans on the same line cannot fabricate a precise caret", () => {
+  const text = "    First(); Second();";
+  const document = { text, nodes: [
+    { id: 0, kind: "Call", medium: "CSharp", spans: [{ start: 4, length: 7 }], provenance: { il_offsets: [7] } },
+    { id: 1, kind: "Call", medium: "CSharp", spans: [{ start: 13, length: 7 }], provenance: { il_offsets: [7] } },
+  ], regions: [], facts: [], targets: [] };
+  assert.equal(triageIssuePreview(document, [7]), null);
 });

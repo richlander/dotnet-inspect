@@ -69,6 +69,7 @@ export const memberSectionDefinitions = [
   ["overview", "Overview"],
   ["call-graph", "Call graph"],
   ["facts", "Analysis"],
+  ["resource-triage", "Resource Triage"],
   ["source", "Source"],
   ["compare", "Compare"],
 ] as const;
@@ -1674,7 +1675,7 @@ export function sourceReloadKind(
   }
   if (state.lens === "api"
     && state.selectedMemberKey
-    && state.memberSection === "facts"
+    && (state.memberSection === "facts" || state.memberSection === "resource-triage")
     && memberSourceHasConcreteOverload) {
     return "annotated";
   }

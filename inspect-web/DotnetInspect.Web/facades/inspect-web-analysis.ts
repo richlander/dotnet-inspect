@@ -950,6 +950,7 @@ type $ManagedExports = {
             readonly "QueryPlatformResourceTriage.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformTypeImplementationHeat.1330709314": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeDefinitionId: string) => Promise<string>;
             readonly "QueryPlatformTypeMethodLeverage.1330709314": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeDefinitionId: string) => Promise<string>;
+            readonly "RenderTriageCaret.1580022291": (sourceLine: string, column: number, length: number) => string;
           };
         };
       };
@@ -1263,6 +1264,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPlatformTypeMethodLeverage.1330709314\u0027 is not callable.");
     }
   }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Analysis");
+    value = $ownDataProperty(value, "AnalysisExports");
+    value = $ownDataProperty(value, "RenderTriageCaret.1580022291");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.RenderTriageCaret.1580022291\u0027 is not callable.");
+    }
+  }
 }
 
 async function $initializeRuntimeCore(
@@ -1442,5 +1455,9 @@ export async function queryPlatformTypeMethodLeverage(targetFramework: string, p
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformTypeMethodLeverage.1330709314"](targetFramework, platformVersion, assemblyFileName, pack, typeDefinitionId);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeMethodLeverage;
+}
+
+export function renderTriageCaret(sourceLine: string, column: number, length: number): string {
+  return $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["RenderTriageCaret.1580022291"](sourceLine, column, length);
 }
 

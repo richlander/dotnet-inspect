@@ -366,7 +366,7 @@ import {
   isAnalysisMode,
   restoreAnalysisTabFocus,
 } from "./analysis-inspector.ts";
-import { bindTriageCode, triageIssueLine } from "./triage-code.ts";
+import { bindTriageCode, triageIssuePreview } from "./triage-code.ts";
 import { renderLibraryResourceTriageSurface, renderMemberResourceTriage } from "./library-resource-triage.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
@@ -952,6 +952,7 @@ let inspectLibraryApiDiff:
   EngineClient["metadata"]["queryLibraryApiDiff"];
 let inspectCloneCandidates:
   EngineClient["analysis"]["queryCloneCandidates"];
+let renderTriageCaret: EngineClient["analysis"]["renderTriageCaret"];
 let inspectMemberFacts: EngineClient["analysis"]["queryMemberFacts"];
 let inspectPackageIntegrations:
   EngineClient["analysis"]["queryPackageIntegrations"];
@@ -1162,6 +1163,7 @@ async function loadEngineModule() {
     } = engineClient.metadata);
     ({
       queryCloneCandidates: inspectCloneCandidates,
+      renderTriageCaret,
       queryMemberFacts: inspectMemberFacts,
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
@@ -7954,7 +7956,8 @@ function memberSourceHasConcreteOverload() {
 function memberSectionUsesWorkingSurface(section: MemberSection) {
   return section === "overview"
     || section === "call-graph"
-    || section === "facts";
+    || section === "facts"
+    || section === "resource-triage";
 }
 
 function typeAnalysisWorkspaceGeneration(pkg: AppPackage) {
@@ -8379,8 +8382,8 @@ function loadMemberSectionContent(id: MemberSection) {
     observeAsync(loadSelectedMemberSource(), "Loading member source");
   else if (id === "call-graph")
     observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
-  else if (id === "facts")
-    observeAsync(loadSelectedMemberFactsSurface(), "Loading member facts");
+  else if (id === "facts" || id === "resource-triage")
+    observeAsync(loadSelectedMemberAnalysisSurface(), "Loading member analysis");
   else if (id === "overview")
     observeAsync(loadSelectedMemberOverview(), "Loading member overview");
   else if (id === "compare")
@@ -9259,6 +9262,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     activeScope === "library" && state.libraryLens === "references";
   const libraryAnalysisWorkingSurface =
     activeScope === "library" && state.libraryLens === "analysis";
+  const memberAnalysisWorkingSurface = activeScope === "member"
+    && (state.memberSection === "facts" || state.memberSection === "resource-triage");
   const memberOverloadPicker =
     currentMember !== undefined
     && (currentMember.sourceOverloadCount
@@ -9304,7 +9309,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   replaceChildrenPreservingRenderedInteractions(app, `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
-        contextualActionsHtml: !loadingPackageContent && (compareWorkingSurface || memberDiffExploreTarget || sourcePageKind || packageDependenciesWorkingSurface || metadataWorkingSurface)
+        contextualActionsHtml: !loadingPackageContent && (compareWorkingSurface || memberDiffExploreTarget || sourcePageKind || packageDependenciesWorkingSurface || metadataWorkingSurface || memberAnalysisWorkingSurface)
           ? `<div class="working-surface-actions" role="group" aria-label="${compareWorkingSurface ? "Compare actions" : memberDiffExploreTarget ? "Member Diff actions" : metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : sourcePageKind ? "Source actions" : "Member actions"}">
               ${compareSubject !== null && currentCompareMode() === "diff"
                 ? `<div class="compare-page-actions">${renderLibraryDiffTools(compareSubject)}${memberBodyWorkingSurface
@@ -9318,6 +9323,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
               ${packageDependenciesWorkingSurface
                 ? `<button type="button" id="dependency-graph-explore" data-graph-explore${dependencyGraphAvailable() ? "" : " disabled"}>Explore</button>`
                 : ""}
+              ${memberAnalysisWorkingSurface
+                ? `<button type="button" id="explore-source" data-annotated-action="explore"${state.memberAnnotated ? "" : " disabled"}>Explore</button>` : ""}
               ${sourcePageKind
                 ? renderSourcePageActions({
                     source: sourcePageSource,
@@ -11921,6 +11928,7 @@ function drillToPerfMember(
   stableSelector: string,
   assembly: string,
   typeId: string,
+  resourceMethodToken?: number,
 ) {
   const pkg = currentPackage();
   const target = resolvePackagePerformanceMember(pkg, {
@@ -11953,7 +11961,7 @@ function drillToPerfMember(
       stableSelector,
       expectedView,
       expectedPopulationKey,
-      expectedPopulationIntent),
+      expectedPopulationIntent, resourceMethodToken),
     "Loading the ranked Member");
 }
 
@@ -11962,6 +11970,7 @@ async function selectPerformanceMember(
   expectedView: string,
   expectedPopulationKey: string,
   expectedPopulationIntent: number,
+  resourceMethodToken?: number,
 ) {
   const populationReceipt = await loadSelectedTypeMemberPopulation();
   if (viewSignature() !== expectedView) return;
@@ -11986,11 +11995,15 @@ async function selectPerformanceMember(
       ? state.packagePerformance?.members.find(candidate => candidate.stableSelector === stableSelector
           && candidate.typeId === type.definitionId && candidate.assembly === type.assembly)
       : null;
-    const body = ranked?.bodyTargets?.length === 1 ? ranked.bodyTargets[0] : null;
+    const body = resourceMethodToken === undefined && ranked?.bodyTargets?.length === 1 ? ranked.bodyTargets[0] : null;
     state.selectedBodyTarget = body ? { memberName: body.memberName, selectorKey: body.selectorKey, metadataToken: body.methodToken } : null;
-    state.memberSection = "facts";
+    if (resourceMethodToken !== undefined) {
+      const selector = group.overloads[overloadIndex]?.bodySelectors.find(body => body.token === resourceMethodToken);
+      if (selector) state.selectedBodyTarget = { memberName: selector.memberName, selectorKey: selector.selectorKey, metadataToken: selector.token };
+    }
+    state.memberSection = resourceMethodToken === undefined ? "facts" : "resource-triage";
     render();
-    await loadSelectedMemberFactsSurface();
+    await loadSelectedMemberAnalysisSurface();
     return;
   }
   showToast("That ranked Member is no longer loaded in the selected Type.");
@@ -12809,6 +12822,11 @@ function renderApiLens(item: AppTypeSurface) {
 
 function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   const selectedOverload = selectedMemberOverload(type, member);
+  const resourceCandidates = state.packageResourceTriageKey === packageScopeSignature()
+    ? (state.packageResourceTriage?.candidates ?? []).filter(candidate => candidate.assembly === type.assembly
+        && candidate.typeId === type.definitionId && candidate.stableSelector === selectedOverload?.stableSelector
+        && (!state.selectedBodyTarget?.metadataToken || candidate.methodToken === state.selectedBodyTarget.metadataToken))
+    : [];
   const hasSelectedOverload =
     state.selectedOverloadIndex != null
     && selectedOverload !== undefined;
@@ -13078,14 +13096,12 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
           </section>`
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
     content = `<div data-call-graph-surface>${content}</div>`;
-  } else if (state.memberSection === "facts") {
-    const resourceCandidates = state.packageResourceTriageKey === packageScopeSignature()
-      ? (state.packageResourceTriage?.candidates ?? []).filter(candidate =>
-          candidate.assembly === selectedType()?.assembly
-          && candidate.typeId === type.definitionId
-          && candidate.stableSelector === selectedOverload?.stableSelector)
-      : [];
-    content = renderMemberResourceTriage(resourceCandidates, escapeHtml) + renderMemberFacts(state, !currentPackage().isRuntimePack);
+  } else if (state.memberSection === "facts" || state.memberSection === "resource-triage") {
+    content = (state.memberSection === "resource-triage"
+      ? renderMemberResourceTriage(resourceCandidates, escapeHtml)
+        || `<section class="document-section empty-member-section"><p>${state.packageResourceTriageLoading ? "Analyzing resource cleanup…" : escapeHtml(state.packageResourceTriageError || "No Resource Triage candidates in the available evidence for this member.")}</p></section>`
+      : "")
+      + renderMemberFacts(state, !currentPackage().isRuntimePack);
   } else if (state.memberSection === "source") {
     content = renderMemberSourceHtml();
   } else if (state.memberSection === "compare") {
@@ -13097,9 +13113,6 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   const sourceOverloadIndex = state.selectedOverloadIndex ?? 0;
   const sourceOverloadCount =
     member.sourceOverloadCount ?? member.overloads.length;
-  const analysisExplore = state.memberSection === "facts"
-    ? `<div class="member-surface-actions" role="group" aria-label="Analysis actions"><button type="button" id="explore-source" data-annotated-action="explore"${state.memberAnnotated ? "" : " disabled"}>Explore</button></div>`
-    : "";
   const callGraphExplore = state.memberSection === "call-graph"
     ? `<div class="member-surface-actions" role="group" aria-label="Call graph actions">
         <button type="button" id="call-graph-explore" data-graph-explore${currentCallGraph() && !currentCallGraph()?.noBody ? "" : " disabled"}>Explore</button>
@@ -13110,10 +13123,10 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   return `
     <section class="member-surface" aria-labelledby="member-surface-title">
       <header class="api-surface-head member-surface-head">
-        <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+        <h1 id="member-surface-title">${escapeHtml(state.memberSection === "resource-triage" ? (resourceCandidates.length ? "Pool churn on exception" : "Resource Triage") : member.name)}</h1>
         <div class="member-surface-meta">
           <p>${escapeHtml(member.kind)} <span>· ${sourceOverloadIndex + 1} of ${sourceOverloadCount}</span></p>
-          ${callGraphExplore}${analysisExplore}
+          ${callGraphExplore}
         </div>
       </header>
       <div class="member-surface-scroll">${content}</div>
@@ -13314,7 +13327,7 @@ const packageViewActions: PackageViewBindingActions = {
     drillToPerfMember(
       target.stableSelector,
       target.assembly,
-      target.typeId);
+      target.typeId, target.resourceMethodToken);
   },
 };
 
@@ -14554,7 +14567,11 @@ function bindTriageCodeEvents() {
         : await inspectMemberFindingCensus(triagePackage.id, triagePackage.version, triagePackage.activeFramework,
             target.assembly, target.typeId, target.typeId, target.memberName, "",
             target.selector, target.methodToken, triageTaste);
-      return triageIssueLine(census.annotatedSource.document, target.issueOffsets);
+      const preview = triageIssuePreview(census.annotatedSource.document, target.issueOffsets);
+      if (!preview) return null;
+      const carets: string[] = [];
+      for (const focus of preview.focus) carets.push(await renderTriageCaret(preview.code, focus.column, focus.length));
+      return { code: preview.code, carets };
     }, highlightCSharp);
   }
 }
@@ -17770,7 +17787,8 @@ async function loadSelectionData() {
   switch (state.memberSection) {
     case "source": await loadSelectedMemberSource(); return;
     case "call-graph": await loadSelectedMemberCallGraph(); return;
-    case "facts": await loadSelectedMemberFactsSurface(); return;
+    case "facts":
+    case "resource-triage": await loadSelectedMemberAnalysisSurface(); return;
     case "compare": return;
     default: return assertNever(state.memberSection, "member section");
   }
@@ -24381,6 +24399,14 @@ async function loadSelectedMemberFacts() {
     implementationBodySelected,
     isCurrent: () => memberRequestIsCurrent(signature, true),
   });
+}
+
+async function loadSelectedMemberAnalysisSurface() {
+  await Promise.all([
+    loadSelectedMemberFactsSurface(),
+    state.memberSection === "resource-triage" && state.packageResourceTriageKey !== packageScopeSignature()
+      ? loadPackageResourceTriage() : Promise.resolve(),
+  ]);
 }
 
 async function loadSelectedMemberFactsSurface() {

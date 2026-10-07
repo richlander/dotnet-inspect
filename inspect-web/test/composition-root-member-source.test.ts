@@ -368,7 +368,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     ?? "";
   const factsLoader =
     appSource.match(
-      /async function loadSelectedMemberFacts\(\)[\s\S]*?\n}\n\nasync function loadSelectedMemberFactsSurface/)?.[0]
+      /async function loadSelectedMemberFacts\(\)[\s\S]*?\n}\n\nasync function loadSelectedMemberAnalysisSurface/)?.[0]
     ?? "";
   const factsSurfaceLoader =
     appSource.match(
@@ -420,7 +420,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /Promise\.all\(\[\s*currentPackage\(\)\.isRuntimePack \? Promise\.resolve\(\) : loadSelectedMemberFacts\(\),\s*loadSelectedMemberAnnotatedSource\(\),\s*\]\)/);
   assert.equal(
     [...appSource.matchAll(/loadSelectedMemberFactsSurface\(\)/g)].length,
-    4);
+    2);
   assert.match(
     annotatedAction,
     /case "source-select":[\s\S]*?const next = selectAnnotatedNode\(session, node\.id\);\s*setSession\(next\);\s*syncFindingSelectionFromAnnotatedSession\(next\)/);
@@ -732,10 +732,10 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
   }
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }),
-    ["overview", "call-graph", "facts", "source", "compare"]);
+    ["overview", "call-graph", "facts", "resource-triage", "source", "compare"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, true),
-    ["overview", "call-graph", "facts", "source"]);
+    ["overview", "call-graph", "facts", "resource-triage", "source"]);
 });
 
 // Compare follows cross-Member navigation; exact method sections return to the

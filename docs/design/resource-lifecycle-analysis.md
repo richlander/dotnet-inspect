@@ -318,10 +318,13 @@ is adopted. Browser transport preserves that Share and envelope diagnostics.
 The browser presents Performance Triage and Resource Triage as peer Analysis
 tabs, using compact member-FQN rows with issue chips and at most one automatically
 shown code line per row. Resource Library rows omit introductory explanation;
-both triage lists omit IL offsets. Selecting a navigable row opens the exact overload's member Analysis
-view, reusing the existing member Facts inspection. Resource acquisition and
+both triage lists omit IL offsets. Selecting a navigable Resource row opens the
+exact overload's member Resource Triage view, reusing the existing member Facts
+inspection. Performance rows open the member Analysis view. The member keeps a peer
+Resource Triage tab and uses the violation name as its H1. Explore appears in
+the shell's inspector action row; the detail body has no Resource cleanup title. Resource acquisition and
 boundary evidence is shown there only for matching current-library candidates.
-Member Analysis offers Explore through the existing Annotated Source viewer.
+Member Resource Triage offers Explore through the existing Annotated Source viewer.
 Platform members use their existing Finding census and Annotated Source rather
 than invoking the package-only method-Facts operation. Unrelated member navigation does not inherit the selected row's evidence.
 Code lines consume existing Annotated Source through exact implementation
@@ -331,7 +334,10 @@ rows spanning multiple implementation bodies have no code line. The
 implementation surface is acquired under the existing browser API bounds.
 Performance body targets retain the contributing issue IL offsets. When all
 issue offsets map unambiguously to one line through existing Annotated Source
-node provenance, that line is shown with the app's C# syntax highlighter. The
+node provenance, that line is shown with the app's C# syntax highlighter. Exact nearest source
+spans feed the existing managed `AnnotationCaret` printer through the worker
+bridge. Its comment underline follows the single C# line, with a shared gutter
+and no new caret geometry in the browser. Ambiguous nearest extents show no code. The
 smallest C# node spans carrying each offset must all occupy the same line.
 Missing, aggregate, ambiguous, multi-line, and multi-body attribution produce
 no code. There are no disclosure controls or whole-member fallbacks. Resource

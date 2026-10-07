@@ -6538,3 +6538,5 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 .triage-code { margin: 0 16px 12px 60px; padding: 10px 12px; overflow-x: auto; font-size: 12px; background: var(--panel); white-space: pre; }
 .resource-triage-member { color: var(--accent); background: transparent; border: 0; padding: 0; text-align: left; font: inherit; cursor: pointer; }
 .resource-triage-member:hover { text-decoration: underline; }
+
+.triage-code .triage-caret .token.comment { color: var(--accent); }

@@ -199,6 +199,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformOpportunities"),
     queryPackagePerformance: () =>
       unexpected("queryPackagePerformance"),
+    renderTriageCaret: () => unexpected("renderTriageCaret"),
     queryPackageResourceTriage: () =>
       unexpected("queryPackageResourceTriage"),
     queryPackageLibraryDependencyStructure: () =>
@@ -2382,6 +2383,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformResourceTriage",
       "queryPlatformTypeImplementationHeat",
       "queryPlatformTypeMethodLeverage",
+      "renderTriageCaret",
     ],
     source: [
       "cancelMemberBodyDiff",
@@ -2449,7 +2451,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 120);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 121);
 
   const state = fixture();
   const groups = [
@@ -2483,5 +2485,23 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
   }
   assert.equal("dispatch" in state.client, false);
   assert.equal("invoke" in state.client, false);
+  state.host.dispose();
+});
+
+
+test("triage caret transport preserves exact source extent and managed output", async () => {
+  const sourceLine = "    Call();";
+  const printed = "//  ^^^^";
+  const state = fixture({
+    analysis: {
+      renderTriageCaret: (line, column, length) => {
+        assert.deepEqual([line, column, length], [sourceLine, 4, 4]);
+        return printed;
+      },
+    },
+  });
+  const result = state.client.analysis.renderTriageCaret(sourceLine, 4, 4);
+  await state.environment.flushAsync();
+  assert.equal(await result, printed);
   state.host.dispose();
 });

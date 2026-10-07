@@ -83,6 +83,7 @@ type MetadataOperations =
 
 type AnalysisOperations =
   | "queryCloneCandidates"
+  | "renderTriageCaret"
   | "queryMemberFacts"
   | "queryPackageTypeImplementationHeat"
   | "queryPackageTypeMethodLeverage"

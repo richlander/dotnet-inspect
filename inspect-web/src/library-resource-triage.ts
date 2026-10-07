@@ -54,10 +54,10 @@ export function renderLibraryResourceTriageSurface(options: ResourceTriageOption
         ? triageMemberLabel(candidate.bodyTypeId ?? candidate.typeId ?? "", candidate.bodyMemberName)
         : candidate.method;
       const navigation = candidate.typeId && candidate.stableSelector
-        ? `button type="button" data-perf-selector="${escape(candidate.stableSelector)}" data-perf-assembly="${escape(candidate.assembly)}" data-perf-type="${escape(candidate.typeId)}"`
+        ? `button type="button" data-resource-token="${candidate.methodToken}" data-perf-selector="${escape(candidate.stableSelector)}" data-perf-assembly="${escape(candidate.assembly)}" data-perf-type="${escape(candidate.typeId)}"`
         : "div";
       const tag = navigation.startsWith("button") ? "button" : "div";
-      return `<article class="triage-item resource-triage-candidate"><${navigation} class="perf-row" title="${escape(display)}${tag === "button" ? " — open member Analysis" : ""}">
+      return `<article class="triage-item resource-triage-candidate"><${navigation} class="perf-row" title="${escape(display)}${tag === "button" ? " — open member Resource Triage" : ""}">
         <span class="perf-count" aria-hidden="true">△</span>
         <span class="perf-member"><span class="perf-name">${escape(display)}</span><span class="perf-shapes"><span class="perf-shape">Pool churn on exception</span><span class="perf-shape">${escape(actionabilityLabels[candidate.actionability] ?? candidate.actionability)}</span></span></span>
         <span class="perf-meta"><span class="perf-confidence">${escape(candidate.confidence.toLowerCase())}</span></span>
@@ -75,8 +75,8 @@ export function renderMemberResourceTriage(
   escape: (value: unknown) => string,
 ): string {
   if (!candidates.length) return "";
-  return `<section class="document-section member-resource-triage"><h2>Resource cleanup</h2>${candidates.map(candidate => `
-    <article><h3>Pool churn on exception</h3>
+  return `<section class="document-section member-resource-triage">${candidates.map(candidate => `
+    <article>
       <p>${escape(candidate.resource)} · ${escape(actionabilityLabels[candidate.actionability] ?? candidate.actionability)} · ${escape(candidate.confidence.toLowerCase())} confidence</p>
       <p>Acquire <code>${il(candidate.acquireOffset)}</code></p>
       <ul class="triage-boundaries">${candidate.boundaries.map(boundary => `<li><code>${il(boundary.ilOffset)}</code> ${escape(boundary.operation)} <span>${escape(boundaryLabels[boundary.kind] ?? boundary.kind)}</span></li>`).join("")}</ul>

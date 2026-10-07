@@ -1128,7 +1128,7 @@ test("triage rows have no collapsed code control and preserve Library Analysis",
 });
 
 
-test("Resource rows open member Analysis with detailed evidence and Explore", async ({ page }) => {
+test("Resource rows open member Resource Triage with detailed evidence and Explore", async ({ page }) => {
   const stop = { ...run, name: "Stop", stableSelector: "Stop", graphSelectorKey: "Stop", signature: "void Stop()", documentationId: "M:Example.Widget.Stop" };
   await installFacades(page, { ...surface, types: surface.types.map(candidate => candidate.definitionId === "Example.Widget" ? { ...candidate, queryId: "Example.Widget.QuerySpelling", members: 2, api: [run, stop] } : candidate) });
   await openAnalysis(page);
@@ -1139,7 +1139,14 @@ test("Resource rows open member Analysis with detailed evidence and Explore", as
   await expect(list).not.toContainText("IL_");
   await expect(list.locator(".library-analysis-note")).toHaveCount(0);
   await list.locator(".perf-row").click();
-  await expect(inspectorTab(page, "data-member-section", "facts")).toHaveAttribute("aria-selected", "true");
+  await expect(inspectorTab(page, "data-member-section", "resource-triage")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#member-surface-title")).toHaveText("Pool churn on exception");
+  await expect(page.getByRole("tab", { name: "Resource Triage", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".member-resource-triage")).not.toContainText("Resource cleanup");
+  await expect(page.locator(".working-surface-actions #explore-source")).toBeVisible();
+  const exploreBounds = await page.locator("#explore-source").boundingBox();
+  const headingBounds = await page.locator("#member-surface-title").boundingBox();
+  expect(exploreBounds!.y).toBeLessThan(headingBounds!.y);
   await expect(page.locator(".member-resource-triage")).toContainText("IL_0007");
   await expect(page.locator(".member-resource-triage")).toContainText("System.IO.Stream.Read");
   await page.getByRole("button", { name: "Explore", exact: true }).click();
