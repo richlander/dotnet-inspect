@@ -421,6 +421,14 @@ That enrichment must present the same retained Annotated Source diff document.
 It is not a prerequisite for Member Body inventory, navigation, or the inline
 text reader.
 
+Shared Member Body links use the inert exact Diff query attachment owned by
+[Workspace definitions](workspace-definitions.md#exact-diff-query-attachment).
+They retain the effective exact baseline, compile asset, Member anchor, body
+selector, and C#/IL medium. Reopening restores Package settings before the
+normal authorized Compare operation starts. It validates the acquired Library
+and body identities and displays the inline diff automatically; an unavailable
+body or medium remains a visible failure rather than a substituted selection.
+
 ## Non-claims
 
 This design does not claim:

@@ -24,6 +24,45 @@ public sealed class BrowserWorkspaceShareOperationsTests
         + "ndvcmtzcGFjZSJ9fV19";
 
     [Fact]
+    public void ExactMemberBodyComparison_RoundTripsWithoutChangingLegacyFormat()
+    {
+        var state = new BrowserWorkspaceShareState(
+            [new("t0", "package", "System.Text.Json", "10.0.12", "netstandard2.0", null)],
+            [new("g0", ["t0"])], "t0", "g0",
+            new("api", "System.Text.Json.JsonDocumentOptions", "0123456789", null, "compare",
+                ["compile:lib/netstandard2.0/System.Text.Json.dll"], null,
+                new("9.0.20", "member-body", "compile:lib/netstandard2.0/System.Text.Json.dll", "Il",
+                    "AllowDuplicateProperties~0123456789:1", "System.Text.Json", "10.0.0.0", null, "cc7b13ffcd2ddd51")));
+        BrowserWorkspaceShareEncodeResult encoded = BrowserWorkspaceShareOperations.Encode(state);
+        Assert.True(encoded.Succeeded, encoded.Failure?.Message);
+        Assert.Equal(4, WorkspaceSharePacketCodec.Decode(encoded.Packet!, TestContext.Current.CancellationToken).FormatVersion);
+        BrowserWorkspaceShareDecodeResult decoded = BrowserWorkspaceShareOperations.Decode(encoded.Packet!);
+        Assert.True(decoded.Succeeded, decoded.Failure?.Message);
+        Assert.Equal(state.View.Comparison, decoded.State!.View.Comparison);
+        Assert.Equal(state.View.MemberAnchor, decoded.State.View.MemberAnchor);
+        Assert.Equal(encoded.Packet, BrowserWorkspaceShareOperations.Encode(decoded.State).Packet);
+    }
+
+    [Fact]
+    public void OversizedExactDiffValue_ReturnsTypedRefusal()
+    {
+        string asset = "compile:" + new string('a', 300);
+        var state = new BrowserWorkspaceShareState(
+            [new("t0", "package", "System.Text.Json", "10.0.12", "netstandard2.0", null)],
+            [new("g0", ["t0"])], "t0", "g0",
+            new("library:compare", null, null, null, null, [asset], null,
+                new("9.0.20", "api", asset, "CSharp", null,
+                    "System.Text.Json", "10.0.0.0", null, "cc7b13ffcd2ddd51")));
+
+        BrowserWorkspaceShareEncodeResult result = BrowserWorkspaceShareOperations.Encode(state);
+
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Packet);
+        Assert.Equal("InvalidBrowserState", result.Failure!.Kind);
+        Assert.Contains("256", result.Failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CanonicalPacket_RoundTripsThroughLongFormBrowserTransport()
     {
         BrowserWorkspaceShareDecodeResult decoded =
