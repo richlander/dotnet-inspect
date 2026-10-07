@@ -80,7 +80,8 @@ internal sealed record SpanStackAllocations(
                     is not (int allocation, Linear displacement)
                 || !wrapped.TryGetValue(allocation, out TypeRef? elementType)
                 || ArgumentAt(stack, allocation, 1, 0) is not { } sizeValue
-                || tracer.Evaluate(sizeValue, 0) is not { } size
+                || tracer.Evaluate(sizeValue, 0, exact: true)
+                    is not { } size
                 || StoreWidth(instruction, elementType, size)
                     is not { } width
                 || !Linear.FitsWithin(displacement, width, size))
@@ -289,9 +290,16 @@ internal sealed record SpanStackAllocations(
             }
         }
 
+        // IL arithmetic wraps while Linear is exact. Every quantity is therefore
+        // non-negative, so each term that reaches a non-zero result is at most that
+        // result: when the final extent is within a real allocation, no
+        // intermediate wrapped. The allocation size itself must be computed
+        // exactly (`exact`): unscaled constants that fit in int32, or sizeof-scaled
+        // arithmetic only through overflow-trapping operators, as Roslyn emits.
         internal Linear? Evaluate(
             StackValue value,
-            int depth)
+            int depth,
+            bool exact = false)
         {
             if (depth > MaxTraceDepth
                 || !instructions.TryGetValue(
@@ -300,10 +308,23 @@ internal sealed record SpanStackAllocations(
             {
                 return null;
             }
+            Linear? result = EvaluateProducer(producer, depth, exact);
+            return result is { Constant: >= 0, Scale: >= 0 } quantity
+                && (!exact
+                    || quantity.Scale != 0
+                    || quantity.Constant <= int.MaxValue)
+                    ? quantity
+                    : null;
+        }
+
+        Linear? EvaluateProducer(
+            DecodedInstruction producer,
+            int depth,
+            bool exact)
+        {
             int at = producer.Offset;
             switch (producer.OpCode)
             {
-                case ILOpCode.Ldc_i4_m1: return Linear.Of(-1);
                 case >= ILOpCode.Ldc_i4_0 and <= ILOpCode.Ldc_i4_8:
                     return Linear.Of(
                         producer.OpCode - ILOpCode.Ldc_i4_0);
@@ -316,17 +337,26 @@ internal sealed record SpanStackAllocations(
                 case ILOpCode.Sizeof:
                     return Linear.SizeOf(
                         checked((int)producer.OperandValue));
-                // Widening a non-negative quantity preserves it.
+                // A native-int conversion can truncate on a 32-bit target, so an
+                // exact size converts only an int32-sized constant.
                 case ILOpCode.Conv_i:
                 case ILOpCode.Conv_u:
                 case ILOpCode.Conv_i8:
                 case ILOpCode.Conv_u8:
-                    return ArgumentAt(stack, at, 1, 0) is { } source
-                        && Evaluate(source, depth + 1) is { } widened
-                        && widened.Constant >= 0
-                        && widened.Scale >= 0
-                            ? widened
-                            : null;
+                {
+                    if (ArgumentAt(stack, at, 1, 0) is not { } source
+                        || Evaluate(source, depth + 1, exact)
+                            is not { } converted)
+                    {
+                        return null;
+                    }
+                    return exact
+                        && producer.OpCode is ILOpCode.Conv_i
+                            or ILOpCode.Conv_u
+                        && converted.Scale != 0
+                            ? null
+                            : converted;
+                }
                 case ILOpCode.Add:
                 case ILOpCode.Add_ovf_un:
                 case ILOpCode.Mul:
@@ -335,15 +365,23 @@ internal sealed record SpanStackAllocations(
                 {
                     if (ArgumentAt(stack, at, 2, 0) is not { } left
                         || ArgumentAt(stack, at, 2, 1) is not { } right
-                        || Evaluate(left, depth + 1) is not { } a
-                        || Evaluate(right, depth + 1) is not { } b)
+                        || Evaluate(left, depth + 1, exact) is not { } a
+                        || Evaluate(right, depth + 1, exact) is not { } b)
                     {
                         return null;
                     }
-                    return producer.OpCode is ILOpCode.Add
+                    Linear? combined = producer.OpCode is ILOpCode.Add
                         or ILOpCode.Add_ovf_un
                         ? Linear.Add(a, b)
                         : Linear.Multiply(a, b);
+                    bool traps = producer.OpCode is ILOpCode.Add_ovf_un
+                        or ILOpCode.Mul_ovf
+                        or ILOpCode.Mul_ovf_un;
+                    return exact
+                        && !traps
+                        && combined is { Scale: not 0 }
+                            ? null
+                            : combined;
                 }
                 default:
                     return null;

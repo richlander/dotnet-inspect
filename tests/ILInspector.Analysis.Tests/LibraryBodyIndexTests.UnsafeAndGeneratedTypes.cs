@@ -395,6 +395,17 @@ public partial class LibraryBodyIndexTests
             overflowing.Evidence,
             evidence => evidence.Kind
                 == UnsafeMemberUseKind.PointerDereference);
+        // Terms that cancel exactly but wrap in IL are not provably in bounds.
+        UnsafeMemberUse wrapping = Assert.Single(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "SpanStackallocInitializers"
+                && use.Method.Name == "WrappingDisplacementWrapped");
+        Assert.Contains(
+            wrapping.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.PointerDereference);
     }
 
     [Theory]

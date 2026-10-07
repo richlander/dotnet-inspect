@@ -411,6 +411,11 @@ public static class StackallocInitializerResiduals
     }
 }
 
+public struct SpanInitializerHalfWord
+{
+    public short Value;
+}
+
 public struct SpanInitializerPoint
 {
     public int X;
@@ -514,6 +519,20 @@ public static class SpanStackallocInitializers
             pointer[0x4000000000000000L] = 1;
         }
         return values[0];
+    }
+
+    // Each int32 product wraps to int.MinValue, so the real displacement is -4 GiB
+    // although the exact terms cancel; the store is not provably in bounds.
+    public static int WrappingDisplacementWrapped()
+    {
+        unsafe
+        {
+            int* values = stackalloc int[2];
+            *(int*)((byte*)values
+                + 0x40000000 * sizeof(SpanInitializerHalfWord)
+                + (-0x40000000) * sizeof(SpanInitializerHalfWord)) = 1;
+            return new Span<int>(values, 2)[0];
+        }
     }
 }
 

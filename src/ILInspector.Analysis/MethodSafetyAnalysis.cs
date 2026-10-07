@@ -198,6 +198,7 @@ internal static class MethodSafetyAnalysis
                         PopArguments(stack, 3);
                         break;
                     case ILOpCode.Ldtoken:
+                    case ILOpCode.Sizeof:
                         stack.Add(new(StackValueKind.Other));
                         break;
                     case ILOpCode.Ldsflda:
