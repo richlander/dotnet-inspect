@@ -131,12 +131,14 @@ The checked-in rules provide full gate coverage for these dependency claims:
    staged claims.
 7. The Inspect Web CallGraph facade depends directly only on the .NET
    platform, Web Core, Queries, and Sections.
-8. The Inspect Web Package facade cannot expand beyond its current ten
+8. The Inspect Web Package facade cannot expand beyond its current nine
    evaluated project edges or its current sixteen repository assembly edges.
    The direct-reference path consumes detached rows from Queries rather than
-   projecting Metadata identities in the host. Separate graph rules preserve
-   the wider compiled closure and prevent the retired Networking project edge
-   from returning.
+   projecting Metadata identities in the host, and the exact-Library path
+   consumes a detached Queries-owned identity value. Separate graph rules
+   prevent the retired Metadata and Networking project edges from returning
+   while preserving the wider compiled closure for focused Platform-forwarder
+   and assembly-context failure successors.
 9. The Inspect Web Library facade cannot expand beyond its current five
    evaluated project edges or its current ten repository assembly edges.
    The separate graph rules preserve those different ceilings while focused
