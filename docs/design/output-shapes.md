@@ -820,6 +820,17 @@ knobs handle remaining cell narrowing and formatting:
 - **Table mode** (`MarkoutWriterOptions.TableMode`) picks how tables render:
   Markdown (default), `MarkoutTableMode.Tsv`, or `MarkoutTableMode.Jsonl`.
 
+For the CLI Markout-dependency migration in #9579, a shared presentation
+adapter may accept settled version-feed, version-listing, and string-list rows
+with a host-neutral Table/TSV/JSONL choice, then construct the existing
+`TableFormatter` and Markout writer. The CLI retains row acquisition, JSON
+array output, and destination handling. This adapter's approved consumer is the
+CLI; Browser/Wasm continues using its existing presentation paths and has no
+planned adoption of this text-table adapter. The user approved this exact
+CLI-only scope on 2026-10-07 by replying "proceed" to the explicit request for
+approval of the narrow adapter in `DotnetInspector.Presentation` without
+Browser/Wasm adoption.
+
 Formatters decide presentation, not content:
 
 - **`MarkdownFormatter`** — the rich, multi-section, verbosity-aware Document
