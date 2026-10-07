@@ -78,5 +78,6 @@ static async Task<(string, double)> Timed(Func<Task<string>> operation)
     return (result, watch.Elapsed.TotalMilliseconds);
 }
 
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserLibraryInspectionRequest))]
 internal partial class ProbeJsonContext : JsonSerializerContext;
