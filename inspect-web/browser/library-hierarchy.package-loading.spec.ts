@@ -101,6 +101,23 @@ async function selectPackageCoordinate(
   return control;
 }
 
+async function openPackageChildLibrary(page: Page, assetId: string) {
+  await expect(async () => {
+    const row = page.locator(`[data-package-child-library="${assetId}"]`);
+    await expect(row).toBeVisible({ timeout: 1_000 });
+    await row.evaluate(element => {
+      if (!(element instanceof HTMLElement))
+        throw new Error("Package child Library row is not HTML");
+      element.click();
+    });
+    await expect(subjectTab(page, "library")).toHaveAttribute(
+      "aria-selected",
+      "true",
+      { timeout: 1_000 },
+    );
+  }).toPass();
+}
+
 const packageCoordinateViews = [{
   id: "overview",
   name: "Overview",
@@ -246,11 +263,7 @@ test("Package Overview opens an owner-issued tool Library child", async ({
   await expect(row).toContainText("Tool.Payload");
   await expect(row).toContainText("entry point");
   await expect(row).not.toContainText("Type declarations");
-  await row.click();
-
-  await expect(subjectTab(page, "library")).toHaveAttribute(
-    "aria-selected",
-    "true");
+  await openPackageChildLibrary(page, asset);
   await expect(page.getByText(/Tool\.Payload/).first()).toBeVisible();
 
   await selectLibrary(page, "all");
@@ -347,9 +360,7 @@ test("lazy Library acquisition does not restore the removed Package overview row
   });
   await page.goto(frameworkRoot);
 
-  await page.locator(`[data-package-child-library="${core.id}"]`).click();
-  await expect(subjectTab(page, "library")).toHaveAttribute(
-    "aria-selected", "true");
+  await openPackageChildLibrary(page, core.id);
   await chooseSubject(page, "package", "Package");
 
   const overview = page.locator(".package-overview-surface");
@@ -708,9 +719,7 @@ test("newer Package child navigation supersedes pending Type activation", async 
   page,
 }) => {
   await beginPendingTypeActivation(page);
-  await page.locator(`[data-package-child-library="${core.id}"]`).click();
-  await expect(subjectTab(page, "library")).toHaveAttribute(
-    "aria-selected", "true");
+  await openPackageChildLibrary(page, core.id);
 
   await releaseFacade(page, "finish-package-query");
   await expect(subjectTab(page, "library")).toHaveAttribute(
