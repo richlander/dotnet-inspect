@@ -1711,6 +1711,18 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Equal(
             0,
             execution.SourceCoverage.ModuleLookupMethods.Count);
+        Assert.Equal(
+            1,
+            execution.SourceCoverage.InstructionWork
+                .NoRetentionSourcesOpened);
+        Assert.Equal(
+            0,
+            execution.SourceCoverage.InstructionWork
+                .LazyRetainedSourcesOpened);
+        Assert.True(
+            execution.SourceCoverage.InstructionWork
+                .InstructionsVisited
+            > 0);
     }
 
     [Fact]

@@ -298,13 +298,24 @@ producer can only preserve or increase the joined demand, and producer order
 cannot change the selected source.
 
 The Method-body demand scorecard carries the reference implementation and real
-classifier gates for this rule.
+classifier gates for this rule. Production declarations and plans now use the
+same Access and Detail vocabulary rather than copying the scorecard planner.
 [Query Space Producer Capabilities](query-space-producer-capabilities.md) owns
 the reusable requirement, provision, result-coverage, and producer-plan
 contract shared with Type and Member declaration planning. This Method owner
 retains the Access and Detail meanings, their pointwise join, and physical
-source choices. Production request-set collapse through the Method source
-remains unverified.
+source choices.
+
+Method request-set planning preserves each lane's minimum semantic demand and
+forms a second plan for the complete physical group. A singleton
+`ForwardOnly + OpcodeAndExtent` request uses the no-retention stream. When a
+retained-prefix or selective-detail lane promotes a shared group, every active
+instruction analyzer uses one packet-local `InstructionSequence`; independent
+cursors share its scan frontier without widening the cheaper lane's semantic
+requirement. Source receipts distinguish no-retention sources, retained
+sources, and instruction participation; the physical group receipt records the
+shared retained frontier actually scanned. The exact-member call-count producer
+is the first production adopter.
 
 Shared lookup support, such as same-image token resolution or authenticated
 state-machine relationships, is execution-scoped work rather than a fictitious
@@ -612,11 +623,15 @@ Generated expansion is gated in Release:
 - `MethodQuerySource_GeneratedExpansionReusesTargetedStateMachineLookup`
 - `MethodQuerySource_GeneratedExpansionBoundPublishesSourceIncomplete`
 
-The instruction-demand reference planner is gated in Release:
+The instruction-demand planner and first production Method-source adoption are
+gated in Release:
 
 - `MethodBodyAnalyzerPlanner_SelectsSourceFromCombinedDemand`
 - `MethodBodyAnalyzerPlanner_JoinIsOrderIndependent`
 - `MethodBodyAnalyzerPlanner_PreservesRealClassifierResults`
+- `Plan_JoinsInstructionDemandWithoutWideningIndividualLanes`
+- `Execute_SharesRetainedInstructionSourceAcrossLanes`
+- `MethodCallCountProducer_DoesNotResolveMalformedTarget`
 
 The following deeper-source gates remain **unverified**:
 

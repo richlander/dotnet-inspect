@@ -510,6 +510,7 @@ public sealed class MethodDefinitionSourceLanePlan
     {
         Work = work;
         Associations = associations;
+        InstructionPlan = MethodBodyAnalyzerPlanner.Plan(work);
         TerminalWorkLimits =
             associations[0].Request.TerminalWorkLimits;
     }
@@ -520,6 +521,8 @@ public sealed class MethodDefinitionSourceLanePlan
     {
         get;
     }
+
+    public MethodBodyAnalyzerPlan? InstructionPlan { get; }
 
     public MethodDefinitionTerminalWorkLimits TerminalWorkLimits { get; }
 }
@@ -537,6 +540,9 @@ public sealed class MethodDefinitionSourceGroupPlan
         Source = source;
         Breadth = breadth;
         Lanes = lanes;
+        InstructionPlan =
+            MethodBodyAnalyzerPlanner.Plan(
+                lanes.Select(static lane => lane.Work));
     }
 
     public QuerySpaceResourceIdentity Resource { get; }
@@ -546,6 +552,8 @@ public sealed class MethodDefinitionSourceGroupPlan
     public MethodDefinitionSourceBreadth Breadth { get; }
 
     public ImmutableArray<MethodDefinitionSourceLanePlan> Lanes { get; }
+
+    public MethodBodyAnalyzerPlan? InstructionPlan { get; }
 }
 
 /// <summary>Immutable QuerySpace and source plans for one Method request set.</summary>
@@ -876,6 +884,9 @@ public sealed record MethodDefinitionSourceCoverage(
 
     public MethodDefinitionTerminalWorkCoverage TerminalWork
     { get; init; } = MethodDefinitionTerminalWorkCoverage.Empty;
+
+    public MethodDefinitionInstructionWorkCoverage InstructionWork
+    { get; init; } = MethodDefinitionInstructionWorkCoverage.Empty;
 }
 
 /// <summary>Why one generated physical MethodDef entered source breadth.</summary>
@@ -917,6 +928,16 @@ public sealed record MethodDefinitionTerminalWorkCoverage(
 {
     public static MethodDefinitionTerminalWorkCoverage Empty { get; } =
             new(0, 0, null, null);
+}
+
+/// <summary>Actual Method-body instruction-source work.</summary>
+public sealed record MethodDefinitionInstructionWorkCoverage(
+    int NoRetentionSourcesOpened,
+    int LazyRetainedSourcesOpened,
+    int InstructionsVisited)
+{
+    public static MethodDefinitionInstructionWorkCoverage Empty { get; } =
+        new(0, 0, 0);
 }
 
 /// <summary>Where and why required Method-source acquisition was incomplete.</summary>
@@ -1243,6 +1264,7 @@ internal static class MethodQuerySource
                             .Select(static lane =>
                                 lane.TerminalWorkLimits)
                             .ToArray(),
+                        group.InstructionPlan,
                         sourceName,
                         peReader);
                 laneExecutions = shared.Lanes;
@@ -1361,6 +1383,9 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
     readonly MethodDefinitionHandleCoverageBuilder _moduleLookupMethods = new();
     MethodDefinitionGeneratedExpansionCoverage _generatedExpansion =
         MethodDefinitionGeneratedExpansionCoverage.Empty;
+    int _noRetentionSourcesOpened;
+    int _lazyRetainedSourcesOpened;
+    int _instructionsVisited;
 
     public MethodDefinitionSourceCoverageBuilder(
         bool enabled,
@@ -1439,6 +1464,26 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
             _generatedExpansion = coverage;
     }
 
+    public void RecordInstructionWork(
+        MethodBodyInstructionSourceKind source,
+        int instructionsVisited,
+        bool sourceOpened = true)
+    {
+        if (!_enabled)
+            return;
+
+        ArgumentOutOfRangeException.ThrowIfNegative(instructionsVisited);
+        if (sourceOpened)
+        {
+            if (source == MethodBodyInstructionSourceKind.NoRetentionStream)
+                _noRetentionSourcesOpened++;
+            else
+                _lazyRetainedSourcesOpened++;
+        }
+        _instructionsVisited =
+            checked(_instructionsVisited + instructionsVisited);
+    }
+
     public MethodDefinitionSourceCoverage Build() =>
         new(
             _definitionsExamined.Build(),
@@ -1451,6 +1496,11 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
             TerminalWork =
                 _terminalWork?.Build()
                 ?? MethodDefinitionTerminalWorkCoverage.Empty,
+            InstructionWork =
+                new(
+                    _noRetentionSourcesOpened,
+                    _lazyRetainedSourcesOpened,
+                    _instructionsVisited),
         };
 }
 

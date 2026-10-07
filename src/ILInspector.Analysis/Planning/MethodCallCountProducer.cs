@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 
 namespace ILInspector.Analysis.Planning;
 
@@ -60,6 +61,14 @@ public sealed class MethodCallCountProducer
 
     public MethodCallCountKind Kind => _kind;
 
+    internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
+        InstructionAnalyzers =>
+        [
+            _kind == MethodCallCountKind.DirectInvocations
+                ? MethodBodyAnalyzerDeclarations.DirectCalls
+                : MethodBodyAnalyzerDeclarations.CallSites,
+        ];
+
     internal override MethodCallCountBody Visit(
         scoped MethodDefinitionView view)
     {
@@ -74,8 +83,29 @@ public sealed class MethodCallCountProducer
 
         try
         {
-            MethodCallAnalysis.DiscoveryCounts counts =
-                MethodCallAnalysis.DiscoverCounts(view.GetBody());
+            var counts = new CallCounts();
+            view.VisitInstructionShapes(
+                ref counts,
+                static (
+                    ref CallCounts state,
+                    ILOpCode opcode,
+                    int _) =>
+                {
+                    if (opcode is ILOpCode.Call
+                        or ILOpCode.Callvirt
+                        or ILOpCode.Newobj)
+                    {
+                        state.InvocationCount++;
+                        state.CallSiteCount++;
+                    }
+                    else if (opcode is ILOpCode.Ldftn
+                        or ILOpCode.Ldvirtftn
+                        or ILOpCode.Calli)
+                    {
+                        state.CallSiteCount++;
+                    }
+                    return true;
+                });
             return new(
                 view.Token,
                 HasManagedBody: true,
@@ -117,4 +147,11 @@ public sealed class MethodCallCountProducer
         ImmutableArray<MethodCallCountBody>.Builder accumulator,
         MethodDefinitionCompletionView completion) =>
         new(accumulator.ToImmutable());
+
+    struct CallCounts
+    {
+        public int InvocationCount;
+
+        public int CallSiteCount;
+    }
 }

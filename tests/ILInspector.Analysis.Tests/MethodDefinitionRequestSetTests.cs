@@ -102,6 +102,110 @@ public sealed class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void
+        Plan_JoinsInstructionDemandWithoutWideningIndividualLanes()
+    {
+        MethodDefinitionSourceAssociation shallow =
+            Association(
+                MethodCallCountProducer.DirectInvocations,
+                ProducerTerminal.Count);
+        MethodDefinitionSourceAssociation retained =
+            Association(
+                RetainedInstructionProducer.Instance,
+                ProducerTerminal.Count);
+
+        MethodDefinitionSourceGroupPlan group =
+            Assert.Single(AcceptedPlan([shallow, retained]).Groups);
+        MethodDefinitionSourceLanePlan shallowLane =
+            Assert.Single(
+                group.Lanes,
+                lane => ReferenceEquals(
+                    lane.Associations[0].Identity,
+                    shallow.Identity));
+        MethodDefinitionSourceLanePlan retainedLane =
+            Assert.Single(
+                group.Lanes,
+                lane => ReferenceEquals(
+                    lane.Associations[0].Identity,
+                    retained.Identity));
+
+        MethodBodyAnalyzerPlan shallowPlan =
+            Assert.IsType<MethodBodyAnalyzerPlan>(
+                shallowLane.InstructionPlan);
+        Assert.Equal(
+            MethodBodyInstructionAccess.ForwardOnly,
+            shallowPlan.Demand.Access);
+        Assert.Equal(
+            MethodBodyInstructionDetail.OpcodeAndExtent,
+            shallowPlan.Demand.Detail);
+        Assert.Equal(
+            MethodBodyInstructionSourceKind.NoRetentionStream,
+            shallowPlan.Source);
+
+        MethodBodyAnalyzerPlan retainedPlan =
+            Assert.IsType<MethodBodyAnalyzerPlan>(
+                retainedLane.InstructionPlan);
+        Assert.Equal(
+            MethodBodyInstructionSourceKind.LazyRetainedSequence,
+            retainedPlan.Source);
+
+        MethodBodyAnalyzerPlan groupPlan =
+            Assert.IsType<MethodBodyAnalyzerPlan>(
+                group.InstructionPlan);
+        Assert.Equal(
+            MethodBodyInstructionAccess.RetainedPrefix,
+            groupPlan.Demand.Access);
+        Assert.Equal(
+            MethodBodyInstructionDetail.SelectiveOperands,
+            groupPlan.Demand.Detail);
+        Assert.Equal(
+            MethodBodyInstructionSourceKind.LazyRetainedSequence,
+            groupPlan.Source);
+        Assert.Equal(2, groupPlan.StructuralPlan.Requirements.Length);
+        Assert.Equal(2, groupPlan.StructuralPlan.Provisions.Length);
+    }
+
+    [Fact]
+    public void Execute_SharesRetainedInstructionSourceAcrossLanes()
+    {
+        MethodDefinitionSourceAssociation shallow =
+            Association(
+                MethodCallCountProducer.DirectInvocations,
+                ProducerTerminal.Count);
+        MethodDefinitionSourceAssociation retained =
+            Association(
+                RetainedInstructionProducer.Instance,
+                ProducerTerminal.Count);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(AcceptedPlan([shallow, retained]));
+        MethodDefinitionInstructionWorkCoverage physical =
+            Assert.Single(execution.GroupReceipts)
+                .PhysicalCoverage.InstructionWork;
+        MethodDefinitionInstructionWorkCoverage shallowWork =
+            execution.ResultOf(shallow)
+                .SourceReceipt.Coverage.InstructionWork;
+        MethodDefinitionInstructionWorkCoverage retainedWork =
+            execution.ResultOf(retained)
+                .SourceReceipt.Coverage.InstructionWork;
+
+        Assert.Equal(0, physical.NoRetentionSourcesOpened);
+        Assert.True(physical.LazyRetainedSourcesOpened > 0);
+        Assert.Equal(
+            physical.LazyRetainedSourcesOpened,
+            shallowWork.LazyRetainedSourcesOpened);
+        Assert.Equal(
+            physical.LazyRetainedSourcesOpened,
+            retainedWork.LazyRetainedSourcesOpened);
+        Assert.Equal(
+            physical.InstructionsVisited,
+            shallowWork.InstructionsVisited);
+        Assert.Equal(
+            physical.InstructionsVisited,
+            retainedWork.InstructionsVisited);
+    }
+
+    [Fact]
     public void Execute_SharedClosingsEqualIndependentReferenceResults()
     {
         CountingProducer producer = CountingProducer.Instance;
@@ -1215,6 +1319,55 @@ public sealed class MethodDefinitionRequestSetTests
         internal override int Accumulate(
             int accumulator,
             int fact) =>
+            accumulator + fact;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+    }
+
+    sealed class RetainedInstructionProducer
+        : MethodDefinitionProducer<int, int, int>
+    {
+        RetainedInstructionProducer()
+            : base(
+                "RetainedInstruction",
+                version: 1,
+                tier: 0,
+                MethodDefinitionLayers.Body)
+        {
+        }
+
+        public static RetainedInstructionProducer Instance { get; } =
+            new();
+
+        internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
+            InstructionAnalyzers =>
+            [MethodBodyAnalyzerDeclarations.BoundedFlow];
+
+        internal override int Visit(scoped MethodDefinitionView view)
+        {
+            if (!view.HasManagedBody)
+                return 0;
+
+            int instructions = 0;
+            view.VisitInstructionShapes(
+                ref instructions,
+                static (
+                    ref int count,
+                    ILOpCode _,
+                    int _) =>
+                {
+                    count++;
+                    return true;
+                });
+            return instructions;
+        }
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
             accumulator + fact;
 
         internal override int Complete(

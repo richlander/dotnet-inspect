@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Queries;
+using ILInspector.Analysis.Planning;
 using ILInspector.Instructions;
 using NLinq;
 

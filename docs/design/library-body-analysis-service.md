@@ -1049,6 +1049,14 @@ changes.
 
 ### Production adoption for #8450
 
+Method Query Source owns the prerequisite instruction planning: each focused
+producer declares minimum Access and Detail, the request-set plan joins those
+facets for the physical group, and compatible lanes share one packet-local
+instruction source. Complete-profile migration must therefore decompose the
+metric set into owner-focused producers over that source. It must not wrap
+`LibraryBodyAnalysisBuilder.Build` or recreate one complete-profile producer
+with the same monolithic work hidden behind a new declaration.
+
 The counted implementation path is:
 
 1. Add the validated parameterized request, closed metric and fact vocabularies,

@@ -21,6 +21,7 @@ internal readonly record struct MethodDefinitionSharedExecution(
 public sealed class MethodDefinitionExecution
 {
     readonly WorkDescription _description;
+    readonly MethodBodyAnalyzerPlan? _instructionPlan;
     readonly ProducerState[] _states;
     MethodDefinitionSourceBreadth _breadth;
     readonly MethodDefinitionSourceCoverageBuilder _sourceCoverage;
@@ -38,9 +39,11 @@ public sealed class MethodDefinitionExecution
         WorkDescription description,
         MethodDefinitionSourceBreadth breadth,
         MethodDefinitionTerminalWorkLimits terminalWorkLimits,
-        bool tracksSourceCoverage)
+        bool tracksSourceCoverage,
+        MethodBodyAnalyzerPlan? instructionPlan)
     {
         _description = description;
+        _instructionPlan = instructionPlan;
         _breadth = breadth;
         _sourceCoverage =
             new MethodDefinitionSourceCoverageBuilder(
@@ -70,6 +73,8 @@ public sealed class MethodDefinitionExecution
 
     internal LibraryMethodAnalysisRunner? Lookup => _lookup;
 
+    internal MethodBodyAnalyzerPlan? InstructionPlan => _instructionPlan;
+
     internal int CurrentOrdinal { get; private set; } = -1;
 
     /// <summary>
@@ -87,7 +92,8 @@ public sealed class MethodDefinitionExecution
             peReader,
             MethodDefinitionSourceBreadth.AllDefinitions,
             MethodDefinitionTerminalWorkLimits.Unbounded,
-            tracksSourceCoverage: false);
+            tracksSourceCoverage: false,
+            MethodBodyAnalyzerPlanner.Plan(description));
 
     internal static MethodDefinitionExecution Execute(
         WorkDescription description,
@@ -101,7 +107,8 @@ public sealed class MethodDefinitionExecution
             peReader,
             breadth,
             terminalWorkLimits,
-            tracksSourceCoverage: true);
+            tracksSourceCoverage: true,
+            MethodBodyAnalyzerPlanner.Plan(description));
 
     static MethodDefinitionExecution Execute(
         WorkDescription description,
@@ -109,7 +116,8 @@ public sealed class MethodDefinitionExecution
         PEReader peReader,
         MethodDefinitionSourceBreadth breadth,
         MethodDefinitionTerminalWorkLimits terminalWorkLimits,
-        bool tracksSourceCoverage)
+        bool tracksSourceCoverage,
+        MethodBodyAnalyzerPlan? instructionPlan)
     {
         ArgumentNullException.ThrowIfNull(description);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
@@ -122,7 +130,8 @@ public sealed class MethodDefinitionExecution
                 description,
                 breadth,
                 terminalWorkLimits,
-                tracksSourceCoverage);
+                tracksSourceCoverage,
+                instructionPlan);
         if (!peReader.HasMetadata)
         {
             execution.CompleteWithoutUnits();
@@ -295,13 +304,15 @@ public sealed class MethodDefinitionExecution
         WorkDescription description,
         MethodDefinitionSourceBreadth breadth,
         MethodDefinitionTerminalWorkLimits terminalWorkLimits,
-        bool tracksSourceCoverage)
+        bool tracksSourceCoverage,
+        MethodBodyAnalyzerPlan? instructionPlan)
     {
         var execution = new MethodDefinitionExecution(
             description,
             breadth,
             terminalWorkLimits,
-            tracksSourceCoverage);
+            tracksSourceCoverage,
+            instructionPlan);
         ImmutableArray<ProducerDeclaration> producers = description.Producers;
         for (int i = 0; i < producers.Length; i++)
         {
@@ -338,6 +349,7 @@ public sealed class MethodDefinitionExecution
         IReadOnlyList<WorkDescription> descriptions,
         IReadOnlyList<MethodDefinitionTerminalWorkLimits>
             terminalWorkLimits,
+        MethodBodyAnalyzerPlan? instructionPlan,
         string sourceName,
         PEReader peReader)
     {
@@ -379,7 +391,8 @@ public sealed class MethodDefinitionExecution
                     description,
                     MethodDefinitionSourceBreadth.AllDefinitions,
                     terminalWorkLimits[i],
-                    tracksSourceCoverage: true));
+                    tracksSourceCoverage: true,
+                    instructionPlan));
         }
 
         ImmutableArray<MethodDefinitionExecution> lanes =
@@ -1472,6 +1485,11 @@ public sealed class MethodDefinitionExecution
         public MethodDefinitionExecution Execution => execution;
 
         public ProducerDeclaration Producer => producer;
+
+        public ImmutableArray<MethodBodyAnalyzerDeclaration>
+            InstructionAnalyzers =>
+                ((IMethodDefinitionProducer)producer)
+                    .InstructionAnalyzers;
 
         public ProducerTerminal Terminal => terminal;
 

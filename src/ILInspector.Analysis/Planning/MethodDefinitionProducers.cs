@@ -5,6 +5,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Metadata;
+using ILInspector.Instructions;
 using InertText;
 
 namespace ILInspector.Analysis.Planning;
@@ -88,6 +89,12 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
     public MethodDefinitionLayers Layers { get; }
 
     /// <summary>
+    /// Method-body analyzer capabilities this producer may exercise.
+    /// </summary>
+    internal virtual ImmutableArray<MethodBodyAnalyzerDeclaration>
+        InstructionAnalyzers => [];
+
+    /// <summary>
     /// Fields read only when the request's closing is
     /// <see cref="ProducerTerminal.Rows"/>, such as identity text for projection.
     /// </summary>
@@ -152,6 +159,10 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
     internal virtual int UnitClass(TFact fact) => 0;
 
     SourceGateGuard? IMethodDefinitionProducer.SourceGate => SourceGate;
+
+    ImmutableArray<MethodBodyAnalyzerDeclaration>
+        IMethodDefinitionProducer.InstructionAnalyzers =>
+            InstructionAnalyzers;
 
     MethodDefinitionExecution.ProducerState IMethodDefinitionProducer.CreateState(
         MethodDefinitionExecution execution,
@@ -285,6 +296,11 @@ internal interface IMethodDefinitionProducer
 
     MethodDefinitionLayers LayersFor(ProducerTerminal terminal);
 
+    ImmutableArray<MethodBodyAnalyzerDeclaration> InstructionAnalyzers
+    {
+        get;
+    }
+
     SourceGateGuard? SourceGate { get; }
 
     MethodDefinitionExecution.ProducerState CreateState(
@@ -293,6 +309,21 @@ internal interface IMethodDefinitionProducer
         int? rowLimit,
         ImmutableArray<int> dependencies,
         UnitFactRetention retention);
+}
+
+internal delegate bool MethodBodyInstructionShapeVisitor<TState>(
+    ref TState state,
+    ILOpCode opcode,
+    int encodedLength);
+
+struct MethodBodyInstructionShapeVisitState<TState>(
+    TState state,
+    MethodBodyInstructionShapeVisitor<TState> visitor)
+{
+    public TState State = state;
+
+    public readonly MethodBodyInstructionShapeVisitor<TState> Visitor =
+        visitor;
 }
 
 /// <summary>
@@ -534,6 +565,95 @@ public readonly ref struct MethodDefinitionView
         return body;
     }
 
+    /// <summary>
+    /// Visits shallow opcode-and-extent facts from the planned instruction
+    /// source. The producer must declare the analyzer capability that
+    /// justified the source.
+    /// </summary>
+    internal bool VisitInstructionShapes<TState>(
+        ref TState state,
+        MethodBodyInstructionShapeVisitor<TState> visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        MethodBodyAnalyzerPlan plan =
+            producer.Execution.InstructionPlan
+            ?? throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare a Method-body "
+                + "instruction analyzer.");
+        foreach (MethodBodyAnalyzerDeclaration analyzer
+            in producer.InstructionAnalyzers)
+        {
+            if (!plan.Contains(analyzer))
+            {
+                throw new ProducerContractException(
+                    $"Producer '{_owner}' has an unplanned Method-body "
+                    + $"analyzer '{analyzer.Identity}'.");
+            }
+        }
+        if (producer.InstructionAnalyzers.IsEmpty)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare a Method-body "
+                + "instruction analyzer.");
+        }
+        if (plan.Source
+            == MethodBodyInstructionSourceKind.NoRetentionStream)
+        {
+            var visit = new MethodBodyInstructionShapeVisitState<TState>(
+                state,
+                visitor);
+            bool completed = InstructionDecoder.Visit(
+                GetBody(),
+                ref visit,
+                static (
+                    ref MethodBodyInstructionShapeVisitState<TState> current,
+                    ILOpCode opcode,
+                    int _,
+                    int encodedLength) =>
+                        current.Visitor(
+                            ref current.State,
+                            opcode,
+                            encodedLength),
+                out int instructionsVisited);
+            state = visit.State;
+            _unit.RecordNoRetentionInstructionWork(
+                instructionsVisited);
+            return completed;
+        }
+
+        MethodBodyBlock body = GetBody();
+        InstructionSequence sequence =
+            _unit.GetInstructionSequence(
+                body,
+                out bool sourceOpened);
+        int retainedBefore = sequence.RetainedCount;
+        int visited = 0;
+        InstructionCursor cursor = sequence.GetCursor();
+        while (cursor.MoveNext())
+        {
+            InstructionEntry instruction = cursor.Current;
+            visited++;
+            if (!visitor(
+                    ref state,
+                    instruction.OpCode,
+                    instruction.Length))
+            {
+                _unit.RecordRetainedInstructionWork(
+                    sourceOpened,
+                    sequence.RetainedCount - retainedBefore,
+                    visited);
+                return false;
+            }
+        }
+
+        _unit.RecordRetainedInstructionWork(
+            sourceOpened,
+            sequence.RetainedCount - retainedBefore,
+            visited);
+        return true;
+    }
+
     /// <summary>The same-unit fact of a declared visit dependency.</summary>
     public TFact FactOf<TFact, TAccumulator, TResult>(
         MethodDefinitionProducer<TFact, TAccumulator, TResult> dependency)
@@ -596,6 +716,7 @@ internal struct MethodDefinitionUnit(
     MethodRowGate? _gate;
     bool _positionsRequestOnMove;
     MethodBodyBlock? _body;
+    InstructionSequence? _instructions;
 
     public MethodDefinitionUnit(
         MetadataReader reader,
@@ -679,6 +800,7 @@ internal struct MethodDefinitionUnit(
         MethodHandle = methodHandle;
         MethodDefinition = methodDefinition;
         _body = null;
+        _instructions = null;
         _physicalSourceCoverage.RecordMethodSelected(methodHandle);
         if (_positionsRequestOnMove)
         {
@@ -718,6 +840,53 @@ internal struct MethodDefinitionUnit(
     {
         _physicalSourceCoverage.RecordModuleLookupUsed(MethodHandle);
         _requestSourceCoverage?.RecordModuleLookupUsed(MethodHandle);
+    }
+
+    public readonly void RecordNoRetentionInstructionWork(
+        int instructionsVisited)
+    {
+        _physicalSourceCoverage.RecordInstructionWork(
+            MethodBodyInstructionSourceKind.NoRetentionStream,
+            instructionsVisited);
+        if (!ReferenceEquals(
+                _requestSourceCoverage,
+                _physicalSourceCoverage))
+        {
+            _requestSourceCoverage?.RecordInstructionWork(
+                MethodBodyInstructionSourceKind.NoRetentionStream,
+                instructionsVisited);
+        }
+    }
+
+    public readonly void RecordRetainedInstructionWork(
+        bool sourceOpened,
+        int physicalInstructionsVisited,
+        int requestInstructionsVisited)
+    {
+        _physicalSourceCoverage.RecordInstructionWork(
+            MethodBodyInstructionSourceKind.LazyRetainedSequence,
+            physicalInstructionsVisited,
+            sourceOpened);
+        if (!ReferenceEquals(
+                _requestSourceCoverage,
+                _physicalSourceCoverage))
+        {
+            _requestSourceCoverage?.RecordInstructionWork(
+                MethodBodyInstructionSourceKind.LazyRetainedSequence,
+                requestInstructionsVisited);
+        }
+    }
+
+    public InstructionSequence GetInstructionSequence(
+        MethodBodyBlock body,
+        out bool sourceOpened)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        sourceOpened = _instructions is null;
+        return _instructions ??=
+            InstructionSequence.Borrow(
+                body,
+                static () => { });
     }
 
     /// <summary>
