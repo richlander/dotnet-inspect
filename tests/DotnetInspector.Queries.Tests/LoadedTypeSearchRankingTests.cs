@@ -1,3 +1,5 @@
+using ILInspector.Metadata;
+
 namespace DotnetInspector.Queries.Tests;
 
 public sealed class LoadedTypeSearchRankingTests
@@ -88,6 +90,50 @@ public sealed class LoadedTypeSearchRankingTests
 
         Assert.Single(hits);
         Assert.Equal("shared", hits[0].Key);
+    }
+
+    [Fact]
+    public void Rank_FuzzyIncludesMinimumSimilarity()
+    {
+        Assert.Equal(0.5, TypeMatcher.NameSimilarity("Abcd", "Abef"));
+
+        Hit[] hits = LoadedTypeSearchRanking.Rank(
+            "Abef",
+            [
+                new("threshold", "Abcd", "Example.Abcd"),
+                new("below", "Wxyz", "Example.Wxyz"),
+            ],
+            static (key, kind) => new Hit(key, kind));
+
+        Hit hit = Assert.Single(hits);
+        Assert.Equal("threshold", hit.Key);
+        Assert.Equal(LoadedTypeSearchMatchKind.Fuzzy, hit.Kind);
+    }
+
+    [Fact]
+    public void Rank_FuzzyLimitsDistinctNames()
+    {
+        LoadedTypeSearchCandidate[] candidates =
+        [
+            .. Enumerable.Range(0, 10)
+                .Select(index =>
+                    new LoadedTypeSearchCandidate(
+                        index.ToString(),
+                        $"TargetNam{index}",
+                        $"Example.TargetNam{index}")),
+        ];
+
+        Hit[] hits = LoadedTypeSearchRanking.Rank(
+            "TargetName",
+            candidates,
+            static (key, kind) => new Hit(key, kind));
+
+        Assert.Equal(8, hits.Length);
+        Assert.All(
+            hits,
+            hit => Assert.Equal(
+                LoadedTypeSearchMatchKind.Fuzzy,
+                hit.Kind));
     }
 
     private sealed record Hit(
