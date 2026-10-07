@@ -1153,7 +1153,8 @@ internal static class MethodQuerySource
         MethodDefinitionSourceRequest<TResult> request,
         AssemblyInspectionSubjectIdentity subject,
         string sourceName,
-        PEReader peReader)
+        PEReader peReader,
+        AssemblyReferenceBindingAccess? referenceBinding = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(subject);
@@ -1166,7 +1167,8 @@ internal static class MethodQuerySource
                 sourceName,
                 peReader,
                 request.Breadth,
-                request.TerminalWorkLimits);
+                request.TerminalWorkLimits,
+                referenceBinding);
         ProducerResult<TResult> result =
             interim.ResultOf(request.Producer);
         WorkReceipt workReceipt = interim.Receipt;

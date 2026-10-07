@@ -60,6 +60,14 @@ public enum MethodDefinitionLayers
     /// memo and the values read in place.
     /// </summary>
     HiddenAttribute = 256,
+
+    /// <summary>
+    /// Reference binding: owner-issued, read-only resolution of declarations in
+    /// the assemblies the subject references. It implies
+    /// <see cref="ModuleLookup"/> and is available only when the operation's
+    /// access carries it.
+    /// </summary>
+    ReferenceBinding = 512,
 }
 
 /// <summary>
@@ -304,7 +312,9 @@ internal interface IMethodDefinitionProducer
 public readonly ref struct MethodDefinitionView
 {
     const MethodDefinitionLayers DomainLayers =
-        MethodDefinitionLayers.Body | MethodDefinitionLayers.ModuleLookup;
+        MethodDefinitionLayers.Body
+        | MethodDefinitionLayers.ModuleLookup
+        | MethodDefinitionLayers.ReferenceBinding;
 
     readonly ref MethodDefinitionUnit _unit;
     readonly MethodDefinitionExecution.ProducerState? _producer;

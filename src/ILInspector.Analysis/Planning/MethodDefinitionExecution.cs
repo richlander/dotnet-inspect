@@ -1,3 +1,4 @@
+using ILInspector.Metadata;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -94,14 +95,16 @@ public sealed class MethodDefinitionExecution
         string sourceName,
         PEReader peReader,
         MethodDefinitionSourceBreadth breadth,
-        MethodDefinitionTerminalWorkLimits terminalWorkLimits)
+        MethodDefinitionTerminalWorkLimits terminalWorkLimits,
+        AssemblyReferenceBindingAccess? referenceBinding = null)
         => Execute(
             description,
             sourceName,
             peReader,
             breadth,
             terminalWorkLimits,
-            tracksSourceCoverage: true);
+            tracksSourceCoverage: true,
+            referenceBinding);
 
     static MethodDefinitionExecution Execute(
         WorkDescription description,
@@ -109,7 +112,8 @@ public sealed class MethodDefinitionExecution
         PEReader peReader,
         MethodDefinitionSourceBreadth breadth,
         MethodDefinitionTerminalWorkLimits terminalWorkLimits,
-        bool tracksSourceCoverage)
+        bool tracksSourceCoverage,
+        AssemblyReferenceBindingAccess? referenceBinding = null)
     {
         ArgumentNullException.ThrowIfNull(description);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
@@ -142,8 +146,18 @@ public sealed class MethodDefinitionExecution
             (FieldsRead(description) & MethodDefinitionLayers.IdentityText) != 0);
 
         bool lookupDeclared = false;
+        bool referenceBindingDeclared = false;
         foreach (ProducerState state in execution._states)
+        {
             lookupDeclared |= state.HasLookupLayer;
+            referenceBindingDeclared |= state.HasReferenceBindingLayer;
+        }
+        if (referenceBindingDeclared && referenceBinding is null)
+        {
+            throw new ProducerContractException(
+                "A producer declared reference binding but the operation "
+                + "access carries none.");
+        }
         bool generatedExpansion =
             breadth.Expansion.HasFlag(
                 MethodDefinitionSourceExpansion.GeneratedExecutionBodies);
@@ -161,6 +175,8 @@ public sealed class MethodDefinitionExecution
                 sourceName,
                 reader,
                 peReader,
+                bindingPolicy: referenceBinding?.Policy,
+                rootAssembly: referenceBinding?.Subject,
                 generatedExpansionWork: expansionWork)
             : null;
         execution._lookup =
@@ -410,6 +426,13 @@ public sealed class MethodDefinitionExecution
                 bool lookupDeclared = false;
                 foreach (ProducerState state in lane._states)
                     lookupDeclared |= state.HasLookupLayer;
+                if (lane._states.Any(
+                        static state => state.HasReferenceBindingLayer))
+                {
+                    throw new ProducerContractException(
+                        "A request-set lane declared reference binding, "
+                        + "which request-set execution does not carry.");
+                }
                 if (lookupDeclared)
                 {
                     builders[laneIndex] =
@@ -1432,7 +1455,9 @@ public sealed class MethodDefinitionExecution
             if (state.HasLookupLayer)
             {
                 layers.Add(new ProducerLayerParticipation(
-                    nameof(MethodDefinitionLayers.ModuleLookup),
+                    state.HasReferenceBindingLayer
+                        ? nameof(MethodDefinitionLayers.ReferenceBinding)
+                        : nameof(MethodDefinitionLayers.ModuleLookup),
                     state.LookupUses));
             }
 
@@ -1537,7 +1562,12 @@ public sealed class MethodDefinitionExecution
             (layers & MethodDefinitionLayers.Body) != 0;
 
         public bool HasLookupLayer { get; } =
-            (layers & MethodDefinitionLayers.ModuleLookup) != 0;
+            (layers
+                & (MethodDefinitionLayers.ModuleLookup
+                    | MethodDefinitionLayers.ReferenceBinding)) != 0;
+
+        public bool HasReferenceBindingLayer { get; } =
+            (layers & MethodDefinitionLayers.ReferenceBinding) != 0;
 
         public bool IsActive { get; set; } = true;
 

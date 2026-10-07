@@ -29,7 +29,8 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
         MetadataReader reader,
         IAssemblyReferenceResolver? resolver,
         LibraryBodyRootSnapshot? rootSnapshot,
-        IAssemblyBindingPolicy? bindingPolicy = null)
+        IAssemblyBindingPolicy? bindingPolicy = null,
+        ResolvedAssemblyReference? rootAssembly = null)
     {
         _reader = reader;
         if ((resolver is not null || bindingPolicy is not null)
@@ -38,6 +39,10 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
             if (rootSnapshot is not null)
             {
                 _rootAssembly = rootSnapshot.Assembly;
+            }
+            else if (rootAssembly is not null)
+            {
+                _rootAssembly = rootAssembly;
             }
             else
             {

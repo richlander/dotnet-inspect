@@ -211,6 +211,45 @@ traversal, early stop, executor equivalence, and exact source-work receipts.
 Type and Member sources remain with their respective owners and may use
 different row vocabularies or terminals.
 
+### Reference binding access
+
+Some producers answer a question about an assembly by consulting metadata of
+the assemblies it references; async-sibling analysis resolves a synchronous
+callee's declaring type, and a `FooAsync` candidate on it, in another
+assembly. Reference binding is therefore an owner-issued capability of the
+operation access, in the same role as the subject's image. It is not an
+ambient resolver, a path probe, or acquisition performed by a producer.
+
+`AssemblyInspectionOperationAccess` may carry one
+`AssemblyReferenceBindingAccess`: the subject's own
+`ResolvedAssemblyReference` and the `IAssemblyBindingPolicy` the issuing owner
+selected for that subject. The issuer is the
+[Workspace-backed universe provider](analysis-universe-realization.md) or an
+equivalent owner. Selection follows
+[Structured type-forwarding resolution](type-forwarding-resolution.md), and
+any acquisition happens before execution under the
+[Assembly Reference Resolution Ladder](assembly-reference-resolution-ladder.md)
+that produced the Workspace generation. The binding is read-only for one
+synchronous invocation; a producer never acquires, replaces a generation, or
+mutates a policy.
+
+A producer declares that it needs the capability through the
+`ReferenceBinding` layer of Producer Planning (see
+[Method Query Source](method-query-source.md#reference-binding)). When any
+planned producer declares it and the access carries none, the service rejects
+the operation with `ReferenceBindingUnavailable` before a producer runs. A
+producer never silently degrades to same-assembly evidence, because absence of
+a finding would then be indistinguishable from an unresolved reference.
+
+Within an invocation, a reference that the policy cannot select, selects
+ambiguously, or cannot read is a typed, per-body producer diagnostic. It never
+becomes a negative finding. A policy snapshot that changes during the
+invocation fails the execution, as it does for the existing binding-policy
+resolver.
+
+The detached execution retains no binding access, policy, resolved
+assembly, or referenced reader.
+
 ## Planning and execution boundaries
 
 Operation construction succeeds only after Producer Planning closes and
@@ -355,6 +394,13 @@ The first implementation adoption supplies these Release gates:
 - `AssemblyAnalysisService_SequentialReferenceMatchesInterimExecutor`
 - `AssemblyAnalysisOperation_PreservesOwnerIssuedSourceKinds`
 
+The reference-binding capability is verified only by these Release gates,
+which are **unverified** until its first adopter lands:
+
+- `AssemblyAnalysisService_RejectsMissingReferenceBinding`
+- `AssemblyAnalysisService_PassesReferenceBindingToDeclaringProducers`
+- `AssemblyAnalysisExecution_ContainsNoReferenceBindingAuthority`
+
 Those gates now run with the unsafe-evidence production adoption. The operator
 selected partial behavioral coverage for
 `AssemblyAnalysisExecution_ContainsNoLiveSubjectAuthority`: it disposes the
@@ -397,6 +443,8 @@ method-source work so one cost cannot hide the other.
 - No `AnalysisHouse`, universal service interface, service locator, or
   dependency-injection requirement.
 - No new acquisition, cache, session, realization, or persistent-state owner.
+- No acquisition, binding-policy mutation, or generation replacement during
+  producer execution; reference binding is consumed, never driven.
 - No universal assembly, Type, Member, or Method source vocabulary.
 - No Analysis-owned request collapse, source optimizer, or scheduler.
 - No broad producer result, metric bundle, or type-keyed result bag.
