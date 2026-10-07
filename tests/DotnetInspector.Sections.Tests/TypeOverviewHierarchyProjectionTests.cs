@@ -174,6 +174,71 @@ public sealed partial class TypeOverviewDocumentInspectionOperationTests
         await library.RetireAsync();
     }
 
+    [Fact]
+    public async Task
+        HierarchyProjection_RejectsFinalContinuedRowsPage()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        TypeOverviewDocument document =
+            Available(
+                Execute(
+                    library,
+                    rows: new(maximumRows: 4)));
+        TypeMemberGroupRowsOutcome.Read rows =
+            Assert.IsType<TypeMemberGroupRowsOutcome.Read>(
+                document.Members.Rows);
+        TypeMemberGroupContinuation continuation =
+            Assert.IsType<TypeMemberGroupContinuation>(
+                rows.Continuation);
+
+        Assert.Throws<ArgumentException>(
+            () => new TypeOverviewDocumentInspectionPlan(
+                document.Subject.Type,
+                new(
+                    maximumRows: 3,
+                    continuation: continuation),
+                s_bounds,
+                hierarchy: CompactHierarchy()));
+
+        do
+        {
+            document =
+                Available(
+                    Execute(
+                        library,
+                        rows: new(
+                            maximumRows: 3,
+                            continuation: continuation)));
+            rows =
+                Assert.IsType<TypeMemberGroupRowsOutcome.Read>(
+                    document.Members.Rows);
+            continuation = rows.Continuation!;
+        }
+        while (rows.Continuation is not null);
+
+        Assert.NotEmpty(rows.Items);
+        Assert.All(
+            rows.Items,
+            static row => Assert.True(row.BaselineOrdinal > 1));
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(
+                () => TypeOverviewHierarchyProjection.Write(
+                    document,
+                    CompactHierarchy(),
+                    new RecordingHierarchySink()));
+
+        Assert.Contains(
+            "population origin",
+            exception.Message,
+            StringComparison.Ordinal);
+        await library.RetireAsync();
+    }
+
     private static InspectionHierarchyRequest<
         TypeOverviewHierarchyTopology> CompactHierarchy() =>
         new(

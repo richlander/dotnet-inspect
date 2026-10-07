@@ -86,6 +86,21 @@ public static class TypeOverviewHierarchyProjection
         InspectionHierarchyRequest<TypeOverviewHierarchyTopology> request) =>
         _ = GetValidatedRows(document, request);
 
+    public static void ValidateDocument(
+        TypeOverviewDocument document,
+        InspectionHierarchyRequest<TypeOverviewHierarchyTopology> request,
+        TypeMemberGroupPopulationRequest members)
+    {
+        _ = GetValidatedRows(document, request);
+        ArgumentNullException.ThrowIfNull(members);
+        ValidateRequest(request, members, nameof(members));
+        if (!Matches(document.Members.Binding, members))
+        {
+            throw new InvalidOperationException(
+                "The Type overview hierarchy document population binding does not match the selected presentation plan.");
+        }
+    }
+
     private static TypeMemberGroupRowsOutcome.Read GetValidatedRows(
         TypeOverviewDocument document,
         InspectionHierarchyRequest<TypeOverviewHierarchyTopology> request)
@@ -99,10 +114,13 @@ public static class TypeOverviewHierarchyProjection
                 ? read
                 : throw new InvalidOperationException(
                     "The Type document member-group Rows are unavailable.");
-        if (rows.Continuation is not null)
+        if (rows.Continuation is not null
+            || rows.Items.Length > 0
+                && rows.Items.All(
+                    static row => row.BaselineOrdinal > 1))
         {
             throw new InvalidOperationException(
-                "A Type overview hierarchy requires complete member-group Rows.");
+                "A Type overview hierarchy requires complete member-group Rows from the population origin.");
         }
         if (rows.Items.Any(
                 static row => !row.ExactMemberCount.HasValue))
@@ -139,7 +157,23 @@ public static class TypeOverviewHierarchyProjection
                 "A compact Type overview hierarchy requires exact-Member Counts for every member-group Row.",
                 parameterName);
         }
+        if (rows.Continuation is not null)
+        {
+            throw new ArgumentException(
+                "A compact Type overview hierarchy does not admit continued member-group Rows.",
+                parameterName);
+        }
     }
+
+    private static bool Matches(
+        TypeMemberGroupPopulationBinding binding,
+        TypeMemberGroupPopulationRequest members) =>
+        members.Rows is { } rows
+        && binding.Spelling == members.Spelling
+        && binding.IncludeHidden == members.IncludeHidden
+        && binding.Accessibility == members.Accessibility
+        && binding.Receiver == members.Receiver
+        && binding.Ordering == rows.Ordering;
 
     private static void ValidateRequestShape(
         InspectionHierarchyRequest<TypeOverviewHierarchyTopology> request,

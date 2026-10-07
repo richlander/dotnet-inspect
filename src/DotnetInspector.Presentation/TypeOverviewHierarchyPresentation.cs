@@ -88,7 +88,8 @@ public static class TypeOverviewHierarchyPresentation
         ArgumentNullException.ThrowIfNull(output);
         TypeOverviewHierarchyProjection.ValidateDocument(
             document,
-            plan.Hierarchy);
+            plan.Hierarchy,
+            plan.Members);
 
         string root =
             FormatTypeDeclaration(

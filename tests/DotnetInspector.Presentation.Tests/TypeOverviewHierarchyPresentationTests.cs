@@ -164,6 +164,38 @@ public class TypeOverviewHierarchyPresentationTests
         Assert.Empty(output.ToString());
     }
 
+    [Theory]
+    [InlineData(TypeOverviewHierarchyPresentationFormat.Tree)]
+    [InlineData(TypeOverviewHierarchyPresentationFormat.Mermaid)]
+    public void PopulationPolicyMismatch_IsRejectedBeforeOutput(
+        TypeOverviewHierarchyPresentationFormat format)
+    {
+        TypeOverviewDocument document =
+            Document(
+                "Widget",
+                accessibility:
+                    TypeMemberGroupAccessibilityFilter.All,
+                includeHidden: true);
+        TypeOverviewHierarchyPresentationPlan plan =
+            TypeOverviewHierarchyPresentation.CreateCompactPlan(
+                format,
+                includeNonPublic: false);
+        using var output = new StringWriter();
+
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(
+                () => TypeOverviewHierarchyPresentation.Write(
+                    document,
+                    plan,
+                    output));
+
+        Assert.Contains(
+            "population binding",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Empty(output.ToString());
+    }
+
     [Fact]
     public void TypeSpelling_PreservesNoncanonicalBacktick()
     {
@@ -193,7 +225,10 @@ public class TypeOverviewHierarchyPresentationTests
     private static TypeOverviewDocument Document(
         string typeSegment,
         string? genericParameter = null,
-        bool partial = false)
+        bool partial = false,
+        TypeMemberGroupAccessibilityFilter accessibility =
+            TypeMemberGroupAccessibilityFilter.Public,
+        bool includeHidden = false)
     {
         MetadataTypeDefinitionName type =
             Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
@@ -242,8 +277,8 @@ public class TypeOverviewHierarchyPresentationTests
                 type,
                 typeDefinitionToken,
                 TypeMemberGroupSpelling.CSharp,
-                includeHidden: false,
-                TypeMemberGroupAccessibilityFilter.Public,
+                includeHidden,
+                accessibility,
                 TypeMemberGroupReceiverFilter.All,
                 TypeMemberGroupOrdering.Metadata);
         ImmutableArray<TypeMemberGroupShape> rows =
