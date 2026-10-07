@@ -896,7 +896,7 @@ whole-closure negative claim.
 
 The inventory is keyed by physical body.
 [Unsafe member findings](unsafe-member-findings.md) own its attribution to
-source-declared members, their exposure, and census completeness.
+declared members, their exposure, and census completeness.
 
 ### `ILInspector.Research`
 

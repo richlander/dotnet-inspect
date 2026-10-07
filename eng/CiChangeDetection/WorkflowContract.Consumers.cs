@@ -71,6 +71,20 @@ internal static partial class WorkflowContract
         ValidateRequiredRunStep(
             jobs,
             "test",
+            "Run portable query tests",
+            "dotnet run --project tests/DotnetInspector.PortableQueries.Tests -c Release " +
+            "--no-build -- --filter-not-trait \"Speed=Slow\" --minimum-expected-tests 1300");
+        ValidateRequiredRunStep(
+            jobs,
+            "test",
+            "Run producer-capability adopter tests",
+            "dotnet run --project tests/DotnetInspector.Sections.Tests -c Release " +
+            "--no-build -- --filter-class 'DotnetInspector.Sections.Tests.PackageChildrenInspectionTests' " +
+            "--filter-class 'DotnetInspector.Sections.Tests.QuerySpaceSectionRowCompositionTests' " +
+            "--filter-not-trait \"Speed=Slow\" --minimum-expected-tests 22");
+        ValidateRequiredRunStep(
+            jobs,
+            "test",
             "Run InertText tests",
             "dotnet run --project tests/InertText.Tests -c Release --no-build");
         ValidateRequiredRunStep(
