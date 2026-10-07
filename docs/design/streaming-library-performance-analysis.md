@@ -166,19 +166,23 @@ of once for the whole assembly — not their shape or meaning.
 
 ```text
 AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(...)
-  (today: one synchronous call; returns the complete, already-ranked,
-   already-capped member list — no mid-call observability exists; see
-   Prerequisite)
+  (today: one synchronous call; returns the complete ranking, unrestricted by
+   Browser navigability or the triage cap — no mid-call observability
+   exists; see Prerequisite)
   -> [future, gated on the prerequisite]
        cooperative compute-phase wrapper
          after each bounded interval of producer-reported progress:
            yield Progress(visited, total, best-effort preview)
              [advisory, replaceable; never a durable Item]
-  -> once the complete ranked, capped result is known
-       cooperative publication wrapper
-         for each member in the final list, in final rank order:
-           yield Item(member)        [durable; already-final, never replaced]
-           after each bounded batch: await a cooperative suspension point
+  -> existing Browser projection (PackagePerformanceAsync, unchanged):
+       navigable-surface filtering, then ApplyPerformanceMemberLimit
+       -> the existing final, navigable, ranked, 200-member-capped
+          BrowserPerformanceMember[] — this design does not move, skip, or
+          duplicate this step; it only changes what happens to its output
+  -> cooperative publication wrapper
+       for each member in that final capped array, in its existing order:
+         yield Item(member)        [durable; already-final, never replaced]
+         after each bounded batch: await a cooperative suspension point
   -> engine-to-browser async event-stream adapter
        existing ordering, credit, cancellation, and completion rules
   -> Browser callback
@@ -191,6 +195,12 @@ AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(...)
        identical to today's single-call result; it does not recompute or
        re-derive totals from the admitted Item rows
 ```
+
+The navigable-surface filter and `ApplyPerformanceMemberLimit` cap run exactly
+where they run today, between the synchronous query result and the array
+`PackagePerformanceAsync` currently returns in one piece. This design only
+replaces that one-piece return with the cooperative publication wrapper
+below; it does not relocate, skip, or re-derive the filter or the cap.
 
 ### Prerequisite: per-member compute observability
 
@@ -291,8 +301,9 @@ implementation must show:
 
 - an automated test that, for an assembly whose final ranked list has more
   than one member, the publication wrapper emits one Item event per member in
-  exactly the final list's order, set, and count, for both a boundary input at
-  the existing 200-member triage cap and an input below it;
+  exactly the final list's order, set, and count, for an input with more than
+  200 navigable public results (exercising `ApplyPerformanceMemberLimit`
+  truncation) and for an input below that cap;
 - an automated test that Completed's `NonPublicOpportunities` and
   `TotalOpportunities` values are bit-for-bit identical, for the same input,
   to the existing synchronous `AssemblyContextOptimizationOpportunitiesResult`
