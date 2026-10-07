@@ -4217,10 +4217,11 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
       await catalogGate;
       await route.fulfill({ contentType: "application/json", body: JSON.stringify(catalog) });
     });
+    let jsonVersion = "9.0.0";
     await context.route("https://azuresearch-usnc.nuget.org/**", route => {
       const query = new URL(route.request().url()).searchParams.get("q");
       const versions: Readonly<Record<string, string>> = {
-        "System.Linq": "4.3.0", "System.Text.Json": "9.0.0",
+        "System.Linq": "4.3.0", "System.Text.Json": jsonVersion,
         "Microsoft.AspNetCore.Http": "2.2.2", "Microsoft.Extensions.Logging": "9.0.0",
         "Aspire.Hosting": "9.0.0",
       };
@@ -4252,6 +4253,8 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
     const libraryHit = page.locator('[data-sl-framework-lib="System.Linq"]');
     await expect(libraryHit.locator('[aria-label="Library: .NET Runtime"]')).toBeVisible();
     await expect(libraryHit.locator(".spotlight-pruned")).toHaveCount(0);
+    const pairOrder = await page.locator("[data-sl-framework-lib=\"System.Linq\"], [data-sl-pkg-load=\"System.Linq\"]").evaluateAll(elements => elements.map(element => element.hasAttribute("data-sl-framework-lib") ? "Library" : "Package"));
+    expect(pairOrder).toEqual(["Library", "Package"]);
     await expect(packageHit.locator('.sl-package-icon')).toHaveCount(0);
     await expect(packageHit.locator('[role="img"]')).toHaveCount(1);
     await expect(libraryHit.locator('[role="img"]')).toHaveCount(1);
@@ -4267,7 +4270,7 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
     }))).toMatchObject({ width: 20, mask: expect.stringContaining("data:image/svg+xml") });
     await expect(page.locator(".spotlight-group").filter({ hasText: /^Ecosystem$/ })).toHaveCount(1);
     await expect(packageHit).toContainText("Package");
-    await expect(page.locator('[data-sl-framework-lib="System.Linq"]')).toContainText(".NET library");
+    await expect(page.locator('[data-sl-framework-lib="System.Linq"]')).toContainText(".NET Runtime · Library");
     expect(packs).toEqual([]);
     await expect(search).toBeFocused();
     expect(await packageHit.evaluate((element, original) => element === original, originalControl)).toBe(true);
@@ -4296,6 +4299,18 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
         await expect(page.locator(`[data-sl-framework-lib="${id}"]`).getByRole("img", { name: "Library: ASP.NET Core", exact: true })).toBeVisible();
       }
     }
+    jsonVersion = "11.0.0-preview.7.26381.103";
+    const newerPage = await context.newPage();
+    await newerPage.goto("/");
+    const newerSearch = newerPage.locator("#spotlight-input");
+    await expect(newerSearch).toBeEditable({ timeout: 120_000 });
+    await newerSearch.fill("System.Text.Json");
+    await expect(newerPage.locator('[data-sl-pkg-load="System.Text.Json"]')).toContainText(jsonVersion);
+    const newerPair = newerPage.locator('[data-sl-framework-lib="System.Text.Json"], [data-sl-pkg-load="System.Text.Json"]');
+    await expect(newerPair.first()).toHaveAttribute("data-sl-pkg-load", "System.Text.Json");
+    await expect(newerPage.locator('[data-sl-framework-lib="System.Text.Json"]')).toContainText(".NET Runtime · Library");
+    await expect(newerPage.locator('[data-sl-pkg-load="System.Text.Json"] [aria-label="Package: .NET Runtime"]')).toBeVisible();
+    await expect(newerPair.locator(".spotlight-pruned")).toHaveCount(0);
     expect(packs).toEqual([]);
   });
 });

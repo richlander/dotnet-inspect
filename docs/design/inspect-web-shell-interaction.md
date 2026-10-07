@@ -542,8 +542,11 @@ the shared [ecosystem classifier](ecosystem-packs.md#package-classification-for-
 join those framework Library observations in one transient `Ecosystem` group.
 The group is a presentation category, distinct from the planned Ecosystems
 search scope. Package and Library subjects retain separate activation identities
-even when their names match. This first adoption preserves order within the
-group; calendar-date ordering is the next metadata slice tracked by #9513.
+even when their names match. For a same-named Package and platform Library pair,
+the platform Library precedes a pruned Package. Otherwise the higher version
+leads, using shared NuGet version precedence; ties put the platform Library first.
+Unavailable comparison preserves the existing order. Unrelated observations
+retain their order. Calendar-date metadata remains the next slice tracked by #9513.
 
 Classification is a resource-free annotation helper in the Package facade,
 following `ClassifyPackageGraphIdentities`, rather than an inspection or
@@ -562,8 +565,9 @@ place of its kind icon. A platform Library always uses its normal ecosystem icon
 or the existing Library icon as fallback, even when it supplies a pruned Package.
 Pruning applies to the Package, not to the supplying Library. False or unavailable
 comparisons do not produce pruning glyphs.
-Accessible glyph labels preserve Package or Library kind; text metadata retains
-source disclosure. Ecosystem icons consume the classifier's owning identity, or
+Accessible glyph labels preserve Package or Library kind. Text metadata names
+the ecosystem consistently before the subject kind, such as `.NET Runtime ·
+Package` and `.NET Runtime · Library`, while retaining source disclosure. Ecosystem icons consume the classifier's owning identity, or
 the framework Library's known source family. There is no trailing icon rail.
 Kind and status glyphs follow the structural-salience icon
 language. The four ecosystem marks use the operator-selected original

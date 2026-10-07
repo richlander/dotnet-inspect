@@ -9,7 +9,7 @@ const hits: SpotlightResult[] = [{ kind: "pkg-nuget", hit: { id: "System.Text.Js
 const target: PlatformCatalogTarget = { tfm: "net10.0", version: "10.0.12", rows: [], supplies: [] };
 const annotation: BrowserEcosystemPackageClassification = {
   id: "System.Text.Json", version: "9.0.0", ecosystemId: "ecosystem.runtime",
-  ecosystemTitle: ".NET Runtime", platformLayer: "DotNetRuntime", isPruned: true,
+  ecosystemTitle: ".NET Runtime", platformLayer: "DotNetRuntime", isPruned: true, platformVersionComparison: -1,
 };
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 

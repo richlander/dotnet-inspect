@@ -83,6 +83,7 @@ export function createSpotlightEcosystemClassification(options: {
               isPruned: annotation.isPruned,
               traversalTfm,
               platformVersion: target?.version ?? null,
+              platformVersionComparison: annotation.platformVersionComparison,
             } }
           : result;
       });

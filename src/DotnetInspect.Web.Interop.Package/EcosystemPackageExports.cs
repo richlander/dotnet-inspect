@@ -46,7 +46,12 @@ public static partial class PackageExports
             var platform = (result as EcosystemPackageResult.Known)?.Package.PlatformOwnedInfo;
             return new BrowserEcosystemPackageClassification(
                 candidate.Id, candidate.Version, ecosystem?.Id.Value, ecosystem?.Title,
-                platform?.LayerName, platform?.IsPruned);
+                platform?.LayerName, platform?.IsPruned,
+                ecosystem is not null && candidate.Version is not null && input is not null
+                    && string.Equals(input.Tfm, traversalTfm, StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(input.Version)
+                    ? PackageVersionPrecedence.Compare(candidate.Version, input.Version)
+                    : null);
         })];
         return JsonSerializer.Serialize(
             results, BrowserPackageJsonContext.Default.BrowserEcosystemPackageClassificationArray);
