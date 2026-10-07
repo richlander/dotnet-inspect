@@ -71,8 +71,11 @@ internal sealed class AnalysisLibraryBodyUseProducer
             return new(fact, view.Terminal);
         }
         catch (Exception exception)
-            when (LibraryMethodAnalysisRunner
-                .IsRecoverableMethodFailure(exception))
+            when (exception
+                    is not
+                        MethodDefinitionTerminalWorkLimitExceededException
+                && LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(exception))
         {
             return new(
                 BodyTypeUseMethodFact.Unavailable(
