@@ -1,3 +1,4 @@
+import { createSpotlightEcosystemClassification } from "./spotlight-ecosystem.ts";
 import {
   accessibilityFilterIncludingType,
   activeSourceOperationKind,
@@ -341,7 +342,11 @@ import {
 } from "./overview-surface.ts";
 import { renderPackageInfo } from "./package-info.ts";
 import { renderPackageVulnerabilities } from "./package-vulnerabilities.ts";
-import { renderLibraryReferencesSurface } from "./library-references.ts";
+import {
+  createWorkspaceLibraryReferenceCandidates,
+  renderLibraryReferencesSurface,
+  resolveLibraryReferenceDestinations,
+} from "./library-references.ts";
 import { renderLibraryIntegrationsSurface } from "./library-integrations.ts";
 import {
   bindAnalysisTabs,
@@ -852,6 +857,7 @@ let inspectLoadRuntimePack: EngineClient["package"]["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly:
   EngineClient["package"]["loadRuntimePackAssembly"];
 let inspectPlatformVersions: EngineClient["package"]["getPlatformVersions"];
+let classifyEcosystemPackages: EngineClient["package"]["classifyEcosystemPackages"];
 let inspectPlatformCatalog: EngineClient["package"]["getPlatformCatalog"];
 let inspectPrefetchPlatformPacks:
   EngineClient["package"]["prefetchPlatformPacks"];
@@ -1074,6 +1080,7 @@ async function loadEngineModule() {
       loadRuntimePack: inspectLoadRuntimePack,
       loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
       getPlatformVersions: inspectPlatformVersions,
+      classifyEcosystemPackages,
       getPlatformCatalog: inspectPlatformCatalog,
       prefetchPlatformPacks: inspectPrefetchPlatformPacks,
       packageCacheStats: inspectPackageCacheStats,
@@ -5042,6 +5049,7 @@ const spotlight = createSpotlight({
   highlightRanges,
   kindIcon,
   searchResults: spotlightResults,
+  ecosystemError: () => spotlightEcosystemClassification.error(),
   pickResult: pickSpotlightResult,
   removeResult: removeSpotlightPackage,
   executeCommand,
@@ -10674,6 +10682,17 @@ function renderLibraryReferences() {
   const fresh = state.packageDependenciesKey === current;
   const library = selectedLibrary();
   const pkg = currentPackage();
+  const references =
+    fresh && state.packageDependencies
+      && state.packageDependencies.assemblyReferences
+      && typeof state.packageDependencies.assemblyReferences !== "string"
+      ? state.packageDependencies.assemblyReferences.references
+      : [];
+  const candidates = state.packages.flatMap(candidatePackage =>
+    createWorkspaceLibraryReferenceCandidates(
+      packageIdentityKey(candidatePackage),
+      packageLibrariesForModel(candidatePackage),
+      candidatePackage.assemblies));
   return renderLibraryReferencesSurface({
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
     assetPath: library?.asset ?? "",
@@ -10681,6 +10700,9 @@ function renderLibraryReferences() {
     loading: state.packageDependenciesLoading && fresh,
     error: fresh ? state.packageDependenciesError : "",
     data: fresh ? state.packageDependencies : null,
+    referenceDestinations: resolveLibraryReferenceDestinations(
+      references,
+      candidates),
     escapeHtml,
   });
 }
@@ -13025,6 +13047,18 @@ const packageViewActions: PackageViewBindingActions = {
     showContentDetailAfterRender();
     render();
   },
+  onLibraryReferenceSelect: (packageKey, libraryId) => {
+    if (!packageKey || !libraryId) return;
+    const target = state.packages.find(candidate =>
+      packageIdentityKey(candidate) === packageKey);
+    if (!target) return;
+    if (state.package !== target)
+      selectWorkspacePackage(target, { renderSelection: false });
+    else navigationSequence.begin();
+    if (!selectLibrarySubject(libraryId)) return;
+    showContentDetailAfterRender();
+    render();
+  },
   onRuntimeIdentifierPackageLoad: (packageId, packageVersion) => {
     if (!packageId || !packageVersion) return;
     observeAsync(
@@ -15147,6 +15181,19 @@ function frameworkLibrarySpotlightResults(query: string): SpotlightResult[] {
   return results;
 }
 
+const spotlightEcosystemClassification = createSpotlightEcosystemClassification({
+  classify: (tfm, candidates, inventory) => classifyEcosystemPackages(tfm, candidates, inventory),
+  updateResults: () => spotlight.updateResults(),
+});
+
+function annotateSpotlightEcosystems(results: SpotlightResult[]): SpotlightResult[] {
+  if (!state.engineReady) return results;
+  const target = selectedPlatformTarget();
+  const traversalTfm = state.platformSelection?.tfm ?? state.platformIndex?.defaultFramework;
+  if (!traversalTfm) return results;
+  return spotlightEcosystemClassification.project(results, traversalTfm, target);
+}
+
 function spotlightResults(): SpotlightResult[] {
   const query = state.spotlightQuery.trim();
   const spotlightScope = state.spotlightScope;
@@ -15199,7 +15246,7 @@ function spotlightResults(): SpotlightResult[] {
           ranges: [[0, parsedPackageQuery.packageId.length]],
         });
       }
-      return results;
+      return annotateSpotlightEcosystems(results);
     }
     const loaded = spotlightLoadedPackageMatches(query).slice(0, all ? 3 : 20);
     for (const match of loaded) results.push({ kind: "pkg-loaded", pkg: match.pkg, ranges: match.ranges });
@@ -15275,7 +15322,7 @@ function spotlightResults(): SpotlightResult[] {
   if (all) {
     results.push(...frameworkLibrarySpotlightResults(query).slice(0, 5));
   }
-  return results;
+  return annotateSpotlightEcosystems(results);
 }
 
 interface NugetSearchResult {
@@ -27156,7 +27203,7 @@ window.__platformIndex = loadPlatformIndex();
 observeAsync(
   window.__platformIndex.then(index => {
     if (index) state.platformIndex = index;
-    if (state.spotlightOpen) spotlight.refresh();
+    if (state.spotlightOpen || state.home) spotlight.refresh();
     return undefined;
   }),
   "Loading the platform index");

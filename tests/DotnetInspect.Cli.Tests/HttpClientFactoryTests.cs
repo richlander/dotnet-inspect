@@ -16,7 +16,7 @@ public sealed class HttpClientFactoryGuardCollection;
 /// Tests for HttpClientFactory shared instance behavior.
 /// </summary>
 [Collection("HttpClientFactoryGuard")]
-public class HttpClientFactoryTests : IDisposable
+public partial class HttpClientFactoryTests : IDisposable
 {
     private readonly string _cacheDir = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-http-client-tests-{Guid.NewGuid():N}");
 
@@ -140,6 +140,7 @@ public class HttpClientFactoryTests : IDisposable
 
         SocketsHttpHandler transport =
             Assert.IsType<SocketsHttpHandler>(current);
+        Assert.Equal(0, transport.MaxResponseDrainSize);
         Assert.False(transport.UseCookies);
         Assert.Null(transport.Credentials);
         Assert.False(transport.PreAuthenticate);

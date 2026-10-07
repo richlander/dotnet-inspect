@@ -154,6 +154,94 @@ public class PipelineStageTests
     }
 
     [Fact]
+    public void RunWithAnalysisReceipts_ReusesBranchTargetsThroughEmissionTail()
+    {
+        using var source = MetadataSource.Open(
+            typeof(PdbScopeFixtures).Assembly.Location);
+        var receipted = IrImporter.Import(
+            source,
+            typeof(PdbScopeFixtures).FullName!,
+            nameof(PdbScopeFixtures.SequentialScopeLocalsWithEntryAndInternalLabels))!;
+        var plain = IrImporter.Import(
+            source,
+            typeof(PdbScopeFixtures).FullName!,
+            nameof(PdbScopeFixtures.SequentialScopeLocalsWithEntryAndInternalLabels))!;
+        var observed = IrImporter.Import(
+            source,
+            typeof(PdbScopeFixtures).FullName!,
+            nameof(PdbScopeFixtures.SequentialScopeLocalsWithEntryAndInternalLabels))!;
+
+        var receipts = IrPasses.RunWithAnalysisReceipts(receipted);
+        IrPasses.Run(plain);
+        int tailStart = IrPasses.Default
+            .Select((pass, index) => (pass, index))
+            .Single(pair => pair.pass is StoreElementReceiverInliningPass)
+            .index;
+        HashSet<int>? targetsBeforeTail = null;
+        var passesWithSnapshot = IrPasses.Default.ToList();
+        passesWithSnapshot.Insert(
+            tailStart,
+            new BranchTargetSnapshotPass(
+                targets => targetsBeforeTail = [.. targets]));
+        IrPasses.Run(
+            observed,
+            passesWithSnapshot.ToImmutableArray());
+
+        Assert.Equal(IrPrinter.Dump(plain), IrPrinter.Dump(receipted));
+        Assert.Equal(IrPrinter.Dump(plain), IrPrinter.Dump(observed));
+        Assert.True(
+            Assert.IsType<HashSet<int>>(targetsBeforeTail).SetEquals(
+                ReferenceOwnership.CollectBranchTargets(observed)));
+        Assert.True(
+            Assert.IsAssignableFrom<IReadOnlySet<int>>(
+                plain.ZeroInitializedLocals).SetEquals(
+                    Assert.IsAssignableFrom<IReadOnlySet<int>>(
+                        receipted.ZeroInitializedLocals)));
+        Assert.Equal(
+        [
+            "store-element-receiver-inlining",
+            "pdb-scope-entry-locals",
+            "pdb-local-scopes",
+            "checked-integer-operand",
+            "reference-coalesce-binding",
+            "reference-conditional-binding",
+            "primitive-join-binding",
+            "coercion-insertion",
+            "residual-slot-binding",
+            "scalar-self-update",
+            "parameter-name-allocation",
+            "definite-assignment",
+        ], receipts.Select(receipt => receipt.PassName));
+        Assert.All(
+            receipts,
+            receipt =>
+            {
+                Assert.Equal(
+                    IrPasses.Default[receipt.Ordinal - 1].Name,
+                    receipt.PassName);
+                Assert.Equal(0, receipt.Generation);
+                Assert.Equal(
+                    PassAnalysisDisposition.Preserved,
+                    receipt.Disposition);
+            });
+        Assert.Equal(
+        [
+            PassAnalysisAcquisition.Constructed,
+            PassAnalysisAcquisition.Reused,
+            PassAnalysisAcquisition.Reused,
+            PassAnalysisAcquisition.None,
+            PassAnalysisAcquisition.None,
+            PassAnalysisAcquisition.None,
+            PassAnalysisAcquisition.None,
+            PassAnalysisAcquisition.None,
+            PassAnalysisAcquisition.None,
+            PassAnalysisAcquisition.None,
+            PassAnalysisAcquisition.None,
+            PassAnalysisAcquisition.Reused,
+        ], receipts.Select(receipt => receipt.Acquisition));
+    }
+
+    [Fact]
     public void RunWithAnalysisReceipts_InvalidationForcesConstruction()
     {
         var function = ImportFixture(nameof(CfgSampleClass.Add));
@@ -331,6 +419,19 @@ public class PipelineStageTests
             if (throwAfterRequest)
                 throw new ExpectedPassException();
         }
+    }
+
+    sealed class BranchTargetSnapshotPass(
+        Action<IReadOnlySet<int>> capture) : IIrPass
+    {
+        public string Name => "branch-target-snapshot";
+
+        public PassAnalysisKind PreservedAnalyses
+            => PassAnalysisKind.BranchTargets;
+
+        public void Run(IrFunction function, PassContext context)
+            => capture(
+                ReferenceOwnership.CollectBranchTargets(function));
     }
 
     sealed class UndeclaredBranchTargetAnalysisPass : IIrPass

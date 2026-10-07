@@ -359,6 +359,17 @@ public sealed record BrowserPackageCacheStats(
     long EntryStoreWrites,
     string? EntryStoreError);
 
+public sealed record BrowserEcosystemPackageCandidate(string Id, string? Version);
+
+public sealed record BrowserEcosystemPackageSupply(string Family, string Package, string Version);
+
+public sealed record BrowserEcosystemPackageInventory(
+    string Tfm, string Version, BrowserEcosystemPackageSupply[]? Supplies);
+
+public sealed record BrowserEcosystemPackageClassification(
+    string Id, string? Version, string? EcosystemId, string? EcosystemTitle,
+    string? PlatformLayer, bool? IsPruned);
+
 public sealed record BrowserPlatformCatalog(
     string Tfm,
     string Version,
@@ -1377,6 +1388,9 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageIconInspection))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
+[JsonSerializable(typeof(BrowserEcosystemPackageCandidate[]))]
+[JsonSerializable(typeof(BrowserEcosystemPackageInventory))]
+[JsonSerializable(typeof(BrowserEcosystemPackageClassification[]))]
 [JsonSerializable(typeof(BrowserPlatformCatalog))]
 [JsonSerializable(typeof(BrowserPackageQueryCatalog))]
 [JsonSerializable(typeof(BrowserPackageQueryTerm[]))]

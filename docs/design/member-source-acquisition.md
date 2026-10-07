@@ -2,18 +2,20 @@
 
 ## Owner and claim
 
-`DotnetInspector.Queries` owns the retained-member authored acquisition handoff.
+`DotnetInspector.Queries` owns exact-member Library admission and publication
+into the shared member Source envelope.
 
-> Settle authored source for one independently resolved retained member through
-> SourceHouse, preserve its typed attempt and provenance together with symbols
-> needed by the caller, and publish only after owned cleanup and query-currency
-> checks complete.
+> Admit one independently resolved member's exact Library content, transfer one
+> matching operation lease to SourceHouse for the requested source demand, and
+> publish its detached typed attempts and provenance only after owned cleanup
+> and query-currency checks complete.
 
 This is an internal composition boundary shared by ordinary member Source,
 same-member authored/decompiled comparison, and selected-member source pairs.
 It does not own their selection or comparison policies.
 [Ordinary Source](source-finding-producers.md#consumer-boundaries) prefers
-complete verified authored source and otherwise attempts decompilation.
+complete verified authored source and otherwise attempts decompilation through
+SourceHouse `BestAvailable`.
 [Same-member comparison](member-source-comparison-query.md) attempts both.
 [Member pairs](member-source-pair-query.md) compare verified authored declarations
 without decompilation. Those contracts remain unchanged.
@@ -21,16 +23,25 @@ without decompilation. Those contracts remain unchanged.
 Supporting owners supply exact Metadata identity, upstream PDB acquisition,
 the assembly-context Library adapter, Library/Artifact lifetime, SourceHouse
 authored settlement, and authorized source-byte capabilities. This handoff
-does not redefine those owners, add transport, or implement House-owned
-decompiler fallback.
+does not redefine those owners or add transport.
 
 ## Acquisition and publication
 
-One acquired Portable PDB is used for authored settlement and, when the
-caller needs decompilation, retained as detached bytes for that producer.
-Embedded symbols remain embedded for Library admission; external symbols
-retain independent companion provenance. A second symbol acquisition is not
-needed to run the caller's fallback or comparison.
+One acquired Portable PDB is used for authored settlement and possible
+decompilation. For ordinary Source, SourceHouse receives the companion with
+the selected assembly and performs authored-first fallback under one
+transferred Library lease. Same-member comparison still deliberately invokes
+both producers and retains its Library operation across those separate
+attempts. Embedded symbols remain embedded for Library admission; external
+symbols retain independent companion provenance. A second symbol acquisition
+is not needed for fallback or comparison.
+
+When upstream PDB opening settles that no Portable PDB is available, ordinary
+Source transfers that typed precondition with the exact-member request.
+SourceHouse still owns `BestAvailable` selection and lease settlement: it
+records authored unavailability without repeating assembly/PDB work, then
+attempts decompilation. The precondition does not override an admitted matching
+companion or House validation.
 
 The acquired SourceLink reader closes before Library admission. The House
 settles its transferred operation lease, then the query retires the Library
@@ -39,10 +50,11 @@ cancellation propagates and binding-policy invalidation remains a query
 failure. No borrowed context group is closed by this operation.
 
 Every published authored attempt retains its native House outcome or terminal
-Library-admission result when that stage was reached. A successful decompiler
-fallback does not erase a failed authored attempt. A House deadline or finite
-bound stays distinguishable from lexical complexity, invalid coordinates,
-missing source, and checksum failure.
+Library-admission result when that stage was reached. Ordinary Source also
+retains its composite `SourceHouseBestAvailableOutcome`; successful
+decompiler fallback does not erase the failed or incomplete authored attempt.
+A House deadline or finite bound stays distinguishable from lexical
+complexity, invalid coordinates, missing source, and checksum failure.
 
 `MemberSourceLimits` and `MemberSourceTimeout` configure ordinary member Source
 and same-member comparison. Their defaults match the existing member-pair
@@ -78,8 +90,11 @@ The immediate adapter-first adoption path now has five deliveries:
 This is a further partial adoption within the twelve-step #6512 migration,
 not completion of its full source-policy matrix. It retires ordinary member
 queries' `PdbSourceHouse.AcquireMemberAsync` composition and shares the pair's
-previously private adapter/House composition. Broader CLI enrichment, House-owned fallback, and full legacy retirement remain
-separate. Type Source adopts the shared handoff in the following
+previously private adapter/House composition. #9449 additionally retires the
+ordinary member query's retained-Library fallback orchestration: SourceHouse
+now owns exact-member `BestAvailable` ordering and one-lease settlement.
+Broader CLI enrichment, type fallback transfer, and full legacy retirement
+remain separate. Type Source adopts the shared handoff in the following
 [type acquisition delivery](type-source-acquisition.md).
 The user approved this bounded member-only slice; both production hosts adopt
 in this delivery.
