@@ -5235,8 +5235,8 @@ internal sealed class BrowserPackage
     }
 
     /// <summary>
-    /// The package's browsable Markdown: a root <c>README.md</c>/<c>PACKAGE.md</c> and any
-    /// <c>*.md</c> under a <c>skills</c> directory. Presence and size only; bodies are served by
+    /// The package's browsable text: a root <c>README.md</c>/<c>PACKAGE.md</c>, the root
+    /// <c>*.nuspec</c> metadata, and any <c>*.md</c> under a <c>skills</c> directory. Presence and size only; bodies are served by
     /// <see cref="ReadDocumentAsync"/>, which accepts only a path from this list, so no caller can
     /// coax an arbitrary entry — an assembly, a signature — out of the package.
     /// </summary>
@@ -5262,6 +5262,7 @@ internal sealed class BrowserPackage
             string? kind =
                 isRoot && fileName.Equals("README.md", StringComparison.OrdinalIgnoreCase) ? "readme"
                 : isRoot && fileName.Equals("PACKAGE.md", StringComparison.OrdinalIgnoreCase) ? "package"
+                : IsNuspecDocumentPath(entry.Path) ? "metadata"
                 : IsSkillDocumentPath(entry.Path) ? "skill"
                 : null;
             if (kind is null)
@@ -5283,7 +5284,7 @@ internal sealed class BrowserPackage
         return
         [
             .. documents
-                .OrderBy(document => document.Kind switch { "readme" => 0, "package" => 1, _ => 2 })
+                .OrderBy(document => document.Kind switch { "readme" => 0, "package" => 1, "skill" => 2, _ => 3 })
                 .ThenBy(document => document.Name, StringComparer.OrdinalIgnoreCase),
         ];
     }
@@ -5454,8 +5455,13 @@ internal sealed class BrowserPackage
                     || fileName.Equals(
                         "PACKAGE.md",
                         StringComparison.OrdinalIgnoreCase))
+            || IsNuspecDocumentPath(path)
             || IsSkillDocumentPath(path);
     }
+
+    static bool IsNuspecDocumentPath(string path) =>
+        !path.Contains('/')
+        && path.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase);
 
     static bool IsSkillDocumentPath(string path)
     {
