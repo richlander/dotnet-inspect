@@ -398,10 +398,24 @@ Each result association records:
 - shared work identity when applicable.
 
 Shared work is recorded once. Per-requirement settlement remains visible. A
-producer failure affects every unsettled requirement whose chosen path depends
-on that provision. Independent settled requirements retain their results under
-the request-set rules. Failure never becomes zero, empty Rows, false, omitted
-association, or an unplanned fallback.
+provision failure affects every requirement whose chosen path depends on that
+provision, including one that settled before the failure, and that
+requirement reports a failure of a provision on its path. When several
+provisions fail, a requirement that depends on more than one may name any of
+them. A producer that must preserve an early-settled result through a later
+failure gives that requirement its own provision. Requirements that do not
+depend on a failed provision retain their results under the request-set rules.
+Failure never becomes zero, empty Rows, false, omitted association, or an
+unplanned fallback.
+
+The
+[producer-capability demand Lean model](models/producer-capability-demand/ProducerCapabilityDemand/FailureRouting.lean)
+proves this rule sound and complete for result validation:
+`any_sound` shows a dependent of any reported failure never reports success,
+and `any_complete` shows every execution that fails several provisions has an
+accepted result set. The previous exact-match rule rejected every outcome when
+two failures shared a dependent
+([#9484](https://github.com/richlander/dotnet-inspect/issues/9484)).
 
 ## Type example
 
