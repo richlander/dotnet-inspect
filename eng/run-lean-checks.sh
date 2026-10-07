@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Checks every Lean model against the build bar in docs/lean-methodology.md:
 # each model pins the repository Lean toolchain, has no package dependencies,
-# ignores its .lake build output, declares no `axiom` and uses no `sorry`, and
-# builds from a clean .lake with no errors or warnings.
+# ignores its .lake build output, and builds from a clean .lake with no errors
+# or warnings (Lean reports every `sorry` as a warning). After the build,
+# eng/lean/CheckAxioms.lean inspects the elaborated modules: no declaration may
+# be an axiom, and every constant may depend only on the standard axioms.
 #
 # Usage: eng/run-lean-checks.sh
 # LEAN_MODEL_ROOTS (space-separated) overrides the model roots; the self-test
@@ -10,6 +12,7 @@
 set -euo pipefail
 
 LEAN_TOOLCHAIN="leanprover/lean4:v4.34.1"
+CHECK_AXIOMS="$(cd "$(dirname "$0")" && pwd)/lean/CheckAxioms.lean"
 read -r -a MODEL_ROOTS <<< "${LEAN_MODEL_ROOTS:-docs/design/models docs/models}"
 
 failures=0
@@ -45,16 +48,6 @@ check_model() {
     return
   fi
 
-  local hit
-  # shellcheck disable=SC2086
-  if hit=$(grep -nE '^[[:space:]]*(private[[:space:]]+|protected[[:space:]]+)?axiom[[:space:]]' $sources); then
-    fail "$dir declares an axiom: ${hit%%$'\n'*}"
-  fi
-  # shellcheck disable=SC2086
-  if hit=$(grep -nw 'sorry' $sources); then
-    fail "$dir uses sorry: ${hit%%$'\n'*}"
-  fi
-
   local log status=0
   log=$(cd "$dir" && rm -rf .lake && lake build 2>&1) || status=$?
   if [ "$status" -ne 0 ]; then
@@ -63,6 +56,19 @@ check_model() {
   elif printf '%s\n' "$log" | grep -qiE '(^|[^a-z])(warning|error):'; then
     printf '%s\n' "$log" >&2
     fail "$dir built with warnings."
+  else
+    local modules=() source module
+    while IFS= read -r source; do
+      module=${source#"$dir"/}
+      module=${module%.lean}
+      modules+=("${module//\//.}")
+    done <<< "$sources"
+    status=0
+    log=$(cd "$dir" && lake env lean --run "$CHECK_AXIOMS" "${modules[@]}" 2>&1) || status=$?
+    if [ "$status" -ne 0 ]; then
+      printf '%s\n' "$log" >&2
+      fail "$dir failed the axiom check."
+    fi
   fi
   rm -rf "$dir/.lake"
 }

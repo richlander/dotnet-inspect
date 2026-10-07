@@ -254,8 +254,10 @@ validation relevant.
 
 The `lean` selection carries no scoped evidence. Lean model content under
 either model root, meaning `.lean` sources and each model's `lakefile.toml`,
-`lean-toolchain`, and `lake-manifest.json`, selects it. So do
-`eng/run-lean-checks.sh`, `eng/test-lean-checks.sh`, and the workflow. The
+`lean-toolchain`, `lake-manifest.json`, and `.gitignore`, selects it. So do
+`eng/run-lean-checks.sh`, `eng/test-lean-checks.sh`,
+`eng/lean/CheckAxioms.lean`, and the workflow. A TLA+ model's `.gitignore`
+also matches, which costs at most one short job. The
 selected job verifies the pinned Lean release archive, self-tests the runner,
 and then checks every model against the build bar in
 [Lean methodology](../lean-methodology.md#build-bar). The model set is small

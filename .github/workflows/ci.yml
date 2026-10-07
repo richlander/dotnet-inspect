@@ -303,12 +303,10 @@ jobs:
           export TLA_CHECK_TIMEOUT_SECONDS=120
           eng/run-tla-checks.sh --changed-files0 < "$scope_file"
 
-  # Keep focused Browser/Wasm platform probes in PR CI. Deep Inspect owns
-  # complete engine, facade, canary, browser, and published-application checks.
   # Upholds the build bar in docs/lean-methodology.md for every Lean model:
-  # the pinned toolchain, no package dependencies, ignored .lake output, no
-  # axiom declarations or sorry, and a clean build with no warnings. All models
-  # are checked because the set is small and each builds in seconds.
+  # the pinned toolchain, no package dependencies, ignored .lake output, a
+  # clean build with no warnings, and no axioms beyond Lean's standard three.
+  # All models are checked because the set is small and each builds in seconds.
   lean:
     needs: changes
     if: fromJSON(needs.changes.outputs.plan).validations.lean
@@ -354,6 +352,8 @@ jobs:
         shell: bash
         run: eng/run-lean-checks.sh
 
+  # Keep focused Browser/Wasm platform probes in PR CI. Deep Inspect owns
+  # complete engine, facade, canary, browser, and published-application checks.
   inspect-web-platform:
     name: inspect-web platform probes
     needs: changes

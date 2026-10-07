@@ -47,12 +47,34 @@ expect() {
 make_model "$work/valid" m "$valid"
 expect valid pass
 
+make_model "$work/comments" m "/-
+axiom free: this model assumes nothing.
+-/
+-- proved without sorry
+$valid"
+expect comments pass
+
 make_model "$work/sorry" m 'theorem fixture_open (n : Nat) : n + 0 = n := by sorry'
-expect sorry fail 'uses sorry'
+expect sorry fail 'built with warnings'
 
 make_model "$work/axiom" m "axiom fixture_assumed : 1 = 2
 $valid"
-expect axiom fail 'declares an axiom'
+expect axiom fail 'declares an axiom: fixture_assumed'
+
+make_model "$work/attributed" m "@[simp] axiom fixture_assumed : (1 : Nat) = 2
+theorem fixture_false : (1 : Nat) = 2 := fixture_assumed"
+expect attributed fail 'uses \[fixture_assumed\]'
+
+make_model "$work/modified" m "noncomputable axiom fixture_assumed : Nat
+$valid"
+expect modified fail 'declares an axiom: fixture_assumed'
+
+make_model "$work/documented" m "/-- An assumption. -/ axiom fixture_assumed : (1 : Nat) = 2
+$valid"
+expect documented fail 'declares an axiom: fixture_assumed'
+
+make_model "$work/native" m 'theorem fixture_native : 2 + 2 = 4 := by native_decide'
+expect native fail 'depends on a non-standard axiom: fixture_native'
 
 make_model "$work/warning" m "theorem fixture_unused (n : Nat) (h : n = n) : n + 0 = n := rfl"
 expect warning fail 'built with warnings'

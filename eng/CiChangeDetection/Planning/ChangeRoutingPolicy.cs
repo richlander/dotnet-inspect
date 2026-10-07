@@ -155,14 +155,17 @@ internal sealed class ChangeRoutingPolicy
             ".github/workflows/ci.yml",
             "eng/run-lean-checks.sh",
             "eng/test-lean-checks.sh",
+            "eng/lean/CheckAxioms.lean",
             "docs/design/models/*.lean",
             "docs/design/models/*/lakefile.toml",
             "docs/design/models/*/lean-toolchain",
             "docs/design/models/*/lake-manifest.json",
+            "docs/design/models/*/.gitignore",
             "docs/models/*.lean",
             "docs/models/*/lakefile.toml",
             "docs/models/*/lean-toolchain",
-            "docs/models/*/lake-manifest.json");
+            "docs/models/*/lake-manifest.json",
+            "docs/models/*/.gitignore");
 
     private void RoutePath(ReadOnlySpan<byte> path, ref RoutingState state)
     {

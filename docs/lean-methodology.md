@@ -116,11 +116,16 @@ Only Lean's standard axioms are acceptable: `propext`, `Classical.choice`, and
 `Quot.sound`. Report the build result and axioms in the PR.
 
 `eng/run-lean-checks.sh` enforces this bar for every model and runs in the
-per-PR `lean` CI job whenever Lean model content or the runner changes. It
-also checks that each model pins the repository toolchain, has no package
-dependencies, and ignores `.lake`. Run it locally from the repository root.
-`eng/test-lean-checks.sh` checks the runner itself. The script cannot check
-which axioms each theorem depends on, so report `#print axioms` in the PR.
+per-PR `lean` CI job whenever Lean model content or the runner changes. Lean
+reports every `sorry` as a warning, so the build check catches it. After the
+build, `eng/lean/CheckAxioms.lean` loads the model's compiled modules and fails
+when a declaration is an axiom or when any constant depends on an axiom
+outside the standard three. Because it inspects the elaborated environment
+rather than source text, it catches every spelling, including attributes,
+modifiers, docstrings, and `native_decide`. The runner also checks that each
+model pins the repository toolchain, has no package dependencies, and ignores
+`.lake`. Run it locally from the repository root; `eng/test-lean-checks.sh`
+checks the runner itself.
 
 ## Evidence limits
 
