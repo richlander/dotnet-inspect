@@ -2,6 +2,7 @@ using System.Reflection.PortableExecutable;
 using System.Reflection.Metadata;
 using System.Text.Json;
 
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using Inspector.Findings;
 using ILInspector.Metadata;
@@ -102,7 +103,7 @@ static class AuthoredSourceHarvest
         public required string AssemblyVersion { get; init; }
         public required Guid ModuleVersionId { get; init; }
         public required string Tfm { get; init; }
-        public required SourceLinkService Source { get; init; }
+        public required AuthoredSourceQuerySession SourceQuery { get; init; }
         public required Queue<RealMethodTargetEnumerator.RealMethodTarget> Candidates { get; init; }
 
         public HarvestIdentity Identity
@@ -139,7 +140,12 @@ static class AuthoredSourceHarvest
         {
             foreach (string assemblyPath in assemblies)
             {
-                var library = await TryOpenLibrary(assemblyPath, httpClient, evil);
+                var library = TryOpenLibrary(
+                    assemblyPath,
+                    httpClient,
+                    fetcher,
+                    evil,
+                    repositoryPaths);
                 if (library is not null)
                     libraries.Add(library);
             }
@@ -182,7 +188,10 @@ static class AuthoredSourceHarvest
                     var candidate = library.Candidates.Dequeue();
                     attempts++;
 
-                    var attempt = await TryHarvestAsync(library, candidate, fetcher, evil, repositoryPaths);
+                    var attempt = await TryHarvestAsync(
+                        library,
+                        candidate,
+                        evil);
                     if (attempt.Record is not { } record)
                     {
                         skipped++;
@@ -226,11 +235,16 @@ static class AuthoredSourceHarvest
         finally
         {
             foreach (var library in libraries)
-                library.Source.Dispose();
+                await library.SourceQuery.DisposeAsync();
         }
     }
 
-    static async Task<LibraryState?> TryOpenLibrary(string assemblyPath, HttpClient httpClient, bool evil)
+    static LibraryState? TryOpenLibrary(
+        string assemblyPath,
+        HttpClient httpClient,
+        SourceFetch fetcher,
+        bool evil,
+        IReadOnlyList<string>? repositoryPaths)
     {
         IReadOnlyList<RealMethodTargetEnumerator.RealMethodTarget> targets;
         try
@@ -251,57 +265,51 @@ static class AuthoredSourceHarvest
             return null;
 
         (string name, string version) = ReadAssemblyIdentity(assemblyPath);
-        SourceLinkService? source = null;
-        bool ownershipTransferred = false;
+        Guid moduleVersionId =
+            ReadModuleVersionId(assemblyPath);
+        string tfm = InferTfm(assemblyPath);
+        var candidates =
+            new Queue<RealMethodTargetEnumerator.RealMethodTarget>(
+                DiversifyByDeclaringType(
+                    targets,
+                    evil));
         try
         {
-            source = SourceLinkService.Open(assemblyPath);
-            await AuthoredRebuildFidelity.AcquirePdbAsync(source, httpClient);
-
-            var state = new LibraryState
+            AuthoredSourceQuerySession sourceQuery =
+                AuthoredSourceQuerySession.Open(
+                    assemblyPath,
+                    httpClient,
+                    fetcher,
+                    repositoryPaths);
+            return new LibraryState
             {
                 AssemblyPath = assemblyPath,
                 AssemblyName = name,
                 AssemblyVersion = version,
-                ModuleVersionId = ReadModuleVersionId(assemblyPath),
-                Tfm = InferTfm(assemblyPath),
-                Source = source,
-                Candidates = new Queue<RealMethodTargetEnumerator.RealMethodTarget>(
-                    DiversifyByDeclaringType(targets, evil)),
+                ModuleVersionId = moduleVersionId,
+                Tfm = tfm,
+                SourceQuery = sourceQuery,
+                Candidates = candidates,
             };
-            ownershipTransferred = true;
-            return state;
         }
         catch (Exception ex) when (
             AuthoredRebuildFidelity.IsPdbAcquisitionFailure(ex))
         {
             Console.Error.WriteLine(
-                $"Warning: harvest skipped '{assemblyPath}' opening SourceLink ({ex.GetType().Name}: {ex.Message}).");
+                $"Warning: harvest skipped '{assemblyPath}' opening its source query ({ex.GetType().Name}: {ex.Message}).");
             return null;
-        }
-        finally
-        {
-            // Own the SourceLinkService until it is handed to a returned LibraryState.
-            // Any failure path (caught transient error, an unlisted exception, or the
-            // Queue/DiversifyByDeclaringType materialization throwing) disposes it here.
-            if (!ownershipTransferred)
-                source?.Dispose();
         }
     }
 
     static async Task<HarvestAttempt> TryHarvestAsync(
         LibraryState library,
         RealMethodTargetEnumerator.RealMethodTarget candidate,
-        SourceFetch fetcher,
-        bool evil,
-        IReadOnlyList<string>? repositoryPaths)
+        bool evil)
         => await TryHarvestAsync(
-            library.Source,
+            library.SourceQuery,
             library.Identity,
             candidate,
-            fetcher,
-            evil,
-            repositoryPaths);
+            evil);
 
     /// <summary>
     /// Attempts one target: acquire its authoritative authored source through the PDB,
@@ -315,32 +323,20 @@ static class AuthoredSourceHarvest
     /// is not eligible for whole-file printer correspondence.</para>
     /// </summary>
     internal static async Task<HarvestAttempt> TryHarvestAsync(
-        SourceLinkService source,
+        AuthoredSourceQuerySession source,
         HarvestIdentity identity,
         RealMethodTargetEnumerator.RealMethodTarget candidate,
-        SourceFetch fetcher,
-        bool evil,
-        IReadOnlyList<string>? repositoryPaths)
+        bool evil)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(candidate);
-        ArgumentNullException.ThrowIfNull(fetcher);
-
-        var subject = new FindingSubject(
-            $"{candidate.Type}::{candidate.Method}#{candidate.Overload}",
-            $"{candidate.Type}.{candidate.Method}");
 
         PdbMemberSourceInspection authored;
         try
         {
-            authored = await PdbMemberSourceAcquisition.AcquireAsync(
-                source,
-                candidate.MetadataToken,
-                candidate.Method,
-                subject,
-                fetcher,
-                repositoryPaths);
+            authored = await source.AcquireAsync(
+                candidate.MetadataToken);
         }
         catch (Exception ex) when (ex is IOException
             or InvalidOperationException
