@@ -410,12 +410,15 @@ count over only the successfully admitted subset.
 
 When the focus context already represents the same exact realized Package
 coordinate as a selected Scope occurrence, the adapter still exercises
-ordinary Package declaration admission but excludes that admitted context from
-the captured candidate population. The exact selected focus context remains
-the sole source occurrence for that Package. Other admitted contexts retain
-Workspace publication order, and the existing hierarchy operation preserves
-canonical rows when equal-looking logical Types arise from distinct exact
-source occurrences.
+ordinary Package declaration admission. For a direct focus context, population
+capture excludes only the admitted assembly occurrence with the same exact
+assembly identity and module version; sibling assemblies from that Package
+remain candidates. For an already admitted Package Scope focus, ordinary
+context identity prevents duplicate capture. The exact selected focus context
+remains the sole occurrence of its physical assembly source. Other admitted
+members retain Workspace publication order, and the existing hierarchy
+operation preserves canonical rows when equal-looking logical Types arise from
+distinct exact source occurrences.
 
 Composition continuation retains the exact captured population and #9660
 evidence. It does not repeat admission or recapture a later population.

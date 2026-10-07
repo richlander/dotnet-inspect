@@ -29,6 +29,11 @@ public partial class PackageQueryTests
         ];
         (byte[] focusAssembly, Type focusType) =
             BuildPrefixHierarchyFocusAssembly();
+        byte[] focusSibling =
+            BuildPrefixHierarchyAssembly(
+                "Hierarchy.Focus.Sibling",
+                "Hierarchy.Focus.Sibling",
+                focusType);
         byte[] duplicate =
             BuildPrefixHierarchyAssembly(
                 "Hierarchy.Duplicate",
@@ -38,7 +43,8 @@ public partial class PackageQueryTests
         await CommitPrefixHierarchyPackageAsync(
             store,
             focusPackage,
-            focusAssembly);
+            focusAssembly,
+            focusSibling);
         await CommitPrefixHierarchyPackageAsync(
             store,
             firstPackage,
@@ -109,7 +115,7 @@ public partial class PackageQueryTests
                                     rows:
                                         new
                                             SubjectRelationPopulationRowsRequest(
-                                                1)))),
+                                                2)))),
                         MetadataOperationPolicy.Unbounded,
                         cancellationToken:
                             TestContext.Current.CancellationToken))
@@ -124,6 +130,7 @@ public partial class PackageQueryTests
         Assert.Equal(
             "hierarchy.focus",
             focusAdmission.Occurrence.Occurrence.Package.PackageId);
+        Assert.Equal(2, focusAdmission.Context?.Members.Length);
         Assert.All(
             initial.Evidence.Admissions,
             static admission =>
@@ -131,19 +138,27 @@ public partial class PackageQueryTests
                 Assert.True(admission.IsAdmitted);
                 Assert.Null(admission.Failure);
             });
-        Assert.Equal(3, initial.Population.Contexts.Length);
+        Assert.Equal(4, initial.Population.Contexts.Length);
         Assert.Same(
             focusContext.Receipt,
             initial.Population.Contexts[0]);
         Assert.Equal(
-            ["hierarchy.first", "hierarchy.second"],
+            [
+                "hierarchy.focus",
+                "hierarchy.first",
+                "hierarchy.second",
+            ],
             initial.Population.Contexts[1..]
                 .Select(static context =>
                     Assert.IsType<WorkspaceDeclarationRequest.PackageScope>(
                             context.Request)
                         .Occurrence.Occurrence.Package.PackageId));
         Assert.Equal(
-            2,
+            "Hierarchy.Focus.Sibling",
+            Assert.Single(initial.Population.Contexts[1].Members)
+                .AssemblyIdentity.Name);
+        Assert.Equal(
+            3,
             Assert.IsType<SubjectRelationPopulationCountOutcome.Counted>(
                     initial.Inspection.Content.Relations.Count)
                 .Value);
@@ -169,7 +184,7 @@ public partial class PackageQueryTests
                             TestContext.Current.CancellationToken))
                 .Execution;
         Assert.Equal(
-            2,
+            3,
             Assert.IsType<SubjectRelationPopulationCountOutcome.Counted>(
                     countOnly.Inspection.Content.Relations.Count)
                 .Value);
@@ -199,7 +214,7 @@ public partial class PackageQueryTests
                             TestContext.Current.CancellationToken))
                 .Execution;
         Assert.Null(rowsOnly.Inspection.Content.Relations.Count);
-        Assert.Equal(2, rowsOnly.Inspection.Content.Implementers.Length);
+        Assert.Equal(3, rowsOnly.Inspection.Content.Implementers.Length);
         Assert.Null(
             Assert.IsType<SubjectRelationPopulationRowsOutcome.Read>(
                     rowsOnly.Inspection.Content.Relations.Rows)
@@ -241,11 +256,9 @@ public partial class PackageQueryTests
         Assert.IsType<SubjectRelationPopulationCountOutcome.Incomplete>(
             staleScope.Inspection.Content.Relations.Count);
 
-        WorkspaceTypeHierarchyCandidate first =
-            Assert.Single(initial.Inspection.Content.Implementers);
         Assert.Equal(
-            "Duplicate",
-            PrefixHierarchyCandidateName(first));
+            2,
+            initial.Inspection.Content.Implementers.Length);
         SubjectRelationPopulationContinuation continuation =
             Assert.IsType<SubjectRelationPopulationContinuation>(
                 Assert.IsType<SubjectRelationPopulationRowsOutcome.Read>(
@@ -285,14 +298,25 @@ public partial class PackageQueryTests
                             TestContext.Current.CancellationToken))
                 .Execution;
 
-        WorkspaceTypeHierarchyCandidate second =
-            Assert.Single(continued.Inspection.Content.Implementers);
-        Assert.Equal(
-            "Duplicate",
-            PrefixHierarchyCandidateName(second));
+        Assert.Single(continued.Inspection.Content.Implementers);
+        WorkspaceTypeHierarchyCandidate[] candidates =
+        [
+            .. initial.Inspection.Content.Implementers,
+            .. continued.Inspection.Content.Implementers,
+        ];
+        Assert.Contains(
+            candidates,
+            static candidate =>
+                PrefixHierarchyCandidateName(candidate) == "Sibling");
+        WorkspaceTypeHierarchyCandidate[] duplicates =
+        [
+            .. candidates.Where(static candidate =>
+                PrefixHierarchyCandidateName(candidate) == "Duplicate"),
+        ];
+        Assert.Equal(2, duplicates.Length);
         Assert.NotSame(
-            PrefixHierarchyCandidateRegistration(first),
-            PrefixHierarchyCandidateRegistration(second));
+            PrefixHierarchyCandidateRegistration(duplicates[0]),
+            PrefixHierarchyCandidateRegistration(duplicates[1]));
         Assert.Same(initial.Evidence, continued.Evidence);
         Assert.Same(initial.Population, continued.Population);
         Assert.True(continued.IsComplete);
@@ -540,7 +564,8 @@ public partial class PackageQueryTests
     static async Task CommitPrefixHierarchyPackageAsync(
         InMemoryPackageStore store,
         SearchResult package,
-        byte[] assembly)
+        byte[] assembly,
+        params byte[][] additionalAssemblies)
     {
         using var content = new MemoryStream();
         using (var archive = new ZipArchive(
@@ -562,11 +587,24 @@ public partial class PackageQueryTests
                         </package>
                         """));
             }
-            using Stream asset =
+            using (Stream asset =
                 archive.CreateEntry(
                     $"lib/{PrefixScopeFramework}/{package.Id}.dll")
-                .Open();
-            asset.Write(assembly);
+                .Open())
+            {
+                asset.Write(assembly);
+            }
+            for (int index = 0;
+                 index < additionalAssemblies.Length;
+                 index++)
+            {
+                using Stream additional =
+                    archive.CreateEntry(
+                        $"lib/{PrefixScopeFramework}/{package.Id}.Sibling"
+                            + $"{index + 1}.dll")
+                    .Open();
+                additional.Write(additionalAssemblies[index]);
+            }
         }
         content.Position = 0;
 

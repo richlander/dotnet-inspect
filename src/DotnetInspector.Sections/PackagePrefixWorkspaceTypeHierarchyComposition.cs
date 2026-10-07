@@ -416,6 +416,9 @@ public static class PackagePrefixWorkspaceTypeHierarchyComposition
         var admissions =
             ImmutableArray.CreateBuilder<
                 PackagePrefixWorkspaceTypeHierarchyAdmission>();
+        var excludedOccurrences =
+            ImmutableArray.CreateBuilder<
+                WorkspaceDeclarationOccurrence>();
 
         foreach (PackagePrefixWorkspaceCandidateResult candidate
             in request.Realization.Candidates)
@@ -459,8 +462,15 @@ public static class PackagePrefixWorkspaceTypeHierarchyComposition
                 is WorkspacePackageDeclarationAdmissionResult.Admitted
                     admitted)
             {
+                WorkspaceDeclarationOccurrence? excludedFocusSource =
+                    ExcludedFocusSource(
+                        request.FocusContext,
+                        focusMember,
+                        admitted.Admission.Context,
+                        occurrence);
                 bool isFocusSource =
-                    IsFocusSource(
+                    excludedFocusSource is not null
+                    || IsSamePackageScopeFocus(
                         focusMember,
                         occurrence);
                 admissions.Add(new(
@@ -469,10 +479,14 @@ public static class PackagePrefixWorkspaceTypeHierarchyComposition
                     admitted.Admission.Context.Receipt,
                     failure: null,
                     isFocusSource));
-                if (!isFocusSource
-                    && selected.Add(admitted.Admission.Context))
+                if (selected.Add(admitted.Admission.Context))
                 {
                     contexts.Add(admitted.Admission.Context);
+                }
+                if (excludedFocusSource is not null)
+                {
+                    excludedOccurrences.Add(
+                        excludedFocusSource);
                 }
                 continue;
             }
@@ -494,11 +508,12 @@ public static class PackagePrefixWorkspaceTypeHierarchyComposition
                 admissions.ToImmutable());
         return (
             request.Workspace.CaptureDeclarationPopulation(
-                contexts.ToImmutable()),
+                contexts.ToImmutable(),
+                excludedOccurrences.ToImmutable()),
             evidence);
     }
 
-    private static bool IsFocusSource(
+    private static bool IsSamePackageScopeFocus(
         WorkspaceDeclarationMember focus,
         WorkspacePackageOccurrenceDescriptor occurrence) =>
         focus.Origin switch
@@ -507,15 +522,59 @@ public static class PackagePrefixWorkspaceTypeHierarchyComposition
                 ReferenceEquals(
                     package.Occurrence.Occurrence.Identity,
                     occurrence.Occurrence.Identity),
-            WorkspaceDeclarationOrigin.ContextLoad
-            {
-                Realized: RealizedMemberCoordinate.Package package,
-            } =>
-                Equals(
-                    package,
-                    occurrence.Occurrence.Package.Coordinate),
             _ => false,
         };
+
+    private static WorkspaceDeclarationOccurrence?
+        ExcludedFocusSource(
+            WorkspaceDeclarationContext focusContext,
+            WorkspaceDeclarationMember focus,
+            WorkspaceDeclarationContext admittedContext,
+            WorkspacePackageOccurrenceDescriptor occurrence)
+    {
+        if (focus.Origin
+            is not WorkspaceDeclarationOrigin.ContextLoad
+            {
+                Realized: RealizedMemberCoordinate.Package package,
+            }
+            || !Equals(
+                package,
+                occurrence.Occurrence.Package.Coordinate)
+            || focusContext.Group is not { } focusGroup
+            || admittedContext.Group is not { } admittedGroup)
+        {
+            return null;
+        }
+
+        int focusIndex =
+            focusContext.Receipt.Members.IndexOf(focus);
+        if (focusIndex < 0
+            || focusIndex >= focusGroup.Participants.Length)
+        {
+            return null;
+        }
+        Guid? focusModuleVersionId =
+            focusGroup.Participants[focusIndex]
+                .Assembly.Registration.ModuleVersionId;
+        if (focusModuleVersionId is null)
+            return null;
+
+        for (int index = 0;
+             index < admittedContext.Receipt.Members.Length;
+             index++)
+        {
+            WorkspaceDeclarationMember candidate =
+                admittedContext.Receipt.Members[index];
+            if (candidate.AssemblyIdentity == focus.AssemblyIdentity
+                && admittedGroup.Participants[index]
+                    .Assembly.Registration.ModuleVersionId
+                    == focusModuleVersionId)
+            {
+                return candidate.Occurrence;
+            }
+        }
+        return null;
+    }
 
     private static void ValidateContinuation(
         PackagePrefixWorkspaceTypeHierarchyRequest request,
