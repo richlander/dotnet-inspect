@@ -191,6 +191,16 @@ For a scalar declaration:
 - row-query and semantic-selection controls do not target the section; and
 - property/value projection remains governed by the scalar's output owner.
 
+Rows and Count over a selection of several sections therefore target only its
+inventories. A selection whose sections are all scalar, or an implicit default
+selection that includes a scalar, fails visibly before acquisition. An
+explicit selection that mixes scalars with inventories observes the
+inventories alone: the scalars leave that execution rather than contributing a
+field count, and a Count keeps its per-section form because the request named
+several sections. The Library owner adopts this rule first (#9511, operator
+decision 2026-10-06); until another owner adopts it, that owner rejects only a
+lone scalar.
+
 For an inventory declaration:
 
 - structural discovery advertises both Rows and Count;

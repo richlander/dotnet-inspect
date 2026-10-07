@@ -30,10 +30,11 @@ public static class ResourceExplanationCommand
         if (canonicalPath is not null)
         {
             string root = RootSegment(canonicalPath);
+            ResourceExplanationCatalog? rootCatalog = null;
             foreach ((
                          StructuralViewIdentity view,
                          InspectionCatalogIdentity identity)
-                     in ExplainableStructuralRoutes)
+                     in ExactExplanationRoutes)
             {
                 if (StructuralViewRegistry.CatalogPathName(identity) != root)
                     continue;
@@ -47,8 +48,28 @@ public static class ResourceExplanationCommand
                         + "be built.");
                     return 1;
                 }
+
+                // A later route under the same root publishes the sections
+                // the first cannot address, so a path the first route does
+                // not resolve is tried there before it fails.
+                rootCatalog ??= structuralCatalog;
+                if (!structuralCatalog.TryResolveExact(canonicalPath, out _))
+                    continue;
+
                 return ExplainFromCatalog(
                     structuralCatalog,
+                    canonicalPath,
+                    depth,
+                    maximumResults,
+                    format,
+                    envelopeOutput,
+                    outputPath);
+            }
+
+            if (rootCatalog is not null)
+            {
+                return ExplainFromCatalog(
+                    rootCatalog,
                     canonicalPath,
                     depth,
                     maximumResults,
@@ -473,5 +494,20 @@ public static class ResourceExplanationCommand
         (StructuralViewIdentity.MemberType, InspectionCatalogIdentity.ApiMember),
         (StructuralViewIdentity.MemberTarget, InspectionCatalogIdentity.ApiMemberOverload),
         (StructuralViewIdentity.MemberTarget, InspectionCatalogIdentity.ApiMemberDetail),
+    ];
+
+    /// <summary>
+    /// The routes an exact <c>explain</c> path resolves against: the
+    /// explainable routes, then the Library address route, whose coordinate
+    /// sections (the <c>Context:</c> records and <c>Metadata: Heap</c>) the
+    /// direct-Library route cannot address. The address route shares the
+    /// <c>library</c> root, so it stays out of the combined search catalog.
+    /// </summary>
+    private static readonly
+        (StructuralViewIdentity View, InspectionCatalogIdentity Catalog)[]
+        ExactExplanationRoutes =
+    [
+        .. ExplainableStructuralRoutes,
+        (StructuralViewIdentity.LibraryAddress, InspectionCatalogIdentity.Library),
     ];
 }

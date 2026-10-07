@@ -910,6 +910,7 @@ public static class StructuralViewRegistry
                     catalog.Pipeline.GetListedCategoryDoors();
                 catalogHiddenSections =
                     catalog.Pipeline.GetCatalogHiddenSections();
+                sectionShapes = catalog.Sections.SectionShapes;
                 outputCapabilities =
                     LibraryOutputCapabilities.Catalog;
                 sectionCardinalities =
@@ -932,6 +933,7 @@ public static class StructuralViewRegistry
                     catalog.Pipeline.GetListedCategoryDoors();
                 catalogHiddenSections =
                     catalog.Pipeline.GetCatalogHiddenSections();
+                sectionShapes = catalog.Sections.SectionShapes;
                 outputCapabilities =
                     LibraryOutputCapabilities
                         .AggregateCardinalityCatalog;
@@ -1037,6 +1039,11 @@ public static class StructuralViewRegistry
                     pair => pair.Key,
                     pair => pair.Value,
                     StringComparer.OrdinalIgnoreCase);
+            // A section this route cannot address leaves the schema, so its
+            // cardinality declaration leaves with it.
+            sectionCardinalities = FilterCardinalities(
+                sectionCardinalities,
+                schema.SectionNames);
         }
         selectableSections = selectableSections
             .Where(name => schema.SectionNames.Contains(
