@@ -278,6 +278,38 @@ public abstract class WorkspaceImplementationComparisonResult
     public sealed class Cancelled : WorkspaceImplementationComparisonResult;
 }
 
+internal sealed record WorkspaceImplementationComparisonPreparation(
+    WorkspaceResearchTargetPlan Plan,
+    WorkspaceResearchTargetCompositionReceipt Before,
+    WorkspaceResearchTargetCompositionReceipt After,
+    ImmutableArray<WorkspaceTypeForwarderUse> Forwarders);
+
+internal abstract record WorkspaceImplementationComparisonPlanPreparationResult
+{
+    private WorkspaceImplementationComparisonPlanPreparationResult() { }
+
+    internal sealed record Prepared(
+        WorkspaceResearchTargetPlan Plan)
+        : WorkspaceImplementationComparisonPlanPreparationResult;
+
+    internal sealed record Failed(
+        WorkspaceImplementationComparisonResult Result)
+        : WorkspaceImplementationComparisonPlanPreparationResult;
+}
+
+internal abstract record WorkspaceImplementationComparisonPreparationResult
+{
+    private WorkspaceImplementationComparisonPreparationResult() { }
+
+    internal sealed record Prepared(
+        WorkspaceImplementationComparisonPreparation Preparation)
+        : WorkspaceImplementationComparisonPreparationResult;
+
+    internal sealed record Failed(
+        WorkspaceImplementationComparisonResult Result)
+        : WorkspaceImplementationComparisonPreparationResult;
+}
+
 /// <summary>
 /// Composes two caller-designated workspace roots to exact effective Research
 /// targets, then runs the existing local producer session.
@@ -294,159 +326,28 @@ public static class WorkspaceImplementationComparisonQuery
         ArgumentNullException.ThrowIfNull(request);
         try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!TryRetain(
+            WorkspaceImplementationComparisonPreparationResult preparationResult =
+                Prepare(
                     request.Before,
-                    out ImmutableArray<ImplementationComparisonBinding> beforeBindings,
-                    out int failedIndex,
-                    out AssemblyReferenceIdentity? failedAssembly,
-                    out CandidateOpenFailure? failure))
-            {
-                return new WorkspaceImplementationComparisonResult
-                    .ParticipantImageUnavailable(
-                        QueryComparisonSide.Before,
-                        failedIndex,
-                        failedAssembly!,
-                        failure!);
-            }
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!TryRetain(
                     request.After,
-                    out ImmutableArray<ImplementationComparisonBinding> afterBindings,
-                    out failedIndex,
-                    out failedAssembly,
-                    out failure))
-            {
-                return new WorkspaceImplementationComparisonResult
-                    .ParticipantImageUnavailable(
-                        QueryComparisonSide.After,
-                        failedIndex,
-                        failedAssembly!,
-                        failure!);
-            }
-            QueryPopulationSealingOutcome sealing =
-                QueryComparisonPopulationSealer.Execute(
-                    new ImplementationComparisonPopulationRequest(
-                        beforeBindings,
-                        afterBindings));
-            if (sealing is QueryPopulationSealingOutcome.Rejected rejected)
-            {
-                return new WorkspaceImplementationComparisonResult
-                    .PopulationRejected(rejected.Rejection);
-            }
-
-            var population =
-                (QueryComparisonPopulation<ImplementationComparisonBinding>)
-                    ((QueryPopulationSealingOutcome.Sealed)sealing).Population;
-            WorkspaceResearchTargetPlanningOutcome planning =
-                WorkspaceResearchTargetPlanningQuery.Execute(
-                    population,
                     request.DeclaringType,
                     request.Selector,
                     cancellationToken);
-            if (planning is WorkspaceResearchTargetPlanningOutcome.Rejected projection)
+            if (preparationResult is
+                WorkspaceImplementationComparisonPreparationResult.Failed failed)
             {
-                return new WorkspaceImplementationComparisonResult
-                    .ProjectionRejected(projection.Reason);
+                return failed.Result;
             }
-            if (planning is WorkspaceResearchTargetPlanningOutcome.AdmissionRejected admission)
-            {
-                return new WorkspaceImplementationComparisonResult
-                    .AdmissionRejected(admission.Rejection);
-            }
-            if (planning is WorkspaceResearchTargetPlanningOutcome.PlanningRejected planRejected)
-            {
-                return new WorkspaceImplementationComparisonResult
-                    .PlanningRejected(planRejected.Rejection);
-            }
-
-            WorkspaceResearchTargetPlan plan =
-                ((WorkspaceResearchTargetPlanningOutcome.Planned)planning).Plan;
-            WorkspaceResearchTargetCompositionResult beforeResult = plan.Compose(
-                request.Before.Group,
-                request.Before.Root,
-                QueryComparisonSide.Before,
-                request.Before.ResolutionScope,
-                cancellationToken);
-            if (beforeResult is WorkspaceResearchTargetCompositionResult.Unavailable beforeUnavailable)
-            {
-                return new WorkspaceImplementationComparisonResult
-                    .CompositionUnavailable(
-                        QueryComparisonSide.Before,
-                        beforeUnavailable,
-                        completedSide: null,
-                        Forwarders(
-                            QueryComparisonSide.Before,
-                            beforeUnavailable.Evidence,
-                            population));
-            }
-            if (beforeResult is WorkspaceResearchTargetCompositionResult.Rejected beforeRejected)
-            {
-                return new WorkspaceImplementationComparisonResult
-                    .CompositionRejected(
-                        QueryComparisonSide.Before,
-                        beforeRejected,
-                        completedSide: null,
-                        Forwarders(
-                            QueryComparisonSide.Before,
-                            beforeRejected.Evidence,
-                            population));
-            }
-
+            WorkspaceImplementationComparisonPreparation preparation =
+                ((WorkspaceImplementationComparisonPreparationResult.Prepared)
+                    preparationResult).Preparation;
+            WorkspaceResearchTargetPlan plan = preparation.Plan;
             WorkspaceResearchTargetCompositionReceipt before =
-                ((WorkspaceResearchTargetCompositionResult.Composed)beforeResult).Receipt;
-            ImmutableArray<WorkspaceTypeForwarderUse> beforeForwarders =
-                Forwarders(
-                    QueryComparisonSide.Before,
-                    before.Evidence,
-                    population);
-            WorkspaceResearchTargetCompositionResult afterResult = plan.Compose(
-                request.After.Group,
-                request.After.Root,
-                QueryComparisonSide.After,
-                request.After.ResolutionScope,
-                cancellationToken);
-            if (afterResult is WorkspaceResearchTargetCompositionResult.Unavailable afterUnavailable)
-            {
-                return new WorkspaceImplementationComparisonResult
-                    .CompositionUnavailable(
-                        QueryComparisonSide.After,
-                        afterUnavailable,
-                        before,
-                        [
-                            .. beforeForwarders,
-                            .. Forwarders(
-                                QueryComparisonSide.After,
-                                afterUnavailable.Evidence,
-                                population),
-                        ]);
-            }
-            if (afterResult is WorkspaceResearchTargetCompositionResult.Rejected afterRejected)
-            {
-                return new WorkspaceImplementationComparisonResult
-                    .CompositionRejected(
-                        QueryComparisonSide.After,
-                        afterRejected,
-                        before,
-                        [
-                            .. beforeForwarders,
-                            .. Forwarders(
-                                QueryComparisonSide.After,
-                                afterRejected.Evidence,
-                                population),
-                        ]);
-            }
-
+                preparation.Before;
             WorkspaceResearchTargetCompositionReceipt after =
-                ((WorkspaceResearchTargetCompositionResult.Composed)afterResult).Receipt;
+                preparation.After;
             ImmutableArray<WorkspaceTypeForwarderUse> forwarders =
-            [
-                .. beforeForwarders,
-                .. Forwarders(
-                    QueryComparisonSide.After,
-                    after.Evidence,
-                    population),
-            ];
+                preparation.Forwarders;
             ImmutableArray<ResearchTargetCorrespondenceOutcome> correspondences =
             [
                 .. plan.Resolution.Correspondences
@@ -528,6 +429,217 @@ public static class WorkspaceImplementationComparisonQuery
         }
     }
 
+    internal static WorkspaceImplementationComparisonPreparationResult Prepare(
+        WorkspaceImplementationComparisonSide beforeSide,
+        WorkspaceImplementationComparisonSide afterSide,
+        MetadataTypeDefinitionName declaringType,
+        MemberTargetSelector selector,
+        CancellationToken cancellationToken)
+    {
+        WorkspaceImplementationComparisonPlanPreparationResult planResult =
+            PreparePlan(
+                beforeSide,
+                afterSide,
+                declaringType,
+                selector,
+                cancellationToken);
+        if (planResult is
+            WorkspaceImplementationComparisonPlanPreparationResult.Failed failed)
+        {
+            return Failed(failed.Result);
+        }
+        WorkspaceResearchTargetPlan plan =
+            ((WorkspaceImplementationComparisonPlanPreparationResult.Prepared)
+                planResult).Plan;
+        QueryComparisonPopulation<ImplementationComparisonBinding> population =
+            plan.Population;
+        WorkspaceResearchTargetCompositionResult beforeResult = plan.Compose(
+            beforeSide.Group,
+            beforeSide.Root,
+            QueryComparisonSide.Before,
+            beforeSide.ResolutionScope,
+            cancellationToken);
+        if (beforeResult is WorkspaceResearchTargetCompositionResult.Unavailable beforeUnavailable)
+        {
+            return Failed(
+                new WorkspaceImplementationComparisonResult
+                    .CompositionUnavailable(
+                        QueryComparisonSide.Before,
+                        beforeUnavailable,
+                        completedSide: null,
+                        Forwarders(
+                            QueryComparisonSide.Before,
+                            beforeUnavailable.Evidence,
+                            population)));
+        }
+        if (beforeResult is WorkspaceResearchTargetCompositionResult.Rejected beforeRejected)
+        {
+            return Failed(
+                new WorkspaceImplementationComparisonResult
+                    .CompositionRejected(
+                        QueryComparisonSide.Before,
+                        beforeRejected,
+                        completedSide: null,
+                        Forwarders(
+                            QueryComparisonSide.Before,
+                            beforeRejected.Evidence,
+                            population)));
+        }
+
+        WorkspaceResearchTargetCompositionReceipt before =
+            ((WorkspaceResearchTargetCompositionResult.Composed)beforeResult).Receipt;
+        ImmutableArray<WorkspaceTypeForwarderUse> beforeForwarders =
+            Forwarders(
+                QueryComparisonSide.Before,
+                before.Evidence,
+                population);
+        WorkspaceResearchTargetCompositionResult afterResult = plan.Compose(
+            afterSide.Group,
+            afterSide.Root,
+            QueryComparisonSide.After,
+            afterSide.ResolutionScope,
+            cancellationToken);
+        if (afterResult is WorkspaceResearchTargetCompositionResult.Unavailable afterUnavailable)
+        {
+            return Failed(
+                new WorkspaceImplementationComparisonResult
+                    .CompositionUnavailable(
+                        QueryComparisonSide.After,
+                        afterUnavailable,
+                        before,
+                        [
+                            .. beforeForwarders,
+                            .. Forwarders(
+                                QueryComparisonSide.After,
+                                afterUnavailable.Evidence,
+                                population),
+                        ]));
+        }
+        if (afterResult is WorkspaceResearchTargetCompositionResult.Rejected afterRejected)
+        {
+            return Failed(
+                new WorkspaceImplementationComparisonResult
+                    .CompositionRejected(
+                        QueryComparisonSide.After,
+                        afterRejected,
+                        before,
+                        [
+                            .. beforeForwarders,
+                            .. Forwarders(
+                                QueryComparisonSide.After,
+                                afterRejected.Evidence,
+                                population),
+                        ]));
+        }
+
+        WorkspaceResearchTargetCompositionReceipt after =
+            ((WorkspaceResearchTargetCompositionResult.Composed)afterResult).Receipt;
+        return new WorkspaceImplementationComparisonPreparationResult.Prepared(
+            new(
+                plan,
+                before,
+                after,
+                [
+                    .. beforeForwarders,
+                    .. Forwarders(
+                        QueryComparisonSide.After,
+                        after.Evidence,
+                        population),
+                ]));
+    }
+
+    internal static WorkspaceImplementationComparisonPlanPreparationResult
+        PreparePlan(
+            WorkspaceImplementationComparisonSide beforeSide,
+            WorkspaceImplementationComparisonSide afterSide,
+            MetadataTypeDefinitionName declaringType,
+            MemberTargetSelector selector,
+            CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!TryRetain(
+                beforeSide,
+                out ImmutableArray<ImplementationComparisonBinding> beforeBindings,
+                out int failedIndex,
+                out AssemblyReferenceIdentity? failedAssembly,
+                out CandidateOpenFailure? failure))
+        {
+            return PlanFailed(
+                new WorkspaceImplementationComparisonResult
+                    .ParticipantImageUnavailable(
+                        QueryComparisonSide.Before,
+                        failedIndex,
+                        failedAssembly!,
+                        failure!));
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!TryRetain(
+                afterSide,
+                out ImmutableArray<ImplementationComparisonBinding> afterBindings,
+                out failedIndex,
+                out failedAssembly,
+                out failure))
+        {
+            return PlanFailed(
+                new WorkspaceImplementationComparisonResult
+                    .ParticipantImageUnavailable(
+                        QueryComparisonSide.After,
+                        failedIndex,
+                        failedAssembly!,
+                        failure!));
+        }
+        QueryPopulationSealingOutcome sealing =
+            QueryComparisonPopulationSealer.Execute(
+                new ImplementationComparisonPopulationRequest(
+                    beforeBindings,
+                    afterBindings));
+        if (sealing is QueryPopulationSealingOutcome.Rejected rejected)
+        {
+            return PlanFailed(
+                new WorkspaceImplementationComparisonResult
+                    .PopulationRejected(rejected.Rejection));
+        }
+
+        var population =
+            (QueryComparisonPopulation<ImplementationComparisonBinding>)
+                ((QueryPopulationSealingOutcome.Sealed)sealing).Population;
+        WorkspaceResearchTargetPlanningOutcome planning =
+            WorkspaceResearchTargetPlanningQuery.Execute(
+                population,
+                declaringType,
+                selector,
+                cancellationToken);
+        return planning switch
+        {
+            WorkspaceResearchTargetPlanningOutcome.Planned planned =>
+                new WorkspaceImplementationComparisonPlanPreparationResult
+                    .Prepared(planned.Plan),
+            WorkspaceResearchTargetPlanningOutcome.Rejected projection =>
+                PlanFailed(
+                    new WorkspaceImplementationComparisonResult
+                        .ProjectionRejected(projection.Reason)),
+            WorkspaceResearchTargetPlanningOutcome.AdmissionRejected admission =>
+                PlanFailed(
+                    new WorkspaceImplementationComparisonResult
+                        .AdmissionRejected(admission.Rejection)),
+            WorkspaceResearchTargetPlanningOutcome.PlanningRejected
+                planRejected =>
+                PlanFailed(
+                    new WorkspaceImplementationComparisonResult
+                        .PlanningRejected(planRejected.Rejection)),
+            _ => throw new InvalidOperationException(
+                "Unknown workspace Research target planning outcome."),
+        };
+    }
+
+    static WorkspaceImplementationComparisonPreparationResult.Failed Failed(
+        WorkspaceImplementationComparisonResult result)
+        => new(result);
+
+    static WorkspaceImplementationComparisonPlanPreparationResult.Failed
+        PlanFailed(WorkspaceImplementationComparisonResult result)
+        => new(result);
+
     static WorkspaceImplementationComparisonResult.HandoffFailed HandoffFailure(
         WorkspaceImplementationComparisonHandoffFailureKind kind,
         WorkspaceResearchTargetCompositionReceipt before,
@@ -574,7 +686,7 @@ public static class WorkspaceImplementationComparisonQuery
         return true;
     }
 
-    static ImmutableArray<WorkspaceTypeForwarderUse> Forwarders(
+    internal static ImmutableArray<WorkspaceTypeForwarderUse> Forwarders(
         QueryComparisonSide side,
         WorkspaceTypeResolutionEvidence? evidence,
         QueryComparisonPopulation<ImplementationComparisonBinding> population)

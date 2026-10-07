@@ -89,12 +89,17 @@ public partial class SectionPipelineTests
             DiffSections.StructuralContext.Name,
             category.Value,
             StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            DiffSections.AnnotatedSourceDiff.Name,
+            category.Value,
+            StringComparer.OrdinalIgnoreCase);
         Assert.Equal(
             [
                 DiffSections.Summary.Name,
                 DiffSections.Transitions.Name,
                 DiffSections.ComplexityContext.Name,
                 DiffSections.StructuralContext.Name,
+                DiffSections.AnnotatedSourceDiff.Name,
             ],
             DiffSections.ExactOnlySections);
         Assert.Equal(
