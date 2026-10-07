@@ -4293,7 +4293,7 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
       } else {
         await expect(row.getByRole("img", { name: "Package pruned for net10.0", exact: true })).toBeVisible();
         await expect(page.locator(`[data-sl-framework-lib="${id}"] .spotlight-pruned`)).toHaveCount(0);
-        await expect(page.locator(`[data-sl-framework-lib="${id}"]`).getByRole("img", { name: id === "Microsoft.AspNetCore.Http" ? "Library: ASP.NET Core" : "Library: .NET Runtime", exact: true })).toBeVisible();
+        await expect(page.locator(`[data-sl-framework-lib="${id}"]`).getByRole("img", { name: "Library: ASP.NET Core", exact: true })).toBeVisible();
       }
     }
     expect(packs).toEqual([]);
