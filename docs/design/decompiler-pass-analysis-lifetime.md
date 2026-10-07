@@ -182,7 +182,7 @@ pass made no IR change, or that two different analyses share an implementation.
 ## Model evidence
 
 The
-[Decompiler pass analysis lifetime Lean model](../../prototypes/decompiler-pass-analysis-lifetime/)
+[Decompiler pass analysis lifetime Lean model](models/decompiler-pass-analysis-lifetime/)
 proves:
 
 - construction produces a current result;
@@ -192,7 +192,7 @@ proves:
 - checking only the final pass's preservation admits a stale result.
 
 The QuerySpace
-[producer-capability demand pilot](../../prototypes/producer-capability-demand/)
+[producer-capability demand pilot](models/producer-capability-demand/)
 is supporting evidence for owner-defined demand joins and shared read-only
 traversal. It does not own Decompiler analysis generations, pass preservation,
 or invalidation, and the Decompiler product does not depend on QuerySpace

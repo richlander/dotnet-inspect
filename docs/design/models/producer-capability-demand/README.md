@@ -1,10 +1,10 @@
 # Producer-capability demand Lean pilot
 
-This Lean 4 prototype is proof evidence for
+This Lean 4 model is proof evidence for
 [issue #9482](https://github.com/richlander/dotnet-inspect/issues/9482). The
 normative owner remains
-[`query-space-producer-capabilities.md`](../../docs/design/query-space-producer-capabilities.md).
-This prototype changes no product contract or runtime path.
+[`query-space-producer-capabilities.md`](../../query-space-producer-capabilities.md).
+This model changes no product contract or runtime path.
 
 ## Why Lean here
 
@@ -121,10 +121,10 @@ construction.
 
 ## Run
 
-The prototype pins Lean 4.34.1 and has no package dependencies:
+The model pins Lean 4.34.1 and has no package dependencies:
 
 ```bash
-cd prototypes/producer-capability-demand
+cd docs/design/models/producer-capability-demand
 lake build
 ```
 
