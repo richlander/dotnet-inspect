@@ -2,8 +2,6 @@ using System.Net;
 using System.Reflection;
 
 using Inspector.Findings;
-using ILInspector.Metadata;
-using ILInspector.MetadataPrimitives;
 using ILInspector.SourceLink;
 
 namespace DotnetInspector.Services.Tests;
@@ -11,16 +9,12 @@ namespace DotnetInspector.Services.Tests;
 public class LocalRepoSourceAcquisitionIntegrationTests
 {
     [Fact]
-    public async Task ServiceLocalClone_SatisfiesMemberAndTypeSourceWithoutRemoteFetch()
+    public async Task DiagnosticLocalClone_SatisfiesMemberSourceWithoutRemoteFetch()
     {
         string repositoryRoot = FindRepositoryRoot();
-        Type targetType = typeof(VerifiedLocalSourceReadTests);
+        Type targetType = typeof(LocalRepoSourceReadTests);
         MethodInfo targetMethod = targetType.GetMethod(
-            nameof(VerifiedLocalSourceReadTests.ReturnsBytes_WhenChecksumMatches))!;
-        var typeName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
-            MetadataTypeDefinitionName.Create(
-                targetType.Namespace!,
-                [targetType.Name]));
+            nameof(LocalRepoSourceReadTests.ParsesGitHubRawUrl_IntoShaAndPath))!;
         using SourceLinkService source = SourceLinkService.Open(targetType.Assembly.Location);
         var outage = new NetworkOutageHandler();
         using var client = new HttpClient(outage);
@@ -28,7 +22,7 @@ public class LocalRepoSourceAcquisitionIntegrationTests
         var subject = new FindingSubject("local-repo-source", targetType.FullName!);
 
         PdbMemberSourceInspection member =
-            await PdbSourceHouse.AcquireMemberAsync(
+            await PdbMemberSourceAcquisition.AcquireAsync(
                 source,
                 targetMethod.MetadataToken,
                 targetMethod.Name,
@@ -37,36 +31,10 @@ public class LocalRepoSourceAcquisitionIntegrationTests
                 [repositoryRoot],
                 TestContext.Current.CancellationToken,
                 allowLocalSource: false);
-        PdbTypeSourceInspection type =
-            await PdbSourceHouse.AcquireTypeAsync(
-                source,
-                typeName.Name,
-                subject,
-                fetcher,
-                [repositoryRoot],
-                TestContext.Current.CancellationToken,
-                allowLocalSource: false);
-        SourceDocumentObservation document = Assert.IsType<SourceDocumentObservation>(
-            member.Document);
-        VerifiedSourceTextResult projection =
-            await PdbSourceHouse.AcquireVerifiedSourceTextAsync(
-                fetcher,
-                document.OriginalPath,
-                document.ResolvedUrl!,
-                document.ChecksumAlgorithm,
-                Convert.FromHexString(document.Checksum!),
-                [repositoryRoot],
-                TestContext.Current.CancellationToken,
-                allowLocalSource: false);
 
         Assert.IsType<FindingInspection<string>.Complete>(member.Lines.Value);
         Assert.Contains(targetMethod.Name, member.Text, StringComparison.Ordinal);
         Assert.Equal(SourceChecksumVerification.Exact, member.ChecksumVerification);
-        Assert.IsType<FindingInspection<string>.Complete>(type.Lines.Value);
-        Assert.Contains(targetType.Name, type.Text, StringComparison.Ordinal);
-        Assert.Equal(SourceChecksumVerification.Exact, type.ChecksumVerification);
-        Assert.Contains(targetType.Name, projection.Text, StringComparison.Ordinal);
-        Assert.Equal(SourceChecksumVerification.Exact, projection.ChecksumVerification);
         Assert.Equal(0, outage.RequestCount);
     }
 

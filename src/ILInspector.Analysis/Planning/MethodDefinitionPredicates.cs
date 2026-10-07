@@ -245,6 +245,16 @@ public abstract class MethodDefinitionPredicateProducer<TPredicate>
         string unit,
         Exception ex)
     {
+        if (ex is MethodDefinitionTerminalWorkLimitExceededException)
+        {
+            MethodDefinitionExecution.FailSource(
+                state,
+                token,
+                unit,
+                ex);
+            return;
+        }
+
         state.Outcome = ProducerOutcome.Failed;
         state.Failure = new ProducerFailure(token, unit, ProducerFailure.Describe(ex));
         state.IsActive = false;
@@ -587,6 +597,16 @@ public abstract class MethodDefinitionQueryProducer<TPredicate, TProjection, TRo
         string unit,
         Exception ex)
     {
+        if (ex is MethodDefinitionTerminalWorkLimitExceededException)
+        {
+            MethodDefinitionExecution.FailSource(
+                state,
+                token,
+                unit,
+                ex);
+            return;
+        }
+
         state.Outcome = ProducerOutcome.Failed;
         state.Failure = new ProducerFailure(token, unit, $"{ex.GetType().Name}: {ex.Message}");
         state.IsActive = false;

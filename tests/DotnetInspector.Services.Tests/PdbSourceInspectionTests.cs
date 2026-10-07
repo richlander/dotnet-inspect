@@ -15,7 +15,7 @@ using DotnetInspector.SourceHouse;
 namespace DotnetInspector.Services.Tests;
 
 [Collection(PersistentCacheCollection.Name)]
-public class PdbSourceHouseTests
+public class PdbSourceInspectionTests
 {
     static readonly FindingSubject Subject = new("M~source", "Sample.M");
     const string Source = """
@@ -29,20 +29,15 @@ public class PdbSourceHouseTests
         """;
 
     [Fact]
-    public async Task UnresolvedPortablePdbFailsMemberAndTypeInspections()
+    public async Task UnresolvedPortablePdbFailsMemberInspection()
     {
         using SourceLinkService source = OpenSourceNeedingPdb();
         using var client = new HttpClient(new QueueHandler());
         var fetcher = new SourceFetch(
             client,
             new InMemorySourceContentStore());
-        var type = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
-            MetadataTypeDefinitionName.Create(
-                "DotnetInspector.Services.Tests",
-                [nameof(PdbSourceHouseTests)]));
-
         PdbMemberSourceInspection member =
-            await PdbSourceHouse.AcquireMemberAsync(
+            await PdbMemberSourceAcquisition.AcquireAsync(
                 source,
                 0x06000001,
                 "M",
@@ -50,15 +45,6 @@ public class PdbSourceHouseTests
                 fetcher,
                 cancellationToken:
                     TestContext.Current.CancellationToken);
-        PdbTypeSourceInspection typeInspection =
-            await PdbSourceHouse.AcquireTypeAsync(
-                source,
-                type.Name,
-                Subject,
-                fetcher,
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
-
         Assert.Contains(
             "remains unresolved",
             Assert.IsType<FindingInspection<string>.Failed>(
@@ -66,17 +52,10 @@ public class PdbSourceHouseTests
         Assert.Equal(
             PdbMemberSourceOutcome.PortablePdbUnavailable,
             member.Outcome);
-        Assert.Contains(
-            "remains unresolved",
-            Assert.IsType<FindingInspection<string>.Failed>(
-                typeInspection.Lines.Value).Error.Reason);
-        Assert.Equal(
-            PdbTypeSourceOutcome.PortablePdbUnavailable,
-            typeInspection.Outcome);
     }
 
     [Fact]
-    public async Task WindowsPdbIsNoApplicableInputForMemberAndType()
+    public async Task WindowsPdbIsNoApplicableInputForMember()
     {
         using SourceLinkService source = OpenSourceNeedingPdb();
         source.Context.LoadPdbFromStream(new MemoryStream(
@@ -88,13 +67,8 @@ public class PdbSourceHouseTests
         var fetcher = new SourceFetch(
             client,
             new InMemorySourceContentStore());
-        var type = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
-            MetadataTypeDefinitionName.Create(
-                "DotnetInspector.Services.Tests",
-                [nameof(PdbSourceHouseTests)]));
-
         PdbMemberSourceInspection member =
-            await PdbSourceHouse.AcquireMemberAsync(
+            await PdbMemberSourceAcquisition.AcquireAsync(
                 source,
                 0x06000001,
                 "M",
@@ -102,83 +76,15 @@ public class PdbSourceHouseTests
                 fetcher,
                 cancellationToken:
                     TestContext.Current.CancellationToken);
-        PdbTypeSourceInspection typeInspection =
-            await PdbSourceHouse.AcquireTypeAsync(
-                source,
-                type.Name,
-                Subject,
-                fetcher,
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
-
         var memberAbsent =
             Assert.IsType<FindingInspection<string>.Absent>(
                 member.Lines.Value);
-        var typeAbsent =
-            Assert.IsType<FindingInspection<string>.Absent>(
-                typeInspection.Lines.Value);
         Assert.Equal(
             FindingInspectionAbsenceKind.NoApplicableInput,
             memberAbsent.Kind);
         Assert.Equal(
-            FindingInspectionAbsenceKind.NoApplicableInput,
-            typeAbsent.Kind);
-        Assert.Equal(
-            PdbTypeSourceOutcome.SourceMappingUnavailable,
-            typeInspection.Outcome);
-    }
-
-    [Fact]
-    public async Task AcquireTypeAsync_RealPartialTypeUsesSharedDefaultAndPreservesMapping()
-    {
-        string assemblyPath = typeof(SourceLinkService).Assembly.Location;
-        using SourceLinkService source = SourceLinkService.Open(assemblyPath);
-        MetadataTypeDefinitionName type = Assert.IsType<
-            MetadataTypeDefinitionNameResult.Valid>(
-                MetadataTypeDefinitionName.Create(
-                    typeof(SourceLinkService).Namespace!,
-                    [nameof(SourceLinkService)]))
-            .Name;
-        SourceLinkResolver.TypeSourceInfo expectedMapping =
-            Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
-                source.ResolveTypeSource(type));
-        SourceLinkResolver.TypeSourceDocument expectedDocument =
-            Assert.IsType<SourceLinkResolver.TypeSourceDocument>(
-                TypeSourceDocumentSelection.SelectDefault(expectedMapping));
-        byte[] content = await File.ReadAllBytesAsync(
-            Path.Combine(
-                FindRepositoryRoot(),
-                "src",
-                "ILInspector.SourceLink",
-                "SourceLinkService.cs"),
-            TestContext.Current.CancellationToken);
-        var handler = new QueueHandler(content);
-        using var client = new HttpClient(handler);
-        var fetcher = new SourceFetch(
-            client,
-            new InMemorySourceContentStore());
-
-        PdbTypeSourceInspection result =
-            await PdbSourceHouse.AcquireTypeAsync(
-                source,
-                type,
-                Subject,
-                fetcher,
-                cancellationToken:
-                    TestContext.Current.CancellationToken,
-                allowLocalSource: false);
-
-        Assert.IsType<FindingInspection<string>.Complete>(
-            result.Lines.Value);
-        Assert.Equal(PdbTypeSourceOutcome.Complete, result.Outcome);
-        Assert.Equal(1, handler.RequestCount);
-        Assert.Equal(expectedDocument.FilePath, result.Document!.OriginalPath);
-        Assert.Equal(
-            expectedMapping.Documents.Select(document => document.FilePath),
-            result.Mapping!.Documents.Select(document => document.FilePath));
-        Assert.Equal(
-            expectedMapping.Documents.Select(document => document.Checksum),
-            result.Mapping.Documents.Select(document => document.Checksum));
+            PdbMemberSourceOutcome.SourceMappingUnavailable,
+            member.Outcome);
     }
 
     [Fact]
@@ -844,7 +750,7 @@ public class PdbSourceHouseTests
         var mapping = Mapping() with { DocumentRowId = 2 };
 
         SourceDocumentObservation? selected =
-            PdbSourceHouse.SelectMappedDocument(
+            PdbMemberSourceAcquisition.SelectMappedDocument(
                 mapping,
                 [first, second]);
 
@@ -861,7 +767,7 @@ public class PdbSourceHouseTests
             OriginalPath = "/_/Other.cs",
         };
 
-        Assert.Null(PdbSourceHouse.SelectMappedDocument(
+        Assert.Null(PdbMemberSourceAcquisition.SelectMappedDocument(
             mapping,
             [document]));
     }
@@ -944,7 +850,7 @@ public class PdbSourceHouseTests
     static SourceLinkService OpenSourceNeedingPdb()
     {
         byte[] assemblyBytes = File.ReadAllBytes(
-            typeof(PdbSourceHouseTests).Assembly.Location);
+            typeof(PdbSourceInspectionTests).Assembly.Location);
         AssemblyReferenceIdentity identity;
         using (var stream = new MemoryStream(
                    assemblyBytes,

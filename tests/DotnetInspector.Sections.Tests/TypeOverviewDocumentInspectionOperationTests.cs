@@ -314,6 +314,48 @@ public sealed partial class TypeOverviewDocumentInspectionOperationTests
         await library.RetireAsync();
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task
+        RootAdjacencyFailureIsOwnerIssuedBeforePresentation(
+            bool malformedAssemblyReference)
+    {
+        byte[] content =
+            LibraryInspectionTestLibrary
+                .BuildMalformedRootAdjacencyImage(
+                    malformedAssemblyReference);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        InspectionEnvelope<TypeOverviewDocumentInspectionOutcome>
+            inspection =
+                Execute(
+                    library,
+                    new(maximumRows: int.MaxValue),
+                    type: Name("N", "Healthy"));
+
+        _ = Available(inspection);
+        InspectionDiagnostic diagnostic =
+            Assert.Single(inspection.Diagnostics);
+        Assert.Equal(
+            "type-document.root-adjacency-incomplete",
+            diagnostic.Code);
+        Assert.Equal(
+            InspectionDiagnosticSeverity.Error,
+            diagnostic.Severity);
+        Assert.Contains(
+            malformedAssemblyReference
+                ? "AssemblyRef"
+                : "forwarder",
+            diagnostic.Summary.ToString(),
+            StringComparison.OrdinalIgnoreCase);
+
+        await library.RetireAsync();
+    }
+
     private static InspectionEnvelope<
             TypeOverviewDocumentInspectionOutcome>
         Execute(

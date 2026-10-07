@@ -23,7 +23,10 @@ public static class SourceResolver
         string? FrameworkOverride,
         string? TypeName,
         bool VersionError = false,
-        string? VersionErrorMessage = null);
+        string? VersionErrorMessage = null)
+    {
+        internal bool UsedPlatformPrefixFallback { get; init; }
+    }
 
     /// <summary>
     /// Kind of local source found by peel-and-probe.
@@ -33,7 +36,11 @@ public static class SourceResolver
     /// <summary>
     /// Result of a local peel-and-probe: the resolved source name, the remaining suffix, and what kind of source matched.
     /// </summary>
-    internal record LocalProbeResult(string SourceName, string Remainder, LocalSourceKind Kind);
+    internal record LocalProbeResult(
+        string SourceName,
+        string Remainder,
+        LocalSourceKind Kind,
+        bool IsPlatformPrefixFallback = false);
 
     /// <summary>
     /// Determines if a library option is a selector (bare .dll name) vs a full path.
@@ -287,7 +294,11 @@ public static class SourceResolver
         }
 
         return bestDot > 0
-            ? new LocalProbeResult(name[..bestDot], name[(bestDot + 1)..], LocalSourceKind.Platform)
+            ? new LocalProbeResult(
+                name[..bestDot],
+                name[(bestDot + 1)..],
+                LocalSourceKind.Platform,
+                IsPlatformPrefixFallback: true)
             : null;
     }
 
@@ -422,6 +433,7 @@ public static class SourceResolver
         string? platformAssembly = explicitPlatform;
         string? typeName = null;
         string? frameworkOverride = null;
+        bool usedPlatformPrefixFallback = false;
 
         if (hasExplicitSource)
         {
@@ -628,6 +640,8 @@ public static class SourceResolver
                     }
                     if (probe != null)
                     {
+                        usedPlatformPrefixFallback =
+                            probe.IsPlatformPrefixFallback;
                         typeName = probe.Remainder;
                         if (probe.Kind == LocalSourceKind.Platform)
                         {
@@ -643,6 +657,15 @@ public static class SourceResolver
             }
         }
 
-        return new ResolvedSource(packagePath, assemblyPath, platformAssembly, frameworkOverride, typeName);
+        return new ResolvedSource(
+            packagePath,
+            assemblyPath,
+            platformAssembly,
+            frameworkOverride,
+            typeName)
+        {
+            UsedPlatformPrefixFallback =
+                usedPlatformPrefixFallback,
+        };
     }
 }
