@@ -17,7 +17,7 @@ public partial class CommandExecutionTests
         Assert.StartsWith("graph TD\n  n0[\"static class System.Math\"]", output);
         Assert.Contains("n0 --> n1", output);
         Assert.Contains("Methods (", output);
-        Assert.Contains("overloads)", output);
+        Assert.DoesNotContain("overloads", output);
         Assert.DoesNotContain("```", output);
     }
 
@@ -35,7 +35,31 @@ public partial class CommandExecutionTests
         Assert.Equal(normal.Output, explicitTree.Output);
         Assert.StartsWith("static class System.Math\n", normal.Output);
         Assert.Contains("Methods (", normal.Output);
-        Assert.Contains("overloads)", normal.Output);
+        Assert.DoesNotContain("overloads", normal.Output);
+        Assert.DoesNotContain("logical", normal.Output);
+    }
+
+    [Fact]
+    public async Task TypeHierarchy_PlatformFindResolvedType_UsesSameLeafTree()
+    {
+        var shortName = await RunAppAsync("type", "JsonSerializer");
+        var exactName = await RunAppAsync(
+            "type", "System.Text.Json.JsonSerializer");
+
+        Assert.Equal(0, shortName.Exit);
+        Assert.Equal(0, exactName.Exit);
+        Assert.Contains(
+            "resolved via platform find to System.Text.Json.JsonSerializer",
+            shortName.Error,
+            StringComparison.Ordinal);
+        Assert.Equal(exactName.Output, shortName.Output);
+        Assert.StartsWith(
+            "static class System.Text.Json.JsonSerializer\n",
+            shortName.Output,
+            StringComparison.Ordinal);
+        Assert.Contains("─ Deserialize\n", shortName.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("overloads", shortName.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Inherits", shortName.Output, StringComparison.Ordinal);
     }
 
     [Fact]

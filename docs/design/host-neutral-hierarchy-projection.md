@@ -9,21 +9,22 @@ Type Overview and shared presentation are the first adopters under
 [#8430](https://github.com/richlander/dotnet-inspect/issues/8430). The CLI
 adopts the compact profile; Inspect Web adoption remains separate.
 
-The first shared presentation profile is the compact Type hierarchy:
+The first shared presentation profile is the compact Type hierarchy. Under the
+work bound in
+[Primary subject views](primary-subject-views.md#authority-and-exact-claim),
+its default lists MemberGroups as leaves, and category nodes count only
+MemberGroup rows:
 
 ```text
 Type (FullSpelling)
   -> categories (Rows, Name)
     -> MemberGroups (Rows, Name)
-      -> exact Members (Count)
+      -> exact Members (Count, explicit profile only)
 ```
 
-This profile predates the work bound in
-[Primary subject views](primary-subject-views.md#authority-and-exact-claim),
-which removes per-MemberGroup and per-category overload Counts from the Type
-default. The Type document owner adopts that change in its own slice by making
-MemberGroup Rows leaves by default and counting only MemberGroup rows in
-category nodes; the Count profile above remains an explicit request.
+[Type and Member inspection documents](type-member-inspection-documents.md#hierarchy-projection)
+owns the leaf default and the explicit exact-Member Count profile
+([#9722](https://github.com/richlander/dotnet-inspect/issues/9722)).
 
 It can be lowered as Tree or Mermaid without changing the semantic request.
 An expanded Type-to-MemberGroup-to-exact-Member Rows profile waits for the
@@ -263,19 +264,20 @@ thread affinity, retained reader, inspected assembly load, or host UI object.
 
 ## Type Overview first adoption
 
-The compact Type Overview profile requests:
+The default Type Overview profile requests:
 
 ```text
 topology: TypeCategoriesAndMemberGroups
 root: FullSpelling
 children: Rows(Name)          # categories
-  children: Rows(Name)        # MemberGroups
-    children: Count           # exact Members
+  children: Rows(Name)        # MemberGroups (leaves)
 ```
 
-The Type owner requires complete MemberGroup Rows with exact-Member Counts,
-then pushes category and MemberGroup nodes in owner-issued order. It rejects
-unavailable, partial, uncounted, or unsupported requests before presentation.
+An explicit profile adds `children: Count` beneath MemberGroups for exact-Member
+Counts. The Type owner requires complete MemberGroup Rows whose Counts match
+the requested profile, then pushes category and MemberGroup nodes in
+owner-issued order. It rejects unavailable, partial, mismatched, or unsupported
+requests before presentation.
 
 Shared presentation owns both initial lowerings:
 
@@ -315,7 +317,8 @@ The first adoption proves:
   independently represented;
 - the Type owner rejects request shapes its compact document cannot satisfy;
 - Tree and Mermaid lower the same owner-issued node sequence and identities;
-- Count branches do not materialize exact-Member Rows;
+- Count branches do not materialize exact-Member Rows, and the leaf default
+  requests no exact-Member Count;
 - Tree streaming constructs no Markout `TreeNode`;
 - the shared presentation path contains no transport-host routing or
   destination policy;

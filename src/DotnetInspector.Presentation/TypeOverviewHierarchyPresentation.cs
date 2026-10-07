@@ -64,6 +64,12 @@ public static class TypeOverviewHierarchyPresentation
             presentation.Hierarchy);
     }
 
+    /// <summary>
+    /// Creates the default Type hierarchy plan: the Type, its member
+    /// categories, and each category's MemberGroups by Name as leaves. The
+    /// default requests no exact-Member Counts; overloads belong to the inner
+    /// <c>member</c> command.
+    /// </summary>
     public static TypeOverviewHierarchyPresentationPlan CreateCompactPlan(
         TypeOverviewHierarchyPresentationFormat format,
         bool includeNonPublic)
@@ -78,7 +84,7 @@ public static class TypeOverviewHierarchyPresentation
                 rows: new TypeMemberGroupRowsRequest(
                     TypeOverviewHierarchyPresentationPlan
                         .MaximumMemberGroupRows,
-                    includeExactMemberCount: true),
+                    includeExactMemberCount: false),
                 spelling: TypeMemberGroupSpelling.CSharp,
                 accessibility: accessibility,
                 includeHidden: includeNonPublic);
@@ -91,9 +97,7 @@ public static class TypeOverviewHierarchyPresentation
                 new InspectionHierarchyPopulationRequest.Rows(
                     InspectionHierarchyNodeSpelling.Name,
                     new InspectionHierarchyPopulationRequest.Rows(
-                        InspectionHierarchyNodeSpelling.Name,
-                        new InspectionHierarchyPopulationRequest
-                            .Count())));
+                        InspectionHierarchyNodeSpelling.Name)));
         return new(format, declarations, hierarchy);
     }
 
@@ -209,9 +213,10 @@ public static class TypeOverviewHierarchyPresentation
         };
 
         return IsOverloadGrouped(category.Value)
-            && category.LogicalCount != category.ExactMemberCount
+            && category.ExactMemberCount is { } exactMemberCount
+            && category.LogicalCount != exactMemberCount
                 ? $"{noun} ({category.LogicalCount} logical, "
-                    + $"{category.ExactMemberCount} overloads)"
+                    + $"{exactMemberCount} overloads)"
                 : $"{noun} ({category.LogicalCount})";
     }
 
@@ -220,12 +225,10 @@ public static class TypeOverviewHierarchyPresentation
         string name =
             CSharpIdentifier.ContainRenderedText(
                 member.Binding.Name.ToString());
-        if (!IsOverloadGrouped(member.Binding.Category))
-            return name;
-        if (member.ExactMemberCount is not { } exactMemberCount)
+        if (!IsOverloadGrouped(member.Binding.Category)
+            || member.ExactMemberCount is not { } exactMemberCount)
         {
-            throw new InvalidOperationException(
-                "A Type overview hierarchy member is missing its exact-member Count.");
+            return name;
         }
 
         return exactMemberCount > 1

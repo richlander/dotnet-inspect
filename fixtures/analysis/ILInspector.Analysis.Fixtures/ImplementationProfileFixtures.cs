@@ -96,6 +96,19 @@ public static class GeneratedUnsafeEvidenceSample
     }
 }
 
+public static class GeneratedExpansionNestedSourceSample
+{
+    public static class Inner
+    {
+        public static async Task<int> NestedAsync(int value)
+        {
+            await Task.Yield();
+            return System.Runtime.CompilerServices.Unsafe.As<int, int>(
+                ref value);
+        }
+    }
+}
+
 public static class GeneratedExpansionAsyncSiblingSample
 {
     public static async Task<int> FirstAsync(int value)

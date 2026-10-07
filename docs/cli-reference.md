@@ -1601,10 +1601,23 @@ fallback.
 
 An exact `type` target with no competing operation or projection defaults to
 the compact public Type hierarchy; `--tree` explicitly selects the same Tree
-profile. `--all` includes non-public and hidden Member groups. `--mermaid`
-selects a standalone `graph TD` over that same Type, category, and Member-group
-hierarchy, with exact overload Counts rather than expanded overload signatures.
-It requires one exact Type and cannot be combined with discovery, match,
+profile. A short name that platform find resolves to one exact Type, such as
+`type JsonSerializer`, renders the same Tree. The Tree lists one row per Member
+group under its category, and a category counts its Member groups. It shows no
+overload Counts; use `member <Type> <Name>` for a Member group's overloads.
+
+```text
+static class System.Text.Json.JsonSerializer
+├─ Properties (1)
+│  └─ IsReflectionEnabledByDefault
+└─ Methods (10)
+   ├─ Deserialize
+   └─ …
+```
+
+`--all` includes non-public and hidden Member groups. `--mermaid` selects a
+standalone `graph TD` over that same Type, category, and Member-group
+hierarchy. It requires one exact Type and cannot be combined with discovery, match,
 listing/glob/namespace-prefix targets, member filters, row or line windows,
 verbosity-driven output, another format, or a selected section. It fails with
 no stdout when compact inspection is unavailable (including managed
