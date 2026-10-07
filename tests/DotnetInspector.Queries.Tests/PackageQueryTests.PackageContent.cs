@@ -220,6 +220,9 @@ public partial class PackageQueryTests
                 bothVersions[0].Evidence[^1],
                 "settings-version"));
         Assert.Equal(
+            ["v1", "v2"],
+            bothVersions.Select(item => Assert.Single(item.Answers).Value));
+        Assert.Equal(
             "2",
             EvidenceProperty(
                 bothVersions[1].Evidence[^1],

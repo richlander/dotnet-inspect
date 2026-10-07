@@ -2971,7 +2971,11 @@ public static partial class PackageQuery
                     PackageQueryPredicateKind.Readme => "true",
                     PackageQueryPredicateKind.Tool =>
                         ToolPackageType(package.RequiredManifest),
-                    PackageQueryPredicateKind.ToolFormat => term.Term.Value,
+                    PackageQueryPredicateKind.ToolFormat =>
+                        "v"
+                        + (content?.ToolSettingsVersion
+                            ?? throw new InvalidOperationException(
+                                "DotNetCliTool format answers require package-content facts.")),
                     PackageQueryPredicateKind.AssemblyReference =>
                         term.Predicate.Text
                         ?? throw new InvalidOperationException(
