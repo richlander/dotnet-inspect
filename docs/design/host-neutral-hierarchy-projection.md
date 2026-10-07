@@ -258,8 +258,11 @@ Shared presentation owns both initial lowerings:
 Type query, Tree or Mermaid intent, accessibility policy, and operation
 bounds. It owns direct-Library materialization, exact Type identity
 resolution, and construction of the owner-issued `TypeOverviewDocument`
-request. `TypeOverviewHierarchyPresentation.Write` then accepts only the
-completed owner document, admitted presentation plan, and destination.
+request. Exact-Type identity resolution and the document request use the same
+accessibility policy, so an all-declarations request admits both the non-public
+Type and its non-public Members. `TypeOverviewHierarchyPresentation.Write`
+then accepts only the completed owner document, admitted presentation plan,
+and destination.
 
 The CLI exact-Type hierarchy route selects the source, format, policy, and
 destination without owning Library Type enumeration, exact-Type matching,

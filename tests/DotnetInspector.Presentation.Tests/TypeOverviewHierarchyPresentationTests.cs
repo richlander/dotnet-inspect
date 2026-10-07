@@ -64,6 +64,44 @@ public class TypeOverviewHierarchyPresentationTests
     }
 
     [Fact]
+    public async Task CompactInspection_AllResolvesNonPublicExactType()
+    {
+        AssemblyDescriptorSelectionResult selection =
+            ResolvedAssemblyReference.SelectFromPath(
+                typeof(TypeOverviewHierarchyInternalFixture)
+                    .Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    "Type overview hierarchy presentation test"));
+        ResolvedAssemblyReference assembly =
+            Assert.IsType<AssemblyDescriptorSelectionResult.Ready>(
+                selection).Reference;
+
+        TypeOverviewHierarchyInspectionExecution execution =
+            await TypeOverviewHierarchyInspection.ExecuteAsync(
+                assembly,
+                NoResolverAssemblyBindingPolicy.Instance,
+                typeof(TypeOverviewHierarchyInternalFixture).FullName!,
+                TypeOverviewHierarchyPresentationFormat.Tree,
+                includeNonPublic: true,
+                new(
+                    maxTypes: 10_000,
+                    maxMembers: 100_000,
+                    maxInspectionFailures: 1_000,
+                    maxTypeForwarders: 10_000,
+                    maxMetadataRows: 1_000_000,
+                    maxRetainedTextCharacters: 1_000_000),
+                new(
+                    maxCapturedImageBytes: 64 * 1024 * 1024,
+                    maxRetainedArtifactBytes: 64 * 1024 * 1024),
+                TestContext.Current.CancellationToken);
+
+        Assert.Null(execution.Failure);
+        Assert.Empty(execution.CleanupFailures);
+        Assert.IsType<TypeOverviewDocumentInspectionOutcome.Available>(
+            execution.Inspection!.Content);
+    }
+
+    [Fact]
     public void CompactPlans_SeparateFormatFromSemanticRequest()
     {
         TypeOverviewHierarchyPresentationPlan tree =
@@ -81,6 +119,8 @@ public class TypeOverviewHierarchyPresentationTests
         Assert.IsType<InspectionHierarchyPopulationRequest.Rows>(
             tree.Hierarchy.Children);
     }
+
+    internal sealed class TypeOverviewHierarchyInternalFixture;
 
     [Fact]
     public void Tree_StreamsCompactHierarchy()

@@ -50,6 +50,7 @@ public static class TypeOverviewHierarchyInspection
                             reference,
                             owner,
                             requestedType,
+                            includeNonPublic,
                             presentation,
                             bounds,
                             cancellationToken),
@@ -66,6 +67,7 @@ public static class TypeOverviewHierarchyInspection
         LibraryReference reference,
         LibraryContentOwner owner,
         string requestedType,
+        bool includeNonPublic,
         TypeOverviewHierarchyPresentationPlan presentation,
         ApiSurfaceExtractionBounds bounds,
         CancellationToken cancellationToken)
@@ -84,7 +86,9 @@ public static class TypeOverviewHierarchyInspection
             var plan =
                 new LibraryInspectionPlan(
                     new LibraryTypePopulationRequest(
-                        LibraryTypeAccessibility.Public,
+                        includeNonPublic
+                            ? LibraryTypeAccessibility.All
+                            : LibraryTypeAccessibility.Public,
                         count: null,
                         new LibraryTypePopulationRowsRequest(
                             TypeSegmentSize,

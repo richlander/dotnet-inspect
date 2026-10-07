@@ -11,6 +11,7 @@ namespace DotnetInspector.Sections;
 public enum LibraryTypeAccessibility
 {
     Public,
+    All,
 }
 
 public enum LibraryTypeDeclarationSelection

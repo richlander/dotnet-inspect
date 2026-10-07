@@ -38,6 +38,26 @@ public partial class CommandExecutionTests
         Assert.Contains("overloads)", normal.Output);
     }
 
+    [Fact]
+    public async Task TypeHierarchy_Mermaid_AllResolvesNonPublicExactType()
+    {
+        string target = typeof(InternalTopLevelSurfaceFixture).FullName!;
+        var hidden = await RunAppAsync(
+            "type", target, "--library", TestAssemblyPath, "--mermaid");
+        var visible = await RunAppAsync(
+            "type", target, "--library", TestAssemblyPath, "--all",
+            "--mermaid");
+
+        Assert.Equal(1, hidden.Exit);
+        Assert.Empty(hidden.Output);
+        Assert.Contains("was not found", hidden.Error);
+        Assert.Equal(0, visible.Exit);
+        Assert.Empty(visible.Error);
+        Assert.StartsWith(
+            $"graph TD\n  n0[\"class {target}\"]",
+            visible.Output);
+    }
+
     [Theory]
     [InlineData("System.Text", "--mermaid")]
     [InlineData("System.Text", "--platform", "System.Private.CoreLib", "--mermaid")]
