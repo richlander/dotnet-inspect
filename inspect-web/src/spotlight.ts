@@ -74,11 +74,6 @@ interface PackageRecentResult {
   ranges: readonly HighlightRange[];
 }
 
-interface PackageQueryResult {
-  kind: "package-query";
-  prefix: string;
-}
-
 interface PackageActivityResult {
   kind: "package-activity";
 }
@@ -141,7 +136,6 @@ export type SpotlightPackageResult =
 export type SpotlightResult =
   | CommandPaletteResult
   | SpotlightPackageResult
-  | PackageQueryResult
   | PackageActivityResult
   | SpotlightCapabilityResult
   | FrameworkLibraryResult
@@ -185,6 +179,7 @@ interface SpotlightOptions {
   resetTypeSearch?: () => void;
   packageSearchLoading: () => boolean;
   packageSearchError?: () => string;
+  packageSearchNotice?: () => string;
   ecosystemError?: () => string;
   typeSearchLoading?: () => boolean;
   typeSearchError?: () => string;
@@ -224,8 +219,7 @@ const PLATFORM_PACK_LABEL: Readonly<Record<string, string>> = {
 const GROUP_LABELS: Readonly<Record<SpotlightResult["kind"], string>> = {
   command: "Commands",
   "pkg-recent": "Recent",
-  "package-query": "Query",
-  "package-activity": "Query",
+  "package-activity": "Commands",
   capability: "Capabilities",
   "pkg-loaded": "Packages",
   "pkg-nuget": "Packages",
@@ -286,8 +280,6 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
         result.entry.version ?? "",
         result.entry.framework ?? "",
       ]);
-    case "package-query":
-      return JSON.stringify([result.kind, result.prefix]);
     case "package-activity":
       return JSON.stringify([result.kind]);
     case "capability":
@@ -438,9 +430,7 @@ export function createSpotlight(options: SpotlightOptions) {
 
   function scopes() {
     if (packageAddition) return BASE_SCOPES.filter(scope => scope.id === "packages");
-    return options.commandContext()
-      ? [...BASE_SCOPES, COMMAND_SCOPE]
-      : [...BASE_SCOPES];
+    return [...BASE_SCOPES, COMMAND_SCOPE];
   }
 
   function results(): SpotlightResult[] {
@@ -450,9 +440,13 @@ export function createSpotlight(options: SpotlightOptions) {
     }
     if (state.spotlightScope === "commands") {
       const context = options.commandContext();
-      return context
-        ? distinctSpotlightResults(commandPaletteResults(context, options.lenses()))
-        : [];
+      const query = state.spotlightQuery.trim().toLowerCase();
+      const activity: SpotlightResult[] = !query || "package activity".includes(query)
+        ? [{ kind: "package-activity" }] : [];
+      return distinctSpotlightResults([
+        ...(context ? commandPaletteResults(context, options.lenses()) : []),
+        ...activity,
+      ]);
     }
     const searchResults = distinctSpotlightResults(options.searchResults());
     if (dismissalQuery !== state.spotlightQuery) {
@@ -574,16 +568,6 @@ export function createSpotlight(options: SpotlightOptions) {
         ${dateHtml}
       </button>`);
     }
-    if (result.kind === "package-query") {
-      const suffix = result.prefix
-        ? `Start with “${escapeHtml(result.prefix)}”`
-        : "Choose a package ID prefix and inspection facts";
-      return `<button ${base} data-sl-package-query="1">
-        <span class="kind-icon sl-command">⌕</span>
-        <span class="spotlight-item-name">Package query</span>
-        <span class="spotlight-item-ns">${suffix}</span>
-      </button>`;
-    }
     if (result.kind === "package-activity") {
       return `<button ${base} data-sl-package-activity="1">
         <span class="kind-icon sl-command">↻</span>
@@ -673,9 +657,9 @@ export function createSpotlight(options: SpotlightOptions) {
         `<div class="spotlight-hint" role="status">${escapeHtml(message)}</div>`)
       .join("");
     const typeNotice = typeSearch ? options.typeSearchNotice?.() ?? "" : "";
-    const noticeHtml = typeNotice
-      ? `<div class="spotlight-hint" role="status">${escapeHtml(typeNotice)}</div>`
-      : "";
+    const packageNotice = packageSearch ? options.packageSearchNotice?.() ?? "" : "";
+    const noticeHtml = [typeNotice, packageNotice].filter(Boolean)
+      .map(notice => `<div class="spotlight-hint" role="status">${escapeHtml(notice)}</div>`).join("");
     if (!items.length) {
       if (errorHtml) return errorHtml;
       const query = state.spotlightQuery.trim();

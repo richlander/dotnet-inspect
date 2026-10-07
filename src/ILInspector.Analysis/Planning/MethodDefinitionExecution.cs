@@ -22,7 +22,7 @@ public sealed class MethodDefinitionExecution
 {
     readonly WorkDescription _description;
     readonly ProducerState[] _states;
-    readonly MethodDefinitionSourceBreadth _breadth;
+    MethodDefinitionSourceBreadth _breadth;
     readonly MethodDefinitionSourceCoverageBuilder _sourceCoverage;
     MethodRowGate? _gate;
     LibraryMethodAnalysisRunner? _lookup;
@@ -133,14 +133,62 @@ public sealed class MethodDefinitionExecution
         bool lookupDeclared = false;
         foreach (ProducerState state in execution._states)
             lookupDeclared |= state.HasLookupLayer;
-        using LibraryBodyAnalysisBuilder? builder = lookupDeclared
-            ? new LibraryBodyAnalysisBuilder(sourceName, reader, peReader)
+        bool generatedExpansion =
+            breadth.Expansion.HasFlag(
+                MethodDefinitionSourceExpansion.GeneratedExecutionBodies);
+        MethodDefinitionGeneratedExpansionWork? expansionWork =
+            generatedExpansion
+                ? new(
+                    breadth.GeneratedExpansionLimits
+                    ?? throw new ProducerContractException(
+                        "Generated Method-source expansion requires finite "
+                        + "work limits."))
+                : null;
+        using LibraryBodyAnalysisBuilder? builder =
+            lookupDeclared || generatedExpansion
+            ? new LibraryBodyAnalysisBuilder(
+                sourceName,
+                reader,
+                peReader,
+                generatedExpansionWork: expansionWork)
             : null;
         execution._lookup =
-            builder is null ? null : new LibraryMethodAnalysisRunner(builder);
+            lookupDeclared
+                ? new LibraryMethodAnalysisRunner(builder!)
+                : null;
         MethodRowGate gate = execution.Gate;
         LibraryMethodAnalysisRunner? lookup = execution.Lookup;
         int unitsVisited = 0;
+
+        if (generatedExpansion)
+        {
+            try
+            {
+                ImmutableArray<MethodDefinitionHandle> directMethods =
+                    ResolveDirectMethods(reader, breadth);
+                MethodDefinitionGeneratedExpansionResult expansion =
+                    builder!.ExpandGeneratedExecutionBodies(
+                        directMethods);
+                execution._sourceCoverage.RecordGeneratedExpansion(
+                    expansion.Coverage);
+                execution._breadth =
+                    MethodDefinitionSourceBreadth.ExactMethods(
+                        expansion.Methods);
+            }
+            catch (Exception ex)
+                when (LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(ex))
+            {
+                execution._sourceCoverage.RecordGeneratedExpansion(
+                    expansionWork!.Build());
+                execution.FailActiveSource(
+                    0,
+                    "(generated body expansion)",
+                    ex);
+                execution._breadth =
+                    MethodDefinitionSourceBreadth.ExactMethods();
+            }
+        }
 
         try
         {
@@ -201,6 +249,29 @@ public sealed class MethodDefinitionExecution
                 gate);
             execution.PublishSourceCoverage();
             return execution;
+        }
+
+        static ImmutableArray<MethodDefinitionHandle> ResolveDirectMethods(
+            MetadataReader reader,
+            MethodDefinitionSourceBreadth breadth)
+        {
+            if (breadth.Kind == MethodDefinitionSourceBreadthKind.ExactMethods)
+                return breadth.Methods;
+            if (breadth.Kind != MethodDefinitionSourceBreadthKind.ExactTypes)
+            {
+                throw new ProducerContractException(
+                    "Generated Method-source expansion requires exact MethodDef "
+                    + "or TypeDef breadth.");
+            }
+
+            var methods =
+                ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
+            foreach (TypeDefinitionHandle typeHandle in breadth.Types)
+            {
+                TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+                methods.AddRange(type.GetMethods());
+            }
+            return methods.ToImmutable();
         }
 
         execution.PropagateFailures();

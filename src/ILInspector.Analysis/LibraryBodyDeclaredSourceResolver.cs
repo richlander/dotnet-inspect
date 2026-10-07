@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
+using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
@@ -263,6 +264,134 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         return _asyncSourceResolver.ExpandEvidenceScope(
             plan,
             IsAsyncScopeSourceAdmissible);
+    }
+
+    internal MethodDefinitionGeneratedExpansionResult
+        ExpandGeneratedExecutionBodies(
+            ImmutableArray<MethodDefinitionHandle> directMethods,
+            MethodDefinitionGeneratedExpansionWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+
+        var selected = directMethods
+            .Select(static handle =>
+                MetadataTokens.GetToken(handle))
+            .ToHashSet();
+        var declaredOwnerByToken =
+            directMethods.ToDictionary(
+                static handle => MetadataTokens.GetToken(handle),
+                static handle => handle);
+        var pending = new Queue<MethodDefinitionHandle>(directMethods);
+        var expanded =
+            ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
+        expanded.AddRange(directMethods);
+
+        while (pending.Count > 0)
+        {
+            MethodDefinitionHandle sourceHandle = pending.Dequeue();
+            MethodDefinition sourceMethod =
+                _reader.GetMethodDefinition(sourceHandle);
+
+            if (_asyncSourceResolver
+                .TryResolveTargetedStateMachineExecutionMethod(
+                    sourceHandle,
+                    sourceMethod,
+                    work,
+                    out MethodDefinitionHandle executionMethod))
+            {
+                work.RecordCandidateDefinition(executionMethod);
+                work.RecordRelationshipNode(executionMethod);
+                AddGenerated(
+                    executionMethod,
+                    declaredOwnerByToken[
+                        MetadataTokens.GetToken(sourceHandle)],
+                    MethodDefinitionGeneratedExpansionOriginKind
+                        .StateMachineExecutionBody);
+            }
+
+            foreach (MethodDefinitionHandle liftedHandle
+                in _liftedSourceOwnerResolver
+                    .PotentialLiftedMethods(sourceHandle))
+            {
+                MethodDefinition liftedMethod =
+                    _reader.GetMethodDefinition(liftedHandle);
+                TypeDefinitionHandle liftedTypeHandle =
+                    liftedMethod.GetDeclaringType();
+                TypeDefinition liftedType =
+                    _reader.GetTypeDefinition(liftedTypeHandle);
+                MethodIdentity liftedIdentity =
+                    _primaryMetadataResolver.CreateMethodIdentity(
+                        liftedTypeHandle,
+                        liftedHandle,
+                        liftedMethod,
+                        _primaryMetadataResolver.CreateScope(
+                            liftedType,
+                            liftedMethod));
+                if (!_liftedSourceOwnerResolver
+                    .TryResolveForScopeExpansion(
+                        liftedHandle,
+                        liftedMethod,
+                        liftedIdentity,
+                        out AuthenticatedSourceOwner owner,
+                        selected,
+                        ownerTypeScope: null,
+                        directlySelectedBody: false))
+                {
+                    continue;
+                }
+
+                EntityHandle ownerEntity =
+                    MetadataTokens.EntityHandle(
+                        owner.Method.MetadataToken);
+                if (ownerEntity.Kind
+                    != HandleKind.MethodDefinition)
+                {
+                    throw new BadImageFormatException(
+                        "A generated body resolved to a non-MethodDef owner.");
+                }
+                var ownerHandle =
+                    (MethodDefinitionHandle)ownerEntity;
+                if (declaredOwnerByToken.TryGetValue(
+                        owner.Method.MetadataToken,
+                        out MethodDefinitionHandle declaredOwner))
+                {
+                    ownerHandle = declaredOwner;
+                }
+                AddGenerated(
+                    liftedHandle,
+                    ownerHandle,
+                    MethodDefinitionGeneratedExpansionOriginKind
+                        .LiftedExecutionBody);
+            }
+        }
+
+        ImmutableArray<MethodDefinitionHandle> methods =
+        [
+            .. expanded
+                .Distinct()
+                .OrderBy(static handle =>
+                    MetadataTokens.GetRowNumber(handle)),
+        ];
+        return new(methods, work.Build());
+
+        void AddGenerated(
+            MethodDefinitionHandle method,
+            MethodDefinitionHandle owner,
+            MethodDefinitionGeneratedExpansionOriginKind kind)
+        {
+            var origin =
+                new MethodDefinitionGeneratedExpansionOrigin(
+                    method,
+                    owner,
+                    kind);
+            work.RecordGeneratedMethod(origin);
+            int token = MetadataTokens.GetToken(method);
+            if (!selected.Add(token))
+                return;
+            declaredOwnerByToken.Add(token, owner);
+            expanded.Add(method);
+            pending.Enqueue(method);
+        }
     }
 
     internal LibraryBodyAnalysisResult MergeScopeExpansionDiagnostics(

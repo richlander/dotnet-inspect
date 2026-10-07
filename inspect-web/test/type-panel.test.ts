@@ -1582,7 +1582,7 @@ test("type metadata renders a loading state while the projection is in flight", 
   assert.doesNotMatch(html, /class="type-heading"/);
 });
 
-test("type metadata renders composition, interfaces, and derived types once loaded", () => {
+test("type metadata renders composition, interfaces, and hierarchy once loaded", () => {
   const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
   const key = typeMetadataSignature(jsonSerializer, packageContext);
   const html = renderTypeMetadata({
@@ -1601,7 +1601,31 @@ test("type metadata renders composition, interfaces, and derived types once load
             signature: null,
           }],
         }),
-        derivedTypes: ["System.Text.Json.MyJsonSerializer"],
+        hierarchy: {
+          form: "Derived Types",
+          status: "available",
+          count: 1,
+          rows: [{
+            type: "System.Text.Json.MyJsonSerializer",
+            assembly: "System.Text.Json",
+            packageId: "System.Text.Json",
+            version: "9.0.0",
+            framework: "net9.0",
+            asset: "lib/net9.0/System.Text.Json.dll",
+          }],
+          isComplete: true,
+          hasMore: false,
+          share: {
+            kind: "nonProjectable",
+            fullUrl: null,
+            packet: null,
+            path: "hierarchy",
+            reason: "Fixture hierarchy is not shareable.",
+          },
+          diagnostics: [],
+          producers: [],
+          coverage: [],
+        },
       },
     },
     memberCompositionHtml: `
@@ -1609,7 +1633,15 @@ test("type metadata renders composition, interfaces, and derived types once load
         <button data-member-jump-kind="method"><strong>3</strong><span>method</span></button>
       </div>`,
     escapeHtml,
-    relatedTypeChip: name => `<button data-graph-type="${escapeHtml(name)}">${escapeHtml(name)}</button>`,
+    relatedTypeChip: (name, occurrence) =>
+      `<button data-graph-type="${escapeHtml(name)}"${
+        occurrence
+          ? ` data-graph-package="${escapeHtml(occurrence.packageId)}"`
+            + ` data-graph-version="${escapeHtml(occurrence.version)}"`
+            + ` data-graph-framework="${escapeHtml(occurrence.framework)}"`
+            + ` data-graph-asset="${escapeHtml(occurrence.asset)}"`
+          : ""
+      }>${escapeHtml(name)}</button>`,
     factRows,
   });
 
@@ -1618,7 +1650,14 @@ test("type metadata renders composition, interfaces, and derived types once load
     /class="metadata-surface-scroll"[\s\S]*?class="document-section metadata-shape-section"[\s\S]*?Type shape/);
   assert.match(html, /Implements/);
   assert.match(html, /data-graph-type="System\.IDisposable"/);
-  assert.match(html, /Known derived types/);
+  assert.match(html, /Derived types/);
+  assert.match(html, /1 total/);
+  assert.match(html, /data-graph-package="System\.Text\.Json"/);
+  assert.match(html, /data-graph-version="9\.0\.0"/);
+  assert.match(html, /data-graph-framework="net9\.0"/);
+  assert.match(
+    html,
+    /data-graph-asset="lib\/net9\.0\/System\.Text\.Json\.dll"/);
   assert.match(html, /Members/);
   assert.match(html, /data-member-jump-kind="method"/);
 });

@@ -68,14 +68,16 @@ no new rendering format or replacement transport.
 `AssemblyContextReferencesQuery.ExecuteParticipantRows` issues the detached
 name, version, culture, and public-key-token rows consumed by the package
 facade. The facade orders and lowers those owner-issued rows into its wire
-records; it does not receive or project Metadata assembly identities for this
-result.
+records. Rejected participant access reaches the facade through the query's
+typed detached rejection kind and detail. The facade does not project Metadata
+assembly identities or candidate-open failures for this result.
 
 `BrowserAssemblyReferenceResultTests` gates the real generated serializer's
 nonempty list, empty list, failure text including an empty message, and default
-null. `BrowserEngineBoundaryTests` gates the real package query's reference
-projection and preservation of manifest dependencies without compile assets.
-`test/library-references.test.ts` gates the corresponding rendered outcomes;
-generated facade drift and frontend type checking gate the typed handoff.
-The existing real-Wasm `eng/test-inspect-web-package-adoption-gate.sh` exercises
-the published facade's available and unavailable package cases in Firefox.
+null. `BrowserEngineBoundaryTests` gates the real package query's available
+reference projection, detached rejection message, and preservation of manifest
+dependencies without compile assets. `test/library-references.test.ts` gates
+the corresponding rendered outcomes; generated facade drift and frontend type
+checking gate the typed handoff. The existing real-Wasm
+`eng/test-inspect-web-package-adoption-gate.sh` exercises the published facade's
+available and unavailable package cases in Firefox.

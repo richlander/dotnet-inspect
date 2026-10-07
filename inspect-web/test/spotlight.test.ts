@@ -321,7 +321,7 @@ test("Add package is a named package-only picker without commands or removal", (
       ...packageRows,
       { kind: "command", action: "complete", command: "show", value: "show", hint: "Show", category: "choice" },
       { kind: "pkg-loaded", pkg, ranges: [] },
-      { kind: "package-query", prefix: "" },
+      { kind: "package-activity" },
       { kind: "framework-lib", assembly: "System.Runtime", pack: "netcore.app", publicTypes: 1, ranges: [] },
       { kind: "type", pkg, type, ranges: [] },
       { kind: "member", pkg, type, memberKey: "ToString", name: "ToString", ranges: [] },
@@ -637,7 +637,7 @@ test("ordinary command open ends Add package purpose", () => {
   });
   assert.equal(harness.state.spotlightScope, "commands");
   assert.match(harness.spotlight.modalHtml(), /aria-label="Run a command"/);
-  assert.ok(harness.spotlight.results().every(result => result.kind === "command"));
+  assert.ok(harness.spotlight.results().every(result => result.kind === "command" || result.kind === "package-activity"));
   harness.spotlight.close();
 });
 
@@ -753,33 +753,15 @@ test("NuGet hits are visible only for their resolved query and survive a query r
   assert.deepEqual(visibleSpotlightPackageHits(ready, "alpha"), hits);
 });
 
-test("Spotlight renders the package-query action with its seeded prefix identity", () => {
-  const { spotlight } = createHarness({
-    query: "Microsoft.Extensions.",
-    searchResults: () => [{
-      kind: "package-query",
-      prefix: "Microsoft.Extensions.",
-      ranges: [],
-    }],
-  });
-
-  const html = spotlight.modalHtml();
-
-  assert.match(html, /Package query/);
-  assert.match(html, /Microsoft\.Extensions\./);
-  assert.match(html, /data-sl-package-query="1"/);
-});
-
-test("Spotlight renders Package Activity as a routed package action", () => {
-  const { spotlight } = createHarness({
-    searchResults: () => [{ kind: "package-activity" }],
-  });
-
-  const html = spotlight.modalHtml();
-
-  assert.match(html, /Package Activity/);
-  assert.match(html, /Review product package changes over time/);
-  assert.match(html, /data-sl-package-activity="1"/);
+test("Activity is available only in Commands, including Home without a package", () => {
+  const home = createHarness({ scope: "commands", query: "activity" });
+  assert.deepEqual(home.spotlight.results(), [{ kind: "package-activity" }]);
+  assert.match(home.spotlight.modalHtml(), /data-sl-package-activity="1"/);
+  assert.match(home.spotlight.modalHtml(), /Review product package changes over time/);
+  const all = createHarness({ query: "activity" });
+  assert.doesNotMatch(all.spotlight.modalHtml(), /data-sl-package-query|data-sl-package-activity|class="spotlight-group">Query/);
+  home.state.spotlightQuery = "settings";
+  assert.deepEqual(home.spotlight.results(), []);
 });
 
 test("Spotlight renders installed resources in one Capabilities group", () => {
@@ -1117,16 +1099,12 @@ test("workspace command lenses are resolved from the current package", () => {
   assert.match(harness.spotlight.modalHtml(), />show api</);
 });
 
-test("Spotlight rejects a scope the current context does not offer", () => {
+test("Home accepts Commands without a package context", () => {
   const { spotlight, state } = createHarness();
-
-  // "commands" is a well-typed SpotlightScope, but scopes() only offers it when a
-  // command context exists. Without one, open() must fall back rather than seat a
-  // scope whose results() branch can only ever return an empty list.
   withStubbedFocusTarget(() => spotlight.open("", "commands"));
-
-  assert.equal(state.spotlightScope, "all");
-  assert.doesNotMatch(spotlight.modalHtml(), /data-sl-scope="commands"/);
+  assert.equal(state.spotlightScope, "commands");
+  assert.match(spotlight.modalHtml(), /data-sl-scope="commands"/);
+  assert.deepEqual(spotlight.results(), [{ kind: "package-activity" }]);
 });
 
 test("Spotlight accepts a scope the current context does offer", () => {
@@ -1148,7 +1126,7 @@ test("home Spotlight keeps the shared typed UI without workspace commands", () =
   assert.match(pendingHtml, /package, type, member, or PackageId@Version…/);
   assert.doesNotMatch(pendingHtml, /or command/);
   assert.doesNotMatch(pendingHtml, /data-sl-scope="runtime"|>Platform</);
-  assert.doesNotMatch(pendingHtml, /data-sl-scope="commands"/);
+  assert.match(pendingHtml, /data-sl-scope="commands"/);
   assert.doesNotMatch(pendingHtml, /home-search-glint/);
 
   const readyHtml = spotlight.inlineHtml(false, true);

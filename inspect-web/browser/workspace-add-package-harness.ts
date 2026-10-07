@@ -73,7 +73,6 @@ const spotlight = createSpotlight({
     ).filter(hit =>
       !state.packages.some(pkg => pkg.id === hit.id))
       .map(hit => ({ kind: "pkg-nuget" as const, hit, ranges: [] })),
-    { kind: "package-query", prefix: search.spotlightQuery },
   ],
   pickResult: () => { status.textContent = "Ordinary Search selection"; },
   removeResult: () => { status.textContent = "Ordinary removal"; return true; },

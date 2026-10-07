@@ -137,8 +137,8 @@ The checked-in rules provide full gate coverage for these dependency claims:
    projecting Metadata identities in the host, and the exact-Library path
    consumes a detached Queries-owned identity value. Separate graph rules
    prevent the retired Metadata and Networking project edges from returning
-   while preserving the wider compiled closure for focused Platform-forwarder
-   and assembly-context failure successors.
+   while preserving the wider compiled closure for the focused
+   Platform-forwarder successor.
 9. The Inspect Web Library facade cannot expand beyond its current five
    evaluated project edges or its current ten repository assembly edges.
    The separate graph rules preserve those different ceilings while focused

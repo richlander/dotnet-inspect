@@ -31,6 +31,48 @@ namespace DotnetInspect.Cli.Tests;
 public class DiffCommandTests
 {
     [Fact]
+    public async Task AnnotatedSourceIl_RequiresAnnotatedSourceSection()
+    {
+        var (exitCode, _, error) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    PackageVersionRange = "Example@1.0.0..2.0.0",
+                    IncludeAnnotatedSourceIl = true,
+                }));
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains(
+            "--il requires -S \"Annotated Source Diff\"",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnnotatedSourceDiff_RequiresCompleteJsonRoute()
+    {
+        var section = new HashSet<string>(
+            [DiffSections.AnnotatedSourceDiff.Name],
+            StringComparer.OrdinalIgnoreCase);
+        var (exitCode, _, error) =
+            await ConsoleCapture.RunAsync(() =>
+                DiffCommand.ExecuteAsync(new DiffOptions
+                {
+                    PackageVersionRange = "Example@1.0.0..2.0.0",
+                    IncludeSections = section,
+                    ExactIncludeSectionsOverride = section,
+                    TypeFilter = ["Example.Type"],
+                    MemberFilter = ["M"],
+                }));
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains(
+            "Annotated Source Diff requires one exact package Type",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void GetSimpleName_WithNamespace_ReturnsSimpleName()
     {
         var result = TypeMatcher.GetSimpleName("System.Text.Json.JsonSerializer");

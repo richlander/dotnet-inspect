@@ -23,6 +23,20 @@ An expanded Type-to-MemberGroup-to-exact-Member Rows profile waits for the
 complete `TypeDocument`; this design does not manufacture exact-Member rows
 from compact Counts.
 
+The Library document is the second adopter
+([#9593](https://github.com/richlander/dotnet-inspect/issues/9593)). Its
+owner admits one profile over the complete Type declaration population:
+
+```text
+Library (FullSpelling)
+  -> namespaces (Rows, Name)
+    -> Type declarations (Rows, Name)
+      -> Members (Count)
+```
+
+[Library inspection documents](library-inspection-document.md#hierarchy-projection)
+owns that topology, its ordering, and its admitted choices.
+
 ## Owner and exact claim
 
 Host-neutral hierarchy projection owns this exact claim:
