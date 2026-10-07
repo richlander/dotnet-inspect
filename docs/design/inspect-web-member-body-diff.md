@@ -308,11 +308,9 @@ with no destination or click affordance. When its declaring Type was removed,
 the inert Library row retains only that Type's occupied-side Member summary.
 
 ```text
-Compare JsonSerializerOptions(JsonSerializerOptions)           Diff
-preview.6 -> preview.7                                  Change target
-Public API | Member Body | String literals
+Subject path: JsonSerializerOptions > .ctor
+Content: Member Body    C# | IL   Explore    preview.6 -> preview.7    Diff
 
-Member Body                                      C# | IL   Explore
 ───────────────────────────────────────────────────────────────
   184 184      _unknownTypeHandling = options._unknownTypeHandling;
       185 +    _inferClosedTypePolymorphism =
@@ -327,15 +325,23 @@ The embedded reader uses the same mapped rows, whitespace and move controls,
 keyboard navigation, narrow layout, and accessibility behavior as the shared
 diff viewer.
 
-The section header and result summary remain visible for identical,
-one-sided, unavailable, not-applicable, failed, and too-complex results. The
-body area shows:
+The content selector and C#/IL/Explore actions occupy the existing page toolbar,
+following the Source inspector. The toolbar retains the effective baseline and
+Diff/Clone controls; the shell subject path identifies the Member. The diff
+fills the content area without another subject heading or Member Body heading.
+Added lines and the empty Before gutter explain an addition without a separate
+Before-absence banner. Typed absence remains in the owning document.
+
+The content selector and comparison controls remain available through loading,
+identical, one-sided, unavailable, not-applicable, failed, and too-complex
+results. Media and Explore actions use the retained document when available.
+The body area shows:
 
 | Document outcome | Inline presentation |
 | --- | --- |
 | Both sides Present, text differs | Mapped diff |
 | Both sides Present, selected medium identical | **Identical** |
-| AfterOnly added Member | Mapped diff with every present line added and **Not present on this side** for Before |
+| AfterOnly added Member | Mapped diff with every present line added and an empty Before gutter |
 | Medium Too complex | Typed limit and the other medium when available |
 | Unavailable or NotApplicable side | The side's typed reason and any present other side |
 | Projection or query Failed | Failure with retry when the context remains current |
@@ -490,7 +496,7 @@ harness does not manufacture or repair C# or IL.
 4. Move to the next or previous Member with Up/Down and confirm Compare and
    Member Body remain active while the exact destination and viewer change.
 5. Open an added method and confirm the inline mapped diff renders every C#
-   and IL line as added beside **Not present on this side**.
+   and IL line as added with an empty Before gutter and no absence banner.
 6. Open a signature-changed method whose endpoint selectors differ and confirm
    its producer-issued API relation resolves both exact anchors, admits one
    Research designated pair, and shows the declaration and body together.

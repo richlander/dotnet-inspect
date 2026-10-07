@@ -5,7 +5,7 @@ import {
 
 // One Compare working surface at Library, Type, and Member. Diff and Clone are
 // modes inside this frame rather than separate persistent inspectors; the mode
-// control lives in the surface header and the Package-owned target or scope is
+// control lives in the surface header or page toolbar; the Package-owned target or scope is
 // explained, not edited, in the same compact context. Every result state
 // (loading, unavailable, failed, canceled, successful-empty) renders inside
 // this same frame so the mode control and recovery action never disappear.
@@ -22,6 +22,7 @@ export interface CompareFrameOptions {
   readonly status: string;
   readonly content: string;
   readonly tools?: string;
+  readonly externalToolbar?: boolean;
   readonly escapeHtml: (value: unknown) => string;
 }
 
@@ -36,9 +37,9 @@ function compareTargetLabel(mode: CompareMode): string {
 
 export function renderCompareFrame(options: CompareFrameOptions): string {
   const { escapeHtml, mode } = options;
-  const tabs = modes.map(([value, label]) =>
-    `<button type="button" role="tab" id="compare-mode-${value}" data-compare-mode="${value}" aria-selected="${value === mode}" aria-controls="compare-panel" tabindex="${value === mode ? 0 : -1}">${label}</button>`,
-  ).join("");
+  if (options.externalToolbar) return `<section class="compare-surface compare-surface-${options.subjectKind} compare-full-bleed" aria-label="${escapeHtml(options.subjectLabel)} comparison" data-compare-mode-active="${mode}">
+    <div id="compare-panel" class="compare-panel" role="tabpanel" aria-labelledby="compare-mode-${mode}">${options.content}</div>
+  </section>`;
   return `<section class="compare-surface compare-surface-${options.subjectKind}${options.tools ? " has-compare-tools" : ""}" aria-labelledby="compare-title" data-compare-mode-active="${mode}">
     <header class="compare-head">
       <div class="compare-head-copy">
@@ -51,11 +52,26 @@ export function renderCompareFrame(options: CompareFrameOptions): string {
           <button type="button" class="compare-change-target" id="compare-change-target">Change target</button>
         </div>
       </div>
-      <div class="compare-mode-tabs" role="tablist" aria-label="Compare modes">${tabs}</div>
+      <div class="compare-mode-tabs" role="tablist" aria-label="Compare modes">${renderCompareModeButtons(mode)}</div>
     </header>
     ${options.tools ?? ""}
     <div id="compare-panel" class="compare-panel" role="tabpanel" aria-labelledby="compare-mode-${mode}">${options.content}</div>
   </section>`;
+}
+
+function renderCompareModeButtons(mode: CompareMode): string {
+  return modes.map(([value, label]) =>
+    `<button type="button" role="tab" id="compare-mode-${value}" data-compare-mode="${value}" aria-selected="${value === mode}" aria-controls="compare-panel" tabindex="${value === mode ? 0 : -1}">${label}</button>`,
+  ).join("");
+}
+
+export function renderCompareToolbar(options: Pick<CompareFrameOptions, "mode" | "targetText" | "escapeHtml">): string {
+  const { mode, escapeHtml } = options;
+  return `<div class="compare-context">
+    <span class="compare-target-label">${escapeHtml(compareTargetLabel(mode))}</span>
+    <span class="compare-target-value" title="${escapeHtml(options.targetText)}">${escapeHtml(options.targetText)}</span>
+    <button type="button" class="compare-change-target" id="compare-change-target">Change target</button>
+  </div><div class="compare-mode-tabs" role="tablist" aria-label="Compare modes">${renderCompareModeButtons(mode)}</div>`;
 }
 
 export function renderCompareRetry(label = "Retry comparison"): string {
