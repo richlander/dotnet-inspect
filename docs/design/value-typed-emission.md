@@ -52,6 +52,33 @@ Instance 3 is noted where it sits and deferred. A second, orthogonal axis of
 thinness — the writer's *output* being structure rather than strings — is scoped
 in [the output half](#the-output-half--structure-not-strings) below.
 
+### Reconstructed tuple type testimony
+
+Raised tuple expressions carry the actual core-library generic definition,
+including its metadata arity. A two-element tuple uses ``System.ValueTuple`2``,
+not the nongeneric `System.ValueTuple` definition with two supplied arguments.
+Tuple comparison and swap reconstruction preserve this rule at construction;
+the printer and fidelity census do not excuse an inconsistent type because
+tuple syntax happens to hide its definition name.
+
+The motivating asset is dotnet/runtime at
+[`ab19415702aa8139d5369e47c73edb47343c34ad`,
+`JsonElement.cs`](https://github.com/dotnet/runtime/blob/ab19415702aa8139d5369e47c73edb47343c34ad/src/libraries/System.Text.Json/src/System/Text/Json/Document/JsonElement.cs),
+the .NET 11 RC1 source. `JsonElement.DeepEquals` in runtime
+`11.0.0-rc.1.26425.128` reports two `DEC0009` generic-arity causes on
+reconstructed tuple expressions. Tracker #9625 records the exact MethodDef
+and selector. Retention uses the installed RC1 assembly as a reproducible
+real witness and existing independently compiler-produced tuple comparison,
+nested tuple, and swap specimens as deterministic boundary evidence.
+
+`TupleBinaryOperatorPassTests.ReconstructedTupleTypesRetainMetadataArity`
+and `SwapIdiomPassTests.ValueSwap_RaisesToTupleDeconstruction` gate the
+construction rule. `UnspellableTypeFidelityTests.MalformedTupleArity_RemainsPartial`
+gates the neighboring malformed-type boundary. These gates establish type
+consistency, not independent semantic equivalence; compile-back remains the
+separate fidelity gate. No control-flow, consumption, or recognition rule
+changes in this slice.
+
 ### Reference-coalesce assignment testimony
 
 Reference-coalesce assignment is a pre-print decision (#8105). Its evidence

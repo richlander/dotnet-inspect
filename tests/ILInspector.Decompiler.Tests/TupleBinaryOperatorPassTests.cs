@@ -27,6 +27,29 @@ public class TupleBinaryOperatorPassTests
         Assert.Empty(function.Descendants.OfType<Conditional>());
     }
 
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.TupleLiteralEquals))]
+    [InlineData(nameof(CfgSampleClass.TupleLiteralNotEquals))]
+    [InlineData(nameof(CfgSampleClass.TupleLiteralEquals3))]
+    [InlineData(nameof(CfgSampleClass.TupleLiteralEquals4))]
+    [InlineData(nameof(CfgSampleClass.TupleNestedLiteralEquals))]
+    [InlineData(nameof(CfgSampleClass.TupleNestedLiteralEquals2))]
+    public void ReconstructedTupleTypesRetainMetadataArity(string methodName)
+    {
+        var function = Raised(methodName);
+        var tuples = function.Descendants.OfType<TupleExpression>().ToArray();
+
+        Assert.NotEmpty(tuples);
+        Assert.All(tuples, tuple =>
+        {
+            Assert.False(tuple.TupleType.HasUnrenderableGenericArity);
+            Assert.Equal($"ValueTuple`{tuple.Elements.Count}", tuple.TupleType.ElementType!.Name);
+            Assert.Equal(tuple.Elements.Count, tuple.TupleType.TypeArguments.Length);
+        });
+        Assert.DoesNotContain(FidelityRemarks.CollectCauses(function),
+            cause => cause.Discriminator == "generic-arity-mismatch");
+    }
+
     [Fact]
     public void TupleValueInequality_RaisesToTupleBinaryExpression()
     {

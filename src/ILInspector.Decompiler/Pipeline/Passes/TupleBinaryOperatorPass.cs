@@ -625,7 +625,7 @@ public sealed class TupleBinaryOperatorPass : IIrPass
     }
 
     static TypeRef MakeTupleType(ImmutableArray<TypeRef> elementTypes)
-        => TypeRef.GenericInstance(TypeRef.CoreLib("System", "ValueTuple"), elementTypes);
+        => TypeRef.GenericInstance(TypeRef.CoreLib("System", $"ValueTuple`{elementTypes.Length}"), elementTypes);
 
     static bool HasSourceLocalName(IrFunction function, int index)
         => index >= 0
