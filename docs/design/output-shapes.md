@@ -1375,7 +1375,7 @@ resolved by discarding one.
 ### Lens modes project their own payload
 
 A few requests select a *lens* rather than a section of the normal document:
-`package --versions`, `--layout`, `--tfms`, and `--content`, along with
+`package --versions`, `--tfms`, and `--content`, along with
 `library address --file` and the `-D`/`--discover` listing. Each renders a
 payload it computes itself and returns before the section pipeline, so the
 section-selection vocabulary does not describe what the caller is looking at.

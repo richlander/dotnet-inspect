@@ -2618,42 +2618,6 @@ public class CommandLineTests
         Assert.Empty(result.Errors);
     }
 
-    [Theory]
-    [InlineData(false, false, null, false)]  // scope none
-    [InlineData(false, false, null, true)]   // --layout
-    [InlineData(true, false, null, false)]   // --lib
-    [InlineData(true, false, null, true)]    // --layout --lib
-    [InlineData(false, true, null, false)]   // --tools
-    [InlineData(false, true, null, true)]    // --layout --tools
-    [InlineData(false, false, "net8.0", false)] // --tfm net8.0
-    [InlineData(false, false, "net8.0", true)]  // --layout --tfm net8.0
-    public async Task WriteFileLayoutTips_NeverWritesTips(bool scopeLib, bool scopeTools, string? tfm, bool isLayout)
-    {
-        var (_, error) = await ConsoleCapture.RunAsync(() =>
-        {
-            var options = new InspectionOptions
-            {
-                ScopeLib = scopeLib,
-                ScopeTools = scopeTools,
-                Tfm = tfm,
-                CompanionOutput = CompanionOutput.Tips,
-            };
-            var tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-            Directory.CreateDirectory(Path.Combine(tempDir, "lib"));
-            Directory.CreateDirectory(Path.Combine(tempDir, "tools"));
-            try
-            {
-                PackageCommand.WriteFileLayoutTips(tempDir, options, "TestPackage", CompanionOutput.Tips, isLayout);
-            }
-            finally
-            {
-                Directory.Delete(tempDir, recursive: true);
-            }
-        });
-
-        Assert.DoesNotContain("Tips:", error);
-    }
-
     // ── router --version / --versions parsing ────────────────────────
 
     [Fact]

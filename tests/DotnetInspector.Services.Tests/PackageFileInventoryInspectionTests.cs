@@ -62,6 +62,31 @@ public sealed class PackageFileInventoryInspectionTests
         Assert.Empty(envelope.Diagnostics);
     }
 
+    [Theory]
+    [InlineData(QuerySpaceTerminalRequirement.Rows)]
+    [InlineData(QuerySpaceTerminalRequirement.Count)]
+    public void FilePredicatesComposeBeforeWindowAndKeepPackageWideFacts(QuerySpaceTerminalRequirement terminal)
+    {
+        var settlement = CreateSettlement(key => new InMemoryPackageContent(
+            TestPackageArchive.Create("AGENTS.md", "lib/net8.0/A.dll", "lib/net8.0/B.xml",
+                "buildTransitive/net8.0/A.targets", "runtimes/win/lib/net8.0/A.dll",
+                "lib/net8.0-windows/A.dll", "docs/net8.0.txt"),
+            fromCache: true, key));
+        var window = RowSelectionIntent<string>.Create(
+            [RowSelectionIntentOperation<string>.Window(2, 2)]);
+        var document = PackageFileInventoryInspection.Execute(new(settlement,
+            PackageFileInventoryQuery.CreateRequest(window, terminal,
+                [new("Root", QuerySpace.PortableQueryOperator.Equal, "LIB"),
+                 new("Target", QuerySpace.PortableQueryOperator.Equal, "net8.0")]))).Content;
+        Assert.Equal(PackageFileInventoryStatus.Completed, document.Status);
+        Assert.Equal(1, document.Count);
+        Assert.True(document.HasAgentDocumentation);
+        if (terminal == QuerySpaceTerminalRequirement.Rows)
+            Assert.Equal("lib/net8.0/B.xml", Assert.Single(document.Files).Path.ToString());
+        else
+            Assert.Empty(document.Files);
+    }
+
     [Fact]
     public void CountTerminalAgreesWithRowsSelection()
     {

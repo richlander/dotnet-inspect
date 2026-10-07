@@ -84,6 +84,43 @@ revision-bound structural review supplement these focused gates; they do not
 turn readable output into an Exact claim. Adoption uses the existing shared
 Decompiler pipeline in CLI and Browser/Wasm, with no host-specific step.
 
+## Terminal throws in local-function bodies
+
+A local-function body that the ordinary raising pipeline has already reduced
+into one block may end in `Throw` for any return type. That terminal statement
+is a complete body just as a final `Return` is: it evaluates the same exception
+operand after the same preceding effects and exits through the same exception.
+The local-function admission predicate recognizes that terminal without
+rewriting the operand, adding a return, or replacing the body. The same
+predicate governs standalone local functions and static dependency closures.
+Existing receiver, environment, parameter/ref-kind, generic identity,
+reference-closure, naming, unsupported-node, and isolated-scope checks remain
+required. No loop or exception-handler admission is added by this rule.
+
+The motivating real witness is System.Text.Json
+11.0.0-rc.1.26425.128 `JsonElement.GetBoolean` (`0x060002F8`). Its generated
+`ThrowJsonElementWrongTypeException` helper is a static bool method with one
+`Throw` statement. Its authored source is pinned to dotnet/runtime
+[`ab19415702aa8139d5369e47c73edb47343c34ad`, JsonElement.cs](https://github.com/dotnet/runtime/blob/ab19415702aa8139d5369e47c73edb47343c34ad/src/libraries/System.Text.Json/src/System/Text/Json/Document/JsonElement.cs).
+The existing local-function machinery imports that sibling body, emits its
+source declaration, and rewrites references under the existing component
+ownership proof. This admission change consumes no additional blocks, locals,
+labels, or edges and keeps exception construction and preceding calls in place.
+
+`ThrowingLocalFunctionTests.CompilerTerminalThrow_RaisesWithCompleteDeclarations`
+gates compiler-produced value-returning and void helpers, preceding effects,
+and a static dependency closure whose leaf throws. The positives fail before
+this admission. `ThrowingLocalWithUnavailableBody_RemainsPartial` retains the
+missing import-seam and missing dependency boundaries.
+`CompilerTerminalThrows_CompileBackExact` checks product-issued whole members
+in raised and lowered views. Existing local-function tests gate capture,
+receiver, reference, generic, naming, and scope declines; runtime render A/B
+and revision-bound structural review supplement the focused tests. Full
+projection fidelity and compile-back Exact remain distinct verdicts.
+Adoption uses the existing shared Decompiler pipeline in CLI and Browser/Wasm.
+DeepEquals's ordinary loop helper remains outside this independently coherent
+terminal-throw slice.
+
 ## Two references, used differently
 
 The architecture relates to the two forward compilers in fundamentally different ways.

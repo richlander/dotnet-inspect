@@ -60,6 +60,10 @@ public partial class LibraryBodyIndexTests
             && evidence.Reason == "Unsafe call"
             && evidence.Detail.Contains("System.Runtime.CompilerServices.Unsafe.As<int, uint>", StringComparison.Ordinal)
             && evidence.OperandToken is not null);
+        Assert.DoesNotContain(
+            index.Safety.MemberUses,
+            use => use.Method.Name
+                == nameof(UnsafeEvidenceFixtures.CallsUnsafeAs));
         Assert.DoesNotContain(index.Safety.Evidence, evidence =>
             evidence.Member.Name == nameof(UnsafeEvidenceFixtures.PInvokeOnly));
     }
@@ -162,6 +166,258 @@ public partial class LibraryBodyIndexTests
         Assert.Equal(
             CallerUnsafeMode.None,
             safeExtern.CallerUnsafeMode);
+    }
+
+    [Fact]
+    public void
+        UnsafeMemberUses_ApplyUpdatedSemanticsToUpdatedAssembly()
+    {
+        LibraryBodyAnalysisExecution index =
+            BodyAnalysisTestExecution.Open(
+                FixtureCatalog.DecompilerUnsafeNew
+                    .AssemblyPath());
+
+        UnsafeMemberUse pointerFree = Assert.Single(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "MemorySafetySpellingFixture"
+                && use.Method.Name
+                    == "PointerFreeUnsafeMethod");
+        Assert.True(
+            pointerFree.HasExplicitUnsafeContract);
+        Assert.Contains(
+            pointerFree.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.ExplicitContract);
+
+        UnsafeMemberUse pointerDereference = Assert.Single(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "MemorySafetySpellingFixture"
+                && use.Method.Name == "PointerNoneMethod");
+        Assert.False(
+            pointerDereference.HasExplicitUnsafeContract);
+        Assert.Contains(
+            pointerDereference.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.PointerDereference);
+
+        UnsafeMemberUse explicitCall = Assert.Single(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "MemorySafetySpellingFixture"
+                && use.Method.Name
+                    == "CallPointerFreeUnsafeMethod");
+        Assert.Contains(
+            explicitCall.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.ExplicitContractCall);
+        Assert.DoesNotContain(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "MemorySafetySpellingFixture"
+                && use.Method.Name
+                    == "CallPointerNoneMethod");
+
+        Assert.DoesNotContain(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "UnsafeFixtures"
+                && use.Method.Name
+                    == "StackAllocDefault");
+        AssertSpanStackallocInitializersAreNotUses(index);
+        Assert.Contains(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "UnsafeFixtures"
+                && use.Method.Name
+                    == "StackAllocSkipInit"
+                && use.Evidence.Any(
+                    evidence => evidence.Kind
+                        == UnsafeMemberUseKind
+                            .StackAllocation));
+        Assert.Contains(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "UnsafeFixtures"
+                && use.Method.Name
+                    == "StackAllocEventData"
+                && use.Evidence.Any(
+                    evidence => evidence.Kind
+                        == UnsafeMemberUseKind
+                            .StackAllocation));
+    }
+
+    [Fact]
+    public void
+        UnsafeMemberUses_ApplyUpdatedSemanticsToLegacyAssembly()
+    {
+        LibraryBodyAnalysisExecution index =
+            BodyAnalysisTestExecution.Open(
+                FixtureCatalog.DecompilerUnsafeLegacy
+                    .AssemblyPath());
+
+        UnsafeMemberUse pointerDereference = Assert.Single(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "UnsafeFixtures"
+                && use.Method.Name == "ConsumePointer");
+        Assert.False(
+            pointerDereference.HasExplicitUnsafeContract);
+        Assert.Contains(
+            pointerDereference.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.PointerDereference);
+
+        Assert.DoesNotContain(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "UnsafeFixtures"
+                && use.Method.Name == "Risky");
+        Assert.DoesNotContain(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "UnsafeFixtures"
+                && use.Method.Name
+                    == "StackAllocDefault");
+        AssertSpanStackallocInitializersAreNotUses(index);
+        Assert.Contains(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "UnsafeFixtures"
+                && use.Method.Name
+                    == "StackAllocSkipInit"
+                && use.Evidence.Any(
+                    evidence => evidence.Kind
+                        == UnsafeMemberUseKind
+                            .StackAllocation));
+        Assert.Contains(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "UnsafeFixtures"
+                && use.Method.Name
+                    == "StackAllocEventData"
+                && use.Evidence.Any(
+                    evidence => evidence.Kind
+                        == UnsafeMemberUseKind
+                            .StackAllocation));
+    }
+
+    // Roslyn lowers each initializer through the allocation pointer before
+    // wrapping it in Span<T>: CreateSpan plus cpblk, an RVA cpblk, and element
+    // stores. None of those is source pointer use.
+    static void AssertSpanStackallocInitializersAreNotUses(
+        LibraryBodyAnalysisExecution index)
+    {
+        foreach (var (type, method) in new[]
+        {
+            ("StackallocInitializerResiduals",
+                "StackallocSpanInitializer"),
+            ("SpanStackallocInitializers", "ByteElements"),
+            ("SpanStackallocInitializers", "ArgumentElements"),
+            ("SpanStackallocInitializers", "WidenedConstantElement"),
+            ("SpanStackallocInitializers", "FieldElements"),
+            ("SpanStackallocInitializers", "VirtualCallElement"),
+            ("SpanStackallocInitializers", "DivisionElement"),
+            ("SpanStackallocInitializers", "ArrayElement"),
+            ("SpanStackallocInitializers", "ConditionalElement"),
+            ("SpanStackallocInitializers", "StructElements"),
+            ("SpanStackallocInitializers", "NativeIntElements"),
+        })
+        {
+            Assert.DoesNotContain(
+                index.Safety.MemberUses,
+                use =>
+                    use.Method.DeclaringType.Name == type
+                    && use.Method.Name == method);
+        }
+        Assert.Contains(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "StackallocInitializerResiduals"
+                && use.Method.Name
+                    == "StackallocPointerInitializer"
+                && use.Evidence.Any(
+                    evidence => evidence.Kind
+                        == UnsafeMemberUseKind
+                            .StackAllocation));
+
+        // Stores the initializer shape cannot account for are source
+        // dereferences even when the allocation is then wrapped by Span<T>:
+        // a variable-length allocation, or a constant one written out of
+        // bounds.
+        UnsafeMemberUse pointerLocal = Assert.Single(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "SpanStackallocInitializers"
+                && use.Method.Name == "PointerLocalWrapped");
+        Assert.Contains(
+            pointerLocal.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.PointerDereference);
+        UnsafeMemberUse outOfBounds = Assert.Single(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "SpanStackallocInitializers"
+                && use.Method.Name == "OutOfBoundsStoreWrapped");
+        Assert.Contains(
+            outOfBounds.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.PointerDereference);
+        // A wrapping constant index is unprovable: the raw pointer keeps its
+        // roles while the Span<T> allocation beside it is still recognized.
+        UnsafeMemberUse overflowing = Assert.Single(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "SpanStackallocInitializers"
+                && use.Method.Name == "OverflowingConstantIndex");
+        Assert.Single(
+            overflowing.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.StackAllocation);
+        Assert.Contains(
+            overflowing.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.PointerDereference);
+        // Terms that cancel exactly but wrap in IL are not provably in bounds.
+        UnsafeMemberUse wrapping = Assert.Single(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "SpanStackallocInitializers"
+                && use.Method.Name == "WrappingDisplacementWrapped");
+        Assert.Contains(
+            wrapping.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.PointerDereference);
+        // An int32 operand that wraps at 2^31 is not provably in bounds even
+        // inside an exactly sized 2 GiB allocation.
+        UnsafeMemberUse int32Wrap = Assert.Single(
+            index.Safety.MemberUses,
+            use =>
+                use.Method.DeclaringType.Name
+                    == "SpanStackallocInitializers"
+                && use.Method.Name == "Int32WrapLargeAllocationWrapped");
+        Assert.Contains(
+            int32Wrap.Evidence,
+            evidence => evidence.Kind
+                == UnsafeMemberUseKind.PointerDereference);
     }
 
     [Theory]

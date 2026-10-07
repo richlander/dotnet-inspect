@@ -17,6 +17,7 @@ using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using Markout;
+using System.IO.Compression;
 using System.Reflection;
 using System.Text.Json;
 
@@ -85,22 +86,18 @@ public sealed class BodyShapesSectionTests
     [Fact]
     public async Task LibraryKindPredicate_UsesOrdinaryJsonlProjection()
     {
-        var root = CommandLineBuilder.CreateRootCommand();
-
-        var result = await ConsoleCapture.RunAsync(() =>
-            root.Parse(
-                [
-                    "library",
-                    FixturePath,
-                    "--where",
-                    "Kind=ObjectCreationExpression",
-                    "--columns",
-                    "Kind;Token",
-                    "--rows",
-                    "1",
-                    "--jsonl",
-                ])
-                .InvokeAsync());
+        var result = await Run(
+            [
+                "library",
+                FixturePath,
+                "--where",
+                "Kind=ObjectCreationExpression",
+                "--columns",
+                "Kind;Token",
+                "-n",
+                "1",
+                "--jsonl",
+            ]);
 
         Assert.Equal(0, result.ExitCode);
         Assert.DoesNotContain("Error:", result.Error, StringComparison.Ordinal);
@@ -118,20 +115,16 @@ public sealed class BodyShapesSectionTests
     [Fact]
     public async Task LibraryKindPredicate_CountAppliesTheRenderedRowWindow()
     {
-        var root = CommandLineBuilder.CreateRootCommand();
-
-        var result = await ConsoleCapture.RunAsync(() =>
-            root.Parse(
-                [
-                    "library",
-                    FixturePath,
-                    "--where",
-                    "Kind=ObjectCreationExpression",
-                    "--rows",
-                    "2..3",
-                    "--count",
-                ])
-                .InvokeAsync());
+        var result = await Run(
+            [
+                "library",
+                FixturePath,
+                "--where",
+                "Kind=ObjectCreationExpression",
+                "--rows",
+                "2..3",
+                "--count",
+            ]);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal("2", result.Output.Trim());
@@ -551,7 +544,7 @@ public sealed class BodyShapesSectionTests
             result.Error,
             StringComparison.Ordinal);
         Assert.Contains(
-            "Use --rows to limit rendered matches.",
+            "Use -n or --rows to limit matches.",
             result.Error,
             StringComparison.Ordinal);
     }
@@ -665,24 +658,20 @@ public sealed class BodyShapesSectionTests
     [Fact]
     public async Task TypeKindPredicate_PlainTextHonorsRowWindow()
     {
-        var root = CommandLineBuilder.CreateRootCommand();
-
-        var result = await ConsoleCapture.RunAsync(() =>
-            root.Parse(
-                [
-                    "type",
-                    typeof(BodyShapeFixture).FullName!,
-                    "--library",
-                    FixturePath,
-                    "--where",
-                    "Kind=ObjectCreationExpression",
-                    "--plaintext",
-                    "--columns",
-                    "Kind;Member",
-                    "--rows",
-                    "2",
-                ])
-                .InvokeAsync());
+        var result = await Run(
+            [
+                "type",
+                typeof(BodyShapeFixture).FullName!,
+                "--library",
+                FixturePath,
+                "--where",
+                "Kind=ObjectCreationExpression",
+                "--plaintext",
+                "--columns",
+                "Kind;Member",
+                "-n",
+                "2",
+            ]);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(
@@ -1565,6 +1554,328 @@ public sealed class BodyShapesSectionTests
                     overloadIndex: 2)).MetadataToken);
     }
 
+    // #9523: -n, --tail, and --rows select Body Shapes occurrences, not
+    // rendered lines, and every format and Count observe the same rows.
+    [Theory]
+    [InlineData(new[] { "-n", "2" }, 0, 2)]
+    [InlineData(new[] { "-n", "2", "--tail" }, 6, 2)]
+    [InlineData(new[] { "--rows", "3..5" }, 2, 3)]
+    public async Task LibraryKindPredicate_RowSelectionSelectsOccurrencesInEveryFormat(
+        string[] selection, int skip, int take)
+    {
+        string[] library =
+        [
+            "library",
+            FixturePath,
+            "--where",
+            "Kind=ObjectCreationExpression",
+        ];
+        var all = await Run([.. library, "--columns", "Member", "--tsv", "--no-header"]);
+        Assert.Equal(0, all.ExitCode);
+        string[] expected =
+        [
+            .. all.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Skip(skip)
+                .Take(take),
+        ];
+        Assert.Equal(take, expected.Length);
+
+        var tsv = await Run([.. library, .. selection, "--columns", "Member", "--tsv", "--no-header"]);
+        var jsonl = await Run([.. library, .. selection, "--jsonl"]);
+        var json = await Run([.. library, .. selection, "--json"]);
+        var markdown = await Run([.. library, .. selection, "--markdown"]);
+        var count = await Run([.. library, .. selection, "--count"]);
+
+        Assert.All(
+            [tsv, jsonl, json, markdown, count],
+            result => Assert.Equal(0, result.ExitCode));
+        Assert.Equal(
+            expected,
+            tsv.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        Assert.Equal(
+            expected,
+            jsonl.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => JsonDocument.Parse(line).RootElement
+                    .GetProperty("member").GetString()!));
+        using (var document = JsonDocument.Parse(json.Output))
+        {
+            Assert.Equal(
+                expected,
+                document.RootElement.GetProperty("body_shapes")
+                    .EnumerateArray()
+                    .Select(row => row.GetProperty("member").GetString()!));
+        }
+        Assert.Contains("## Body Shapes", markdown.Output);
+        Assert.Equal(
+            take,
+            markdown.Output.Split('\n')
+                .Count(line => line.StartsWith(
+                    "| ObjectCreationExpression |",
+                    StringComparison.Ordinal)));
+        Assert.All(
+            expected,
+            member => Assert.Contains(member, markdown.Output));
+        Assert.Equal(take.ToString(), count.Output.Trim());
+    }
+
+    [Fact]
+    public async Task LibraryKindPredicate_LinesKeepRenderedLineSelection()
+    {
+        var result = await Run(
+            [
+                "library",
+                FixturePath,
+                "--where",
+                "Kind=ObjectCreationExpression",
+                "-n",
+                "3",
+                "--lines",
+                "--markdown",
+            ]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(
+            ["# DotnetInspector.Fixtures.dll", "", "## Body Shapes"],
+            result.Output.TrimEnd('\n').Split('\n'));
+    }
+
+    [Fact]
+    public async Task LibraryKindPredicate_UnavailableWindowWithholdsOutput()
+    {
+        var result = await Run(
+            [
+                "library",
+                FixturePath,
+                "--where",
+                "Kind=ObjectCreationExpression",
+                "--rows",
+                "8..9",
+                "--tsv",
+            ]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Body Shapes row selection stage 1 requires row 9, but only 8 "
+                + "occurrences are available.",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task LibraryKindPredicate_RejectsNumericRows()
+    {
+        var result = await Run(
+            [
+                "library",
+                FixturePath,
+                "--where",
+                "Kind=ObjectCreationExpression",
+                "--rows",
+                "2",
+            ]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--rows requires N..M, N.., or ..M with positive positions.",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task TypeKindPredicate_HeadAndTailSelectOccurrences()
+    {
+        string[] type =
+        [
+            "type",
+            typeof(BodyShapeFixture).FullName!,
+            "--library",
+            FixturePath,
+            "--where",
+            "Kind=ObjectCreationExpression",
+            "--columns",
+            "Match",
+            "--tsv",
+            "--no-header",
+        ];
+
+        var head = await Run([.. type, "-n", "1"]);
+        var tail = await Run([.. type, "-n", "1", "--tail"]);
+
+        Assert.Equal(0, head.ExitCode);
+        Assert.Equal(0, tail.ExitCode);
+        Assert.Equal("new object()", head.Output.Trim());
+        Assert.Equal("new()", tail.Output.Trim());
+    }
+
+    [Fact]
+    public async Task MemberKindPredicate_RowSelectionSelectsScopedOccurrences()
+    {
+        var head = await RunMemberAsync(
+            nameof(BodyShapeFixture.PublicCreation),
+            "ObjectCreationExpression",
+            "-n",
+            "1",
+            "--count");
+        var unavailable = await RunMemberAsync(
+            nameof(BodyShapeFixture.PublicCreation),
+            "ObjectCreationExpression",
+            "--rows",
+            "2..2");
+
+        Assert.Equal(0, head.ExitCode);
+        Assert.Equal("1", head.Output.Trim());
+        Assert.Equal(1, unavailable.ExitCode);
+        Assert.Contains(
+            "Body Shapes row selection stage 1 requires row 2, but only 1 "
+                + "occurrence is available.",
+            unavailable.Error);
+    }
+
+    [Fact]
+    public async Task MemberKindPredicate_BodylessMemberConsumesSemanticSelection()
+    {
+        string[] member =
+        [
+            "member",
+            typeof(IBodyShapeValue).FullName!,
+            "get_Value:1",
+            "--library",
+            FixturePath,
+            "--where",
+            "Kind=ObjectCreationExpression",
+            "--tsv",
+        ];
+
+        var strict = await Run([.. member, "--rows", "1..1"]);
+        var head = await Run([.. member, "-n", "1"]);
+
+        Assert.Equal(1, strict.ExitCode);
+        Assert.Empty(strict.Output);
+        Assert.Contains(
+            "Body Shapes row selection stage 1 requires row 1, but only 0 "
+                + "occurrences are available.",
+            strict.Error);
+        Assert.Equal(0, head.ExitCode);
+    }
+
+    [Theory]
+    [InlineData("type", "System.Text.Json.JsonElement")]
+    [InlineData("member", "System.Text.Json.JsonElement", "GetProperty:1")]
+    public async Task TfmAll_StaysOutsideTheDeclaration(
+        params string[] target)
+    {
+        var result = await Run(
+            [
+                .. target,
+                "--platform",
+                "System.Text.Json",
+                "--tfm",
+                "all",
+                "--where",
+                "Kind=ObjectCreationExpression",
+                "--rows",
+                "1",
+                "--count",
+            ]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("1", result.Output.Trim());
+    }
+
+    [Fact]
+    public async Task PackageLibraryRoutes_ObserveSemanticSelection()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"body-shapes-package-{Guid.NewGuid():N}");
+        string content = Path.Combine(directory, "content");
+        string libraryDirectory = Path.Combine(content, "lib", "net10.0");
+        Directory.CreateDirectory(libraryDirectory);
+        string libraryName = Path.GetFileName(FixturePath);
+        File.Copy(FixturePath, Path.Combine(libraryDirectory, libraryName));
+        File.WriteAllText(
+            Path.Combine(content, "Body.Shapes.Tests.nuspec"),
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>Body.Shapes.Tests</id>
+                <version>1.0.0</version>
+                <authors>tests</authors>
+                <description>Body Shapes routing fixture</description>
+              </metadata>
+            </package>
+            """);
+        string package = Path.Combine(
+            directory,
+            "Body.Shapes.Tests.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(content, package);
+
+        try
+        {
+            string[] selection =
+            [
+                "--where",
+                "Kind=ObjectCreationExpression",
+                "-n",
+                "2",
+                "--tail",
+                "--columns",
+                "Member",
+                "--tsv",
+                "--no-header",
+            ];
+            var direct = await Run(["library", FixturePath, .. selection]);
+            var delegated = await Run(
+                ["library", "--package", package, libraryName, .. selection]);
+            var aggregate = await Run(
+                [
+                    "library",
+                    "--package",
+                    package,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "-n",
+                    "1",
+                    "--markdown",
+                ]);
+
+            Assert.Equal(0, direct.ExitCode);
+            Assert.Equal(2, direct.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
+            Assert.Equal(direct, delegated);
+            Assert.Equal(0, aggregate.ExitCode);
+            Assert.Equal(
+                1,
+                aggregate.Output.Split('\n')
+                    .Count(line => line.StartsWith(
+                        "| ObjectCreationExpression |",
+                        StringComparison.Ordinal)));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryBothViews_RetainRenderedLineFallback()
+    {
+        var result = await Run(
+            [
+                "library",
+                FixturePath,
+                "--where",
+                "Kind=ObjectCreationExpression",
+                "-S",
+                $"{SectionNames.BodyShapes},{SectionNames.BodyShapeSummary}",
+                "-n",
+                "3",
+            ]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(3, result.Output.TrimEnd('\n').Split('\n').Length);
+    }
+
     static Task<(int ExitCode, string Output, string Error)> RunMemberAsync(
         string member,
         string kind,
@@ -1576,20 +1887,27 @@ public sealed class BodyShapesSectionTests
         string kind,
         bool includeSelector,
         params string[] extraArguments)
-    {
-        var root = CommandLineBuilder.CreateRootCommand();
-        return ConsoleCapture.RunAsync(() =>
-            root.Parse(
-                [
-                    "member",
-                    typeof(BodyShapeFixture).FullName!,
-                    includeSelector ? $"{member}:1" : member,
-                    "--library",
-                    FixturePath,
-                    "--where",
-                    $"Kind={kind}",
-                    .. extraArguments,
-                ])
-                .InvokeAsync());
-    }
+        => Run(
+            [
+                "member",
+                typeof(BodyShapeFixture).FullName!,
+                includeSelector ? $"{member}:1" : member,
+                "--library",
+                FixturePath,
+                "--where",
+                $"Kind={kind}",
+                .. extraArguments,
+            ]);
+
+    static Task<(int ExitCode, string Output, string Error)> Run(
+        string[] args) =>
+        ConsoleCapture.RunAsync(() =>
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            string[] processed =
+                CommandLineBuilder.PreprocessArgs(args, root);
+            return CommandLineBuilder.InvokeAsync(
+                root.Parse(processed),
+                processed);
+        });
 }

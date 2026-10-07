@@ -155,7 +155,6 @@
         "DotnetInspect.Web.Core",
         "DotnetInspector.Queries",
         "DotnetInspector.Sections",
-        "ILInspector.Metadata",
         "TsJsExport.Contracts"
       ]
     },
@@ -179,8 +178,6 @@
         "DotnetInspector.Packages",
         "DotnetInspector.Queries",
         "DotnetInspector.Sections",
-        "ILInspector.Metadata",
-        "ILInspector.MetadataPrimitives",
         "InertText",
         "TsJsExport.Contracts"
       ]
