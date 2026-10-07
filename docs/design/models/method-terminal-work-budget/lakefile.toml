@@ -1,0 +1,6 @@
+name = "method-terminal-work-budget"
+version = "0.1.0"
+defaultTargets = ["MethodTerminalWorkBudget"]
+
+[[lean_lib]]
+name = "MethodTerminalWorkBudget"

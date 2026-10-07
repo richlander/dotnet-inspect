@@ -147,7 +147,8 @@ lifetime, and presentation. Authored settlement now uses SourceHouse under
 of the immediate adapter-first path: assembly adapter #7313, authored
 House #7368, companion handoff #7440, and this shared production cutover.
 Both hosts adopt in this delivery without another host-specific composition.
-The member-pair route no longer invokes `PdbSourceHouse.AcquireMemberAsync`.
+The member-pair route no longer invokes the former public PDB-source
+acquisition composition.
 Existing acquisition and local-byte helpers, ordinary type queries,
 decompiler fallback, and broader CLI enrichment remain; their migration and
 retirement stay under the twelve-step

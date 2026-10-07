@@ -14,14 +14,15 @@ internal readonly record struct RoutingSelections(
     bool Packaging,
     bool Web,
     bool Skills,
-    bool Tla)
+    bool Tla,
+    bool Lean)
 {
     /// <summary>
     /// Gets the selections that a change set of every routed kind produces.
     /// </summary>
     internal static RoutingSelections All { get; } = new(
         true, true, true, true, true,
-        true, true, true, true);
+        true, true, true, true, true);
 }
 
 /// <summary>
@@ -40,7 +41,8 @@ internal sealed class ValidationSelections
         bool pack,
         bool inspectWeb,
         bool skillGate,
-        bool tla)
+        bool tla,
+        bool lean)
     {
         Test = test;
         DependencyPolicy = dependencyPolicy;
@@ -52,6 +54,7 @@ internal sealed class ValidationSelections
         InspectWeb = inspectWeb;
         SkillGate = skillGate;
         Tla = tla;
+        Lean = lean;
     }
 
     internal bool Test { get; }
@@ -74,11 +77,13 @@ internal sealed class ValidationSelections
 
     internal bool Tla { get; }
 
+    internal bool Lean { get; }
+
     /// <summary>
     /// Applies the repository's event rules to raw routing selections. A
     /// push runs the focused dependency-policy composition gate rather than
     /// the pre-merge test job; documentation lint, the Browser/Wasm lane
-    /// and the TLA+ lane have no event gate.
+    /// and the TLA+ and Lean lanes have no event gate.
     /// </summary>
     /// <param name="selections">The raw routing selections.</param>
     /// <param name="kind">The provenance kind supplying the event rule.</param>
@@ -98,6 +103,7 @@ internal sealed class ValidationSelections
             pack: selections.Packaging && preMerge,
             inspectWeb: selections.Web,
             skillGate: selections.Skills && preMerge,
-            tla: selections.Tla);
+            tla: selections.Tla,
+            lean: selections.Lean);
     }
 }

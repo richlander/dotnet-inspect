@@ -92,6 +92,22 @@ namespace ILInspector.ILDiff;
 /// the distinction from the other side.
 /// </para>
 /// <para>
+/// <b>A display class is keyed by what it holds, not by its name.</b> A
+/// <c>&lt;&gt;c__DisplayClassN_K</c> type definition with canonical ordinals and
+/// <c>CompilerGeneratedAttribute</c> keys as its ordinal-free name plus the sorted raw names
+/// of the owned members it declares: the lambdas Roslyn emits into it as
+/// <c>&lt;M&gt;b__K</c>, which carry the containing method's name and no type ordinal. Two
+/// display classes therefore key alike only when they hold the same named lambdas, and the
+/// two-sided type index refuses a key that more than one display class shares on either
+/// side, such as two overloads of one method that each capture into a display class
+/// holding <c>&lt;M&gt;b__0</c>. A display class that declares no owned member (a struct
+/// closure for local functions) has no key and keeps its raw name. Gated by
+/// <c>DisplayClass_FoldsThroughItsOwnedLambdas</c>,
+/// <c>DisplayClassWithoutOwnedMembers_DoesNotFold</c>,
+/// <c>DisplayClassesSharingALambdaSet_AreRefusedAsAmbiguous</c> and
+/// <c>DisplayClassesHoldingDifferentLambdas_DoNotFold</c>.
+/// </para>
+/// <para>
 /// <b>Known gap — generic declaring types do not fold.</b> The correspondence is keyed on
 /// <see cref="MethodDefinitionHandle"/> and <see cref="TypeDefinitionHandle"/>, so it is
 /// consulted only where an operand resolves to a definition in this assembly. A member of
@@ -132,8 +148,13 @@ namespace ILInspector.ILDiff;
 /// applies to operands (<c>IlBodyDiff.AssemblyScopeToken</c>), so the key never separates
 /// two references the operand renders identically. Compile-back needs this: its recompile
 /// resolves platform types against the running framework, not the original's reference
-/// assemblies (#9586). References outside that rule keep their full identity. Anonymous
-/// display classes (<c>&lt;&gt;c__DisplayClassN_K</c>) remain unowned, as above.
+/// assemblies (#9586). References outside that rule keep their full identity, and a module
+/// reader keeps every identity exact on both paths. Gated by
+/// <c>PlatformScopeNormalization_FoldsAcrossReferenceVersions</c>,
+/// <c>NonPlatformReferenceVersion_StillDoesNotFold</c>,
+/// <c>CurrentScopeNormalization_FoldsAcrossSelfReferenceVersions</c>,
+/// <c>ScopeTokenUsesTheOperandNamePrefix</c> and
+/// <c>SideIndex_IsCachedPerScopeNormalization</c>.
 /// </para>
 /// </remarks>
 public sealed class CompilerGeneratedOrdinalCorrespondence
@@ -573,6 +594,8 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
     internal const string LambdaCacheFieldPrefix = "<>9__";
 
+    internal const string DisplayClassPrefix = "<>c__DisplayClass";
+
     /// <summary>
     /// The raw <c>N_K</c> tail of Roslyn's lambda cache field <c>&lt;&gt;9__N_K</c>, or
     /// null when the name is not that form.
@@ -790,6 +813,45 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 return name;
             }
 
+            // A display class <>c__DisplayClassN_K carries no containing-method name, but
+            // the lambdas Roslyn emits into it do: <M>b__K. Its key is the ordinal-free
+            // class name plus the sorted raw names of the owned members it declares, so
+            // two display classes key alike only when they hold the same named lambdas.
+            // A class with no owned member (a struct closure captured by local functions,
+            // or an empty one) keeps no key and its raw name, as before. Ambiguity is
+            // still decided by the two-sided type index below: two display classes with
+            // one member set on either side refuse to fold.
+            string? TryDisplayClassKeyName(TypeDefinition type)
+            {
+                if (!reader.StringComparer.StartsWith(type.Name, DisplayClassPrefix))
+                    return null;
+                string name = DecodeName(type.Name);
+                if (!name.StartsWith(DisplayClassPrefix, StringComparison.Ordinal)
+                    || ElideScopeOrdinal(name.AsSpan(DisplayClassPrefix.Length)) is null)
+                {
+                    return null;
+                }
+
+                List<string>? owned = null;
+                foreach (var methodHandle in type.GetMethods())
+                {
+                    var method = reader.GetMethodDefinition(methodHandle);
+                    if (!reader.StringComparer.StartsWith(method.Name, "<"))
+                        continue;
+                    string methodName = DecodeName(method.Name);
+                    if (FindClosingAngle(methodName) > 1)
+                        (owned ??= []).Add(methodName);
+                }
+                if (owned is null)
+                    return null;
+
+                owned.Sort(StringComparer.Ordinal);
+                string key = DisplayClassPrefix + OrdinalPlaceholder + CacheFieldNameSeparator
+                    + string.Join(CacheFieldNameSeparator, owned);
+                workBudget.Charge(key.Length);
+                return key;
+            }
+
             // Name discovery is separate because the shared key builder consumes a
             // complete handle-to-name map rather than owning generated-name policy.
             // Parsing and materializing an elision is work even when the definition
@@ -811,6 +873,10 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                         workBudget);
                     typeNameElisions.Add(type.Name, elidedType);
                 }
+                // A display class's own name is anonymous, so it is never cached by
+                // name: its key comes from the members it carries, which differ per
+                // type even when two display classes share a raw name across readers.
+                elidedType ??= TryDisplayClassKeyName(type);
                 if (TryEligibleName(
                         reader,
                         elidedType,
@@ -827,9 +893,12 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                     reader,
                     reader.GetAssemblyDefinition().Name)
                 : null;
-            Func<string, string?>? assemblyScope = scope == IlBodyDiffNormalization.None
-                ? null
-                : name => IlBodyDiff.AssemblyScopeToken(name, currentAssembly, scope);
+            // Operand rendering keeps exact identities for a module reader, so the key
+            // does too: the canonicalizer exists only where the operand rule applies.
+            Func<string, string?>? assemblyScope =
+                scope == IlBodyDiffNormalization.None || currentAssembly is null
+                    ? null
+                    : name => IlBodyDiff.AssemblyScopeToken(name, currentAssembly, scope);
             var structuralKeys =
                 new StructuralSignatureBuilder(
                     reader,

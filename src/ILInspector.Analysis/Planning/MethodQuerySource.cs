@@ -81,6 +81,35 @@ public sealed record MethodDefinitionGeneratedExpansionLimits
     public int MaximumRelationshipNodes { get; }
 }
 
+/// <summary>Terminal Method-source work dimension that reached its bound.</summary>
+public enum MethodDefinitionTerminalWorkLimitKind
+{
+    Bodies,
+    EncodedIlBytes,
+}
+
+/// <summary>Finite bounds for physical bodies admitted to terminal work.</summary>
+public sealed record MethodDefinitionTerminalWorkLimits
+{
+    public MethodDefinitionTerminalWorkLimits(
+        int maximumBodies,
+        long maximumEncodedIlBytes)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumBodies);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maximumEncodedIlBytes);
+        MaximumBodies = maximumBodies;
+        MaximumEncodedIlBytes = maximumEncodedIlBytes;
+    }
+
+    internal static MethodDefinitionTerminalWorkLimits Unbounded { get; } =
+        new(int.MaxValue, long.MaxValue);
+
+    public int MaximumBodies { get; }
+
+    public long MaximumEncodedIlBytes { get; }
+}
+
 /// <summary>
 /// The immutable direct MethodDef population one source request may read.
 /// Exact coordinates are normalized into metadata order without duplicates.
@@ -309,13 +338,15 @@ public abstract class MethodDefinitionSourceRequest
         QuerySpaceRequest? structuralRequest,
         WorkDescription work,
         ProducerDeclaration producer,
-        MethodDefinitionSourceBreadth breadth)
+        MethodDefinitionSourceBreadth breadth,
+        MethodDefinitionTerminalWorkLimits terminalWorkLimits)
     {
         StructuralRequestOrNull = structuralRequest;
         Work = work;
         FocusedProducer = producer;
         Identity = new();
         Breadth = breadth;
+        TerminalWorkLimits = terminalWorkLimits;
         Terminal = work.TerminalOf(producer);
         RowLimit = work.RowLimitOf(producer);
         DeclaredLayers = MethodDefinitionExecution.FieldsRead(work);
@@ -342,6 +373,8 @@ public abstract class MethodDefinitionSourceRequest
     public MethodDefinitionSourceRequestIdentity Identity { get; }
 
     public MethodDefinitionSourceBreadth Breadth { get; }
+
+    public MethodDefinitionTerminalWorkLimits TerminalWorkLimits { get; }
 
     public ProducerTerminal Terminal { get; }
 
@@ -388,12 +421,14 @@ public sealed class MethodDefinitionSourceRequest<TResult>
         QuerySpaceRequest? structuralRequest,
         WorkDescription work,
         ProducerDeclaration<TResult> producer,
-        MethodDefinitionSourceBreadth breadth)
+        MethodDefinitionSourceBreadth breadth,
+        MethodDefinitionTerminalWorkLimits terminalWorkLimits)
         : base(
             structuralRequest,
             work,
             producer,
-            breadth)
+            breadth,
+            terminalWorkLimits)
     {
         Producer = producer;
     }
@@ -402,12 +437,15 @@ public sealed class MethodDefinitionSourceRequest<TResult>
     public static MethodDefinitionSourceRequest<TResult> Create(
         WorkDescription work,
         ProducerDeclaration<TResult> producer,
-        MethodDefinitionSourceBreadth? breadth = null) =>
+        MethodDefinitionSourceBreadth? breadth = null,
+        MethodDefinitionTerminalWorkLimits? terminalWorkLimits = null) =>
         MethodQuerySource.Plan(
             structuralRequest: null,
             work,
             producer,
-            breadth ?? MethodDefinitionSourceBreadth.AllDefinitions);
+            breadth ?? MethodDefinitionSourceBreadth.AllDefinitions,
+            terminalWorkLimits
+                ?? MethodDefinitionTerminalWorkLimits.Unbounded);
 
     /// <summary>
     /// Creates a QuerySpace-associated Method-source request without reading
@@ -417,14 +455,17 @@ public sealed class MethodDefinitionSourceRequest<TResult>
         QuerySpaceRequest structuralRequest,
         WorkDescription work,
         ProducerDeclaration<TResult> producer,
-        MethodDefinitionSourceBreadth? breadth = null)
+        MethodDefinitionSourceBreadth? breadth = null,
+        MethodDefinitionTerminalWorkLimits? terminalWorkLimits = null)
     {
         ArgumentNullException.ThrowIfNull(structuralRequest);
         return MethodQuerySource.Plan(
             structuralRequest,
             work,
             producer,
-            breadth ?? MethodDefinitionSourceBreadth.AllDefinitions);
+            breadth ?? MethodDefinitionSourceBreadth.AllDefinitions,
+            terminalWorkLimits
+                ?? MethodDefinitionTerminalWorkLimits.Unbounded);
     }
 
     /// <summary>The focused producer result this request publishes.</summary>
@@ -469,6 +510,8 @@ public sealed class MethodDefinitionSourceLanePlan
     {
         Work = work;
         Associations = associations;
+        TerminalWorkLimits =
+            associations[0].Request.TerminalWorkLimits;
     }
 
     public WorkDescription Work { get; }
@@ -477,6 +520,8 @@ public sealed class MethodDefinitionSourceLanePlan
     {
         get;
     }
+
+    public MethodDefinitionTerminalWorkLimits TerminalWorkLimits { get; }
 }
 
 /// <summary>One physical Method-source group and its independent lanes.</summary>
@@ -828,6 +873,9 @@ public sealed record MethodDefinitionSourceCoverage(
 {
     public MethodDefinitionGeneratedExpansionCoverage GeneratedExpansion
     { get; init; } = MethodDefinitionGeneratedExpansionCoverage.Empty;
+
+    public MethodDefinitionTerminalWorkCoverage TerminalWork
+    { get; init; } = MethodDefinitionTerminalWorkCoverage.Empty;
 }
 
 /// <summary>Why one generated physical MethodDef entered source breadth.</summary>
@@ -860,6 +908,17 @@ public sealed record MethodDefinitionGeneratedExpansionCoverage(
             []);
 }
 
+/// <summary>Actual physical-body work admitted to terminal producers.</summary>
+public sealed record MethodDefinitionTerminalWorkCoverage(
+    int BodiesAdmitted,
+    long EncodedIlBytes,
+    MethodDefinitionTerminalWorkLimitKind? ReachedLimit,
+    int? ReachedAtMethodToken)
+{
+    public static MethodDefinitionTerminalWorkCoverage Empty { get; } =
+            new(0, 0, null, null);
+}
+
 /// <summary>Where and why required Method-source acquisition was incomplete.</summary>
 public sealed record MethodDefinitionSourceFailure(
     int UnitToken,
@@ -871,6 +930,7 @@ public sealed record MethodDefinitionSourceReceipt(
     MethodDefinitionSourceRequestIdentity Request,
     AssemblyInspectionSubjectIdentity Subject,
     MethodDefinitionSourceBreadth Breadth,
+    MethodDefinitionTerminalWorkLimits TerminalWorkLimits,
     ProducerTerminal Terminal,
     MethodDefinitionLayers DeclaredLayers,
     MethodDefinitionSourceCompletion Completion,
@@ -1023,11 +1083,13 @@ internal static class MethodQuerySource
         QuerySpaceRequest? structuralRequest,
         WorkDescription work,
         ProducerDeclaration<TResult> producer,
-        MethodDefinitionSourceBreadth breadth)
+        MethodDefinitionSourceBreadth breadth,
+        MethodDefinitionTerminalWorkLimits terminalWorkLimits)
     {
         ArgumentNullException.ThrowIfNull(work);
         ArgumentNullException.ThrowIfNull(producer);
         ArgumentNullException.ThrowIfNull(breadth);
+        ArgumentNullException.ThrowIfNull(terminalWorkLimits);
         if (!work.Contains(producer) || !work.WasRequested(producer))
         {
             throw new ProducerContractException(
@@ -1079,7 +1141,12 @@ internal static class MethodQuerySource
                 + "and finite work limits.");
         }
 
-        return new(structuralRequest, work, producer, breadth);
+        return new(
+            structuralRequest,
+            work,
+            producer,
+            breadth,
+            terminalWorkLimits);
     }
 
     internal static MethodQuerySourceExecution<TResult> Execute<TResult>(
@@ -1098,7 +1165,8 @@ internal static class MethodQuerySource
                 request.Work,
                 sourceName,
                 peReader,
-                request.Breadth);
+                request.Breadth,
+                request.TerminalWorkLimits);
         ProducerResult<TResult> result =
             interim.ResultOf(request.Producer);
         WorkReceipt workReceipt = interim.Receipt;
@@ -1111,6 +1179,7 @@ internal static class MethodQuerySource
             request.Identity,
             subject,
             request.Breadth,
+            request.TerminalWorkLimits,
             request.Terminal,
             request.DeclaredLayers,
             completion,
@@ -1150,7 +1219,8 @@ internal static class MethodQuerySource
                         group.Lanes[0].Work,
                         sourceName,
                         peReader,
-                        group.Breadth);
+                        group.Breadth,
+                        group.Lanes[0].TerminalWorkLimits);
                 laneExecutions = [execution];
                 physicalCoverage = execution.SourceCoverage;
             }
@@ -1168,6 +1238,10 @@ internal static class MethodQuerySource
                     MethodDefinitionExecution.ExecuteShared(
                         group.Lanes
                             .Select(static lane => lane.Work)
+                            .ToArray(),
+                        group.Lanes
+                            .Select(static lane =>
+                                lane.TerminalWorkLimits)
                             .ToArray(),
                         sourceName,
                         peReader);
@@ -1208,6 +1282,7 @@ internal static class MethodQuerySource
                             request.Identity,
                             subject,
                             request.Breadth,
+                            request.TerminalWorkLimits,
                             request.Terminal,
                             request.DeclaredLayers,
                             completion,
@@ -1278,6 +1353,7 @@ internal static class MethodQuerySource
 internal sealed class MethodDefinitionSourceCoverageBuilder
 {
     readonly bool _enabled;
+    readonly MethodDefinitionTerminalWorkBudget? _terminalWork;
     readonly MethodDefinitionHandleCoverageBuilder _definitionsExamined = new();
     readonly MethodDefinitionHandleCoverageBuilder _methodsSelected = new();
     readonly MethodDefinitionHandleCoverageBuilder _bodiesAttempted = new();
@@ -1286,8 +1362,21 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
     MethodDefinitionGeneratedExpansionCoverage _generatedExpansion =
         MethodDefinitionGeneratedExpansionCoverage.Empty;
 
-    public MethodDefinitionSourceCoverageBuilder(bool enabled) =>
+    public MethodDefinitionSourceCoverageBuilder(
+        bool enabled,
+        MethodDefinitionTerminalWorkLimits? terminalWorkLimits = null)
+    {
         _enabled = enabled;
+        _terminalWork = terminalWorkLimits is null
+            ? null
+            : new(terminalWorkLimits);
+    }
+
+    internal bool TracksTerminalWork => _terminalWork is not null;
+
+    MethodDefinitionTerminalWorkBudget TerminalWork =>
+        _terminalWork ?? throw new InvalidOperationException(
+            "Terminal body work requires request-owned limits.");
 
     public void RecordDefinitionExamined(MethodDefinitionHandle handle)
     {
@@ -1313,6 +1402,29 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
             _bodiesAttempted.Add(handle);
     }
 
+    public void RecordTerminalBodyAttempted(
+        MethodDefinitionHandle handle)
+    {
+        if (!_enabled)
+            return;
+
+        _bodiesAttempted.Add(handle);
+        TerminalWork.RequireBodyCapacity(handle);
+    }
+
+    public void RecordTerminalBodyAcquired(
+        MethodDefinitionHandle handle,
+        MethodBodyBlock body)
+    {
+        if (!_enabled)
+            return;
+
+        _bodiesAcquired.Add(handle);
+        TerminalWork.Admit(
+            handle,
+            body.GetILReader().Length);
+    }
+
     public void RecordModuleLookupUsed(MethodDefinitionHandle handle)
     {
         if (_enabled)
@@ -1336,6 +1448,9 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
             _moduleLookupMethods.Build())
         {
             GeneratedExpansion = _generatedExpansion,
+            TerminalWork =
+                _terminalWork?.Build()
+                ?? MethodDefinitionTerminalWorkCoverage.Empty,
         };
 }
 
@@ -1346,6 +1461,22 @@ internal sealed class MethodDefinitionHandleCoverageBuilder
     int _firstRow;
     int _lastRow;
     int _count;
+
+    public int Count => _count;
+
+    public bool Contains(MethodDefinitionHandle handle)
+    {
+        int row = MetadataTokens.GetRowNumber(handle);
+        if (_unorderedRows is not null)
+            return _unorderedRows.Contains(row);
+        if (_count == 0 || row > _lastRow)
+            return false;
+        if (row == _lastRow)
+            return true;
+
+        MoveToUnordered();
+        return _unorderedRows!.Contains(row);
+    }
 
     public void Add(MethodDefinitionHandle handle)
     {
@@ -1369,7 +1500,9 @@ internal sealed class MethodDefinitionHandleCoverageBuilder
             return;
         if (row < _lastRow)
         {
-            MoveToUnordered(row);
+            MoveToUnordered();
+            if (_unorderedRows!.Add(row))
+                _count++;
             return;
         }
 
@@ -1421,7 +1554,7 @@ internal sealed class MethodDefinitionHandleCoverageBuilder
             ranges.ToImmutable());
     }
 
-    void MoveToUnordered(int row)
+    void MoveToUnordered()
     {
         var rows = new HashSet<int>(_count + 1);
         if (_completedRanges is not null)
@@ -1433,7 +1566,6 @@ internal sealed class MethodDefinitionHandleCoverageBuilder
             }
         }
         AddRange(rows, CurrentRange());
-        rows.Add(row);
         _unorderedRows = rows;
         _count = rows.Count;
     }

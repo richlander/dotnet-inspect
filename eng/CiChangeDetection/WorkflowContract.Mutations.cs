@@ -77,6 +77,78 @@ internal static partial class WorkflowContract
             "test/Run InertText tests",
             "non-root step override");
 
+        AssertRejected(
+            repository,
+            workflowText,
+            root => LeanJob(root).Children[new YamlScalarNode("if")] =
+                new YamlScalarNode("true"),
+            "jobs.lean.if",
+            "ungated Lean job");
+        AssertRejected(
+            repository,
+            workflowText,
+            root => LeanStep(root, "Install Lean toolchain")
+                .Children[new YamlScalarNode("run")] =
+                new YamlScalarNode("tar --zstd -xf lean.tar.zst"),
+            "must verify the toolchain",
+            "unverified Lean toolchain");
+        AssertRejected(
+            repository,
+            workflowText,
+            root => LeanStep(root, "Install Lean toolchain")
+                .Children[new YamlScalarNode("if")] =
+                new YamlScalarNode("steps.cache-lean.outputs.cache-hit != 'true'"),
+            "verify the Lean archive",
+            "Lean toolchain verified only on cache miss");
+        AssertRejected(
+            repository,
+            workflowText,
+            root => LeanStep(root, "Run Lean checks")
+                .Children[new YamlScalarNode("if")] =
+                new YamlScalarNode("false"),
+            "must not be conditional",
+            "conditional Lean checks");
+        AssertRejected(
+            repository,
+            workflowText,
+            root =>
+            {
+                YamlSequenceNode steps = GetRequiredSequence(
+                    LeanJob(root),
+                    "steps",
+                    "jobs.lean");
+                YamlNode last = steps.Children[^1];
+                steps.Children.RemoveAt(steps.Children.Count - 1);
+                steps.Children.Insert(1, last);
+            },
+            "then run eng/run-lean-checks.sh",
+            "Lean checks before toolchain verification");
+    }
+
+    private static YamlMappingNode LeanJob(YamlMappingNode root) =>
+        GetRequiredMapping(
+            GetRequiredMapping(root, "jobs", "workflow"),
+            "lean",
+            "jobs");
+
+    private static YamlMappingNode LeanStep(
+        YamlMappingNode root,
+        string name)
+    {
+        foreach (YamlNode node in GetRequiredSequence(
+            LeanJob(root),
+            "steps",
+            "jobs.lean").Children)
+        {
+            YamlMappingNode step = RequireMapping(node, "jobs.lean step");
+            if (GetOptionalScalar(step, "name") == name)
+            {
+                return step;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"jobs.lean has no step named {name}.");
     }
 
     private static void AssertAccepted(
