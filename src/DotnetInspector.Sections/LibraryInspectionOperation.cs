@@ -380,7 +380,7 @@ public static class LibraryInspectionOperation
             LibraryTypeDeclarationInventoryCorrespondence correspondence,
             LibraryTypePopulationRequest population,
             LibraryTypePopulationRowsRequest request,
-            ApiSurfaceExtractionBounds bounds,
+            LibraryInspectionBounds bounds,
             RowsPreparation preparation,
             CancellationToken cancellationToken)
     {
@@ -584,7 +584,7 @@ public static class LibraryInspectionOperation
         ImmutableArray<InspectionDiagnostic> Diagnostics)
         RowsIncomplete(
             LibraryTypeDeclarationInventoryCorrespondence correspondence,
-            ApiSurfaceExtractionBounds bounds,
+            LibraryInspectionBounds bounds,
             LibraryTypeDeclarationRowsInspectionBound bound)
     {
         LibraryTypePopulationRowsBound portable = bound switch
@@ -638,7 +638,7 @@ public static class LibraryInspectionOperation
             ApiTypeInventoryKinds definitionKinds,
             string? @namespace,
             MetadataNamespaceMatch namespaceMatch,
-            ApiSurfaceExtractionBounds bounds,
+            LibraryInspectionBounds bounds,
             CancellationToken cancellationToken)
     {
         int forwarders = 0;
@@ -1007,7 +1007,7 @@ public static class LibraryInspectionOperation
     }
 
     private static LibraryTypeDeclarationInventoryInspectionBounds
-        InventoryBounds(ApiSurfaceExtractionBounds bounds) =>
+        InventoryBounds(LibraryInspectionBounds bounds) =>
         new(
             maximumAssemblyBytes: int.MaxValue,
             maximumRetainedDeclarations:
@@ -1017,7 +1017,7 @@ public static class LibraryInspectionOperation
                 bounds.MaxRetainedTextCharacters);
 
     private static int MaximumRetainedDeclarations(
-        ApiSurfaceExtractionBounds bounds) =>
+        LibraryInspectionBounds bounds) =>
         (int)Math.Min(
             (long)bounds.MaxTypes + bounds.MaxTypeForwarders,
             int.MaxValue);

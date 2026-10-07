@@ -87,11 +87,11 @@ rules preserve the Library facade's smaller evaluated-project boundary and its
 larger compiled-assembly boundary. Uploaded-Library provenance, assembly
 identity, accessibility, and inspection failures now arrive as detached
 Sections-owned values; Web Core alone reads and lowers the execution's raw API
-surface. The facade's independent exact-Library document path still projects
-Metadata-owned enablement values and constructs Metadata bounds, so the
-remaining Metadata project and compiled edges stay admitted until a focused
-a #8779 successor retires them. The positive rules prevent either graph from
-expanding meanwhile.
+surface. The independent exact-Library document path now consumes
+Sections-owned bounds and detached LibraryMetadata enablement values while
+preserving the established wire contract. Its `ILInspector.Metadata` project
+edge and both compiled Metadata edges are retired; the positive rules prevent
+them from returning.
 
 The separate `inspect-web-catalog-facade-*-dependencies-stay-within-capability-ratchet`
 rules preserve the Catalog facade's evaluated-project and compiled-assembly

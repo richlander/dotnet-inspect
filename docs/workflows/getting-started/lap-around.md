@@ -261,7 +261,7 @@ net8.0
 The tool can inspect its own package:
 
 ```bash
-dotnet-inspect package dotnet-inspect@0.16.0 --layout --tools
+dotnet-inspect package dotnet-inspect@0.16.0 --files --tools
 ```
 
 ```expect

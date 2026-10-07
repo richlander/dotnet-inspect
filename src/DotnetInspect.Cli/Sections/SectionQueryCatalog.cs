@@ -67,6 +67,15 @@ public sealed record SectionQueryCatalog(
         if (command == "package")
         {
             queries.Add(new(
+                PackageSections.Files,
+                "Filter file rows by package-relative identity and directory ancestry.",
+                RowQueryKeyProjection.Create(
+                    PackageFileInventoryQuery.FileRowsScope.Vocabulary,
+                    key => key.Key == "Target"
+                        ? new("tfm", [], "net8.0")
+                        : new("text/glob", [], key.Key == "Root" ? "lib" : "*"),
+                    [])));
+            queries.Add(new(
                 PackageSections.DependencyHierarchy,
                 DependencyQueryOptions.HierarchySummary,
                 DependencyQueryOptions.QueryKeys(
