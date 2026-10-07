@@ -2849,6 +2849,43 @@ invalid subject, retained context, facet, query, or cross-record relationship
 is `InvalidDefinitionSet`. Neither outcome flattens, drops, or defaults a
 field.
 
+#### Exact Diff query attachment
+
+`workspace-diff/v1` uses the existing format-4 query table and committed view
+attachment. It describes an inert ordered exact Gallery comparison: the row's
+Package coordinate is After; `baseline` is the canonical exact Before version
+of that same Package and framework. The row retains the exact Library metadata
+identity and Type/Member identity and names `library.compare`, `type.compare`,
+or `member.compare`. It preserves the coordinate's acquisition origin.
+
+The closed equality-term vocabulary is `baseline`, `content`, `asset`, `medium`,
+optional `body`, and optional `predicate-operator` / `predicate-value`.
+`content` is `api`, `member-body`, or `string-literals`; `asset` is the exact
+compile asset identity. `medium` is `CSharp` or `Il` for Member Body and
+`CSharp` otherwise. A Member Body Member attachment requires its exact owning
+body selector using the canonical portable Member target selector and complete
+anchor digest; Library and Type inventories carry no body selector. String
+literal content requires its existing nonempty bounded predicate and operator.
+No row bounds, stages, or order operations are accepted. Unknown, repeated,
+missing, contradictory, or unsupported terms fail through typed definition
+refusal. Query binding and packet restoration confer no acquisition or
+execution authority.
+
+Browser capture pins the effective exact baseline, including a baseline
+resolved through previous-version selection. Reopening must restore that
+baseline and content before Compare runs, then validate the Library, Member,
+and body against normally acquired evidence. Missing or unavailable evidence
+fails visibly rather than choosing another baseline, body, or content.
+Existing packets without this attachment retain their documented behavior.
+
+The motivating asset is
+`System.Text.Json@9.0.20..10.0.12/netstandard2.0`, compile asset
+`compile:lib/netstandard2.0/System.Text.Json.dll`, added getter
+`System.Text.Json.JsonDocumentOptions.AllowDuplicateProperties`. Shared codec
+and Browser transport round trips, CLI packet encode/decode, and a published
+Wasm copy/reopen journey gate exact endpoints, identity, and automatic C#/IL
+presentation. Tracking: #9643 under #7213.
+
 #### Packet format 3
 
 Format 3 is the registration-bearing extension of format 2. It adds required
@@ -4008,7 +4045,8 @@ Definition records and product demos (this slice):
   present, and leaves the source URL intact. Unsupported
   groups, RIDs, multi-library Browser views, unknown lenses or sections, package
   facets, pending graph targets, graph-discovered members, accessor-specific
-  bodies, and members without portable anchor/signature identity fail visibly
+  bodies outside exact Diff attachments, and members without portable
+  anchor/signature identity fail visibly
   instead of being flattened.
   These Browser boundaries are gated by `canonical tabs must remain distinct
   and ordered after resolution`, `missing Platform reacquisition retains only
@@ -4067,13 +4105,21 @@ Definition records and product demos (this slice):
   gates cover canonical query-table ordering, payload identity, references,
   malformed and orphan state, query-only mixtures, typed Package Query
   binding, and cancellation between query binds; and
+- exact Diff sharing adopts the existing format-4 query attachment for Gallery
+  Library, Type, and Member comparisons. `WorkspaceDiffIntentTests` gates
+  strict packet/record round trips and malformed or mismatched body refusal;
+  `BrowserWorkspaceShareOperationsTests` gates Browser transport and unchanged
+  legacy admission. The published Member Body Share/reopen journey preserves
+  `9.0.20 -> 10.0.12`, the exact added getter, and IL/C# selection. CLI packet
+  decode/encode preserves the actual Browser-produced packet; and
 - **not yet:** Browser production consumption of complete Workspace-root
   capture under
   [#7709](https://github.com/richlander/dotnet-inspect/issues/7709), the final
   adoption successor of [#7031](https://github.com/richlander/dotnet-inspect/issues/7031)
   and failed [#7516](https://github.com/richlander/dotnet-inspect/pull/7516);
   Definitions and Browser binding to the landed View Facet Registry, Inspect
-  Web adoption of complete restoration and query-bearing sharing, CLI use of
+  Web adoption of complete restoration and general query-bearing sharing
+  beyond the exact Diff attachment, CLI use of
   the codec/transposer for executable `-W`
   ([#4647](https://github.com/richlander/dotnet-inspect/issues/4647)),
   or

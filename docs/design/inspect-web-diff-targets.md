@@ -33,8 +33,10 @@ An unsuccessful Workspace replacement restores the prior settings along with
 the browser's existing rollback snapshot, including associations to its
 restored Package models.
 
-These are session-local settings, not portable Workspace Definition fields or
-retained product authority. They do not mint occurrence handles, establish
+Settings belong to the retained Package model. Shared Diff links capture the
+effective exact baseline and content through the inert query attachment owned
+by [Workspace definitions](workspace-definitions.md#exact-diff-query-attachment).
+Clone scope remains session-local. Neither is retained product authority. They do not mint occurrence handles, establish
 library correspondence, authorize a source, acquire comparison payloads, or
 prove that a selected target can be inspected. Execution must consume the
 appropriate product-owned acquisition and query outcomes.
@@ -91,9 +93,8 @@ accessible option text.
 
 The work area has no introductory paragraph that restates its labels and no
 separate result-style paragraphs below the controls. One quiet policy line
-states the two facts shared by both rows: settings belong to the browser
-session, and choosing one neither executes a comparison nor changes a shared
-link. Loading, no-predecessor, partial-listing, unsupported-source, removed
+states that shared Diff links preserve the exact baseline shown, choosing a
+target does not execute a comparison, and Clone scope remains session-local. Loading, no-predecessor, partial-listing, unsupported-source, removed
 Clone target, and failed-inventory outcomes remain visible in their owning row
 rather than becoming general section prose.
 

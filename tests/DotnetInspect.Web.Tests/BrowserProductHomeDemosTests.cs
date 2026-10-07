@@ -15,6 +15,56 @@ namespace DotnetInspect.Web.Tests;
 public sealed class BrowserProductHomeDemosTests
 {
     [Fact]
+    public void ProductDemoMemberSelection_RejectsMissingAnchorMatch()
+    {
+        var selection = new ProductDemoMemberSelection(
+            "Run",
+            "method",
+            "abcdef",
+            Signature: null);
+
+        InspectionDefinitionException error =
+            Assert.Throws<InspectionDefinitionException>(() =>
+                selection.Resolve(
+                    [
+                        new ProductDemoMemberCandidate(
+                            "Run",
+                            "method",
+                            "1234567890"),
+                    ],
+                    static candidate => candidate));
+
+        Assert.Contains("no candidate", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProductDemoMemberSelection_RejectsAmbiguousAnchorPrefix()
+    {
+        var selection = new ProductDemoMemberSelection(
+            "Run",
+            "method",
+            "abcdef",
+            Signature: null);
+
+        InspectionDefinitionException error =
+            Assert.Throws<InspectionDefinitionException>(() =>
+                selection.Resolve(
+                    [
+                        new ProductDemoMemberCandidate(
+                            "Run",
+                            "method",
+                            "abcdef1234"),
+                        new ProductDemoMemberCandidate(
+                            "Run",
+                            "method",
+                            "abcdef5678"),
+                    ],
+                    static candidate => candidate));
+
+        Assert.Contains("2 candidates", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ProductDefaultWorkspaceAndShippedPlatformCatalogShareReleaseLine()
     {
         WorkspacePlan plan = EcosystemPackCatalog.CreatePlatformWorkspacePlan();
@@ -513,9 +563,9 @@ public sealed class BrowserProductHomeDemosTests
             plan.TypeId);
         Assert.Equal(ProductDemoSections.CallGraph, plan.Section);
         BrowserHomeDemoRunMember member = Assert.IsType<BrowserHomeDemoRunMember>(plan.Member);
-        Assert.Equal("TryAddEnumerable", member.Name);
-        Assert.Equal("method", member.MemberKind);
-        Assert.Equal("74b6b4b321", member.AnchorDigest);
+        Assert.Equal("TryAddEnumerable", member.Selection.Name);
+        Assert.Equal("method", member.Selection.Kind);
+        Assert.Equal("74b6b4b321", member.Selection.Anchor);
         Assert.Equal("call-graph", member.MemberSection);
     }
 

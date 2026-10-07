@@ -124,3 +124,10 @@ test("Member auto-loading defers admission until the current page publication fi
   assert.match(controller.render(), /data-source-diff-viewer/);
   controller.dispose(); navigation.dispose();
 });
+
+test("restored body selector joins the issued destination without using a foreign metadata token", () => {
+  const destination = { ...inventory.destinations[0]!, selector: "Run~123:1" };
+  const restored = { ...context(), methodToken: 0x06000099, bodySelector: "Run~123:1" };
+  assert.equal(memberBodyDestination({ ...inventory, destinations: [destination] }, restored), destination);
+  assert.equal(memberBodyDestination({ ...inventory, destinations: [destination] }, { ...restored, bodySelector: "Run~123:2" }), null);
+});
