@@ -7,7 +7,7 @@ public class LoopLocalFunctionTests
 {
     [Theory]
     [InlineData(nameof(LoopLocalFunctionSamples.DoWhile), 1)]
-    [InlineData(nameof(LoopLocalFunctionSamples.While), 1)]
+    [InlineData(nameof(LoopLocalFunctionSamples.DoWhileWithTransfers), 1)]
     [InlineData(nameof(LoopLocalFunctionSamples.Dependency), 2)]
     public void CompilerStructuredLoop_RaisesCompleteLocalFunctions(string method, int count)
     {
@@ -31,6 +31,19 @@ public class LoopLocalFunctionTests
         Assert.NotNull(function);
         var result = CSharpPrinter.PrintRaised(function, reference => reference.Name.Contains("g__Loop|", StringComparison.Ordinal)
             ? null : IrImporter.Import(source, reference));
+        Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Contains("g__", result.Output);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void OrdinaryWhile_WithoutIteratorOrDependencyProof_RemainsPartial()
+    {
+        using var source = MetadataSource.Open(typeof(OrdinaryWhileLocalFunctionSample).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(OrdinaryWhileLocalFunctionSample).FullName!, nameof(OrdinaryWhileLocalFunctionSample.Run));
+        Assert.NotNull(function);
+        var result = CSharpPrinter.PrintRaised(function, reference => IrImporter.Import(source, reference));
         Assert.Empty(function.Descendants.OfType<LocalFunctionStatement>());
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
         Assert.Contains("g__", result.Output);
@@ -65,19 +78,19 @@ public static class LoopLocalFunctionSamples
         }
     }
 
-    public static int While(int value)
+    public static int DoWhileWithTransfers(int value)
     {
         return Loop(value);
         static int Loop(int remaining)
         {
             int sum = 0;
-            while (remaining > 0)
+            do
             {
                 remaining--;
                 if (remaining == 2) continue;
                 sum += remaining;
                 if (sum > 20) break;
-            }
+            } while (remaining > 0);
             return sum;
         }
     }
@@ -94,6 +107,20 @@ public static class LoopLocalFunctionSamples
                 remaining--;
             } while (remaining > 0);
             return true;
+        }
+    }
+}
+
+public static class OrdinaryWhileLocalFunctionSample
+{
+    public static int Run(int value)
+    {
+        return Loop(value);
+        static int Loop(int remaining)
+        {
+            int sum = 0;
+            while (remaining > 0) { sum += remaining; remaining--; }
+            return sum;
         }
     }
 }

@@ -124,13 +124,13 @@ terminal-throw slice.
 ## Structured loops in local-function bodies
 
 An otherwise admissible local-function body may contain already-structured
-`WhileLoop` or `DoWhileLoop` statements. The ordinary pipeline owns loop
+`DoWhileLoop` statements. The ordinary pipeline owns loop
 formation and the targets of their nested returns, breaks, and continues.
 Local-function admission keeps those nodes and conditions intact; it does not
 reconstruct control flow or retarget transfers. Standalone and static
-component bodies use the same loop admission. Existing reference closure,
+component bodies use the same do/while admission. Existing reference closure,
 capture, receiver, generic, unsupported-node, and isolated-scope proofs remain
-required. Foreach, iterator, and exception-handler admission retain their
+required. Ordinary while, foreach, iterator, and exception-handler admission retain their
 existing separate boundaries.
 
 The motivating asset is System.Text.Json 11.0.0-rc.1.26425.128
@@ -143,7 +143,7 @@ The admission rule must preserve the dictionary, managed-reference queue,
 loop conditions, call ordering, and early return without replacing their IR.
 
 `LoopLocalFunctionTests.CompilerStructuredLoop_RaisesCompleteLocalFunctions`
-gates compiler-produced do/while, while with break/continue, and a static
+gates compiler-produced do/while with break/continue, and a static
 dependency with an early-return loop. `LoopDependencyWithUnavailableBody_RemainsPartial`
 pins incomplete-component decline. `CompilerStructuredLoops_CompileBackExact`
 checks immutable product whole members in raised and lowered modes. Existing

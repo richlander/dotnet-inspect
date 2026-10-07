@@ -470,13 +470,14 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     continue;
                 if (body.Descendants.OfType<UnsupportedNode>().Any())
                     continue;
-                // Ordinary loop nodes already carry their structured control flow.
-                // Iterator-only statements still require a reconstructed yield.
+                // Iterator reconstruction has already authenticated and structured these
+                // statement kinds. Admit them as a local-function body only when a
+                // reconstructed yield proves this is that pipeline's output.
                 bool isReconstructedIterator = body.Descendants.OfType<YieldReturn>().Any();
                 if (!IsPrintableBody(
                         body,
                         allowLocalStatements: true,
-                        allowLoops: true,
+                        allowLoops: isReconstructedIterator,
                         allowIteratorStatements: isReconstructedIterator))
                     continue;
 
@@ -1656,7 +1657,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 continue;
             if (allowLocalStatements && statement is StoreField)
                 continue;
-            if (allowLoops && statement is WhileLoop or DoWhileLoop)
+            if (statement is DoWhileLoop || allowLoops && statement is WhileLoop)
                 continue;
             if (allowIteratorStatements
                 && statement is UsingStatement
