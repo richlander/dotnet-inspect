@@ -1868,6 +1868,86 @@ public class CompilerGeneratedOrdinalTests
             => reader.GetTypeDefinition(GeneratedTypeHandle(reader, name)).GetGenericParameters().Count;
     }
 
+    const IlBodyDiffNormalization PlatformScope =
+        IlBodyDiffNormalization.NormalizePlatformAssemblyScope;
+
+    /// <summary>
+    /// A generated member whose signature mentions a platform type keys on that
+    /// reference's scope. Compile-back recompiles against the running framework, so the
+    /// original's reference can differ in version, or name the implementation assembly
+    /// in place of the reference facade. The comparison already renders both as
+    /// <c>&lt;platform&gt;</c>, and the correspondence key must not tell apart what the
+    /// operand cannot.
+    /// </summary>
+    /// <remarks>
+    /// Real asset: <c>EcosystemIntegrationScanner.OrderApis</c> in
+    /// dotnet-inspect.any 0.14.0 (<c>ILInspector.Metadata.dll</c>), whose lambdas take
+    /// <c>KeyValuePair&lt;string, string&gt;</c>. Before the fix, its native RTS recompile
+    /// folded none of its <c>&lt;OrderApis&gt;b__45_K</c> lambdas against
+    /// <c>b__0_K</c> and reported <c>OperandDiff</c> on identical opcodes (#9586). Both
+    /// halves are load-bearing: without the platform scope the same images must not fold.
+    /// </remarks>
+    [Theory]
+    [InlineData("System.Runtime", "10.0.0.0", "System.Runtime", "11.0.0.0")]
+    [InlineData("System.Runtime", "10.0.0.0", "System.Private.CoreLib", "11.0.0.0")]
+    public void PlatformScopeNormalization_FoldsAcrossReferenceVersions(
+        string oldCorlib,
+        string oldVersion,
+        string newCorlib,
+        string newVersion)
+    {
+        using var oldPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [new Member("<M>b__3_0", CompilerGenerated: true, TakesReferencedObject: true)],
+            corlibName: oldCorlib,
+            corlibVersion: Version.Parse(oldVersion))));
+        using var newPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [new Member("<M>b__7_0", CompilerGenerated: true, TakesReferencedObject: true)],
+            corlibName: newCorlib,
+            corlibVersion: Version.Parse(newVersion))));
+
+        Assert.True(Compare(oldPe, newPe, Ordinals | PlatformScope).IsExact);
+        Assert.False(Compare(oldPe, newPe, PlatformScope).IsExact,
+            "Without ordinal folding the lambda names still differ.");
+        Assert.False(Compare(oldPe, newPe, Ordinals).IsExact,
+            "Without the platform scope the reference identities differ, so neither the "
+            + "operand nor the key may treat them as the same.");
+    }
+
+    /// <summary>
+    /// The coarsened key follows the operand rule exactly: a reference the comparison does
+    /// not treat as platform keeps its full identity, so a version change still blocks the
+    /// fold even with every scope normalization requested.
+    /// </summary>
+    [Fact]
+    public void NonPlatformReferenceVersion_StillDoesNotFold()
+    {
+        const IlBodyDiffNormalization AllScopes =
+            Ordinals
+            | PlatformScope
+            | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope;
+        using var oldPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [new Member("<M>b__3_0", CompilerGenerated: true, TakesReferencedObject: true)],
+            corlibName: "Contoso.Runtime",
+            corlibVersion: new Version(1, 0, 0, 0))));
+        using var newPe = new PEReader(new MemoryStream(BuildImage(
+            "Probe",
+            [new Member("<M>b__7_0", CompilerGenerated: true, TakesReferencedObject: true)],
+            corlibName: "Contoso.Runtime",
+            corlibVersion: new Version(2, 0, 0, 0))));
+        MetadataReader oldReader = oldPe.GetMetadataReader();
+        MetadataReader newReader = newPe.GetMetadataReader();
+
+        var (oldSide, newSide) =
+            CompilerGeneratedOrdinalCorrespondence.Build(oldReader, newReader, AllScopes);
+
+        Assert.False(oldSide.TryGetMethodName(MethodNamed(oldReader, "<M>b__3_0"), out _));
+        Assert.False(newSide.TryGetMethodName(MethodNamed(newReader, "<M>b__7_0"), out _));
+        Assert.False(Compare(oldPe, newPe, AllScopes).IsExact);
+    }
+
     static Member Generated(string name) => new(name, CompilerGenerated: true);
 
     /// <summary>
@@ -2332,7 +2412,8 @@ public class CompilerGeneratedOrdinalTests
         byte[]? RawSignature = null,
         GenericParameterAttributes GenericConstraint = GenericParameterAttributes.None,
         string? GenericConstraintType = null,
-        int GenericConstraintCopies = 1);
+        int GenericConstraintCopies = 1,
+        bool TakesReferencedObject = false);
 
     /// <summary>
     /// A compiler-generated member declaring <paramref name="arity"/> generic parameters.
@@ -2503,7 +2584,9 @@ public class CompilerGeneratedOrdinalTests
         string[]? generatedTypeMethodNames = null,
         string[]? generatedTypeFieldNames = null,
         int fieldsOnGeneratedTypeIndex = 0,
-        string[]? firstGeneratedTypeExtraMethods = null)
+        string[]? firstGeneratedTypeExtraMethods = null,
+        string corlibName = "System.Runtime",
+        Version? corlibVersion = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -2521,8 +2604,8 @@ public class CompilerGeneratedOrdinalTests
             default);
 
         var corlib = metadata.AddAssemblyReference(
-            metadata.GetOrAddString("System.Runtime"),
-            new Version(1, 0, 0, 0),
+            metadata.GetOrAddString(corlibName),
+            corlibVersion ?? new Version(1, 0, 0, 0),
             default,
             default,
             default,
@@ -2646,8 +2729,29 @@ public class CompilerGeneratedOrdinalTests
         // A generic method's signature carries GENERIC (0x10) and its own parameter count,
         // which is what the operand renderer reads. A member may deliberately omit it to
         // model an assembly whose two arity records disagree.
+        // `static void (object)`, with `object` a TypeReference scoped to the corlib
+        // reference above, so the member's structural key carries that scope.
+        TypeReferenceHandle referencedObject = default;
+        BlobHandle ReferencedObjectSignature()
+        {
+            if (referencedObject.IsNil)
+            {
+                referencedObject = metadata.AddTypeReference(
+                    corlib,
+                    metadata.GetOrAddString("System"),
+                    metadata.GetOrAddString("Object"));
+            }
+            var blob = new BlobBuilder();
+            new BlobEncoder(blob).MethodSignature().Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Type(referencedObject, isValueType: false));
+            return metadata.GetOrAddBlob(blob);
+        }
+
         BlobHandle SignatureFor(Member member) => member switch
         {
+            { TakesReferencedObject: true } => ReferencedObjectSignature(),
             { RawSignature: { } raw } => metadata.GetOrAddBlob(raw),
             { GenericArity: > 0, SignatureDeclaresArity: true }
                 => metadata.GetOrAddBlob(

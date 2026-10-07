@@ -29,13 +29,30 @@ public sealed partial class DesktopPackageSourceComposition
         Action<string>? log = null)
     {
         ArgumentNullException.ThrowIfNull(createStore);
-        return new PackageHouse(
-            new CompositionAuthorization(this, sourceOptions),
+        return CreateRealizationHouse(
             new PackagePayloadAcquisitionPlan(
                 createStore,
                 log: log),
-            log,
-            _versionSettlement);
+            sourceOptions,
+            log);
+    }
+
+    /// <summary>
+    /// Supplies a semantic-query House whose per-package authorization is
+    /// evaluated by this composition.
+    /// </summary>
+    public PackageHouse CreateDependencyContentQueryHouse(
+        PackageStoreProvider createStore,
+        NuGetSourceOptions? sourceOptions = null,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(createStore);
+        return CreateRealizationHouse(
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                createStore,
+                log: log),
+            sourceOptions,
+            log);
     }
 
     /// <summary>
@@ -61,6 +78,33 @@ public sealed partial class DesktopPackageSourceComposition
     public PackageSourceOperationLease IssueSettlementOperation(
         CancellationToken cancellationToken = default) =>
         IssueHouseOperation(cancellationToken);
+
+    /// <summary>
+    /// Issues a source-owned operation capped by an enclosing House duration.
+    /// </summary>
+    public PackageSourceOperationLease IssueSettlementOperation(
+        TimeSpan maximumOperationTimeout,
+        CancellationToken cancellationToken)
+    {
+        if (maximumOperationTimeout < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumOperationTimeout));
+        }
+
+        TimeSpan operationTimeout = TimeSpan.FromTicks(
+            Math.Min(
+                _options.OperationTimeout.Ticks,
+                maximumOperationTimeout.Ticks));
+        TimeSpan requestTimeout = TimeSpan.FromTicks(
+            Math.Min(
+                _options.RequestTimeout.Ticks,
+                operationTimeout.Ticks));
+        return _sourceLease.IssueOperationLease(
+            cancellationToken,
+            requestTimeout,
+            operationTimeout);
+    }
 
     /// <summary>
     /// Settles one exact coordinate through PackageHouse when the composition

@@ -7,6 +7,7 @@ using System.Text;
 using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.PlatformHouse;
 using DotnetInspector.PlatformQueries;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
@@ -146,7 +147,11 @@ public sealed partial class PackageHouseExecutionTests
                     RouteVersion,
                     "net11.0"),
             ],
-            available.Document.PackageSubjects
+            available.Document.NodeClassifications
+                .OfType<
+                    DotnetInspector.Sections
+                        .PackageDependencyMemberCallGraphNodeClassification
+                        .Package>()
                 .OrderBy(subject => subject.NodeId)
                 .Select(subject =>
                     (
@@ -288,6 +293,14 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Empty(completed.FocalScope.PlatformPopulations);
         Assert.NotEmpty(
             completed.IntrinsicCoreLibraryContextNonParticipation);
+        Assert.Equal(
+            completed.IntrinsicCoreLibraryContextNonParticipation.Length,
+            completed.IntrinsicCoreLibraryContextNonParticipation
+                .DistinctBy(receipt =>
+                    (
+                        receipt.Occurrence.OccurrenceId,
+                        receipt.Occurrence.Correspondence.Type))
+                .Count());
         Assert.True(
             completed.IntrinsicCoreLibraryContextNonParticipation
                 .Select(receipt => receipt.Occurrence.OccurrenceId)
@@ -1112,7 +1125,10 @@ public sealed partial class PackageHouseExecutionTests
             completed.ScopeRevision,
             completed.FocalScope.ScopeRevision);
         Assert.Contains(
-            completed.NodePackages,
+            completed.NodeClassifications.OfType<
+                DotnetInspector.PackageQueries
+                    .PackageDependencyMemberCallGraphNodeClassification
+                    .Package>(),
             nodePackage =>
                 nodePackage.Descriptor.PackageId.Equals(
                     CallGraphTargetPackage,
@@ -1120,7 +1136,10 @@ public sealed partial class PackageHouseExecutionTests
                 && nodePackage.Descriptor.PackageVersion
                     == lowerVersion);
         Assert.DoesNotContain(
-            completed.NodePackages,
+            completed.NodeClassifications.OfType<
+                DotnetInspector.PackageQueries
+                    .PackageDependencyMemberCallGraphNodeClassification
+                    .Package>(),
             nodePackage =>
                 nodePackage.Descriptor.PackageId.Equals(
                     CallGraphTargetPackage,
@@ -1536,7 +1555,10 @@ public sealed partial class PackageHouseExecutionTests
             [CallGraphRootPackage.ToLowerInvariant()],
             completed.Baseline.RootPackageIds);
         Assert.DoesNotContain(
-            completed.NodePackages,
+            completed.NodeClassifications.OfType<
+                DotnetInspector.PackageQueries
+                    .PackageDependencyMemberCallGraphNodeClassification
+                    .Package>(),
             subject => string.Equals(
                 subject.Descriptor.PackageId,
                 CallGraphTargetPackage,
@@ -1725,6 +1747,29 @@ public sealed partial class PackageHouseExecutionTests
             CancellationToken cancellationToken) =>
             throw new InvalidOperationException(
                 "Initial Workspace failure must precede Platform population admission.");
+
+        public override ValueTask<PlatformTargetDiscoveryOutcome>
+            DiscoverIntrinsicCoreLibraryTargetAsync(
+            PlatformFamily family,
+            string targetFramework,
+            AssemblyReferenceResolutionWorkLedger work,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                "Initial Workspace failure must precede intrinsic CoreLib target discovery.");
+
+        public override ValueTask<
+            PlatformPopulationArtifactMaterializationOutcome>
+            RealizeIntrinsicCoreLibraryPopulationAsync(
+            PlatformFamilyTarget target,
+            AssemblyReferenceResolutionWorkLedger work,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                "Initial Workspace failure must precede intrinsic CoreLib population realization.");
+
+        public override PlatformTypeCatalogDerivationBounds
+            IntrinsicCoreLibraryCatalogBounds =>
+            throw new InvalidOperationException(
+                "Initial Workspace failure must precede intrinsic CoreLib catalog derivation.");
     }
 
     private static PackageRootBinding CallGraphRootBindingFromAssembly(

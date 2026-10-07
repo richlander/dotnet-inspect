@@ -517,6 +517,27 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         AssemblyBindingOrigin origin,
         AssemblyResolutionScope scope)
     {
+        var intrinsicRequest = new AssemblyBindingRequest(
+            AssemblyBindingTarget.CoreLibrary(),
+            origin,
+            scope);
+        if (route.Delegate.Policy
+                is IExplicitIntrinsicCoreLibraryBindingPolicy)
+        {
+            AssemblyBindingSelection designated =
+                SelectDelegate(state, route, intrinsicRequest);
+            if (designated
+                is AssemblyBindingSelection.Selected
+                    or AssemblyBindingSelection.Ambiguous
+                    or AssemblyBindingSelection.CompositionRequired)
+            {
+                return IssueSelection(
+                    state,
+                    route,
+                    designated);
+            }
+        }
+
         AssemblyBindingSelection selection =
             IntrinsicCoreLibraryBinding.Select(
                 _restrictToParticipants
@@ -529,10 +550,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                         origin,
                         scope)));
         selection = AssemblyBindingSelection.ValidateForRequest(
-            new AssemblyBindingRequest(
-                AssemblyBindingTarget.CoreLibrary(),
-                origin,
-                scope),
+            intrinsicRequest,
             selection);
         if (selection
                 is AssemblyBindingSelection.Selected selected

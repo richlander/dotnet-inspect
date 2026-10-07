@@ -124,6 +124,17 @@ namespace ILInspector.ILDiff;
 /// suite's synthetic generated types are top-level. Nested override and malformed-chain
 /// integration coverage remains tracked by #3588.
 /// </para>
+/// <para>
+/// <b>Scope equivalence follows the comparison.</b> A key's signature encodes every
+/// assembly-reference scope it mentions. Built through
+/// <see cref="Build(MetadataReader, MetadataReader, IlBodyDiffNormalization)"/>, those
+/// scopes are spelled by the same current- and platform-assembly rule the comparison
+/// applies to operands (<c>IlBodyDiff.AssemblyScopeToken</c>), so the key never separates
+/// two references the operand renders identically. Compile-back needs this: its recompile
+/// resolves platform types against the running framework, not the original's reference
+/// assemblies (#9586). References outside that rule keep their full identity. Anonymous
+/// display classes (<c>&lt;&gt;c__DisplayClassN_K</c>) remain unowned, as above.
+/// </para>
 /// </remarks>
 public sealed class CompilerGeneratedOrdinalCorrespondence
 {
@@ -246,6 +257,29 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     public static (CompilerGeneratedOrdinalCorrespondence Old, CompilerGeneratedOrdinalCorrespondence New) Build(
         MetadataReader oldReader,
         MetadataReader newReader)
+        => Build(oldReader, newReader, IlBodyDiffNormalization.None);
+
+    /// <summary>
+    /// Builds the correspondence with keys that encode assembly-reference scopes under
+    /// the same <see cref="IlBodyDiffNormalization.NormalizeCurrentAssemblyScope"/> and
+    /// <see cref="IlBodyDiffNormalization.NormalizePlatformAssemblyScope"/> rule the
+    /// comparison applies to operands. Other flags in <paramref name="normalization"/>
+    /// are ignored.
+    /// </summary>
+    /// <remarks>
+    /// Without this, a generated member whose signature mentions a platform type keys
+    /// on that reference's full identity, so an original built against one framework's
+    /// reference assemblies never pairs with a recompile resolved against another's —
+    /// even though the comparison already renders both scopes as <c>&lt;platform&gt;</c>.
+    /// Coarsening the key this way can only merge keys the comparison itself cannot tell
+    /// apart; a merged key that becomes ambiguous still refuses to fold. Gated by
+    /// <c>PlatformScopeNormalization_FoldsAcrossReferenceVersions</c> and
+    /// <c>NonPlatformReferenceVersion_StillDoesNotFold</c>.
+    /// </remarks>
+    public static (CompilerGeneratedOrdinalCorrespondence Old, CompilerGeneratedOrdinalCorrespondence New) Build(
+        MetadataReader oldReader,
+        MetadataReader newReader,
+        IlBodyDiffNormalization normalization)
     {
         ArgumentNullException.ThrowIfNull(oldReader);
         ArgumentNullException.ThrowIfNull(newReader);
@@ -258,8 +292,11 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             return (Empty, Empty);
         }
 
-        var oldIndex = SideIndex.For(oldReader);
-        var newIndex = SideIndex.For(newReader);
+        var scope = normalization
+            & (IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
+                | IlBodyDiffNormalization.NormalizePlatformAssemblyScope);
+        var oldIndex = SideIndex.For(oldReader, scope);
+        var newIndex = SideIndex.For(newReader, scope);
         if (oldIndex.IsEmpty || newIndex.IsEmpty)
             return (Empty, Empty);
 
@@ -665,13 +702,14 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
     /// <summary>
     /// One assembly's eligible compiler-generated members, indexed by ordinal-free key.
-    /// Cached per reader: the fidelity loop compares many methods against the same
-    /// original assembly, and re-enumerating its metadata for each one would make the
-    /// comparison quadratic in the assembly's member count.
+    /// Cached per reader and scope normalization: the fidelity loop compares many methods
+    /// against the same original assembly, and re-enumerating its metadata for each one
+    /// would make the comparison quadratic in the assembly's member count. The scope
+    /// normalization changes the keys, so each combination has its own slot.
     /// </summary>
     sealed class SideIndex
     {
-        static readonly ConditionalWeakTable<MetadataReader, SideIndex> s_cache = new();
+        static readonly ConditionalWeakTable<MetadataReader, SideIndex?[]> s_cache = new();
 
         public required Dictionary<StructuralTypeKey, MethodGroup> MethodGroups { get; init; }
         public required Dictionary<MethodDefinitionHandle, string> MethodNames { get; init; }
@@ -682,8 +720,17 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
         public bool IsEmpty => MethodGroups.Count == 0 && Types.Count == 0 && FieldSiblings.Count == 0;
 
-        public static SideIndex For(MetadataReader reader)
-            => s_cache.GetValue(reader, static r => Create(r));
+        public static SideIndex For(MetadataReader reader, IlBodyDiffNormalization scope)
+        {
+            var slots = s_cache.GetValue(reader, static _ => new SideIndex?[4]);
+            int slot =
+                ((scope & IlBodyDiffNormalization.NormalizeCurrentAssemblyScope) != 0 ? 1 : 0)
+                | ((scope & IlBodyDiffNormalization.NormalizePlatformAssemblyScope) != 0 ? 2 : 0);
+            if (Volatile.Read(ref slots[slot]) is { } cached)
+                return cached;
+            var created = Create(reader, scope);
+            return Interlocked.CompareExchange(ref slots[slot], created, null) ?? created;
+        }
 
         /// <summary>
         /// Builds the index, or yields an empty one when the metadata cannot be read.
@@ -699,11 +746,11 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         /// Declining to fold restores the un-normalized comparison. Enforced by
         /// <c>MalformedUnrelatedMetadata_FailsClosedRatherThanThrowing</c>.
         /// </remarks>
-        static SideIndex Create(MetadataReader reader)
+        static SideIndex Create(MetadataReader reader, IlBodyDiffNormalization scope)
         {
             try
             {
-                return CreateCore(reader);
+                return CreateCore(reader, scope);
             }
             catch (BadImageFormatException)
             {
@@ -719,7 +766,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             }
         }
 
-        static SideIndex CreateCore(MetadataReader reader)
+        static SideIndex CreateCore(MetadataReader reader, IlBodyDiffNormalization scope)
         {
             var methodGroups = new Dictionary<StructuralTypeKey, MethodGroup>();
             var methodNames = new Dictionary<MethodDefinitionHandle, string>();
@@ -775,11 +822,20 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 }
             }
 
+            string? currentAssembly = reader.IsAssembly
+                ? MetadataSafetyPolicy.ReadStructuralString(
+                    reader,
+                    reader.GetAssemblyDefinition().Name)
+                : null;
+            Func<string, string?>? assemblyScope = scope == IlBodyDiffNormalization.None
+                ? null
+                : name => IlBodyDiff.AssemblyScopeToken(name, currentAssembly, scope);
             var structuralKeys =
                 new StructuralSignatureBuilder(
                     reader,
                     typeNames,
-                    workBudget);
+                    workBudget,
+                    assemblyScope: assemblyScope);
             foreach (var typeHandle in reader.TypeDefinitions)
             {
                 var type = reader.GetTypeDefinition(typeHandle);

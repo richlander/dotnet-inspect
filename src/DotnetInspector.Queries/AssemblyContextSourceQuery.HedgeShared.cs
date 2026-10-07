@@ -171,7 +171,7 @@ public static partial class AssemblyContextSourceQuery
 
         PdbTypeSourceInspection inspection =
             prepared.Failure is { } failure
-                ? PdbSourceHouse.TypePdbAcquisitionFailed(
+                ? PdbSourceInspectionProjection.TypeAcquisitionFailed(
                     new FindingSubject(
                         "type",
                         request.Type.ToMetadataFullName()),

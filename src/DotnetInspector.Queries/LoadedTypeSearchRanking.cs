@@ -40,8 +40,30 @@ public static class LoadedTypeSearchRanking
         string? query,
         IReadOnlyList<LoadedTypeSearchCandidate> candidates,
         Func<string, LoadedTypeSearchMatchKind, THit> createHit)
+        => Rank(
+            query,
+            candidates,
+            static candidate => candidate.Key,
+            static candidate => candidate.Name,
+            static candidate => candidate.Full,
+            createHit);
+
+    /// <summary>
+    /// Applies the product's Type-name ranking to a caller-owned candidate
+    /// shape without requiring that shape to inherit a product model.
+    /// </summary>
+    public static THit[] Rank<TCandidate, THit>(
+        string? query,
+        IReadOnlyList<TCandidate> candidates,
+        Func<TCandidate, string> selectKey,
+        Func<TCandidate, string> selectName,
+        Func<TCandidate, string> selectFullName,
+        Func<string, LoadedTypeSearchMatchKind, THit> createHit)
     {
         ArgumentNullException.ThrowIfNull(candidates);
+        ArgumentNullException.ThrowIfNull(selectKey);
+        ArgumentNullException.ThrowIfNull(selectName);
+        ArgumentNullException.ThrowIfNull(selectFullName);
         ArgumentNullException.ThrowIfNull(createHit);
 
         string pattern = query?.Trim() ?? "";
@@ -50,14 +72,14 @@ public static class LoadedTypeSearchRanking
             return
             [
                 .. candidates
-                    .OrderBy(candidate => candidate.Name.Length)
+                    .OrderBy(candidate => selectName(candidate).Length)
                     .ThenBy(
-                        candidate => candidate.Name,
+                        selectName,
                         StringComparer.OrdinalIgnoreCase)
                     .Take(EmptyQueryLimit)
                     .Select(candidate =>
                         createHit(
-                            candidate.Key,
+                            selectKey(candidate),
                             LoadedTypeSearchMatchKind.All)),
             ];
         }
@@ -67,57 +89,64 @@ public static class LoadedTypeSearchRanking
 
         void AddTier(
             LoadedTypeSearchMatchKind kind,
-            Func<LoadedTypeSearchCandidate, bool> predicate)
+            Func<TCandidate, bool> predicate)
         {
-            foreach (LoadedTypeSearchCandidate candidate in candidates
+            foreach (TCandidate candidate in candidates
                 .Where(candidate =>
-                    !used.Contains(candidate.Key)
+                    !used.Contains(selectKey(candidate))
                     && predicate(candidate))
-                .OrderBy(candidate => candidate.Full, WithinTier))
+                .OrderBy(selectFullName, WithinTier))
             {
-                if (used.Add(candidate.Key))
-                    hits.Add(createHit(candidate.Key, kind));
+                string key = selectKey(candidate);
+                if (used.Add(key))
+                    hits.Add(createHit(key, kind));
             }
         }
 
         bool isGlob = TypeMatcher.IsTypeGlobPattern(pattern);
         AddTier(
             LoadedTypeSearchMatchKind.Exact,
-            candidate => TypeMatcher.Matches(candidate.Full, pattern)
+            candidate => TypeMatcher.Matches(
+                    selectFullName(candidate),
+                    pattern)
                 || (isGlob
                     && TypeMatcher.MatchesTypeFilter(
-                        candidate.Full,
+                        selectFullName(candidate),
                         pattern)));
         Dictionary<string, TypeNameMatchTier?> tiers = candidates
-            .DistinctBy(static candidate => candidate.Key)
+            .DistinctBy(selectKey)
             .ToDictionary(
-                static candidate => candidate.Key,
+                selectKey,
                 candidate => TypeNameMatchRanking.Classify(
-                    candidate.Full,
+                    selectFullName(candidate),
                     pattern),
                 StringComparer.Ordinal);
         AddTier(
             LoadedTypeSearchMatchKind.Prefix,
-            candidate => tiers[candidate.Key] == TypeNameMatchTier.Prefix);
+            candidate => tiers[selectKey(candidate)]
+                == TypeNameMatchTier.Prefix);
         AddTier(
             LoadedTypeSearchMatchKind.Substring,
-            candidate => tiers[candidate.Key] == TypeNameMatchTier.Substring);
+            candidate => tiers[selectKey(candidate)]
+                == TypeNameMatchTier.Substring);
         AddTier(
             LoadedTypeSearchMatchKind.Path,
-            candidate => tiers[candidate.Key] == TypeNameMatchTier.Path);
+            candidate => tiers[selectKey(candidate)]
+                == TypeNameMatchTier.Path);
 
         var remaining =
             new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        foreach (LoadedTypeSearchCandidate candidate in candidates.Where(
-            candidate => !used.Contains(candidate.Key)))
+        foreach (TCandidate candidate in candidates.Where(
+            candidate => !used.Contains(selectKey(candidate))))
         {
+            string fullName = selectFullName(candidate);
             if (!remaining.TryGetValue(
-                    candidate.Full,
+                    fullName,
                     out List<string>? keys))
             {
-                remaining[candidate.Full] = keys = [];
+                remaining[fullName] = keys = [];
             }
-            keys.Add(candidate.Key);
+            keys.Add(selectKey(candidate));
         }
 
         if (remaining.Count > 0)

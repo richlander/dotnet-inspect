@@ -74,7 +74,7 @@ public static partial class AssemblyContextSourceQuery
                     outcome,
                     findingSubject),
             { AcquisitionFailure: { } failure } =>
-                PdbSourceHouse.MemberPdbAcquisitionFailed(
+                PdbSourceInspectionProjection.MemberAcquisitionFailed(
                     findingSubject,
                     failure),
             { LibraryFailure: { } terminal } =>
@@ -137,7 +137,9 @@ public static partial class AssemblyContextSourceQuery
         PdbMemberSourceInspection inspection = authored switch
         {
             { AcquisitionFailure: { } failure } =>
-                PdbSourceHouse.MemberPdbAcquisitionFailed(findingSubject, failure),
+                PdbSourceInspectionProjection.MemberAcquisitionFailed(
+                    findingSubject,
+                    failure),
             { LibraryFailure: { } terminal } =>
                 UnsuccessfulMemberInspection(
                     findingSubject, terminal is AssemblyContextLibraryAdapterResult.Incomplete
@@ -181,7 +183,9 @@ public static partial class AssemblyContextSourceQuery
         PdbTypeSourceInspection inspection = authored switch
         {
             { AcquisitionFailure: { } failure } =>
-                PdbSourceHouse.TypePdbAcquisitionFailed(findingSubject, failure),
+                PdbSourceInspectionProjection.TypeAcquisitionFailed(
+                    findingSubject,
+                    failure),
             { LibraryFailure: { } terminal } =>
                 UnsuccessfulTypeInspection(
                     findingSubject, terminal is AssemblyContextLibraryAdapterResult.Incomplete
@@ -249,7 +253,7 @@ public static partial class AssemblyContextSourceQuery
         PdbTypeSourceInspection authored = settled switch
         {
             { AcquisitionFailure: { } failure } =>
-                PdbSourceHouse.TypePdbAcquisitionFailed(
+                PdbSourceInspectionProjection.TypeAcquisitionFailed(
                     findingSubject,
                     failure),
             { LibraryFailure: { } terminal } =>
@@ -764,7 +768,7 @@ public static partial class AssemblyContextSourceQuery
             if (mapping is null)
                 throw new InvalidOperationException("Available type source requires its mapping.");
             PdbTypeSourceInspection inspection =
-                PdbSourceHouse.FromVerifiedTypeContent(
+                PdbSourceInspectionProjection.FromVerifiedTypeContent(
                     mapping.SourceMapping,
                     mapping.Document,
                     available.Source.Text,
