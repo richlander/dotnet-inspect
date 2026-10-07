@@ -112,7 +112,7 @@ internal static class BrowserSourceComparisonProjection
             endpoint.Subject.Registration.ModuleVersionId?.ToString("D"),
             endpoint.Subject.Identity.ToString(),
             request is null ? null
-                : $"{request.Type.ToEscapedFullName()}::{request.Member.StableSelector}",
+                : $"{request.Type.ToEscapedFullName()}::{request.ProjectedMember.StableSelector}",
             request?.MetadataToken,
             state, detail, text, browseUrl, provenance?.RepositoryUrl, provenance?.Revision);
     }

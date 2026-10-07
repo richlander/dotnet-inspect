@@ -532,7 +532,8 @@ Inspection Subject Navigation owns:
 - separation of exact subject identity from the route used to reach it;
 - subject applicability, availability, and failure classification;
 - initial subject recommendation and subject-scoped lens recommendation;
-- Package aggregate recommendation plus exact- and namesake-Library narrowing;
+- Package aggregate recommendation plus exact-, namesake-, and First Library
+  narrowing;
 - Workspace, Ecosystem, Package, Library, Type, Member, and lens navigation
   descriptors;
 - exact subject and lens activation outcomes;
@@ -660,8 +661,10 @@ correspondence. Artifact acquisition and package realization bind that receipt
 and its admitted Library outcomes to one exact Package occurrence in one
 `PackageLibraries` basis. Navigation consumes that composed value, not
 separately pairable occurrence and projection arguments. It neither reselects
-a TFM nor ranks package asset paths. The compile-selection owner resolves exact
-asset IDs within that projection. Library admission and Metadata supply the
+a TFM nor ranks package asset paths for selection. Library order's final
+ordinal path comparison only makes the order total among already admitted
+Libraries. The compile-selection owner resolves exact asset IDs within that
+projection. Library admission and Metadata supply the
 exact admitted Library identities and managed assembly facts used by
 narrowing.
 
@@ -1195,15 +1198,43 @@ Explicit subject requests take precedence over this recommendation:
   could change either conclusion. Every non-applied outcome retains the
   ordered candidates and participant evidence and never falls back to
   declaration order, the aggregate, or Package.
+- **First Library** takes the first namesake in Library order, or the first
+  Library in that order when there is no namesake. It is the shape of LINQ's
+  `FirstOrDefault(isNamesake) ?? First()`. Namesake comparison is the
+  Namesake Library comparison above. Because the request asks for the first
+  match, several namesakes are not ambiguous. An unresolved candidate identity
+  fails the request, because it could change which Library is first. An empty
+  admitted population is unavailable. The chosen Library activates that exact
+  one-Library subject. If the chosen Library is unavailable or fails
+  inspection, the result is that Library's typed non-success; the request never
+  moves to a sibling Library, the aggregate, or Package.
 - **Package, Type, Member, and restored subject** requests keep their existing
   exact precedence and do not run Library recommendation.
 
-Hosts own syntax such as `--library` and `--namesake-library`, but they submit
-the corresponding typed gesture and render the returned outcome. Exact token
-resolution remains a shared selected-asset operation; hosts do not turn token
-text into subject identity. They also do not repeat namesake matching.
-Navigation never derives a namesake from an asset path, file stem, display
-label, or package-relative text.
+**Library order** sorts the admitted Libraries of one selected projection by
+owner-issued assembly simple name, comparing ordinally and ignoring case. Ties
+are broken by an ordinal case-sensitive name comparison, then by an ordinal
+comparison of the exact asset path. It depends on no culture, display label, or
+arrival order. First
+Library is its only consumer here; candidate lists in other outcomes keep their
+existing order.
+
+Hosts own syntax such as `--library`, `--namesake-library`, and
+`--first-library`, but they submit the corresponding typed gesture and render
+the returned outcome. Exact token resolution remains a shared selected-asset
+operation; hosts do not turn token text into subject identity. They also do
+not repeat namesake matching or Library ordering. Navigation never derives a
+namesake from an asset path, file stem, display label, or package-relative
+text.
+
+First Library remains **unverified** until
+`FirstLibraryRequest_PrefersFirstNamesakeInLibraryOrder`, whose fixture holds
+several namesakes that differ only in tie-break order,
+`FirstLibraryRequest_WithoutNamesakeSelectsFirstInLibraryOrder`,
+`FirstLibraryRequest_UnresolvedIdentityFailsClosed`,
+`FirstLibraryRequest_EmptyPopulationIsUnavailable`, and
+`FirstLibraryRequest_ChosenLibraryNonSuccessDoesNotFallback` gate it, under
+[#9683](https://github.com/richlander/dotnet-inspect/issues/9683).
 
 One Navigation evaluation consumes one selected framework projection. A
 coordinator requesting multiple frameworks presents separately associated
@@ -1282,7 +1313,7 @@ trustworthy when another row or participant fails; failure does not erase
 positive evidence.
 
 Every admitted Library remains an ordered aggregate member and an eligible
-target for explicit exact or namesake narrowing. No individual Library is an
+target for explicit exact, namesake, or First Library narrowing. No individual Library is an
 implicit initial-recommendation candidate. Exact returned Type rows remain
 inventory candidates for retained-context ranking; they are not implicit
 subjects. Classification does not commit the recommendation, choose an active
@@ -1471,10 +1502,18 @@ unsupported arity is reported as `Unavailable` for that lens while the current
 Library subject remains active and selectable for a supported lens.
 
 A host may expose a compound subject-and-lens gesture when the user moves from
-`All libraries` to a single-library-only inspector. Inspect Web defines that
-gesture by selecting the first case-insensitive Package-ID namesake in its
-alphabetically ordered Library inventory, or the first Library in that
-inventory when no namesake exists, and then activating the requested inspector.
+`All libraries` to a single-library-only inspector. That gesture submits the
+[First Library](#initial-aggregate-and-package) request, then activates the
+requested inspector. When First Library does not apply, the gesture shows its
+typed result and leaves the current subject active; it does not activate the
+inspector. Inspect Web currently implements a host-local approximation in
+`preferredLibrarySubjectId`. It matches and sorts selector-issued file stems
+with a culture-sensitive collation and checks no assembly identity. Adoption
+under #9683 replaces it with the shared result. That changes the name basis to
+owner-issued assembly simple names, changes the collation to ordinal, adds
+failure on unresolved identity, and stops activating the inspector when First
+Library does not apply. The gesture can therefore choose a different Library
+than it does today.
 The transition runs only for user inspector navigation. Restoration,
 rerendering, and asynchronous settlement do not repeat it. A later explicit
 `All libraries` gesture remains active and receives the unsupported-arity
@@ -2452,6 +2491,11 @@ The eventual subject-navigation implementation must include named gates for:
 - `NamesakeLibraryNarrowing_ZeroOrMultipleMatchesDoNotFallback`
 - `NamesakeLibraryNarrowing_UnresolvedIdentityFailsClosed`
 - `NamesakeLibraryNarrowing_RetainsCandidatesAndParticipantEvidence`
+- `FirstLibraryRequest_PrefersFirstNamesakeInLibraryOrder`
+- `FirstLibraryRequest_WithoutNamesakeSelectsFirstInLibraryOrder`
+- `FirstLibraryRequest_UnresolvedIdentityFailsClosed`
+- `FirstLibraryRequest_EmptyPopulationIsUnavailable`
+- `FirstLibraryRequest_ChosenLibraryNonSuccessDoesNotFallback`
 - `AggregateRecommendation_UsesOneSelectedFrameworkProjection`
 - `SeparateFrameworkSelections_NeverMergeAggregateIdentity`
 - `TypeRecommendation_UsesPrimaryLibraryAccessibilityAndProducerOrder`
@@ -2743,6 +2787,8 @@ must preserve the same typed outcomes and fresh destination content.
 | Exact Library gesture | Exact selected one-Library subject, or typed non-success with no aggregate, sibling-Library, or Package fallback |
 | Unique namesake gesture | Exact one-Library subject whose owner-issued assembly simple name uniquely matches the Package ID ignoring case |
 | Missing, ambiguous, or indeterminate namesake | Typed unavailable, ambiguous, or failed result with ordered candidates and participant evidence; no declaration-order, aggregate, or Package fallback |
+| First Library gesture | The first namesake in Library order, otherwise the first Library in Library order; several namesakes select the first |
+| First Library with an unresolved identity, no admitted Library, or an unavailable or failed chosen Library | Typed failed or unavailable result; no sibling-Library, aggregate, or Package fallback |
 | Multiple framework selection | One separately associated aggregate per selected framework; no cross-framework subject or API merge |
 | Preferred role is not first | Preferred available role, not the earlier available descriptor |
 | Preferred lens unavailable | First available registry-ordered fallback with preferred evidence retained |

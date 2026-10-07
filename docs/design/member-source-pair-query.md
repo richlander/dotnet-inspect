@@ -27,6 +27,10 @@ different exact anchors or leave one endpoint unrequested. Each requested
 endpoint resolves only its own anchor in its own retained image. A physical
 token from one image is never reused to resolve the other.
 
+Host-neutral callers may supply Metadata's detached `ProjectedMemberAnchor`.
+The query reconstructs the primitive exact anchor inside its owning boundary;
+browser hosts neither construct nor inspect `MetadataPrimitives.MemberAnchor`.
+
 An unrequested endpoint is retained as `Unrequested`; it is not
 query-established positive member absence. A requested missing or ambiguous
 MethodDef is `NotFound`, also not positive member absence. Unsupported

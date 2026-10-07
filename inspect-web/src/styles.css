@@ -2555,22 +2555,22 @@ kbd {
 .source-result pre { min-width: 0; min-height: 0; max-width: 100%; margin: 0; padding: 18px; overflow: auto; border: 0; background: var(--code-bg); }
 .source-result pre code { color: var(--code-text); font: 14px/1.65 var(--mono); }
 .source-result .source-shared-indentation { font-size: 0; }
-.source-result .token.comment { color: #6f7669; font-style: italic; }
-.source-result .token.keyword { color: #d98a70; }
-.source-result .token.class-name,
-.source-result .token.return-type,
-.source-result .token.type-expression { color: #84b1c7; }
-.source-result .token.string,
-.source-result .token.char,
-.source-result .token.interpolation-string { color: #a9bd82; }
-.source-result .token.number,
-.source-result .token.boolean { color: #d3a76b; }
-.source-result .token.function { color: #d7c477; }
-.source-result .token.operator,
-.source-result .token.punctuation { color: #94978e; }
-.source-result .token.attribute,
-.source-result .token.namespace { color: #b89ac6; }
-.source-result .token.preprocessor { color: #a48ad0; }
+:is(.source-result, .triage-code) .token.comment { color: #6f7669; font-style: italic; }
+:is(.source-result, .triage-code) .token.keyword { color: #d98a70; }
+:is(.source-result, .triage-code) .token.class-name,
+:is(.source-result, .triage-code) .token.return-type,
+:is(.source-result, .triage-code) .token.type-expression { color: #84b1c7; }
+:is(.source-result, .triage-code) .token.string,
+:is(.source-result, .triage-code) .token.char,
+:is(.source-result, .triage-code) .token.interpolation-string { color: #a9bd82; }
+:is(.source-result, .triage-code) .token.number,
+:is(.source-result, .triage-code) .token.boolean { color: #d3a76b; }
+:is(.source-result, .triage-code) .token.function { color: #d7c477; }
+:is(.source-result, .triage-code) .token.operator,
+:is(.source-result, .triage-code) .token.punctuation { color: #94978e; }
+:is(.source-result, .triage-code) .token.attribute,
+:is(.source-result, .triage-code) .token.namespace { color: #b89ac6; }
+:is(.source-result, .triage-code) .token.preprocessor { color: #a48ad0; }
 .kw { color: var(--syntax-kw); }
 .primitive { color: var(--blue); }
 
@@ -5118,22 +5118,22 @@ kbd {
 :root[data-theme="light"] .signature-code .token.named-parameter { color: #3c4138; }
 :root[data-theme="light"] .signature-code .token.punctuation { color: #6b7065; }
 
-:root[data-theme="light"] .source-result .token.comment { color: #6a7268; }
-:root[data-theme="light"] .source-result .token.keyword { color: #b04a2c; }
-:root[data-theme="light"] .source-result .token.class-name,
-:root[data-theme="light"] .source-result .token.return-type,
-:root[data-theme="light"] .source-result .token.type-expression { color: #245f86; }
-:root[data-theme="light"] .source-result .token.string,
-:root[data-theme="light"] .source-result .token.char,
-:root[data-theme="light"] .source-result .token.interpolation-string { color: #397044; }
-:root[data-theme="light"] .source-result .token.number,
-:root[data-theme="light"] .source-result .token.boolean { color: #8a5a12; }
-:root[data-theme="light"] .source-result .token.function { color: #8a650d; }
-:root[data-theme="light"] .source-result .token.operator,
-:root[data-theme="light"] .source-result .token.punctuation { color: #6b7065; }
-:root[data-theme="light"] .source-result .token.attribute,
-:root[data-theme="light"] .source-result .token.namespace { color: #6c4d91; }
-:root[data-theme="light"] .source-result .token.preprocessor { color: #6c4d91; }
+:root[data-theme="light"] :is(.source-result, .triage-code) .token.comment { color: #6a7268; }
+:root[data-theme="light"] :is(.source-result, .triage-code) .token.keyword { color: #b04a2c; }
+:root[data-theme="light"] :is(.source-result, .triage-code) .token.class-name,
+:root[data-theme="light"] :is(.source-result, .triage-code) .token.return-type,
+:root[data-theme="light"] :is(.source-result, .triage-code) .token.type-expression { color: #245f86; }
+:root[data-theme="light"] :is(.source-result, .triage-code) .token.string,
+:root[data-theme="light"] :is(.source-result, .triage-code) .token.char,
+:root[data-theme="light"] :is(.source-result, .triage-code) .token.interpolation-string { color: #397044; }
+:root[data-theme="light"] :is(.source-result, .triage-code) .token.number,
+:root[data-theme="light"] :is(.source-result, .triage-code) .token.boolean { color: #8a5a12; }
+:root[data-theme="light"] :is(.source-result, .triage-code) .token.function { color: #8a650d; }
+:root[data-theme="light"] :is(.source-result, .triage-code) .token.operator,
+:root[data-theme="light"] :is(.source-result, .triage-code) .token.punctuation { color: #6b7065; }
+:root[data-theme="light"] :is(.source-result, .triage-code) .token.attribute,
+:root[data-theme="light"] :is(.source-result, .triage-code) .token.namespace { color: #6c4d91; }
+:root[data-theme="light"] :is(.source-result, .triage-code) .token.preprocessor { color: #6c4d91; }
 
 /* Annotated Source keeps the portable text selectable while Findings and source-node
    selection use explicit controls and non-underline treatments. */
@@ -6531,3 +6531,12 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
   .spotlight-artifact { grid-template-columns: 20px minmax(0, 1fr) min(150px, 28vw) 82px; gap: 6px; }
 }
 .spotlight-item-date { color: var(--muted); font: 11px var(--mono); white-space: nowrap; }
+
+.triage-item { border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.triage-item .perf-row { border-bottom: 0; }
+.triage-boundaries { margin: 0; padding: 0 16px 8px 60px; font-size: 12px; color: var(--muted); }
+.triage-code { margin: 0 16px 12px 60px; padding: 10px 12px; overflow-x: auto; font-size: 12px; background: var(--panel); white-space: pre; }
+.resource-triage-member { color: var(--accent); background: transparent; border: 0; padding: 0; text-align: left; font: inherit; cursor: pointer; }
+.resource-triage-member:hover { text-decoration: underline; }
+
+.triage-code .triage-caret .token.comment { color: var(--accent); }

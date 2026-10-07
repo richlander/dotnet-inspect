@@ -113,7 +113,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(archive, package.RetainedBytes);
         Assert.False(package.Content.FromCache);
         Assert.IsType<PackageArchiveValidation.Valid>(
-            package.Content.ValidateArchive(
+            Assert.IsType<InMemoryPackageContent>(package.Content).ValidateArchive(
                 BrowserPackageWorkspace.PackageLimits,
                 TestContext.Current.CancellationToken));
         Assert.Equal(

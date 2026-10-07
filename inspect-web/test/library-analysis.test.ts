@@ -35,6 +35,7 @@ function member(overrides: Partial<BrowserPerformanceMember> = {}): BrowserPerfo
     memberName: "Run",
     stableSelector: "Run",
     bodyTokens: [0x06000001],
+    bodyTargets: [{ typeId: "Test.Namespace.Widget", memberName: "Run", selectorKey: "body-Run", methodToken: 0x06000001, issueOffsets: [7] }],
     opportunityCount: 3,
     inLoopCount: 1,
     shapes: ["box-value-type", "string-concat"],
@@ -148,18 +149,18 @@ test("a partial empty result does not claim established absence", () => {
 
   assert.match(html, /Analysis incomplete/);
   assert.match(html, /partial/);
-  assert.match(html, /A method body could not be analyzed/);
+  assert.match(html, /This library could not be analyzed completely/);
   assert.doesNotMatch(html, /No public allocation hot spots/);
 });
 
-test("partial rows remain available with a visible diagnostic", () => {
+test("partial rows remain available with a concise warning", () => {
   const html = renderLibraryAnalysisSurface({
     ...baseOptions,
     data: result({ inspectionError: "<bad> body" }),
   });
 
   assert.match(html, /This library could not be analyzed completely/);
-  assert.match(html, /&lt;bad&gt; body/);
+  assert.doesNotMatch(html, /<bad>|&lt;bad&gt;/);
   assert.match(html, /data-perf-selector="Run"/);
 });
 
@@ -179,4 +180,36 @@ test("member names, shapes, and confidence are escaped", () => {
   assert.match(html, /&lt;shape&gt;/);
   assert.match(html, /&lt;high&gt;/);
   assert.doesNotMatch(html, /<Run>|<shape>|<high>/);
+});
+
+
+test("a row with multiple contributing accessor bodies keeps navigation and shows no arbitrary code line", () => {
+  const html = renderLibraryAnalysisSurface({ ...baseOptions, data: result({ members: [member({
+    memberName: "Value", stableSelector: "public-Value", bodyTokens: [1, 2],
+    bodyTargets: [
+      { typeId: "Test.Namespace.Widget", memberName: "get_Value", selectorKey: "body-get", methodToken: 1, issueOffsets: [7] },
+      { typeId: "Test.Namespace.Widget", memberName: "set_Value", selectorKey: "body-set", methodToken: 2, issueOffsets: [9] },
+    ],
+  })] }) });
+  assert.match(html, /data-perf-selector="public-Value"/);
+  assert.doesNotMatch(html, /data-triage-code/);
+});
+
+test("a row without issued source targets keeps navigation without guessing a source identity", () => {
+  const html = renderLibraryAnalysisSurface({ ...baseOptions, data: result({ members: [member({ bodyTargets: [] })] }) });
+  assert.match(html, /data-perf-selector=/);
+  assert.doesNotMatch(html, /data-triage-code/);
+});
+
+
+test("an unresolved contributing body or mismatched target suppresses a partial preview", () => {
+  for (const overrides of [
+    { bodyTokens: [0x06000001, 0x06000002] },
+    { bodyTokens: [0x06000002] },
+    { bodyTokens: [] },
+  ]) {
+    const html = renderLibraryAnalysisSurface({ ...baseOptions, data: result({ members: [member(overrides)] }) });
+    assert.match(html, /data-perf-selector="Run"/);
+    assert.doesNotMatch(html, /data-triage-code/);
+  }
 });

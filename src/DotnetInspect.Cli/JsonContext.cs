@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using System.Text.Encodings.Web;
 using DotnetInspect.Cli.Commands;
 using ILInspector.Metadata;
 using DotnetInspect.Cli.Models;
@@ -10,6 +11,22 @@ using DotnetInspector.Presentation;
 using DotnetInspect.Cli.Views;
 
 namespace DotnetInspect.Cli;
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(VersionListingJson))]
+[JsonSerializable(typeof(SectionCount))]
+internal partial class SimpleTableJsonlContext : JsonSerializerContext
+{
+    internal static SimpleTableJsonlContext Relaxed { get; } = new(
+        new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        });
+}
 
 [JsonSourceGenerationOptions(
     WriteIndented = true,
