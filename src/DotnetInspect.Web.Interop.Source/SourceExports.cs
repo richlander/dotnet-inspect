@@ -1410,7 +1410,7 @@ public static partial class SourceExports
             AssemblyMemberSource.Pdb pdb => new BrowserSource(
                 "pdb",
                 PdbSourceProvenance(pdb.Provenance),
-                pdb.Inspection.Document?.ResolvedUrl,
+                pdb.Inspection.ResolvedUrl,
                 null,
                 pdb.Text),
             AssemblyMemberSource.Decompiled decompiled => new BrowserSource(
@@ -1565,7 +1565,7 @@ public static partial class SourceExports
             AssemblyTypeSource.Pdb pdb => new BrowserSource(
                 "pdb",
                 PdbSourceProvenance(pdb.Provenance),
-                pdb.Inspection.Document?.ResolvedUrl,
+                pdb.Inspection.ResolvedUrl,
                 null,
                 pdb.Text),
             AssemblyTypeSource.Decompiled decompiled => new BrowserSource(
