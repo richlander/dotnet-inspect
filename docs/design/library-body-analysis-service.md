@@ -825,6 +825,12 @@ fallback converts them to zero metrics or a successful empty result.
 
 ### Discovery-native direct-call Count adoption for #8945
 
+This production adoption now executes through Method Query Source and
+Assembly Analysis Operation. The legacy service's explicit direct-invocation
+and Calls-row Count request constructors and focused projections are retired;
+the remaining implementation-metric compatibility work does not serve
+exact-member `Calls --count`.
+
 The prototype established that direct-invocation Count belongs below canonical
 context and target resolution. One exact NativeAOT head binary produced the
 same answers from discovery and complete rich rows over both measured corpora:

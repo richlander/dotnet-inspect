@@ -1,6 +1,8 @@
 using System.Reflection;
+using System.Reflection.Metadata.Ecma335;
 
 using ILInspector.Analysis;
+using ILInspector.Analysis.Planning;
 using ILInspector.Analysis.ImplementationProfileFixtures;
 
 namespace DotnetInspector.Queries.Tests;
@@ -31,6 +33,18 @@ public sealed class MemberDirectCallCountQueryTests
         Assert.Equal(2, available.Count);
         Assert.True(available.Analysis.IsComplete);
         Assert.Empty(available.Analysis.UnavailableBodies);
+        Assert.Equal(
+            MethodDefinitionLayers.Declaration
+                | MethodDefinitionLayers.Body,
+            available.Analysis.SourceReceipt.DeclaredLayers);
+        Assert.Equal(
+            0,
+            available.Analysis.SourceReceipt.ModuleLookups);
+        Assert.Equal(
+            1,
+            available.Analysis.SourceReceipt
+                .Coverage.TerminalWork.BodiesAdmitted);
+        Assert.Single(available.Analysis.Counts);
     }
 
     [Fact]
@@ -39,7 +53,7 @@ public sealed class MemberDirectCallCountQueryTests
         MethodInfo method = typeof(MemberDirectCallCountQueryFixture)
             .GetMethod(
                 nameof(MemberDirectCallCountQueryFixture
-                    .CallsAfterYield),
+                    .CallsFromLambda),
                 BindingFlags.Public | BindingFlags.Static)!;
 
         MemberDirectCallCountResult result =
@@ -51,15 +65,16 @@ public sealed class MemberDirectCallCountQueryTests
             Assert.IsType<MemberDirectCallCountResult.Available>(
                 result);
         Assert.True(available.Count > 0);
-        Assert.All(
-            available.Analysis.Counts,
-            count => Assert.Equal(
-                method.MetadataToken,
-                count.Method.MetadataToken));
         Assert.Contains(
             available.Analysis.Counts,
-            count => count.EvidenceMethod.MetadataToken
+            count => count.EvidenceMethodToken
                 != method.MetadataToken);
+        Assert.All(
+            available.Analysis.SourceReceipt
+                .Coverage.GeneratedExpansion.Origins,
+            origin => Assert.Equal(
+                method.MetadataToken,
+                MetadataTokens.GetToken(origin.DeclaredOwner)));
         Assert.Equal(
             available.Count,
             available.Analysis.Counts.Sum(
@@ -88,8 +103,11 @@ public sealed class MemberDirectCallCountQueryTests
         Assert.Equal(
             method.MetadataToken,
             Assert.Single(
-                available.Analysis.DeclaredMethods)
-                .MetadataToken);
+                available.Analysis.BodylessMethodTokens));
+        Assert.Equal(
+            0,
+            available.Analysis.SourceReceipt
+                .Coverage.TerminalWork.BodiesAdmitted);
     }
 
     [Fact]
@@ -122,7 +140,7 @@ public sealed class MemberDirectCallCountQueryTests
         MethodInfo method = typeof(MemberDirectCallCountQueryFixture)
             .GetMethod(
                 nameof(MemberDirectCallCountQueryFixture
-                    .CallsAfterYield),
+                    .CallsFromLambda),
                 BindingFlags.Public | BindingFlags.Static)!;
 
         MemberCallSiteCountResult result =
@@ -139,11 +157,49 @@ public sealed class MemberDirectCallCountQueryTests
             Assert.IsType<MemberCallSiteCountResult.Incomplete>(
                 result);
         Assert.False(incomplete.Analysis.ScopeComplete);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            incomplete.Analysis.SourceReceipt.Completion);
         Assert.Contains(
             incomplete.Analysis.Diagnostics,
             diagnostic => diagnostic.Message.Contains(
-                "attribution-probe",
+                "probe",
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Execute_TerminalBodyExhaustionWithholdsCount()
+    {
+        MethodInfo method = typeof(MemberDirectCallCountQueryFixture)
+            .GetMethod(
+                nameof(MemberDirectCallCountQueryFixture
+                    .CallsAfterYield),
+                BindingFlags.Public | BindingFlags.Static)!;
+
+        MemberDirectCallCountResult result =
+            MemberDirectCallCountQuery.Execute(
+                method.DeclaringType!.Assembly.Location,
+                method.MetadataToken,
+                new(
+                    maximumPhysicalBodies: 1,
+                    maximumEncodedIlBytes: long.MaxValue,
+                    maximumAttributionProbeBodies: 10_000,
+                    maximumAttributionProbeIlBytes: 10_000_000));
+
+        var incomplete =
+            Assert.IsType<MemberDirectCallCountResult.Incomplete>(
+                result);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            incomplete.Analysis.SourceReceipt.Completion);
+        Assert.Equal(
+            MethodDefinitionTerminalWorkLimitKind.Bodies,
+            incomplete.Analysis.SourceReceipt
+                .Coverage.TerminalWork.ReachedLimit);
+        Assert.Equal(
+            1,
+            incomplete.Analysis.SourceReceipt
+                .Coverage.TerminalWork.BodiesAdmitted);
     }
 }
 
@@ -156,6 +212,12 @@ public static class MemberDirectCallCountQueryFixture
     }
 
     public static Action LoadsFunctionPointer() => Target;
+
+    public static void CallsFromLambda()
+    {
+        Action action = static () => Console.WriteLine("lambda");
+        action();
+    }
 
     private static void Target()
     {
