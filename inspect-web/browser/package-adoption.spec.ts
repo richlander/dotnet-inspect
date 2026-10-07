@@ -4248,8 +4248,12 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
     const originalControl = await packageHit.elementHandle();
     expect(packs).toEqual([]);
     releaseCatalog();
-    await expect(packageHit.locator('[aria-label="Pruned for net10.0"]')).toBeVisible();
-    await expect(page.locator('[data-sl-framework-lib="System.Linq"]')).toBeVisible();
+    await expect(packageHit.locator('[aria-label="Package pruned for net10.0"]')).toBeVisible();
+    const libraryHit = page.locator('[data-sl-framework-lib="System.Linq"]');
+    await expect(libraryHit.locator('[aria-label="Library supplies pruned package for net10.0"]')).toBeVisible();
+    await expect(packageHit.locator('.sl-package-icon')).toHaveCount(0);
+    await expect(packageHit.locator('[role="img"]')).toHaveCount(1);
+    await expect(libraryHit.locator('[role="img"]')).toHaveCount(1);
     const annotatedAlignment = await packageHit.evaluate(element => ({
       nameLeft: element.querySelector(".spotlight-item-name")!.getBoundingClientRect().left,
       metadataRight: element.querySelector(".spotlight-item-ns")!.getBoundingClientRect().right,
@@ -4260,8 +4264,6 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
       width: element.getBoundingClientRect().width,
       mask: getComputedStyle(element).maskImage,
     }))).toMatchObject({ width: 20, mask: expect.stringContaining("data:image/svg+xml") });
-    await expect(packageHit.getByRole("img", { name: ".NET Runtime", exact: true })).toBeVisible();
-    await expect(page.locator('[data-sl-framework-lib="System.Linq"]').getByRole("img", { name: ".NET Runtime", exact: true })).toBeVisible();
     await expect(page.locator(".spotlight-group").filter({ hasText: /^Ecosystem$/ })).toHaveCount(1);
     await expect(packageHit).toContainText("Package");
     await expect(page.locator('[data-sl-framework-lib="System.Linq"]')).toContainText(".NET library");
@@ -4270,8 +4272,8 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
     expect(await packageHit.evaluate((element, original) => element === original, originalControl)).toBe(true);
     await search.fill("System.Text.Json");
     const jsonPackage = page.locator('[data-sl-pkg-load="System.Text.Json"]');
-    await expect(jsonPackage.locator('[aria-label="Pruned for net10.0"]')).toBeVisible();
-    await expect(page.locator('[data-sl-framework-lib="System.Text.Json"]')).toBeVisible();
+    await expect(jsonPackage.locator('[aria-label="Package pruned for net10.0"]')).toBeVisible();
+    await expect(page.locator('[data-sl-framework-lib="System.Text.Json"] [aria-label="Library supplies pruned package for net10.0"]')).toBeVisible();
     await expect(page.locator(".spotlight-group").filter({ hasText: /^Ecosystem$/ })).toHaveCount(1);
     expect(packs).toEqual([]);
     for (const [id, ecosystem] of [
@@ -4281,10 +4283,16 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
     ]) {
       await search.fill(id!);
       const row = page.locator(`[data-sl-pkg-load="${id}"]`);
-      const icon = row.getByRole("img", { name: ecosystem!, exact: true });
-      await expect(icon).toBeVisible();
-      expect(await icon.evaluate(element => getComputedStyle(element).backgroundImage))
-        .toContain("data:image/svg+xml");
+      await expect(row.locator('[role="img"]')).toHaveCount(1);
+      if (id === "Aspire.Hosting") {
+        const icon = row.getByRole("img", { name: `Package: ${ecosystem}`, exact: true });
+        await expect(icon).toBeVisible();
+        expect(await icon.evaluate(element => getComputedStyle(element).backgroundImage))
+          .toContain("data:image/svg+xml");
+      } else {
+        await expect(row.getByRole("img", { name: "Package pruned for net10.0", exact: true })).toBeVisible();
+        await expect(page.locator(`[data-sl-framework-lib="${id}"]`).getByRole("img", { name: "Library supplies pruned package for net10.0", exact: true })).toBeVisible();
+      }
     }
     expect(packs).toEqual([]);
   });

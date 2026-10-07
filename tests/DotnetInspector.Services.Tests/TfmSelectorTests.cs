@@ -482,6 +482,73 @@ public class TfmSelectorTests : IDisposable
         Assert.Equal(runtimeAssembly, result);
     }
 
+    /// <summary>
+    /// The archive-directory form of the explicit-framework selection picks
+    /// exactly the package-relative paths the extracted-tree form picks, so
+    /// the package endpoint scope can apply the legacy selector before
+    /// anything is extracted (docs/design/package-endpoint-scope.md).
+    /// </summary>
+    [Theory]
+    [InlineData("RealAssets/PackageReadDemand/avalonia.12.1.2.nupkg", "net8.0")]
+    [InlineData("RealAssets/PackageReadDemand/avalonia.12.1.2.nupkg", "net10.0")]
+    [InlineData("RealAssets/PackageReadDemand/avalonia.12.1.2.nupkg", "netstandard2.0")]
+    [InlineData("RealAssets/PackageAdmission/System.Text.Json.10.0.0.nupkg", "net8.0")]
+    [InlineData("RealAssets/PackageAdmission/System.Text.Json.10.0.0.nupkg", "net462")]
+    [InlineData("fixtures/nugetfetch/pclstorage.1.0.2.nupkg", "net45")]
+    public void SelectAssembliesByTfmFromEntries_MatchesTheExtractedSelection(
+        string archive,
+        string tfm)
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, archive);
+        string[] entries;
+        using (var zip = System.IO.Compression.ZipFile.OpenRead(path))
+        {
+            entries = [.. zip.Entries.Select(static entry => entry.FullName)];
+        }
+        System.IO.Compression.ZipFile.ExtractToDirectory(path, _tempDir);
+
+        string[] extracted =
+        [
+            .. TfmSelector.SelectAssembliesByTfmFromPackage(_tempDir, tfm).paths
+                .Select(selected => Path.GetRelativePath(_tempDir, selected).Replace('\\', '/'))
+                .Order(StringComparer.Ordinal),
+        ];
+
+        Assert.Equal(extracted, TfmSelector.SelectAssembliesByTfmFromEntries(entries, tfm));
+    }
+
+    [Fact]
+    public void SelectAssembliesByTfmFromEntries_MatchesTheExtractedSelectionForSatellitesAndTools()
+    {
+        string[] entries =
+        [
+            "lib/net8.0/MyLib.dll",
+            "lib/net8.0/fr/MyLib.resources.dll",
+            "lib/net8.0/de/Orphan.resources.dll",
+            "ref/net8.0/MyLib.dll",
+            "tools/net8.0/any/Tool.dll",
+            "runtimes/win/lib/net8.0/MyLib.dll",
+            "runtimes/win/native/native.dll",
+            "lib/net6.0/MyLib.dll",
+            "analyzers/dotnet/cs/MyLib.Analyzers.dll",
+            "lib/net8.0/",
+        ];
+        foreach (string entry in entries.Where(static entry => !entry.EndsWith('/')))
+            WriteDll(entry);
+
+        string[] extracted =
+        [
+            .. TfmSelector.SelectAssembliesByTfmFromPackage(_tempDir, "net8.0").paths
+                .Select(selected => Path.GetRelativePath(_tempDir, selected).Replace('\\', '/'))
+                .Order(StringComparer.Ordinal),
+        ];
+
+        Assert.Equal(extracted, TfmSelector.SelectAssembliesByTfmFromEntries(entries, "net8.0"));
+        Assert.Contains("ref/net8.0/MyLib.dll", extracted);
+        Assert.Contains("lib/net8.0/MyLib.dll", extracted);
+        Assert.DoesNotContain("lib/net8.0/fr/MyLib.resources.dll", extracted);
+    }
+
     private string WriteDll(string relativePath)
     {
         var path = Path.Combine(_tempDir, relativePath.Replace('/', Path.DirectorySeparatorChar));
