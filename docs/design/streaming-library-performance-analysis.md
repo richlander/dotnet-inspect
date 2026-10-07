@@ -277,15 +277,19 @@ checking whether either one applies here:
 
 - **Scroll-driven credit is backpressure on an already-live stream, not a
   cache lookup.** Package Query's near-end-scroll pressure grants the engine
-  more room to keep emitting *already-computed* durable Items from its
-  ongoing search; it never issues a new Worker-side query or re-reads a
-  cache. Library Performance Analysis has no analogous need: Item publication
-  does not begin until the already-complete, already-capped (`≤200`-member)
-  list exists, so the full admitted set is always finite and known in
-  advance. This design does not add scroll-driven credit or any
-  scroll-triggered re-fetch; speculatively, none is needed, because the
-  publication wrapper's existing cooperative-yield interval already paces
-  delivery independent of scroll position.
+  permission to keep producing and publishing durable matches from its
+  ongoing search: the adapter may establish one match beyond already-granted
+  credit, but then pauses and requests no further producer event until more
+  credit is granted. Either way, it never issues a new Worker-side query or
+  re-reads a cache — it paces an already-running computation, it does not
+  restart or re-look-up one. Library Performance Analysis has no analogous
+  need: Item publication does not begin until the already-complete,
+  already-capped (`≤200`-member) list exists, so the full admitted set is
+  always finite and known in advance before any pacing decision could matter.
+  This design does not add scroll-driven credit or any scroll-triggered
+  re-fetch; speculatively, none is needed, because the publication wrapper's
+  existing cooperative-yield interval already paces delivery independent of
+  scroll position.
 - **DOM virtualization and credit are independent.** Package Query mounts at
   most 30 cards (the estimated visible range plus overscan) from its full
   retained result state, regardless of how much credit has been granted, and
