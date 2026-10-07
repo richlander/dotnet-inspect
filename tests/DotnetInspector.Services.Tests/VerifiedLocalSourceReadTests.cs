@@ -33,7 +33,7 @@ public class VerifiedLocalSourceReadTests
         string path = WriteTemp(".cs", content);
         try
         {
-            byte[]? result = PdbSourceHouse.TryReadVerifiedLocalSource(
+            byte[]? result = VerifiedLocalSourceRead.TryRead(
                 path, "SHA256", SHA256.HashData(content));
 
             Assert.NotNull(result);
@@ -54,7 +54,7 @@ public class VerifiedLocalSourceReadTests
         {
             // The on-disk bytes do not match the recorded hash: the read must be refused so the
             // caller falls back to the remote URL rather than surfacing unverified content.
-            byte[]? result = PdbSourceHouse.TryReadVerifiedLocalSource(
+            byte[]? result = VerifiedLocalSourceRead.TryRead(
                 path, "SHA256", SHA256.HashData(Encoding.UTF8.GetBytes(Source + "tampered")));
 
             Assert.Null(result);
@@ -74,7 +74,7 @@ public class VerifiedLocalSourceReadTests
         string path = WriteTemp(".txt", content);
         try
         {
-            byte[]? result = PdbSourceHouse.TryReadVerifiedLocalSource(
+            byte[]? result = VerifiedLocalSourceRead.TryRead(
                 path, "SHA256", SHA256.HashData(content));
 
             Assert.Null(result);
@@ -92,9 +92,12 @@ public class VerifiedLocalSourceReadTests
         string path = WriteTemp(".cs", content);
         try
         {
-            Assert.Null(PdbSourceHouse.TryReadVerifiedLocalSource(path, "SHA256", null));
-            Assert.Null(PdbSourceHouse.TryReadVerifiedLocalSource(path, null, SHA256.HashData(content)));
-            Assert.Null(PdbSourceHouse.TryReadVerifiedLocalSource(path, "SHA256", []));
+            Assert.Null(VerifiedLocalSourceRead.TryRead(path, "SHA256", null));
+            Assert.Null(VerifiedLocalSourceRead.TryRead(
+                path,
+                null,
+                SHA256.HashData(content)));
+            Assert.Null(VerifiedLocalSourceRead.TryRead(path, "SHA256", []));
         }
         finally
         {
@@ -110,7 +113,7 @@ public class VerifiedLocalSourceReadTests
             Path.GetTempPath(),
             $"dotnet-inspect-missing-{Guid.NewGuid():N}.cs");
 
-        Assert.Null(PdbSourceHouse.TryReadVerifiedLocalSource(
+        Assert.Null(VerifiedLocalSourceRead.TryRead(
             path, "SHA256", SHA256.HashData(content)));
     }
 
@@ -124,7 +127,7 @@ public class VerifiedLocalSourceReadTests
         string path = WriteTemp(".cs", crlf);
         try
         {
-            byte[]? result = PdbSourceHouse.TryReadVerifiedLocalSource(
+            byte[]? result = VerifiedLocalSourceRead.TryRead(
                 path, "SHA256", SHA256.HashData(lf));
 
             Assert.NotNull(result);
@@ -152,7 +155,7 @@ public class VerifiedLocalSourceReadTests
                 ChecksumAlgorithm: "SHA256",
                 Checksum: Convert.ToHexString(SHA256.HashData(content)));
 
-            byte[]? result = PdbSourceHouse.TryReadVerifiedLocalSource(document);
+            byte[]? result = VerifiedLocalSourceRead.TryRead(document);
 
             Assert.NotNull(result);
             Assert.Equal(content, result);
@@ -190,7 +193,7 @@ public class VerifiedLocalSourceReadTests
         // be rejected before any filesystem access so it cannot trigger outbound SMB/network I/O,
         // and a relative path is never honored — independent of the (here matching) checksum.
         byte[] content = Encoding.UTF8.GetBytes(Source);
-        Assert.Null(PdbSourceHouse.TryReadVerifiedLocalSource(
+        Assert.Null(VerifiedLocalSourceRead.TryRead(
             path, "SHA256", SHA256.HashData(content)));
     }
 
@@ -218,7 +221,7 @@ public class VerifiedLocalSourceReadTests
         string path = WriteTemp(".cs", utf16);
         try
         {
-            byte[]? result = PdbSourceHouse.TryReadVerifiedLocalSource(
+            byte[]? result = VerifiedLocalSourceRead.TryRead(
                 path, "SHA256", SHA256.HashData(utf16));
 
             Assert.NotNull(result);

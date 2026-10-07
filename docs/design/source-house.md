@@ -17,7 +17,7 @@ access.
 
 This is an explicitly approved broad source-composition design. It establishes
 one new owner and transfers the cohesive product source-settlement
-responsibility currently divided between `PdbSourceHouse` and
+responsibility formerly divided between the public PDB-source House and
 `AssemblyContextSourceQuery`. It specifies the SourceHouse request, input
 obligations, producer boundaries, candidate settlement, result, and receipt.
 It does not redefine PackageHouse, PlatformHouse, Workspace, artifact, PDB,
@@ -50,10 +50,11 @@ Source delegate authored-first fallback to SourceHouse. Type/member authored
 acquisition, selected-member pairs, and exact member/type decompilation also
 use SourceHouse. Browser Type Source deliberately retains its latency hedge
 over independent authored and decompiled operations; explicit authored
-document requests never decompile. `PdbSourceHouse` retains broader enrichment
-ordering. SourceLinkService owns checksum verification and decoding. Other
-query-owned fallback ordering remains migration evidence or explicitly
-different timing policy, not the target public House policy boundary.
+document requests never decompile. SourceLinkService owns checksum
+verification and decoding. `PdbMemberSourceAcquisition` retains only the
+certification harness's member-source ordering over an already-open SourceLink
+context; it is not a product House. Other query-owned timing policy remains an
+explicit host choice, not a second product settlement boundary.
 
 ### Authored settlement delivery
 
@@ -130,13 +131,14 @@ or repository source may still succeed, retaining the map's diagnostic; an
 optional URL-map failure does not invalidate otherwise authoritative local-only
 settlement.
 
-This is the settlement-core portion of step 5. The public `PdbSourceHouse`
-retirement obligation remains open until shared source-query adoption replaces
-its callers. The compatibility member/type checksum, decoded-content, and
-acquisition-failure projections formerly owned by `PdbSourceHouse` have moved
-to `PdbSourceInspectionProjection`; local verified-source reads and the
-remaining legacy acquisition entry points stay in the separately focused final
-retirement slice. The
+Step 5 is complete. Shared source-query adoption replaced the public
+PDB-source House. `PdbSourceInspectionProjection` owns the compatibility
+member/type checksum, decoded-content, and acquisition-failure projections;
+`VerifiedLocalSourceRead` owns checksum-authenticated PDB-recorded local-file
+reads; and `PdbMemberSourceAcquisition` is the narrow member-only diagnostic
+adapter for certification consumers that already own an open SourceLink
+context. The unused type-acquisition and general verified-text compatibility
+entry points are retired. The
 [six-delivery adapter-first path](type-source-acquisition.md#production-adoption-and-retirement)
 and overall twelve-step plan below retain both CLI and Browser/Wasm consumers. The member-source-pair
 cutover in #7448 supplies the first shared completed
@@ -604,11 +606,12 @@ validate each candidate. This preserves the existing family boundary:
 `ILInspector.SourceLink` interprets PDB-associated program evidence, while the
 `DotnetInspector` House owns product policy and transport composition.
 
-The current `PdbSourceHouse` combines those roles. Its product candidate
-settlement transfers to SourceHouse; its PDB and SourceLink interpretation
-uses owner-issued SourceLink service operations. That migration is a separate
-tracked implementation step rather than an expansion of the
-`ILInspector.SourceLink` family.
+The former public PDB-source House combined those roles. Product candidate
+settlement now belongs to SourceHouse, while PDB and SourceLink interpretation
+uses owner-issued SourceLink service operations. The certification harness's
+narrow `PdbMemberSourceAcquisition` adapter composes those operations without
+creating another product House or expanding the `ILInspector.SourceLink`
+family.
 
 ### `CSharpDecompilerService`
 
@@ -1087,7 +1090,7 @@ end-to-end tracker. Its current total is 12 steps:
 4. expose content-backed PDB and SourceLink interpretation through
    `SourceLinkService` without moving transport or product policy into it;
 5. implement SourceHouse authored-source candidate settlement and retire the
-   public `PdbSourceHouse` composition;
+   former public PDB-source House composition;
 6. implement SourceHouse decompiler composition, fallback, and receipts;
 7. adopt the shared Library contract in PackageHouse;
 8. adopt it in PlatformHouse;

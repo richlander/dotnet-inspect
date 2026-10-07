@@ -1,6 +1,0 @@
-name = "decompiler-pass-analysis-lifetime"
-version = "0.1.0"
-defaultTargets = ["DecompilerPassAnalysisLifetime"]
-
-[[lean_lib]]
-name = "DecompilerPassAnalysisLifetime"
