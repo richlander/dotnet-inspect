@@ -224,8 +224,13 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                 object,
                 TypeHierarchyRelationCandidateSource>(
                     ReferenceEqualityComparer.Instance);
-        AssemblyReferenceIdentity? preferredIdentity =
-            PreferredAssemblyIdentity(source);
+        (int? preferredIndex, string? preferredError) =
+            SelectPreferredEntry(assemblySet.Assemblies, source);
+        if (preferredIndex is null)
+        {
+            assemblySet.Dispose();
+            return (null, preferredError);
+        }
         AssemblyContextGroup? focusGroup = null;
         bool transferredFocusGroup = false;
 
@@ -249,12 +254,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                             + "managed metadata.");
                 }
 
-                bool isPreferred =
-                    IsPreferredEntry(
-                        entry,
-                        source,
-                        assembly.Identity,
-                        preferredIdentity);
+                bool isPreferred = index == preferredIndex;
                 var participant = new AssemblyContextParticipant(
                     assembly,
                     new AssemblyDependencyResolver(
@@ -733,25 +733,117 @@ internal static class TypeHierarchyRelationsInspectionExecutor
         };
     }
 
-    private static bool IsPreferredEntry(
-        AssemblySetEntry entry,
-        ApiSourceResult source,
-        AssemblyReferenceIdentity identity,
-        AssemblyReferenceIdentity? preferredIdentity)
+    private static (int? Index, string? Error) SelectPreferredEntry(
+        IReadOnlyList<AssemblySetEntry> entries,
+        ApiSourceResult source)
     {
-        string entryPath = Path.GetFullPath(entry.Path);
-        return (source.RuntimeAssemblyPath is { } runtimePath
-                && string.Equals(
-                    entryPath,
-                    Path.GetFullPath(runtimePath),
-                    StringComparison.OrdinalIgnoreCase))
-            || (File.Exists(source.SearchPath)
-                && string.Equals(
-                    entryPath,
-                    Path.GetFullPath(source.SearchPath),
-                    StringComparison.OrdinalIgnoreCase))
-            || preferredIdentity?.IsEquivalentTo(identity) == true;
+        int? exactPath =
+            SelectUniqueEntry(
+                entries,
+                entry => PathsEqual(entry.Path, source.SearchPath));
+        if (exactPath is not null)
+            return (exactPath, null);
+
+        string? packageRelativePath =
+            PackageRelativePath(source);
+        if (packageRelativePath is not null)
+        {
+            int? packageAsset =
+                SelectUniqueEntry(
+                    entries,
+                    entry =>
+                        entry.SourceKind == AssemblySetSourceKind.Package
+                        && HasRelativeSuffix(
+                            entry.Path,
+                            packageRelativePath));
+            if (packageAsset is not null)
+                return (packageAsset, null);
+        }
+
+        if (source.RuntimeAssemblyPath is { } runtimePath)
+        {
+            int? runtime =
+                SelectUniqueEntry(
+                    entries,
+                    entry => PathsEqual(entry.Path, runtimePath));
+            if (runtime is not null)
+                return (runtime, null);
+        }
+
+        AssemblyReferenceIdentity? preferredIdentity =
+            PreferredAssemblyIdentity(source);
+        if (preferredIdentity is null)
+        {
+            return (
+                null,
+                "The exact assembly selected for the Type could not be "
+                    + "identified.");
+        }
+
+        int? identityMatch =
+            SelectUniqueEntry(
+                entries,
+                entry =>
+                    ResolvedAssemblyReference.CreateFromPathIfManaged(
+                        entry.Path,
+                        AssemblyResolutionProvenance.Local(entry.Path))
+                        ?.Identity.IsEquivalentTo(preferredIdentity) == true);
+        return identityMatch is not null
+            ? (identityMatch, null)
+            : (
+                null,
+                "The exact assembly selected for the Type was not present "
+                    + "as one unambiguous hierarchy population entry.");
     }
+
+    private static int? SelectUniqueEntry(
+        IReadOnlyList<AssemblySetEntry> entries,
+        Func<AssemblySetEntry, bool> predicate)
+    {
+        int? selected = null;
+        for (int index = 0; index < entries.Count; index++)
+        {
+            if (!predicate(entries[index]))
+                continue;
+            if (selected is not null)
+                return null;
+            selected = index;
+        }
+        return selected;
+    }
+
+    private static string? PackageRelativePath(ApiSourceResult source)
+    {
+        if (source.PackageExtractPath is not { } packageRoot
+            || !File.Exists(source.SearchPath))
+        {
+            return null;
+        }
+
+        string relativePath =
+            Path.GetRelativePath(packageRoot, source.SearchPath)
+                .Replace('\\', '/');
+        return PackageEntryPath.IsSafeRelativePath(relativePath)
+            ? relativePath
+            : null;
+    }
+
+    private static bool HasRelativeSuffix(
+        string path,
+        string relativePath)
+    {
+        string normalizedPath =
+            Path.GetFullPath(path).Replace('\\', '/');
+        return normalizedPath.EndsWith(
+            "/" + relativePath,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool PathsEqual(string left, string right) =>
+        string.Equals(
+            Path.GetFullPath(left),
+            Path.GetFullPath(right),
+            StringComparison.OrdinalIgnoreCase);
 
     private static AssemblyReferenceIdentity? PreferredAssemblyIdentity(
         ApiSourceResult source)

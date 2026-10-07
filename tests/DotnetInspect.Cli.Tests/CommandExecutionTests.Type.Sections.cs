@@ -103,6 +103,41 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        Type_HierarchyPrefersSelectedReferenceAssetOverEquivalentLibrary()
+    {
+        string package = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "fixtures",
+            "cli",
+            "package-archives",
+            "avalonia.12.1.2.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "Avalonia.Controls.Button",
+            "--package",
+            package,
+            "--library",
+            "Avalonia.Controls.dll",
+            "--tfm",
+            "net10.0",
+            "-S",
+            SectionNames.DerivedTypes,
+            "--count");
+
+        Assert.Equal(0, exit);
+        Assert.True(
+            int.TryParse(
+                output.Trim(),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out _),
+            $"Expected a hierarchy count, got '{output}'.");
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Type_DerivedTypesUsesTheSameLocalPopulation()
     {
         string assembly = typeof(SampleBaseClass).Assembly.Location;
