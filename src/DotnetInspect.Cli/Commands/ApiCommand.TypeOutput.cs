@@ -64,6 +64,32 @@ public partial class ApiCommand
         return 1;
     }
 
+    internal static bool TryGetHierarchyCount(
+        string sectionName,
+        TypeHierarchyRelationSectionInspection? inspection,
+        bool additionalEvidenceComplete,
+        out int? count,
+        out string? failure)
+    {
+        count = null;
+        failure = null;
+        if (inspection is null)
+            return true;
+
+        if (!additionalEvidenceComplete
+            || !inspection.AdditionalEvidenceComplete
+            || inspection.Inspection.Content.Relations.Count
+            is not SubjectRelationPopulationCountOutcome.Counted counted)
+        {
+            failure =
+                $"The '{sectionName}' count is incomplete or unavailable.";
+            return false;
+        }
+
+        count = counted.Value;
+        return true;
+    }
+
     private static int RejectSurfacePayloadProjection(ApiOptions options)
     {
         var flag = options.Print ? "--print"
@@ -1123,19 +1149,33 @@ public partial class ApiCommand
                     TypeHierarchyRelations: { } relations,
                 })
             {
-                if (!TrySetHierarchyCount(
-                        projection,
+                if (!TryGetHierarchyCount(
                         SectionNames.Implementers,
                         relations.Implementers,
+                        relations.AdditionalEvidenceComplete,
+                        out int? implementerCount,
                         out string? hierarchyFailure)
-                    || !TrySetHierarchyCount(
-                        projection,
+                    || !TryGetHierarchyCount(
                         SectionNames.DerivedTypes,
                         relations.DerivedTypes,
+                        relations.AdditionalEvidenceComplete,
+                        out int? derivedTypeCount,
                         out hierarchyFailure))
                 {
                     CommandError.Write(hierarchyFailure!);
                     return 1;
+                }
+                if (implementerCount is { } implementers)
+                {
+                    projection.SetRows(
+                        SectionNames.Implementers,
+                        implementers);
+                }
+                if (derivedTypeCount is { } derivedTypes)
+                {
+                    projection.SetRows(
+                        SectionNames.DerivedTypes,
+                        derivedTypes);
                 }
             }
             if (!TryReportEmptyProjection(
@@ -1198,28 +1238,6 @@ public partial class ApiCommand
 
             ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
-        }
-
-        static bool TrySetHierarchyCount(
-            CountProjection projection,
-            string sectionName,
-            TypeHierarchyRelationSectionInspection? inspection,
-            out string? failure)
-        {
-            failure = null;
-            if (inspection is null)
-                return true;
-
-            if (inspection.Inspection.Content.Relations.Count
-                is not SubjectRelationPopulationCountOutcome.Counted counted)
-            {
-                failure =
-                    $"The '{sectionName}' count is incomplete or unavailable.";
-                return false;
-            }
-
-            projection.SetRows(sectionName, counted.Value);
-            return true;
         }
 
         if (textPayloadJson && LonePayloadJsonTextSection(options) is { } jsonTextSection)
