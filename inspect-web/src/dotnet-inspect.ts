@@ -643,7 +643,6 @@ import { createMemberDiffExplorer } from "./member-diff-explorer.ts";
 import {
   bindCompareFrame,
   renderCompareFrame,
-  renderCompareToolbar,
   restoreCompareTabFocus,
   type CompareSubjectKind,
 } from "./compare-surface.ts";
@@ -9279,7 +9278,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
           ? `<div class="working-surface-actions" role="group" aria-label="${compareWorkingSurface ? "Compare actions" : memberDiffExploreTarget ? "Member Diff actions" : metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : sourcePageKind ? "Source actions" : "Member actions"}">
               ${compareSubject !== null && currentCompareMode() === "diff"
                 ? `<div class="compare-page-actions">${renderLibraryDiffTools(compareSubject)}${memberBodyWorkingSurface
-                  ? `${memberBodyDiff.renderActions()}${renderCompareToolbar({ mode: "diff", targetText: compareTargetText(compareSubject, "diff"), escapeHtml })}` : ""}</div>` : ""}
+                  ? `${memberBodyDiff.renderActions()}` : ""}</div>` : ""}
               ${memberDiffExploreTarget
                 ? '<button type="button" id="member-diff-explore" data-member-diff-explore>Explore</button>'
                 : ""}

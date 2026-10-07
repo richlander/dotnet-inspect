@@ -23,7 +23,12 @@ test("Member Body opens an added property across the former Worker limits", asyn
   await expect(page.locator(".targetbar [data-member-body-explore]")).toBeVisible();
   const panel = await page.locator("#inspector-panel").boundingBox();
   const reader = await page.locator(".member-body-reader").boundingBox();
-  expect(reader).toEqual(panel);
+  expect(reader!.x).toBe(panel!.x);
+  expect(reader!.width).toBe(panel!.width);
+  expect(reader!.y + reader!.height).toBe(panel!.y + panel!.height);
+  const explore = await page.locator("#member-body-explore").boundingBox();
+  const controls = await page.locator(".compare-controls-row").boundingBox();
+  expect(controls!.y).toBeGreaterThanOrEqual(explore!.y + explore!.height);
   await expect(page.locator(".member-body-reader")).toContainText("AllowDuplicateProperties");
   await expect(page.getByRole("button", { name: "Show diff", exact: true })).toHaveCount(0);
   await page.screenshot({ path: test.info().outputPath("added-property-inline.png") });
@@ -78,7 +83,14 @@ test("Member Body opens inline and retains the document through media and Explor
       expect(bounds!.x).toBeGreaterThanOrEqual(0);
       expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
     }
-    expect(await page.locator(".member-body-reader").boundingBox()).toEqual(await page.locator("#inspector-panel").boundingBox());
+    const panel = (await page.locator("#inspector-panel").boundingBox())!;
+    const reader = (await page.locator(".member-body-reader").boundingBox())!;
+    expect(reader.x).toBe(panel.x);
+    expect(reader.width).toBe(panel.width);
+    expect(reader.y + reader.height).toBe(panel.y + panel.height);
+    const explore = (await page.locator("#member-body-explore").boundingBox())!;
+    const controls = (await page.locator(".compare-controls-row").boundingBox())!;
+    expect(controls.y).toBeGreaterThanOrEqual(explore.y + explore.height);
     await page.screenshot({ path: test.info().outputPath(`inline-${width}.png`) });
   }
 });

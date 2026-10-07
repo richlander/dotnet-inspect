@@ -38,6 +38,7 @@ function compareTargetLabel(mode: CompareMode): string {
 export function renderCompareFrame(options: CompareFrameOptions): string {
   const { escapeHtml, mode } = options;
   if (options.externalToolbar) return `<section class="compare-surface compare-surface-${options.subjectKind} compare-full-bleed" aria-label="${escapeHtml(options.subjectLabel)} comparison" data-compare-mode-active="${mode}">
+    <div class="compare-controls-row">${renderCompareToolbar(options)}</div>
     <div id="compare-panel" class="compare-panel" role="tabpanel" aria-labelledby="compare-mode-${mode}">${options.content}</div>
   </section>`;
   return `<section class="compare-surface compare-surface-${options.subjectKind}${options.tools ? " has-compare-tools" : ""}" aria-labelledby="compare-title" data-compare-mode-active="${mode}">

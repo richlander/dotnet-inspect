@@ -309,7 +309,8 @@ the inert Library row retains only that Type's occupied-side Member summary.
 
 ```text
 Subject path: JsonSerializerOptions > .ctor
-Content: Member Body    C# | IL   Explore    preview.6 -> preview.7    Diff
+Content: Member Body    C# | IL   Explore
+Diff baseline: preview.6 -> preview.7    Change target    Diff | Clone
 
 ───────────────────────────────────────────────────────────────
   184 184      _unknownTypeHandling = options._unknownTypeHandling;
@@ -326,8 +327,9 @@ keyboard navigation, narrow layout, and accessibility behavior as the shared
 diff viewer.
 
 The content selector and C#/IL/Explore actions occupy the existing page toolbar,
-following the Source inspector. The toolbar retains the effective baseline and
-Diff/Clone controls; the shell subject path identifies the Member. The diff
+following the Source inspector. A separate row below those actions holds the
+effective baseline, Change target, and Diff/Clone controls, following the
+Analysis layout. The shell subject path identifies the Member. The diff
 fills the content area without another subject heading or Member Body heading.
 Added lines and the empty Before gutter explain an addition without a separate
 Before-absence banner. Typed absence remains in the owning document.
