@@ -49,6 +49,10 @@ public sealed class PlatformCallerUnsafeContracts
 
     readonly FrozenSet<string> _identifiers;
 
+    // The innermost declaring-type metadata names (for example "Span`1"), so a
+    // call to an unrelated type is rejected without building its identifier.
+    readonly FrozenSet<string>.AlternateLookup<ReadOnlySpan<char>> _declaringTypeNames;
+
     PlatformCallerUnsafeContracts(
         UnsafeContractSource.PlatformProjection source,
         string digest,
@@ -57,6 +61,23 @@ public sealed class PlatformCallerUnsafeContracts
         Source = source;
         Digest = digest;
         _identifiers = identifiers;
+        _declaringTypeNames = identifiers
+            .Select(InnermostDeclaringTypeName)
+            .ToFrozenSet(StringComparer.Ordinal)
+            .GetAlternateLookup<ReadOnlySpan<char>>();
+    }
+
+    static string InnermostDeclaringTypeName(string identifier)
+    {
+        ReadOnlySpan<char> signature = identifier.AsSpan(2);
+        int end = signature.IndexOfAny('(', '~');
+        if (end >= 0)
+            signature = signature[..end];
+        int arity = signature.IndexOf("``", StringComparison.Ordinal);
+        if (arity >= 0)
+            signature = signature[..arity];
+        ReadOnlySpan<char> type = signature[..signature.LastIndexOf('.')];
+        return type[(type.LastIndexOf('.') + 1)..].ToString();
     }
 
     /// <summary>The embedded projection, loaded on first use.</summary>
@@ -79,8 +100,13 @@ public sealed class PlatformCallerUnsafeContracts
         TypeRef declaring = callee.DeclaringType.Kind == TypeRefKind.GenericInstance
             ? callee.DeclaringType.ElementType!
             : callee.DeclaringType;
-        return declaring.Kind == TypeRefKind.Definition
-            && declaring.TrustedFrameworkAssembly
+        if (declaring.Kind != TypeRefKind.Definition
+            || !declaring.TrustedFrameworkAssembly)
+        {
+            return false;
+        }
+        ReadOnlySpan<char> name = declaring.Name;
+        return _declaringTypeNames.Contains(name[(name.LastIndexOf('+') + 1)..])
             && PlatformCallerUnsafeKey.TryCreate(callee, out string? key)
             && _identifiers.Contains(key);
     }
