@@ -142,9 +142,9 @@ request). Per-subject streaming is not part of this design or its first
 adoption slices.
 
 Host caching, speculative Member-diff prefetch, streaming, and cancellation are
-host policy, not producer behavior. For Inspect Web they belong to
-[Inspect Web Member diff prefetch](inspect-web-member-diff-prefetch.md). This
-document supplies only the typed cause that policy consumes.
+host policy, not producer behavior, and are outside this document. A separate
+Browser owner will define them. This document supplies only the typed cause
+that policy consumes.
 
 ## Member compare hybrid
 
@@ -179,8 +179,8 @@ Each step is independently mergeable under #9716.
 4. **Member hybrid.** Default Member Compare presentation; updates the Member
    Body Diff owner.
 5. **CLI.** Expose the producer through `diff`.
-6. **Speculative Member streaming.** Owned and gated by
-   [Inspect Web Member diff prefetch](inspect-web-member-diff-prefetch.md).
+6. **Speculative Member streaming.** Owned and gated by a separate Browser
+   design; not part of the first adoption slices.
 
 ## Open design questions
 

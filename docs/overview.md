@@ -1037,7 +1037,6 @@ rules, this document describes subsystem ownership, and
   changes, and distinct changed-member summaries for shared host adoption.
 - [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by the opt-in `diff` section, RTS, and harnesses.
 - [Fast Diff](design/fast-diff.md): host-neutral any-difference pass per Type and Member, with exact `Unchanged`, so hosts advertise changes before a complete diff.
-- [Inspect Web Member diff prefetch](design/inspect-web-member-diff-prefetch.md): caching and speculative Member-diff prefetch policy that consumes Fast Diff causes.
 - [C# assembly round-trip testing](design/csharp-member-recompilation.md): proposed tools-only `cluster`/`all` artifact compilation and layered IL/C# comparison.
 - [Fixture governance](fixture-governance.md): fixture catalog, project-boundary, and semantic-axis rules.
 - [Integrations](design/integrations.md): library ecosystem integration roll-ups and focused API currency; its [scanner binding](design/integration-scanner-binding.md) separates decoded observations from application-authored interpretation.
