@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Runtime.Versioning;
 using System.Text;
+using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.CallGraph;
@@ -32,7 +33,11 @@ internal sealed record BrowserCallGraphTargetInfo(
     string? SurfaceAssemblyId,
     string? PackageId,
     string? PackageVersion,
-    string? PackageFramework);
+    string? PackageFramework,
+    string? OwnerKind,
+    string? PlatformFamily,
+    string? PlatformFramework,
+    string? PlatformVersion);
 
 internal sealed record BrowserCallGraphNodeInfo(
     string Label,
@@ -209,17 +214,15 @@ internal static class BrowserCallGraphProjection
         ];
         Dictionary<
             int,
-            PackageDependencyMemberCallGraphNodeClassification.Package>
-            packageSubjects = document.NodeClassifications
-                .OfType<
-                    PackageDependencyMemberCallGraphNodeClassification
-                        .Package>()
-                .ToDictionary(static subject => subject.NodeId);
+            PackageDependencyMemberCallGraphNodeClassification>
+            nodeClassifications = document.NodeClassifications
+                .ToDictionary(static classification =>
+                    classification.NodeId);
         if (!string.IsNullOrWhiteSpace(rootPackageId)
             && !string.IsNullOrWhiteSpace(rootPackageVersion)
             && !string.IsNullOrWhiteSpace(rootPackageFramework))
         {
-            packageSubjects.TryAdd(
+            nodeClassifications.TryAdd(
                 focusNodeId,
                 new PackageDependencyMemberCallGraphNodeClassification
                     .Package(
@@ -235,7 +238,7 @@ internal static class BrowserCallGraphProjection
             .. graph.Nodes.Select(node =>
                 Target(
                     node,
-                    packageSubjects.GetValueOrDefault(node.Id),
+                    nodeClassifications.GetValueOrDefault(node.Id),
                     targetKinds[node.Id])),
         ];
         return new BrowserCallGraphInfo(
@@ -480,8 +483,8 @@ internal static class BrowserCallGraphProjection
 
     static BrowserCallGraphTargetInfo Target(
         InspectionGraphNode node,
-        PackageDependencyMemberCallGraphNodeClassification.Package?
-            packageSubject,
+        PackageDependencyMemberCallGraphNodeClassification?
+            classification,
         string kind)
     {
         Analysis.MemberRef member = NodeMember(node);
@@ -496,16 +499,31 @@ internal static class BrowserCallGraphProjection
                     current => current.Assembly,
                 _ => null,
             };
+        PackageDependencyMemberCallGraphNodeClassification.Package?
+            packageSubject =
+                classification
+                    as PackageDependencyMemberCallGraphNodeClassification
+                        .Package;
+        PackageDependencyMemberCallGraphNodeClassification.Platform?
+            platformSubject =
+                classification
+                    as PackageDependencyMemberCallGraphNodeClassification
+                        .Platform;
+        PackageRoleMemberCallGraphPlatformLibraryIdentity? platformLibrary =
+            platformSubject?.LibraryIdentity;
         string assembly =
-            identity?.Name
+            platformLibrary?.Name
+            ?? identity?.Name
             ?? member.DeclaringType.Assembly
             ?? "";
         return new BrowserCallGraphTargetInfo(
             $"n{node.Id}",
             assembly,
-            identity?.Version?.ToString(),
-            identity?.Culture,
-            identity?.PublicKeyToken,
+            platformLibrary?.Version.ToString()
+                ?? identity?.Version?.ToString(),
+            platformLibrary?.Culture ?? identity?.Culture,
+            platformLibrary?.PublicKeyToken
+                ?? identity?.PublicKeyToken,
             member.DeclaringType.ToQualifiedDisplayString(),
             definition is null ? null : LegacyMetadataTypeId(definition),
             DefinitionTypeId(definition),
@@ -517,12 +535,54 @@ internal static class BrowserCallGraphProjection
             MetadataToken: null,
             Analysis.CallGraphMemberResolver.CreateSelector(member).Key,
             kind,
-            PlatformPack: null,
+            PlatformPack: platformSubject is null
+                ? null
+                : PlatformPack(platformSubject.Target.Family),
             SurfaceAssemblyId: null,
             packageSubject?.PackageId,
             packageSubject?.PackageVersion,
-            packageSubject?.TargetFramework);
+            packageSubject?.TargetFramework,
+            OwnerKind: classification switch
+            {
+                PackageDependencyMemberCallGraphNodeClassification.Package =>
+                    "package",
+                PackageDependencyMemberCallGraphNodeClassification.Platform =>
+                    "platform",
+                null => null,
+                _ => throw new InvalidOperationException(
+                    "Unknown dependency call-graph node classification."),
+            },
+            PlatformFamily: platformSubject is null
+                ? null
+                : BrowserPlatformFamily(
+                    platformSubject.Target.Family),
+            PlatformFramework:
+                platformSubject?.Target.TargetFramework.ToString(),
+            PlatformVersion:
+                platformSubject?.Target.Version.ToString());
     }
+
+    static string BrowserPlatformFamily(PlatformFamily family) =>
+        family switch
+        {
+            DotnetInspector.Platforms.PlatformFamily.DotNetRuntime =>
+                "runtime",
+            DotnetInspector.Platforms.PlatformFamily.AspNetCore =>
+                "aspnetcore",
+            _ => throw new InvalidOperationException(
+                "The dependency call graph classified a node against an unsupported Platform family."),
+        };
+
+    static string PlatformPack(PlatformFamily family) =>
+        family switch
+        {
+            DotnetInspector.Platforms.PlatformFamily.DotNetRuntime =>
+                "netcore.app",
+            DotnetInspector.Platforms.PlatformFamily.AspNetCore =>
+                "aspnetcore.app",
+            _ => throw new InvalidOperationException(
+                "The dependency call graph classified a node against an unsupported Platform family."),
+        };
 
     static IReadOnlyDictionary<int, string> ExternalFocusTargetKinds(
         InspectionGraphDocument graph,
@@ -751,7 +811,11 @@ internal static class BrowserCallGraphProjection
             surfaceAssemblyId,
             PackageId: null,
             PackageVersion: null,
-            PackageFramework: null);
+            PackageFramework: null,
+            OwnerKind: null,
+            PlatformFamily: null,
+            PlatformFramework: null,
+            PlatformVersion: null);
     }
 
     internal static BrowserCallGraphTargetInfo Target(
@@ -796,7 +860,11 @@ internal static class BrowserCallGraphProjection
             surfaceAssemblyId,
             PackageId: null,
             PackageVersion: null,
-            PackageFramework: null);
+            PackageFramework: null,
+            OwnerKind: null,
+            PlatformFamily: null,
+            PlatformFramework: null,
+            PlatformVersion: null);
     }
 
     /// <summary>
