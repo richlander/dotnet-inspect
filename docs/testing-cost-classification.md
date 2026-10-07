@@ -76,12 +76,16 @@ public void SomeExpensiveTheory(string assemblyName)
 The CI workflow has a ceiling of **16 runner jobs** for any event. Count matrix
 entries separately and include the always-run `changes`, `provenance`, and
 `ci-required` jobs. The workflow contract counts even path-gated jobs to keep
-the bound safe as routing changes. The current workflow defines 13 jobs, with
+the bound safe as routing changes. The current workflow defines 14 jobs, with
 the dependency-policy job selected only for pushes to `main`.
 
 - `ci.yml` runs one Release solution build and a bounded smoke population for
   CLI routes, inspection queries, InertText, dependency policy, and the
-  package-manifest verifier. Embedded skill tests run in that job when selected.
+  package-manifest verifier. It also runs the complete fast portable query
+  suite and the producer-capability adopter tests, which hold the QuerySpace
+  planning and result-validation rules that the Lean models prove
+  ([Lean methodology](lean-methodology.md)); together they take a few seconds.
+  Embedded skill tests run in that job when selected.
   The daily Linux Deep Inspect test lane runs the complete CLI, CSharp text,
   query, analysis, NuGet, metadata, and other host-neutral suites. Its
   Windows/macOS lane retains tests with platform-sensitive behavior.
