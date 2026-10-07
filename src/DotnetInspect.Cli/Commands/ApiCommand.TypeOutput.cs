@@ -296,6 +296,10 @@ public partial class ApiCommand
                 TypeHierarchyRelations: { } hierarchy,
             } hierarchyOptions)
         {
+            if (IsColumnProjectionRequested(options))
+                return RejectColumnProjectionUnderJson(
+                    suggestPayloadProjection: true);
+
             if (hierarchyOptions.IncludeSections?.Any(
                     static section =>
                         section is not SectionNames.Implementers

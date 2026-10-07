@@ -107,6 +107,29 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_HierarchyJsonRejectsColumnProjection()
+    {
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.Implementers,
+            "--columns",
+            "NoSuchColumn",
+            "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("cannot be combined with --json", error);
+    }
+
+    [Fact]
     public async Task Type_HierarchyJsonRejectsMixedTypeSections()
     {
         string assembly =
