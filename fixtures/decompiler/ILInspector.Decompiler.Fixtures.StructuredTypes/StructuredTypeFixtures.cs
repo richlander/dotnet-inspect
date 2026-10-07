@@ -35,6 +35,19 @@ public sealed class StructuredSample : IExplicitValue
     public void Raise() => Changed?.Invoke(this, EventArgs.Empty);
 }
 
+public struct ValueTypeReceiverAlias
+{
+    public ValueTypeReceiverAlias(string path, int value)
+    {
+        Path = path ?? throw new ArgumentNullException(nameof(path));
+        Value = value;
+    }
+
+    public string Path { get; }
+
+    public int Value { get; }
+}
+
 public sealed class EmptyType;
 
 public interface IBodylessType
