@@ -904,40 +904,13 @@ declaration. Those surfaces retain their existing row contracts and use
 rendered-line fallback for bare `-n`. Direct callers that provide only the
 legacy `RowWindow` also retain their existing behavior.
 
-## Package layout adoption
+## Package Files shortcut
 
-The ordinary single-package `package --layout` lens declares one semantic row
-per normalized package-relative file path in its scoped layout. Package
-resolution, extraction, scoped recursive enumeration, packaging-plumbing
-exclusion, and path sorting finish before Head/Tail or strict Window stages
-select from the completed vector.
-
-The scope remains layout-specific. `--lib` and `--tools` scope to those package
-roots. `--tfm <TFM>` scopes to `lib/<TFM>` when present and otherwise
-`tools/<TFM>`, rendering paths relative to the TFM directory's parent so the
-framework remains the tree root. It does not adopt the cross-root Package-file
-TFM predicate.
-
-Markdown renders a tree derived only from the selected file identities. JSON
-emits a document array of `{ "path": ... }` rows, JSONL emits one such row per
-line, and Count observes the same selected vector. The adoption supports
-Head/Tail, Window, and explicit Lines. Explicit `--lines` clips the rendered
-tree and does not select file identities; JSON rejects line selection before
-package resolution.
-
-One strict Window failure withholds every output shape:
-
-```console
-$ dotnet-inspect package Newtonsoft.Json@13.0.4 \
-    --layout --rows 20..21 --json
-Error: Package layout file row selection stage 1 requires row 21, but only 20 layout file rows are available.
-```
-
-Dependencies, TFM and version listings, file and content sections, embedded
-`--library`/`--all-libraries` inspection, multiple-package inspection,
-discovery/schema, envelope output, and unsupported print or shape projections
-remain outside this declaration. Unselected Package modes continue to use the
-rendered-line fallback for bare `-n`.
+The former separate layout lens is retired. `package --files` selects
+`Files` and uses its existing semantic row contract. Root and target
+predicates select file identities before Head, Tail, Window, and Count.
+[Package file inventory](package-file-inventory.md) owns predicate meaning,
+package-relative path identity, and directory context.
 
 ## Package TFM adoption
 

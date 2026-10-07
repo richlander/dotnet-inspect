@@ -48,7 +48,7 @@ public static class TipWriter
                 tips.Add(new(DiffCommand.Name, $"--package {packageName}@<prev>..<cur>", "diff versions"));
                 tips.Add(new(PackageCommand.Name, $"{packageName} -S \"README\" --print", "view README"));
                 tips.Add(new(PackageCommand.Name, $"{packageName} --path /", "list package files"));
-                tips.Add(new(PackageCommand.Name, $"{packageName} --layout", "show file tree"));
+                tips.Add(new(PackageCommand.Name, $"{packageName} --files", "show file tree"));
 
                 return [.. tips];
             });

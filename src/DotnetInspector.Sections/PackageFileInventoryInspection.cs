@@ -185,6 +185,7 @@ public static class PackageFileInventoryInspection
             if (!TryCountEntries(
                     scanner,
                     coordinate.PackageId,
+                    resolution.Plan!,
                     out PackageFileInventorySummary summary,
                     out string? validationError))
             {
@@ -192,9 +193,9 @@ public static class PackageFileInventoryInspection
                     request.Query.Terminal,
                     validationError!);
             }
-            if (!RowQueryExecutor.TryApplyCount(
+            if (!RowSelectionCountExecutor.TryApply(
                     summary.Count,
-                    resolution.Plan!,
+                    resolution.Plan!.SelectionPlan,
                     out RowSelectionCountResult count))
             {
                 return Failed(
@@ -247,6 +248,7 @@ public static class PackageFileInventoryInspection
     private static bool TryCountEntries(
         PackageContentEntryScanner scanner,
         string packageId,
+        ResolvedRowQueryPlan<PackageFileInventoryEntry> plan,
         out PackageFileInventorySummary summary,
         out string? error)
     {
@@ -267,7 +269,9 @@ public static class PackageFileInventoryInspection
             if (!admitted)
                 continue;
 
-            count++;
+            if (plan.PredicateKeyIdentities.Count == 0
+                || RowQueryExecutor.Matches(new PackageFileInventoryEntry(entry.Path, entry.Length), plan))
+                count++;
             ObservePackageWideFacts(
                 entry.Path,
                 expectedNuspec,
