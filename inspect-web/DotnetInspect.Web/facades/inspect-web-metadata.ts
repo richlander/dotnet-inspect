@@ -98,8 +98,6 @@ export type ExactTypeInspectionOutcome = number;
 
 export type InspectionDiagnosticSeverity = number;
 
-export type JsonValueKind = number;
-
 export type MetadataRootMalformedReason = number;
 
 export type MetadataTypeNameFailureMechanism = number;
@@ -642,6 +640,58 @@ export interface BrowserTypeGraphNode {
   readonly role: string;
 }
 
+export interface BrowserTypeHierarchyCoverage {
+  readonly producer: string;
+  readonly considered: number;
+  readonly examined: number;
+  readonly excluded: number;
+  readonly unavailable: number;
+  readonly limited: number;
+}
+
+export interface BrowserTypeHierarchyDiagnostic {
+  readonly code: string;
+  readonly severity: string;
+  readonly summary: string;
+  readonly correspondence: string | null;
+}
+
+export interface BrowserTypeHierarchyMetadata {
+  readonly form: string;
+  readonly status: string;
+  readonly count: number | null;
+  readonly rows: ReadonlyArray<BrowserTypeHierarchyRow>;
+  readonly isComplete: boolean;
+  readonly hasMore: boolean;
+  readonly share: BrowserTypeHierarchyShare;
+  readonly diagnostics: ReadonlyArray<BrowserTypeHierarchyDiagnostic>;
+  readonly producers: ReadonlyArray<BrowserTypeHierarchyProducer>;
+  readonly coverage: ReadonlyArray<BrowserTypeHierarchyCoverage>;
+}
+
+export interface BrowserTypeHierarchyProducer {
+  readonly source: string;
+  readonly disposition: string;
+  readonly detail: string | null;
+}
+
+export interface BrowserTypeHierarchyRow {
+  readonly type: string;
+  readonly assembly: string;
+  readonly packageId: string;
+  readonly version: string;
+  readonly framework: string;
+  readonly asset: string;
+}
+
+export interface BrowserTypeHierarchyShare {
+  readonly kind: string;
+  readonly fullUrl: string | null;
+  readonly packet: string | null;
+  readonly path: string | null;
+  readonly reason: string | null;
+}
+
 export interface BrowserTypeMemberComposition {
   readonly public: number;
   readonly protected: number;
@@ -697,7 +747,7 @@ export interface BrowserTypeMemberTraitCounts {
 
 export interface BrowserTypeMetadata {
   readonly exactTypeInspection: InspectionEnvelope<ExactTypeInspectionResult>;
-  readonly derivedTypes: ReadonlyArray<string>;
+  readonly hierarchy: BrowserTypeHierarchyMetadata | null;
   readonly graphNodes: ReadonlyArray<BrowserTypeGraphNode>;
   readonly graphEdges: ReadonlyArray<BrowserTypeGraphEdge>;
   readonly typeDependencyInspection: InspectionEnvelope<TypeDependencySectionResult>;
