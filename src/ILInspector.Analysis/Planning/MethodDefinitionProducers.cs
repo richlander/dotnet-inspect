@@ -526,11 +526,7 @@ public readonly ref struct MethodDefinitionView
                 + "declare the body layer.");
         }
 
-        MethodDefinitionTerminalWorkBudget? terminalWork =
-            producer.Execution.TerminalWork;
-        MethodBodyBlock body = terminalWork is null
-            ? _unit.GetBody()
-            : _unit.GetBody(terminalWork);
+        MethodBodyBlock body = _unit.GetBody();
         producer.CountUnit(
             ref producer.LastBodyUnit,
             Token,
@@ -697,33 +693,13 @@ internal struct MethodDefinitionUnit(
 
     public MethodBodyBlock GetBody()
     {
-        _requestSourceCoverage?.RecordBodyAttempted(MethodHandle);
+        _requestSourceCoverage?.RecordTerminalBodyAttempted(
+            MethodHandle);
         if (_body is not null)
         {
-            _requestSourceCoverage?.RecordBodyAcquired(MethodHandle);
-            return _body;
-        }
-
-        _physicalSourceCoverage.RecordBodyAttempted(MethodHandle);
-        MethodBodyBlock body = _peReader.GetMethodBody(
-            MethodDefinition.RelativeVirtualAddress);
-        _body = body;
-        _physicalSourceCoverage.RecordBodyAcquired(MethodHandle);
-        _requestSourceCoverage?.RecordBodyAcquired(MethodHandle);
-        return body;
-    }
-
-    public MethodBodyBlock GetBody(
-        MethodDefinitionTerminalWorkBudget terminalWork)
-    {
-        _requestSourceCoverage?.RecordBodyAttempted(MethodHandle);
-        terminalWork.RequireBodyCapacity(MethodHandle);
-        if (_body is not null)
-        {
-            _requestSourceCoverage?.RecordBodyAcquired(MethodHandle);
-            terminalWork.Admit(
+            _requestSourceCoverage?.RecordTerminalBodyAcquired(
                 MethodHandle,
-                _body.GetILReader().Length);
+                _body);
             return _body;
         }
 
@@ -732,10 +708,9 @@ internal struct MethodDefinitionUnit(
             MethodDefinition.RelativeVirtualAddress);
         _body = body;
         _physicalSourceCoverage.RecordBodyAcquired(MethodHandle);
-        _requestSourceCoverage?.RecordBodyAcquired(MethodHandle);
-        terminalWork.Admit(
+        _requestSourceCoverage?.RecordTerminalBodyAcquired(
             MethodHandle,
-            body.GetILReader().Length);
+            body);
         return body;
     }
 

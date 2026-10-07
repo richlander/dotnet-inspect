@@ -1353,6 +1353,7 @@ internal static class MethodQuerySource
 internal sealed class MethodDefinitionSourceCoverageBuilder
 {
     readonly bool _enabled;
+    readonly MethodDefinitionTerminalWorkBudget? _terminalWork;
     readonly MethodDefinitionHandleCoverageBuilder _definitionsExamined = new();
     readonly MethodDefinitionHandleCoverageBuilder _methodsSelected = new();
     readonly MethodDefinitionHandleCoverageBuilder _bodiesAttempted = new();
@@ -1360,11 +1361,22 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
     readonly MethodDefinitionHandleCoverageBuilder _moduleLookupMethods = new();
     MethodDefinitionGeneratedExpansionCoverage _generatedExpansion =
         MethodDefinitionGeneratedExpansionCoverage.Empty;
-    MethodDefinitionTerminalWorkCoverage _terminalWork =
-        MethodDefinitionTerminalWorkCoverage.Empty;
 
-    public MethodDefinitionSourceCoverageBuilder(bool enabled) =>
+    public MethodDefinitionSourceCoverageBuilder(
+        bool enabled,
+        MethodDefinitionTerminalWorkLimits? terminalWorkLimits = null)
+    {
         _enabled = enabled;
+        _terminalWork = terminalWorkLimits is null
+            ? null
+            : new(terminalWorkLimits);
+    }
+
+    internal bool TracksTerminalWork => _terminalWork is not null;
+
+    MethodDefinitionTerminalWorkBudget TerminalWork =>
+        _terminalWork ?? throw new InvalidOperationException(
+            "Terminal body work requires request-owned limits.");
 
     public void RecordDefinitionExamined(MethodDefinitionHandle handle)
     {
@@ -1390,6 +1402,29 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
             _bodiesAttempted.Add(handle);
     }
 
+    public void RecordTerminalBodyAttempted(
+        MethodDefinitionHandle handle)
+    {
+        if (!_enabled)
+            return;
+
+        _bodiesAttempted.Add(handle);
+        TerminalWork.RequireBodyCapacity(handle);
+    }
+
+    public void RecordTerminalBodyAcquired(
+        MethodDefinitionHandle handle,
+        MethodBodyBlock body)
+    {
+        if (!_enabled)
+            return;
+
+        _bodiesAcquired.Add(handle);
+        TerminalWork.Admit(
+            handle,
+            body.GetILReader().Length);
+    }
+
     public void RecordModuleLookupUsed(MethodDefinitionHandle handle)
     {
         if (_enabled)
@@ -1404,14 +1439,6 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
             _generatedExpansion = coverage;
     }
 
-    public void RecordTerminalWork(
-        MethodDefinitionTerminalWorkCoverage coverage)
-    {
-        ArgumentNullException.ThrowIfNull(coverage);
-        if (_enabled)
-            _terminalWork = coverage;
-    }
-
     public MethodDefinitionSourceCoverage Build() =>
         new(
             _definitionsExamined.Build(),
@@ -1421,7 +1448,9 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
             _moduleLookupMethods.Build())
         {
             GeneratedExpansion = _generatedExpansion,
-            TerminalWork = _terminalWork,
+            TerminalWork =
+                _terminalWork?.Build()
+                ?? MethodDefinitionTerminalWorkCoverage.Empty,
         };
 }
 

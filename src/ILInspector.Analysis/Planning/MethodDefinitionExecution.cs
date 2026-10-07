@@ -22,7 +22,6 @@ public sealed class MethodDefinitionExecution
 {
     readonly WorkDescription _description;
     readonly ProducerState[] _states;
-    readonly MethodDefinitionTerminalWorkBudget? _terminalWork;
     MethodDefinitionSourceBreadth _breadth;
     readonly MethodDefinitionSourceCoverageBuilder _sourceCoverage;
     MethodRowGate? _gate;
@@ -43,11 +42,12 @@ public sealed class MethodDefinitionExecution
     {
         _description = description;
         _breadth = breadth;
-        _terminalWork = tracksSourceCoverage
-            ? new(terminalWorkLimits)
-            : null;
         _sourceCoverage =
-            new MethodDefinitionSourceCoverageBuilder(tracksSourceCoverage);
+            new MethodDefinitionSourceCoverageBuilder(
+                tracksSourceCoverage,
+                tracksSourceCoverage
+                    ? terminalWorkLimits
+                    : null);
         _states = new ProducerState[description.Producers.Length];
     }
 
@@ -69,9 +69,6 @@ public sealed class MethodDefinitionExecution
             "The Method-source gate has not been bound.");
 
     internal LibraryMethodAnalysisRunner? Lookup => _lookup;
-
-    internal MethodDefinitionTerminalWorkBudget? TerminalWork =>
-        _terminalWork;
 
     internal int CurrentOrdinal { get; private set; } = -1;
 
@@ -1411,8 +1408,6 @@ public sealed class MethodDefinitionExecution
 
     void PublishSourceCoverage()
     {
-        if (_terminalWork is not null)
-            _sourceCoverage.RecordTerminalWork(_terminalWork.Build());
         SourceCoverage = _sourceCoverage.Build();
     }
 

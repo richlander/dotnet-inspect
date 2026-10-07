@@ -234,7 +234,8 @@ public sealed class ProducerPlanningTests
             BuildImage(Method.Safe("A"), Method.Safe("B")),
             UnsafeEvidencePresence.Description);
 
-        Assert.Null(execution.TerminalWork);
+        Assert.False(
+            execution.SourceCoverageBuilder.TracksTerminalWork);
         Assert.Equal(
             0,
             execution.ResultOf(
