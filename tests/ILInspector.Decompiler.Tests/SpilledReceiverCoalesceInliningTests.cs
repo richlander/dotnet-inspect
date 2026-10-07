@@ -8,9 +8,10 @@ namespace ILInspector.Decompiler.Tests;
 // collapses both temporaries — reference-type `this` is a plain, non-reassignable
 // object reference, so the receiver spill folds via the live-range mode, which
 // unblocks the value spill (a non-first-leaf, non-pure value deferred only past
-// the now-pure receiver) via the preceding-evaluation-pure gate. A value-type
-// receiver is a byref managed pointer an intervening call could mutate, so it
-// stays spilled.
+// the now-pure receiver) via the preceding-evaluation-pure gate. This generic
+// expression move keeps a value-type receiver spilled; the dedicated
+// ValueTypeReceiverAliasPass separately forwards exact aliases after proving
+// that the receiver argument binding cannot be reassigned.
 [Trait("Area", "Pass")]
 public class SpilledReceiverCoalesceInliningTests
 {
@@ -53,9 +54,9 @@ public class SpilledReceiverCoalesceInliningTests
         Assert.DoesNotContain("S_1", output);
     }
 
-    // Direct-IR A/B on the receiver-spill gate: a reference-type `this` folds
-    // into the field store's receiver; a value-type `this` (byref, possibly
-    // mutated by an intervening call) stays spilled.
+    // Direct-IR A/B on the generic expression-inlining gate: a reference-type
+    // `this` folds into the field store's receiver; a value-type `this` stays
+    // spilled for the dedicated stable-alias proof.
     [Theory]
     [InlineData("System", "Object", true)]   // class receiver ⇒ fold
     [InlineData("System", "ValueType", false)] // struct receiver ⇒ keep spilled
@@ -73,7 +74,7 @@ public class SpilledReceiverCoalesceInliningTests
         // spill's single use is never adjacent to its store — only the live-range
         // path (governed by ReceiverThisIsPure) can fold it. A reference-type
         // `this` is an immutable object reference and folds; a value-type `this`
-        // is a byref whose target the call could mutate, so it stays spilled.
+        // requires the separate receiver-alias proof, so this pass leaves it.
         var container = new BlockContainer();
         var block = new Block(0);
         container.Add(block);
