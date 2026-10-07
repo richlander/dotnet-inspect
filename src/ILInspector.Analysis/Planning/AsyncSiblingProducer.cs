@@ -80,6 +80,17 @@ public sealed class AsyncSiblingProducer
                     CancellationToken.None);
             return new(result.Rows, result.Diagnostics);
         }
+        catch (AssemblyBindingPolicyChangedException exception)
+        {
+            // A policy change fails the execution rather than one body.
+            throw new ProducerAbortException(
+                new(
+                    "ReferenceBinding",
+                    "PolicyVersion",
+                    view.Token,
+                    $"0x{view.Token:X8}",
+                    exception.Message));
+        }
         catch (Exception exception)
             when (exception
                     is not

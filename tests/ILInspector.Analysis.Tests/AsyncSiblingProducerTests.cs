@@ -48,6 +48,58 @@ public class AsyncSiblingProducerTests
             AssemblyResolutionScope scope) => null;
     }
 
+    sealed class ChangingPolicy(IAssemblyBindingPolicy inner)
+        : IAssemblyBindingPolicy
+    {
+        bool _changed;
+
+        public AssemblyBindingPolicyVersion Version => inner.Version;
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            AssemblyBindingSelectionSnapshot snapshot = inner.Select(request);
+            if (!_changed)
+            {
+                _changed = true;
+                return snapshot;
+            }
+
+            return new(new AssemblyBindingPolicyVersion(), snapshot.Selection);
+        }
+    }
+
+    [Fact]
+    public void Producer_FailsExecutionWhenBindingPolicyChanges()
+    {
+        var operation = CreateOperation();
+        using var session = AssemblyInspectionSession.Open(FixturePath);
+        AssemblyReferenceBindingAccess real = CreateBinding();
+        var binding = new AssemblyReferenceBindingAccess(
+            real.Subject,
+            new ChangingPolicy(real.Policy));
+
+        ProducerResult<AsyncSiblingProducerResult> result =
+            session.SnapshotOperation(
+                operation,
+                binding,
+                access =>
+                {
+                    var completed = Assert.IsType<
+                        AssemblyAnalysisServiceResult<
+                            AsyncSiblingProducerResult>.Completed>(
+                        AssemblyAnalysisService.Instance.Execute(
+                            operation,
+                            access));
+                    return completed.Execution.ResultOf(
+                        AsyncSiblingProducer.Instance);
+                });
+
+        Assert.False(result.HasValue);
+        Assert.NotNull(result.Critical);
+        Assert.Equal("ReferenceBinding", result.Critical.Owner);
+    }
+
     [Fact]
     public void Producer_ReportsUnresolvedReferencesAsDiagnostics()
     {
