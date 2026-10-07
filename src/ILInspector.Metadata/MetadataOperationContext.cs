@@ -131,6 +131,9 @@ public abstract record MetadataImageAdmissionResult
 
 public sealed class MetadataOperationContext : IDisposable
 {
+    private static readonly TableIndex[] s_tableIndices =
+        Enum.GetValues<TableIndex>();
+
     readonly ConditionalWeakTable<AssemblyInspectionSession, object>
         _attachments = new();
     readonly MetadataOperationPolicy _policy;
@@ -213,7 +216,7 @@ public sealed class MetadataOperationContext : IDisposable
     {
         ArgumentNullException.ThrowIfNull(reader);
         long count = 0;
-        foreach (TableIndex table in Enum.GetValues<TableIndex>())
+        foreach (TableIndex table in s_tableIndices)
             count = checked(count + reader.GetTableRowCount(table));
         return count;
     }

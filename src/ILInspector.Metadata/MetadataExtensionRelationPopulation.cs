@@ -11,17 +11,62 @@ public sealed record MetadataExtensionReceiverSelection
 {
     public MetadataExtensionReceiverSelection(
         AssemblyReferenceIdentity assembly,
-        MetadataTypeDefinitionName type)
+        MetadataTypeDefinitionName type,
+        MetadataTypeDefinitionAddress? definition = null)
     {
         Assembly = assembly
             ?? throw new ArgumentNullException(nameof(assembly));
         Type = type
             ?? throw new ArgumentNullException(nameof(type));
+        Definition = definition;
     }
 
     public AssemblyReferenceIdentity Assembly { get; }
 
     public MetadataTypeDefinitionName Type { get; }
+
+    public MetadataTypeDefinitionAddress? Definition { get; }
+}
+
+public sealed record MetadataExtensionRelationPresenceRequest
+{
+    public MetadataExtensionRelationPresenceRequest(
+        MetadataExtensionReceiverSelection receiver,
+        MetadataOperationPolicy policy,
+        bool includeNonPublic = false,
+        AssemblyReferenceIdentity? sourceAssembly = null)
+    {
+        Receiver = receiver
+            ?? throw new ArgumentNullException(nameof(receiver));
+        Policy = policy
+            ?? throw new ArgumentNullException(nameof(policy));
+        IncludeNonPublic = includeNonPublic;
+        SourceAssembly = sourceAssembly;
+    }
+
+    public MetadataExtensionReceiverSelection Receiver { get; }
+
+    public MetadataOperationPolicy Policy { get; }
+
+    public bool IncludeNonPublic { get; }
+
+    public AssemblyReferenceIdentity? SourceAssembly { get; }
+}
+
+public abstract record MetadataExtensionRelationPresenceOutcome
+{
+    private protected MetadataExtensionRelationPresenceOutcome()
+    {
+    }
+
+    public sealed record Available(bool Exists)
+        : MetadataExtensionRelationPresenceOutcome;
+
+    public sealed record Incomplete
+        : MetadataExtensionRelationPresenceOutcome;
+
+    public sealed record Failed
+        : MetadataExtensionRelationPresenceOutcome;
 }
 
 public sealed record MetadataExtensionRelationPopulationCountRequest;
@@ -399,6 +444,256 @@ public abstract record MetadataExtensionRelationPopulationOutcome
 
 internal static partial class MetadataRelationInspection
 {
+    private static readonly GenericContext
+        s_extensionPresencePrefixContext = new([], []);
+
+    internal static MetadataExtensionRelationPresenceOutcome
+        ExecuteExtensionPresence(
+            PEReader image,
+            MetadataReader reader,
+            MetadataExtensionRelationPresenceRequest request,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using var operation =
+            new MetadataOperationContext(request.Policy);
+        if (!reader.IsAssembly)
+        {
+            return new MetadataExtensionRelationPresenceOutcome.Failed();
+        }
+        Guid moduleVersionId =
+            reader.GetGuid(reader.GetModuleDefinition().Mvid);
+        if (moduleVersionId == Guid.Empty)
+        {
+            return new MetadataExtensionRelationPresenceOutcome.Failed();
+        }
+        AssemblyReferenceIdentity sourceAssembly =
+            request.SourceAssembly
+            ?? AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+        if (request.Receiver.Definition is { } definition
+            && moduleVersionId != definition.ModuleVersionId)
+        {
+            return new MetadataExtensionRelationPresenceOutcome.Failed();
+        }
+        if (operation.AdmitImage(reader)
+            is MetadataImageAdmissionResult.Rejected)
+        {
+            return new MetadataExtensionRelationPresenceOutcome
+                .Incomplete();
+        }
+
+        bool incomplete = false;
+        try
+        {
+            bool found = VisitExtensionCandidates(
+                reader,
+                static _ => true,
+                request.IncludeNonPublic,
+                ExtensionCandidateAdmission.ApiMethodSurface,
+                cancellationToken,
+                candidate =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    // The rich API surface's Extension Methods population
+                    // holds extension methods only, not extension properties.
+                    if (candidate.IsProperty)
+                        return false;
+                    operation.Charge(
+                        MetadataOperationDimension
+                            .DeclarationCandidates);
+                    if (!TryMatchExtensionPresenceCandidate(
+                            reader,
+                            candidate,
+                            operation,
+                            sourceAssembly,
+                            request.Receiver,
+                            out bool matches,
+                            out _))
+                    {
+                        incomplete = true;
+                        return false;
+                    }
+                    return matches;
+                },
+                static () => { });
+            if (found)
+            {
+                return new MetadataExtensionRelationPresenceOutcome
+                    .Available(true);
+            }
+        }
+        catch (MetadataOperationBudgetExceededException)
+        {
+            return new MetadataExtensionRelationPresenceOutcome
+                .Incomplete();
+        }
+        catch (BadImageFormatException)
+        {
+            return new MetadataExtensionRelationPresenceOutcome.Failed();
+        }
+
+        return incomplete
+            ? new MetadataExtensionRelationPresenceOutcome.Incomplete()
+            : new MetadataExtensionRelationPresenceOutcome
+                .Available(false);
+    }
+
+    private static bool TryMatchExtensionPresenceCandidate(
+        MetadataReader reader,
+        ExtensionDeclarationCandidate candidate,
+        MetadataOperationContext operation,
+        AssemblyReferenceIdentity sourceAssembly,
+        MetadataExtensionReceiverSelection selection,
+        out bool matches,
+        out string? failure)
+    {
+        TypeDefinitionHandle receiverContextHandle;
+        MethodDefinitionHandle receiverMethodHandle;
+        if (candidate.IsProperty)
+        {
+            if (!TryResolveExtensionPropertyReceiver(
+                    reader,
+                    candidate,
+                    out receiverContextHandle,
+                    out receiverMethodHandle))
+            {
+                matches = false;
+                failure =
+                    "An extension property lacks an exact receiver marker.";
+                return false;
+            }
+        }
+        else
+        {
+            receiverContextHandle = candidate.DeclaringType;
+            receiverMethodHandle = candidate.Method;
+        }
+
+        TypeDefinition receiverContext =
+            reader.GetTypeDefinition(receiverContextHandle);
+        MethodDefinition receiverMethod =
+            reader.GetMethodDefinition(receiverMethodHandle);
+        operation.Charge(
+            MetadataOperationDimension.SignatureBytes,
+            reader.GetBlobReader(receiverMethod.Signature).Length);
+
+        try
+        {
+            bool sourceDefinesPrimitiveTypes =
+                ApiSurfaceExtractor.DefinesPrimitiveTypes(reader);
+            var provider = new ExtensionReceiverMatchProvider(
+                sourceAssembly,
+                selection,
+                sourceDefinesPrimitiveTypes);
+            BlobReader signature =
+                reader.GetBlobReader(receiverMethod.Signature);
+            SignatureHeader header =
+                signature.ReadSignatureHeader();
+            if (header.Kind != SignatureKind.Method
+                || header.IsInstance)
+            {
+                matches = false;
+                failure =
+                    "The extension signature is not a static method signature.";
+                return false;
+            }
+            if (header.IsGeneric
+                && signature.ReadCompressedInteger() < 0)
+            {
+                matches = false;
+                failure =
+                    "The extension signature has no valid generic arity.";
+                return false;
+            }
+            int parameterCount =
+                signature.ReadCompressedInteger();
+            if (parameterCount <= 0)
+            {
+                matches = false;
+                failure =
+                    "The extension declaration has no receiver parameter.";
+                return false;
+            }
+
+            var decoder =
+                new SignatureDecoder<bool, GenericContext>(
+                    provider,
+                    reader,
+                    s_extensionPresencePrefixContext);
+            _ = decoder.DecodeType(
+                ref signature,
+                allowTypeSpecifications: true);
+            bool receiverMatches = decoder.DecodeType(
+                ref signature,
+                allowTypeSpecifications: true);
+            if (provider.Rejected)
+            {
+                matches = false;
+                failure =
+                    "The extension receiver could not be decoded exactly.";
+                return false;
+            }
+            if (!receiverMatches)
+            {
+                matches = false;
+                failure = null;
+                return true;
+            }
+            if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                    reader,
+                    receiverMethod.Signature,
+                    SignatureBlobGuard.Kind.Method))
+            {
+                matches = false;
+                failure =
+                    "The extension signature is not safe and complete to decode.";
+                return false;
+            }
+
+            provider = new(
+                sourceAssembly,
+                selection,
+                sourceDefinesPrimitiveTypes);
+            GenericContext context =
+                GenericContext.ForMethod(
+                    reader,
+                    receiverContext,
+                    receiverMethod);
+            MethodSignature<bool> methodSignature =
+                receiverMethod.DecodeSignature(
+                    provider,
+                    context);
+            if (provider.Rejected
+                || methodSignature.ParameterTypes.IsEmpty)
+            {
+                matches = false;
+                failure =
+                    "The extension receiver could not be decoded exactly.";
+                return false;
+            }
+
+            operation.Charge(
+                MetadataOperationDimension.RelationshipEdges);
+            matches = methodSignature.ParameterTypes[0];
+            failure = null;
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is BadImageFormatException
+                or ArgumentException
+                or InvalidOperationException
+                or OverflowException)
+        {
+            matches = false;
+            failure = exception.Message;
+            return false;
+        }
+    }
+
     internal static MetadataExtensionRelationPopulationOutcome
         ExecuteExtensionPopulation(
             PEReader image,
@@ -1114,6 +1409,223 @@ internal static partial class MetadataRelationInspection
     {
         public List<MetadataExtensionRelationEvidence> Occurrences
         { get; } = [];
+    }
+
+    private sealed class ExtensionReceiverMatchProvider :
+        ISignatureTypeProvider<bool, GenericContext>
+    {
+        readonly AssemblyReferenceIdentity _sourceAssembly;
+        readonly MetadataExtensionReceiverSelection _selection;
+        readonly bool _sourceDefinesPrimitiveTypes;
+
+        internal ExtensionReceiverMatchProvider(
+            AssemblyReferenceIdentity sourceAssembly,
+            MetadataExtensionReceiverSelection selection,
+            bool sourceDefinesPrimitiveTypes)
+        {
+            _sourceAssembly = sourceAssembly;
+            _selection = selection;
+            _sourceDefinesPrimitiveTypes = sourceDefinesPrimitiveTypes;
+        }
+
+        internal bool Rejected { get; private set; }
+
+        public bool GetTypeFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            byte rawTypeKind) =>
+            (_selection.Definition is { } definition
+                ? definition.Definition
+                    == TypeDefinitionToken.FromHandle(reader, handle)
+                : NameMatches(reader, handle))
+            && _sourceAssembly.IsEquivalentTo(
+                _selection.Assembly);
+
+        public bool GetTypeFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            byte rawTypeKind)
+        {
+            if (!NameMatches(reader, handle))
+                return false;
+
+            Span<TypeReferenceHandle> chain =
+                stackalloc TypeReferenceHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal
+                    .TryWalkTypeReferenceResolutionScope(
+                        reader,
+                        handle,
+                        chain,
+                        out _,
+                        out EntityHandle terminal,
+                        out _))
+            {
+                Rejected = true;
+                return false;
+            }
+
+            return terminal.Kind switch
+            {
+                HandleKind.AssemblyReference =>
+                    _selection.Assembly.IsEquivalentTo(
+                        AssemblyReferenceIdentity.From(
+                            reader,
+                            (AssemblyReferenceHandle)terminal)),
+                HandleKind.ModuleDefinition
+                    or HandleKind.ModuleReference =>
+                    _sourceAssembly.IsEquivalentTo(
+                        _selection.Assembly),
+                _ when terminal.IsNil =>
+                    _sourceAssembly.IsEquivalentTo(
+                        _selection.Assembly),
+                _ => Reject(),
+            };
+        }
+
+        public bool GetTypeFromSpecification(
+            MetadataReader reader,
+            GenericContext context,
+            TypeSpecificationHandle handle,
+            byte rawTypeKind)
+        {
+            if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+            {
+                Rejected = true;
+                return false;
+            }
+            using (scope)
+            {
+                return reader.GetTypeSpecification(handle)
+                    .DecodeSignature(this, context);
+            }
+        }
+
+        // Primitive element types name local definitions only in an image
+        // that defines them, matching the rich route's receiver decoding.
+        public bool GetPrimitiveType(PrimitiveTypeCode typeCode) =>
+            _sourceDefinesPrimitiveTypes
+            && _sourceAssembly.IsEquivalentTo(_selection.Assembly)
+            && IsSelectedSystemType(
+                typeCode switch
+                {
+                    PrimitiveTypeCode.Boolean => "Boolean",
+                    PrimitiveTypeCode.Byte => "Byte",
+                    PrimitiveTypeCode.SByte => "SByte",
+                    PrimitiveTypeCode.Char => "Char",
+                    PrimitiveTypeCode.Int16 => "Int16",
+                    PrimitiveTypeCode.UInt16 => "UInt16",
+                    PrimitiveTypeCode.Int32 => "Int32",
+                    PrimitiveTypeCode.UInt32 => "UInt32",
+                    PrimitiveTypeCode.Int64 => "Int64",
+                    PrimitiveTypeCode.UInt64 => "UInt64",
+                    PrimitiveTypeCode.Single => "Single",
+                    PrimitiveTypeCode.Double => "Double",
+                    PrimitiveTypeCode.IntPtr => "IntPtr",
+                    PrimitiveTypeCode.UIntPtr => "UIntPtr",
+                    PrimitiveTypeCode.String => "String",
+                    PrimitiveTypeCode.Object => "Object",
+                    PrimitiveTypeCode.Void => "Void",
+                    PrimitiveTypeCode.TypedReference =>
+                        "TypedReference",
+                    _ => "",
+                });
+
+        public bool GetGenericInstantiation(
+            bool genericType,
+            ImmutableArray<bool> typeArguments) =>
+            genericType;
+
+        public bool GetByReferenceType(bool elementType) =>
+            elementType;
+
+        public bool GetModifiedType(
+            bool modifier,
+            bool unmodifiedType,
+            bool isRequired) =>
+            unmodifiedType;
+
+        public bool GetPinnedType(bool elementType) =>
+            elementType;
+
+        public bool GetSZArrayType(bool elementType) => false;
+
+        public bool GetArrayType(
+            bool elementType,
+            ArrayShape shape) =>
+            false;
+
+        public bool GetPointerType(bool elementType) => false;
+
+        public bool GetGenericTypeParameter(
+            GenericContext context,
+            int index) =>
+            false;
+
+        public bool GetGenericMethodParameter(
+            GenericContext context,
+            int index) =>
+            false;
+
+        public bool GetFunctionPointerType(
+            MethodSignature<bool> signature) =>
+            false;
+
+        bool NameMatches(
+            MetadataReader reader,
+            TypeDefinitionHandle handle)
+        {
+            MetadataTypeDefinitionNameMatchResult result =
+                MetadataTypeDefinitionName.Matches(
+                    reader,
+                    handle,
+                    _selection.Type,
+                    out _);
+            if (result
+                is MetadataTypeDefinitionNameMatchResult.Rejected)
+            {
+                Rejected = true;
+            }
+            return result
+                is MetadataTypeDefinitionNameMatchResult.Match;
+        }
+
+        bool NameMatches(
+            MetadataReader reader,
+            TypeReferenceHandle handle)
+        {
+            MetadataTypeDefinitionNameMatchResult result =
+                MetadataTypeDefinitionName.Matches(
+                    reader,
+                    handle,
+                    _selection.Type,
+                    out _);
+            if (result
+                is MetadataTypeDefinitionNameMatchResult.Rejected)
+            {
+                Rejected = true;
+            }
+            return result
+                is MetadataTypeDefinitionNameMatchResult.Match;
+        }
+
+        bool IsSelectedSystemType(string name) =>
+            name.Length > 0
+            && string.Equals(
+                _selection.Type.Namespace,
+                "System",
+                StringComparison.Ordinal)
+            && _selection.Type.Segments.Length == 1
+            && string.Equals(
+                _selection.Type.Segments[0],
+                name,
+                StringComparison.Ordinal);
+
+        bool Reject()
+        {
+            Rejected = true;
+            return false;
+        }
     }
 
     private sealed record DecodedExtensionPopulationCandidate(

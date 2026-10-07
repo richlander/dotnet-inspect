@@ -740,6 +740,7 @@ export interface BrowserTypeMemberSelectorCounts {
 
 export interface BrowserTypeMemberTraitCounts {
   readonly all: number;
+  readonly bodyBacked: number;
   readonly static: number;
   readonly instance: number;
   readonly virtual: number;

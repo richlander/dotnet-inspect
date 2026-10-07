@@ -15,7 +15,7 @@ The normative claim is:
 > that retained Package model's effective Diff target to publish one
 > request-associated generic Diff document and its complete service envelope.
 > Public API is the default Library content; an explicit string-literal choice
-> instead projects complete matching literal Transitions from the same
+> instead projects complete changed matching literal Transitions from the same
 > host-neutral operation. The owner-issued Library API presentation inside that
 > document preserves exact endpoint, Type, and Type-local changed-Member
 > identity and every typed non-success outcome.
@@ -287,8 +287,12 @@ The frame renders:
 For String literals, the frame renders one row per owner-issued Transition:
 
 - the complete decoded literal, never an extracted matching substring;
-- one value for Present, Added, or Removed rows and both values only when they
-  differ;
+- one row only for an Added or Removed literal (a changed literal is one of
+  each); a literal present on both sides is not a change and is never issued,
+  so Compare answers whether a matching literal changed, while finding every
+  literal that contains a substring is the single-population Library literal
+  Analysis;
+- one value per row;
 - one row when a literal contains multiple matching positions; and
 - separate rows for separate physical `ldstr` occurrences.
 
@@ -328,7 +332,7 @@ The published Browser demo uses the deterministic `LibraryApiDiff.V1` and
 4. show the complete changed-Type inventory and aggregate compatibility
    counts;
 5. choose String literals, search for values containing `https://`, and show
-   complete matching literals as rows;
+   complete added or removed literals as rows;
 6. switch to `starts-with` and exclude an embedded-only fixture literal;
 7. select the same version as a neighboring target and show a successful empty
    comparison; and

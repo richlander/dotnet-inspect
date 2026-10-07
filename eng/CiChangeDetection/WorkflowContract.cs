@@ -8,12 +8,14 @@ internal static partial class WorkflowContract
     private static readonly string[] InspectWebLeafJobs =
     [
         "inspect-web-platform",
+        "inspect-web-facades",
         "inspect-web-msdl-tests",
     ];
 
     private static readonly string[] InspectWebDotnetJobs =
     [
         "inspect-web-platform",
+        "inspect-web-facades",
         "inspect-web-msdl-tests",
     ];
 
@@ -296,6 +298,16 @@ internal static partial class WorkflowContract
             "inspect-web-platform",
             "Run local-path admission Browser/Wasm platform probe",
             "eng/run-local-path-admission-platform-probe.sh browser");
+        ValidateRequiredRunStep(
+            jobs,
+            "inspect-web-facades",
+            "Verify generated facade digests",
+            "eng/generate-inspect-web-engine-facade.sh --verify-digest");
+        ValidateRequiredRunStep(
+            jobs,
+            "inspect-web-facades",
+            "Check generated facades are current",
+            "eng/generate-inspect-web-engine-facade.sh --fast-check");
         ValidateRequiredRunStep(
             jobs,
             "inspect-web-msdl-tests",

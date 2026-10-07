@@ -11,6 +11,20 @@ public sealed class BrowserMemberBodyDiffTests
 {
     [Fact]
     [Trait("Speed", "Slow")]
+    public async Task AspireHosting_MemberBodyInventoryResolvesPublicPopulation()
+    {
+        var request = new BrowserMemberBodyDiffRequest("Aspire.Hosting", "13.6.0", "13.6.1",
+            "net8.0", "compile:lib/net8.0/Aspire.Hosting.dll", Guid.NewGuid().ToString());
+        string json = await SourceExports.QueryMemberBodyDiff(Guid.NewGuid().ToString(),
+            JsonSerializer.Serialize(request, BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffRequest));
+        var result = JsonSerializer.Deserialize(json, BrowserMemberBodyDiffJsonContext.Default.BrowserMemberBodyDiffResult)!;
+        Assert.True(result.Kind == "Available", $"{result.Kind}: {result.Detail}");
+        Assert.NotNull(result.Inventory);
+        Assert.NotNull(result.Inspection);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public async Task JsonDocumentOptionsAddedProperty_FitsWorkerTransport()
     {
         var request = new BrowserMemberBodyDiffRequest("System.Text.Json", "9.0.20", "10.0.12",
