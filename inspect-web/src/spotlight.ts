@@ -85,7 +85,13 @@ export interface SpotlightCapabilityResult {
   ranges: readonly HighlightRange[];
 }
 
+export interface SpotlightPruningEvidence {
+  traversalTfm: string;
+  platformVersion: string;
+}
+
 interface FrameworkLibraryResult {
+  pruning?: SpotlightPruningEvidence;
   kind: "framework-lib";
   assembly: string;
   pack: string;
@@ -450,7 +456,15 @@ export function createSpotlight(options: SpotlightOptions) {
     return `${escapeHtml(annotation.title)} · Package · `;
   }
 
-  function resultIcons(ecosystem: SpotlightEcosystemAnnotation | undefined): string {
+  function artifactIcon(
+    kind: "Package" | "Library",
+    ecosystem: { id: string; title: string } | undefined,
+    pruning: { traversalTfm: string; platformVersion: string | null } | undefined,
+  ): string {
+    if (pruning) {
+      const label = kind === "Package" ? "Package pruned" : "Library supplies pruned package";
+      return `<span class="spotlight-svg-icon spotlight-pruned" role="img" aria-label="${label} for ${escapeHtml(pruning.traversalTfm)}" title="${escapeHtml(`Supplied by ${pruning.traversalTfm}${pruning.platformVersion ? ` @ ${pruning.platformVersion}` : ""}; eligible for package pruning`)}"></span>`;
+    }
     const classes: Readonly<Record<string, string>> = {
       "ecosystem.runtime": "sl-ecosystem-runtime",
       "ecosystem.aspnetcore": "sl-ecosystem-aspnetcore",
@@ -458,13 +472,14 @@ export function createSpotlight(options: SpotlightOptions) {
       "ecosystem.aspire": "sl-ecosystem-aspire",
     };
     const icon = ecosystem ? classes[ecosystem.id] : undefined;
-    const ownership = icon
-      ? `<span class="spotlight-icon-slot spotlight-ecosystem-icon ${icon}" role="img" aria-label="${escapeHtml(ecosystem?.title)}" title="${escapeHtml(ecosystem?.title)}"></span>`
-      : '<span class="spotlight-icon-slot" aria-hidden="true"></span>';
-    const pruning = ecosystem?.isPruned === true
-      ? `<span class="spotlight-icon-slot spotlight-svg-icon spotlight-pruned" role="img" aria-label="Pruned for ${escapeHtml(ecosystem.traversalTfm)}" title="${escapeHtml(`Supplied by ${ecosystem.traversalTfm}${ecosystem.platformVersion ? ` @ ${ecosystem.platformVersion}` : ""}; eligible for package pruning`)}"></span>`
-      : '<span class="spotlight-icon-slot" aria-hidden="true"></span>';
-    return `<span class="spotlight-result-icons">${ownership}${pruning}</span>`;
+    return icon
+      ? `<span class="spotlight-icon-slot spotlight-ecosystem-icon ${icon}" role="img" aria-label="${kind}: ${escapeHtml(ecosystem?.title)}" title="${escapeHtml(ecosystem?.title)}"></span>`
+      : `<span class="spotlight-svg-icon ${kind === "Package" ? "sl-package-icon" : "sl-library-icon"}" role="img" aria-label="${kind}"></span>`;
+  }
+
+  function packageIcon(result: SpotlightPackageResult): string {
+    return artifactIcon("Package", result.ecosystem,
+      result.ecosystem?.isPruned === true ? result.ecosystem : undefined);
   }
 
   function rowHtml(result: SpotlightResult, index: number): string {
@@ -488,10 +503,9 @@ export function createSpotlight(options: SpotlightOptions) {
     const base = `id="spotlight-result-${index}" class="spotlight-item${artifactClass} ${selectedClass}" role="option" aria-selected="${selected}" data-sl-index="${index}" data-sl-result-identity="${escapedIdentity}" data-rendered-interaction-key="spotlight-result:${escapedIdentity}"${packageAddition ? ' tabindex="-1"' : ""}`;
     if (result.kind === "pkg-loaded") {
       return withRemoveButton(result, `<button ${base} data-sl-pkg-open="${escapeHtml(result.pkg.id)}">
-        <span class="spotlight-svg-icon sl-package-icon" role="img" aria-label="Package"></span>
+        ${packageIcon(result)}
         <span class="spotlight-item-name">${options.highlightRanges(result.pkg.id, result.ranges)}</span>
         <span class="spotlight-item-ns">${ecosystemMetadata(result)}${escapeHtml(result.pkg.version)} · ${packageAddition ? "already in Workspace" : "open"}</span>
-        ${resultIcons(result.ecosystem)}
       </button>`);
     }
     if (result.kind === "pkg-nuget") {
@@ -499,10 +513,9 @@ export function createSpotlight(options: SpotlightOptions) {
         ? "exact coordinate · listed or unlisted"
         : "nuget.org";
       return `<button ${base} data-sl-pkg-load="${escapeHtml(result.hit.id)}" data-sl-pkg-version="${escapeHtml(result.hit.version || "")}">
-        <span class="spotlight-svg-icon sl-package-icon" role="img" aria-label="Package"></span>
+        ${packageIcon(result)}
         <span class="spotlight-item-name">${options.highlightRanges(result.hit.id, result.ranges)}</span>
         <span class="spotlight-item-ns">${ecosystemMetadata(result)}${escapeHtml(result.hit.version || "")} · ${source}</span>
-        ${resultIcons(result.ecosystem)}
       </button>`;
     }
     if (result.kind === "pkg-recent") {
@@ -510,10 +523,9 @@ export function createSpotlight(options: SpotlightOptions) {
         ? result.entry.version
         : "";
       return withRemoveButton(result, `<button ${base} data-sl-pkg-recent="${escapeHtml(result.entry.id)}">
-        <span class="spotlight-svg-icon sl-package-icon" role="img" aria-label="Package"></span>
+        ${packageIcon(result)}
         <span class="spotlight-item-name">${options.highlightRanges(result.entry.id, result.ranges)}</span>
         <span class="spotlight-item-ns">${ecosystemMetadata(result)}${version ? `${escapeHtml(version)} · ` : ""}recent</span>
-        ${resultIcons(result.ecosystem)}
       </button>`);
     }
     if (result.kind === "package-query") {
@@ -553,14 +565,12 @@ export function createSpotlight(options: SpotlightOptions) {
       const types = `${result.publicTypes} type${result.publicTypes === 1 ? "" : "s"}`;
       const meta = `${label} library${result.tfm ? ` · ${result.tfm}` : ""}${result.version ? ` · ${result.version}` : ""} · ${result.role ?? types}${result.loaded ? " · loaded" : ""}`;
       return `<button ${base} data-sl-framework-lib="${escapeHtml(result.assembly)}" data-sl-framework-pack="${escapeHtml(result.pack)}">
-        <span class="spotlight-svg-icon sl-library-icon" role="img" aria-label="Library"></span>
+        ${artifactIcon("Library", result.pack === "netcore.app" || result.pack === "aspnetcore.app" || result.pack === "netstandard"
+          ? { id: result.pack === "aspnetcore.app" ? "ecosystem.aspnetcore" : "ecosystem.runtime",
+              title: result.pack === "aspnetcore.app" ? "ASP.NET Core" : ".NET Runtime" }
+          : undefined, result.pruning)}
         <span class="spotlight-item-name">${options.highlightRanges(result.assembly, result.ranges)}</span>
         <span class="spotlight-item-ns">${escapeHtml(meta)}</span>
-        ${resultIcons(result.pack === "netcore.app" || result.pack === "aspnetcore.app" || result.pack === "netstandard"
-          ? { id: result.pack === "aspnetcore.app" ? "ecosystem.aspnetcore" : "ecosystem.runtime",
-              title: result.pack === "aspnetcore.app" ? "ASP.NET Core" : ".NET Runtime",
-              isPruned: null, traversalTfm: result.tfm ?? "", platformVersion: result.version ?? null }
-          : undefined)}
       </button>`;
     }
     if (result.kind === "member") {
