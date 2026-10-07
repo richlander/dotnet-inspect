@@ -15186,13 +15186,13 @@ function persistRecentPackages() {
   }
 }
 
-function frameworkLibrarySpotlightResults(query: string): SpotlightResult[] {
+function frameworkLibrarySpotlightResults(query: string, includeApiResults = true): SpotlightResult[] {
   const results: SpotlightResult[] = [];
   const roster = platformLibraryRoster(query);
   for (const lib of roster.filter(row => row.hasImplementation).slice(0, 200)) {
     results.push({ ...lib, kind: "framework-lib" });
   }
-  if (platformSurfaceLoaded()
+  if (includeApiResults && platformSurfaceLoaded()
     && activeRetainedWorkspacePosting === null) {
     const typeSource = query ? spotlightTypeMatches(query) : [];
     for (const match of typeSource.filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
@@ -15272,6 +15272,7 @@ function spotlightResults(): SpotlightResult[] {
       throw new Error("Spotlight delegated the command scope to the workspace search results.");
     case "all":
     case "packages":
+    case "libraries":
     case "types":
     case "members":
       break;
@@ -15382,8 +15383,10 @@ function spotlightResults(): SpotlightResult[] {
   if ((all || spotlightScope === "members") && query) {
     for (const match of spotlightMemberMatches(query).slice(0, all ? 6 : 50)) results.push({ ...match, kind: "member" });
   }
-  if (all) {
-    results.push(...frameworkLibrarySpotlightResults(query).slice(0, 5));
+  if (all || spotlightScope === "libraries") {
+    const libraries = frameworkLibrarySpotlightResults(query, all);
+    results.push(...(all ? libraries.slice(0, 5)
+      : libraries.filter(result => result.kind === "framework-lib")));
   }
   return annotateSpotlightPublicationDates(annotateSpotlightEcosystems(results));
 }

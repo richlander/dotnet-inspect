@@ -4319,14 +4319,14 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
       mask: getComputedStyle(element).maskImage,
     }))).toMatchObject({ width: 20, mask: expect.stringContaining("data:image/svg+xml") });
     await expect(page.locator(".spotlight-group").filter({ hasText: /^Ecosystem$/ })).toHaveCount(1);
-    await expect(packageHit).toContainText("Package");
-    await expect(page.locator('[data-sl-framework-lib="System.Linq"]')).toContainText(".NET Runtime · Library");
+    await expect(packageHit.locator(".spotlight-item-ns")).not.toContainText("Package");
+    await expect(page.locator('[data-sl-framework-lib="System.Linq"]')).toContainText(".NET Runtime");
     expect(packs).toEqual([]);
     await expect(search).toBeFocused();
     expect(await packageHit.evaluate((element, original) => element === original, originalControl)).toBe(true);
     publicationGate.resolve();
-    await expect(packageHit.locator("time")).toHaveText("Published 2016-11-15");
-    await expect(libraryHit.locator("time")).toHaveText("Published 2026-09-08");
+    await expect(packageHit.locator("time")).toHaveText("2016-11-15");
+    await expect(libraryHit.locator("time")).toHaveText("2026-09-08");
     await expect(libraryHit.locator("time")).toHaveAttribute("datetime", "2026-09-08");
     expect(publicationRequests.filter(url => url.includes("/microsoft.netcore.app.ref/"))).toHaveLength(1);
     await search.fill("System.Text.Json");
@@ -4360,7 +4360,7 @@ test.describe("Spotlight ecosystem annotations over real Wasm", () => {
     await expect(page.locator('[data-sl-pkg-load="System.Text.Json"]')).toContainText(jsonVersion);
     const newerPair = page.locator('[data-sl-framework-lib="System.Text.Json"], [data-sl-pkg-load="System.Text.Json"]');
     await expect(newerPair.first()).toHaveAttribute("data-sl-pkg-load", "System.Text.Json");
-    await expect(page.locator('[data-sl-framework-lib="System.Text.Json"]')).toContainText(".NET Runtime · Library");
+    await expect(page.locator('[data-sl-framework-lib="System.Text.Json"]')).toContainText(".NET Runtime");
     await expect(page.locator('[data-sl-pkg-load="System.Text.Json"] [aria-label="Package: .NET Runtime"]')).toBeVisible();
     await expect(newerPair.locator(".spotlight-pruned")).toHaveCount(0);
     expect(packs).toEqual([]);
@@ -4402,21 +4402,52 @@ test("publication dates remain visible in Package Overview and in-app Spotlight"
   const input = page.locator("#spotlight-input");
   await expect(input).toBeEditable();
   await input.fill(healthy.packageId);
-  await expect(page.locator(`[data-sl-pkg-open="${healthy.packageId}" i] time`)).toHaveText("Published 2026-09-08");
+  await expect(page.locator(`[data-sl-pkg-open="${healthy.packageId}" i] time`)).toHaveText("2026-09-08");
   expect(publicationRequests.filter(url => url.includes(`/${healthy.packageId.toLowerCase()}/`))).toHaveLength(1);
   await input.fill("System.Text.Json");
   const packageRow = page.locator('[data-sl-pkg-load="System.Text.Json"]');
   const libraryRow = page.locator('[data-sl-framework-lib="System.Text.Json"]');
-  await expect(packageRow.locator("time")).toHaveText("Published 2024-11-12");
-  await expect(libraryRow.locator("time")).toHaveText("Published 2026-09-08");
+  await expect(packageRow.locator("time")).toHaveText("2024-11-12");
+  await expect(libraryRow.locator("time")).toHaveText("2026-09-08");
   await expect(input).toBeFocused();
   const geometry = await packageRow.locator("time").evaluate(element => ({
     width: element.getBoundingClientRect().width,
     right: element.getBoundingClientRect().right,
     viewport: window.innerWidth,
   }));
-  expect(geometry.width).toBeGreaterThan(100);
+  expect(geometry.width).toBeGreaterThan(60);
   expect(geometry.right).toBeLessThanOrEqual(geometry.viewport);
   expect(publicationRequests.filter(url => url.includes("/system.text.json/"))).toHaveLength(1);
+  for (const row of [packageRow, libraryRow]) {
+    await expect(row.locator(".spotlight-item-ns")).not.toContainText(/Package|Library/);
+    const layout = await row.evaluate(element => {
+      const centers = [".spotlight-item-name", ".spotlight-item-ns", ".spotlight-item-date"]
+        .map(selector => { const rect = element.querySelector(selector)!.getBoundingClientRect(); return rect.top + rect.height / 2; });
+      return { height: element.getBoundingClientRect().height, spread: Math.max(...centers) - Math.min(...centers) };
+    });
+    expect(layout.height).toBeLessThanOrEqual(40);
+    expect(layout.spread).toBeLessThan(2);
+  }
   await page.screenshot({ path: testInfo.outputPath("in-app-spotlight-dates.png") });
+  await page.locator('[data-sl-scope="libraries"]').click();
+  await expect(libraryRow).toBeVisible();
+  await expect(packageRow).toHaveCount(0);
+  await expect(page.locator('[data-sl-type], [data-sl-member], [data-sl-package-query]')).toHaveCount(0);
+  await page.locator('[data-sl-scope="packages"]').click();
+  await expect(packageRow).toBeVisible();
+  await expect(libraryRow).toHaveCount(0);
+  await page.locator('[data-sl-scope="all"]').click();
+  await expect(libraryRow).toBeVisible();
+  await expect(packageRow).toBeVisible();
+  await page.setViewportSize({ width: 480, height: 720 });
+  for (const row of [packageRow, libraryRow]) {
+    const layout = await row.evaluate(element => {
+      const rowRect = element.getBoundingClientRect();
+      const dateRect = element.querySelector("time")!.getBoundingClientRect();
+      return { height: rowRect.height, right: dateRect.right, rowRight: rowRect.right };
+    });
+    expect(layout.height).toBeLessThanOrEqual(40);
+    expect(layout.right).toBeLessThanOrEqual(layout.rowRight);
+  }
+  await expect(page.locator('[data-sl-scope="libraries"]')).toBeVisible();
 });

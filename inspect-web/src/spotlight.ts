@@ -206,6 +206,7 @@ interface PackageAdditionOptions {
 const BASE_SCOPES = [
   { id: "all", label: "All" },
   { id: "packages", label: "Packages" },
+  { id: "libraries", label: "Libraries" },
   { id: "types", label: "Types" },
   { id: "members", label: "Members" },
 ] as const;
@@ -461,6 +462,7 @@ export function createSpotlight(options: SpotlightOptions) {
     const visible = searchResults.filter(result =>
       result.kind !== "pkg-nuget"
       || !dismissedPackageIds.has(result.hit.id.toLowerCase()));
+    if (state.spotlightScope === "libraries") return visible.filter(result => result.kind === "framework-lib");
     if (state.spotlightScope !== "all") return visible;
     // Stable partition: separate Package and Library subjects retain their identities.
     return [
@@ -491,7 +493,7 @@ export function createSpotlight(options: SpotlightOptions) {
   function ecosystemMetadata(result: SpotlightPackageResult): string {
     const annotation = result.ecosystem;
     if (!annotation) return "";
-    return `${escapeHtml(annotation.title)} · Package · `;
+    return `${escapeHtml(annotation.title)} · `;
   }
 
   function artifactIcon(
@@ -536,11 +538,11 @@ export function createSpotlight(options: SpotlightOptions) {
     const selectedClass = selected ? "selected" : "";
     const artifactClass = result.kind === "pkg-loaded" || result.kind === "pkg-nuget"
       || result.kind === "pkg-recent" || result.kind === "framework-lib"
-      ? " spotlight-artifact" : "";
+      ? ` spotlight-artifact${"publication" in result && result.publication ? " has-publication" : ""}` : "";
     const escapedIdentity = escapeHtml(identity);
     const base = `id="spotlight-result-${index}" class="spotlight-item${artifactClass} ${selectedClass}" role="option" aria-selected="${selected}" data-sl-index="${index}" data-sl-result-identity="${escapedIdentity}" data-rendered-interaction-key="spotlight-result:${escapedIdentity}"${packageAddition ? ' tabindex="-1"' : ""}`;
     const dateHtml = "publication" in result && result.publication
-      ? `<span class="spotlight-item-date"${result.publication.status === "unavailable" ? ` title="${escapeHtml(result.publication.reason)}"` : ""}>${result.publication.status === "available" ? `<time datetime="${escapeHtml(result.publication.date)}">${escapeHtml(publicationDateText(result.publication))}</time>` : escapeHtml(publicationDateText(result.publication))}</span>`
+      ? `<span class="spotlight-item-date"${result.publication.status === "unavailable" ? ` title="${escapeHtml(result.publication.reason)}"` : ""}>${result.publication.status === "available" ? `<time datetime="${escapeHtml(result.publication.date)}" aria-label="${escapeHtml(publicationDateText(result.publication))}" title="${escapeHtml(publicationDateText(result.publication))}">${escapeHtml(result.publication.date)}</time>` : escapeHtml(publicationDateText(result.publication))}</span>`
       : "";
     if (result.kind === "pkg-loaded") {
       return withRemoveButton(result, `<button ${base} data-sl-pkg-open="${escapeHtml(result.pkg.id)}">
@@ -607,7 +609,7 @@ export function createSpotlight(options: SpotlightOptions) {
     if (result.kind === "framework-lib") {
       const label = PLATFORM_PACK_LABEL[result.pack] || result.pack;
       const types = `${result.publicTypes} type${result.publicTypes === 1 ? "" : "s"}`;
-      const meta = `${label} · Library${result.tfm ? ` · ${result.tfm}` : ""}${result.version ? ` · ${result.version}` : ""} · ${result.role ?? types}${result.loaded ? " · loaded" : ""}`;
+      const meta = `${label}${result.tfm ? ` · ${result.tfm}` : ""}${result.version ? ` · ${result.version}` : ""} · ${result.role ?? types}${result.loaded ? " · loaded" : ""}`;
       return `<button ${base} data-sl-framework-lib="${escapeHtml(result.assembly)}" data-sl-framework-pack="${escapeHtml(result.pack)}">
         ${artifactIcon("Library", result.pack === "netcore.app" || result.pack === "aspnetcore.app" || result.pack === "netstandard"
           ? { id: result.pack === "aspnetcore.app" ? "ecosystem.aspnetcore" : "ecosystem.runtime",
