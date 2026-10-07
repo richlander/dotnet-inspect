@@ -461,6 +461,121 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        Type_PlatformHierarchyDefaultsToAllFrameworkFamilies()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.IO.Stream",
+            "--platform",
+            "System.Runtime",
+            "-S",
+            SectionNames.DerivedTypes,
+            "--rows",
+            "100",
+            "--jsonl");
+
+        Assert.Equal(0, exit);
+        string[] types =
+        [
+            .. output
+                .Split(
+                    Environment.NewLine,
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Select(line =>
+                {
+                    using JsonDocument row = JsonDocument.Parse(line);
+                    return row.RootElement
+                        .GetProperty("type")
+                        .GetString()!;
+                }),
+        ];
+        Assert.Equal(22, types.Length);
+        Assert.Equal(22, types.Distinct(StringComparer.Ordinal).Count());
+        Assert.Contains(
+            "Microsoft.AspNetCore.WebUtilities.BufferedReadStream",
+            types);
+        Assert.Contains(
+            "Microsoft.AspNetCore.WebUtilities.FileBufferingReadStream",
+            types);
+        Assert.Contains(
+            "Microsoft.AspNetCore.WebUtilities.FileBufferingWriteStream",
+            types);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task
+        Type_PlatformHierarchyExplicitFrameworkNarrowsThePopulation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.IO.Stream",
+            "--platform",
+            "System.Runtime",
+            "--framework",
+            "runtime",
+            "-S",
+            SectionNames.DerivedTypes,
+            "--rows",
+            "100",
+            "--jsonl");
+
+        Assert.Equal(0, exit);
+        string[] types =
+        [
+            .. output
+                .Split(
+                    Environment.NewLine,
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Select(line =>
+                {
+                    using JsonDocument row = JsonDocument.Parse(line);
+                    return row.RootElement
+                        .GetProperty("type")
+                        .GetString()!;
+                }),
+        ];
+        Assert.Equal(19, types.Length);
+        Assert.Equal(19, types.Distinct(StringComparer.Ordinal).Count());
+        Assert.DoesNotContain(
+            "Microsoft.AspNetCore.WebUtilities.BufferedReadStream",
+            types);
+        Assert.DoesNotContain(
+            "Microsoft.AspNetCore.WebUtilities.FileBufferingReadStream",
+            types);
+        Assert.DoesNotContain(
+            "Microsoft.AspNetCore.WebUtilities.FileBufferingWriteStream",
+            types);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task
+        Type_PlatformHierarchyKeepsCoreLibAsTheExactTypeFocus()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.IO.Stream",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            SectionNames.TypeInfo,
+            "-S",
+            SectionNames.DerivedTypes,
+            "--rows",
+            "100",
+            "--markdown");
+
+        Assert.Equal(0, exit);
+        AssertPlatformTypeInfo(output, "System.Private.CoreLib");
+        Assert.Contains(
+            "Microsoft.AspNetCore.WebUtilities.BufferedReadStream",
+            output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Type_SingleType_SelectSection_RendersSectionNotShape()
     {
         var options = new TypeOptions

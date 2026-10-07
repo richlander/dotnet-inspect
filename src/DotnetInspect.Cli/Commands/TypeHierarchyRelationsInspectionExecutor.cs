@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
+using DotnetInspect.Cli.Services;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
@@ -197,6 +198,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                     BuildAssemblySetRequest(
                         options,
                         source,
+                        includeExactPlatformFocus: false,
                         cancellationToken),
                     source.Context.Logger.Log)
                 .ConfigureAwait(false);
@@ -226,6 +228,35 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                     ReferenceEqualityComparer.Instance);
         (int? preferredIndex, string? preferredError) =
             SelectPreferredEntry(assemblySet.Assemblies, source);
+        if (preferredIndex is null
+            && IsPlatformSource(options, source)
+            && File.Exists(source.SearchPath))
+        {
+            assemblySet.Dispose();
+            assemblySet =
+                await AssemblySetResolver.CollectAsync(
+                        source.Context.HttpClient,
+                        BuildAssemblySetRequest(
+                            options,
+                            source,
+                            includeExactPlatformFocus: true,
+                            cancellationToken),
+                        source.Context.Logger.Log)
+                    .ConfigureAwait(false);
+            if (assemblySet.Diagnostics.Count > 0)
+            {
+                assemblySet.Dispose();
+                return (
+                    null,
+                    string.Join(
+                        Environment.NewLine,
+                        assemblySet.Diagnostics.Select(
+                            static diagnostic => diagnostic.Message)));
+            }
+
+            (preferredIndex, preferredError) =
+                SelectPreferredEntry(assemblySet.Assemblies, source);
+        }
         if (preferredIndex is null)
         {
             assemblySet.Dispose();
@@ -478,7 +509,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
             }
 
             ImmutableArray<WorkspaceDeclarationContext> selectedContexts =
-                contexts.MoveToImmutable();
+                contexts.ToImmutable();
             WorkspaceDeclarationPopulationCapture capture =
                 workspace.CaptureDeclarationPopulation(selectedContexts);
             if (capture
@@ -545,6 +576,24 @@ internal static class TypeHierarchyRelationsInspectionExecutor
             }
 
             TypeDeclarationLocatorCandidate focus = definitions[0];
+            (TypeDeclarationLocatorCandidate? relationFocus,
+                string? relationFocusError) =
+                SelectRelationFocus(
+                    options,
+                    source,
+                    assemblySet.Assemblies,
+                    selectedContexts,
+                    [
+                        .. evaluated.Answers.Single().Candidates.Where(
+                            candidate =>
+                                candidate.Kind
+                                    == AssemblyTypeDeclarationKind.Definition),
+                    ],
+                    focus);
+            if (relationFocus is null)
+            {
+                return (null, relationFocusError);
+            }
             WorkspaceDeclarationContext focusContext =
                 selectedContexts.Single(context =>
                     context.Receipt.Members.Any(member =>
@@ -599,8 +648,8 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                 Execute(
                     options,
                     captured.Population,
-                    focus.Observation.Occurrence,
-                    focus.Name,
+                    relationFocus.Observation.Occurrence,
+                    relationFocus.Name,
                     candidateSources,
                     cancellationToken);
             transferredFocusGroup = true;
@@ -615,7 +664,11 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                     relations,
                     packageExtractPath,
                     focusGroup,
-                    assemblySet),
+                    assemblySet,
+                    new(
+                        exactSource,
+                        relationFocus.Observation.Occurrence,
+                        relationFocus.Name)),
                 null);
         }
         finally
@@ -695,6 +748,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
     private static AssemblySetRequest BuildAssemblySetRequest(
         TypeOptions options,
         ApiSourceResult source,
+        bool includeExactPlatformFocus,
         CancellationToken cancellationToken)
     {
         if (options.PackageRangeAddress is not null)
@@ -704,13 +758,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                     + "package range addresses.");
         }
 
-        bool isPlatform =
-            string.Equals(
-                source.ApiSource,
-                SourceKind.Platform,
-                StringComparison.Ordinal)
-            || options.PlatformAssembly is not null
-            || options.PlatformFramework is not null;
+        bool isPlatform = IsPlatformSource(options, source);
         bool isLocal =
             string.Equals(
                 source.ApiSource,
@@ -729,27 +777,123 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                     : isLocal && File.Exists(source.SearchPath)
                         ? [source.SearchPath]
                         : [],
+            PlatformAssemblies =
+                isPlatform && includeExactPlatformFocus
+                    ? [
+                        options.PlatformAssembly
+                            ?? Path.GetFileNameWithoutExtension(
+                                source.SearchPath),
+                    ]
+                    : [],
             Projects =
                 options.ProjectPath is { } project
                     ? [project]
                     : [],
             PlatformFrameworks =
                 isPlatform
-                    ? [
-                        options.PlatformFramework
-                            ?? source.PlatformFramework
-                            ?? "runtime",
-                    ]
+                    ? PlatformHierarchyFamilies(options)
                     : [],
             Tfm = options.Tfm ?? source.SelectedTfm,
             SourceOptions = options.SourceOptions,
             TempDirPrefix = "inspect-type-hierarchy",
+            PlatformAssemblyFrameworkHint =
+                options.PlatformFramework
+                ?? source.PlatformFramework
+                ?? "runtime",
             IncludePackageRuntimeAssemblies =
                 PackageRelativePath(source) is { } packageAsset
                 && packageAsset.StartsWith(
                     "runtimes/",
                     StringComparison.OrdinalIgnoreCase),
             CancellationToken = cancellationToken,
+        };
+    }
+
+    internal static IReadOnlyList<string> PlatformHierarchyFamilies(
+        TypeOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return string.IsNullOrWhiteSpace(options.PlatformFramework)
+            ? [.. ScopeConstants.PlatformFrameworks]
+            : [options.PlatformFramework];
+    }
+
+    private static bool IsPlatformSource(
+        TypeOptions options,
+        ApiSourceResult source) =>
+        string.Equals(
+            source.ApiSource,
+            SourceKind.Platform,
+            StringComparison.Ordinal)
+        || options.PlatformAssembly is not null
+        || options.PlatformFramework is not null;
+
+    private static (
+        TypeDeclarationLocatorCandidate? Focus,
+        string? Error) SelectRelationFocus(
+        TypeOptions options,
+        ApiSourceResult source,
+        IReadOnlyList<AssemblySetEntry> entries,
+        ImmutableArray<WorkspaceDeclarationContext> contexts,
+        ImmutableArray<TypeDeclarationLocatorCandidate> definitions,
+        TypeDeclarationLocatorCandidate subject)
+    {
+        if (!IsPlatformSource(options, source))
+            return (subject, null);
+
+        int subjectIndex = -1;
+        for (int index = 0; index < contexts.Length; index++)
+        {
+            if (contexts[index].Receipt.Order
+                == subject.Observation.Occurrence.ContextOrder)
+            {
+                subjectIndex = index;
+                break;
+            }
+        }
+        if (subjectIndex < 0)
+        {
+            return (
+                null,
+                "The exact Platform Type focus was not retained in the "
+                    + "hierarchy declaration population.");
+        }
+        if (entries[subjectIndex].SourceKind
+            == AssemblySetSourceKind.PlatformFramework)
+        {
+            return (subject, null);
+        }
+
+        HashSet<int> referenceContextOrders =
+        [
+            .. contexts
+                .Select((context, index) => (context, index))
+                .Where(candidate =>
+                    entries[candidate.index].SourceKind
+                        == AssemblySetSourceKind.PlatformFramework)
+                .Select(candidate => candidate.context.Receipt.Order),
+        ];
+        ImmutableArray<TypeDeclarationLocatorCandidate> corresponding =
+        [
+            .. definitions.Where(candidate =>
+                referenceContextOrders.Contains(
+                    candidate.Observation.Occurrence.ContextOrder)
+                && candidate.Name.Equals(subject.Name)),
+        ];
+        return corresponding.Length switch
+        {
+            1 => (corresponding[0], null),
+            0 => (
+                null,
+                "The exact Platform implementation Type has no corresponding "
+                    + "definition in the selected reference hierarchy "
+                    + "population."),
+            _ => (
+                null,
+                "The exact Platform implementation Type has more than one "
+                    + "corresponding definition in the selected reference "
+                    + "hierarchy population. Use --framework to narrow the "
+                    + "population."),
         };
     }
 
@@ -1082,7 +1226,42 @@ internal sealed record TypeHierarchyExactTypeInspection(
     TypeHierarchyRelationsInspection? Relations,
     string? PackageExtractPath,
     AssemblyContextGroup? FocusGroup,
-    AssemblySet AssemblySet);
+    AssemblySet AssemblySet,
+    TypeHierarchyRelationBinding? RelationBinding = null);
+
+internal sealed record TypeHierarchyRelationBinding
+{
+    internal TypeHierarchyRelationBinding(
+        SelectedContextExactTypeSource subject,
+        WorkspaceDeclarationOccurrence focusOccurrence,
+        MetadataTypeDefinitionName focusType)
+    {
+        Subject = subject
+            ?? throw new ArgumentNullException(nameof(subject));
+        FocusOccurrence = focusOccurrence
+            ?? throw new ArgumentNullException(nameof(focusOccurrence));
+        FocusType = focusType
+            ?? throw new ArgumentNullException(nameof(focusType));
+        if (!Subject.Type.Namespace.Equals(
+                FocusType.Namespace,
+                StringComparison.Ordinal)
+            || !Subject.Type.Segments.SequenceEqual(
+                FocusType.Segments,
+                StringComparer.Ordinal))
+        {
+            throw new ArgumentException(
+                "A hierarchy relation binding must preserve the exact "
+                    + "selected Type definition identity.",
+                nameof(focusType));
+        }
+    }
+
+    internal SelectedContextExactTypeSource Subject { get; }
+
+    internal WorkspaceDeclarationOccurrence FocusOccurrence { get; }
+
+    internal MetadataTypeDefinitionName FocusType { get; }
+}
 
 internal sealed record TypeHierarchyRelationCandidateSource(
     string Library,
