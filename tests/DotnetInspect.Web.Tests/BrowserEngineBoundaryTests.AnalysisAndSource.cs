@@ -39,6 +39,7 @@ using BrowserPackageIntegrations = DotnetInspect.Web.Interop.Analysis.BrowserPac
 using BrowserPackageOpportunities = DotnetInspect.Web.Interop.Analysis.BrowserPackageOpportunities;
 using BrowserPackagePerformance = DotnetInspect.Web.Interop.Analysis.BrowserPackagePerformance;
 using BrowserPerformanceMember = DotnetInspect.Web.Interop.Analysis.BrowserPerformanceMember;
+using BrowserPackagePerformanceSummary = DotnetInspect.Web.Interop.Analysis.BrowserPackagePerformanceSummary;
 using BrowserOpportunityItem = DotnetInspect.Web.Interop.Analysis.BrowserOpportunityItem;
 using BrowserSource = DotnetInspect.Web.Interop.Source.BrowserSource;
 using BrowserCallGraph = DotnetInspect.Web.Interop.CallGraph.BrowserCallGraph;
@@ -1538,6 +1539,61 @@ public sealed partial class BrowserEngineBoundaryTests
                 .GetProperty("inspectionError")
                 .GetString(),
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task StreamPackagePerformanceItems_MatchFinalCappedMembersExactly()
+    {
+        const string PackageId = "Browser.Performance.Streamed";
+        byte[] image = BuildTransportAmplificationImage(
+            PackageId,
+            typeCount: 10_000,
+            namespaceLength: 1_000);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                Package(
+                    image,
+                    $"lib/net11.0/{PackageId}.dll"),
+                fromCache: false));
+
+        BrowserPackagePerformance final =
+            Assert.IsType<BrowserPackagePerformance>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPackagePerformance(
+                            PackageId,
+                            "1.0.0",
+                            "net11.0",
+                            $"{PackageId}.dll"),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackagePerformance));
+
+        var items = new List<BrowserPerformanceMember>();
+        BrowserPackagePerformanceSummary summary =
+            await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                .StreamPackagePerformanceItemsAsync(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    $"{PackageId}.dll",
+                    items.Add,
+                    CancellationToken.None);
+
+        // The cap itself is covered by
+        // PerformanceMemberLimit_ReportsOnlyActualTruncation; this asserts
+        // that streaming reports exactly the final, already-capped array,
+        // order-for-order, member-for-member.
+        Assert.Equal(final.Members, items);
+        Assert.Equal(final.InspectionError, summary.InspectionError);
+        Assert.Equal(
+            final.NonPublicOpportunities,
+            summary.NonPublicOpportunities);
+        Assert.Equal(
+            final.TotalOpportunities,
+            summary.TotalOpportunities);
+        Assert.Equal(final.CompileLibrary, summary.CompileLibrary);
     }
 
     [Fact]
