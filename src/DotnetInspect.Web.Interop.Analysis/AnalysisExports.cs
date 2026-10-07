@@ -1926,6 +1926,7 @@ public static partial class AnalysisExports
             string Type,
             string Selector)> navigableMembers)
     {
+        var implementationSurfaces = new Dictionary<BrowserWorkspaceParticipant, ApiSurface?>();
         foreach (AssemblyContextOptimizationOpportunityMember member
             in result.RankedMembers)
         {
@@ -1948,6 +1949,18 @@ public static partial class AnalysisExports
                 continue;
             }
 
+            if (!implementationSurfaces.TryGetValue(analysisParticipant, out ApiSurface? implementationSurface))
+            {
+                AssemblyContextApiSurfaceResult surfaces =
+                    scope.UseMetadataParticipant(analysisParticipant,
+                        (group, participant) => AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                            group, ApiSurfaceScope.PublicWithNonPublicTypes,
+                            BrowserApiSurfacePolicy.Limits, [participant]));
+                AssemblyContextEntry<AssemblyApiSurface> entry = surfaces.Assemblies.Assemblies.Single();
+                implementationSurface =
+                    (entry as AssemblyContextEntry<AssemblyApiSurface>.Available)?.Value.Surface;
+                implementationSurfaces.Add(analysisParticipant, implementationSurface);
+            }
             yield return new BrowserPerformanceMember(
                 surfaceParticipant.Asset.AssemblyName,
                 publicMember.Type,
@@ -1957,8 +1970,47 @@ public static partial class AnalysisExports
                 member.Member.Ranking.Opportunities.Length,
                 member.Member.Ranking.InLoopCount,
                 [.. member.Member.Ranking.Shapes],
-                member.Member.Ranking.Confidence);
+                member.Member.Ranking.Confidence,
+                PerformanceBodyTargets(implementationSurface, publicMember.Type,
+                    publicMember.StableSelector, publicMember.BodyTokens,
+                    member.Member.Ranking.Opportunities));
         }
+    }
+
+    internal static BrowserPerformanceBodyTarget[] PerformanceBodyTargets(
+        ApiSurface? surface,
+        string typeId,
+        string stableSelector,
+        ImmutableArray<int> bodyTokens,
+        ImmutableArray<ILInspector.Analysis.OptimizationOpportunity> opportunities = default)
+    {
+        ApiType? type = surface?.Types.SingleOrDefault(
+            candidate => AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(candidate) == typeId);
+        ApiMember? member = type?.Members.SingleOrDefault(
+            candidate => ApiMemberIdentity.GetMemberAnchor(type, candidate).StableSelector == stableSelector);
+        return
+        [
+            .. (member is null ? [] : ILInspector.Analysis.CallGraphMemberResolver.CreateBodySelectors(type!, member))
+                .Where(body => bodyTokens.Contains(body.BodyToken))
+                .Select(body => new BrowserPerformanceBodyTarget(
+                    member!.DeclaringTypeDefinitionName?.ToEscapedFullName() ?? typeId,
+                    body.MemberName, body.SelectorKey, body.BodyToken,
+                    PerformanceIssueOffsets(opportunities, body.BodyToken))),
+        ];
+    }
+
+    static int[]? PerformanceIssueOffsets(
+        ImmutableArray<ILInspector.Analysis.OptimizationOpportunity> opportunities,
+        int bodyToken)
+    {
+        if (opportunities.IsDefaultOrEmpty)
+            return null;
+        var bodyOpportunities = opportunities.Where(opportunity =>
+            (opportunity.EvidenceMethodToken ?? opportunity.Method.MetadataToken) == bodyToken).ToArray();
+        if (bodyOpportunities.Length == 0 || bodyOpportunities.Any(opportunity => opportunity.ILOffset is null
+            || opportunity.Provenance == ILInspector.Analysis.PerformanceTriageProvenance.Aggregate))
+            return null;
+        return [.. bodyOpportunities.Select(opportunity => opportunity.ILOffset!.Value).Distinct().Order()];
     }
 
     internal static BrowserPerformanceMember[] ApplyPerformanceMemberLimit(

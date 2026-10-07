@@ -15,6 +15,7 @@ import type {
   BrowserLibraryMetrics,
   BrowserPackageOpportunities,
   BrowserPackagePerformance,
+  BrowserResourceTriage,
   BrowserPerformanceMember,
 } from "./facades/inspect-web-analysis.d.ts";
 import type {
@@ -31,6 +32,7 @@ import type {
 } from "./library-metrics.ts";
 
 export type PackagePerformance = BrowserPackagePerformance;
+export type PackageResourceTriage = BrowserResourceTriage;
 export type PackageLibraryMetrics = BrowserLibraryMetrics;
 export type PackageLibraryDependencyStructure =
   BrowserLibraryDependencyStructure;
@@ -104,6 +106,10 @@ export interface PackageInspectionState {
   packagePerformanceLoading: boolean;
   packagePerformanceError: string;
   packagePerformanceKey: string;
+  packageResourceTriage: PackageResourceTriage | null;
+  packageResourceTriageLoading: boolean;
+  packageResourceTriageError: string;
+  packageResourceTriageKey: string;
   packageLibraryMetrics: PackageLibraryMetrics | null;
   packageLibraryMetricsLoading: boolean;
   packageLibraryMetricsError: string;
@@ -155,6 +161,10 @@ export interface PackageInspectionDependencies {
     packageModel: AppPackage,
     library: string,
   ): Promise<PackagePerformance>;
+  queryPackageResourceTriage(
+    packageModel: AppPackage,
+    library: string,
+  ): Promise<PackageResourceTriage>;
   queryPackageLibraryMetrics(
     packageModel: AppPackage,
     library: string,
@@ -169,6 +179,12 @@ export interface PackageInspectionDependencies {
     assemblyFileName: string,
     pack: string,
   ): Promise<PackagePerformance>;
+  queryPlatformResourceTriage(
+    framework: string,
+    platformVersion: string,
+    assemblyFileName: string,
+    pack: string,
+  ): Promise<PackageResourceTriage>;
   queryPlatformLibraryMetrics(
     framework: string,
     platformVersion: string,
@@ -223,6 +239,11 @@ export interface PackageInspectionCoordinator {
     scopedLibrary: string | null,
   ): Promise<void>;
   loadPerformance(
+    packageModel: AppPackage,
+    signature: string,
+    scopedLibrary: string | null,
+  ): Promise<void>;
+  loadResourceTriage(
     packageModel: AppPackage,
     signature: string,
     scopedLibrary: string | null,
@@ -358,6 +379,10 @@ export function createPackageInspectionCoordinator(
       state.packagePerformanceLoading = false;
       state.packagePerformanceError = "";
       state.packagePerformanceKey = "";
+      state.packageResourceTriage = null;
+      state.packageResourceTriageLoading = false;
+      state.packageResourceTriageError = "";
+      state.packageResourceTriageKey = "";
       state.packageLibraryMetrics = null;
       state.packageLibraryMetricsLoading = false;
       state.packageLibraryMetricsError = "";
@@ -605,6 +630,52 @@ export function createPackageInspectionCoordinator(
       } finally {
         if (ownsRequest()) {
           state.packagePerformanceLoading = false;
+        }
+        if (generation === packageResultGeneration) {
+          dependencies.render();
+        }
+      }
+    },
+
+    async loadResourceTriage(packageModel, signature, scopedLibrary) {
+      if (packageModel.isRuntimePack && !scopedLibrary) return;
+      if (state.packageResourceTriageKey === signature
+        && (state.packageResourceTriage || state.packageResourceTriageError)) {
+        dependencies.render();
+        return;
+      }
+      const generation = packageResultGeneration;
+      const ownsRequest = () =>
+        state.packageResourceTriageKey === signature
+        && generation === packageResultGeneration;
+      state.packageResourceTriageKey = signature;
+      state.packageResourceTriage = null;
+      state.packageResourceTriageError = "";
+      state.packageResourceTriageLoading = true;
+      dependencies.render();
+      try {
+        const coordinates = packageModel.isRuntimePack
+          ? platformCoordinates(packageModel, scopedLibrary ?? "")
+          : null;
+        const result = coordinates
+          ? await dependencies.queryPlatformResourceTriage(
+              coordinates.framework,
+              coordinates.platformVersion,
+              coordinates.assemblyFileName,
+              coordinates.pack)
+          : await dependencies.queryPackageResourceTriage(
+              packageModel,
+              scopedLibrary ?? "");
+        if (ownsRequest()) {
+          state.packageResourceTriage = result;
+        }
+      } catch (error) {
+        if (ownsRequest()) {
+          state.packageResourceTriageError = dependencies.describeError(error);
+        }
+      } finally {
+        if (ownsRequest()) {
+          state.packageResourceTriageLoading = false;
         }
         if (generation === packageResultGeneration) {
           dependencies.render();
