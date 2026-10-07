@@ -70,7 +70,7 @@ dnx dotnet-inspect -y -- vocabulary -S "C# Body Kinds"
 dnx dotnet-inspect -y -- library MyLib.dll \
   --where "Kind=ObjectCreationExpression" --jsonl
 dnx dotnet-inspect -y -- library System.Text.Json \
-  --where "Kind=TryStatement" --columns "Member;Token;Match" --rows 10
+  --where "Kind=TryStatement" --columns "Member;Token;Match" -n 10
 dnx dotnet-inspect -y -- library MyLib.dll \
   --where "Kind=InvocationExpression" \
   --where "Finding=analysis.call-site" \

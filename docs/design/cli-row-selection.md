@@ -22,8 +22,9 @@ projected member Facts JSON, Workspace top-level inventory, and Integration
 graph edges, a single package's layout lens, `Files`, or
 `SourceLink: Files` section,
 one selected Project document section, explicit-source Type catalog listings,
-`match --similar` ranked candidates, and the exact `Clone Candidates` section
-for Library, Type, or Member, plus exact Member `Calls` and `Callers`, and the
+`match --similar` ranked candidates, the exact `Clone Candidates` section
+and the exact lone `Body Shapes` or `Body Shape Summary` section for Library,
+Type, or Member, plus exact Member `Calls` and `Callers`, and the
 Graph Libraries default or exact `Direct Use Clusters`, the Graph Cluster
 default or exact `Call Sites`, and exact `Consumer Use Sites` or `Provider API
 Types` cohorts have semantic `-n` adoption. Their supported Window and
@@ -1116,6 +1117,47 @@ Type-catalog and projected Member Facts adoptions retain their existing
 activation rules; all other neighboring surfaces use their existing row
 contracts or rendered-line fallback.
 
+## Body Shapes adoption
+
+An exact lone `Body Shapes` or `Body Shape Summary` section on `library`,
+including the delegated `library --package <package> <library>` route, `type`,
+or `member` declares one semantic row per rendered-syntax occurrence or per
+summary group. The same declaration applies when `--where "Kind=..."` infers
+`Body Shapes`. The body-shape search and, for the summary, grouping finish
+before Head/Tail or strict Window stages select from that vector in search
+order, so a selected group keeps its complete occurrence Count. A selected
+member without a body contributes an empty vector, so Head selects nothing and
+a strict Window fails.
+
+```console
+$ dotnet-inspect library System.Text.Json \
+    --where "Kind=ObjectCreationExpression" -n 2 --tail --columns "Member" --tsv
+member
+System.Text.Json.Serialization.Metadata.JsonTypeInfo.PreferredPropertyObjectCreationHandling~51a265e0a1:2
+System.Text.Json.Serialization.Metadata.JsonTypeInfo.CreateJsonTypeInfo~d6b7a70b5b
+```
+
+What to notice: Markdown, table, TSV, JSONL, Library JSON, and Count consume
+the same selected occurrences or groups. Library JSON selects `body_shapes` or
+`body_shape_summary`; Type and Member document JSON keeps its existing
+rejection.
+
+The adoption supports Head/Tail, strict Window, and explicit Lines. Numeric
+`--rows N` is rejected in favor of `-n N`. An unavailable strict Window
+withholds every output shape:
+
+```console
+$ dotnet-inspect library System.Text.Json \
+    --where "Kind=ObjectCreationExpression" --rows 200..201
+Error: Body Shapes row selection stage 1 requires row 201, but only 108 occurrences are available.
+```
+
+Each library of an aggregate `library --package <package>` inspection selects
+its own rows, as each renders its own section. Selecting both views, a glob or
+category, `--references`, a `-t` type filter, `--tfm all`, discovery, and
+print or shape projections remain outside this declaration and use their
+existing row contracts or rendered-line fallback for bare `-n`.
+
 ## Member Calls adoption
 
 An exact `member -S Calls` request declares one semantic row per direct
@@ -1501,6 +1543,13 @@ The Clone Candidates adoption is enforced by:
 | `CloneCandidatesSectionTests.SemanticTailSelectsTheSameCandidateAcrossFormats`, `CountObservesSemanticHeadAcrossSubjectHosts`, `PackageLibraryRouteObservesSemanticSelection`, and `QueryPredicateImplicitSelectionAdoptsSemanticRows` | The Query-issued global ranking receives semantic Head or Tail once before Markdown, table, TSV, JSONL, projected JSON, or complete JSON lowering; Count observes the selected vector across Library, delegated package-backed Library, Type, and Member hosts; Clone predicates reach the same declaration. |
 | `CloneCandidatesSectionTests.UnavailableSemanticWindowWithholdsOutput`, `SemanticSelectionFailureKeepsIncompleteCoverageVisible`, `JsonLineSelectionRejectsBeforeSourceResolution`, and `NumericLegacyRowsAreRejectedBeforeSourceResolution` | One strict unavailable Window emits no partial payload, incomplete coverage remains visible beside a selection failure, numeric legacy `--rows` is rejected, and complete-JSON line clipping fails before library resolution. |
 | `CommandExecutionTests.TypeListing_SemanticTailSelectsTheSameTypeAcrossFormats`, `Member_FactsProjectedJson_AppliesItemWindowBeforeSerialization`, and `Member_FactsDiscovery_DoesNotActivateProjectedJsonAdoption` | The adjacent Type-catalog and projected Member Facts semantic declarations retain their own activation and row identities. |
+
+The Body Shapes adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `BodyShapesSectionTests.LibraryKindPredicate_RowSelectionSelectsOccurrencesInEveryFormat`, `TypeKindPredicate_HeadAndTailSelectOccurrences`, `MemberKindPredicate_RowSelectionSelectsScopedOccurrences`, `PackageLibraryRoutes_ObserveSemanticSelection`, and `BodyShapeSummaryApiTests.SummaryRowWindow_SelectsGroupsWithoutTruncatingCounts` | Head, Tail, and Window select the same occurrences before Markdown, TSV, JSONL, Library JSON, or Count lowering on Library, delegated and aggregate package Library, Type, and Member hosts; summary selection keeps each group's complete Count. |
+| `BodyShapesSectionTests.LibraryKindPredicate_UnavailableWindowWithholdsOutput`, `MemberKindPredicate_BodylessMemberConsumesSemanticSelection`, `LibraryKindPredicate_RejectsNumericRows`, `LibraryKindPredicate_LinesKeepRenderedLineSelection`, `LibraryBothViews_RetainRenderedLineFallback`, and `TfmAll_StaysOutsideTheDeclaration` | One unavailable strict Window emits no partial payload, including for a member without a body; numeric legacy `--rows` is rejected; explicit Lines clip rendered text; and selecting both views or `--tfm all` keeps the existing row contracts. |
 
 The Member Callers adoption is enforced by:
 

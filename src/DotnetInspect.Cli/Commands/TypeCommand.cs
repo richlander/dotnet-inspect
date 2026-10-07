@@ -166,6 +166,7 @@ public static partial class TypeCommand
             Schema = options.Schema,
             Count = options.Count,
             Rows = options.Rows,
+            BodyShapeRowSelection = options.BodyShapeRowSelection,
             JsonArray = options.JsonArray,
             PerformanceTriage = options.PerformanceTriage,
             BodyKindQuery = options.BodyKindQuery,

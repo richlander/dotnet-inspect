@@ -845,7 +845,7 @@ public static class InspectionCommandDefinitions
             {
                 CommandError.Write(
                     "Body Shapes composition accepts Performance Triage filters, "
-                    + "but not --top or --order-by. Use --rows to limit rendered matches.");
+                    + "but not --top or --order-by. Use -n or --rows to limit matches.");
                 return 1;
             }
             if ((cloneCandidateQuery.HasPredicates
@@ -909,6 +909,24 @@ public static class InspectionCommandDefinitions
                         targets = kinds;
                 }
                 select = [.. select ?? [], .. targets];
+            }
+            RowSelectionIntent<string>? bodyShapeRowSelection = null;
+            if (BodyShapeRowSelectionAdoption.IsActiveForLibrary(
+                    parseResult,
+                    opts,
+                    referencesOption,
+                    asmTfmOption,
+                    typeFilterOption,
+                    select ?? [])
+                && !CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        "Body Shapes",
+                        out bodyShapeRowSelection,
+                        out string? bodyShapeRowSelectionError))
+            {
+                CommandError.Write(bodyShapeRowSelectionError!);
+                return 1;
             }
             RowSelectionIntent<string>? referenceRowSelection = null;
             if (LibraryReferenceRowSelectionAdoption.IsActive(
@@ -1100,6 +1118,7 @@ public static class InspectionCommandDefinitions
                 PrintRow = opts.ParsePrintRow(parseResult),
                 ProjectionRow = opts.ParsePrintRow(parseResult),
                 Rows = cloneCandidateRowSelection is null
+                    && bodyShapeRowSelection is null
                     && referenceRowSelection is null
                     && ecosystemDependencyRowSelection is null
                     && nameFamilyRowSelection is null
@@ -1108,6 +1127,7 @@ public static class InspectionCommandDefinitions
                     : null,
                 CloneCandidateRowSelection =
                     cloneCandidateRowSelection,
+                BodyShapeRowSelection = bodyShapeRowSelection,
                 ReferenceRowSelection =
                     referenceRowSelection,
                 EcosystemDependencyRowSelection =
@@ -1151,6 +1171,30 @@ public static class InspectionCommandDefinitions
             result => CloneCandidateRowSelectionAdoption.IsActive(
                 result,
                 opts),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            assemblyCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => BodyShapeRowSelectionAdoption.IsActiveForLibrary(
+                result,
+                opts,
+                referencesOption,
+                asmTfmOption,
+                typeFilterOption),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
