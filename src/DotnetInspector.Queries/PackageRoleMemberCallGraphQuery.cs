@@ -95,7 +95,16 @@ public sealed record PackageRoleMemberCallGraphNodePackage(
 public sealed record PackageRoleMemberCallGraphNodePlatform(
     int NodeId,
     PlatformFamilyTarget Target,
-    AssemblyReferenceIdentity LibraryIdentity);
+    PackageRoleMemberCallGraphPlatformLibraryIdentity LibraryIdentity);
+
+/// <summary>
+/// Resource-free exact identity for one Platform Library that owns graph nodes.
+/// </summary>
+public sealed record PackageRoleMemberCallGraphPlatformLibraryIdentity(
+    string Name,
+    Version Version,
+    string? Culture,
+    string? PublicKeyToken);
 
 /// <summary>
 /// Owner-issued evidence that one physical intrinsic CoreLib call occurrence
@@ -706,7 +715,14 @@ public static class PackageRoleMemberCallGraphQuery
                     new(
                         node.Id,
                         platform.Target,
-                        platform.Participant.Assembly.Identity));
+                        new(
+                            platform.Participant.Assembly.Identity.Name,
+                            platform.Participant.Assembly.Identity.Version
+                                ?? throw new InvalidOperationException(
+                                    "A Platform graph Library identity has no version."),
+                            platform.Participant.Assembly.Identity.Culture,
+                            platform.Participant.Assembly.Identity
+                                .PublicKeyToken)));
             }
         }
 

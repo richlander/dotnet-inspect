@@ -494,7 +494,11 @@ public sealed class ExternalCallGraphCommandTests
                 .Platform(
                     targetNodeId,
                     platformTarget,
-                    assemblies[1].Identity),
+                    new PackageRoleMemberCallGraphPlatformLibraryIdentity(
+                        assemblies[1].Identity.Name,
+                        assemblies[1].Identity.Version!,
+                        assemblies[1].Identity.Culture,
+                        assemblies[1].Identity.PublicKeyToken)),
         ];
 
         var captured = await ConsoleCapture.RunAsync(

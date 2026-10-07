@@ -277,11 +277,21 @@ internal static class ExternalCallGraphOutputAdapter
                 new(
                     "platform",
                     $"{platform.Target} "
-                    + $"{platform.LibraryIdentity}"),
+                    + FormatLibraryIdentity(
+                        platform.LibraryIdentity)),
             null => new("unclassified", ""),
             _ => throw new InvalidOperationException(
                 "Unknown external call-graph node classification."),
         };
+
+    static string FormatLibraryIdentity(
+        PackageRoleMemberCallGraphPlatformLibraryIdentity identity) =>
+        "AssemblyReferenceIdentity { "
+        + $"Name = {identity.Name}, "
+        + $"Version = {identity.Version}, "
+        + $"Culture = {identity.Culture}, "
+        + $"PublicKeyToken = {identity.PublicKeyToken} "
+        + "}";
 
     static string? GraphGroup(
         MemberNode member,

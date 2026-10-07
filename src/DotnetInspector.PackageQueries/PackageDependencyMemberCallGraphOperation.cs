@@ -187,7 +187,7 @@ public abstract record PackageDependencyMemberCallGraphNodeClassification(
     public sealed record Platform(
         int NodeId,
         PlatformFamilyTarget Target,
-        AssemblyReferenceIdentity LibraryIdentity)
+        PackageRoleMemberCallGraphPlatformLibraryIdentity LibraryIdentity)
         : PackageDependencyMemberCallGraphNodeClassification(NodeId);
 }
 
