@@ -1732,6 +1732,57 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
+    public async Task MemberKindPredicate_BodylessMemberConsumesSemanticSelection()
+    {
+        string[] member =
+        [
+            "member",
+            typeof(IBodyShapeValue).FullName!,
+            "get_Value:1",
+            "--library",
+            FixturePath,
+            "--where",
+            "Kind=ObjectCreationExpression",
+            "--tsv",
+        ];
+
+        var strict = await Run([.. member, "--rows", "1..1"]);
+        var head = await Run([.. member, "-n", "1"]);
+
+        Assert.Equal(1, strict.ExitCode);
+        Assert.Empty(strict.Output);
+        Assert.Contains(
+            "Body Shapes row selection stage 1 requires row 1, but only 0 "
+                + "occurrences are available.",
+            strict.Error);
+        Assert.Equal(0, head.ExitCode);
+    }
+
+    [Theory]
+    [InlineData("type", "System.Text.Json.JsonElement")]
+    [InlineData("member", "System.Text.Json.JsonElement", "GetProperty:1")]
+    public async Task TfmAll_StaysOutsideTheDeclaration(
+        params string[] target)
+    {
+        var result = await Run(
+            [
+                .. target,
+                "--platform",
+                "System.Text.Json",
+                "--tfm",
+                "all",
+                "--where",
+                "Kind=ObjectCreationExpression",
+                "--rows",
+                "1",
+                "--count",
+            ]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("1", result.Output.Trim());
+    }
+
+    [Fact]
     public async Task PackageLibraryRoutes_ObserveSemanticSelection()
     {
         string directory = Path.Combine(

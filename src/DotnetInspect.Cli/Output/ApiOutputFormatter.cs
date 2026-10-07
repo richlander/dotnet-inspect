@@ -2812,7 +2812,10 @@ public static class ApiOutputFormatter
 
     /// <summary>
     /// Selects the lone Body Shapes view's rows once, before any format or
-    /// Count renders them, so every lowering observes the same rows.
+    /// Count renders them, so every lowering observes the same rows. A member
+    /// without a body was never searched; its empty row set still consumes the
+    /// selection, so a strict Window fails visibly while the view stays
+    /// unpopulated.
     /// </summary>
     internal static bool TrySelectBodyShapeRows(
         TypeView view,
@@ -2832,7 +2835,8 @@ public static class ApiOutputFormatter
                 return false;
             }
 
-            view.BodyShapeSummaryRows = [.. groups];
+            if (view.BodyShapeSummaryRows is not null)
+                view.BodyShapeSummaryRows = [.. groups];
             return true;
         }
 
@@ -2845,7 +2849,8 @@ public static class ApiOutputFormatter
             return false;
         }
 
-        view.BodyShapeRows = [.. occurrences];
+        if (view.BodyShapeRows is not null)
+            view.BodyShapeRows = [.. occurrences];
         return true;
     }
 

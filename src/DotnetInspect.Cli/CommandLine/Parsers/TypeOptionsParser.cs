@@ -350,7 +350,8 @@ public static class TypeOptionsParser
             !selectsCloneCandidateRows
             && BodyShapeRowSelectionAdoption.IsActive(
                 parseResult,
-                opts);
+                opts,
+                args.TfmOption);
         bool selectsTypeListingRows =
             !selectsCloneCandidateRows
             && !selectsBodyShapeRows

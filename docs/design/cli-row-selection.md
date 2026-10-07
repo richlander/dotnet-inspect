@@ -1152,7 +1152,9 @@ or `member` declares one semantic row per rendered-syntax occurrence or per
 summary group. The same declaration applies when `--where "Kind=..."` infers
 `Body Shapes`. The body-shape search and, for the summary, grouping finish
 before Head/Tail or strict Window stages select from that vector in search
-order, so a selected group keeps its complete occurrence Count.
+order, so a selected group keeps its complete occurrence Count. A selected
+member without a body contributes an empty vector, so Head selects nothing and
+a strict Window fails.
 
 ```console
 $ dotnet-inspect library System.Text.Json \
@@ -1574,7 +1576,7 @@ The Body Shapes adoption is enforced by:
 | Gate | Property |
 | --- | --- |
 | `BodyShapesSectionTests.LibraryKindPredicate_RowSelectionSelectsOccurrencesInEveryFormat`, `TypeKindPredicate_HeadAndTailSelectOccurrences`, `MemberKindPredicate_RowSelectionSelectsScopedOccurrences`, `PackageLibraryRoutes_ObserveSemanticSelection`, and `BodyShapeSummaryApiTests.SummaryRowWindow_SelectsGroupsWithoutTruncatingCounts` | Head, Tail, and Window select the same occurrences before Markdown, TSV, JSONL, Library JSON, or Count lowering on Library, delegated and aggregate package Library, Type, and Member hosts; summary selection keeps each group's complete Count. |
-| `BodyShapesSectionTests.LibraryKindPredicate_UnavailableWindowWithholdsOutput`, `LibraryKindPredicate_RejectsNumericRows`, `LibraryKindPredicate_LinesKeepRenderedLineSelection`, and `LibraryBothViews_RetainRenderedLineFallback` | One unavailable strict Window emits no partial payload, numeric legacy `--rows` is rejected, explicit Lines clip rendered text, and selecting both views keeps rendered-line fallback. |
+| `BodyShapesSectionTests.LibraryKindPredicate_UnavailableWindowWithholdsOutput`, `MemberKindPredicate_BodylessMemberConsumesSemanticSelection`, `LibraryKindPredicate_RejectsNumericRows`, `LibraryKindPredicate_LinesKeepRenderedLineSelection`, `LibraryBothViews_RetainRenderedLineFallback`, and `TfmAll_StaysOutsideTheDeclaration` | One unavailable strict Window emits no partial payload, including for a member without a body; numeric legacy `--rows` is rejected; explicit Lines clip rendered text; and selecting both views or `--tfm all` keeps the existing row contracts. |
 
 The Member Callers adoption is enforced by:
 

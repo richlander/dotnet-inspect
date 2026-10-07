@@ -9,16 +9,22 @@ namespace DotnetInspect.Cli.CommandLine;
 /// Semantic row adoption for an exact lone <c>Body Shapes</c> or
 /// <c>Body Shape Summary</c> section on <c>library</c>, <c>type</c>, and
 /// <c>member</c>: one occurrence or one summary group is one item for
-/// <c>-n</c>, <c>--tail</c>, and <c>--rows</c>.
+/// <c>-n</c>, <c>--tail</c>, and <c>--rows</c>. <c>--tfm all</c> inspects
+/// several targets, so it stays outside the declaration on every command.
 /// </summary>
 internal static class BodyShapeRowSelectionAdoption
 {
     public static bool IsActive(
         ParseResult parseResult,
         SharedOptions options,
+        Option<string?> tfmOption,
         IReadOnlyCollection<string>? effectiveSelection = null)
     {
         if (options.IsDiscoveryMode(parseResult)
+            || string.Equals(
+                parseResult.GetValue(tfmOption),
+                "all",
+                StringComparison.OrdinalIgnoreCase)
             || parseResult.GetResult(options.QueryHelp)
                 is { Implicit: false }
             || parseResult.GetValue(options.Print)
@@ -36,9 +42,8 @@ internal static class BodyShapeRowSelectionAdoption
     }
 
     /// <summary>
-    /// The library predicate: <c>--references</c>, a <c>-t</c> type filter,
-    /// and <c>--tfm all</c> add sections or inspections, so they stay outside
-    /// the declaration.
+    /// The library predicate: <c>--references</c> and a <c>-t</c> type filter
+    /// add sections, so they also stay outside the declaration.
     /// </summary>
     public static bool IsActiveForLibrary(
         ParseResult parseResult,
@@ -56,11 +61,11 @@ internal static class BodyShapeRowSelectionAdoption
             return false;
         }
 
-        return !string.Equals(
-                parseResult.GetValue(tfmOption),
-                "all",
-                StringComparison.OrdinalIgnoreCase)
-            && IsActive(parseResult, options, effectiveSelection);
+        return IsActive(
+            parseResult,
+            options,
+            tfmOption,
+            effectiveSelection);
     }
 
     private static bool IsBodyShapeSection(string section) =>

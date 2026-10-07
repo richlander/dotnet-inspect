@@ -401,7 +401,8 @@ public static class MemberOptionsParser
             !selectsCloneCandidateRows
             && BodyShapeRowSelectionAdoption.IsActive(
                 parseResult,
-                opts);
+                opts,
+                args.TfmOption);
         if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
                 parseResult,
                 selectsCallRows

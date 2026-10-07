@@ -192,7 +192,8 @@ public static class ApiCommandDefinitions
                 | CliRowSelectionCapabilities.Lines,
             result => BodyShapeRowSelectionAdoption.IsActive(
                 result,
-                opts),
+                opts,
+                tfmOption),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
@@ -565,7 +566,8 @@ public static class ApiCommandDefinitions
                 | CliRowSelectionCapabilities.Lines,
             result => BodyShapeRowSelectionAdoption.IsActive(
                 result,
-                opts),
+                opts,
+                tfmOption),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),

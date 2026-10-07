@@ -452,6 +452,11 @@ public partial class ApiCommand
                         mo4.IncludeSections, mo4,
                         memberCodeSourceAssembly);
                 }
+                else if (BodyKindQueryOptions.IsSelected(requestedSections)
+                    && !ApiOutputFormatter.TrySelectBodyShapeRows(view, mo4))
+                {
+                    return 1;
+                }
             }
 
             if (options is TypeOptions
