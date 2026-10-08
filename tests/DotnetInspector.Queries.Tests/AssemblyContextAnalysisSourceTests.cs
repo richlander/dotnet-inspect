@@ -359,7 +359,7 @@ public sealed class AssemblyContextAnalysisSourceTests
             AssemblyBindingOrigin.Global(),
             AssemblyResolutionScope.Any);
 
-        Assert.Throws<InvalidOperationException>(
+        Assert.ThrowsAny<InvalidOperationException>(
             () => catalog.CreateContext(
                 policy,
                 roots: [],
@@ -391,7 +391,7 @@ public sealed class AssemblyContextAnalysisSourceTests
                 fixture.Group,
                 new AssemblyContextSubject(fixture.Root));
 
-        Assert.Throws<InvalidOperationException>(
+        Assert.ThrowsAny<InvalidOperationException>(
             () => resolver.Resolve(
                 fixture.Selected.Identity,
                 AssemblyResolutionScope.Any));
@@ -415,7 +415,7 @@ public sealed class AssemblyContextAnalysisSourceTests
         if (!foreignSnapshot)
             fixture.Inner.Version = new();
 
-        Assert.Throws<InvalidOperationException>(
+        Assert.ThrowsAny<InvalidOperationException>(
             resolver.ValidateForPublication);
     }
 

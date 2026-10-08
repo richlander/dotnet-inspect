@@ -34,10 +34,23 @@ public sealed record AsyncSiblingRow(
     bool InLoop,
     int EvidenceMethodToken);
 
-/// <summary>Detached rows and per-body diagnostics from one async-sibling execution.</summary>
+/// <summary>
+/// Detached rows and per-body diagnostics from one async-sibling execution.
+/// </summary>
+/// <param name="Rows">The rows; empty unless the terminal is Rows.</param>
+/// <param name="Diagnostics">Per-body diagnostics.</param>
+/// <param name="Count">
+/// The rows found. Under the Exists terminal the execution stops at the first
+/// body with a row, so the count is then at least one rather than complete.
+/// </param>
 public sealed record AsyncSiblingProducerResult(
     ImmutableArray<AsyncSiblingRow> Rows,
-    ImmutableArray<AnalysisDiagnostic> Diagnostics);
+    ImmutableArray<AnalysisDiagnostic> Diagnostics,
+    int Count)
+{
+    /// <summary>Whether any row was found.</summary>
+    public bool Exists => Count > 0;
+}
 
 /// <summary>
 /// Finds synchronous calls in async methods that have a callable async
@@ -66,7 +79,7 @@ public sealed class AsyncSiblingProducer
     internal override BodyFact Visit(scoped MethodDefinitionView view)
     {
         if (!view.HasManagedBody)
-            return new([], []);
+            return new([], [], 0);
 
         try
         {
@@ -78,7 +91,9 @@ public sealed class AsyncSiblingProducer
                     view.MethodDefinition,
                     view.GetBody(),
                     CancellationToken.None);
-            return new(result.Rows, result.Diagnostics);
+            return view.Terminal == ProducerTerminal.Rows
+                ? new(result.Rows, result.Diagnostics, result.Rows.Length)
+                : new([], result.Diagnostics, result.Rows.Length);
         }
         catch (AssemblyBindingPolicyChangedException exception)
         {
@@ -105,7 +120,8 @@ public sealed class AsyncSiblingProducer
                         view.Token,
                         $"0x{view.Token:X8}",
                         ProducerFailure.Describe(exception)),
-                ]);
+                ],
+                0);
         }
     }
 
@@ -117,6 +133,7 @@ public sealed class AsyncSiblingProducer
     {
         accumulator.Rows.AddRange(fact.Rows);
         accumulator.Diagnostics.AddRange(fact.Diagnostics);
+        accumulator.Count += fact.Count;
         return accumulator;
     }
 
@@ -125,14 +142,20 @@ public sealed class AsyncSiblingProducer
         MethodDefinitionCompletionView completion) =>
         new(
             accumulator.Rows.ToImmutable(),
-            accumulator.Diagnostics.ToImmutable());
+            accumulator.Diagnostics.ToImmutable(),
+            accumulator.Count);
+
+    internal override bool Settles(BodyFact fact) => fact.Count > 0;
 
     public sealed record BodyFact(
         ImmutableArray<AsyncSiblingRow> Rows,
-        ImmutableArray<AnalysisDiagnostic> Diagnostics);
+        ImmutableArray<AnalysisDiagnostic> Diagnostics,
+        int Count);
 
     public sealed class Accumulator
     {
+        internal int Count { get; set; }
+
         internal ImmutableArray<AsyncSiblingRow>.Builder Rows { get; } =
             ImmutableArray.CreateBuilder<AsyncSiblingRow>();
 

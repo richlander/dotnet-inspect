@@ -244,16 +244,17 @@ public sealed class AssemblyAnalysisService
                 AssemblyAnalysisRejectionKind.ManagedMetadataUnavailable);
         }
 
-        // Request-set execution carries no binding, so any plan that declares
-        // the layer is rejected before a producer runs.
         if ((operation.MethodDefinitions.DeclaredLayers
-                & MethodDefinitionLayers.ReferenceBinding) != 0)
+                & MethodDefinitionLayers.ReferenceBinding) != 0
+            && access.ReferenceBinding is null)
         {
             return new AssemblyAnalysisRequestSetServiceResult.Rejected(
                 AssemblyAnalysisRejectionKind.ReferenceBindingUnavailable);
         }
 
         AssemblyInspectionSubjectIdentity subject = access.Subject;
+        AssemblyReferenceBindingAccess? referenceBinding =
+            access.ReferenceBinding;
         return access.InspectImage(
             peReader =>
                 new AssemblyAnalysisRequestSetServiceResult.Completed(
@@ -261,7 +262,8 @@ public sealed class AssemblyAnalysisService
                         operation.MethodDefinitions,
                         subject,
                         operation.SourceName,
-                        peReader)));
+                        peReader,
+                        referenceBinding)));
     }
 
     static AssemblyAnalysisServiceResult<TResult> Execute<TResult>(

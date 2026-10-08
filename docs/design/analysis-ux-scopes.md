@@ -254,7 +254,12 @@ includes async methods. The `sync-call-in-async` finding (a synchronous call
 in an async method whose `FooAsync` sibling exists) is a different question and
 leaves that kind. It becomes its own `Performance: Sync Calls in Async` section
 backed by a dedicated producer result with structured columns (Caller, Callee,
-Alternative, Pair Kind), not an `OptimizationOpportunity` shape. Its
+Alternative, Pair Kind), not an `OptimizationOpportunity` shape. The
+host-neutral `SyncCallsInAsyncQuery` closes Rows, Count, and Exists as
+independent QuerySpace requests over one Method-source traversal with the
+host's reference binding; `Dispose`/`DisposeAsync` pairs are included by
+default and blocking-call patterns such as `.Result` are not part of this
+section. Its
 migration and the retirement of the `sync-call-in-async` shape follow the
 producer-planner migration in [Method Query Source](method-query-source.md).
 

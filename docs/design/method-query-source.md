@@ -351,7 +351,9 @@ access defined by
 [Assembly Analysis Operation](assembly-analysis-operation.md#reference-binding-access).
 The source does not choose a policy, acquire an assembly, or fall back to
 same-assembly resolution. A plan whose producer declares the layer is rejected
-by the operation when the access lacks it. Unresolved, ambiguous, or unreadable
+by the operation when the access lacks it. A request-set operation carries the
+same access to every lane, shared or single, so grouped lanes that declare the
+layer share one binding. Unresolved, ambiguous, or unreadable
 references are per-body producer diagnostics, never negative findings.
 Referenced-body traversal remains outside this layer; it resolves declarations
 only.
@@ -569,8 +571,10 @@ Migration is incremental:
 9. Add the `ReferenceBinding` layer with its first producer, async-sibling
    opportunities. The Method source hands the operation's reference-binding
    access to the lookup and charges no work for it beyond the producer's own
-   declared lookups. This slice is **unverified**; legacy callers stay until
-   their consumers move.
+   declared lookups. The request-set operation carries the access to grouped
+   lanes, and the producer closes Rows, Count, and Exists as independent
+   QuerySpace requests through `SyncCallsInAsyncQuery`. This slice is
+   **unverified**; legacy callers stay until their consumers move.
 10. Move remaining producers and delete each superseded legacy scan and index
    when its final consumer moves.
 
