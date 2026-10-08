@@ -7,10 +7,11 @@ import { fakeDom } from "./fake-dom.ts";
 
 const inventory: BrowserMemberBodyDiffInventory = {
   id: "inventory", isComplete: true, coverage: [], types: [{
-    identity: "N.T", display: "N.T", canNavigate: true,
-    members: [{ id: "Run~123", display: "Run()", outcome: "Changed", mechanisms: ["CSharp", "IlBody"],
+    identity: "N.T", display: "N.T", outcome: "Changed", canNavigate: true, hasApiChange: true,
+    apiMemberNames: ["N.T.Run()"],
+    members: [{ id: "Run~123", display: "N.T.Run()", outcome: "Changed", hasApiChange: true, isAccessor: false, mechanisms: ["CSharp", "IlBody"],
       fingerprint: "123", selector: "Run~123", methodToken: 0x06000001, identityFailure: null, typeIdentity: "N.T" }],
-  }], destinations: [{ id: "Run~123", display: "Run()", outcome: "Changed", mechanisms: [],
+  }], destinations: [{ id: "Run~123", display: "N.T.Run()", outcome: "Changed", hasApiChange: true, isAccessor: false, mechanisms: [],
     fingerprint: "123", selector: "Run~123", methodToken: 0x06000001, identityFailure: null, typeIdentity: "N.T" }],
 };
 const document: BrowserMemberBodyDiffDocument = {
@@ -60,6 +61,35 @@ test("Member entry automatically acquires the inventory and exact inline documen
   controller.dispose();
 });
 
+test("copied Package models retain settled inventory and exact body documents", async () => {
+  const original = {};
+  const copy = {};
+  let active: MemberBodyDiffContext | null = { ...context(), packageModel: original };
+  const requests: string[] = [];
+  const controller = createMemberBodyDiff({
+    authority: createOperationAuthorityPage(), document: fakeDom.document({ querySelector: () => null }),
+    query: async (_id, request) => {
+      requests.push(request.memberId ?? "inventory");
+      return { kind: "Available", inventory: request.memberId ? null : inventory,
+        document: request.memberId ? document : null, detail: null, inspection: null };
+    }, cancel: () => undefined, diagnostic: diagnostic => { throw new Error(JSON.stringify(diagnostic)); },
+    render: () => controller.reconcile(active), escapeHtml: escape,
+    activateType: () => undefined, activateMember: () => undefined,
+  });
+  controller.reconcile(active);
+  await flush(); await flush();
+  assert.deepEqual(requests, ["inventory", "Run~123"]);
+
+  controller.copyPackages(new Map([[original, copy]]));
+  active = { ...active, packageModel: copy };
+  controller.reconcile(active);
+  await flush();
+
+  assert.deepEqual(requests, ["inventory", "Run~123"]);
+  assert.match(controller.render(), /data-source-diff-viewer/);
+  controller.dispose();
+});
+
 test("a superseded target cannot publish its late completion", async () => {
   const first = context();
   let complete: ((value: BrowserMemberBodyDiffResult) => void) | undefined;
@@ -82,6 +112,93 @@ test("removed and ambiguous Members have no current destination", () => {
   assert.equal(memberBodyDestination(inventory, { typeIdentity: "N.T", memberFingerprint: null, methodToken: null }), null);
   const ambiguous = { ...inventory, destinations: [...inventory.destinations, inventory.destinations[0]!] };
   assert.equal(memberBodyDestination(ambiguous, context()), null);
+  const accessor = {
+    ...inventory.destinations[0]!,
+    id: "Value~123:1",
+    selector: "Value~123:1",
+    isAccessor: true,
+  };
+  const accessorInventory = { ...inventory, destinations: [accessor] };
+  assert.equal(memberBodyDestination(accessorInventory, {
+    typeIdentity: "N.T", memberFingerprint: "123", methodToken: null,
+  }), null);
+  assert.equal(memberBodyDestination(accessorInventory, {
+    typeIdentity: "N.T", memberFingerprint: "123", methodToken: 0x06000001,
+  }), accessor);
+});
+
+test("inventory rows show qualified names and category chips without count summaries", async () => {
+  const controller = createMemberBodyDiff({
+    authority: createOperationAuthorityPage(), document: fakeDom.document({ querySelector: () => null }),
+    query: async () => ({ kind: "Available", inventory, document: null, detail: null, inspection: null }),
+    cancel: () => undefined, diagnostic: diagnostic => { throw new Error(JSON.stringify(diagnostic)); },
+    render: () => undefined, escapeHtml: escape,
+    activateType: () => undefined, activateMember: () => undefined,
+  });
+  controller.reconcile({ ...context(), subject: "type" });
+  await flush(); await flush();
+  const html = controller.render();
+  assert.match(html, /N\.T\.Run\(\)/);
+  assert.match(html, /member-body-category">API</);
+  assert.match(html, /member-body-category">C#/);
+  assert.match(html, /member-body-category">IL</);
+  assert.doesNotMatch(html, /\d+ changed Members|exact|unavailable|incomplete|failed/i);
+  controller.dispose();
+});
+
+test("removed Type rows retain their Before-side Member count and names without navigation", async () => {
+  const removed = {
+    ...inventory,
+    types: [{
+      ...inventory.types[0]!,
+      identity: "N.Removed",
+      display: "N.Removed",
+      outcome: "Removed",
+      canNavigate: false,
+      apiMemberNames: ["N.Removed.Old()"],
+      members: [
+        {
+          ...inventory.types[0]!.members[0]!,
+          id: "Old~123",
+          display: "N.Removed.Old()",
+          outcome: "Removed",
+          fingerprint: null,
+          selector: null,
+          methodToken: null,
+          identityFailure: "Removed",
+          typeIdentity: "N.Removed",
+        },
+        {
+          ...inventory.types[0]!.members[0]!,
+          id: "get_Old~123",
+          display: "N.Removed.get_Old()",
+          outcome: "Removed",
+          isAccessor: true,
+          fingerprint: null,
+          selector: null,
+          methodToken: null,
+          identityFailure: "Removed",
+          typeIdentity: "N.Removed",
+        },
+      ],
+    }],
+    destinations: [],
+  };
+  const controller = createMemberBodyDiff({
+    authority: createOperationAuthorityPage(), document: fakeDom.document({ querySelector: () => null }),
+    query: async () => ({ kind: "Available", inventory: removed, document: null, detail: null, inspection: null }),
+    cancel: () => undefined, diagnostic: diagnostic => { throw new Error(JSON.stringify(diagnostic)); },
+    render: () => undefined, escapeHtml: escape,
+    activateType: () => undefined, activateMember: () => undefined,
+  });
+  controller.reconcile({ ...context(), subject: "library" });
+  await flush(); await flush();
+  const html = controller.render();
+  assert.match(html, /1 Member: N\.Removed\.Old\(\)/);
+  assert.doesNotMatch(html, /get_Old/);
+  assert.match(html, /aria-disabled="true"/);
+  assert.doesNotMatch(html, /data-member-body-type="N\.Removed"/);
+  controller.dispose();
 });
 
 test("reader omits the absence banner and preserves unavailable and size-limit outcomes", () => {

@@ -22,11 +22,13 @@ public sealed record BrowserMemberBodyCoverage(
     int Unavailable, int Incomplete, int Failed);
 
 public sealed record BrowserMemberBodyType(
-    string Identity, string Display, bool CanNavigate,
+    string Identity, string Display, string Outcome, bool CanNavigate,
+    bool HasApiChange,
+    string[] ApiMemberNames,
     BrowserMemberBodyMember[] Members);
 
 public sealed record BrowserMemberBodyMember(
-    string Id, string Display, string Outcome, string[] Mechanisms,
+    string Id, string Display, string Outcome, bool HasApiChange, bool IsAccessor, string[] Mechanisms,
     string? Fingerprint, string? Selector, int? MethodToken, string? IdentityFailure, string? TypeIdentity);
 
 public sealed record BrowserMemberBodyDiffDocument(

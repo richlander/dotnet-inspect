@@ -147,33 +147,106 @@ public static partial class SourceExports
 
     internal static BrowserMemberBodyDiffInventory ProjectMemberBodyInventory(string id, MemberBodyDiffInventory inventory)
     {
-        var types = inventory.Members.GroupBy(member => (member.After ?? member.Before)?.Type.ToEscapedFullName()
+        var visibleMembers = inventory.Members.Where(member =>
+            member.Implementation.Count > 0 || HasOverlappingApiChange(member)).ToArray();
+        var types = visibleMembers.GroupBy(member => (member.After ?? member.Before)?.Type.ToEscapedFullName()
                 ?? member.Subject.Id, StringComparer.Ordinal)
-            .Select(group => new BrowserMemberBodyType(group.Key, group.First().Subject.TypeName ?? group.Key,
+            .Select(group => new BrowserMemberBodyType(group.Key, group.Key,
+                "Changed",
                 group.Any(member => member.After is not null)
                     || inventory.Api.Comparison.Subjects.Any(type => type.Comparison.After?.Identifier == group.Key),
+                group.Any(HasOverlappingApiChange),
+                [],
                 [.. group.Select(member =>
                     new BrowserMemberBodyMember(member.Subject.Id, member.Subject.Display, member.Outcome,
+                        HasOverlappingApiChange(member), IsAccessor(member),
                         [.. member.Implementation.SelectMany(item => item.Evidence).Select(evidence => evidence.Mechanism.ToString()).Distinct()],
                         member.After?.ProjectedAnchor.Fingerprint, member.After?.Selector.NormalizedSelector,
                         member.After?.MethodToken, member.IdentityFailure, member.After?.Type.ToEscapedFullName()))])).ToList();
-        foreach (var removed in inventory.Api.Comparison.Subjects.Where(type => type.Comparison.After is null))
+        var typeIndexes = types.Select((type, index) => (type.Identity, index))
+            .ToDictionary(item => item.Identity, item => item.index, StringComparer.Ordinal);
+        var representedApiMembers = visibleMembers
+            .Where(HasOverlappingApiChange)
+            .Select(member => (
+                member.ApiRelation!.Identifier,
+                TypeIdentity: (member.After ?? member.Before)?.Type.ToEscapedFullName()))
+            .ToHashSet();
+        foreach (var apiType in inventory.Api.Comparison.Subjects)
         {
-            types.RemoveAll(type => type.Identity == removed.Comparison.Before!.Identifier);
-            types.Add(new(removed.Comparison.Before!.Identifier, removed.Display, false,
-                [.. removed.Comparison.Members.Select(member => new BrowserMemberBodyMember(
-                    member.Relation.Identifier, member.Relation.Before!.Display, "Removed", [], null, null, null, null, null))]));
+            string identity = (apiType.Comparison.After ?? apiType.Comparison.Before)!.Identifier;
+            int index = typeIndexes.GetValueOrDefault(identity, -1);
+            string outcome = apiType.Comparison.After is null ? "Removed"
+                : apiType.Comparison.Before is null ? "Added" : "Changed";
+            BrowserMemberBodyType type = index >= 0
+                ? types[index] with { Outcome = outcome, HasApiChange = true }
+                : new(identity, apiType.Display, outcome, apiType.Comparison.After is not null, true, [], []);
+            string[] apiMemberNames = [.. apiType.Comparison.Members.Select(apiMember =>
+            {
+                var relation = apiMember.Relation;
+                var occupied = apiMember.Role is LibraryApiMemberRelationRole.Before
+                    ? relation.Before!
+                    : relation.After ?? relation.Before!;
+                return $"{occupied.DeclaringType.Display}.{occupied.Display}";
+            }).OrderBy(name => name, StringComparer.Ordinal)];
+            var members = type.Members.ToList();
+            foreach (var apiMember in apiType.Comparison.Members)
+            {
+                var relation = apiMember.Relation;
+                if (representedApiMembers.Contains((relation.Identifier, identity))) continue;
+                var occupied = apiMember.Role is LibraryApiMemberRelationRole.Before
+                    ? relation.Before!
+                    : relation.After ?? relation.Before!;
+                bool canNavigate = apiMember.Role is not LibraryApiMemberRelationRole.Before
+                    && relation.After is not null;
+                string? identityFailure = relation.After is null
+                    ? "Removed in the current version; Before-side evidence only"
+                    : apiMember.Role is LibraryApiMemberRelationRole.Before
+                        ? $"Now declared on {relation.After.DeclaringType.Identifier}"
+                        : null;
+                members.Add(new BrowserMemberBodyMember(
+                    $"api:{apiMember.Role}:{identity}:{relation.Identifier}",
+                    $"{occupied.DeclaringType.Display}.{occupied.Display}",
+                    relation.PairKind.ToString(),
+                    true,
+                    false,
+                    [],
+                    canNavigate ? relation.After!.ProjectedAnchor.Fingerprint : null,
+                    canNavigate ? relation.After!.ProjectedAnchor.StableSelector : null,
+                    null,
+                    identityFailure,
+                    occupied.DeclaringType.Identifier));
+            }
+            type = type with
+            {
+                ApiMemberNames = apiMemberNames,
+                Members = [.. members.OrderBy(member => member.Display, StringComparer.Ordinal)],
+            };
+            if (index >= 0) types[index] = type;
+            else
+            {
+                typeIndexes.Add(identity, types.Count);
+                types.Add(type);
+            }
         }
+        types.Sort((left, right) => StringComparer.Ordinal.Compare(left.Display, right.Display));
         return new(id, inventory.Implementation.Coverage.IsComplete,
             [.. inventory.Implementation.Coverage.Mechanisms.Where(coverage => coverage.Requested).Select(coverage =>
                 new BrowserMemberBodyCoverage(coverage.Mechanism.ToString(), coverage.EvaluatedSubjectCount,
                     coverage.ExactSubjectCount, coverage.ChangedSubjectCount, coverage.UnavailableSubjectCount,
                     coverage.IncompleteSubjectCount, coverage.FailedSubjectCount))], [.. types],
             [.. inventory.Destinations.Where(member => member.After is not null).Select(member =>
-                new BrowserMemberBodyMember(member.Subject.Id, member.Subject.Display, member.Outcome, [],
+                new BrowserMemberBodyMember(member.Subject.Id, member.Subject.Display, member.Outcome,
+                    HasOverlappingApiChange(member), IsAccessor(member), [],
                     member.After!.ProjectedAnchor.Fingerprint, member.After.Selector.NormalizedSelector,
                     member.After.MethodToken, member.IdentityFailure, member.After.Type.ToEscapedFullName()))]);
     }
+
+    static bool HasOverlappingApiChange(MemberBodyDiffMember member)
+        => member.ApiRelation is not null
+            && (member.After ?? member.Before)?.Role is ResearchTargetRelationshipRole.Method;
+
+    static bool IsAccessor(MemberBodyDiffMember member)
+        => (member.After ?? member.Before)?.Role is not ResearchTargetRelationshipRole.Method;
 
     internal static BrowserMemberBodyDiffDocument ProjectMemberBodyDocument(AnnotatedSourceDiffDocument document)
         => new(document.Subject.Selector, [.. document.Media.Select(medium =>

@@ -2118,7 +2118,7 @@ test("successful saved Open retires comparison settings with the discarded Packa
   assert.ok(h.state.package);
   assert.deepEqual(h.packageComparisonTargets.get(h.state.package), {
     diff: { kind: "previous" },
-    diffContent: { kind: "api" },
+    diffContent: { kind: "member-body" },
     clone: { kind: "workspace" },
     mode: "diff",
   });

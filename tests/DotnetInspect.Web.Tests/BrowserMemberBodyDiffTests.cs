@@ -21,7 +21,9 @@ public sealed class BrowserMemberBodyDiffTests
         Assert.True(inventory.Kind == "Available", $"{inventory.Kind}: {inventory.Detail}");
         Assert.NotNull(inventory.Inspection);
         var added = inventory.Inventory!.Types.SelectMany(type => type.Members)
-            .First(member => member.Outcome == "Added" && member.Selector is not null);
+            .First(member => member.Outcome == "Added"
+                && member.Selector is not null
+                && member.MethodToken is not null);
 
         string memberJson = await SourceExports.QueryMemberBodyDiff(Guid.NewGuid().ToString(),
             JsonSerializer.Serialize(request with { InventoryId = inventory.Inventory.Id, MemberId = added.Id },
@@ -97,8 +99,11 @@ public sealed class BrowserMemberBodyDiffTests
         Assert.NotNull(inventory.Inspection);
         var type = Assert.Single(inventory.Inventory!.Types, type =>
             type.Identity == "System.Text.Json.JsonSerializerOptions");
+        Assert.Equal("System.Text.Json.JsonSerializerOptions", type.Display);
+        Assert.True(type.HasApiChange);
         var constructor = Assert.Single(type.Members, member => member.Display.Contains("JsonSerializerOptions)", StringComparison.Ordinal)
             && member.Display.Contains("#ctor", StringComparison.Ordinal));
+        Assert.False(constructor.HasApiChange);
         Assert.NotNull(constructor.Fingerprint);
         Assert.NotNull(constructor.MethodToken);
         var result = await SourceExports.QueryMemberBodyDiffCore(request with
@@ -117,8 +122,20 @@ public sealed class BrowserMemberBodyDiffTests
         Assert.Equal(AnnotatedSourceDiffSideOutcomeKind.Present, owned.After.Outcome);
         Assert.True(inventory.Inspection!.Content.TryGetProperty("implementation", out _));
         Assert.True(inventory.Inspection.Content.TryGetProperty("api", out _));
+        var apiAddition = Assert.Single(type.Members, member =>
+            member.Display.Contains("InferClosedTypePolymorphism", StringComparison.Ordinal)
+            && member.HasApiChange);
+        Assert.Contains(type.ApiMemberNames,
+            name => name.Contains("InferClosedTypePolymorphism", StringComparison.Ordinal));
+        Assert.DoesNotContain(type.ApiMemberNames,
+            name => name.Contains("get_InferClosedTypePolymorphism", StringComparison.Ordinal));
+        Assert.Empty(apiAddition.Mechanisms);
+        Assert.Null(apiAddition.MethodToken);
+        Assert.False(apiAddition.IsAccessor);
         var addition = Assert.Single(type.Members, member => member.Display.Contains("InferClosedTypePolymorphism", StringComparison.Ordinal)
             && member.Selector!.EndsWith(":1", StringComparison.Ordinal));
+        Assert.False(addition.HasApiChange);
+        Assert.True(addition.IsAccessor);
         var added = await SourceExports.QueryMemberBodyDiffCore(request with
         {
             InventoryId = inventory.Inventory.Id, MemberId = addition.Id,

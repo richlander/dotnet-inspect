@@ -247,6 +247,12 @@ public sealed record LibraryApiMemberIdentity
     public ApiMemberAnchorKind AnchorKind { get; }
     public string Kind { get; }
     public string Display { get; }
+    public ProjectedMemberAnchor ProjectedAnchor => new(
+        Anchor.StableSelector,
+        Anchor.CanonicalSignature,
+        Anchor.Fingerprint,
+        Anchor.TypeFullName,
+        Anchor.MemberName);
 }
 
 /// <summary>One complete distinct-member relation retained from Finding correspondence.</summary>

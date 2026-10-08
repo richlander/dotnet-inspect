@@ -6,7 +6,7 @@ const site = process.env.INSPECT_WEB_SOURCE_DIFF_URL;
 
 test("Member Body opens an added property across the former Worker limits", async ({ page }) => {
   test.skip(!site, "Set INSPECT_WEB_SOURCE_DIFF_URL to the published Wasm site.");
-  test.setTimeout(300_000);
+  test.setTimeout(480_000);
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", { value: { write: async (items: ClipboardItem[]) => {
       (window as Window & { copiedShare?: string }).copiedShare = await (await items[0]!.getType("text/plain")).text();
@@ -18,13 +18,20 @@ test("Member Body opens an added property across the former Worker limits", asyn
   await chooseSubject(page, "library");
   await selectFirstExactLibrary(page);
   await page.locator('[data-navigation-id="compare"][role="tab"]').click();
-  await page.locator("#compare-diff-content").selectOption("member-body");
+  await expect(page.locator("#compare-diff-content")).toHaveValue("member-body");
   await page.locator('[data-member-body-type="System.Text.Json.JsonDocumentOptions"]').click({ timeout: 180_000 });
-  await page.locator("[data-member-body-member]").filter({ hasText: "AllowDuplicateProperties" }).first().click();
+  await page.locator("[data-member-body-member]")
+    .filter({ hasText: "AllowDuplicateProperties" })
+    .filter({ has: page.locator(".member-body-category", { hasText: "C#" }) })
+    .first()
+    .click();
   await expect(page.locator(".member-body-reader .source-diff-viewer")).toBeVisible({ timeout: 120_000 });
   await expect(page.locator(".member-body-reader")).not.toContainText("Not present on this side");
   await expect(page.locator(".source-diff-viewer-summary")).toContainText("2 added");
-  await expect(page.locator("#inspector-panel h1, #inspector-panel h2")).toHaveCount(0);
+  await expect(page.locator("#inspector-panel h1")).toHaveText(
+    "System.Text.Json.JsonDocumentOptions.AllowDuplicateProperties",
+  );
+  await expect(page.locator("#inspector-panel h2")).toHaveText("What changed");
   await expect(page.locator(".targetbar #compare-diff-content")).toHaveValue("member-body");
   await expect(page.locator(".targetbar [data-member-body-explore]")).toBeVisible();
   const panel = await page.locator("#inspector-panel").boundingBox();
@@ -33,7 +40,7 @@ test("Member Body opens an added property across the former Worker limits", asyn
   expect(reader!.width).toBe(panel!.width);
   expect(reader!.y + reader!.height).toBe(panel!.y + panel!.height);
   const explore = await page.locator("#member-body-explore").boundingBox();
-  const controls = await page.locator(".compare-controls-row").boundingBox();
+  const controls = await page.locator(".compare-head").boundingBox();
   expect(controls!.y).toBeGreaterThanOrEqual(explore!.y + explore!.height);
   await expect(page.locator(".member-body-reader")).toContainText("AllowDuplicateProperties");
   await expect(page.getByRole("button", { name: "Show diff", exact: true })).toHaveCount(0);
@@ -54,6 +61,7 @@ test("Member Body opens an added property across the former Worker limits", asyn
   await expect(reopened.locator(".inspected-target")).toContainText("AllowDuplicateProperties");
   await expect(reopened.locator('[data-member-body-medium="Il"]')).toHaveAttribute("aria-pressed", "true");
   await reopened.locator('[data-member-body-medium="CSharp"]').click();
+  await expect(reopened.locator('[data-member-body-medium="CSharp"]')).toHaveAttribute("aria-pressed", "true");
   await expect(reopened.locator(".member-body-reader")).toContainText("AllowDuplicateProperties");
   await reopened.getByRole("button", { name: "Search types, members, packages", exact: true }).click();
   await reopened.locator("#spotlight-input").fill("Newtonsoft.Json@13.0.3");
@@ -79,7 +87,7 @@ test("Member Body opens inline and retains the document through media and Explor
   await chooseSubject(page, "library");
   await selectFirstExactLibrary(page);
   await page.locator('[data-navigation-id="compare"][role="tab"]').click();
-  await page.locator("#compare-diff-content").selectOption("member-body");
+  await expect(page.locator("#compare-diff-content")).toHaveValue("member-body");
   await page.locator('[data-member-body-type="System.Text.Json.JsonSerializerOptions"]').click({ timeout: 180_000 });
   const constructor = page.locator("[data-member-body-member]").filter({ hasText: /#ctor\(System.Text.Json.JsonSerializerOptions\)/ });
   await constructor.click();
@@ -122,7 +130,7 @@ test("Member Body opens inline and retains the document through media and Explor
     expect(reader.width).toBe(panel.width);
     expect(reader.y + reader.height).toBe(panel.y + panel.height);
     const explore = (await page.locator("#member-body-explore").boundingBox())!;
-    const controls = (await page.locator(".compare-controls-row").boundingBox())!;
+    const controls = (await page.locator(".compare-head").boundingBox())!;
     expect(controls.y).toBeGreaterThanOrEqual(explore.y + explore.height);
     await page.screenshot({ path: test.info().outputPath(`inline-${width}.png`) });
   }

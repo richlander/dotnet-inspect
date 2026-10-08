@@ -648,7 +648,6 @@ import { createMemberBodyDiff, type MemberBodyDiffContext } from "./member-body-
 import { createMemberDiffExplorer } from "./member-diff-explorer.ts";
 import {
   bindCompareFrame,
-  renderCompareFrame,
   restoreCompareTabFocus,
   type CompareSubjectKind,
 } from "./compare-surface.ts";
@@ -7482,8 +7481,7 @@ function compareSubjectLabel(subject: CompareSubject): string {
 
 function currentLibraryApiDiffSelection(): LibraryApiDiffSelection | null {
   const subject = currentCompareSubject();
-  if (!subject || currentCompareMode() !== "diff"
-    || packageComparisonTargets.get(subject.pkg).diffContent.kind === "member-body") return null;
+  if (!subject || currentCompareMode() !== "diff") return null;
   if (subject.kind === "member"
     && (!subject.overload
       || !subject.overload.anchorDigest
@@ -7783,7 +7781,8 @@ function libraryApiDiffRenderOptions(
 function currentMemberDiffExploreContext():
 LibraryApiDiffMemberExploreContext | null {
   const subject = currentCompareSubject();
-  if (subject === null || currentCompareMode() !== "diff") return null;
+  if (subject === null || currentCompareMode() !== "diff"
+    || packageComparisonTargets.get(subject.pkg).diffContent.kind === "member-body") return null;
   return libraryApiDiffMemberExploreContext(
     state.libraryApiDiff,
     libraryApiDiffRenderOptions(subject),
@@ -7809,8 +7808,7 @@ function renderLibraryDiffTools(subject: CompareSubject): string {
     <label class="compare-tool">
       Content
       <select id="compare-diff-content">
-        <option value="api"${content.kind === "api" ? " selected" : ""}>Public API</option>
-        <option value="member-body"${content.kind === "member-body" ? " selected" : ""}>Member Body</option>
+        <option value="member-body"${content.kind !== "string-literals" ? " selected" : ""}>API + Member Body</option>
         <option value="string-literals"${content.kind === "string-literals" ? " selected" : ""}>String literals</option>
       </select>
     </label>
@@ -7845,7 +7843,8 @@ function currentMemberBodyDiffContext(): MemberBodyDiffContext | null {
 
 function currentDataBarResult() {
   const subject = currentCompareSubject();
-  if (subject?.kind !== "library" || currentCompareMode() !== "diff") return null;
+  if (subject?.kind !== "library" || currentCompareMode() !== "diff"
+    || packageComparisonTargets.get(subject.pkg).diffContent.kind === "member-body") return null;
   return libraryApiDiffDataBarResult(
     state.libraryApiDiff,
     currentLibraryApiDiffSelection(),
@@ -7869,10 +7868,28 @@ function renderCompareSurface(): string {
     });
   }
   if (packageComparisonTargets.get(subject.pkg).diffContent.kind === "member-body") {
-    const body = memberBodyDiff.render();
-    if (body) return body;
-    return renderCompareFrame({ subjectKind, subjectLabel, mode, targetText, externalToolbar: true,
-      status: "Member Body unavailable", content: "<p>Select an available Gallery comparison target.</p>", escapeHtml });
+    if (subject.kind === "library") {
+      const options = libraryApiDiffRenderOptions(subject);
+      return renderLibraryApiDiff(state.libraryApiDiff, escapeHtml, {
+        ...options,
+        resultSummaryInDataBar: false,
+        libraryDiffSection: memberBodyDiff.renderLibrarySection(),
+        replaceDiffInventory: memberBodyDiff.hasSettledInventory,
+      });
+    }
+    if (subject.kind === "type" || subject.kind === "member") {
+      const options = libraryApiDiffRenderOptions(subject);
+      return renderLibraryApiDiff(state.libraryApiDiff, escapeHtml, {
+        ...options,
+        resultSummaryInDataBar: false,
+        ...(subject.kind === "type"
+          ? {
+              typeDiffSection: memberBodyDiff.renderTypeSection(),
+              replaceDiffInventory: memberBodyDiff.hasSettledInventory,
+            }
+          : { memberDiffSection: memberBodyDiff.renderMemberSection() }),
+      });
+    }
   }
   const options = libraryApiDiffRenderOptions(subject);
   const memberContext = libraryApiDiffMemberExploreContext(
@@ -15869,7 +15886,6 @@ function bindCompareEvents() {
         render();
         return;
       }
-      if (currentMemberBodyDiffContext()) { memberBodyDiff.retry(); return; }
       const selection = currentLibraryApiDiffSelection();
       if (!selection || selection.target.kind !== "available") return;
       libraryApiDiff.retry(selection);
@@ -25552,7 +25568,7 @@ async function restoreWorkspaceFromLocation(
       packageComparisonTargets.restoreExactDiff(targetModel, comparison.baseline,
         comparison.content === "string-literals"
           ? { kind: "string-literals", operator: comparison.predicateOperator === "starts-with" ? "starts-with" : "contains", value: comparison.predicateValue! }
-          : comparison.content === "member-body" ? { kind: "member-body" } : { kind: "api" });
+          : { kind: "member-body" });
       memberBodyDiff.restoreMedium(targetModel, comparison.medium === "Il" ? "Il" : "CSharp");
     }
     applyLocationView(loc);

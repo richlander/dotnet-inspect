@@ -160,7 +160,7 @@ Every subject uses one quiet frame:
 ```text
 <subject>                                          Diff | Clone
 result status · effective target or scope · Change target
-summary metrics
+optional exceptional coverage disclosure
 subject-specific result
 coverage evidence
 ```
@@ -176,10 +176,13 @@ repeating its controls or reserving another chrome row. **Change target**
 returns to Package Compare's Comparison targets work area. Compare does not
 render a second version, breadth, discovery, or work-limit editor.
 
-Summary metrics precede the inventory or Member result. They report only
-owner-issued counts and classifications. Diff completeness and Clone
-coverage/truncation remain visibly distinct; the surface never presents a
-bounded Clone result as exhaustive.
+The default API + Member Body Diff inventory is count-free: state, fully
+qualified subject, and API/C#/IL categories carry the result. Complete coverage
+is quiet; exceptional unavailable, incomplete, or failed coverage remains
+visible without an evaluated/exact/changed census. Other Compare results may
+render owner-issued metrics when their focused presentation owns them. Diff
+completeness and Clone coverage/truncation remain visibly distinct; the surface
+never presents a bounded Clone result as exhaustive.
 
 ### Navigation diff cues
 
@@ -279,16 +282,16 @@ view of the Type query's bounded candidate rows.
 Member is the first subject that presents detailed comparison evidence in the
 Compare working surface.
 
-For **Public API** content, Member Diff projects the exact Member entry from the
-containing Library-root Diff document. It summarizes correspondence,
-compatibility, and the complete API-change evidence carried there, in this
-order:
+For the default **API + Member Body** content, Member Diff projects the exact
+API Member entry from the containing Library-root Diff document and composes
+the separately owned
+[Member Body Diff](inspect-web-member-body-diff.md) on the same boundary:
 
 ```text
 <Member>                                                 Diff | Clone
 result status · effective target · Change target
 What changed        classified API changes of the relation
-Authored Source     inline diff viewer                   Explore
+Member Body         inline C#/IL diff viewer             Explore
 ```
 
 - **What changed** renders each relation change once: classification, the
@@ -298,76 +301,35 @@ Authored Source     inline diff viewer                   Explore
   change belongs to the containing Type.
 - Compare does not append endpoint selectors, digests, canonical signatures,
   line terminators, mapped-range receipts, or other supporting evidence. The
-  visible API and Source documents contain the relevant comparison data;
+  visible API and Member Body documents contain the relevant comparison data;
   detailed evidence remains available through CLI output.
-- **Authored Source** appears only when the relation carries an owner-issued
-  Member diff destination whose present endpoints are method anchors, the
-  domain of the paired authored-Source query. Fetching authored Source for
-  both endpoints is network work, so the section first offers one explicit
-  **Show authored Source diff** action; activating it runs the paired
-  comparison for the destination's exact endpoints and anchors and shows the
-  result in the embedded host of the
-  [Diff viewer interaction](inspect-web-diff-viewer-interaction.md). An
-  absent endpoint shows **Not present on this side** from the relation, not
-  the query's unrequested outcome; an endpoint without authored Source shows
-  its typed reason. The section never substitutes decompiled text or an
-  empty diff. Once loaded, the inline view presents the Source document
-  directly without endpoint cards, statistics, line-terminator facts, or
-  mapped-range receipts.
-- **Explore** opens the Member diff destination owned by
-  [Inspect Web Compare Explore](inspect-web-compare-explore.md) and appears
-  whenever that destination is issued, whether or not authored Source was
-  requested, because Explore owns modes that do not need it. It sits in the
-  Authored Source section header when that section is present, and otherwise
-  in the What changed section header.
+- **Member Body** appears only when the retained inventory issues an exact
+  current-side body destination. Its C# and IL media use the shared
+  [Diff viewer interaction](inspect-web-diff-viewer-interaction.md). API-only
+  Members retain What changed without starting a body query. Body-only
+  Members render their exact body document without a false unchanged-API
+  result.
+- **Explore** expands only that same retained Member Body document.
 
-The inline comparison runs under
-[Operation Authority](inspect-web-operation-authority.md). Its identity is the
-comparison request, which is immutable: the retained Package model, the
-current and resolved target package versions, framework, compile asset, and
-the Member diff destination's endpoint anchors. It does not include the Diff
-result instance, which leaving and reentering Compare replaces.
-
-A pending comparison is superseded, and its late completion publishes
-nothing, when the Package Diff baseline changes, the Package model is
+The API and Member Body operations retain separate authority and failure
+states. Loading or failure in one does not hide a settled result from the
+other. API retry and body retry remain distinct actions. Both operations are
+superseded when the Package Diff baseline changes, the Package model is
 replaced or removed, Compare switches from Diff to Clone, or the user
 navigates away from the Member.
 
-A settled successful or identical result is retained under the request
-identity. Any later visit to the same Member Diff whose destination yields the
-same identity shows it without asking again, whether the user returns by
-Back, by drilling down from Type, or by switching lenses. It is discarded when
-a new Diff result carries a different identity for that Member, when the
-baseline changes, or when the Package model is replaced or removed. A failed,
-rejected, or canceled result is not retained, and the action offers it again.
-
-Compare owns one authored-Source comparison per request identity, shared by
-the inline section and Explore's **Text** mode. Either may start it: the
-inline action, or opening **Text** mode, which is also an explicit request.
-Either attaches to a comparison already pending or settled for the same
-identity instead of starting another, so one identity never has two
-comparisons in flight. Opening or closing Explore does not supersede it, and a
-result that settles while Explore is open is the inline section's result on
-return.
-
-A property, field, or event Member has no Authored Source section until a
-product-issued accessor-level comparison exists; its What changed section and
-collapsed Member evidence remain.
+A Property or Event remains one logical API row. An owner-issued Getter,
+Setter, Adder, or Remover body is a distinct body-backed row with its exact
+destination; Compare does not duplicate the logical API relation onto every
+accessor or invent accessor selection from the logical row.
 
 Member Diff shows no section whose evidence has no issued producer: it adds no
 placeholder, disabled section, or "not available yet" pane.
 
-For **Member Body** content, the separately owned
-[Member Body Diff](inspect-web-member-body-diff.md) projects the selected
-implementation relation and places the shared C#/IL diff viewer directly on
-this same Member boundary for a current Member addition, signature change,
-body change, or combined signature-and-body change. It does not route the user
-through Public API's What changed or authored-Source composition, and Explore
-only expands the same retained Member Body document. A deleted Member remains
-the non-activatable Type-level row defined above; Compare does not create a
-Member boundary for an identity that is absent from the current Type.
-Signature changes and additions consume the portable Library API diff's
-producer-issued Member relation; body-only changes consume strict
+A deleted Member remains the non-activatable Type-level row defined above;
+Compare does not create a Member boundary for an identity that is absent from
+the current Type. Signature changes and additions consume the portable Library
+API diff's producer-issued Member relation; body-only changes consume strict
 Implementation Diff correspondence. Browser composition does not substitute
 one relation source for the other or infer a pair.
 
@@ -605,24 +567,21 @@ behavior.
     **Show authored Source diff** is activated; and that the result renders
     in the embedded diff viewer and is still shown after navigating away and
     back to the Member.
-13. Activate **Show authored Source diff**, then change the Package Diff
-    baseline while the comparison is pending and again after it settles.
-    Confirm that the pending completion publishes nothing, that the settled
-    result is discarded, and that the section offers the action again for
-    the new result. Confirm that a failed comparison is not retained.
-14. Open Member Compare Diff for an added Member. Confirm that the Before card
-    and the Before side of the inline diff say **Not present on this side**,
-    that the card is not a link, and that no placeholder section appears for
-    evidence without an issued producer.
-15. Open Member Compare Diff for a changed property Member. Confirm that no
-    Authored Source section appears and that Explore, when its destination is
-    issued, sits in the What changed section header.
-16. Confirm that Explore appears only when the Member diff destination is
-    issued, and that it appears before authored Source is requested.
-17. Select Member Body and open current Members representing a whole addition,
-    a signature change, a body change, and a combined signature-and-body
-    change. Confirm each uses the same inline Member viewer. Supply a deleted
-    Member under a surviving Type and confirm it remains a non-activatable
-    Type-level finding with no Member page. Remove the entire Type and confirm
-    its inert Library row retains the occupied-side Member summary without
-    offering a Type or Member destination.
+13. Delay and fail the API and Member Body operations independently. Confirm
+    that one operation's loading or failure does not hide the other's settled
+    result and that each retry action restarts only its owning operation.
+14. Open Member Compare Diff for an added Member. Confirm that What changed
+    retains the API addition and the inline Member Body viewer shows the
+    absent Before side from its exact document.
+15. Open Compare Diff for a changed Property with changed accessors. Confirm
+    that the Property appears once as a logical API row and that each issued
+    accessor body appears as its own C# or IL row without a duplicate API chip.
+16. Confirm that Explore appears only when an exact Member Body destination is
+    issued and expands the same retained document.
+17. With the default API + Member Body content, open current Members
+    representing a whole addition, a signature change, a body change, and a
+    combined signature-and-body change. Confirm each uses the same inline
+    Member viewer. Supply a deleted Member under a surviving Type and confirm
+    it remains a non-activatable Type-level finding with no Member page.
+    Remove the entire Type and confirm its inert Library row retains the
+    occupied-side Member summary without offering a Type or Member destination.

@@ -379,6 +379,8 @@ export interface BrowserMemberBodyMember {
   readonly id: string;
   readonly display: string;
   readonly outcome: string;
+  readonly hasApiChange: boolean;
+  readonly isAccessor: boolean;
   readonly mechanisms: ReadonlyArray<string>;
   readonly fingerprint: string | null;
   readonly selector: string | null;
@@ -390,7 +392,10 @@ export interface BrowserMemberBodyMember {
 export interface BrowserMemberBodyType {
   readonly identity: string;
   readonly display: string;
+  readonly outcome: string;
   readonly canNavigate: boolean;
+  readonly hasApiChange: boolean;
+  readonly apiMemberNames: ReadonlyArray<string>;
   readonly members: ReadonlyArray<BrowserMemberBodyMember>;
 }
 
