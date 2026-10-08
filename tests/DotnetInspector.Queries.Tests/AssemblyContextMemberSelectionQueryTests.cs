@@ -76,6 +76,50 @@ public sealed class AssemblyContextMemberSelectionQueryTests
     }
 
     [Fact]
+    public async Task ExecuteDeclaration_FallsBackFromSameNameTokenCollisionToSelector()
+    {
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = SelfGroup(workspace);
+        AssemblyContextParticipant participant = Assert.Single(
+            group.Participants);
+        ApiSurface surface = Available(
+                AssemblyContextApiSurfaceQuery.ExecuteParticipant(
+                    group,
+                    participant,
+                    ApiSurfaceScope.IncludeAll))
+            .Surface;
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate =>
+                candidate.FullName == typeof(MemberSelectionProbe).FullName);
+        ApiMember selected = Assert.Single(
+            type.Members,
+            member =>
+                member.Name == nameof(MemberSelectionProbe.Overloaded)
+                && member.Signature == "int Overloaded(int value)");
+        ApiMember collision = Assert.Single(
+            type.Members,
+            member =>
+                member.Name == nameof(MemberSelectionProbe.Overloaded)
+                && member.Signature == "string Overloaded(string value)");
+        string selector =
+            CallGraphMemberResolver.CreateSelector(type, selected).Key;
+
+        AssemblyContextMemberDeclaration result = Available(
+            AssemblyContextMemberSelectionQuery.ExecuteDeclaration(
+                group,
+                participant,
+                new(
+                    type.DefinitionName!.ToEscapedFullName(),
+                    selected.Name,
+                    selector,
+                    collision.MetadataToken),
+                Limits));
+
+        Assert.Equal(selected.MetadataToken, result.Member.MetadataToken);
+    }
+
+    [Fact]
     public async Task ExecuteBody_FallsBackFromImageLocalTokenToSelector()
     {
         await using var workspace = new InspectionWorkspace();
@@ -220,4 +264,8 @@ public sealed class MemberSelectionProbe
     public static int Target(int value) => value;
 
     public static int Other(int value) => value;
+
+    public static int Overloaded(int value) => value;
+
+    public static string Overloaded(string value) => value;
 }

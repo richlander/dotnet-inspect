@@ -91,8 +91,16 @@ public static class ApiSurfaceMemberSelection
                     (candidate.DeclarationMetadataToken
                         ?? candidate.MetadataToken) == metadataToken),
             ];
-            if (tokenMatches.Length == 1)
+            if (tokenMatches.Length == 1
+                && CallGraphMemberResolver.CreateSelector(
+                        type,
+                        tokenMatches[0])
+                    .Key.Equals(
+                        selection.SelectorKey,
+                        StringComparison.Ordinal))
+            {
                 return new(type, tokenMatches[0]);
+            }
             if (tokenMatches.Length > 1)
             {
                 throw new InvalidOperationException(
