@@ -674,7 +674,7 @@ test("application admission closes on every non-Compare route", () => {
   )?.[0] ?? "";
   assert.match(
     appSource,
-    /function currentLibraryApiDiffSelection\(\)[\s\S]*?const subject = currentCompareSubject\(\);\s*if \(!subject \|\| currentCompareMode\(\) !== "diff"\s*\|\| packageComparisonTargets\.get\(subject\.pkg\)\.diffContent\.kind === "member-body"\) return null;/,
+    /function currentLibraryApiDiffSelection\(\)[\s\S]*?const subject = currentCompareSubject\(\);\s*if \(!subject \|\| currentCompareMode\(\) !== "diff"\) return null;/,
     "Diff work is admitted only through the shared Compare subject gate and the retained Diff mode");
   for (const condition of [
     "state.home",
@@ -1092,6 +1092,19 @@ test("Type Diff lists Type-level changes first and classifies each Member row fr
   // The removed Member carries no classified change of its own and gets no chip.
   const removedRow = html.match(/<li class="library-api-diff-member library-api-diff-member-inert"[\s\S]*?<\/li>/)?.[0] ?? "";
   assert.doesNotMatch(removedRow, /library-api-diff-change-chip/);
+});
+
+test("merged Type Diff keeps Type-level API changes and replaces counted API rows with the unified inventory", () => {
+  const html = renderLibraryApiDiff(readyState(withMembers()), String, {
+    subject: { kind: "type", typeIdentifier: "after-widget" },
+    typeDiffSection: '<section id="unified-members">Unified Member rows</section>',
+  });
+
+  assert.ok(html.indexOf('aria-label="Type-level changes"') < html.indexOf('id="unified-members"'));
+  assert.match(html, /Type became sealed\./);
+  assert.match(html, /Unified Member rows/);
+  assert.doesNotMatch(html, /\d+ changed Members|\d+ breaking|\d+ additive|\d+ potentially breaking/);
+  assert.equal([...html.matchAll(/id="unified-members"/g)].length, 1);
 });
 
 test("Member Diff renders each producer change once with its useful values", () => {
@@ -1625,6 +1638,36 @@ test("failure, loading, and unavailable states keep the mode control and target 
         assert.match(html, /id="compare-retry"/, subject.kind);
     }
   }
+});
+
+test("merged Member body evidence remains visible while the API comparison loads or fails", () => {
+  const input = readyState(withMembers());
+  if (input.status !== "ready") throw new Error("Expected ready state.");
+  const options = {
+    subject: {
+      kind: "member",
+      typeIdentifier: "after-widget",
+      memberFingerprint: "digest-run",
+    } as const,
+    memberDiffSection: '<section id="body-diff">Body diff</section>',
+  };
+
+  const loading = renderLibraryApiDiff(
+    { status: "loading", input: input.input },
+    String,
+    options,
+  );
+  assert.match(loading, /Comparing complete public API surfaces/);
+  assert.match(loading, /id="body-diff"/);
+
+  const failed = renderLibraryApiDiff(
+    { status: "failed", input: input.input, error: "API failed" },
+    String,
+    options,
+  );
+  assert.match(failed, /API failed/);
+  assert.match(failed, /Retry API comparison/);
+  assert.match(failed, /id="body-diff"/);
 });
 
 test("row bindings dispatch owner-issued identities and ignore inert rows", () => {

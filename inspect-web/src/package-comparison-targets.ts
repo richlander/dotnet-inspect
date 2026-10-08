@@ -74,10 +74,12 @@ export function createPackageComparisonTargets<T extends ComparisonPackage>(
   const get = (pkg: T) =>
     settings.get(pkg) ?? {
       diff: { kind: "previous" } as const,
-      diffContent: { kind: "api" } as const,
+      diffContent: { kind: "member-body" } as const,
       clone: { kind: "workspace" } as const,
       mode: "diff" as const,
     };
+  const normalizeDiffContent = (content: DiffContent): DiffContent =>
+    content.kind === "api" ? { kind: "member-body" } : content;
   const requireResident = (pkg: T) => {
     if (!packages().includes(pkg))
       throw new Error("The Package is no longer in this Workspace.");
@@ -108,7 +110,12 @@ export function createPackageComparisonTargets<T extends ComparisonPackage>(
     restoreExactDiff(pkg: T, version: string, content: DiffContent) {
       requireResident(pkg);
       if (pkg.source.kind !== "nuget.org") throw new Error("Shared Diff requires a Gallery Package.");
-      settings.set(pkg, { ...get(pkg), diff: { kind: "exact", version }, diffContent: content, mode: "diff" });
+      settings.set(pkg, {
+        ...get(pkg),
+        diff: { kind: "exact", version },
+        diffContent: normalizeDiffContent(content),
+        mode: "diff",
+      });
     },
     selectDiff(pkg: T, diff: DiffTarget, versions: PackageVersionState) {
       requireResident(pkg);
@@ -128,7 +135,10 @@ export function createPackageComparisonTargets<T extends ComparisonPackage>(
         if (content.value.length > 1_024)
           throw new Error("String literal predicates are limited to 1,024 characters.");
       }
-      settings.set(pkg, { ...get(pkg), diffContent: content });
+      settings.set(pkg, {
+        ...get(pkg),
+        diffContent: normalizeDiffContent(content),
+      });
     },
     selectClone(pkg: T, clone: CloneTarget<T>) {
       requireResident(pkg);
@@ -273,8 +283,8 @@ export function bindDiffContent(
     "#compare-diff-content",
   );
   content?.addEventListener("change", () => {
-    if (content.value === "api") select({ kind: "api" });
-    else if (content.value === "member-body") select({ kind: "member-body" });
+    if (content.value === "api" || content.value === "member-body")
+      select({ kind: "member-body" });
     else if (content.value === "string-literals") {
       select({
         kind: "string-literals",

@@ -1455,6 +1455,7 @@ export interface LibraryApiDiffRenderOptions {
   readonly targetText?: string;
   readonly mode?: CompareMode;
   readonly tools?: string;
+  readonly typeDiffSection?: string;
   readonly memberDiffSection?: string;
 }
 
@@ -1971,6 +1972,12 @@ function renderTypeSubject(
 ): RenderedContent {
   const type = findType(value, typeIdentifier);
   if (type === undefined) {
+    if (options.typeDiffSection !== undefined) {
+      return {
+        status: "Comparison complete.",
+        content: options.typeDiffSection,
+      };
+    }
     return {
       status: "Comparison complete. No changed Members.",
       content: renderCompareEmpty(
@@ -1999,6 +2006,19 @@ function renderTypeSubject(
     escapeHtml,
     "Type-level changes",
   );
+  if (options.typeDiffSection !== undefined) {
+    const typeFacts = [
+      type.typeDefinitionChanged === true ? "Type definition changed" : "",
+      type.state === "Addition"
+        ? "Added Type"
+        : type.state === "Deletion" ? "Removed Type" : "",
+    ].filter(Boolean);
+    return {
+      status: "Comparison complete.",
+      content: `${typeFacts.length === 0 ? "" : `<div class="library-api-diff-metrics">${typeFacts.map(fact =>
+        `<span>${escapeHtml(fact)}</span>`).join("")}</div>`}${typeChanges}${options.typeDiffSection}`,
+    };
+  }
   // A whole-Type immersive destination is owner-issued. None is issued today,
   // so the row is absent rather than advertised with a placeholder.
   if (type.members.length === 0) {
@@ -2041,6 +2061,12 @@ function renderMemberSubject(
     ? undefined
     : findMember(type, memberFingerprint);
   if (type === undefined || member === undefined) {
+    if (options.memberDiffSection) {
+      return {
+        status: "Comparison complete.",
+        content: options.memberDiffSection,
+      };
+    }
     return {
       status: "Comparison complete. This Member is unchanged.",
       content: renderCompareEmpty(
@@ -2146,12 +2172,15 @@ export function renderLibraryApiDiff(
   escapeHtml: (value: unknown) => string,
   options: LibraryApiDiffRenderOptions = {},
 ): string {
+  const supplementarySection = options.typeDiffSection
+    ?? options.memberDiffSection
+    ?? "";
   if (state.status === "idle") {
     return frame(
       null,
       {
         status: "Choose a Gallery Package Library to compare.",
-        content: "",
+        content: supplementarySection,
       },
       escapeHtml,
       options,
@@ -2164,12 +2193,12 @@ export function renderLibraryApiDiff(
       {
         status: state.message,
         content: state.status === "target-loading"
-          ? renderCompareLoading()
+          ? renderCompareLoading() + supplementarySection
           : renderCompareEmpty(
               "No comparison target",
               "Choose another Package Diff target to continue.",
               escapeHtml,
-            ),
+            ) + supplementarySection,
       },
       escapeHtml,
       options,
@@ -2180,7 +2209,7 @@ export function renderLibraryApiDiff(
       state.input,
       {
         status: "Comparing complete public API surfaces...",
-        content: renderCompareLoading(),
+        content: renderCompareLoading() + supplementarySection,
       },
       escapeHtml,
       options,
@@ -2189,7 +2218,7 @@ export function renderLibraryApiDiff(
   if (state.status === "failed") {
     return frame(
       state.input,
-      { status: state.error, content: renderCompareRetry() },
+      { status: state.error, content: renderCompareRetry("Retry API comparison") + supplementarySection },
       escapeHtml,
       options,
     );
@@ -2270,7 +2299,7 @@ export function renderLibraryApiDiff(
               escapeHtml,
               ),
             escapeHtml,
-          ) + diagnosticHtml,
+          ) + diagnosticHtml + supplementarySection,
         },
         escapeHtml,
         options,
@@ -2297,7 +2326,7 @@ export function renderLibraryApiDiff(
               escapeHtml,
             ),
             escapeHtml,
-          ) + diagnosticHtml,
+          ) + diagnosticHtml + supplementarySection,
         },
         escapeHtml,
         options,
@@ -2308,7 +2337,7 @@ export function renderLibraryApiDiff(
         input,
         {
           status: result.error ?? "Library API Diff failed.",
-          content: renderCompareRetry(),
+          content: renderCompareRetry("Retry API comparison") + supplementarySection,
         },
         escapeHtml,
         options,
@@ -2318,7 +2347,7 @@ export function renderLibraryApiDiff(
         input,
         {
           status: "Comparison canceled.",
-          content: renderCompareRetry("Run comparison"),
+          content: renderCompareRetry("Run API comparison") + supplementarySection,
         },
         escapeHtml,
         options,

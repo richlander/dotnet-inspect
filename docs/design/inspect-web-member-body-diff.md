@@ -2,9 +2,10 @@
 
 ## Status and ownership
 
-This document owns **Member Body** as Browser Compare content: the hierarchy
-that discovers changed implementations and the inline Member reader that shows
-one exact implementation comparison. It is part of the Compare experience
+This document owns the merged **API + Member Body** Browser Compare content:
+the hierarchy that discovers changed declarations and implementations and the
+inline Member reader that shows one exact implementation comparison. It is
+part of the Compare experience
 adopted through
 [#9338](https://github.com/richlander/dotnet-inspect/issues/9338), under the
 end-to-end Compare tracker
@@ -13,8 +14,8 @@ end-to-end Compare tracker
 Its normative claim is:
 
 > For one retained Gallery Package Library and its effective Diff target,
-> Member Body projects the settled Implementation Diff document and portable
-> Library API member relations into changed Type rows and current-Member
+> API + Member Body projects the settled Implementation Diff document and
+> portable Library API member relations into changed Type rows and current-Member
 > destinations. Opening one issued Member destination presents that exact
 > added, signature-changed, or body-changed Member's Annotated Source diff
 > document in the shared diff viewer on the Member page. A deleted Member of a
@@ -27,8 +28,8 @@ Member document, but it neither owns nor replaces the inline result.
 
 This document defines:
 
-- the `member-body` Compare content choice and its Library-to-Type-to-Member
-  hierarchy;
+- the default `member-body` Compare content choice and its
+  Library-to-Type-to-Member hierarchy;
 - the Browser operation association and bounded projection of body changes;
 - the exact handoff from an inventory row to one Member comparison;
 - the inline Member Body reader, its media, states, and retention; and
@@ -84,23 +85,25 @@ uses the same complete inline viewer.
 
 The Compare content picker offers these closed choices in this order:
 
-1. **Public API**
-2. **Member Body**
-3. **String literals**
+1. **API + Member Body**
+2. **String literals**
 
-Public API remains the default. Selecting Member Body is explicit because
-decompilation and whole-Library implementation comparison are materially more
-expensive than API comparison. The choice is retained in the Package model and
-stays active through Compare-owned Library, Type, and Member navigation,
-including Up/Down Member navigation. It is not portable Workspace state.
+API + Member Body is the default. It presents one exact union of declaration
+and implementation changes, with one row when both evidence kinds describe the
+same Member. Entering Compare may therefore perform local decompilation across
+the selected Library pair; it does not request network source content. The
+choice is retained in the Package model and stays active through Compare-owned
+Library, Type, and Member navigation, including Up/Down Member navigation. It
+is not portable Workspace state. Legacy shared Public API and Member Body links
+restore into this merged content choice.
 
-Member Body has one hierarchy:
+API + Member Body has one hierarchy:
 
 | Subject | Presentation |
 | --- | --- |
-| Library | Aggregate mechanism and coverage summary followed by changed Types |
-| Type | Changed body-backed Members declared by that Type |
-| Member | One inline exact-Member body comparison |
+| Library | Changed Types with API, C#, and IL category chips |
+| Type | Changed API and body-backed Members declared by that Type |
+| Member | API change detail and, when present, one inline exact-Member body comparison |
 
 Library and Type are inventories, not detail panes. A Type row carries a
 managed-issued Type destination. A Member row carries a managed-issued exact
@@ -179,9 +182,13 @@ and typed failure, and joins canonical Navigation destinations where
 available. A current Member appears once when API and body evidence overlap;
 the managed projection associates them only through the API relation's exact
 After `MemberAnchor` and its resolved Research attempt, never through display
-text. It does not recompute correspondence. If complete Content fits the
-ordinary Worker limits, the projection retains it; otherwise it returns the
-typed transport rejection and no successful-looking inventory.
+text. This overlap applies to a method body and its logical API Member.
+Property and Event API rows remain logical Members, while an owner-issued
+Getter, Setter, Adder, or Remover body remains a distinct body-backed row; the
+Browser does not duplicate the logical API relation onto each accessor. It
+does not recompute correspondence. If complete Content fits the ordinary
+Worker limits, the projection retains it; otherwise it returns the typed
+transport rejection and no successful-looking inventory.
 
 The projection admits at most 10,000 changed Member subjects and the ordinary
 Worker's 83,886,080-character and 2,621,440-collection-entry limits. Admission
@@ -206,32 +213,34 @@ The common Compare frame remains quiet and stable while content changes:
 ```text
 Compare System.Text.Json                              Diff
 preview.6 -> preview.7                       Change target
-Public API | Member Body | String literals
+API + Member Body | String literals
 
-27 changed Members · C# 14 · IL 9 · 2 incomplete
+CHANGED  System.Text.Json.JsonSerializerOptions
+         API  C#  IL
 
-JsonSerializerOptions                         8 changed Members  >
-JsonTypeInfo                                  3 changed Members  >
+CHANGED  System.Text.Json.Serialization.Metadata.JsonTypeInfo
+         C#  IL
 ...
 ```
 
-Counts come from the projected document and its coverage, not from rendered
-rows. An incomplete mechanism names its evaluated, exact, changed,
-unavailable, incomplete, and failed subject counts beside the inventory. A
-Type row count is the number of distinct owner-issued Member subjects under
-that Type.
+The default inventory renders no aggregate or per-row counts. Each row keeps
+state separate from the fully qualified subject and category chips. Complete
+coverage is quiet. Incomplete coverage remains visible as concise C# or IL
+unavailable, incomplete, or failed notices without the evaluated/exact/changed
+census.
 
 Type presentation narrows the settled Library result:
 
 ```text
 Compare JsonSerializerOptions                          Diff
-Public API | Member Body | String literals
+API + Member Body | String literals
 
-8 changed Members
-
-JsonSerializerOptions(JsonSerializerOptions)   C# · IL  changed  >
-EqualityComparer.Equals(...)                   C# · IL  changed  >
-get_InferClosedTypePolymorphism()               C#       added    >
+CHANGED  System.Text.Json.JsonSerializerOptions.#ctor(...)
+         C#  IL
+CHANGED  System.Text.Json.Serialization.Metadata.JsonTypeInfo...
+         API  C#  IL
+ADDED    System.Text.Json.JsonSerializerOptions.get_InferClosedTypePolymorphism()
+         API  C#
 ```
 
 Mechanism, outcome, and subject are separate dimensions. Added, removed,
@@ -384,7 +393,7 @@ The common Compare frame remains mounted through every state:
 
 | State | Presentation |
 | --- | --- |
-| Not requested | Member Body choice only; no speculative work |
+| Not requested | Compare has not yet entered the default API + Member Body content |
 | Loading inventory | Progress associated with the exact Library-pair request |
 | Available, non-empty | Coverage and complete Type or Member inventory |
 | Available, no changes | **No implementation changes found** with complete coverage |
@@ -399,8 +408,8 @@ empty success.
 
 ## Progressive disclosure
 
-Member Body is an explicit Compare content choice and therefore may perform
-local decompilation across the selected Library pair. It does not request PDB
+API + Member Body is the default Compare content and may perform local
+decompilation across the selected Library pair. It does not request PDB
 Source, SourceLink, repository access, or any other network source-content
 operation. Authored Source remains separately explicit under its existing
 owner.
@@ -478,7 +487,7 @@ cache key; it does not keep a parallel Member-body dialog or comparison path.
 
 The production demo compares
 `System.Text.Json@11.0.0-preview.6.26359.118..11.0.0-preview.7.26381.103`,
-selects `System.Text.Json`, opens **Member Body**, drills through
+selects `System.Text.Json`, opens the default **API + Member Body** Diff, drills through
 `JsonSerializerOptions`, and opens
 `JsonSerializerOptions(JsonSerializerOptions)`. The Member page shows the
 inline C# diff containing the new `_inferClosedTypePolymorphism` assignment;
@@ -501,7 +510,8 @@ harness does not manufacture or repair C# or IL.
 
 ## Acceptance scenarios
 
-1. Compare the pinned System.Text.Json pair, select Member Body, and confirm
+1. Compare the pinned System.Text.Json pair in the default API + Member Body
+   content and confirm
    Library shows changed Types that Public API alone does not reveal.
 2. Open `JsonSerializerOptions`, activate its copy constructor, and confirm the
    Member page immediately shows the C# diff with the added

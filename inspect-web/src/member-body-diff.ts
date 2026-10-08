@@ -70,7 +70,9 @@ export function memberBodyDestination(
   const candidates = inventory.destinations.filter(member => member.typeIdentity === context.typeIdentity && member.fingerprint !== null
     && member.fingerprint === context.memberFingerprint
     && (context.bodySelector ? member.selector === context.bodySelector
-      : context.methodToken === null || member.methodToken === context.methodToken));
+      : context.methodToken === null
+        ? !member.isAccessor
+        : member.methodToken === context.methodToken));
   return candidates.length === 1 ? candidates[0]! : null;
 }
 
@@ -200,6 +202,119 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
     return reader.document.media.map(medium =>
       `<button type="button"${toolbar ? ` id="member-body-medium-${escape(medium.medium)}"` : ""} data-member-body-medium="${escape(medium.medium)}" aria-pressed="${medium.medium === reader.medium}">${medium.medium === "CSharp" ? "C#" : "IL"}</button>`).join("");
   }
+  function categoryLabel(mechanism: string): string {
+    if (mechanism === "CSharp") return "C#";
+    if (mechanism === "IlBody") return "IL";
+    return mechanism;
+  }
+  function memberCategories(member: BrowserMemberBodyMember): string[] {
+    return [
+      ...(member.hasApiChange ? ["API"] : []),
+      ...member.mechanisms.map(categoryLabel),
+    ];
+  }
+  function renderCategories(categories: readonly string[]): string {
+    if (categories.length === 0) return "";
+    return `<span class="member-body-categories">${categories.map(category =>
+      `<span class="member-body-category">${escape(category)}</span>`).join("")}</span>`;
+  }
+  function renderInventoryRow(
+    kind: "type" | "member",
+    display: string,
+    outcome: string,
+    categories: readonly string[],
+    attribute: string | null,
+    inertReason: string | null,
+  ): string {
+    const state = `<span class="library-api-diff-state library-api-diff-state-${escape(outcome.toLowerCase())}">${escape(outcome)}</span>`;
+    const copy = `<span class="library-api-diff-type-copy">
+      <strong>${escape(display)}</strong>
+      ${renderCategories(categories)}
+      ${inertReason ? `<span class="library-api-diff-inert">${escape(inertReason)}</span>` : ""}
+    </span>`;
+    const row = attribute === null
+      ? `<div class="library-api-diff-row" aria-disabled="true">${state}${copy}</div>`
+      : `<button type="button" class="library-api-diff-row" data-member-body-${kind}="${escape(attribute)}" aria-label="Open ${escape(display)} Compare">${state}${copy}</button>`;
+    return `<li class="library-api-diff-${kind}${attribute === null ? ` library-api-diff-${kind}-inert` : ""}">${row}</li>`;
+  }
+  function coverageNotice(inventory: BrowserMemberBodyDiffInventory): string {
+    const notices = inventory.coverage.flatMap(item => {
+      const mechanism = categoryLabel(item.mechanism);
+      return [
+        ...(item.unavailable > 0 ? [`${mechanism} unavailable for some Members`] : []),
+        ...(item.incomplete > 0 ? [`${mechanism} incomplete for some Members`] : []),
+        ...(item.failed > 0 ? [`${mechanism} failed for some Members`] : []),
+      ];
+    });
+    return notices.length === 0
+      ? ""
+      : `<p class="member-body-coverage" role="status">${escape(notices.join(" · "))}</p>`;
+  }
+  function renderBodyFailure(): string {
+    return `<p role="status">${escape(failure)}</p><button type="button" data-member-body-retry>Retry body comparison</button>`;
+  }
+  function renderInventorySection(subject: "library" | "type"): string {
+    if (!context || context.subject !== subject) return "";
+    if (failure) return renderBodyFailure();
+    const inventory = retained?.inventory;
+    if (!inventory) return pending ? '<p role="status">Loading implementation changes…</p>' : "";
+    const types = subject === "type"
+      ? inventory.types.filter(type => type.identity === context!.typeIdentity)
+      : inventory.types;
+    const rows = subject === "library" ? types.map(type => type.canNavigate
+      ? renderInventoryRow("type", type.display, type.outcome,
+          [...new Set([
+            ...(type.hasApiChange ? ["API"] : []),
+            ...type.members.flatMap(member => memberCategories(member)),
+          ])],
+          type.identity, null)
+      : renderInventoryRow("type", type.display, "Removed", ["API"], null,
+          "Removed in the current version; Before-side evidence only")).join("")
+      : types.flatMap(type => type.members).map(member => member.fingerprint !== null
+        ? renderInventoryRow("member", member.display, member.outcome,
+            memberCategories(member), member.id, null)
+        : renderInventoryRow("member", member.display, member.outcome,
+            memberCategories(member), null,
+            member.identityFailure ?? "No current Member destination")).join("");
+    const listClass = subject === "library"
+      ? "library-api-diff-types"
+      : "library-api-diff-members";
+    const listLabel = subject === "library"
+      ? "Changed Types"
+      : "Changed Members";
+    return `${coverageNotice(inventory)}<div class="member-body-inventory member-body-scroll" data-member-body-scroll>${
+      rows
+        ? `<ol class="${listClass}" aria-label="${listLabel}">${rows}</ol>`
+        : `<p role="status">${inventory.isComplete
+          ? subject === "type" && types.some(type => type.hasApiChange)
+            ? "No Member-level implementation changes"
+            : "No API or implementation changes found"
+          : "No changed rows; comparison coverage is incomplete."}</p>`
+    }</div>`;
+  }
+  function renderMemberSection(): string {
+    if (!context || context.subject !== "member") return "";
+    if (failure) return `<section class="member-body-reader">${renderBodyFailure()}</section>`;
+    if (!retained?.inventory)
+      return pending ? '<section class="member-body-reader"><p role="status">Loading implementation changes…</p></section>' : "";
+    const member = memberBodyDestination(retained.inventory, context);
+    if (!member) return "";
+    const reader = retained.readers.get(member.id);
+    const body = reader
+      ? renderMemberBodyReader(reader, escape)
+      : pending
+        ? '<p role="status">Loading exact Member diff…</p>'
+        : retained.inventory.isComplete
+          ? '<p role="status">No exact body comparison is available for this Member.</p>'
+          : '<p role="status">Member comparison is incomplete. No complete result is available.</p>';
+    return `<section class="member-body-reader"><div class="member-body-scroll" data-member-body-scroll>${body}</div></section>`;
+  }
+  function retry(): void {
+    if (pending) return;
+    failure = null;
+    input = null;
+    dependencies.render();
+  }
   function paintExplore(reader: Reader): void {
     if (!dialog) return;
     dialog.innerHTML = renderCodeEvidenceViewerFrame({
@@ -245,6 +360,8 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
       const reader = currentReader();
       return reader ? `${mediaControls(reader, true)}<button type="button" class="primary-action" id="member-body-explore" data-member-body-explore>Explore</button>` : "";
     },
+    renderMemberSection,
+    renderTypeSection: () => renderInventorySection("type"),
     reconcile(next: MemberBodyDiffContext | null): void {
       savePosition();
       const prior = context;
@@ -291,27 +408,14 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
       const inventory = retained?.inventory;
       let content: string;
       let status = pending ? "Loading Member Body comparison" : "Member Body";
-      if (failure) content = `<p role="status">${escape(failure)}</p><button type="button" id="compare-retry">Retry comparison</button>`;
+      if (failure) content = renderBodyFailure();
       else if (!inventory) content = '<p role="status">Loading implementation changes…</p>';
       else if (context.subject === "member") {
-        const reader = currentReader();
-        content = `<section class="member-body-reader"><div class="member-body-scroll" data-member-body-scroll>${reader
-          ? renderMemberBodyReader(reader, escape)
-          : pending ? '<p role="status">Loading exact Member diff…</p>'
-            : inventory.isComplete ? '<p role="status">No exact body comparison destination is available for this Member.</p>'
-              : '<p role="status">Member comparison is incomplete. No complete result is available.</p>'}</div></section>`;
+        content = renderMemberSection()
+          || '<p role="status">This Member has API changes but no body comparison.</p>';
       } else {
-        const types = context.subject === "type"
-          ? inventory.types.filter(type => type.identity === context!.typeIdentity) : inventory.types;
-        const coverage = inventory.coverage.map(item => `${item.mechanism}: ${item.changed} changed · ${item.exact}/${item.evaluated} exact · ${item.unavailable} unavailable · ${item.incomplete} incomplete · ${item.failed} failed`).join("; ");
-        status = inventory.isComplete ? `${types.reduce((count, type) => count + type.members.length, 0)} changed Members` : "Incomplete implementation comparison";
-        const rows = context.subject === "library" ? types.map(type => type.canNavigate
-          ? `<button type="button" class="library-api-diff-type" data-member-body-type="${escape(type.identity)}">${escape(type.display)} <span>${type.members.length} changed Members</span></button>`
-          : `<div class="library-api-diff-type">${escape(type.display)} <span>Removed · ${type.members.length} Members</span></div>`).join("")
-          : types.flatMap(type => type.members).map(member => member.fingerprint !== null && member.methodToken !== null
-            ? `<button type="button" class="library-api-diff-member" data-member-body-member="${escape(member.id)}">${escape(member.display)} <span>${escape(member.outcome)} · ${escape(member.mechanisms.join(" · "))}</span></button>`
-            : `<div class="library-api-diff-member">${escape(member.display)} <span>${escape(member.identityFailure ?? member.outcome)}</span></div>`).join("");
-        content = `<p class="member-body-coverage" role="status">${escape(status)} · ${escape(coverage)}</p><div class="member-body-inventory member-body-scroll" data-member-body-scroll>${rows || `<p role="status">${inventory.isComplete ? "No implementation changes found" : "No changed rows; comparison coverage is incomplete."}</p>`}</div>`;
+        status = inventory.isComplete ? "Comparison complete" : "Comparison incomplete";
+        content = renderInventorySection(context.subject);
       }
       return renderCompareFrame({ subjectKind: context.subject, subjectLabel: context.subjectLabel,
         mode: "diff", targetText: context.targetText, status, content, externalToolbar: true, escapeHtml: escape });
@@ -325,6 +429,7 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
             .find(candidate => candidate.id === button.dataset.memberBodyMember);
           if (member) dependencies.activateMember(member);
         }));
+      root.querySelector<HTMLButtonElement>("[data-member-body-retry]")?.addEventListener("click", retry);
       const reader = currentReader();
       if (reader) {
         bindReader(root, reader, false);
@@ -340,11 +445,7 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
       const scroller = root.querySelector<HTMLElement>("[data-member-body-scroll]");
       if (scroller && retained) scroller.scrollTop = currentReader()?.scrollTop ?? retained.positions.get(positionKey()) ?? 0;
     },
-    retry(): void {
-      if (pending) return;
-      failure = null; input = null;
-      dependencies.render();
-    },
+    retry,
     dispose(): void { input = null; pending = false; session.dispose(); closeExplore(); },
   };
 }

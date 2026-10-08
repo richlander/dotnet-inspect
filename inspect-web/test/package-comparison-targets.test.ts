@@ -26,12 +26,12 @@ const versions: PackageVersionState = {
 const escapeHtml = (value: unknown) => String(value).replaceAll("&", "&amp;")
   .replaceAll("<", "&lt;").replaceAll('"', "&quot;");
 
-test("new Packages default to the previous version and live Workspace including self", () => {
+test("new Packages default to merged API and Member Body Diff", () => {
   const current = pkg();
   const targets = createPackageComparisonTargets(() => [current]);
   assert.deepEqual(targets.get(current), {
     diff: { kind: "previous" },
-    diffContent: { kind: "api" },
+    diffContent: { kind: "member-body" },
     clone: { kind: "workspace" },
     mode: "diff",
   });
@@ -64,7 +64,7 @@ test("Diff content is retained per Package and validates literal predicates", ()
     operator: "contains",
     value: "https://",
   });
-  assert.deepEqual(targets.get(other).diffContent, { kind: "api" });
+  assert.deepEqual(targets.get(other).diffContent, { kind: "member-body" });
   assert.throws(() => targets.selectDiffContent(current, {
     kind: "string-literals",
     operator: "starts-with",
@@ -300,7 +300,7 @@ test("Diff content bindings dispatch complete literal selections", () => {
       operator: "contains",
       value: "http://",
     },
-    { kind: "api" },
+    { kind: "member-body" },
   ]);
 });
 
@@ -336,4 +336,11 @@ test("restored exact Diff keeps an unlisted baseline instead of applying previou
   assert.deepEqual(resolveEffectiveDiffTarget(targets.get(packageModel).diff, versions), { kind: "available", version: "0.9.0" });
   assert.equal(targets.get(packageModel).diffContent.kind, "member-body");
   assert.equal(targets.get(packageModel).mode, "diff");
+});
+
+test("legacy Public API shares restore into the merged Diff view", () => {
+  const packageModel = pkg();
+  const targets = createPackageComparisonTargets(() => [packageModel]);
+  targets.restoreExactDiff(packageModel, "0.9.0", { kind: "api" });
+  assert.deepEqual(targets.get(packageModel).diffContent, { kind: "member-body" });
 });
