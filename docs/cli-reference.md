@@ -1629,7 +1629,7 @@ An explicit verbosity keeps the verbosity-driven Type rendering rather than the
 compact Tree. `-v:m` adds the base Type and Member signatures, with an overload
 Count in place of the signatures for each overloaded constructor, method,
 operator, explicit interface implementation, or extension group; properties
-(including indexers), fields, and events list each signature. `-v:n` and `-v:d` list every overload signature.
+(including indexers) and events list each signature, and fields list each name. `-v:n` and `-v:d` list every overload signature.
 That rendering rejects `-v:q`; add `--markdown` for compact sections.
 
 ```bash

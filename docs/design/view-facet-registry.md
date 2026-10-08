@@ -387,10 +387,9 @@ New default Package views record `package.libraries`: Navigation's
 recommendation and the Workspace Package scenario projection. The CLI
 Workspace exact-Package share records `package.libraries` when it renders the
 default Package Tree and `package.overview` for the one other projectable
-Package selection, `-S "Package Info"`. Other section selections and the
-Package lenses produce the Share refusal
-([Workspace Definitions](workspace-definitions.md#package-packet-context-adoption)
-derived Share item 4). A Package view state that names `package.overview` or
+Package selection, `-S "Package Info"`. Other section selections and Package
+lenses produce no Share
+([Workspace Definitions](workspace-definitions.md#package-packet-context-adoption)). A Package view state that names `package.overview` or
 no facet still restores. Source-free share publication
 accepts either ID, or no facet, as the default Package state. The descriptor has a
 private execution binding and no executor, like the Library facets, and the
