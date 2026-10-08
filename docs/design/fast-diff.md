@@ -40,7 +40,7 @@ are unchanged, and proving that is far cheaper than describing a change.
 | Pass | Scope | Returns | Facts compared |
 | --- | --- | --- | --- |
 | Fast | Library | One state per Type | API (Finding transitions and compatibility classifications) and the one-sided method census; no body comparison |
-| Fast | Type | One state per Member | The Library facts for that Type's Members, plus canonical body equality for its paired methods |
+| Fast | Type | One state per Member | The Library facts for that Type's Members, plus owner-attributed canonical body equality |
 | Complete | Member | Full API and body diff for one exact Member | Existing [Annotated Source diff](annotated-source-diff-document.md) cost |
 
 Each pass stops at the first sign of change per subject. The passes are tiered
@@ -48,14 +48,13 @@ by cost, not nested by result: a Library `Unchanged` says the Type has no API
 or member-inventory difference and says nothing about bodies. The Library pass
 does not walk method bodies because exact `Unchanged` on a Type requires every
 paired body proven equal, and early exit helps only changed Types, so the body
-walk costs the whole library on every unchanged Type. Measured on NativeAOT in
-[#9686](https://github.com/richlander/dotnet-inspect/pull/9686), adding a body
-comparison across the library regressed `System.Text.Json` 9.0.0 to 10.0.0
-Library Compare by 35.9% against the API-only diff. Body equality is therefore
-a Type-pass fact, where the walk is bounded by one Type. A host that must know
-whether any body changed in a Type requests the Type pass; the producer states
-the facts each pass compares so no consumer reads more into a state than it
-carries.
+walk costs the whole library on every unchanged Type. A raw per-side digest
+experiment measured that cost independently of complete diff inventory and
+serialization; [Consequences for the complete diff](#consequences-for-the-complete-diff)
+records the result. Body equality is therefore a Type-pass fact, where the walk
+is bounded by one Type. A host that must know whether any body changed in a
+Type requests the Type pass; the producer states the facts each pass compares
+so no consumer reads more into a state than it carries.
 
 ## QuerySpace execution
 
@@ -97,8 +96,9 @@ Fast Diff executes over raw QuerySpace producers:
   supply API witnesses;
 - a raw MethodDef census supplies one-sided and body-availability witnesses;
   and
-- a raw canonical IL producer decodes paired method bodies lazily and stops at
-  the first unequal operation or owned body fact.
+- a raw canonical IL producer decodes a Member's direct body and authenticated
+  generated execution bodies lazily, and stops at the first unequal operation
+  or owned body fact.
 
 Fast Diff does not route through `LibraryBodyAnalysisService`, an Analysis
 method population, Research target planning, `ImplementationComparisonQuery`,
@@ -119,6 +119,15 @@ Metadata subject.
 Decode or resolution failure is local to the unresolved subject. QuerySpace
 settles that subject as `Indeterminate`; it does not fail the Library or Type
 request and does not invalidate subjects already settled as `Changed` or
+`Unchanged`.
+
+Generated execution identity remains separate from Member attribution.
+[State-machine relationship index](state-machine-relationship-index.md)
+authenticates kickoff, state-machine, and execution MethodDefs; the Analysis
+Method source supplies typed state-machine and lifted-body origins that name
+their declared owner. Fast Diff folds only those owner-issued origins into the
+Member implementation fact. Rejected, ambiguous, incomplete, or
+limit-exhausted attribution makes that Member `Indeterminate`, never
 `Unchanged`.
 
 ## Subject states and equality
@@ -144,17 +153,22 @@ Equality is decided per paired subject:
   admits only a completed Library comparison and would force the complete diff
   first. The presentation remains the owner of how complete results are shown;
   Fast Diff defines no second notion of API equality.
-- **Implementation (Type pass only).** Canonical IL operation equality for each
-  paired, body-backed method, as defined by
+- **Implementation (Type pass only).** Each Member's implementation fact folds
+  its paired direct MethodDef and every authenticated generated execution
+  MethodDef attributed to that declared owner. This includes async and iterator
+  state-machine execution, lambdas, and local functions. Each physical body
+  uses canonical IL operation equality as defined by
   [IL diff canonicalization](il-diff-canonicalization.md) (tokens resolved to
   names, no decompilation). A method with no body on both sides is equal on
-  this axis. Canonical operations do not cover every body fact the complete
-  Implementation Diff renders, so the comparison also covers exception regions
-  (including catch types and filters) and local variable types. A body fact the
-  producer cannot compare, or that canonicalization does not define, makes the
-  method `Indeterminate`, never `Unchanged`. String operands compare as
-  resolved user-string values, never heap tokens, so a literal that only moved
-  is equal and a changed literal is a difference.
+  this axis. The compared physical-body facts are canonical operations and
+  symbolic operands, branch and switch topology, exception regions (including
+  catch types and filters), local variable types, `init locals`, `.maxstack`,
+  and MethodImpl flags. `.maxstack` and MethodImpl changes may conservatively
+  report `Changed`; omitting them would make physical-body `Unchanged`
+  incomplete. A fact the producer cannot compare makes the Member
+  `Indeterminate`, never `Unchanged`. String operands compare as resolved
+  user-string values, never heap tokens, so a literal that only moved is equal
+  and a changed literal is a difference.
 - **One-sided methods (both passes).** The complete Implementation Diff compares the union of
   declared methods, so the producer also takes a census of methods present on
   only one side, including non-public ones. A one-sided method makes its Type
@@ -166,6 +180,12 @@ the first difference, and resolve token operands only when reached, memoized per
 side. Equal token numbers never prove equal targets across assemblies. Length
 alone proves a change only if canonicalization does not normalize encodings.
 This changes how early the walk stops, not what counts as equal.
+
+Independent per-side caching cannot soundly normalize compiler-generated
+ordinals by itself. A generated identity shift such as `<M>b__5_0` to
+`<M>b__5_1` therefore reports the owning Member `Changed`, even when its
+canonical execution bodies otherwise match. This is permitted conservative
+over-reporting; it cannot establish `Unchanged`.
 
 The contract is **presence means change**. Fast Diff takes the first sign of
 change, of any kind (added, removed, API, or implementation), and stops. It
@@ -188,40 +208,40 @@ changed in the facts that pass compares. Each pass also publishes exact-head
 NativeAOT and Browser/Wasm numbers against the complete diff for the same
 pairs.
 
-The performance gate includes `Aspire.Hosting` 13.6.0 to 13.6.1. Diagnostic
-evidence on #9686 found a warmed Firefox/Mono Browser/Wasm Library request took
-5,425 ms with whole-Library body comparison and 3,567.5 ms when body comparison
-was skipped. Both paths still constructed the complete API comparison and
-returned no changed rows. Neither is an acceptable Fast Diff implementation;
-the accepted producer must demonstrate that QuerySpace `Exists` materially
-reduces that product-host latency.
+The Library body policy was tested with a raw per-side digest prototype over
+canonical operations, symbolic operands, control-flow topology, exception
+regions, locals, body flags, and owner-attributed state-machine, lambda, and
+local-function bodies. It did not construct an API diff, Research population,
+row inventory, or serialized result. Exact `origin/main` `2b11462b5`, exact
+package DLLs, and one host (`dotnet-inspect-perf-3`) were used throughout.
+Every measured command ran under `perf-guard`.
 
-The existing Member Body path is a rejected baseline, not an implementation
-candidate. On the same Browser/Wasm host, its `System.Text.Json` 9.0.0 to
-10.0.0 inventory took 34,272 ms and one retained changed Member took another
-15,134.5 ms. On exact #9686, `Aspire.Hosting` ran for 67,923 ms before the
-Research selector defect fixed by #9713 failed the whole Browser/Wasm request.
-The same pre-fix operation under NativeAOT had a 4,040.1 ms median and
-4,088.1 ms p95 over 20 samples before that failure.
+| Pair | Physical bodies before / after | NativeAOT cold side medians | Firefox/Mono Browser-Wasm cold side medians | Cached comparison median |
+| --- | ---: | ---: | ---: | ---: |
+| `Aspire.Hosting` 13.6.0 to 13.6.1 | 11,483 / 11,483 | 841.4 / 845.8 ms | 15,982 / 15,988 ms | 12.1 ms NativeAOT; 62 ms Browser |
+| `System.Text.Json` 9.0.0 to 10.0.0 | 3,884 / 4,055 | 155.1 / 160.6 ms | 3,133 / 3,330 ms | 3.7 ms NativeAOT; 22 ms Browser |
 
-A synthetic #9686 plus #9713 build reaches `Available`, exposing the complete
-path's cost and remaining richer-mechanism failure. NativeAOT had a 9,279.1 ms
-median and 9,328.4 ms p95 over 20 samples. Warmed Firefox/Mono Browser/Wasm had
-a 140,900 ms median and 141,231 ms p95 over three samples. The Browser
-inventory was incomplete: canonical IL proved all 2,330 evaluated bodies exact,
-while C# decompilation had 2,329 exact and one failed subject. That failure was
-the sole changed row; opening it took another 101,969 ms and produced failed
-Before and After documents rather than a diff.
+NativeAOT used three warmups and 20 samples; the Aspire side p95 values were
+853.2 and 851.7 ms. Browser/Wasm used one warmup and three samples; the Aspire
+side p95 values were 16,034 and 16,006 ms. Aspire retained 9,629 declared
+owners and 1,857 generated-body origins per side. It found 15 changed owners
+across two Types: seven direct-body changes, four generated-only changes, and
+four one-sided owners. Stable result hashes agreed across both runtimes.
 
-The pre-fix failure is historical, not current selector behavior. The post-fix
-result still rejects Library Body Analysis, Research target resolution,
-decompilation, and Member Body inventory as Fast Diff sources: they compute
-complete API and dual-mechanism inventories, require richer identities, and
-allow an irrelevant decompiler failure to affect the result even when every
-canonical IL body is exact. These measurements do not predict the raw
-QuerySpace producer's latency. Browser/Wasm was about 15.2x the NativeAOT
-median on the post-fix complete path, so product-host evidence remains
-mandatory rather than treating NativeAOT as an absolute-latency proxy.
+The higher fidelity is real, but cold Library snapshots do not survive
+Browser/Wasm: the two Aspire sides cost about 32 seconds before presentation,
+versus 5,425 ms for #9686's narrower whole-Library body comparison and 3,567.5
+ms when that comparison was skipped. Cached comparison is cheap, but the first
+Library request still has to create both immutable snapshots. The Library pass
+therefore remains body-free; Type requests compute and may cache only the
+unresolved Members they actually reach.
+
+The existing Member Body path remains a rejected baseline rather than a Fast
+Diff source. #9713 fixed its historical selector defect, but the post-fix path
+still pays complete API, Research, decompilation, and dual-mechanism inventory
+costs. Exact measurements and correction history are retained on
+[#9686](https://github.com/richlander/dotnet-inspect/pull/9686) and this design's
+pull request rather than expanded here.
 
 ## Hosts
 
@@ -243,6 +263,12 @@ Library pair, scope, and subject, and hosts may cache them. The Library result
 does not seed the Type pass: early exit stops at the first difference per Type,
 so Member states are a separate computation. A miss recomputes and never changes
 a result.
+
+The raw producer may also cache one physical MethodDef digest per exact assembly
+version. The Library pass does not populate that cache. A Type request reuses
+available entries and lazily computes only physical bodies attributed to
+unresolved Members; cached whole-snapshot comparison time does not justify
+paying whole-snapshot construction on the first Library request.
 
 The producer is **non-streaming**: each request returns one complete result for
 its scope (all Type states for a Library request, all Member states for a Type
@@ -322,3 +348,10 @@ The plan has **seven independently mergeable slices** under #9716:
     selector round-trip participates in body acquisition.
 14. One method whose raw body cannot be decoded is `Indeterminate`; other
     subjects in the same request retain their independently settled states.
+15. A change confined to an async or iterator state-machine execution body,
+    lambda, or local function is attributed to its declared owner and makes
+    that Member `Changed` at Type scope.
+16. Rejected, ambiguous, incomplete, or limit-exhausted generated-body
+    attribution makes the declared Member `Indeterminate`, never `Unchanged`.
+17. A compiler-generated ordinal shift may conservatively make affected
+    Members `Changed`; it never proves `Unchanged`.
