@@ -48,11 +48,15 @@ public static partial class CallGraphExports
                 BrowserCallGraphJsonContext.Default
                     .BrowserCallGraphPruningInventory);
         PackageDependencyMemberCallGraphPlatformPruning? pruning =
-            pruningInventory?.Supplies is { } supplies
+            pruningInventory is
+                {
+                    Version: { } targetVersion,
+                    Supplies: { } supplies,
+                }
                 ? BrowserPackageDependencyMemberCallGraphContinuationSource
                     .CreateCurrentRuntimePruning(
                         pruningInventory.Tfm,
-                        pruningInventory.Version,
+                        targetVersion,
                         supplies.Select(
                             static supply =>
                                 $"{supply.Package}|{supply.Version}"))

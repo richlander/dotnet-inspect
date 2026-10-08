@@ -3989,8 +3989,9 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
 const callGraphInspection = createCallGraphInspectionCoordinator({
   state,
   queryPackage: async request => {
-    const target = await ensurePlatformCatalog(
-      platformCatalogFramework(request.traversalFramework));
+    state.platformIndex ??= await loadPlatformIndex();
+    const target = state.platformIndex?.target(
+      platformCatalogFramework(request.traversalFramework)) ?? null;
     return inspectMemberCallGraph(
       request.packageId,
       request.version,

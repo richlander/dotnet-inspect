@@ -105,8 +105,15 @@ test("call graph pruning receives only the exact Runtime supply inventory", () =
   assert.deepEqual(
     platformRuntimePruningInventory(target, `${target.tfm}-ios`),
     {
-      tfm: target.tfm,
-      version: target.version,
+      tfm: `${target.tfm}-ios`,
+      version: null,
+      supplies: null,
+    });
+  assert.deepEqual(
+    platformRuntimePruningInventory(null, "net12.0"),
+    {
+      tfm: "net12.0",
+      version: null,
       supplies: null,
     });
 });

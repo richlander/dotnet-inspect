@@ -157,7 +157,7 @@ public sealed record BrowserCallGraphPruningSupply(
 
 public sealed record BrowserCallGraphPruningInventory(
     string Tfm,
-    string Version,
+    string? Version,
     BrowserCallGraphPruningSupply[]? Supplies);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]

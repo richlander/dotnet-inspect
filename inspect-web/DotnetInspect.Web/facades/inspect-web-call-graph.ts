@@ -51,7 +51,7 @@ export interface BrowserCallGraphNode {
 
 export interface BrowserCallGraphPruningInventory {
   readonly tfm: string;
-  readonly version: string;
+  readonly version: string | null;
   readonly supplies: ReadonlyArray<BrowserCallGraphPruningSupply> | null;
 }
 
