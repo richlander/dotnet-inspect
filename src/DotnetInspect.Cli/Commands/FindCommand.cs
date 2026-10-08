@@ -843,7 +843,11 @@ public class FindCommand
                 return new(1, RowCount: null);
             }
             if (search.HasFailures
-                || search.SourceSelectionIncomplete)
+                || !CliSemanticRowSelection.ProvidesExactCount(
+                    rowSelection,
+                    observedRowCount,
+                    sourceComplete:
+                        !search.SourceSelectionIncomplete))
             {
                 CommandError.Write(
                     "Cannot count member rows because one or more search sources were incomplete.");
