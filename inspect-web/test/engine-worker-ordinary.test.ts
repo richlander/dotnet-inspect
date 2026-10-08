@@ -199,6 +199,9 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformOpportunities"),
     queryPackagePerformance: () =>
       unexpected("queryPackagePerformance"),
+    renderTriageCaret: () => unexpected("renderTriageCaret"),
+    queryPackageResourceTriage: () =>
+      unexpected("queryPackageResourceTriage"),
     queryPackageLibraryDependencyStructure: () =>
       unexpected("queryPackageLibraryDependencyStructure"),
     queryPackageLibraryMetrics: () =>
@@ -213,6 +216,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformLibraryStructuralSalience"),
     queryPlatformPerformance: () =>
       unexpected("queryPlatformPerformance"),
+    queryPlatformResourceTriage: () =>
+      unexpected("queryPlatformResourceTriage"),
   },
   source: {
     queryMemberBodyDiff: () => { throw new Error("unused"); },
@@ -1561,6 +1566,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
     },
     documents: surface.documents,
     surface,
+    defaultLibraryId: surface.defaultAssemblyId,
   } satisfies BrowserPackageLoadResult;
   const notSettled = {
     versionSettlement: {
@@ -1596,6 +1602,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
     packageChildren: null,
     documents: [],
     surface: null,
+    defaultLibraryId: null,
   } satisfies BrowserPackageLoadResult;
   const state = fixture({
     package: {
@@ -2366,6 +2373,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPackageLibraryStructuralSalience",
       "queryPackageOpportunities",
       "queryPackagePerformance",
+      "queryPackageResourceTriage",
       "queryPackageTypeImplementationHeat",
       "queryPackageTypeMethodLeverage",
       "queryPlatformIntegrations",
@@ -2374,8 +2382,10 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformLibraryStructuralSalience",
       "queryPlatformOpportunities",
       "queryPlatformPerformance",
+      "queryPlatformResourceTriage",
       "queryPlatformTypeImplementationHeat",
       "queryPlatformTypeMethodLeverage",
+      "renderTriageCaret",
     ],
     source: [
       "cancelMemberBodyDiff",
@@ -2443,7 +2453,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 118);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 121);
 
   const state = fixture();
   const groups = [
@@ -2477,5 +2487,23 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
   }
   assert.equal("dispatch" in state.client, false);
   assert.equal("invoke" in state.client, false);
+  state.host.dispose();
+});
+
+
+test("triage caret transport preserves exact source extent and managed output", async () => {
+  const sourceLine = "    Call();";
+  const printed = "//  ^^^^";
+  const state = fixture({
+    analysis: {
+      renderTriageCaret: (line, column, length) => {
+        assert.deepEqual([line, column, length], [sourceLine, 4, 4]);
+        return printed;
+      },
+    },
+  });
+  const result = state.client.analysis.renderTriageCaret(sourceLine, 4, 4);
+  await state.environment.flushAsync();
+  assert.equal(await result, printed);
   state.host.dispose();
 });

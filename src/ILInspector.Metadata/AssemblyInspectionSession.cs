@@ -207,6 +207,9 @@ public sealed class AssemblyInspectionSession :
     public AssemblyArtifactIdentity? ArtifactIdentity =>
         _image.ArtifactIdentity;
 
+    /// <summary>The byte length of the exact opened image.</summary>
+    public long ImageLength => _image.Length;
+
     /// <summary>
     /// Whether this session and <paramref name="assembly"/> retain the same
     /// acquisition-issued artifact identity.
@@ -543,6 +546,26 @@ public sealed class AssemblyInspectionSession :
                 reader,
                 request,
                 cancellationToken);
+    }
+
+    /// <summary>
+    /// Reports whether this image contains an extension relation for one
+    /// exact receiver Type.
+    /// </summary>
+    public MetadataExtensionRelationPresenceOutcome ExtensionRelationsExist(
+        MetadataExtensionRelationPresenceRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!_image.TryGetMetadataReader(out MetadataReader? reader))
+        {
+            return new MetadataExtensionRelationPresenceOutcome.Failed();
+        }
+        return MetadataRelationInspection.ExecuteExtensionPresence(
+            _image.PEReader,
+            reader,
+            request,
+            cancellationToken);
     }
 
     /// <summary>

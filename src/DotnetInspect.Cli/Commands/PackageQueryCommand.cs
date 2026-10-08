@@ -450,8 +450,19 @@ internal static class PackageQueryCommand
 
         public async ValueTask<PackageQueryContentResult> GetContentAsync(
             PackageQueryPackage package,
+            PackageQueryContentDemand demand,
             CancellationToken cancellationToken)
         {
+            if (demand.ContentQuery is { } query)
+            {
+                PackageHouseSettlement settlement = await composition.AcquireContentAsync(
+                    PackageSourceCoordinate.Create(package.PackageId, package.Version),
+                    query,
+                    GetStore,
+                    new NuGetSourceOptions { Sources = [PackageSource.NuGetOrg.Url] },
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                return PackageQueryContentResult.FromSettlement(settlement);
+            }
             var result = await composition.AcquirePinnedAsync(
                 package.PackageId,
                 package.Version,

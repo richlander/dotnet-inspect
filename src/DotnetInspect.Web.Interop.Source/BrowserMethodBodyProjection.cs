@@ -30,7 +30,7 @@ internal static class BrowserMethodBodyProjection
                     new(invalid.Kind.ToString(), side, "The physical designation is unavailable.", null),
                     .. invalid.MetadataFailures.Select(failure => new BrowserMethodBodyDiagnostic(
                         failure.Kind, side, failure.Operation, failure.Detail,
-                        SubjectToken: failure.SubjectToken, Mechanism: failure.Mechanism.ToString())),
+                        SubjectToken: failure.SubjectToken, Mechanism: failure.MechanismName)),
                 ]),
             LocalComparisonQueryFailure.AccessRejected rejected =>
                 ("AccessRejected", [new(rejected.Cause.Kind.ToString(), side, rejected.Cause.Detail, null)]),
@@ -132,7 +132,7 @@ internal static class BrowserMethodBodyProjection
                         new BrowserMethodBodyDiagnostic(failure.Kind, failure.Side,
                             "C# identity resolution failed.", failure.Detail,
                             SubjectToken: failure.SubjectToken,
-                            Mechanism: failure.Mechanism.ToString(), Path: failure.Path)));
+                            Mechanism: failure.MechanismName, Path: failure.Path)));
                 }
                 return new(name, "ProducedCSharp",
                     csharpEvidence is null ? MissingBodyVerdict(before, after)
@@ -159,7 +159,7 @@ internal static class BrowserMethodBodyProjection
                     diagnostics.AddRange(Values(member.IdentityFailures).Select(failure =>
                         new BrowserMethodBodyDiagnostic(failure.Kind, failure.Side,
                             "IL identity resolution failed.", failure.Detail,
-                            SubjectToken: failure.SubjectToken, Mechanism: failure.Mechanism.ToString())));
+                            SubjectToken: failure.SubjectToken, Mechanism: failure.MechanismName)));
                 }
                 return new(name, "ProducedIlBody",
                     ilEvidence?.Outcome ?? MissingBodyVerdict(before, after),
@@ -179,8 +179,12 @@ internal static class BrowserMethodBodyProjection
     static BrowserMethodBodyEndpoint Endpoint(ResearchTargetAttempt attempt)
     {
         var resolved = attempt.Outcome as ResearchTargetOutcome.Resolved;
-        return new("NotInspected", resolved?.Address?.ModuleVersionId.ToString("D"),
-            resolved?.Address?.Token, attempt.Outcome.Kind.ToString(), null);
+        return new(
+            "NotInspected",
+            resolved?.ProjectedAddress?.ModuleVersionId.ToString("D"),
+            resolved?.ProjectedAddress?.MetadataToken,
+            attempt.Outcome.Kind.ToString(),
+            null);
     }
 
     static BrowserMethodBodyEndpoint Inspection<T>(

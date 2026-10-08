@@ -70,10 +70,11 @@ internal static class BrowserLibraryDocumentOperation
             case { Kind: BrowserLibrarySelectorKind.Package, Package: { } package }:
             {
                 await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-                    await BrowserPackageWorkspace.OpenScopeAsync(
+                    await BrowserPackageWorkspace.OpenRealizedScopeAsync(
                         package.PackageId,
                         package.Version,
-                        package.TargetFramework).ConfigureAwait(false);
+                        package.TargetFramework,
+                        cancellationToken).ConfigureAwait(false);
                 return await InspectPackageAsync(
                         scopeLease.Scope,
                         package.AssemblyId,

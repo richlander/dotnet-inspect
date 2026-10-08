@@ -352,8 +352,9 @@ jobs:
         shell: bash
         run: eng/run-lean-checks.sh
 
-  # Keep focused Browser/Wasm platform probes in PR CI. Deep Inspect owns
-  # complete engine, facade, canary, browser, and published-application checks.
+  # Keep focused Browser/Wasm platform probes and the generated-facade drift
+  # check in PR CI. Deep Inspect owns complete engine, canary, browser, and
+  # published-application checks.
   inspect-web-platform:
     name: inspect-web platform probes
     needs: changes
@@ -375,6 +376,41 @@ jobs:
 
       - name: Run local-path admission Browser/Wasm platform probe
         run: eng/run-local-path-admission-platform-probe.sh browser
+
+  inspect-web-facades:
+    name: inspect-web facades
+    needs: changes
+    if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verify generated facade digests
+        run: eng/generate-inspect-web-engine-facade.sh --verify-digest
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.100-rc.1.26425.128'
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: inspect-web/package-lock.json
+
+      - name: Install browser Wasm workload
+        run: dotnet workload install wasm-experimental
+
+      - name: Build browser frontend
+        working-directory: inspect-web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Check generated facades are current
+        run: eng/generate-inspect-web-engine-facade.sh --fast-check
 
   inspect-web-msdl-tests:
     name: inspect-web managed API tests
@@ -429,6 +465,7 @@ jobs:
     needs:
       - changes
       - inspect-web-platform
+      - inspect-web-facades
       - inspect-web-msdl-tests
     if: >-
       always() &&
@@ -442,7 +479,7 @@ jobs:
         run: |
           jq -e '
             [to_entries[] | select(.key != "changes") | .value.result] as $results
-            | ($results | length) == 2
+            | ($results | length) == 3
             and all($results[]; . == "success")
           ' <<< "$RESULTS"
 
@@ -506,6 +543,20 @@ jobs:
           --filter-class 'DotnetInspector.Queries.Tests.IntegrationCensusTests'
           --filter-class 'DotnetInspector.Queries.Tests.ViewFacetRegistryTests'
           --filter-not-trait "Speed=Slow" --minimum-expected-tests 300
+
+      - name: Run portable query tests
+        run: >-
+          dotnet run --project tests/DotnetInspector.PortableQueries.Tests -c Release
+          --no-build --
+          --filter-not-trait "Speed=Slow" --minimum-expected-tests 1300
+
+      - name: Run producer-capability adopter tests
+        run: >-
+          dotnet run --project tests/DotnetInspector.Sections.Tests -c Release
+          --no-build --
+          --filter-class 'DotnetInspector.Sections.Tests.PackageChildrenInspectionTests'
+          --filter-class 'DotnetInspector.Sections.Tests.QuerySpaceSectionRowCompositionTests'
+          --filter-not-trait "Speed=Slow" --minimum-expected-tests 22
 
       - name: Run InertText tests
         run: dotnet run --project tests/InertText.Tests -c Release --no-build
@@ -899,6 +950,7 @@ jobs:
       - changes
       - provenance
       - inspect-web-platform
+      - inspect-web-facades
       - inspect-web-msdl-tests
       - inspect-web
       - test

@@ -178,6 +178,19 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinition method);
 }
 
+internal enum ExtensionDeclarationShape
+{
+    None,
+    Skeleton,
+    Unconfirmed,
+}
+
+internal enum MethodBodyAvailability
+{
+    Present,
+    NoApplicableInput,
+}
+
 internal enum DeclaredOwnerResolution
 {
     None,
@@ -198,6 +211,16 @@ internal sealed class LibraryMethodAnalysisResult
     public CallerUnsafeMode Mode;
     public bool IsLeverage;
     public bool HasBody;
+    // Owner-issued body availability from declaration flags; see
+    // docs/design/unsafe-member-findings.md#body-availability.
+    public MethodBodyAvailability BodyAvailability;
+    public bool RequiresDeclaredOwner;
+    public bool InScope;
+    // A C# extension block's declaration copy in its grouping type; the
+    // implementation method on the enclosing static class is the member.
+    public bool IsExtensionDeclarationSkeleton;
+    public bool OwnerResolutionFailed;
+    public DeclaredOwnerResolution OwnerResolution;
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence;
     public ImmutableArray<DirectCall> Calls;
     public ImmutableArray<StringMaterializationOccurrence>
@@ -742,6 +765,8 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 methodDefinition.RelativeVirtualAddress != 0
                 && HasManagedIlBody(
                     methodDefinition.ImplAttributes);
+            result.BodyAvailability =
+                ClassifyBodyAvailability(methodDefinition);
             var scope = _infrastructure.CreateScope(
                 typeDefinition,
                 methodDefinition);
@@ -753,6 +778,22 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             result.HasCaller = true;
             result.Caller = caller;
             result.Token = caller.MetadataToken;
+            // A body needs an authenticated owner when its name is a lifted
+            // or state-machine body, or when it is declared in a
+            // compiler-generated type nested inside another type.
+            ExtensionDeclarationShape extensionShape =
+                ClassifyExtensionDeclaration(
+                    reader,
+                    typeDefinition,
+                    methodDefinition);
+            result.IsExtensionDeclarationSkeleton =
+                extensionShape == ExtensionDeclarationShape.Skeleton;
+            result.RequiresDeclaredOwner =
+                CompilerGeneratedNames.RequiresDeclaredOwner(caller)
+                || IsDeclaredInNestedCompilerGeneratedType(
+                    reader,
+                    typeDefinition)
+                || extensionShape == ExtensionDeclarationShape.Unconfirmed;
             if (localExceptionTypes is not null)
             {
                 isReferenceAssembly = localExceptionTypes.IsReferenceAssembly;
@@ -783,6 +824,11 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             }
             if (!result.HasBody)
             {
+                result.InScope =
+                    (bodyScope is null
+                        || bodyScope.Contains(caller.MetadataToken))
+                    && (bodyTypeScope is null
+                        || bodyTypeScope(caller.DeclaringType));
                 SetLocalThrowUnavailable(LocalThrowUnavailableReason.NoManagedBody);
                 result.RequiresCompleteFieldAccessCensus =
                     false;
@@ -845,6 +891,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     return result;
                 }
             }
+            result.InScope = true;
             MethodIdentity? opportunityDeclaredMethod = null;
             MethodIdentity? unresolvedOpportunityOwner = null;
             AuthenticatedSourceOwner? immediateOwnerEvidence = null;
@@ -856,6 +903,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         .IsAuthenticatedAsyncStateMachineExecutionMethod(
                             methodHandle,
                             methodDefinition));
+            result.RequiresDeclaredOwner |= requiresDeclaredOwner;
             AsyncBodyAttribution? asyncBody = null;
             bool opportunityOwnershipResolved = true;
             DeclaredOwnerResolution ownerResolution =
@@ -926,6 +974,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                             : null;
                     result.DeclaredMethod = null;
                 }
+                result.OwnerResolution = ownerResolution;
                 opportunityOwnershipResolved =
                     ownerResolution
                         is DeclaredOwnerResolution.None
@@ -942,6 +991,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 when (IsRecoverableMethodFailure(ex))
             {
                 result.DeclaredMethod = null;
+                result.OwnerResolutionFailed = true;
                 opportunityOwnershipResolved = false;
                 result.Diagnostic = new AnalysisDiagnostic(
                     MetadataTokens.GetToken(methodHandle),
@@ -1562,6 +1612,8 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 methodDefinition.RelativeVirtualAddress != 0
                 && HasManagedIlBody(
                     methodDefinition.ImplAttributes);
+            result.BodyAvailability =
+                ClassifyBodyAvailability(methodDefinition);
             GenericScope scope = _infrastructure.CreateScope(
                 typeDefinition,
                 methodDefinition);
@@ -2144,6 +2196,90 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             DirectCallCollectionAttempted = true,
             DirectCallCollectionComplete = complete,
         };
+    }
+
+    // Matches Member Body comparison: a declaration that is abstract, a
+    // P/Invoke, runtime-provided or internal-call, or an IL declaration without
+    // a body (such as an extern UnsafeAccessor) has no body to inspect.
+    internal static MethodBodyAvailability ClassifyBodyAvailability(
+        MethodDefinition method)
+        => (method.Attributes
+                & (MethodAttributes.Abstract
+                    | MethodAttributes.PinvokeImpl))
+                != 0
+            || !HasManagedIlBody(method.ImplAttributes)
+            || (method.ImplAttributes
+                & MethodImplAttributes.InternalCall)
+                != 0
+            || method.RelativeVirtualAddress == 0
+                ? MethodBodyAvailability.NoApplicableInput
+                : MethodBodyAvailability.Present;
+
+    // Roslyn emits each extension-block member twice: an implementation on the
+    // [Extension] static class, and a declaration copy with a throwing body in
+    // a nested SpecialName [Extension] grouping type. Every method of a
+    // confirmed grouping type is such a copy. An [ExtensionMarker] method
+    // outside that shape is unconfirmed and must not stand as its own member.
+    static ExtensionDeclarationShape ClassifyExtensionDeclaration(
+        MetadataReader reader,
+        TypeDefinition type,
+        MethodDefinition method)
+    {
+        try
+        {
+            TypeDefinitionHandle enclosing = type.GetDeclaringType();
+            bool groupingType =
+                !enclosing.IsNil
+                && (type.Attributes & TypeAttributes.SpecialName) != 0
+                && AttributeReader.HasAttribute(
+                    reader,
+                    type.GetCustomAttributes(),
+                    ExtensionAttributeName)
+                && AttributeReader.HasAttribute(
+                    reader,
+                    reader.GetTypeDefinition(enclosing).GetCustomAttributes(),
+                    ExtensionAttributeName);
+            if (groupingType)
+                return ExtensionDeclarationShape.Skeleton;
+            return AttributeReader.TryGetExtensionMarkerName(
+                    reader,
+                    method.GetCustomAttributes(),
+                    out _)
+                ? ExtensionDeclarationShape.Unconfirmed
+                : ExtensionDeclarationShape.None;
+        }
+        catch (BadImageFormatException)
+        {
+            return ExtensionDeclarationShape.Unconfirmed;
+        }
+    }
+
+    const string ExtensionAttributeName =
+        "System.Runtime.CompilerServices.ExtensionAttribute";
+
+    // A compiler-generated type nested inside another type (closure, state
+    // machine, or lifted helper container) holds bodies that belong to a
+    // source owner; a top-level generated type has none.
+    bool IsDeclaredInNestedCompilerGeneratedType(
+        MetadataReader reader,
+        TypeDefinition type)
+    {
+        TypeDefinition current = type;
+        for (int depth = 0;
+            depth < MetadataSafetyPolicy.MaxRelationshipNodes;
+            depth++)
+        {
+            TypeDefinitionHandle enclosing = current.GetDeclaringType();
+            if (enclosing.IsNil)
+                return false;
+            if (_infrastructure.HasCompilerGeneratedAttribute(
+                    current.GetCustomAttributes()))
+            {
+                return true;
+            }
+            current = reader.GetTypeDefinition(enclosing);
+        }
+        return true;
     }
 
     internal static bool HasManagedIlBody(

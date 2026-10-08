@@ -52,8 +52,9 @@ test("Analysis opens on Relationships as its first tab", async ({ page }) => {
     "Relationships",
     "Dependencies",
     "Complexity",
-    "Performance",
     "Integrations",
+    "Performance Triage",
+    "Resource Triage",
   ]);
   await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
   await expect(page.locator('[data-analysis-mode="relationships"]'))
@@ -113,12 +114,14 @@ async function expectCompactAnalysisHeader(page: Page) {
     "Relationships",
     "Dependencies",
     "Complexity",
-    "Performance",
     "Integrations",
+    "Performance Triage",
+    "Resource Triage",
   ]) {
     const tab = tabs.getByRole("tab", { name, exact: true });
     await tab.scrollIntoViewIfNeeded();
-    await expect(tab).toBeInViewport({ ratio: 1 });
+    // IntersectionObserver can round a fully visible edge by a fraction of a pixel.
+    await expect(tab).toBeInViewport({ ratio: 0.999 });
     expect(await tab.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   }
   const headerBox = await header.boundingBox();
@@ -141,7 +144,7 @@ for (const width of [1440, 390, 320]) {
     await openIntegrations(page);
     const frame = page.locator(".analysis-inspector");
     const integrations = frame.getByRole("tab", { name: "Integrations", exact: true });
-    const performance = frame.getByRole("tab", { name: "Performance", exact: true });
+    const performance = frame.getByRole("tab", { name: "Performance Triage", exact: true });
     await expect(page.locator('[data-library-lens="opportunities"]')).toHaveCount(0);
     await expect(frame.getByRole("tab", { name: "Opportunities", exact: true }))
       .toHaveCount(0);
@@ -150,7 +153,7 @@ for (const width of [1440, 390, 320]) {
     await expect(frame.locator(".opp-row")).toHaveCount(3);
     await expectCompactAnalysisHeader(page);
     await integrations.focus();
-    await integrations.press("ArrowLeft");
+    await integrations.press("ArrowRight");
     await expect(performance).toBeFocused();
     await expect(integrations).toHaveAttribute("aria-selected", "true");
     await performance.press("Enter");
@@ -162,7 +165,7 @@ for (const width of [1440, 390, 320]) {
     await expectCompactAnalysisHeader(page);
     await page.screenshot({ path: testInfo.outputPath("analysis-tabs-performance.png") });
 
-    await performance.press("ArrowRight");
+    await performance.press("ArrowLeft");
     await expect(integrations).toBeFocused();
     await integrations.press("Space");
     await expect(integrations).toHaveAttribute("aria-selected", "true");
@@ -288,7 +291,7 @@ for (const width of [1440, 390]) {
         await expect(frame.locator(".perf-row")).toHaveCount(0);
       }
       if (scenario.startsWith("partial")) {
-        await expect(frame).toContainText("A method body could not be analyzed.");
+        await expect(frame).toContainText("This library could not be analyzed completely");
         await expect(frame).not.toContainText("No public allocation hot spots");
       }
       await expect(frame.locator("footer")).toHaveCount(0);
@@ -321,7 +324,8 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
   await page.locator(".library-analysis-surface .perf-row").first().click();
   await expect(subjectTab(page, "member"))
     .toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#inspector-panel")).toContainText("Runs the widget.");
+  await expect(inspectorTab(page, "data-member-section", "facts")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("button", { name: "Explore", exact: true })).toBeEnabled();
 
   await page.locator("[data-nav-member]").filter({ hasText: "Run" }).click();
   await expect(page.locator("#member-surface-title")).toHaveText("Run");
@@ -332,8 +336,7 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
   expect(await page.locator("html").getAttribute(
     "data-member-group-document-request",
   )).toBeNull();
-  await expect(page.locator("#inspector-panel")).toContainText(
-    "Runs the widget.");
+  await expect(inspectorTab(page, "data-member-section", "overview")).toHaveAttribute("aria-selected", "true");
 });
 
 test("ranked Analysis members replace sticky private Type population intent", async ({
@@ -362,9 +365,7 @@ test("ranked Analysis members replace sticky private Type population intent", as
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-member-access-filter]"))
     .toHaveValue("public");
-  await expect(page.locator("#inspector-panel")).toContainText(
-    "Runs the widget.",
-  );
+  await expect(page.locator("#inspector-panel")).toContainText("Analysis summary");
 });
 
 test("ranked Analysis activation does not outlive newer metadata spelling", async ({
@@ -544,7 +545,7 @@ test("different family navigation leaves exact Facts for the shared document", a
     page,
     "data-member-section",
     "facts",
-    "Facts",
+    "Analysis",
   );
 
   await page.locator("[data-nav-member]").filter({ hasText: "Stop" }).click();
@@ -1115,4 +1116,45 @@ test("Library navigation exposes the complete long Library name on hover", async
   await row.hover();
   await expect(row).toHaveAttribute("title", `Inspect ${longLibrary.name}`);
   await expect(page).toHaveURL(location);
+});
+
+test("triage rows have no collapsed code control and preserve Library Analysis", async ({ page }) => {
+  await installFacades(page);
+  await openAnalysis(page);
+  await expect(page.locator(".library-performance-surface details")).toHaveCount(0);
+  await expect(page.locator(".library-performance-surface [data-triage-code]")).toHaveCount(0);
+  await expect(inspectorTab(page, "data-library-lens", "analysis"))
+    .toHaveAttribute("aria-selected", "true");
+});
+
+
+test("Resource rows open member Resource Triage with detailed evidence and Explore", async ({ page }) => {
+  const stop = { ...run, name: "Stop", stableSelector: "Stop", graphSelectorKey: "Stop", signature: "void Stop()", documentationId: "M:Example.Widget.Stop" };
+  await installFacades(page, { ...surface, types: surface.types.map(candidate => candidate.definitionId === "Example.Widget" ? { ...candidate, queryId: "Example.Widget.QuerySpelling", members: 2, api: [run, stop] } : candidate) });
+  await openAnalysis(page);
+  await page.getByRole("tab", { name: "Resource Triage", exact: true }).click();
+  const list = page.locator(".library-resource-triage-surface");
+  await expect(list.locator(".perf-name")).toHaveText("Example.Widget.Run");
+  await expect(list.locator(".perf-shape").first()).toHaveText("Pool churn on exception");
+  await expect(list).not.toContainText("IL_");
+  await expect(list.locator(".library-analysis-note")).toHaveCount(0);
+  await list.locator(".perf-row").click();
+  await expect(inspectorTab(page, "data-member-section", "resource-triage")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#member-surface-title")).toHaveText("Pool churn on exception");
+  await expect(page.getByRole("tab", { name: "Resource Triage", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".member-resource-triage")).not.toContainText("Resource cleanup");
+  await expect(page.locator(".working-surface-actions #explore-source")).toBeVisible();
+  const exploreBounds = await page.locator("#explore-source").boundingBox();
+  const headingBounds = await page.locator("#member-surface-title").boundingBox();
+  expect(exploreBounds!.y).toBeLessThan(headingBounds!.y);
+  await expect(page.locator(".member-resource-triage")).toContainText("IL_0007");
+  await expect(page.locator(".member-resource-triage")).toContainText("System.IO.Stream.Read");
+  await page.getByRole("button", { name: "Explore", exact: true }).click();
+  await expect(page.locator("#annotated-modal-title")).toBeVisible();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Explore", exact: true })).toBeFocused();
+  await page.locator("[data-nav-member]").filter({ hasText: "Stop" }).click();
+  await chooseInspector(page, "data-member-section", "facts", "Analysis");
+  await expect(page.locator("#member-surface-title")).toHaveText("Stop");
+  await expect(page.locator(".member-resource-triage")).toHaveCount(0);
 });

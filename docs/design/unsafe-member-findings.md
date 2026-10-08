@@ -1,7 +1,7 @@
 # Unsafe member findings
 
-Status: design for the second Analysis slice of
-[#5254](https://github.com/richlander/dotnet-inspect/issues/5254), the
+Status: Analysis implementation, the second slice of
+[#5254](https://github.com/richlander/dotnet-inspect/issues/5254) and the
 producer that Inspect Web's Unsafe view
 ([#9366](https://github.com/richlander/dotnet-inspect/pull/9366)) adopts.
 
@@ -59,8 +59,8 @@ Each finding's payload is a member-level record, since the inventory's
 - the declared member's `MethodIdentity`;
 - whether that member carries an explicit updated-model caller-unsafe
   contract;
-- every contributing evidence item with its role, physical body, and IL offset
-  when the role has one;
+- every contributing evidence item with its role, physical body, IL offset
+  when the role has one, and contract source for an explicit-contract call;
 - whether its evidence is partial, with the uninspected attributed bodies; and
 - the member's exposure.
 
@@ -77,23 +77,42 @@ explicit contract therefore does not change the finding's identity.
 ## Attribution
 
 A physical body contributes to a declared member only through the existing
-authenticated declared-owner resolution for async state machines, iterators,
-lambdas, and local functions, followed to its ultimate source owner. The
+authenticated declared-owner resolution for async state machines, lambdas,
+and local functions, followed to its ultimate source owner. The
 authority is that typed resolution, not a flattened physical-to-source map
-that cannot distinguish an ordinary body from an unresolved generated one. A body
-that is not compiler-generated, or a compiler-generated body that the
-resolution establishes has no source owner, such as a
-`<PrivateImplementationDetails>` helper, is its own declared member.
+that cannot distinguish an ordinary body from an unresolved generated one.
+
+Being its own declared member is a positive fact, not the absence of a name
+match. A body needs an authenticated owner when its name is a lifted or
+state-machine body, or when its declaring type is a compiler-generated type
+nested inside another type, as closures, state machines, and their lifted
+helpers are. A body in a top-level compiler-generated type, such as a
+`<PrivateImplementationDetails>` helper, has no source owner and is its own
+declared member, as is every other body.
 
 A generated body whose owner cannot be authenticated is not guessed. It does
-not join any member's finding; it is reported as an unattributed generated
-body in the inspection's limitations, retaining its physical identity and
-evidence. Display names and `CompilerGeneratedNames` grammar alone never
-establish an owner.
+not join any member's finding. When it carries evidence or could not be
+inspected, it is reported as an unattributed generated body in the
+inspection's limitations, retaining its physical identity and evidence; an
+inspected unattributed body without evidence hides nothing. Display names and
+`CompilerGeneratedNames` grammar alone never establish an owner.
+
+The attribution owner never associates synchronous iterators, so an iterator
+`MoveNext` or lifted iterator helper, such as `<>m__Finally1`, with evidence is
+such a limitation until that owner associates it.
+
+A C# extension-block member is emitted twice: an implementation method on the
+enclosing `[Extension]` static class, which carries the source body and the
+member's attributes, and a declaration copy in a nested `SpecialName`
+`[Extension]` grouping type, whose body only throws. The implementation method
+is the declared member. The declaration copy duplicates its contract and holds
+no implementation evidence, so every method of a confirmed grouping type is
+ignored. An `[ExtensionMarker]` method outside that shape is unconfirmed and
+needs an authenticated owner like any other generated body.
 
 An explicit caller-unsafe contract belongs to the member that declares it.
-Generated bodies contribute body evidence and same-image explicit-contract
-calls; they never confer or remove the owner's contract.
+Generated bodies contribute body evidence and explicit-contract calls; they
+never confer or remove the owner's contract.
 
 ## Exposure
 
@@ -126,26 +145,33 @@ the same rule Member Body comparison applies
 
 - **Complete:** the body was inspected. A body with no admitted evidence is a
   sound negative for that body.
-- **No applicable input:** the declaration has no body to inspect, such as an
-  abstract, extern, runtime-implemented, or bodiless interface member. It
-  cannot hold body evidence, so it is neither a limitation nor partial
-  evidence. Declaration roles, such as an explicit caller-unsafe contract,
-  still apply.
-- **Failed:** acquisition, decode, or analysis did not complete, or the body
-  was outside the receipt's scope. This is the only per-body state that makes a
-  finding partial or the census incomplete.
+- **No applicable input:** the declaration has no body to inspect: it is
+  abstract or a P/Invoke, its implementation flags name a runtime-provided,
+  native, unmanaged, or internal-call method, or it is an IL declaration
+  without a body, such as an `extern` `UnsafeAccessor`. It cannot hold body
+  evidence, so it is neither a limitation nor partial evidence. Declaration
+  roles, such as an explicit caller-unsafe contract, still apply.
+- **Failed:** acquisition, decode, or analysis did not complete. This is the
+  only per-body state that makes a finding partial or the census incomplete.
 
-A missing body, reader, or handle is never read as no applicable input; the
-owner-issued declaration evidence decides it. A reference assembly's bodies are
-not implementation evidence: the census records one image-level limitation and
-is incomplete, while declaration roles remain findings. A failed or
-no-applicable-input body never stands in for a body without evidence.
+The method declaration decides no applicable input; a missing reader or handle
+never does. A scoped census covers only the bodies inside the receipt's scope:
+it records one receipt-level limitation instead of classifying excluded
+bodies, and an excluded body contributes no finding or contract.
+
+A reference assembly is identified by the
+[reference-assembly rule](library-enablements.md#reference-assemblies) that
+Library enablements own. Its bodies are not implementation evidence, so none
+of them is a sound negative: the census records one image-level limitation and
+is incomplete, while declaration roles remain findings. An undecidable rule is
+the same kind of image-level limitation. A failed or no-applicable-input body
+never stands in for a body without evidence.
 
 ## Completeness and unknown evidence
 
 The census is measured against a declared scope: the inventory's admission
-rule together with its stated non-claims, such as cross-assembly explicit
-contracts and field-focused roles. Those standing non-claims bound what
+rule together with its stated non-claims, such as non-platform cross-assembly
+explicit contracts and field-focused roles. Those standing non-claims bound what
 "complete" means; they are not per-run limitations, and their absence of
 evidence is not a negative claim.
 
@@ -230,23 +256,40 @@ This slice is step 2 of 5 for #5254's Unsafe view:
 
 Steps 3 through 5 are separate focused efforts, each naming its own owner.
 
-Focused Release gates cover, in both legacy and updated-model fixtures:
+Focused Release gates in `UnsafeMemberFindingsTests` cover:
 
-- folding of lambda, local-function, async, and iterator evidence into the
-  declared member, retaining physical provenance;
-- private and internal members admitted alongside public ones, with exposure
-  matching the public root inventory;
-- an explicit contract on the declared member only, and no propagation from
-  generated or legacy evidence;
-- identity stability across a rename of a generated closure class;
-- an unattributable generated body reported as a limitation, not a finding,
-  including an async lambda whose lifted owner is unresolved;
-- a bounded or failed public root inventory yielding `Unknown` exposure and an
-  incomplete census;
-- scoped and failed bodies, and a reference assembly, producing an incomplete
-  census rather than a complete empty one, while abstract, extern, and other
-  bodiless declarations leave the census complete and no finding partial;
-- an uninspected attributed body marking its owner's finding partial rather
-  than reading as complete evidence, and naming its declared member as unknown
-  when that member has no finding; and
-- every limitation carrying a typed reason and its affected body and member.
+- `GeneratedBodiesFoldIntoTheirDeclaredMember` and
+  `ClassicAsyncMoveNextFoldsIntoTheAsyncMethod`: lambda, local-function, and
+  classic async evidence fold into the declared member with physical
+  provenance, in both legacy and updated-model fixtures;
+- `SynchronousIteratorEvidenceIsAnUnattributedLimitation` and
+  `LiftedIteratorHelperIsAnUnattributedLimitation`: an iterator `MoveNext` or
+  lifted `finally` helper with evidence is a limitation, not a guessed owner
+  or its own finding;
+- `BodilessDeclarationsDoNotLimitTheCensus`: abstract and `extern`
+  `UnsafeAccessor` declarations are no applicable input;
+- `ExtensionMemberIsOneFindingOnItsImplementation`: an extension-block member
+  is one finding on its implementation method, and its grouping-type
+  declaration copy is ignored;
+- `NonPublicMembersAreFindingsWithDeclarationExposure`: private and internal
+  members are findings with exposure from the public root inventory;
+- `ExplicitContractBelongsOnlyToTheDeclaringMember` and
+  `LegacyEvidenceNeverPropagates`: contracts and propagation stay with the
+  declaring member;
+- `IdentityIgnoresModuleTokenAndContractButSeparatesOverloads`: identity
+  through the shared fragment;
+- `ScopedReceiptCoversOnlyInScopeBodies`,
+  `InspectionProjectsOneFindingPerMemberAndKeepsIncompleteness`, and
+  `InspectionFailsWhenMethodEvidenceWasNotRequested`: the three outcomes; and
+- the `CensusRules` cases over synthetic per-body facts: a bodyless
+  declaration keeps its contract and a complete census; a failed attributed
+  body marks its owner partial, or names a member without a finding; an
+  unattributed body is a limitation only with evidence or a gap; a generated
+  body's contract is not conferred; a token-only failure is a limitation; a
+  scoped census skips out-of-scope bodies; a reference assembly or
+  undecidable rule is one image-level
+  limitation; and a bounded or failed root inventory proves `Public` only and
+  leaves the rest `Unknown`.
+
+Each limitation carries its typed reason, its affected body when it has one,
+and its declared member when that body's owner was authenticated.

@@ -35,10 +35,13 @@ path decodes call opcodes without module lookup, target resolution, signature
 enrichment, canonical method context, or `DirectCall` row construction. The
 two superseded `LibraryBodyAnalysis` Count request branches are deleted.
 
-Compatible all-definition request sets now execute as one physical MethodDef
-traversal with independent terminal-specialized lanes. Each lane retains its
-own gate, optional module lookup, traversal ordinal, Producer Planning work,
-completion, exact source coverage, and terminal body and encoded-IL bounds.
+Compatible all-definition request sets now partition into physical
+instruction-source cost classes, then execute one MethodDef traversal per
+class with independent terminal-specialized lanes. Forward-only shallow lanes
+share one no-retention stream; retained or selective-detail lanes share one
+lazy retained sequence. Each lane retains its own gate, optional module lookup,
+traversal ordinal, Producer Planning work, completion, exact source coverage,
+and terminal body and encoded-IL bounds.
 Bound exhaustion is source-incomplete for that lane and its receipt preserves
 the admitted work; another shared lane continues under its own limits. A
 settled lane keeps its result when a later lane aborts or encounters source
@@ -289,22 +292,35 @@ Instruction demand has two independent source-owned facets:
 | Detail | `OpcodeAndExtent < SelectiveOperands` | Whether consumers need only shallow instruction identity, or may resolve selected operands and branch targets. |
 
 A producer declares its minimum semantic demand, never a physical reader type.
-For one execution group, the source joins Access and Detail independently
-across active producers. A no-retention stream currently satisfies
-`ForwardOnly + OpcodeAndExtent`; any retained-prefix or selective-detail demand
-selects one lazy shallow retained sequence. Forward producers share the same
-advancing frontier when a retained consumer promotes the group. Adding a
-producer can only preserve or increase the joined demand, and producer order
-cannot change the selected source.
+The request-set planner first partitions requirements by selected physical
+instruction-source kind. Within one execution group, the source joins Access
+and Detail independently across active producers. A no-retention stream
+currently satisfies `ForwardOnly + OpcodeAndExtent`; retained-prefix or
+selective-detail demand selects one lazy shallow retained sequence. A retained
+consumer therefore cannot promote a forward-only lane into the retained cost
+class. Adding a producer can only preserve or increase the demand within its
+compatible group, and producer order cannot change the selected source.
 
 The Method-body demand scorecard carries the reference implementation and real
-classifier gates for this rule.
+classifier gates for this rule. Production declarations and plans now use the
+same Access and Detail vocabulary rather than copying the scorecard planner.
 [Query Space Producer Capabilities](query-space-producer-capabilities.md) owns
 the reusable requirement, provision, result-coverage, and producer-plan
 contract shared with Type and Member declaration planning. This Method owner
 retains the Access and Detail meanings, their pointwise join, and physical
-source choices. Production request-set collapse through the Method source
-remains unverified.
+source choices.
+
+Method request-set planning preserves each lane's minimum semantic demand,
+separates lanes whose plans select different physical source kinds, and forms a
+joined plan within each resulting group. Compatible
+`ForwardOnly + OpcodeAndExtent` requests use one fused no-retention stream.
+Compatible retained-prefix or selective-detail requests use one packet-local
+`InstructionSequence`; independent cursors share its scan frontier. Source
+receipts distinguish no-retention sources, retained sources, and instruction
+participation. A request receipt records a retained source opening only for the
+lane that actually created that packet-local sequence; the physical group
+receipt records the shared retained frontier actually scanned. The exact-member
+call-count producer is the first production adopter.
 
 Shared lookup support, such as same-image token resolution or authenticated
 state-machine relationships, is execution-scoped work rather than a fictitious
@@ -631,11 +647,21 @@ Generated expansion is gated in Release:
 - `MethodQuerySource_GeneratedExpansionReusesTargetedStateMachineLookup`
 - `MethodQuerySource_GeneratedExpansionBoundPublishesSourceIncomplete`
 
-The instruction-demand reference planner is gated in Release:
+The instruction-demand planner and first production Method-source adoption are
+gated in Release:
 
 - `MethodBodyAnalyzerPlanner_SelectsSourceFromCombinedDemand`
 - `MethodBodyAnalyzerPlanner_JoinIsOrderIndependent`
 - `MethodBodyAnalyzerPlanner_PreservesRealClassifierResults`
+- `Plan_SeparatesInstructionSourceKindsWithoutWideningLanes`
+- `Execute_FusesNoRetentionInstructionSourceAcrossLanes`
+- `Execute_RejectsScopeGuardOnPendingFusedInstructionFact`
+- `Execute_SeparatesNoRetentionAndRetainedInstructionSources`
+- `Execute_AttributesRetainedSourceOpeningToOpeningLane`
+- `Execute_RetainedInstructionFailureReceiptsCompletedPrefix`
+- `Execute_CallCountBodyBoundDoesNotOpenUnacquiredInstructionSource`
+- `MethodCallCountProducer_DoesNotResolveMalformedTarget`
+- `MethodCallCountProducer_DiscoveryFailureIsVisible`
 
 The following deeper-source gates remain **unverified**:
 

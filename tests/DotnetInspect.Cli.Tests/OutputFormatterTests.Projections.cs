@@ -218,6 +218,7 @@ public partial class OutputFormatterTests
         }
         else if (format == OutputFormat.Jsonl)
         {
+            Assert.Equal("{\"section\":\"Methods\",\"count\":17}\n{\"section\":\"Fields\",\"count\":23}", output);
             var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
             Assert.Equal(2, lines.Length);
             using var first = JsonDocument.Parse(lines[0]);

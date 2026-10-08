@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 
+using ILInspector.Analysis.Planning;
 using ILInspector.Instructions;
 
 namespace DotnetInspector.PerformanceOracles;

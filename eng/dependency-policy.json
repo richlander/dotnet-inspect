@@ -286,7 +286,6 @@
         "ILInspector.Decompiler",
         "ILInspector.ILDiff",
         "ILInspector.Metadata",
-        "ILInspector.MetadataPrimitives",
         "ILInspector.Research",
         "InertText",
         "Inspector.Findings",

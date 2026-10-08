@@ -1,3 +1,4 @@
+using System.Reflection.Metadata.Ecma335;
 using ILInspector.Metadata;
 using ILInspector.CSharp;
 using ILInspector.Decompiler;
@@ -12,7 +13,15 @@ public sealed record AnnotatedSourceDiffBodyEndpoint(
     MemberAnchor Anchor,
     MemberTargetSelector Selector,
     int MethodToken,
-    ResearchTargetRelationshipRole Role);
+    ResearchTargetRelationshipRole Role)
+{
+    public ProjectedMemberAnchor ProjectedAnchor => new(
+        Anchor.StableSelector,
+        Anchor.CanonicalSignature,
+        Anchor.Fingerprint,
+        Anchor.TypeFullName,
+        Anchor.MemberName);
+}
 
 /// <summary>
 /// Projects an already-corresponded exact pair. The caller owns the semantic
@@ -94,7 +103,11 @@ public static class AnnotatedSourceDiffExactPairQuery
     static MetadataMethodAddress Address(AssemblyContextGroup group, AssemblyContextParticipant participant, int token)
         => AssemblyContextMethodAddressQuery.ExecuteParticipant(group, participant, token) switch
         {
-            AssemblyContextEntry<MetadataMethodAddress>.Available available => available.Value,
+            AssemblyContextEntry<ProjectedMethodAddress>.Available available =>
+                new(
+                    available.Value.ModuleVersionId,
+                    MetadataTokens.MethodDefinitionHandle(
+                        available.Value.MetadataToken & 0x00ffffff)),
             _ => throw new InspectionQueryException("Exact Member address is unavailable."),
         };
 

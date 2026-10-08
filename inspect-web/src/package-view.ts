@@ -10,6 +10,7 @@ export interface PackageDependencyBindingActions {
 }
 
 export interface PackagePerformanceTarget {
+  resourceMethodToken?: number;
   stableSelector: string;
   assembly: string;
   typeId: string;
@@ -174,5 +175,6 @@ export function bindPackageView(
       stableSelector: button.dataset.perfSelector ?? "",
       assembly: button.dataset.perfAssembly ?? "",
       typeId: button.dataset.perfType ?? "",
+      ...(button.dataset.resourceToken ? { resourceMethodToken: Number(button.dataset.resourceToken) } : {}),
     })));
 }

@@ -102,10 +102,10 @@ public static partial class SourceExports
         var afterScope = afterLease.Scope;
         var oldCoordinate = beforeScope.Coordinates[0];
         var newCoordinate = afterScope.Coordinates[0];
-        var oldAsset = oldCoordinate.Selection.FindAsset(request.CompileAssetId)
-            ?? throw new ArgumentException("The exact Before compile asset is unavailable.");
         var newAsset = newCoordinate.Selection.FindAsset(request.CompileAssetId)
             ?? throw new ArgumentException("The exact After compile asset is unavailable.");
+        var oldAsset = oldCoordinate.Selection.FindComparisonAsset(newAsset)
+            ?? throw new ArgumentException("The Before endpoint has no unique selected compile counterpart.");
         var oldSurface = beforeScope.SurfaceParticipant(oldCoordinate, oldAsset);
         var newSurface = afterScope.SurfaceParticipant(newCoordinate, newAsset);
         var oldImplementation = beforeScope.ImplementationParticipant(oldSurface);
@@ -155,7 +155,7 @@ public static partial class SourceExports
                 [.. group.Select(member =>
                     new BrowserMemberBodyMember(member.Subject.Id, member.Subject.Display, member.Outcome,
                         [.. member.Implementation.SelectMany(item => item.Evidence).Select(evidence => evidence.Mechanism.ToString()).Distinct()],
-                        member.After?.Anchor.Fingerprint, member.After?.Selector.NormalizedSelector,
+                        member.After?.ProjectedAnchor.Fingerprint, member.After?.Selector.NormalizedSelector,
                         member.After?.MethodToken, member.IdentityFailure, member.After?.Type.ToEscapedFullName()))])).ToList();
         foreach (var removed in inventory.Api.Comparison.Subjects.Where(type => type.Comparison.After is null))
         {
@@ -171,7 +171,7 @@ public static partial class SourceExports
                     coverage.IncompleteSubjectCount, coverage.FailedSubjectCount))], [.. types],
             [.. inventory.Destinations.Where(member => member.After is not null).Select(member =>
                 new BrowserMemberBodyMember(member.Subject.Id, member.Subject.Display, member.Outcome, [],
-                    member.After!.Anchor.Fingerprint, member.After.Selector.NormalizedSelector,
+                    member.After!.ProjectedAnchor.Fingerprint, member.After.Selector.NormalizedSelector,
                     member.After.MethodToken, member.IdentityFailure, member.After.Type.ToEscapedFullName()))]);
     }
 

@@ -142,7 +142,12 @@ C# and IL/body. Complexity may be added later as a separately visible summary;
 it is not computed, reported, or used to decide whether a row is changed.
 
 Managed code resolves exactly one Library assembly at each endpoint through the
-retained Gallery scopes. For that same pair it consumes the portable Library
+retained Gallery scopes. The current compile asset remains exact. The baseline
+selects its compatible compile slice independently and consumes the package
+owner's [comparison counterpart](package-asset-selection-correspondence.md#comparison-counterparts).
+Both inventory and retained Member execution use that same issued Library
+pair. An API or body absent on Before remains a normal addition, not an
+endpoint-selection failure. For that same pair it consumes the portable Library
 API diff's complete changed-member relations. A `Changed` relation establishes
 the exact public Before/After API pair, including a signature change; an
 `Added` or `Removed` relation establishes the occupied side and absent side.

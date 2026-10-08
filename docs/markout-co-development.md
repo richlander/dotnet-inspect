@@ -75,12 +75,17 @@ machine, so the edit advertises what it is every time anyone reads the file.
 That matters because these lines are tracked while the thing they point at is
 not — see the footgun below.
 
-Three projects reference the package, and each one that must move needs both
-lines:
+Find every direct Markout package consumer in the selected build graph before
+swapping references:
 
-- `src/DotnetInspect.Cli/DotnetInspect.Cli.csproj`
-- `src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj`
-- `tests/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj`
+```bash
+rg -l '<PackageReference Include="Markout"' --glob '*.csproj' .
+```
+
+Each one that must move needs both project references. The current solution
+also includes `DotnetInspector.Presentation` and several tool projects, so a
+fixed project list can leave a mix of source and package Markout assemblies or
+cause a package downgrade during restore.
 
 `ILInspector.Decompiler.Tests` also consumes `Markout.Templates`, which is a
 separate package with its own version.

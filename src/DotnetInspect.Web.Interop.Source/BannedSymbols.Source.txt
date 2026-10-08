@@ -1,0 +1,3 @@
+T:ILInspector.MetadataPrimitives.MemberAnchor;The Source facade consumes Metadata-owned ProjectedMemberAnchor values and must not construct or inspect primitive member anchors.
+T:ILInspector.MetadataPrimitives.MetadataMethodAddress;The Source facade consumes owner-issued ProjectedMethodAddress values and must not construct or inspect primitive physical method addresses.
+T:ILInspector.Metadata.MetadataTypeNameFailureMechanism;The Source facade consumes owner-projected failure mechanism names and must not inspect primitive Metadata failure enums.

@@ -961,8 +961,9 @@ internal sealed class LibraryBodyAsyncSourceResolver
             return false;
         }
 
+        // The declaring chain is root-to-leaf; the source type is last.
         TypeDefinition root =
-            _reader.GetTypeDefinition(sourceChain.Types[count - 1]);
+            _reader.GetTypeDefinition(sourceChain.Types[0]);
         if (!_reader.StringComparer.Equals(
                 root.Namespace,
                 stateMachineType.Namespace))
@@ -973,7 +974,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
         {
             TypeDefinition sourceSegment =
                 _reader.GetTypeDefinition(
-                    sourceChain.Types[count - segment - 1]);
+                    sourceChain.Types[segment]);
             if (!_reader.StringComparer.Equals(
                     sourceSegment.Name,
                     stateMachineType.Segments[segment]))
@@ -1028,7 +1029,9 @@ internal sealed class LibraryBodyAsyncSourceResolver
                     out int count,
                     out _,
                     out _);
-        for (int index = 1; index < count; index++)
+        // Record each followed declaring type; the root-to-leaf chain
+        // ends with the source type itself.
+        for (int index = 0; index < count - 1; index++)
             work.RecordRelationshipNode(chain[index]);
         return new([.. chain[..count]], complete);
     }

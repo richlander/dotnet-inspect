@@ -1925,6 +1925,46 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    raising pipeline used by CLI and Browser/Wasm consumers; no host-specific
    conversion or naming path is introduced.
 
+### Producer-only slot retirement
+
+A function-scope stack-slot component with stores but no surviving observer has
+no storage identity to materialize. After the final slots-only inlining and
+reference-target refresh, `ProducerOnlySlotRetirementPass` computes the
+greatest set of slot webs whose loads are only direct copies into another
+member of that same set. Bare constants, argument loads, local loads, and
+direct slot copies disappear because their evaluation has no effect. Every
+other store becomes an `ExpressionStatement` at the same position and carries
+its producer's exact assignment type as discard-target testimony. The printer
+renders that issued fact as `_ = (T)(producer);`, retaining evaluation order,
+exceptions, allocation, and target context for lambdas, conditionals,
+target-typed stackalloc arrays, and other contextual expressions without
+inventing a local.
+
+Admission requires every retained producer's assignment type to be complete
+and spellable in an explicit C# type position. Managed-reference producers are
+excluded: their reference identity is storage semantics, not a value that can
+be cast and discarded. Pointer-form `StackAllocate` remains in storage planning
+because valid C# requires the printer's dedicated stackalloc-local form rather
+than a generic cast-and-discard statement. Nested bodies remain independent
+scopes. Any load outside a direct copy into the retiring set keeps its entire
+upstream chain in storage planning. The Release invariant checks that no store
+or load from an issued retirement set survives the rewrite. Focused tests gate
+pure removal, evaluated and target-typed discards, direct-copy closure,
+external observers, managed-reference, pointer-stackalloc, and nested-scope
+exclusions, and the pinned Microsoft.CodeAnalysis 5.0.0
+`AnalyzerAssemblyLoader` constructor witness.
+
+On the fixed 14-assembly, 89,065-method corpus at base `243adb14a`, the pass
+changes 32 methods and retires 52 transitive slot webs. All 49 materialization
+decisions carrying `MissingLoad` disappear. Residual binding moves from
+143 webs / 209 locals / 98 methods to 94 / 160 / 67; split webs remain 51,
+late-decidable webs remain zero, and the same four pre-existing pass bugs remain
+visible. Render A/B over the 46,945 methods outside the known base
+Microsoft.CodeAnalysis.CSharp structural-projection failure reports 16 changed
+methods: one valid-to-valid and 15 invalid-to-invalid, with zero
+valid-to-invalid. Exact pass diffs account for the remaining 16 changed CSharp
+methods.
+
 ### Exact managed-reference slot storage
 
 A function-scope stack-slot web whose exact storage type is established as one
@@ -1942,8 +1982,9 @@ When an earlier honesty pass consumes every load while leaving the synthetic
 stores, unanimous complete managed-reference producers provide the same exact
 storage identity. Such a store-only web materializes from that producer
 testimony; differing, missing, or incomplete producer types remain undecided.
-This does not infer an observer or make producer-only testimony sufficient for
-any other storage family.
+This remains the producer-only exception: ordinary value producers are retired
+by `ProducerOnlySlotRetirementPass`, while managed-reference producers require
+the exact storage identity above.
 
 #### Value-type receiver aliases
 
@@ -2095,10 +2136,11 @@ metadata-proven user or compiler ref structs. Bare generic parameters,
 including parameters with `allows ref struct`, are not concrete byref-like
 types and remain under the existing generic-parameter boundary. Managed
 references, unknown type shapes, incomplete or unspellable types, non-exact
-producers, nested webs, producer-only webs, and independently deferred copy
-components remain outside admission. The compiler-generated-name and
-constructed-reference residuals are a separate presentation boundary and are
-not admitted by this slice.
+producers, nested webs, and independently deferred copy components remain
+outside admission. Producer-only webs retire through the upstream
+`ProducerOnlySlotRetirementPass` rather than enter byref-like admission. The
+compiler-generated-name and constructed-reference residuals are a separate
+presentation boundary and are not admitted by this slice.
 
 The motivating published witness is Microsoft.CodeAnalysis.Common 5.0.0
 `Roslyn.Utilities.PathUtilities.EnsureTrailingSeparator` (`0x060000E1`). Its

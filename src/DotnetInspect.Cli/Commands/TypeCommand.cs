@@ -26,7 +26,7 @@ namespace DotnetInspect.Cli.Commands;
 /// <summary>
 /// Discovers types in a package or library (compact table, no docs by default).
 /// </summary>
-public static class TypeCommand
+public static partial class TypeCommand
 {
     public const string Name = "type";
 
@@ -245,6 +245,17 @@ public static class TypeCommand
                 exactTypeCapabilities
                     ?? CreateWorkspaceContextLoadOptions(options),
                 cancellationToken).ConfigureAwait(false);
+        }
+
+        if (resolvedSource is null && loadedSurface is null)
+        {
+            int? directLibraryDiscovery =
+                TryExecuteDirectLibraryEffectiveDiscovery(
+                    options,
+                    memberPipeline,
+                    cancellationToken);
+            if (directLibraryDiscovery is { } directLibraryExitCode)
+                return directLibraryExitCode;
         }
 
         if (!options.EnvelopeOutput)
@@ -2456,10 +2467,34 @@ public static class TypeCommand
         {
             var match = resolution.Match!;
             CommandError.WriteNote($"Type '{query}' resolved via platform find to {match.FullName} in {match.Library}.");
-            return await ExecuteAsync(resolution.ApplyTo(options));
+            // The resolved exact Type is planned like its exact spelling, so
+            // the default reaches the same Type hierarchy.
+            TypeOptions resolved = resolution.ApplyTo(options);
+            ResolvedMemberInspectionPlan resolvedPlan =
+                ResolvedMemberInspectionPlan
+                    .FromCompatibilityOptions(resolved);
+            return TypeCommandPlanner.Plan(resolved, resolvedPlan) switch
+            {
+                TypeCommandPlanningResult.Planned planned =>
+                    await ExecuteAsync(
+                        resolved,
+                        resolvedPlan,
+                        planned.Plan,
+                        CancellationToken.None),
+                TypeCommandPlanningResult.Rejected rejected =>
+                    WritePlanningError(rejected.Error),
+                _ => throw new InvalidOperationException(
+                    "Unknown Type command planning result."),
+            };
         }
 
         return resolution.WriteAmbiguousError();
+    }
+
+    private static int WritePlanningError(string error)
+    {
+        CommandError.Write(error);
+        return 1;
     }
 
     internal static async Task<int?> TryExecutePlatformPrefixBrowseAsync(

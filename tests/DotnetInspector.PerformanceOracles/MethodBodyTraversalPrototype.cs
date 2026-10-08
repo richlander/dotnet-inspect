@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
+using ILInspector.Analysis.Planning;
 using ILInspector.Instructions;
 
 namespace DotnetInspector.PerformanceOracles;

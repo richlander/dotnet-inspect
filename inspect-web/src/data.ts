@@ -68,7 +68,8 @@ export function isLibraryLens(
 export const memberSectionDefinitions = [
   ["overview", "Overview"],
   ["call-graph", "Call graph"],
-  ["facts", "Facts"],
+  ["facts", "Analysis"],
+  ["resource-triage", "Resource Triage"],
   ["source", "Source"],
   ["compare", "Compare"],
 ] as const;
@@ -1674,7 +1675,7 @@ export function sourceReloadKind(
   }
   if (state.lens === "api"
     && state.selectedMemberKey
-    && state.memberSection === "facts"
+    && (state.memberSection === "facts" || state.memberSection === "resource-triage")
     && memberSourceHasConcreteOverload) {
     return "annotated";
   }
@@ -1703,7 +1704,7 @@ const allMemberSections: readonly MemberSection[] =
   memberSectionDefinitions.map(([id]) => id);
 
 const packageOnlyMemberSections: ReadonlySet<MemberSection> =
-  new Set<MemberSection>(["facts", "compare"]);
+  new Set<MemberSection>(["compare"]);
 
 export function memberSectionIdsFor(
   member: SectionableMember | null | undefined,

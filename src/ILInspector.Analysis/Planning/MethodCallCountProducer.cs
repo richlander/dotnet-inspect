@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 
 namespace ILInspector.Analysis.Planning;
 
@@ -60,6 +61,28 @@ public sealed class MethodCallCountProducer
 
     public MethodCallCountKind Kind => _kind;
 
+    internal override MethodDefinitionExecution.ProducerState CreateState(
+        MethodDefinitionExecution execution,
+        ProducerTerminal terminal,
+        int? rowLimit,
+        ImmutableArray<int> dependencies,
+        UnitFactRetention retention) =>
+        new FusedState(
+            this,
+            execution,
+            terminal,
+            rowLimit,
+            dependencies,
+            retention);
+
+    internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
+        InstructionAnalyzers =>
+        [
+            _kind == MethodCallCountKind.DirectInvocations
+                ? MethodBodyAnalyzerDeclarations.DirectCalls
+                : MethodBodyAnalyzerDeclarations.CallSites,
+        ];
+
     internal override MethodCallCountBody Visit(
         scoped MethodDefinitionView view)
     {
@@ -74,31 +97,20 @@ public sealed class MethodCallCountProducer
 
         try
         {
-            MethodCallAnalysis.DiscoveryCounts counts =
-                MethodCallAnalysis.DiscoverCounts(view.GetBody());
-            return new(
-                view.Token,
-                HasManagedBody: true,
-                _kind == MethodCallCountKind.DirectInvocations
-                    ? counts.InvocationCount
-                    : counts.CallSiteCount,
-                Diagnostic: null);
+            var counts = new CallCounts();
+            view.VisitInstructionShapes(
+                ref counts,
+                CountInstruction);
+            return CompletedBody(view.Token, _kind, counts);
         }
         catch (Exception exception)
             when (exception
                     is not
                         MethodDefinitionTerminalWorkLimitExceededException
                 && LibraryMethodAnalysisRunner
-                    .IsRecoverableMethodFailure(exception))
+                .IsRecoverableMethodFailure(exception))
         {
-            return new(
-                view.Token,
-                HasManagedBody: true,
-                Count: null,
-                new(
-                    view.Token,
-                    $"0x{view.Token:X8}",
-                    ProducerFailure.Describe(exception)));
+            return FailedBody(view.Token, exception);
         }
     }
 
@@ -117,4 +129,144 @@ public sealed class MethodCallCountProducer
         ImmutableArray<MethodCallCountBody>.Builder accumulator,
         MethodDefinitionCompletionView completion) =>
         new(accumulator.ToImmutable());
+
+    struct CallCounts
+    {
+        public int InvocationCount;
+
+        public int CallSiteCount;
+    }
+
+    static bool CountInstruction(
+        ref CallCounts counts,
+        ILOpCode opcode,
+        int encodedLength)
+    {
+        _ = encodedLength;
+        if (opcode is ILOpCode.Call
+            or ILOpCode.Callvirt
+            or ILOpCode.Newobj)
+        {
+            counts.InvocationCount++;
+            counts.CallSiteCount++;
+        }
+        else if (opcode is ILOpCode.Ldftn
+            or ILOpCode.Ldvirtftn
+            or ILOpCode.Calli)
+        {
+            counts.CallSiteCount++;
+        }
+        return true;
+    }
+
+    static MethodCallCountBody CompletedBody(
+        int methodToken,
+        MethodCallCountKind kind,
+        CallCounts counts) =>
+        new(
+            methodToken,
+            HasManagedBody: true,
+            kind == MethodCallCountKind.DirectInvocations
+                ? counts.InvocationCount
+                : counts.CallSiteCount,
+            Diagnostic: null);
+
+    static MethodCallCountBody FailedBody(
+        int methodToken,
+        Exception exception) =>
+        new(
+            methodToken,
+            HasManagedBody: true,
+            Count: null,
+            new(
+                methodToken,
+                $"0x{methodToken:X8}",
+                ProducerFailure.Describe(exception)));
+
+    sealed class FusedState : State
+    {
+        readonly MethodCallCountProducer _producer;
+        CallCounts _counts;
+        int _methodToken;
+
+        public FusedState(
+            MethodCallCountProducer producer,
+            MethodDefinitionExecution execution,
+            ProducerTerminal terminal,
+            int? rowLimit,
+            ImmutableArray<int> dependencies,
+            UnitFactRetention retention)
+            : base(
+                producer,
+                execution,
+                terminal,
+                rowLimit,
+                dependencies,
+                retention)
+        {
+            _producer = producer;
+        }
+
+        public override bool SupportsFusedInstructionShapes => true;
+
+        public override bool TryBeginInstructionShapes(
+            scoped MethodDefinitionView view,
+            out MethodBodyBlock? body,
+            out bool settled)
+        {
+            _methodToken = view.Token;
+            _counts = default;
+            if (!view.HasManagedBody)
+            {
+                body = null;
+                settled = AcceptFact(
+                    view.Token,
+                    new(
+                        view.Token,
+                        HasManagedBody: false,
+                        Count: null,
+                        Diagnostic: null));
+                return false;
+            }
+
+            try
+            {
+                body = view.GetBody();
+                settled = false;
+                return true;
+            }
+            catch (Exception exception)
+                when (exception
+                        is not
+                            MethodDefinitionTerminalWorkLimitExceededException
+                    && LibraryMethodAnalysisRunner
+                        .IsRecoverableMethodFailure(exception))
+            {
+                body = null;
+                settled = AcceptFact(
+                    view.Token,
+                    FailedBody(view.Token, exception));
+                return false;
+            }
+        }
+
+        public override bool VisitInstructionShape(
+            ILOpCode opcode,
+            int encodedLength) =>
+            CountInstruction(
+                ref _counts,
+                opcode,
+                encodedLength);
+
+        public override bool CompleteInstructionShapes(Exception? failure) =>
+            AcceptFact(
+                _methodToken,
+                failure is null
+                    ? CompletedBody(
+                        _methodToken,
+                        _producer._kind,
+                        _counts)
+                    : FailedBody(_methodToken, failure));
+
+    }
 }

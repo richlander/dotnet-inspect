@@ -21,6 +21,18 @@ public sealed record AssemblyMemberSourcePairEndpointRequest
     public MemberAnchor Member { get; }
 
     public static AssemblyMemberSourcePairEndpointRequest From(
+        MetadataTypeDefinitionName type,
+        ProjectedMemberAnchor member) =>
+        new(
+            type,
+            new MemberAnchor(
+                member.StableSelector,
+                member.CanonicalSignature,
+                member.Fingerprint,
+                member.TypeFullName,
+                member.MemberName));
+
+    public static AssemblyMemberSourcePairEndpointRequest From(
         ApiType type,
         ApiMember member)
     {

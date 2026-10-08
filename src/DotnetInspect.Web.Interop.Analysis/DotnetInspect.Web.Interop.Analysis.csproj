@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\TsJsExport.Contracts\TsJsExport.Contracts.csproj" />
     <InternalsVisibleTo Include="DotnetInspect.Web.Tests" />
     <AdditionalFiles Include="..\DotnetInspect.Web\BannedSymbols.txt" />
     <ProjectReference Include="..\DotnetInspect.Web.Core\DotnetInspect.Web.Core.csproj" />

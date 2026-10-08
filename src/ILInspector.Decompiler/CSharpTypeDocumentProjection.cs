@@ -45,7 +45,7 @@ public sealed class CSharpTypeProjectionRequest
 {
     public CSharpTypeProjectionRequest(
         CSharpTypeBodyMode bodyMode = CSharpTypeBodyMode.Bodies,
-        MemberAnchor? selectedMember = null,
+        ProjectedMemberAnchor? selectedMember = null,
         CSharpTypePlacementFilter placement = CSharpTypePlacementFilter.All,
         IEnumerable<CSharpTypeAccessibility>? accessibilities = null,
         bool includeGenerated = true,
@@ -68,7 +68,7 @@ public sealed class CSharpTypeProjectionRequest
         }
 
         BodyMode = bodyMode;
-        SelectedMember = selectedMember is null ? null : selectedMember with { };
+        SelectedMember = selectedMember;
         Placement = placement;
         Accessibilities = accessibilitySet;
         IncludeGenerated = includeGenerated;
@@ -78,7 +78,7 @@ public sealed class CSharpTypeProjectionRequest
 
     public CSharpTypeBodyMode BodyMode { get; }
 
-    public MemberAnchor? SelectedMember { get; }
+    public ProjectedMemberAnchor? SelectedMember { get; }
 
     public CSharpTypePlacementFilter Placement { get; }
 
@@ -107,7 +107,7 @@ public sealed record CSharpTypeProjectedContribution(
 
 public sealed record CSharpTypeProjectedDeclaration(
     int DeclarationId,
-    MemberAnchor Anchor,
+    ProjectedMemberAnchor Anchor,
     int DeclarationToken,
     CSharpTypeDeclarationKind Kind,
     CSharpTypeAccessibility Accessibility,
@@ -155,7 +155,8 @@ public static class CSharpTypeDocumentProjector
         if (request.SelectedMember is not null)
         {
             selected = document.Declarations.FirstOrDefault(
-                declaration => declaration.Anchor == request.SelectedMember);
+                declaration =>
+                    declaration.ProjectedAnchor == request.SelectedMember.Value);
             if (selected is null)
             {
                 return Reject(
@@ -270,7 +271,7 @@ public static class CSharpTypeDocumentProjector
                     .ToImmutableHashSet();
             projectedDeclarations.Add(new(
                 declaration.Id,
-                declaration.Anchor,
+                declaration.ProjectedAnchor,
                 declaration.DeclarationToken,
                 declaration.Kind,
                 declaration.Accessibility,
