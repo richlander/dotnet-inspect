@@ -1081,10 +1081,25 @@ export function createSpotlight(options: SpotlightOptions) {
       && !packageAddition
       && state.spotlightScope === "all") {
       const previousCount = renderedResults.length;
+      const previousIdentities = new Set(
+        renderedResults.map(spotlightResultIdentity),
+      );
       allScopeResultPage++;
       updateResults();
       count = container?.querySelectorAll(".spotlight-item").length ?? 0;
-      if (renderedResults.length <= previousCount) allScopeResultPage--;
+      if (renderedResults.length <= previousCount) {
+        allScopeResultPage--;
+      } else {
+        const firstNewIndex = renderedResults.findIndex(
+          result => !previousIdentities.has(spotlightResultIdentity(result)),
+        );
+        if (firstNewIndex >= 0) {
+          state.spotlightIndex = firstNewIndex;
+          rememberSelection(renderedResults);
+          highlightSelection();
+          return true;
+        }
+      }
     }
     const next = nextSpotlightSelection(state.spotlightIndex, delta, count);
     if (next === null) return false;

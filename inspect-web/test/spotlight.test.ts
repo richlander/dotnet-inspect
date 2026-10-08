@@ -889,19 +889,30 @@ test("Spotlight keeps the selected result when async rows are inserted before it
 
 test("modal arrow navigation reveals the next known All-scope result page at the boundary", () => {
   const pkg = { id: "Example.Package", version: "1.0.0" };
-  const rows: SpotlightResult[] = ["First", "Second", "Third", "Fourth"].map(name => ({
-    kind: "type",
-    pkg,
-    type: { id: `Example.${name}`, name, kind: "class" },
+  const expansionPackageRows: SpotlightResult[] = ["First", "Second", "Third"].map(name => ({
+    kind: "pkg-nuget",
+    hit: {
+      id: `Example.${name}`,
+      version: "1.0.0",
+      exact: false,
+    },
     ranges: [],
   }));
+  const finalType: SpotlightResult = {
+    kind: "type",
+    pkg,
+    type: { id: "Example.Final", name: "Final", kind: "class" },
+    ranges: [],
+  };
   let searchCount = 0;
   let spotlight: ReturnType<typeof createHarness>["spotlight"];
   const harness = createHarness({
     query: "Example",
     searchResults: () => {
       searchCount++;
-      return rows.slice(0, spotlight.allScopeResultPage() === 0 ? 2 : 4);
+      return spotlight.allScopeResultPage() === 0
+        ? [expansionPackageRows[0]!, finalType]
+        : [...expansionPackageRows, finalType];
     },
   });
   ({ spotlight } = harness);
@@ -920,7 +931,7 @@ test("modal arrow navigation reveals the next known All-scope result page at the
     setAttribute: () => {},
     setSelectionRange: () => {},
   };
-  let domRows: MockElement[] = rows.slice(0, 2).map(() => ({
+  let domRows: MockElement[] = Array.from({ length: 2 }, () => ({
     classList: { toggle: () => {} },
     scrollIntoView: () => {},
     setAttribute: () => {},
@@ -986,7 +997,7 @@ test("modal arrow navigation reveals the next known All-scope result page at the
     assert.equal(searchCount, 2);
     assert.equal(spotlight.allScopeResultPage(), 1);
     assert.equal(domRows.length, 4);
-    assert.equal(state.spotlightIndex, 2);
+    assert.equal(state.spotlightIndex, 1);
 
     input.value = "Other";
     listeners.get("input")?.(fakeDom.keyboardEvent({
