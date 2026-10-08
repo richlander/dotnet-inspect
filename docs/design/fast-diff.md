@@ -208,25 +208,35 @@ changed in the facts that pass compares. Each pass also publishes exact-head
 NativeAOT and Browser/Wasm numbers against the complete diff for the same
 pairs.
 
-Progress toward the selected Library policy is measured as one acquisition-free
-before/after comparison. Both package sides were already acquired from exact
-local assets before timing; Browser runtime startup also completed before the
-timed operation, and no measured path performed network work. **Before** is
-exact #9686 with its whole-Library body walk. **After** is the same exact head
-with only that Library body walk skipped:
+The measurements distinguish three different paths. **Current** is the broad
+Member Body inventory that Fast Diff replaces at Library and Type navigation;
+the exact-Member detail remains. **#9686** is the abandoned summary approach.
+**Body-free projection** is that exact #9686 head with only its whole-Library
+body walk skipped; it is not the Fast Diff implementation.
 
-| Asset and runtime | Before: #9686 body walk | After: same-head body-free projection | Change |
-| --- | ---: | ---: | ---: |
-| `System.Text.Json` 9.0.0 to 10.0.0, NativeAOT | 141.43 ms | 99.49 ms | -29.7% |
-| `Aspire.Hosting` 13.6.0 to 13.6.1, NativeAOT | 454.43 ms | 338.72 ms | -25.5% |
-| `Aspire.Hosting` 13.6.0 to 13.6.1, Firefox/Mono Browser-Wasm | 5,425 ms | 3,567.5 ms | -34.2% |
+Both package sides were already acquired from exact local assets before timing.
+Browser runtime startup also completed before the timed operation, and no
+measured path performed network work.
 
-This After is a policy projection, not the Fast Diff implementation: it still
-constructs the complete API comparison, and 3,567.5 ms remains unacceptable.
-It proves that removing Library body work moves the existing path in the right
-direction. The producer implementation slice must publish its own exact
-base/head, acquisition-free before/after comparison to establish further
-progress.
+| Asset and runtime | Current Member Body inventory | Abandoned #9686 summary | Body-free projection | Controlled #9686 to projection |
+| --- | ---: | ---: | ---: | ---: |
+| `System.Text.Json` 9.0.0 to 10.0.0, NativeAOT | Not measured | 141.43 ms | 99.49 ms | -29.7% |
+| `System.Text.Json` 9.0.0 to 10.0.0, Browser-Wasm | 34,272 ms | Not measured | Not measured | Not measured |
+| `Aspire.Hosting` 13.6.0 to 13.6.1, NativeAOT | 9,279.1 ms | 454.43 ms | 338.72 ms | -25.5% |
+| `Aspire.Hosting` 13.6.0 to 13.6.1, Browser-Wasm | 140,900 ms* | 5,425 ms | 3,567.5 ms | -34.2% |
+
+The current System.Text.Json inventory completed with 200 changed Members. The
+current Aspire NativeAOT inventory completed with one changed Member; its
+Browser counterpart reached 140,900 ms but was incomplete because one C#
+decompilation failed, while canonical IL was exact. That failure is part of the
+current broad-scope experience that the raw producer boundary removes.
+
+Only #9686 to the body-free projection is a controlled same-head comparison.
+It proves that removing Library body work moves the abandoned approach in the
+right direction, but 3,567.5 ms remains unacceptable and both paths still
+construct the complete API comparison. The producer implementation slice must
+publish its own exact base/head, acquisition-free comparison against the
+current path to establish implementation progress.
 
 The Library body policy was tested with a raw per-side digest prototype over
 canonical operations, symbolic operands, control-flow topology, exception
@@ -260,10 +270,11 @@ Library request still has to create both immutable snapshots. The Library pass
 therefore remains body-free; Type requests compute and may cache only the
 unresolved Members they actually reach.
 
-The existing Member Body path remains a rejected baseline rather than a Fast
-Diff source. #9713 fixed its historical selector defect, but the post-fix path
-still pays complete API, Research, decompilation, and dual-mechanism inventory
-costs. Exact measurements and correction history are retained on
+The existing Member Body path remains the exact-Member detail producer, but it
+is a rejected broad-scope baseline rather than a Fast Diff source. #9713 fixed
+its historical selector defect, but the post-fix path still pays complete API,
+Research, decompilation, and dual-mechanism inventory costs. Full measurements
+and correction history are retained on
 [#9686](https://github.com/richlander/dotnet-inspect/pull/9686) and this design's
 pull request rather than expanded here.
 
