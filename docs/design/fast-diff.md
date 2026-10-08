@@ -208,6 +208,26 @@ changed in the facts that pass compares. Each pass also publishes exact-head
 NativeAOT and Browser/Wasm numbers against the complete diff for the same
 pairs.
 
+Progress toward the selected Library policy is measured as one acquisition-free
+before/after comparison. Both package sides were already acquired from exact
+local assets before timing; Browser runtime startup also completed before the
+timed operation, and no measured path performed network work. **Before** is
+exact #9686 with its whole-Library body walk. **After** is the same exact head
+with only that Library body walk skipped:
+
+| Asset and runtime | Before: #9686 body walk | After: same-head body-free projection | Change |
+| --- | ---: | ---: | ---: |
+| `System.Text.Json` 9.0.0 to 10.0.0, NativeAOT | 141.43 ms | 99.49 ms | -29.7% |
+| `Aspire.Hosting` 13.6.0 to 13.6.1, NativeAOT | 454.43 ms | 338.72 ms | -25.5% |
+| `Aspire.Hosting` 13.6.0 to 13.6.1, Firefox/Mono Browser-Wasm | 5,425 ms | 3,567.5 ms | -34.2% |
+
+This After is a policy projection, not the Fast Diff implementation: it still
+constructs the complete API comparison, and 3,567.5 ms remains unacceptable.
+It proves that removing Library body work moves the existing path in the right
+direction. The producer implementation slice must publish its own exact
+base/head, acquisition-free before/after comparison to establish further
+progress.
+
 The Library body policy was tested with a raw per-side digest prototype over
 canonical operations, symbolic operands, control-flow topology, exception
 regions, locals, body flags, and owner-attributed state-machine, lambda, and
@@ -216,7 +236,11 @@ row inventory, or serialized result. Exact `origin/main` `2b11462b5`, exact
 package DLLs, and one host (`dotnet-inspect-perf-3`) were used throughout.
 Every measured command ran under `perf-guard`.
 
-| Pair | Physical bodies before / after | NativeAOT cold side medians | Firefox/Mono Browser-Wasm cold side medians | Cached comparison median |
+These are older-side and newer-side construction costs, not an implementation
+before/after comparison. Package acquisition, network work, and Browser runtime
+startup were outside the timed regions.
+
+| Pair | Physical bodies older / newer | NativeAOT older / newer digest | Browser-Wasm older / newer digest | Cached comparison |
 | --- | ---: | ---: | ---: | ---: |
 | `Aspire.Hosting` 13.6.0 to 13.6.1 | 11,483 / 11,483 | 841.4 / 845.8 ms | 15,982 / 15,988 ms | 12.1 ms NativeAOT; 62 ms Browser |
 | `System.Text.Json` 9.0.0 to 10.0.0 | 3,884 / 4,055 | 155.1 / 160.6 ms | 3,133 / 3,330 ms | 3.7 ms NativeAOT; 22 ms Browser |
