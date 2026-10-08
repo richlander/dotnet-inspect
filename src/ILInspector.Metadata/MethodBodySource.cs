@@ -284,10 +284,14 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         if (TypeMatcher.IsTypeGlobPattern(typeName))
             return null;
 
+        // A rejected name traversal anywhere in the image returns null, so the
+        // complete route owns that row's failure report.
         TypeDefinitionHandle selected = default;
         foreach (var handle in _reader.TypeDefinitions)
         {
-            string name = _reader.GetFullTypeName(_reader.GetTypeDefinition(handle));
+            if (_reader.ResolveFullTypeName(handle)
+                is not RelationshipTraversalResult<string>.Completed { Value: var name })
+                return null;
             if (selected.IsNil && name == typeName)
                 selected = handle;
             else if (TypeMatcher.MatchesExactTypeName(name, typeName))
@@ -299,9 +303,9 @@ public sealed partial class MethodBodySource : IOperandNameResolver
 
         foreach (var handle in _reader.ExportedTypes)
         {
-            if (TypeMatcher.MatchesExactTypeName(
-                    _reader.GetFullTypeName(_reader.GetExportedType(handle)),
-                    typeName))
+            if (_reader.ResolveFullTypeName(handle)
+                    is not RelationshipTraversalResult<string>.Completed { Value: var name }
+                || TypeMatcher.MatchesExactTypeName(name, typeName))
                 return null;
         }
 

@@ -2254,14 +2254,23 @@ public static class MemberCommand
 
         return assemblyPath =>
         {
-            using AssemblyInspectionSession session =
-                AssemblyInspectionSession.Open(assemblyPath);
-            if (session.MethodBodies.FindUniqueLookupTypeToken(typeName) is not { } token
-                || session.MethodBodies.DeclaresExtensionMethod(memberName))
+            // Malformed metadata keeps the complete route, which owns its
+            // failure report.
+            try
+            {
+                using AssemblyInspectionSession session =
+                    AssemblyInspectionSession.Open(assemblyPath);
+                if (session.MethodBodies.FindUniqueLookupTypeToken(typeName) is not { } token
+                    || session.MethodBodies.DeclaresExtensionMethod(memberName))
+                {
+                    return null;
+                }
+                return handle => MetadataTokens.GetToken(handle) == token;
+            }
+            catch (BadImageFormatException)
             {
                 return null;
             }
-            return handle => MetadataTokens.GetToken(handle) == token;
         };
     }
 

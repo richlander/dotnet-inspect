@@ -2,6 +2,10 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Sections;
 using Collision.DotnetInspect.Cli.Tests;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -143,6 +147,153 @@ public class MemberSingleTypeSurfaceTests
                 SectionBlock(complete.Output, section),
                 SectionBlock(single.Output, section));
         }
+    }
+
+    [Theory]
+    [InlineData(MalformedRow.NestedTypeCycle)]
+    [InlineData(MalformedRow.ExportedTypeCycle)]
+    [InlineData(MalformedRow.ExportedTypeOutOfRange)]
+    public async Task MalformedUnrelatedRow_MatchesCompleteSurfaceRoute(
+        MalformedRow row)
+    {
+        // A rejected name traversal elsewhere in the image keeps the complete
+        // route, which reports the row and still renders the selected member.
+        using var directory =
+            new TemporaryTestDirectory("dotnet-inspect-single-type-");
+        string library = Path.Combine(directory.FullName, "Malformed.dll");
+        File.WriteAllBytes(library, MalformedImage(row));
+        string[] args =
+        [
+            "member",
+            "Ns.Widget.M:1",
+            "--library",
+            library,
+            "-S",
+            SectionNames.Signature,
+            "-S",
+            SectionNames.IL,
+        ];
+
+        var single = await RunCliAsync(args);
+        var complete = await RunCliAsync([.. args, "-S", SectionNames.Calls]);
+
+        Assert.Contains("IL_0000: ret", single.Output);
+        Assert.Equal(complete.ExitCode, single.ExitCode);
+        Assert.Equal(complete.Error, single.Error);
+        foreach (string section in (string[])[SectionNames.Signature, SectionNames.IL])
+        {
+            Assert.Equal(
+                SectionBlock(complete.Output, section),
+                SectionBlock(single.Output, section));
+        }
+    }
+
+    public enum MalformedRow
+    {
+        NestedTypeCycle,
+        ExportedTypeCycle,
+        ExportedTypeOutOfRange,
+    }
+
+    static byte[] MalformedImage(MalformedRow row)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Malformed.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Malformed"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            0,
+            AssemblyHashAlgorithm.Sha1);
+        var runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(
+                new byte[] { 0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a }),
+            default,
+            default);
+        var objectType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(0, returnType => returnType.Void(), _ => { });
+        var ilStream = new BlobBuilder();
+        var code = new InstructionEncoder(new BlobBuilder());
+        code.OpCode(ILOpCode.Ret);
+        int bodyOffset = new MethodBodyStreamEncoder(ilStream).AddMethodBody(code);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var method = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("Ns"),
+            metadata.GetOrAddString("Widget"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+
+        switch (row)
+        {
+            case MalformedRow.NestedTypeCycle:
+                var loop = metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPublic | TypeAttributes.Class,
+                    default,
+                    metadata.GetOrAddString("Loop"),
+                    objectType,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(2));
+                metadata.AddNestedType(loop, loop);
+                break;
+            case MalformedRow.ExportedTypeCycle:
+                metadata.AddExportedType(
+                    TypeAttributes.NestedPublic,
+                    default,
+                    metadata.GetOrAddString("Widget"),
+                    MetadataTokens.ExportedTypeHandle(1),
+                    0);
+                break;
+            case MalformedRow.ExportedTypeOutOfRange:
+                metadata.AddExportedType(
+                    TypeAttributes.NestedPublic,
+                    default,
+                    metadata.GetOrAddString("Other"),
+                    MetadataTokens.ExportedTypeHandle(5),
+                    0);
+                break;
+        }
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+                new PEHeaderBuilder(
+                    imageCharacteristics:
+                        Characteristics.Dll | Characteristics.ExecutableImage),
+                new MetadataRootBuilder(metadata),
+                ilStream)
+            .Serialize(image);
+        return image.ToArray();
     }
 
     [Fact]
