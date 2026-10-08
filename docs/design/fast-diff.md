@@ -110,7 +110,11 @@ Raw Metadata handles and owner-issued correspondence identify each Type,
 Member, and MethodDef. Fast Diff does not round-trip a method through a textual
 Member selector to recover the body it already owns. This preserves distinct
 ordinary methods and conversion operators even when names such as `Explicit`
-or `Implicit` overlap selector grammar.
+or `Implicit` overlap selector grammar. [#9713](https://github.com/richlander/dotnet-inspect/pull/9713)
+corrected literal-name preservation for digest-qualified selectors; the raw
+boundary is not a second workaround for that defect. It avoids unnecessary
+identity recovery entirely and keeps the body producer on its existing
+Metadata subject.
 
 Decode or resolution failure is local to the unresolved subject. QuerySpace
 settles that subject as `Indeterminate`; it does not fail the Library or Type
@@ -195,14 +199,29 @@ reduces that product-host latency.
 The existing Member Body path is a rejected baseline, not an implementation
 candidate. On the same Browser/Wasm host, its `System.Text.Json` 9.0.0 to
 10.0.0 inventory took 34,272 ms and one retained changed Member took another
-15,134.5 ms. `Aspire.Hosting` ran for 67,923 ms before a Research target
-resolution failure. The same `Aspire.Hosting` operation under NativeAOT had a
-4,040.1 ms median and 4,088.1 ms p95 over 20 samples, then produced the same
-failure. These results prohibit using Library Body Analysis, Research target
-resolution, or Member Body inventory as a Fast Diff source; they do not
-predict the raw QuerySpace producer's latency. The roughly 16.8x Browser/Wasm
-gap also makes product-host evidence mandatory rather than treating NativeAOT
-as an absolute-latency proxy.
+15,134.5 ms. On exact #9686, `Aspire.Hosting` ran for 67,923 ms before the
+Research selector defect fixed by #9713 failed the whole Browser/Wasm request.
+The same pre-fix operation under NativeAOT had a 4,040.1 ms median and
+4,088.1 ms p95 over 20 samples before that failure.
+
+A synthetic #9686 plus #9713 build reaches `Available`, exposing the complete
+path's cost and remaining richer-mechanism failure. NativeAOT had a 9,279.1 ms
+median and 9,328.4 ms p95 over 20 samples. Warmed Firefox/Mono Browser/Wasm had
+a 140,900 ms median and 141,231 ms p95 over three samples. The Browser
+inventory was incomplete: canonical IL proved all 2,330 evaluated bodies exact,
+while C# decompilation had 2,329 exact and one failed subject. That failure was
+the sole changed row; opening it took another 101,969 ms and produced failed
+Before and After documents rather than a diff.
+
+The pre-fix failure is historical, not current selector behavior. The post-fix
+result still rejects Library Body Analysis, Research target resolution,
+decompilation, and Member Body inventory as Fast Diff sources: they compute
+complete API and dual-mechanism inventories, require richer identities, and
+allow an irrelevant decompiler failure to affect the result even when every
+canonical IL body is exact. These measurements do not predict the raw
+QuerySpace producer's latency. Browser/Wasm was about 15.2x the NativeAOT
+median on the post-fix complete path, so product-host evidence remains
+mandatory rather than treating NativeAOT as an absolute-latency proxy.
 
 ## Hosts
 
