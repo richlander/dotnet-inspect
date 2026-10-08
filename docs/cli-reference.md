@@ -1625,6 +1625,12 @@ present. Tree retains the legacy Type rendering fallback when compact
 inspection is unavailable. Count, sections, Markdown, tables, JSON, filters,
 and windows keep their existing independent routes.
 
+An explicit verbosity keeps the verbosity-driven Type rendering rather than the
+compact Tree. `-v:m` adds the base Type, Member signatures for non-overloaded
+groups, and an overload Count for each overloaded Member group; `-v:n` and
+`-v:d` list every overload signature. `-v:q` requires `--markdown`, which
+renders compact sections.
+
 ```bash
 dotnet-inspect type System.Math --platform System.Private.CoreLib --tree
 dotnet-inspect type System.Math --platform System.Private.CoreLib --mermaid

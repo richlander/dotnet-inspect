@@ -85,7 +85,7 @@ The family is:
 exact Type
   -> TypeOverviewDocument
        Type declaration
-       Member names and exact-overload Counts
+       Member names, with exact-Member Counts only when requested
 
   -> TypeDocument
        complete Type declaration
@@ -433,8 +433,9 @@ The inspected CoreLib SHA-256 is
 
 Implementation slices must add Release gates proving:
 
-- `TypeOverviewDocument` returns names and Counts without complete
-  exact-Member signatures;
+- `TypeOverviewDocument` returns Member names, with exact-Member Counts on
+  every row when requested and on none otherwise, without complete exact-Member
+  signatures;
 - `TypeDocument` returns every admitted exact Member with a full signature and
   the same exact Type and population correspondence as the overview;
 - `MemberOverviewDocument` returns the complete same-named exact-Member
