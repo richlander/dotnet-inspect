@@ -66,7 +66,7 @@ function renderCompareModeButtons(mode: CompareMode): string {
   ).join("");
 }
 
-export function renderCompareToolbar(options: Pick<CompareFrameOptions, "mode" | "targetText" | "escapeHtml">): string {
+function renderCompareToolbar(options: Pick<CompareFrameOptions, "mode" | "targetText" | "escapeHtml">): string {
   const { mode, escapeHtml } = options;
   return `<div class="compare-context">
     <span class="compare-target-label">${escapeHtml(compareTargetLabel(mode))}</span>
