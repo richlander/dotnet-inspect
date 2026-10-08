@@ -1501,6 +1501,7 @@ public sealed class ExactTypeWorkspaceRouteTests
                     SectionNames.Implementers,
                 },
             Count = true,
+            Rows = RowWindow.Head(1),
             CompanionOutput = CompanionOutput.None,
         };
 

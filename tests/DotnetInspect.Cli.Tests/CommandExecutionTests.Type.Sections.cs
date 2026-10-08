@@ -107,6 +107,41 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_HierarchyJsonAppliesTheSelectedRowRange()
+    {
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.Implementers,
+            "--rows",
+            "2..2",
+            "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            "Hierarchy relation output reached the CLI row bound and is "
+                + "incomplete.",
+            error,
+            StringComparison.Ordinal);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(
+                document.RootElement
+                    .GetProperty("implementers")
+                    .EnumerateArray());
+        Assert.Equal(
+            typeof(WorkspaceImplementationA).FullName!,
+            row.GetProperty("type").GetString());
+    }
+
+    [Fact]
     public async Task Type_HierarchyJsonRejectsColumnProjection()
     {
         string assembly =

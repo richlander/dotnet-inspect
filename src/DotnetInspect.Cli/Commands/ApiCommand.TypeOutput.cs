@@ -346,7 +346,9 @@ public partial class ApiCommand
             }
 
             TypeHierarchyRelationsJsonResult result =
-                TypeHierarchyRelationsJsonResult.From(hierarchy);
+                TypeHierarchyRelationsJsonResult.From(
+                    hierarchy,
+                    options.Rows);
             JsonOutputHelper.Write(
                 result,
                 TypeHierarchyRelationsJsonContext.Default
@@ -1149,8 +1151,7 @@ public partial class ApiCommand
                     SectionNames.Source,
                     SelectedSourceLineCount(options.Rows, sourceLines));
             }
-            if (options.Rows is null
-                && options is TypeOptions
+            if (options is TypeOptions
                 {
                     TypeHierarchyRelations: { } relations,
                 })
@@ -1171,13 +1172,15 @@ public partial class ApiCommand
                     CommandError.Write(hierarchyFailure!);
                     return 1;
                 }
-                if (implementerCount is { } implementers)
+                if (options.Rows is null
+                    && implementerCount is { } implementers)
                 {
                     projection.SetRows(
                         SectionNames.Implementers,
                         implementers);
                 }
-                if (derivedTypeCount is { } derivedTypes)
+                if (options.Rows is null
+                    && derivedTypeCount is { } derivedTypes)
                 {
                     projection.SetRows(
                         SectionNames.DerivedTypes,

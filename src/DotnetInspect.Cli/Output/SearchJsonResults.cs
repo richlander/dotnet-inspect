@@ -47,14 +47,19 @@ internal sealed record TypeHierarchyRelationsJsonResult(
     List<TypeHierarchyRelationJsonResult>? DerivedTypes)
 {
     internal static TypeHierarchyRelationsJsonResult From(
-        TypeHierarchyRelationsInspection inspection) =>
+        TypeHierarchyRelationsInspection inspection,
+        RowWindow? rows) =>
         new(
             inspection.Implementers is { } implementers
-                ? [.. implementers.Candidates.Select(
+                ? [.. RowWindow.Apply(
+                    rows,
+                    implementers.Candidates).Select(
                     TypeHierarchyRelationJsonResult.From)]
                 : null,
             inspection.DerivedTypes is { } derivedTypes
-                ? [.. derivedTypes.Candidates.Select(
+                ? [.. RowWindow.Apply(
+                    rows,
+                    derivedTypes.Candidates).Select(
                     TypeHierarchyRelationJsonResult.From)]
                 : null);
 }
