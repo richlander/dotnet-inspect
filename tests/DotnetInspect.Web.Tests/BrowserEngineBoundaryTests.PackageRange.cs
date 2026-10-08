@@ -66,7 +66,8 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.False(content.IsMaterialized("README.md"));
         Assert.True(content.IsMaterialized($"{id}.nuspec"));
         Assert.Equal(8, content.EnumerateEntries().Count());
-        Assert.Single(inventory.Coordinate.Package.Documents());
+        Assert.Equal(2, inventory.Coordinate.Package.Documents().Count);
+        Assert.Contains(inventory.Coordinate.Package.Documents(), document => document.Kind == "metadata");
         Assert.Equal(PackageInfoMeasurementStatus.Measured, inventory.PackageInfo.Content.Status);
         Assert.Equal(2, inventory.PackageInfo.Content.SelectedLibraryCount);
         Assert.Equal((long)assembly.Length + other.Length, inventory.PackageInfo.Content.SelectedLibraryPayloadBytes);
