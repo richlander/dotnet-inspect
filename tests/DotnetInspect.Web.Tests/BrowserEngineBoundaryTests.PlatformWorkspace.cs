@@ -354,6 +354,34 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PlatformWorkspace_VersionlessDiscoveryAdmitsPrereleasePlatformLine()
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string discoveredVersion = "11.0.0-rc.1.26425.128";
+        byte[] nupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        var handler = new PlatformVersionHandler(
+            packageId,
+            discoveredVersion,
+            nupkg);
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+
+        await using BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                "net11.0-prerelease-platform-discovery",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(discoveredVersion, resolution.Coordinate.Version);
+    }
+
+    [Fact]
     public async Task PlatformWorkspace_ExactVersionSkipsDiscoveryAndDoesNotReuseLatestState()
     {
         const string packageId =
