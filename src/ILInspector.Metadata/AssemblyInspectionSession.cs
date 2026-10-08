@@ -622,6 +622,27 @@ public sealed class AssemblyInspectionSession :
             typesOnly);
 
     /// <summary>
+    /// Executes a metadata-native Member accepted-row fold without constructing
+    /// a complete API surface.
+    /// </summary>
+    public MemberSearchWindowResult SearchMembers(
+        string assemblyName,
+        IReadOnlyList<string> patterns,
+        bool includeAll,
+        MemberSearchWindow window,
+        Func<MetadataTypeDefinitionName, bool>? declaringTypeMatches = null)
+    {
+        _image.EnsureAlive();
+        return MemberSearch.SearchWindow(
+            _image.PEReader,
+            assemblyName,
+            patterns,
+            includeAll,
+            window,
+            declaringTypeMatches);
+    }
+
+    /// <summary>
     /// Reads declaration-only API Types in metadata order and stops before the
     /// Type after <paramref name="stopAfterType"/> first returns
     /// <see langword="true"/>.
@@ -787,19 +808,33 @@ public sealed class AssemblyInspectionSession :
             includeCompilerGenerated);
 
     /// <summary>
+    /// The full names of this image's top-level Types that declare an
+    /// extension method, or null when they cannot be read. A comparison pairs
+    /// an <see cref="ApiTypeSelection"/> with both endpoints' names.
+    /// </summary>
+    public IReadOnlySet<string>? ExtensionDeclaringTypeNames()
+        => ApiTypeSelection.ExtensionDeclaringTypeNames(GetAdmittedMetadataReader());
+
+    /// <summary>
     /// The temporary compatibility surface under hard retention bounds.
     /// </summary>
+    /// <remarks>
+    /// A <paramref name="typeSelection"/> narrows the projection to the Types
+    /// it admits; see <see cref="ApiTypeSelection"/>.
+    /// </remarks>
     public ApiSurfaceExtractionResult BoundedCompatibilityApiSurface(
         ApiSurfaceExtractionScope scope,
         ApiSurfaceExtractionBounds bounds,
         bool typesOnly = false,
-        bool includeCompilerGenerated = false)
+        bool includeCompilerGenerated = false,
+        ApiTypeSelection? typeSelection = null)
         => ApiSurfaceExtractor.ExtractBounded(
             _image.PEReader,
             scope,
             bounds,
             typesOnly,
-            includeCompilerGenerated);
+            includeCompilerGenerated,
+            typeSelection);
 
     /// <summary>
     /// Projects bounded declarations with resolution-aware generic constraints.

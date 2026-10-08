@@ -12,6 +12,28 @@ public sealed class PackageFileContentInspectionTests
             "1.0.0");
 
     [Fact]
+    public void PrimaryDocumentPrefersReadmeAndFallsBackToPackage()
+    {
+        PackageContentEntry package = new("PACKAGE.md", 7);
+        PackageContentEntry readme = new("README.md", 6);
+
+        InspectionEnvelope<PackagePrimaryDocumentResolution> preferred =
+            PackagePrimaryDocumentInspection.Execute([package, readme]);
+        InspectionEnvelope<PackagePrimaryDocumentResolution> fallback =
+            PackagePrimaryDocumentInspection.Execute([package]);
+
+        Assert.Equal(
+            PackagePrimaryDocumentResolutionStatus.Resolved,
+            preferred.Content.Status);
+        Assert.Equal(readme, preferred.Content.Entry);
+        Assert.Equal(
+            PackagePrimaryDocumentResolutionStatus.Resolved,
+            fallback.Content.Status);
+        Assert.Equal(package, fallback.Content.Entry);
+        Assert.IsType<InspectionShare.NonProjectable>(preferred.Share);
+    }
+
+    [Fact]
     public async Task ExactEntryReturnsDetachedBytesAndActualPath()
     {
         byte[] expected = "# Package\n"u8.ToArray();
