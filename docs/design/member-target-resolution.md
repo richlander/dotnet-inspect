@@ -73,3 +73,37 @@ authority for the API identity grammar.
   anchor-construction helpers in producers. Add or extend the owning identity
   layer instead, then cover the bridge with a round-trip or alias-vs-subject
   test.
+
+## Selected-Type population
+
+`MemberTargetResolver` selects within one `ApiType`, so its result depends only
+on that Type's members. A member request whose sections read only the selected
+member therefore resolves over a surface built from the selected Type's own
+declarations. Those sections are Signature, IL, Custom Attributes, Exception
+Regions, Source Locations, and Fidelity Causes. The extractor skips every other
+Type during the same image walk, and the CLI skips forwarded-Type resolution,
+which only the complete surface consumes. Overload ordinals keep the
+displayed-signature order and scope of the complete route.
+
+A request keeps the complete surface when it:
+
+- includes any other section, or uses discovery, a caller scope, or a deferred
+  Type or member;
+- selects more than one member or uses a wildcard member name;
+- targets an image that declares a same-named extension method, which the
+  complete surface projects onto receiver Types;
+- names a Type that the metadata owner cannot find by full name, such as a
+  forwarded Type.
+
+When the selected Type is out of scope, for example a hidden Type without
+`--all`, the selected-Type surface is empty. The CLI then rebuilds the complete
+surface so the not-found report keeps its suggestions.
+
+These requests report failures of the work they perform. They do not report
+diagnostics of an API-surface extraction they no longer run, such as unbound
+type forwarders elsewhere in the image. Across 12,144 requests (the six
+sections, first and last overload ordinals, both scopes, five shared-framework
+assemblies), output is byte-identical to the complete route except in 1,152
+System.Text.Json requests. Those drop the rejected-row warning and exit 0
+instead of 1. `MemberSingleTypeSurfaceTests` gates section parity and the
+absence of forwarded-Type resolution.
