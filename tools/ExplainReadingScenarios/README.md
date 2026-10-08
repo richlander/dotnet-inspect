@@ -95,11 +95,11 @@ are not displayed in the answers, but interpretation and completeness checks
 depend on their contract. No field is declared globally obsolete just because
 one query ignores it. Full declarations remain available through `.contract`.
 
-The useful next design experiment is a shallow resource summary with separately
-selected populations and map/property projections, preserving the states and
-identity needed by each selection. Evaluate its whole-task bytes and requests
-with these same queries before choosing HAL layout or new dotted spellings.
-The 239 B tier answer is evidence for that experiment, not a promised product
+The [self-contained shape experiment](shapes/README.md) now starts with core
+style data and six critical queries, compares repetition, shared records, and
+indexes, and checks whole-task bytes and requests. It keeps the complete style
+reading task separate from a concise summary, tips, or reusable reference.
+The 239 B tier answer is useful selection evidence, not a promised product
 payload budget.
 
 ## Contextual gaps

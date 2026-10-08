@@ -910,6 +910,67 @@ ordering, and truncation. Compare NativeAOT production terminals and include
 CLI and Browser/Wasm consumption in the adoption plan. Do not choose an
 arbitrary size threshold before measuring these useful results.
 
+### Data-first self-contained document design
+
+Status: **proposed; measured style experiment, not production adoption**.
+The draft compact lowering in #9774 reduces declaration overhead, but its
+43,136-byte Style Choices response still preserves an incidental graph layout.
+That is insufficient evidence for an agent-reading default. The
+[executable shape comparison](../../tools/ExplainReadingScenarios/shapes/README.md)
+starts instead with core data, critical queries, and normalization together.
+The self-contained CVE document above is the primary precedent; HAL lowering
+does not decide the data model inside one document.
+
+The proposed claim is: each selected explanation dataset has a stated core
+population and critical reading queries; its organization and normalization
+are justified by query simplicity and whole-task retrieval size together.
+Self-contained means those queries resolve locally within the selected dataset,
+not that every neighboring resource or declaration closure is included.
+
+For style data, the core population is 17 choices, four tiers, and their
+declared properties. Critical queries list choices, select byte-preserving
+choices, identify conflicts, select a tier's option/value pairs, resolve a
+known choice, and build a menu with tier names and descriptions. This last
+query requires tier records that the draft depth-one expansion does not
+contain. Other selections start with their own core: a query facet needs its
+issued operand/operator/constraint facts and required-context meaning; a
+resolved subject needs the facts selected about that subject. Tips and reusable
+references select their own smaller currencies under Contextual Resource
+Explanation, rather than inheriting the style dataset.
+
+The preferred measured style baseline is a discoverable choice array with
+direct named properties and a keyed table of shared tier records. Choice IDs
+are scoped to their declared vocabulary; tier references inherit the target
+vocabulary from the property declaration. Shared scope and interpretation
+appear once. Both populations, every property, descriptions, and presentation
+order survive the lowering; complete OptionalOne absence remains distinct
+from unavailable or failed observations. Unobserved or incomplete domain data
+cannot be fabricated to make a document self-contained.
+
+The experiment answers all six questions from one 10,996-byte document.
+Repeating tier records uses 14,420 bytes. Keyed choices, explicit ordering,
+and reverse indexes use 12,972 bytes and simplify known-ID and group lookups,
+but complicate ordered discovery. Every answer agrees, and the experiment
+checks recovery of the selected core data. Current CLI retrieval for the menu
+with tier descriptions is 49,935 bytes across two requests. These are
+functional data/query measurements, not runtime performance evidence.
+
+The proposed normalization rule is to store shared detail once and add derived
+indexes or scalar repetition only when a critical query earns their cost.
+Arrays support discovery; keyed tables support shared detail and known-key
+lookup. Neither is mandatory for every resource. An index is a projection of
+the same owner data, never another maintained inventory. The selected style
+baseline does not yet justify all the tested indexes for 17 choices.
+
+This experiment does not define a universal style-specific model in Sections,
+change Product Vocabulary's declarations or value grammar, admit a new dotted
+selection, or make the generic compact envelope obsolete for explicit graph
+inspection. Production adoption must generalize the selected-document assembly
+from owner-issued identities, property contracts, and relationship evidence,
+retain selected observation outcomes and completeness, and demonstrate the
+same data-first reasoning for the other adopted resource families. Only then
+should host selection and HAL binding determine the final wire presentation.
+
 ### Compact resource projection contract
 
 Status: **proposed; not implemented**. This is slice 2 of
