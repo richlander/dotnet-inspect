@@ -70,6 +70,42 @@ public sealed record MemberFindDeclaringTypeFilter
     }
 }
 
+/// <summary>
+/// Accepted Member positions executed by the source evaluator.
+/// </summary>
+public sealed record MemberFindAcceptedRows
+{
+    [JsonConstructor]
+    public MemberFindAcceptedRows(
+        int start,
+        int? end,
+        bool materializeRows)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(start);
+        if (end is int finiteEnd && finiteEnd < start)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(end),
+                finiteEnd,
+                "The accepted-row end must not precede its start.");
+        }
+        if (materializeRows && end is null)
+        {
+            throw new ArgumentException(
+                "A row-materializing Member evaluation requires a finite end.",
+                nameof(end));
+        }
+
+        Start = start;
+        End = end;
+        MaterializeRows = materializeRows;
+    }
+
+    public int Start { get; }
+    public int? End { get; }
+    public bool MaterializeRows { get; }
+}
+
 /// <summary>An ordered plural Member Find question.</summary>
 public sealed record MemberFindQuestion : FindQuestion
 {
@@ -78,25 +114,33 @@ public sealed record MemberFindQuestion : FindQuestion
         ImmutableArray<MemberFindPattern> patterns,
         FindVisibility visibility,
         MemberFindDeclaringTypeFilter? declaringTypeFilter,
-        int? maximumMatches)
+        int? maximumMatches,
+        MemberFindAcceptedRows? acceptedRows = null)
     {
-        Validate(patterns, visibility, maximumMatches);
+        Validate(
+            patterns,
+            visibility,
+            maximumMatches,
+            acceptedRows);
         Patterns = patterns;
         Visibility = visibility;
         DeclaringTypeFilter = declaringTypeFilter;
         MaximumMatches = maximumMatches;
+        AcceptedRows = acceptedRows;
     }
 
     public ImmutableArray<MemberFindPattern> Patterns { get; }
     public FindVisibility Visibility { get; }
     public MemberFindDeclaringTypeFilter? DeclaringTypeFilter { get; }
     public int? MaximumMatches { get; }
+    public MemberFindAcceptedRows? AcceptedRows { get; }
 
     public static MemberFindQuestion Create(
         IEnumerable<string> patterns,
         FindVisibility visibility,
         string? declaringTypeFilter = null,
-        int? maximumMatches = null)
+        int? maximumMatches = null,
+        MemberFindAcceptedRows? acceptedRows = null)
     {
         ArgumentNullException.ThrowIfNull(patterns);
         return Create(
@@ -108,27 +152,31 @@ public sealed record MemberFindQuestion : FindQuestion
                 ? null
                 : new MemberFindDeclaringTypeFilter(
                     declaringTypeFilter),
-            maximumMatches);
+            maximumMatches,
+            acceptedRows);
     }
 
     public static MemberFindQuestion Create(
         IEnumerable<MemberFindPattern> patterns,
         FindVisibility visibility,
         MemberFindDeclaringTypeFilter? declaringTypeFilter = null,
-        int? maximumMatches = null)
+        int? maximumMatches = null,
+        MemberFindAcceptedRows? acceptedRows = null)
     {
         ArgumentNullException.ThrowIfNull(patterns);
         return new(
             [.. patterns],
             visibility,
             declaringTypeFilter,
-            maximumMatches);
+            maximumMatches,
+            acceptedRows);
     }
 
     private static void Validate(
         ImmutableArray<MemberFindPattern> patterns,
         FindVisibility visibility,
-        int? maximumMatches)
+        int? maximumMatches,
+        MemberFindAcceptedRows? acceptedRows)
     {
         if (!Enum.IsDefined(visibility))
             throw new ArgumentOutOfRangeException(nameof(visibility));
@@ -137,6 +185,15 @@ public sealed record MemberFindQuestion : FindQuestion
             throw new ArgumentOutOfRangeException(
                 nameof(maximumMatches),
                 "A Member Find match limit must be positive.");
+        }
+        if (acceptedRows is not null
+            && maximumMatches is not null
+            && acceptedRows.End != maximumMatches)
+        {
+            throw new ArgumentException(
+                "A bounded accepted-row request must share the question's "
+                    + "maximum match position.",
+                nameof(acceptedRows));
         }
         if (patterns.IsDefaultOrEmpty)
         {
@@ -230,6 +287,8 @@ public sealed record MemberFindSourceCoverage(
     ImmutableArray<ApiSurfaceInspectionFailure> InspectionFailures,
     ImmutableArray<int> CompletedPatternOrdinals)
 {
+    public ImmutableArray<int> MatchedPatternOrdinals { get; init; } = [];
+
     public bool IsComplete => Kind is MemberFindSourceCoverageKind.Complete;
 
     public bool IsPatternComplete(int ordinal) =>
@@ -256,6 +315,7 @@ public abstract class MemberFindSourceEvaluation
     public FindSourceIdentity Source { get; }
     public MemberFindSourceCoverage Coverage { get; }
     public abstract ImmutableArray<MemberFindSemanticMatch> Matches { get; }
+    public abstract int AcceptedCount { get; }
     public bool IsComplete => Coverage.IsComplete;
 
     public sealed class Available : MemberFindSourceEvaluation
@@ -264,16 +324,20 @@ public abstract class MemberFindSourceEvaluation
             MemberFindQuestion question,
             FindSourceIdentity source,
             ImmutableArray<MemberFindSemanticMatch> matches,
+            int acceptedCount,
             MemberFindSourceCoverage coverage)
             : base(question, source, coverage)
         {
             Matches = matches;
+            AcceptedCount = acceptedCount;
         }
 
         public override ImmutableArray<MemberFindSemanticMatch> Matches
         {
             get;
         }
+
+        public override int AcceptedCount { get; }
     }
 
     public sealed class Rejected : MemberFindSourceEvaluation
@@ -287,6 +351,7 @@ public abstract class MemberFindSourceEvaluation
         }
 
         public override ImmutableArray<MemberFindSemanticMatch> Matches => [];
+        public override int AcceptedCount => 0;
     }
 
     public sealed class Failed : MemberFindSourceEvaluation
@@ -300,6 +365,7 @@ public abstract class MemberFindSourceEvaluation
         }
 
         public override ImmutableArray<MemberFindSemanticMatch> Matches => [];
+        public override int AcceptedCount => 0;
     }
 }
 
@@ -386,7 +452,8 @@ public sealed class MemberFindBlock
         ImmutableArray<MemberFindSourceCoverage> sourceCoverage,
         ImmutableArray<FindPopulationGap> populationGaps,
         bool isSourceCoverageComplete,
-        FindMatchCompletion matchCompletion)
+        FindMatchCompletion matchCompletion,
+        int acceptedCount = 0)
     {
         ArgumentNullException.ThrowIfNull(question);
         if (matches.IsDefault
@@ -404,6 +471,7 @@ public sealed class MemberFindBlock
         PopulationGaps = populationGaps;
         IsSourceCoverageComplete = isSourceCoverageComplete;
         MatchCompletion = matchCompletion;
+        AcceptedCount = acceptedCount;
     }
 
     public MemberFindQuestion Question { get; }
@@ -413,6 +481,7 @@ public sealed class MemberFindBlock
     public ImmutableArray<FindPopulationGap> PopulationGaps { get; }
     public bool IsSourceCoverageComplete { get; }
     public FindMatchCompletion MatchCompletion { get; }
+    public int AcceptedCount { get; }
 }
 
 /// <summary>
@@ -452,7 +521,54 @@ public static class MemberFindSourceEvaluator
         ];
 
         int? remaining = question.MaximumMatches;
-        if (remaining is null)
+        if (question.AcceptedRows is { } acceptedRows)
+        {
+            int acceptedCount = 0;
+            foreach (MemberFindPattern pattern in question.Patterns)
+            {
+                foreach (EvaluationState state in states)
+                {
+                    if (acceptedRows.End is int participantEnd
+                        && acceptedCount >= participantEnd)
+                    {
+                        break;
+                    }
+                    if (state.IsTerminal)
+                        continue;
+
+                    int localStart =
+                        Math.Max(
+                            1,
+                            acceptedRows.Start
+                                - acceptedCount);
+                    int? localEnd =
+                        acceptedRows.End is int finiteEnd
+                            ? finiteEnd - acceptedCount
+                            : null;
+                    int added = EvaluateSelectivePattern(
+                        question,
+                        group,
+                        state,
+                        pattern,
+                        new(
+                            localStart,
+                            localEnd,
+                            acceptedRows.MaterializeRows));
+                    acceptedCount =
+                        checked(acceptedCount + added);
+                }
+                if (acceptedRows.End is int patternEnd
+                    && acceptedCount >= patternEnd)
+                {
+                    break;
+                }
+            }
+            remaining =
+                acceptedRows.End is int terminalEnd
+                    ? Math.Max(0, terminalEnd - acceptedCount)
+                    : null;
+        }
+        else if (remaining is null)
         {
             foreach (EvaluationState state in states)
             {
@@ -518,6 +634,68 @@ public static class MemberFindSourceEvaluator
             sources,
             gaps,
             ownerReportsComplete: true);
+    }
+
+    private static int EvaluateSelectivePattern(
+        MemberFindQuestion question,
+        AssemblyContextGroup group,
+        EvaluationState state,
+        MemberFindPattern pattern,
+        MemberSearchWindow window)
+    {
+        AssemblyContextEntry<MemberSearchWindowResult> entry =
+            AssemblyContextQueryExecutor.ExecuteParticipant(
+                group,
+                state.Participant,
+                session => session.SearchMembers(
+                    state.Subject.Identity.Name,
+                    [pattern.Text],
+                    question.Visibility is FindVisibility.All,
+                    window,
+                    question.DeclaringTypeFilter is { } filter
+                        ? filter.Matches
+                        : null));
+        state.WasAttempted = true;
+
+        switch (entry)
+        {
+            case AssemblyContextEntry<
+                MemberSearchWindowResult>.Rejected rejected:
+                state.Rejection = rejected.Failure;
+                return 0;
+            case AssemblyContextEntry<
+                MemberSearchWindowResult>.Failed failed:
+                state.Failure = failed.Error;
+                return 0;
+            case AssemblyContextEntry<
+                MemberSearchWindowResult>.Available available:
+                MemberSearchWindowResult result =
+                    available.Value;
+                state.AddInspectionFailures(
+                    result.InspectionFailures);
+                ImmutableArray<MemberFindSemanticMatch> matches =
+                    ConvertMatches(
+                        question,
+                        state.Source,
+                        [pattern],
+                        result.Results);
+                state.AddMatches(matches);
+                state.AddAcceptedMatches(
+                    pattern,
+                    result.AcceptedCount);
+                if (result.EndReached)
+                {
+                    state.HitLimit = true;
+                }
+                else
+                {
+                    state.AddCompletedPatterns([pattern]);
+                }
+                return result.AcceptedCount;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown assembly-context Member outcome.");
+        }
     }
 
     private static int EvaluatePatterns(
@@ -702,6 +880,8 @@ public static class MemberFindSourceEvaluator
         readonly List<MemberFindSemanticMatch> _matches = [];
         readonly List<ApiSurfaceInspectionFailure> _inspectionFailures = [];
         readonly HashSet<int> _completedPatternOrdinals = [];
+        readonly HashSet<int> _matchedPatternOrdinals = [];
+        int _acceptedCount;
 
         internal EvaluationState(
             AssemblyContextParticipant participant,
@@ -726,6 +906,16 @@ public static class MemberFindSourceEvaluator
         internal void AddMatches(
             ImmutableArray<MemberFindSemanticMatch> matches) =>
             _matches.AddRange(matches);
+
+        internal void AddAcceptedMatches(
+            MemberFindPattern pattern,
+            int count)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            _acceptedCount = checked(_acceptedCount + count);
+            if (count > 0)
+                _matchedPatternOrdinals.Add(pattern.Ordinal);
+        }
 
         internal void AddCompletedPatterns(
             ImmutableArray<MemberFindPattern> patterns)
@@ -799,7 +989,11 @@ public static class MemberFindSourceEvaluator
                 kind,
                 detail,
                 failures,
-                [.. _completedPatternOrdinals.Order()]);
+                [.. _completedPatternOrdinals.Order()])
+            {
+                MatchedPatternOrdinals =
+                    [.. _matchedPatternOrdinals.Order()],
+            };
             return new MemberFindSourceEvaluation.Available(
                 question,
                 Source,
@@ -815,6 +1009,9 @@ public static class MemberFindSourceEvaluator
                             static match =>
                                 match.Declaration.MemberOrder),
                 ],
+                _acceptedCount == 0
+                    ? _matches.Count
+                    : _acceptedCount,
                 coverage);
         }
     }
