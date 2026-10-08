@@ -21,6 +21,7 @@ public static partial class ApiSurfaceExtractor
             IReadOnlySet<MethodDefinitionHandle>
                 explicitImplementationBodies,
             byte typeNullableContext,
+            bool includeAll = false,
             Action<string>? beforeRetainText = null,
             Action<int>? beforeDecodeWork = null) =>
         GetPropertySignature(
@@ -30,6 +31,7 @@ public static partial class ApiSurfaceExtractor
             accessors,
             typeNullableContext,
             explicitImplementationBodies,
+            includeAll,
             beforeRetainText: beforeRetainText,
             beforeDecodeWork: beforeDecodeWork,
             beforeAttributeMaterialize: beforeDecodeWork);

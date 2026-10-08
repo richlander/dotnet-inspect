@@ -1051,10 +1051,30 @@ public static class FindSemanticReducer
             ImmutableArray.CreateBuilder<MemberFindSemanticMatch>();
         var settlements =
             ImmutableArray.CreateBuilder<MemberFindPatternSettlement>();
+        int acceptedCount =
+            population.Sources.Sum(
+                static source => source.AcceptedCount);
+        bool acceptedEndReached =
+            question.AcceptedRows?.End is int acceptedEnd
+            && acceptedCount >= acceptedEnd;
+        int? acceptedTerminalPattern =
+            acceptedEndReached
+                ? population.Sources
+                    .SelectMany(source =>
+                        source.Coverage
+                            .CompletedPatternOrdinals
+                            .Concat(
+                                source.Coverage
+                                    .MatchedPatternOrdinals))
+                    .DefaultIfEmpty(-1)
+                    .Max()
+                : null;
         bool limitReached = false;
         foreach (MemberFindPattern pattern in question.Patterns)
         {
-            if (limitReached)
+            if (limitReached
+                || acceptedTerminalPattern is int terminalPattern
+                    && pattern.Ordinal > terminalPattern)
             {
                 settlements.Add(
                     new(
@@ -1084,7 +1104,12 @@ public static class FindSemanticReducer
                     break;
             }
 
-            if (matches.Count > before)
+            if (matches.Count > before
+                || population.Sources.Any(
+                    source =>
+                        source.Coverage
+                            .MatchedPatternOrdinals.Contains(
+                                pattern.Ordinal)))
             {
                 settlements.Add(
                     new(
@@ -1122,9 +1147,10 @@ public static class FindSemanticReducer
             [.. population.Sources.Select(static source => source.Coverage)],
             population.Gaps,
             population.IsComplete,
-            limitReached
+            limitReached || acceptedEndReached
                 ? FindMatchCompletion.MatchLimitReached
-                : FindMatchCompletion.Exhausted);
+                : FindMatchCompletion.Exhausted,
+            acceptedCount);
     }
 
     private static bool IsMemberPatternComplete(
