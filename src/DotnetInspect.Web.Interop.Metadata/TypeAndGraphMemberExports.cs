@@ -8,7 +8,6 @@ using ILInspector.CSharp;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using QuerySpace.Rows;
-using Analysis = ILInspector.Analysis;
 
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Metadata;
@@ -830,7 +829,7 @@ public static partial class MetadataExports
     }
 
     static BrowserMemberDeclaration RenderMemberDeclaration(
-        BrowserMemberResolution.DeclarationResolved resolved)
+        AssemblyContextMemberDeclaration resolved)
     {
         CSharpMemberDeclarationOutcome outcome =
             new CSharpFormatter(new CSharpFormatOptions
@@ -876,7 +875,7 @@ public static partial class MetadataExports
                 selectorKey,
                 metadataToken);
         BrowserWorkspaceParticipant surfaceParticipant = resolved.SurfaceParticipant;
-        Analysis.CallGraphMemberResolution resolution = resolved.Member;
+        AssemblyContextMemberBody resolution = resolved.Member;
         var textBudget = new BrowserSurfaceProjection.BrowserSurfaceTextBudget(
             BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
         textBudget.BeginParticipant();

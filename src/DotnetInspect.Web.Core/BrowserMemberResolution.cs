@@ -2,7 +2,6 @@ using System.Runtime.Versioning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
-using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspect.Web;
 
@@ -22,11 +21,7 @@ internal static class BrowserMemberResolution
     internal sealed record Resolved(
         BrowserWorkspaceParticipant SurfaceParticipant,
         BrowserWorkspaceParticipant ImplementationParticipant,
-        Analysis.CallGraphMemberResolution Member);
-
-    internal sealed record DeclarationResolved(
-        ApiType Type,
-        ApiMember Member);
+        AssemblyContextMemberBody Member);
 
     /// <summary>
     /// One resolved member and the protected use of the workspace it was resolved in. The lease
@@ -37,7 +32,7 @@ internal static class BrowserMemberResolution
         BrowserScopeLease<BrowserInspectionScope> Lease,
         BrowserWorkspaceParticipant SurfaceParticipant,
         BrowserWorkspaceParticipant ImplementationParticipant,
-        Analysis.CallGraphMemberResolution Member) : IAsyncDisposable
+        AssemblyContextMemberBody Member) : IAsyncDisposable
     {
         internal BrowserInspectionScope Scope => Lease.Scope;
 
@@ -46,21 +41,21 @@ internal static class BrowserMemberResolution
 
     internal sealed record ScopedDeclarationResolution(
         BrowserScopeLease<BrowserInspectionScope> Lease,
-        DeclarationResolved Member) : IAsyncDisposable
+        AssemblyContextMemberDeclaration Member) : IAsyncDisposable
     {
         public ValueTask DisposeAsync() => Lease.DisposeAsync();
     }
 
     internal sealed record ScopedPlatformDeclarationResolution(
         BrowserPlatformScopeResolution Resolution,
-        DeclarationResolved Member) : IAsyncDisposable
+        AssemblyContextMemberDeclaration Member) : IAsyncDisposable
     {
         public ValueTask DisposeAsync() => Resolution.DisposeAsync();
     }
 
     internal sealed record ScopedPlatformResolution(
         BrowserPlatformScopeResolution Resolution,
-        Analysis.CallGraphMemberResolution Member) : IAsyncDisposable
+        AssemblyContextMemberBody Member) : IAsyncDisposable
     {
         internal BrowserPlatformScope Scope => Resolution.Scope;
         internal WorkspaceContextMember Participant => Resolution.Participant;
@@ -176,7 +171,7 @@ internal static class BrowserMemberResolution
             cancellationToken.ThrowIfCancellationRequested();
             BrowserInspectionScope scope = lease.Scope;
             BrowserPackageCoordinate coordinate = scope.Coordinates[0];
-            DeclarationResolved member = implementationMember
+            AssemblyContextMemberDeclaration member = implementationMember
                 ? ResolveImplementationDeclaration(
                     scope,
                     coordinate,
@@ -224,14 +219,17 @@ internal static class BrowserMemberResolution
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            DeclarationResolved member = resolution.Scope.UseParticipant(
+            AssemblyContextMemberDeclaration member =
+                resolution.Scope.UseParticipant(
                 resolution.Participant,
                 (group, selected) => ResolveDeclaration(
-                    ParticipantSurface(group, selected, "platform"),
+                    group,
+                    selected,
                     typeId,
                     memberName,
                     selectorKey,
-                    metadataToken));
+                    metadataToken,
+                    "Platform declaration"));
             return new ScopedPlatformDeclarationResolution(
                 resolution,
                 member);
@@ -274,11 +272,12 @@ internal static class BrowserMemberResolution
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Analysis.CallGraphMemberResolution member =
+            AssemblyContextMemberBody member =
                 resolution.Scope.UseParticipant(
                     resolution.Participant,
                     (group, selected) => ResolveImplementationMember(
-                        ImplementationSurface(group, selected),
+                        group,
+                        selected,
                         typeId,
                         memberName,
                         selectorKey,
@@ -322,9 +321,13 @@ internal static class BrowserMemberResolution
             cancellationToken.ThrowIfCancellationRequested();
             ApiType type = resolution.Scope.UseParticipant(
                 resolution.Participant,
-                (group, selected) => ResolveImplementationType(
-                    ImplementationSurface(group, selected),
-                    typeId));
+                (group, selected) => RequireSelection(
+                    AssemblyContextMemberSelectionQuery.ExecuteType(
+                        group,
+                        selected,
+                        typeId,
+                        BrowserApiSurfacePolicy.Limits),
+                    "Implementation type selection"));
             return new ScopedPlatformTypeResolution(resolution, type);
         }
         catch
@@ -351,10 +354,16 @@ internal static class BrowserMemberResolution
             scope.SurfaceParticipant(coordinate, surfaceAsset);
         BrowserWorkspaceParticipant participant =
             scope.ImplementationParticipant(surfaceParticipant);
-        Analysis.CallGraphMemberResolution resolution = scope.UseImplementationParticipant(
-            participant,
-            (group, member) => ResolveImplementationMember(
-                ImplementationSurface(group, member), typeId, memberName, selectorKey, metadataToken));
+        AssemblyContextMemberBody resolution =
+            scope.UseImplementationParticipant(
+                participant,
+                (group, member) => ResolveImplementationMember(
+                    group,
+                    member,
+                    typeId,
+                    memberName,
+                    selectorKey,
+                    metadataToken));
         return new Resolved(surfaceParticipant, participant, resolution);
     }
 
@@ -384,7 +393,7 @@ internal static class BrowserMemberResolution
             "Implementation surface").Surface;
     }
 
-    static DeclarationResolved ResolveSurfaceDeclaration(
+    static AssemblyContextMemberDeclaration ResolveSurfaceDeclaration(
         BrowserInspectionScope scope,
         BrowserPackageCoordinate coordinate,
         string assemblyName,
@@ -396,18 +405,19 @@ internal static class BrowserMemberResolution
         PackageCompileAsset surfaceAsset = coordinate.CompileAsset(assemblyName);
         BrowserWorkspaceParticipant participant =
             scope.SurfaceParticipant(coordinate, surfaceAsset);
-        ApiSurface surface = scope.UseSurfaceParticipant(
+        return scope.UseSurfaceParticipant(
             participant,
-            (group, selected) => ParticipantSurface(group, selected, "surface"));
-        return ResolveDeclaration(
-            surface,
-            typeId,
-            memberName,
-            selectorKey,
-            metadataToken);
+            (group, selected) => ResolveDeclaration(
+                group,
+                selected,
+                typeId,
+                memberName,
+                selectorKey,
+                metadataToken,
+                "Surface declaration"));
     }
 
-    static DeclarationResolved ResolveImplementationDeclaration(
+    static AssemblyContextMemberDeclaration ResolveImplementationDeclaration(
         BrowserInspectionScope scope,
         BrowserPackageCoordinate coordinate,
         string assemblyName,
@@ -424,124 +434,84 @@ internal static class BrowserMemberResolution
         return scope.UseImplementationParticipant(
             participant,
             (group, selected) => ResolveDeclaration(
-                ImplementationSurface(group, selected),
+                group,
+                selected,
                 typeId,
                 memberName,
                 selectorKey,
-                metadataToken));
+                metadataToken,
+                "Implementation declaration"));
     }
 
-    static DeclarationResolved ResolveDeclaration(
-        ApiSurface surface,
+    static AssemblyContextMemberDeclaration ResolveDeclaration(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
         string typeIdentity,
         string memberName,
         string selectorKey,
-        int metadataToken)
-    {
-        ApiType[] typeMatches =
-        [
-            .. surface.Types.Where(candidate =>
-                candidate.DefinitionName?.ToEscapedFullName()
-                    .Equals(typeIdentity, StringComparison.Ordinal) == true),
-        ];
-        if (typeMatches.Length != 1)
-        {
-            throw new InvalidOperationException(
-                $"The selected surface does not contain one exact type identity "
-                + $"for '{typeIdentity}'.");
-        }
+        int metadataToken,
+        string operation) =>
+        RequireSelection(
+            AssemblyContextMemberSelectionQuery.ExecuteDeclaration(
+                group,
+                participant,
+                new(
+                    typeIdentity,
+                    memberName,
+                    selectorKey,
+                    metadataToken == 0 ? null : metadataToken),
+                BrowserApiSurfacePolicy.Limits),
+            operation);
 
-        ApiType type = typeMatches[0];
-        ApiMember[] named =
-        [
-            .. type.Members.Where(candidate =>
-                candidate.Name.Equals(memberName, StringComparison.Ordinal)),
-        ];
-        if (metadataToken != 0)
-        {
-            ApiMember[] tokenMatches =
-            [
-                .. named.Where(candidate =>
-                    (candidate.DeclarationMetadataToken
-                        ?? candidate.MetadataToken) == metadataToken),
-            ];
-            if (tokenMatches.Length == 1)
-                return new DeclarationResolved(type, tokenMatches[0]);
-            if (tokenMatches.Length > 1)
-            {
-                throw new InvalidOperationException(
-                    $"The selected declaration token for "
-                    + $"'{typeIdentity}.{memberName}' is ambiguous.");
-            }
-        }
-
-        ApiMember[] selectorMatches =
-        [
-            .. named.Where(candidate =>
-                Analysis.CallGraphMemberResolver.CreateSelector(type, candidate)
-                    .Key.Equals(selectorKey, StringComparison.Ordinal)),
-        ];
-        return selectorMatches.Length == 1
-            ? new DeclarationResolved(type, selectorMatches[0])
-            : throw new InvalidOperationException(
-                $"The surface of '{typeIdentity}.{memberName}' does not contain "
-                + "one exact selected API declaration.");
-    }
-
-    static ApiSurface ParticipantSurface(
+    internal static AssemblyContextMemberBody ResolveImplementationMember(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,
-        string role)
-    {
-        AssemblyContextApiSurfaceResult surfaces =
-            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+        string typeId,
+        string memberName,
+        string selectorKey,
+        int metadataToken) =>
+        RequireSelection(
+            AssemblyContextMemberSelectionQuery.ExecuteBody(
                 group,
-                ApiSurfaceScope.IncludeAll,
-                BrowserApiSurfacePolicy.Limits,
-                [participant]);
-        if (surfaces.Truncation is { } truncation)
-        {
-            throw new InvalidOperationException(
-                $"The {role} surface exceeds the browser projection bounds, so "
-                + "the selected declaration cannot be resolved. "
-                + BrowserApiSurfacePolicy.TruncationNotice(truncation));
-        }
+                participant,
+                new(
+                    typeId,
+                    memberName,
+                    selectorKey,
+                    metadataToken == 0 ? null : metadataToken),
+                BrowserApiSurfacePolicy.Limits),
+            "Implementation member selection");
 
-        return BrowserSurfaceProjection.Require(
-            surfaces.Assemblies.Assemblies.Single(),
-            $"{role} surface").Surface;
-    }
-
-    internal static Analysis.CallGraphMemberResolution ResolveImplementationMember(
+    internal static AssemblyContextMemberBody ResolveImplementationMember(
         ApiSurface implementation,
         string typeId,
         string memberName,
         string selectorKey,
         int metadataToken) =>
-            Analysis.CallGraphMemberResolver.ResolveDefinitionIdentity(
-                implementation,
+        ApiSurfaceMemberSelection.SelectBody(
+            implementation,
+            new(
                 typeId,
                 memberName,
                 selectorKey,
-                metadataToken == 0 ? null : metadataToken)
-            ?? throw new InvalidOperationException(
-                $"The implementation of '{typeId}.{memberName}' does not contain the selected "
-                + "API body.");
+                metadataToken == 0 ? null : metadataToken));
 
-    internal static ApiType ResolveImplementationType(
-        ApiSurface implementation,
-        string typeId)
+    static TValue RequireSelection<TValue>(
+        AssemblyContextEntry<TValue> entry,
+        string operation)
     {
-        ApiType[] matches =
-        [
-            .. implementation.Types.Where(candidate =>
-                candidate.DefinitionName?.ToEscapedFullName()
-                    .Equals(typeId, StringComparison.Ordinal) == true),
-        ];
-        return matches.Length == 1
-            ? matches[0]
-            : throw new InvalidOperationException(
-                $"The implementation surface does not contain one exact type "
-                + $"identity for '{typeId}'.");
+        if (entry is AssemblyContextEntry<TValue>.Available available)
+            return available.Value;
+        if (entry is AssemblyContextEntry<TValue>.Failed
+            {
+                Error: InvalidOperationException error,
+            })
+        {
+            throw new InvalidOperationException(
+                $"{operation} failed: {error.Message}",
+                error);
+        }
+
+        return BrowserSurfaceProjection.Require(entry, operation);
     }
 }

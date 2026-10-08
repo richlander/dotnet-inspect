@@ -90,7 +90,7 @@ public static partial class AnalysisExports
                 implementationBodySelected ? metadataToken : 0);
         BrowserInspectionScope scope = resolved.Scope;
         BrowserWorkspaceParticipant participant = resolved.ImplementationParticipant;
-        ILAnalysis.CallGraphMemberResolution resolution = resolved.Member;
+        AssemblyContextMemberBody resolution = resolved.Member;
 
         AssemblyMethodAnalysis analysis = BrowserSurfaceProjection.Require(
             scope.UseImplementationParticipant(
