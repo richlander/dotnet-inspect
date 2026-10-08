@@ -7,16 +7,21 @@ Stack slice 2 above
 [#8577](https://github.com/richlander/dotnet-inspect/issues/8577). It evaluates
 the demand-driven shallow retained-prefix model owned by
 [Instruction substrate](instruction-substrate.md#layer-0--layer-1). Production
-QuerySpace collapse and Method-source routing remain outside this slice.
+QuerySpace collapse and Method-source routing were outside this scorecard
+slice.
 
-The follow-up stack slice adds a resource-free reference planner: real analyzer
+The follow-up stack slice added a resource-free reference planner: real analyzer
 declarations state their minimum instruction Access and Detail, the planner
 joins those facets, and the scorecard executes the selected no-retention or
 retained source.
 [Query Space Producer Capabilities](query-space-producer-capabilities.md) now
 owns the cross-domain distinction between owner-defined demand aggregation,
-shared physical construction, and result coverage. Production Method-source
-adoption remains a focused follow-up.
+shared physical construction, and result coverage. Production Method Query
+Source now consumes these declarations directly, preserves lane-local demand,
+joins physical groups, and shares one packet-local retained sequence when the
+joined plan requires it. Exact-member call Count is the first production
+operation; broader CLI and Browser/Wasm profile adoption remains the focused
+follow-up.
 
 Accepted NativeAOT performance evidence is recorded below.
 
@@ -96,9 +101,10 @@ through repeated NativeAOT measurement.
   state and replay model.
 - Its ratio to the no-retention stream sizes the cost of shallow prefix retention
   for a consumer that also needs indexed access.
-- Production adoption still requires QuerySpace to group compatible requests
-  and the Method source to preserve each request's independent settlement,
-  failure, and participation evidence.
+- Production planning now groups compatible requests and preserves each
+  request's independent settlement, failure, and participation evidence.
+  Remaining adoption must move broader body analyzers and hosts onto the
+  shared source before retiring their eager or repeated decode paths.
 
 ## Accepted NativeAOT evidence
 
