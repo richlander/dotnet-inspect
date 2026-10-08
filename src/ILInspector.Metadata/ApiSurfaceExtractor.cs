@@ -908,11 +908,13 @@ public static partial class ApiSurfaceExtractor
         ApiSurfaceExtractionScope scope,
         ApiSurfaceExtractionBounds bounds,
         bool typesOnly = false,
-        bool includeCompilerGenerated = false)
+        bool includeCompilerGenerated = false,
+        ApiTypeSelection? typeSelection = null)
         => ExtractBoundedCore(
             peReader, scope, bounds, typesOnly, includeCompilerGenerated,
             includeLocalExtensionProjections: true,
-            source: null, catalog: null, bindingPolicy: null);
+            source: null, catalog: null, bindingPolicy: null,
+            typeSelection);
 
     /// <summary>
     /// Extracts declarations physically owned by each retained Type under hard
@@ -976,7 +978,8 @@ public static partial class ApiSurfaceExtractor
         bool includeLocalExtensionProjections,
         ResolvedAssemblyReference? source,
         TypeResolutionCatalog? catalog,
-        IAssemblyBindingPolicy? bindingPolicy)
+        IAssemblyBindingPolicy? bindingPolicy,
+        ApiTypeSelection? typeSelection = null)
     {
         ArgumentNullException.ThrowIfNull(bounds);
         if (!Enum.IsDefined(scope))
@@ -1000,7 +1003,9 @@ public static partial class ApiSurfaceExtractor
                 includeLocalExtensionProjections,
                 budget,
                 constraintResolution,
-                operationContext);
+                operationContext,
+                includeType: typeSelection?.Bind(
+                    MetadataFormatAdmission.GetMetadataReader(peReader)));
             if (constraintResolution is not null)
             {
                 CompleteConstraintResolution(

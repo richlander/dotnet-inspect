@@ -412,6 +412,12 @@ public partial class DiffCommand
                             "Unprojected Library API diff --json cannot be combined with rendered-line clipping.");
                         return 1;
                     }
+                    // The output keeps only Types the filter admits, so the
+                    // comparison extracts only those Types on each side.
+                    ApiTypeSelection? typeSelection = options.TypeFilter.Count > 0
+                        ? new ApiTypeSelection(name =>
+                            MatchesAnyDiffTypeFilter(name, options.TypeFilter))
+                        : null;
                     var comparison =
                         inputs.From.PackageScope is { } beforeScope
                         && inputs.To.PackageScope is { } afterScope
@@ -419,11 +425,13 @@ public partial class DiffCommand
                                 beforeScope,
                                 afterScope,
                                 options.IncludeAll,
+                                typeSelection,
                                 cancellationToken)
                             : await LibraryApiDiffRunner.ExecuteAsync(
                                 inputs.From.AssemblySet.Assemblies[0],
                                 inputs.To.AssemblySet.Assemblies[0],
-                                options.IncludeAll);
+                                options.IncludeAll,
+                                typeSelection);
                     return LibraryApiDiffOutput.Write(
                         comparison,
                         inputs.Name,
