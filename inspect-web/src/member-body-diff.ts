@@ -332,6 +332,17 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
   return {
     copyPackages(copies: ReadonlyMap<object, object>) {
       for (const [original, copy] of copies) {
+        const retainedPackages = cache.get(original);
+        if (retainedPackages) {
+          cache.set(copy, new Map([...retainedPackages].map(([key, value]) => [
+            key,
+            {
+              inventory: value.inventory,
+              readers: new Map([...value.readers].map(([id, reader]) => [id, { ...reader }])),
+              positions: new Map(value.positions),
+            },
+          ])));
+        }
         const body = restoredBodies.get(original);
         if (body) restoredBodies.set(copy, body);
         const medium = context?.packageModel === original

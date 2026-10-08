@@ -60,6 +60,35 @@ test("Member entry automatically acquires the inventory and exact inline documen
   controller.dispose();
 });
 
+test("copied Package models retain settled inventory and exact body documents", async () => {
+  const original = {};
+  const copy = {};
+  let active: MemberBodyDiffContext | null = { ...context(), packageModel: original };
+  const requests: string[] = [];
+  const controller = createMemberBodyDiff({
+    authority: createOperationAuthorityPage(), document: fakeDom.document({ querySelector: () => null }),
+    query: async (_id, request) => {
+      requests.push(request.memberId ?? "inventory");
+      return { kind: "Available", inventory: request.memberId ? null : inventory,
+        document: request.memberId ? document : null, detail: null, inspection: null };
+    }, cancel: () => undefined, diagnostic: diagnostic => { throw new Error(JSON.stringify(diagnostic)); },
+    render: () => controller.reconcile(active), escapeHtml: escape,
+    activateType: () => undefined, activateMember: () => undefined,
+  });
+  controller.reconcile(active);
+  await flush(); await flush();
+  assert.deepEqual(requests, ["inventory", "Run~123"]);
+
+  controller.copyPackages(new Map([[original, copy]]));
+  active = { ...active, packageModel: copy };
+  controller.reconcile(active);
+  await flush();
+
+  assert.deepEqual(requests, ["inventory", "Run~123"]);
+  assert.match(controller.render(), /data-source-diff-viewer/);
+  controller.dispose();
+});
+
 test("a superseded target cannot publish its late completion", async () => {
   const first = context();
   let complete: ((value: BrowserMemberBodyDiffResult) => void) | undefined;
