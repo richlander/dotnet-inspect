@@ -3510,7 +3510,9 @@ async function installFacades(
             }
             return view?.u?.k === "package"
               && view?.r?.k === "package"
-              && (view?.f === undefined || view.f === "package.overview");
+              && (view?.f === undefined
+                || view.f === "package.libraries"
+                || view.f === "package.overview");
           });
           if (!workspaceSupported || !tabsSupported) {
             return {

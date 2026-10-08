@@ -12,6 +12,9 @@ public static class InspectionViewFacetCatalog
             "ecosystem.overview",
             InspectionViewFacetExecution.EcosystemOverview),
         Binding(
+            "package.libraries",
+            InspectionViewFacetExecution.PackageLibraries),
+        Binding(
             "package.overview",
             InspectionViewFacetExecution.PackageOverview),
         Binding(
@@ -101,6 +104,16 @@ public static class InspectionViewFacetCatalog
                 ViewFacetRole.EcosystemOverview),
             "Registered Ecosystem identity, declarations, and population capabilities.",
             AppliesToEcosystem),
+        Active(
+            Descriptor(
+                "package.libraries",
+                StructuralSubjectKind.Package,
+                "Libraries",
+                "Libraries of the selected target, or RID packages of a tool pointer package.",
+                50,
+                ViewFacetRole.PackageLibraries),
+            "Libraries of the selected target, or RID packages of a tool pointer package.",
+            AppliesToPackage),
         Active(
             Descriptor(
                 "package.overview",
@@ -372,6 +385,7 @@ internal enum InspectionViewFacetExecution
 {
     WorkspaceOverview,
     EcosystemOverview,
+    PackageLibraries,
     PackageOverview,
     PackageDependencies,
     PackageDependencyHierarchy,

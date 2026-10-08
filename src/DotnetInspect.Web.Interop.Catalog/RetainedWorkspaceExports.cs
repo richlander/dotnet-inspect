@@ -1119,7 +1119,7 @@ internal static class BrowserRetainedWorkspaceActivationService
             WorkspaceShareViewState state = packet.ViewStates[index + 1];
             if (packet.Tabs[index].SourceKind
                     == WorkspaceShareSourceKind.Package
-                ? !IsPackageOverview(state)
+                ? !IsPackageDefault(state)
                 : !IsDormantGroup(state))
             {
                 return false;
@@ -1135,11 +1135,13 @@ internal static class BrowserRetainedWorkspaceActivationService
         && state.Context is null
         && state.Facet is null or "workspace.overview";
 
-    private static bool IsPackageOverview(WorkspaceShareViewState state) =>
+    // Package views recorded before package.libraries became the default
+    // name package.overview; both remain the default Package state.
+    private static bool IsPackageDefault(WorkspaceShareViewState state) =>
         IsUnscoped(state)
         && state.Subject is PortableSubjectRequest.Package
         && state.Context is PortableRetainedSubjectContext.Package
-        && state.Facet is null or "package.overview";
+        && state.Facet is null or "package.libraries" or "package.overview";
 
     private static bool IsDormantGroup(WorkspaceShareViewState state) =>
         IsUnscoped(state)

@@ -67,6 +67,25 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("package.libraries")]
+    [InlineData("package.overview")]
+    public void PackageSourceDescription_AdmitsDefaultAndLegacyPackageFacets(
+        string facet)
+    {
+        BrowserWorkspacePackageSourceRequirementsResult result =
+            BrowserRetainedWorkspaceActivationService.DescribePackageSources(
+                Packet(
+                    ["System.Text.Json"],
+                    selectedIndex: 0,
+                    packageVersion: "9.0.4",
+                    framework: "net9.0",
+                    packageFacet: facet));
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.Failure);
+    }
+
     [Fact]
     public void PackageSourcePatBindings_AreRequiredBeforeSourceAuthorization()
     {
@@ -1134,7 +1153,8 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         int selectedIndex,
         string packageVersion = "11.0.0-preview.7.26381.103",
         string framework = "net10.0",
-        int schemaVersion = InspectionDefinitionSchema.Version3)
+        int schemaVersion = InspectionDefinitionSchema.Version3,
+        string? packageFacet = null)
     {
         if ((uint)selectedIndex >= (uint)packageIds.Count)
             throw new ArgumentOutOfRangeException(nameof(selectedIndex));
@@ -1178,7 +1198,8 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                     new CommittedViewStateDefinition(
                         tabId,
                         new PortableSubjectRequest.Package(),
-                        new PortableRetainedSubjectContext.Package())),
+                        new PortableRetainedSubjectContext.Package(),
+                        packageFacet)),
             ]));
         registry.Add(new ScenarioDefinition(
             schemaVersion,
