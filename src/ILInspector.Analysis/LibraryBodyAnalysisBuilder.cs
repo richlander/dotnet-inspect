@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -38,14 +39,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _asyncSourceResolver;
     readonly LibraryBodyDeclaredSourceResolver
         _declaredSourceResolver;
-    readonly LibraryBodyAsyncSiblingDispatchAnalyzer
-        _asyncSiblingDispatchAnalyzer;
-    readonly LibraryBodyAsyncSiblingAccessibilityAnalyzer
-        _asyncSiblingAccessibilityAnalyzer;
-    readonly LibraryBodyAsyncSiblingMethodIndex
-        _asyncSiblingMethodIndex;
-    readonly LibraryBodyAsyncSiblingCandidateResolver
-        _asyncSiblingCandidateResolver;
+    readonly AsyncSiblingOpportunityAnalyzer _asyncSiblingAnalyzer;
     readonly LibraryBodyReferenceMetadataResolver? _referenceMetadataResolver;
     readonly AssemblyReferenceIdentity _assemblyIdentity;
     readonly object _externalTypeResolutionGate = new();
@@ -88,7 +82,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             implementationMetricRecorder = null,
         MethodDefinitionGeneratedExpansionWork?
             generatedExpansionWork = null,
-        LibraryBodyAnalysisStageRecorder? stageRecorder = null)
+        LibraryBodyAnalysisStageRecorder? stageRecorder = null,
+        ResolvedAssemblyReference? rootAssembly = null)
     {
         _path = path;
         _reader = reader;
@@ -183,32 +178,17 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                     reader,
                     resolver,
                     rootSnapshot,
-                    bindingPolicy);
-        _asyncSiblingMethodIndex =
-            new LibraryBodyAsyncSiblingMethodIndex(
-                asyncSiblingMethodScanned);
-        _asyncSiblingDispatchAnalyzer =
-            new LibraryBodyAsyncSiblingDispatchAnalyzer(
-                reader,
-                ResolveExternalTypeDefinition,
-                _asyncSiblingMethodIndex,
-                _genericConstraintClassifier
-                    .HasGenericConstraints);
-        _asyncSiblingAccessibilityAnalyzer =
-            new LibraryBodyAsyncSiblingAccessibilityAnalyzer(
+                    bindingPolicy,
+                    rootAssembly);
+        _asyncSiblingAnalyzer =
+            new AsyncSiblingOpportunityAnalyzer(
                 reader,
                 _assemblyIdentity,
-                _asyncSiblingDispatchAnalyzer);
-        _asyncSiblingCandidateResolver =
-            new LibraryBodyAsyncSiblingCandidateResolver(
-                reader,
                 ResolveExternalTypeDefinition,
                 LocalTypeDefinitions,
-                _asyncSiblingMethodIndex,
-                _asyncSiblingDispatchAnalyzer,
-                _asyncSiblingAccessibilityAnalyzer,
                 _genericConstraintClassifier
-                    .HasGenericConstraints);
+                    .HasGenericConstraints,
+                asyncSiblingMethodScanned);
     }
 
     internal MethodDefinitionGeneratedExpansionResult
@@ -440,6 +420,26 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             .IsAuthenticatedAsyncStateMachineExecutionMethod(
                 methodHandle,
                 methodDefinition);
+
+    AsyncSiblingOpportunityAnalyzer
+        ILibraryMethodAnalysisInfrastructure.AsyncSiblingAnalyzer =>
+        _asyncSiblingAnalyzer;
+
+    bool ILibraryMethodAnalysisInfrastructure
+        .IsSourceGeneratedTypeOrEnclosing(TypeDefinitionHandle handle) =>
+        _generatedProvenanceClassifier.IsSourceGeneratedTypeOrEnclosing(
+            handle);
+
+    bool ILibraryMethodAnalysisInfrastructure.TryResolveAsyncSiblingSource(
+        MethodIdentity method,
+        MethodDefinition methodDefinition,
+        bool typeSourceGenerated,
+        [NotNullWhen(true)] ref MethodIdentity? asyncSource) =>
+        _declaredSourceResolver.TryResolveAsyncSiblingSource(
+            method,
+            methodDefinition,
+            typeSourceGenerated,
+            ref asyncSource);
 
     ImmutableArray<OptimizationOpportunity>
         ILibraryMethodAnalysisInfrastructure

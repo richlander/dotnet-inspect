@@ -248,6 +248,16 @@ a leading `Kind` column so each row is self-describing. The
 `type`/`member` `Performance Triage` lens is a different, single-member view and
 keeps that name.
 
+`Performance: Async` is allocation-only: it holds `async-state-machine`
+findings and is intended to be subsumed by a general allocation analysis that
+includes async methods. The `sync-call-in-async` finding (a synchronous call
+in an async method whose `FooAsync` sibling exists) is a different question and
+leaves that kind. It becomes its own `Performance: Sync Calls in Async` section
+backed by a dedicated producer result with structured columns (Caller, Callee,
+Alternative, Pair Kind), not an `OptimizationOpportunity` shape. Its
+migration and the retirement of the `sync-call-in-async` shape follow the
+producer-planner migration in [Method Query Source](method-query-source.md).
+
 ## Next semantic additions
 
 Before adding `Context: Safety`, `Context: Allocation`, or `Context: Cost`, define
