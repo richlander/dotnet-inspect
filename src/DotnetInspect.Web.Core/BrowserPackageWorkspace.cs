@@ -640,6 +640,27 @@ internal static class BrowserPackageWorkspace
             .ConfigureAwait(false);
     }
 
+    internal static Task<BrowserPackageRealizationResult> InventoryWithSettlementAsync(
+        string packageId,
+        string? version,
+        string? targetFramework,
+        CancellationToken cancellationToken = default) =>
+        InventoryWithSettlementAsync(packageId, version, targetFramework, Gallery,
+            PackageOperationTimeout, cancellationToken);
+
+    internal static Task<BrowserPackageRealizationResult> InventoryWithSettlementAsync(
+        string packageId,
+        string? version,
+        string? targetFramework,
+        IPackageSourceClient source,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken) =>
+        RunPackageOperationAsync(
+            deadline => RealizeCoreAsync(packageId, version, targetFramework,
+                source, deadline, inventoryOnly: true),
+            operationTimeout,
+            cancellationToken);
+
     internal static Task<BrowserPackageRealizationResult> RealizeWithSettlementAsync(
         string packageId,
         string? version,
@@ -735,7 +756,8 @@ internal static class BrowserPackageWorkspace
         string? version,
         string? targetFramework,
         IPackageSourceClient source,
-        BrowserPackageOperationDeadline deadline)
+        BrowserPackageOperationDeadline deadline,
+        bool inventoryOnly = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(source);
@@ -751,7 +773,7 @@ internal static class BrowserPackageWorkspace
             RealizationRequestKey(
                 packageId,
                 requestedVersion,
-                targetFramework),
+                targetFramework) + (inventoryOnly ? ":inventory" : ""),
             source);
         BrowserSharedOperation<BrowserPackageRealizationResult> pending;
         bool created = false;
@@ -773,7 +795,8 @@ internal static class BrowserPackageWorkspace
                             requestedVersion,
                             targetFramework,
                             source,
-                            sharedDeadline),
+                            sharedDeadline,
+                            inventoryOnly),
                         remaining),
                     BrowserManagedEpochWorkRegistration.Current.SourceForAcquisition,
                     "Package realization");
@@ -793,7 +816,8 @@ internal static class BrowserPackageWorkspace
         string? requestedVersion,
         string? targetFramework,
         IPackageSourceClient source,
-        BrowserPackageOperationDeadline deadline)
+        BrowserPackageOperationDeadline deadline,
+        bool inventoryOnly)
     {
         var coordinateRequest = new PackageCoordinate(
             normalizedPackageId,
@@ -823,15 +847,21 @@ internal static class BrowserPackageWorkspace
             PackageHouseOperationProfile.Realize,
             requestTimeout: remaining,
             operationTimeout: remaining);
-        var request = new PackageHouseRequest(
-            new PackageHouseDemand.Exact(settled.Result.Coordinate),
-            operation,
-            targetContext,
-            PackageHouseAssetSelectionKind.Compile,
-            PackageHouseLibraryHandoffMode.SelectedLibraries,
-            evidenceDemand: PackageHouseEvidenceDemand.FrameworkReferences);
+        PackageHouseRequest request = inventoryOnly
+            ? PackageHouseRequest.CompileInventory(
+                new PackageHouseDemand.Exact(settled.Result.Coordinate),
+                operation, targetContext)
+            : new PackageHouseRequest(
+                new PackageHouseDemand.Exact(settled.Result.Coordinate),
+                operation,
+                targetContext,
+                PackageHouseAssetSelectionKind.Compile,
+                PackageHouseLibraryHandoffMode.SelectedLibraries,
+                evidenceDemand: PackageHouseEvidenceDemand.FrameworkReferences);
+        string selectionRequest = (inventoryOnly ? "inventory:" : "")
+            + SelectionRequestToken(targetFramework);
         BrowserSessionPackageStore store = StoreFor(source);
-        BrowserSessionPackageStore rangedStore = store.ForRealization(SelectionRequestToken(targetFramework));
+        BrowserSessionPackageStore rangedStore = store.ForRealization(selectionRequest);
         string packageKey = rangedStore.PackageKey(
             settled.Result.Coordinate.PackageId,
             settled.Result.Coordinate.Version);
@@ -840,7 +870,7 @@ internal static class BrowserPackageWorkspace
             if (Cache.TryGetValue(packageKey, out CacheEntry? retained)
                 && retained.Content is RangedPackageContent
                 && retained.Realization is { } prior
-                && prior.SelectionRequest == SelectionRequestToken(targetFramework))
+                && prior.SelectionRequest == selectionRequest)
             {
                 Cache[packageKey] = retained with { LastAccess = NextClock() };
                 return new BrowserPackageRealizationResult.Realized(
@@ -863,21 +893,20 @@ internal static class BrowserPackageWorkspace
                 deadline.Token,
                 operation.RequestTimeout,
                 operation.OperationTimeout);
-        var house = new PackageHouse(
-            authorization,
-            new PackagePayloadAcquisitionPlan(
-                (authority, _) => ReferenceEquals(
-                        authority.Association,
-                        source.Source.Association)
-                    ? store
-                    : throw new InvalidOperationException(
-                        "The package realization requested another configured source."),
-                PayloadLimits,
-                new BrowserPackageRealizationTransferPolicy(
-                    store,
-                    deadline,
-                    rangedStore),
-                access: PackagePayloadAccess.Ranged));
+        PackageStoreProvider getStore = (authority, _) =>
+            ReferenceEquals(authority.Association, source.Source.Association)
+                ? store
+                : throw new InvalidOperationException(
+                    "The package realization requested another configured source.");
+        var transferPolicy = new BrowserPackageRealizationTransferPolicy(
+            store, deadline, rangedStore);
+        PackagePayloadAcquisitionPlan acquisitionPlan = inventoryOnly
+            ? PackagePayloadAcquisitionPlan.ForContentQueries(
+                getStore, PayloadLimits, transferPolicy)
+            : new PackagePayloadAcquisitionPlan(
+                getStore, PayloadLimits, transferPolicy,
+                access: PackagePayloadAccess.Ranged);
+        var house = new PackageHouse(authorization, acquisitionPlan);
         PackageHouseSettlement houseSettlement =
             await house.ExecuteAsync(
                 request,
@@ -934,7 +963,7 @@ internal static class BrowserPackageWorkspace
             contributed.Contribution.Binding);
         var realization = new BrowserPackageRealization(
             coordinate,
-            SelectionRequestToken(targetFramework),
+            selectionRequest,
             versionSettlement,
             PackageInfoMeasurementInspection.Project(acquired));
         lock (CacheSync)
@@ -5123,7 +5152,7 @@ internal sealed class BrowserPackage
         string[] candidates =
         [
             .. Content.EnumerateEntries()
-                .Where(static path => IsToolSettingsPath(path))
+                .Where(PackageEntryPath.IsToolSettingsPath)
                 .OrderBy(static path => path, StringComparer.Ordinal)
                 .Take(MaximumToolSettingsCandidates + 1),
         ];
@@ -5209,18 +5238,6 @@ internal sealed class BrowserPackage
             },
             projection.Settings,
             projection.Detail);
-    }
-
-    static bool IsToolSettingsPath(string path)
-    {
-        string[] parts = path.Replace('\\', '/').Split(
-            '/',
-            StringSplitOptions.RemoveEmptyEntries);
-        return parts.Length is >= 2 and <= 4
-            && parts[0].Equals("tools", StringComparison.OrdinalIgnoreCase)
-            && parts[^1].Equals(
-                "DotnetToolSettings.xml",
-                StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

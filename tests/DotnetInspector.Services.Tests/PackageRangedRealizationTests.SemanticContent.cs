@@ -49,6 +49,46 @@ public sealed partial class PackageRangedRealizationTests
         Assert.Equal(complete ? 0 : 1, server.RangedRequests);
     }
 
+    // PR-fast: pinned small archive, directory and receipt assertions only.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CompileInventory_UsesHousePlanningAndPreservesMeasurementReceipts(bool complete)
+    {
+        byte[] archive = ReadPclStorage();
+        var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        var request = PackageHouseRequest.CompileInventory(
+            new PackageHouseDemand.Exact(PackageSourceCoordinate.Create(PclStorage, PclStorageVersion)),
+            PackageHouseOperation.Create(PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.Exact("net45"));
+        var house = new PackageHouse(environment.Authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => new InMemoryPackageStore(), rangedSizeCut: complete ? archive.Length : 0));
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await house.ExecuteAsync(request, environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken, request.Operation.RequestTimeout,
+                request.Operation.OperationTimeout)));
+        Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
+        var realization = Assert.IsType<PackageHouseRealizationReceipt.Compile>(acquired.Result.Evidence.Realization);
+        Assert.Empty(realization.LibraryHandoffs);
+        Assert.Equal(2, realization.Selection.Assets.Count);
+        PackageHouseFileList files = Assert.IsType<PackageHouseFileList>(acquired.Result.Evidence.FileList);
+        Assert.Contains(files.Entries, entry => entry.Path == "lib/net45/PCLStorage.dll");
+        Assert.Contains(files.Entries, entry => entry.Path == "lib/sl5/PCLStorage.dll");
+        Assert.Equal(acquired.Payload.Content.EnumerateEntries().Count(), files.Entries.Count);
+        Assert.Equal(PackageInfoMeasurementStatus.Measured, PackageInfoMeasurementInspection.Project(acquired).Content.Status);
+        Assert.IsType<DotnetInspector.PackageQueries.PackageHouseRootContributionOutcome.Contributed>(
+            DotnetInspector.PackageQueries.PackageHouseRootContributionAdapter.Create(acquired));
+        if (!complete)
+        {
+            var content = Assert.IsType<RangedPackageContent>(acquired.Payload.Content);
+            Assert.True(content.IsMaterialized("PCLStorage.nuspec"));
+            Assert.False(content.IsMaterialized("lib/net45/PCLStorage.dll"));
+            Assert.False(content.IsMaterialized("lib/net45/PCLStorage.xml"));
+        }
+    }
+
     [Fact]
     public async Task SemanticFiles_RangedReadPublishesOnlyExactEntries()
     {

@@ -1055,7 +1055,9 @@ public sealed partial class BrowserEngineBoundaryTests
     {
         const string packageId =
             "microsoft.netcore.app.runtime.linux-x64";
-        const string version = "11.0.98";
+        // Different synthetic archives must not share an immutable package
+        // coordinate with the dependency-structure fixture below.
+        const string version = "11.0.96";
         const string framework = "net11.0-opportunity-identity";
         byte[] nupkg = PlatformPackage(
             ("System.Data.Common.dll",

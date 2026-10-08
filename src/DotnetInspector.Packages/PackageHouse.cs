@@ -814,7 +814,7 @@ public sealed partial class PackageHouse
                 IReadOnlyList<string> unmatchedLegacyFiles =
                     request.FileDemand?.Unmatched(acquiredEntryPaths)
                     ?? [];
-                if (request.ContentQuery is not null)
+                if (request.ContentQuery is not null && !request.IsCompileInventory)
                 {
                     IReadOnlyList<string> selectedSemanticEntries =
                         contentFiles?.SelectedEntries ?? [];
@@ -1180,7 +1180,9 @@ public sealed partial class PackageHouse
                     decision,
                     acquisition,
                     realization,
-                    failures: failures);
+                    failures: failures,
+                    fileList: fileList,
+                    contentNarrowing: contentNarrowing);
 
                 try
                 {
@@ -1871,6 +1873,14 @@ public sealed partial class PackageHouse
                 packageId,
                 directory,
                 [.. directory.EnumerateEntries()]);
+            if (request.IsCompileInventory)
+            {
+                // Package children require manifest and tool settings, while
+                // Library rows and measurements come from directory evidence.
+                string[] settings =
+                    [.. directory.EnumerateEntries().Where(PackageEntryPath.IsToolSettingsPath)];
+                return AddRootManifest(new PackageRangedSelection(settings), directory);
+            }
             if (contentQuery.LibraryAndInventoryTerminal is not null
                 || contentQuery.LibraryInventoryTerminal is not null)
             {

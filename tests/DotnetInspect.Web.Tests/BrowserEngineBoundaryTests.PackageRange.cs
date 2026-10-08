@@ -10,6 +10,86 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserEngineBoundaryTests
 {
+    // PR-fast: no binary decoding; exercises empty and no-match settlements.
+    [Theory]
+    [InlineData("content/empty.txt", "net11.0", PackageInfoMeasurementStatus.NoCompileSlices)]
+    [InlineData("ref/net11.0/_._", "net11.0", PackageInfoMeasurementStatus.SelectedEmpty)]
+    [InlineData("lib/net11.0/Library.dll", "net8.0", PackageInfoMeasurementStatus.NoApplicableSlice)]
+    public async Task PackageInventory_RangePreservesEmptyAndNoMatch(string path, string target,
+        PackageInfoMeasurementStatus status)
+    {
+        string id = $"summary.empty.{Guid.NewGuid():N}";
+        var handler = new GalleryPackageHandler(id, "1.0.0", PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(Nuspec(id, "1.0.0"))),
+            (path, new byte[4]),
+            ("content/padding.bin", new byte[2 * 1024 * 1024]),
+            path.EndsWith("/_._", StringComparison.Ordinal)
+                ? ("lib/net8.0/Other.dll", new byte[4])
+                : ("content/other.txt", new byte[4])));
+        using IPackageSourceClient source = Gallery(handler);
+        BrowserPackageRealization inventory = Assert.IsType<BrowserPackageRealizationResult.Realized>(
+            await BrowserPackageWorkspace.InventoryWithSettlementAsync(id, "1.0.0", target, source,
+                TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)).Realization;
+        Assert.Equal(status, inventory.PackageInfo.Content.Status);
+        Assert.Null(inventory.Coordinate.DefaultAsset);
+        Assert.True(handler.PackageBytesServed < 256 * 1024);
+    }
+
+    // PR-fast: directory/transfer assertions; no whole-assembly analysis.
+    [Theory]
+    [InlineData("net11.0")]
+    [InlineData("")]
+    [InlineData("net99.0")]
+    public async Task PackageInventory_RangePreservesSelectionWithoutLibraryBodies(string target)
+    {
+        string id = $"summary.inventory.{Guid.NewGuid():N}";
+        byte[] assembly = File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        byte[] other = File.ReadAllBytes(typeof(PackageExports).Assembly.Location);
+        byte[] archive = PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(Nuspec(id, "1.0.0"))),
+            ("ref/net11.0/AAA.dll", other),
+            ($"ref/net11.0/{id}.dll", assembly),
+            ("lib/net11.0/AAA.dll", other),
+            ($"lib/net11.0/{id}.dll", assembly),
+            ("lib/net11.0/AAA.xml", Encoding.UTF8.GetBytes("<doc/>")),
+            ("README.md", Encoding.UTF8.GetBytes("# Document")),
+            ("content/padding.bin", new byte[2 * 1024 * 1024]));
+        var handler = new GalleryPackageHandler(id, "1.0.0", archive);
+        using IPackageSourceClient source = Gallery(handler);
+        BrowserPackageRealization inventory = Assert.IsType<BrowserPackageRealizationResult.Realized>(
+            await BrowserPackageWorkspace.InventoryWithSettlementAsync(id, "1.0.0", target, source,
+                TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)).Realization;
+        RangedPackageContent content = Assert.IsType<RangedPackageContent>(inventory.Coordinate.Package.Content);
+        Assert.False(content.IsMaterialized("ref/net11.0/AAA.dll"));
+        Assert.False(content.IsMaterialized($"lib/net11.0/{id}.dll"));
+        Assert.False(content.IsMaterialized("lib/net11.0/AAA.xml"));
+        Assert.False(content.IsMaterialized("README.md"));
+        Assert.True(content.IsMaterialized($"{id}.nuspec"));
+        Assert.Equal(8, content.EnumerateEntries().Count());
+        Assert.Single(inventory.Coordinate.Package.Documents());
+        Assert.Equal(PackageInfoMeasurementStatus.Measured, inventory.PackageInfo.Content.Status);
+        Assert.Equal(2, inventory.PackageInfo.Content.SelectedLibraryCount);
+        Assert.Equal((long)assembly.Length + other.Length, inventory.PackageInfo.Content.SelectedLibraryPayloadBytes);
+        Assert.Equal($"compile:ref/net11.0/{id}.dll", inventory.Coordinate.DefaultAsset!.Id);
+        Assert.True(handler.RangedPackageResponses > 0);
+        Assert.True(handler.PackageBytesServed < 256 * 1024);
+        int requests = handler.Requested.Count;
+        BrowserPackageRealization repeated = Assert.IsType<BrowserPackageRealizationResult.Realized>(
+            await BrowserPackageWorkspace.InventoryWithSettlementAsync(id, "1.0.0", target, source,
+                TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)).Realization;
+        Assert.Equal(requests, handler.Requested.Count);
+        Assert.Same(content.GenerationIdentity, repeated.Coordinate.Package.Content.GenerationIdentity);
+
+        // Later inspection must request content; directory-only authority cannot
+        // replace a Library realization, even when the coordinate matches.
+        await using var selected = await BrowserPackageWorkspace.OpenMetadataScopeAsync(
+            id, "1.0.0", target, inventory.Coordinate.DefaultAsset.Id, source,
+            TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        RangedPackageContent selectedContent = Assert.IsType<RangedPackageContent>(
+            selected.Scope.Coordinates[0].Package.Content);
+        Assert.True(selectedContent.IsMaterialized($"lib/net11.0/{id}.dll"));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

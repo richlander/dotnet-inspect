@@ -126,10 +126,11 @@ public static partial class PackageExports
         bool includeSurface)
     {
         BrowserPackageRealizationResult result =
-            await BrowserPackageWorkspace.RealizeWithSettlementAsync(
-                packageId,
-                version,
-                targetFramework);
+            includeSurface
+                ? await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    packageId, version, targetFramework)
+                : await BrowserPackageWorkspace.InventoryWithSettlementAsync(
+                    packageId, version, targetFramework);
         if (result is BrowserPackageRealizationResult.NotSettled notSettled)
         {
             return new(

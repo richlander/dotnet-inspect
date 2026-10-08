@@ -12,6 +12,31 @@ public sealed class PackageHouseContractTests
     private static readonly PackageSourceCoordinate Coordinate =
         PackageSourceCoordinate.Create("contoso.json", "4.0.0");
 
+    // PR-fast: request construction only.
+    [Fact]
+    public void CompileInventoryDemandIsDeclaredBeforeAcquisition()
+    {
+        var target = PackageHouseTargetContext.OwnerDefault();
+        var request = PackageHouseRequest.CompileInventory(
+            new PackageHouseDemand.Exact(Coordinate),
+            PackageHouseOperation.Create(PackageHouseOperationProfile.Realize), target);
+        Assert.True(request.IsCompileInventory);
+        Assert.Same(target, request.TargetContext);
+        Assert.Equal(PackageHouseLibraryHandoffMode.PackageOnly, request.LibraryHandoff);
+        Assert.IsType<PackageHouseContentNarrowing.PackageWide>(request.ContentQuery!.Narrowing);
+        Assert.IsType<PackageHouseContentTerminal.FileList>(Assert.Single(request.ContentQuery.Terminals));
+        Assert.Throws<ArgumentException>(() => new PackageHouseRequest(
+            new PackageHouseDemand.Exact(Coordinate),
+            PackageHouseOperation.Create(PackageHouseOperationProfile.Realize), target,
+            PackageHouseAssetSelectionKind.Compile, PackageHouseLibraryHandoffMode.SelectedLibraries,
+            contentQuery: request.ContentQuery));
+        Assert.Throws<ArgumentException>(() => new PackageHouseRequest(
+            new PackageHouseDemand.Exact(Coordinate),
+            PackageHouseOperation.Create(PackageHouseOperationProfile.Realize), target,
+            PackageHouseAssetSelectionKind.Compile,
+            contentQuery: PackageHouseContentQuery.PackageFiles(["README.md"])));
+    }
+
     [Fact]
     public void RequestFloorRetainsExactDemandAndAssociation()
     {

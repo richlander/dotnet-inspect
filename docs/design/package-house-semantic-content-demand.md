@@ -310,6 +310,47 @@ reconcile that PDB-input contract before SourceHouse consumes Library inventory
 evidence. Existing direct PackageHouse companion delivery remains transitional
 until one production consumer adopts the new path.
 
+## Compile inventory realization
+
+A package Overview needs the complete package directory, compile selection,
+archive and selected-slice measurements, and package-authored manifest facts.
+It does not require selected Library content. A compile inventory request
+combines package-wide File List with compile realization and Package-only
+handoff. It preserves the selector-issued receipt, including owner-default
+selection, explicit empty groups, no applicable target, and invalid
+correspondence. It issues no Library handoff.
+
+The House settles that inventory before any later Library-content request.
+Under ranged execution it expands the root manifest and tool settings needed
+by Package children, but no DLL, PDB, icon, or documentation body. The acquired
+package retains its validated complete directory, including declared lengths,
+so the existing compile-slice measurement and Package Root adapters can consume
+it. That inventory Root must be realized with Library-content demand before
+entering an assembly inspection. Complete acquisition below the size cut or
+when ranges are unavailable preserves the same inventory result.
+
+The motivating asset is `Avalonia@12.1.3`, observed on 2026-10-07: a
+10,157,510-byte archive with 121 entries and separate reference and
+implementation folders. The website Summary currently obtains its Library rows
+from compile selection but transfers those folders before displaying them.
+`Microsoft.CodeAnalysis.CSharp@5.9.0` provides a large single-Library control;
+`Dapper@2.1.66` exercises the complete-transfer size cut. The actual Summary
+export is measured through `eng/measure-inspect-web-package-summary.cs`, with
+complete JSON equality against the base and cold/warm measurements.
+
+The website is the first production adopter, under website download-flow
+tracker [#9678](https://github.com/richlander/dotnet-inspect/issues/9678)
+and focused issue [#9754](https://github.com/richlander/dotnet-inspect/issues/9754). The CLI's inventory-only
+Package Info selection is the next adoption boundary; its complete-content
+sections retain their existing demand until that selection reaches acquisition.
+Release gates are `CompileInventoryDemandIsDeclaredBeforeAcquisition`,
+`CompileInventory_UsesHousePlanningAndPreservesMeasurementReceipts`,
+`PackageInventory_RangePreservesSelectionWithoutLibraryBodies`,
+`PackageInventory_RangePreservesEmptyAndNoMatch`, and the existing
+`QueryPackageSummary_ToolPayloadPublishesExactManagedLibraries` and
+`PackageSummary_PreservesProductDefaultAlongsideCompleteLibraryInventory`. This slice consumes existing selection, measurement,
+Root, and QuerySpace child-row contracts rather than changing them.
+
 ## House-owned acquisition planning
 
 PackageHouse chooses one execution plan from the semantic query and
