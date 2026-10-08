@@ -46,6 +46,11 @@ Library (FullSpelling)
 [Library inspection documents](library-inspection-document.md#hierarchy-projection)
 owns that topology, its ordering, and its admitted choices.
 
+Package Children is the third adopter. [Section
+shapes](section-shapes.md#hierarchy) owns its selected rows and parent
+relationships; shared presentation owns the native Tree and explicit Mermaid
+lowerings without a CLI-built Markout tree.
+
 ## Owner and exact claim
 
 Host-neutral hierarchy projection owns this exact claim:

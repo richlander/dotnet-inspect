@@ -1,6 +1,6 @@
 using DotnetInspector.Sections;
 
-namespace DotnetInspect.Cli.Output;
+namespace DotnetInspector.Presentation;
 
 /// <summary>
 /// Composes a result title from the subject identity and the owner-issued
@@ -11,7 +11,7 @@ namespace DotnetInspect.Cli.Output;
 /// title line; a command that wants a context line issues properties instead
 /// of formatting its own.
 /// </summary>
-internal static class ResultTitle
+public static class ResultTitle
 {
     public static string Compose(
         string identity,

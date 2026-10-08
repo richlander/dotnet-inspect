@@ -19,6 +19,34 @@ namespace DotnetInspector.Queries.Tests;
 
 public partial class PackageQueryTests
 {
+    [Theory]
+    [InlineData(null, null, true)]
+    [InlineData("tool", "true", true)]
+    [InlineData("tool-format", "v1", false)]
+    [InlineData("references", "System.Runtime", false)]
+    public void Plan_SkillContentDemandIncludesEveryBoundPredicate(
+        string? additionalKey, string? additionalValue, bool inventoryOnly)
+    {
+        PortableQueryTerm[] terms = additionalKey is null
+            ? [Term(PackageQuery.SkillTermKey, "true")]
+            : [Term(PackageQuery.SkillTermKey, "true"),
+               Term(additionalKey, additionalValue!)];
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest("Contoso.*", terms,
+                MaximumCandidates: 1, MaximumMatches: 1)));
+
+        Assert.True(plan.RequiresPackageContent);
+        Assert.Same(inventoryOnly ? PackageQueryContentDemand.Inventory
+            : PackageQueryContentDemand.EntryContent, plan.ContentDemand);
+        if (inventoryOnly)
+        {
+            PackageHouseContentQuery query = Assert.IsType<PackageHouseContentQuery>(
+                plan.ContentDemand.ContentQuery);
+            Assert.IsType<PackageHouseContentNarrowing.PackageWide>(query.Narrowing);
+            Assert.IsType<PackageHouseContentTerminal.FileList>(Assert.Single(query.Terminals));
+        }
+    }
+
     [Fact]
     public void TermDescriptors_HaveStableOrderedVocabulary()
     {

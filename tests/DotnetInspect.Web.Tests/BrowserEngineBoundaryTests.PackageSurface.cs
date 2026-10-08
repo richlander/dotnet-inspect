@@ -1654,7 +1654,8 @@ public sealed partial class BrowserEngineBoundaryTests
             document => Assert.Equal("README.md", document.Path),
             document => Assert.Equal(
                 "skills/tool-pointer/SKILL.md",
-                document.Path));
+                document.Path),
+            document => Assert.Equal("metadata", document.Kind));
         Assert.Empty(surface.InspectionErrors);
         Assert.Null(surface.InspectionError);
 
@@ -1676,7 +1677,8 @@ public sealed partial class BrowserEngineBoundaryTests
             document => Assert.Equal("README.md", document.Path),
             document => Assert.Equal(
                 "skills/tool-pointer/SKILL.md",
-                document.Path));
+                document.Path),
+            document => Assert.Equal("metadata", document.Kind));
         Assert.Equal("RuntimeIdentifierPackages", children.Kind);
         Assert.Equal("Available", children.Status);
         Assert.Collection(
