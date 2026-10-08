@@ -21,7 +21,9 @@ public sealed class BrowserMemberBodyDiffTests
         Assert.True(inventory.Kind == "Available", $"{inventory.Kind}: {inventory.Detail}");
         Assert.NotNull(inventory.Inspection);
         var added = inventory.Inventory!.Types.SelectMany(type => type.Members)
-            .First(member => member.Outcome == "Added" && member.Selector is not null);
+            .First(member => member.Outcome == "Added"
+                && member.Selector is not null
+                && member.MethodToken is not null);
 
         string memberJson = await SourceExports.QueryMemberBodyDiff(Guid.NewGuid().ToString(),
             JsonSerializer.Serialize(request with { InventoryId = inventory.Inventory.Id, MemberId = added.Id },
