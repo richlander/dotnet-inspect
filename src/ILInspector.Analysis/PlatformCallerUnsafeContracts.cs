@@ -1,4 +1,3 @@
-using System.Collections.Frozen;
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
@@ -47,23 +46,23 @@ public sealed class PlatformCallerUnsafeContracts
         LoadEmbedded,
         LazyThreadSafetyMode.ExecutionAndPublication);
 
-    readonly FrozenSet<string> _identifiers;
+    readonly HashSet<string> _identifiers;
 
     // The innermost declaring-type metadata names (for example "Span`1"), so a
     // call to an unrelated type is rejected without building its identifier.
-    readonly FrozenSet<string>.AlternateLookup<ReadOnlySpan<char>> _declaringTypeNames;
+    readonly HashSet<string>.AlternateLookup<ReadOnlySpan<char>> _declaringTypeNames;
 
     PlatformCallerUnsafeContracts(
         UnsafeContractSource.PlatformProjection source,
         string digest,
-        FrozenSet<string> identifiers)
+        HashSet<string> identifiers)
     {
         Source = source;
         Digest = digest;
         _identifiers = identifiers;
         _declaringTypeNames = identifiers
             .Select(InnermostDeclaringTypeName)
-            .ToFrozenSet(StringComparer.Ordinal)
+            .ToHashSet(StringComparer.Ordinal)
             .GetAlternateLookup<ReadOnlySpan<char>>();
     }
 
@@ -111,8 +110,15 @@ public sealed class PlatformCallerUnsafeContracts
             && _identifiers.Contains(key);
     }
 
-    /// <summary>Parses projection text, verifying its header.</summary>
+    /// <summary>
+    /// Parses projection text, verifying its header. The embedded load skips
+    /// the digest, which <c>ProjectionMatchesItsHeader</c> verifies for the
+    /// committed file.
+    /// </summary>
     public static PlatformCallerUnsafeContracts Parse(string text)
+        => Parse(text, verifyDigest: true);
+
+    static PlatformCallerUnsafeContracts Parse(string text, bool verifyDigest)
     {
         string? pack = null, version = null, digest = null;
         int? count = null;
@@ -139,18 +145,24 @@ public sealed class PlatformCallerUnsafeContracts
                 throw new InvalidDataException($"Malformed projection line '{line}'.");
             if (!identifiers.Add(line[(tab + 1)..]))
                 throw new InvalidDataException($"Duplicate projection identifier '{line[(tab + 1)..]}'.");
-            body.Append(line).Append('\n');
+            if (verifyDigest)
+                body.Append(line).Append('\n');
         }
 
         if (pack is null || version is null || digest is null || count is null)
             throw new InvalidDataException("The projection header is incomplete.");
         if (count != identifiers.Count)
             throw new InvalidDataException($"The projection header records {count} entries; found {identifiers.Count}.");
-        string actual = PlatformCallerUnsafeProjectionBuilder.ComputeDigest(body.ToString());
-        if (!string.Equals(actual, digest, StringComparison.Ordinal))
+        if (verifyDigest
+            && !string.Equals(
+                PlatformCallerUnsafeProjectionBuilder.ComputeDigest(body.ToString()),
+                digest,
+                StringComparison.Ordinal))
+        {
             throw new InvalidDataException("The projection digest does not match its entries.");
+        }
 
-        return new(new(pack, version), digest, identifiers.ToFrozenSet(StringComparer.Ordinal));
+        return new(new(pack, version), digest, identifiers);
     }
 
     static PlatformCallerUnsafeContracts LoadEmbedded()
@@ -159,7 +171,7 @@ public sealed class PlatformCallerUnsafeContracts
             .GetManifestResourceStream(ResourceName)
             ?? throw new InvalidOperationException($"Missing embedded resource '{ResourceName}'.");
         using var reader = new StreamReader(stream, Encoding.UTF8);
-        return Parse(reader.ReadToEnd());
+        return Parse(reader.ReadToEnd(), verifyDigest: false);
     }
 }
 

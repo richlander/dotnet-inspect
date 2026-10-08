@@ -236,6 +236,7 @@ public partial class LibraryBodyIndexTests
         Assert.True(platform.Count > 0);
 
         string text = ReadEmbeddedProjection();
+        Assert.Equal(platform.Count, PlatformCallerUnsafeContracts.Parse(text).Count);
         string tampered = text.Replace(
             "M:System.Runtime.CompilerServices.Unsafe.As``1(System.Object)",
             "M:System.Runtime.CompilerServices.Unsafe.As``1(System.String)",
