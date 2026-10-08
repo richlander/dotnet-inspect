@@ -27,6 +27,29 @@ Diagnostics are typed (`MemberTargetDiagnosticKind`) and include candidate
 anchors for ambiguous or out-of-range selections. CLI commands should render the
 diagnostic instead of falling back to partial string matching.
 
+## Assembly-context exact selection
+
+`ApiSurfaceMemberSelection` owns exact type, declaration, and physical body
+selection over one complete API surface. Its member request carries the escaped
+structured type identity, member name, owner-issued opaque selector key, and
+optional image-local metadata token. A matching token may identify the
+declaration or body in the selected image; when reference and implementation
+row numbers differ, the owner-issued selector is the structural fallback.
+
+`AssemblyContextMemberSelectionQuery` composes that selection over one
+caller-authorized participant. The caller supplies explicit API-surface bounds
+and retains ownership of the participant, workspace lifetime, and acquisition
+authority. The query performs one bounded `IncludeAll` projection, refuses to
+select from a truncated surface, and returns the participant-scoped type,
+declaration, or physical body through the ordinary `AssemblyContextEntry<T>`
+outcome. A caller that already projected the complete surface uses
+`ApiSurfaceMemberSelection` directly rather than repeating that work.
+
+Inspect Web uses this operation after its package or Platform workspace has
+selected the participant. Web continues to own browser bounds and protected
+scope leases, but it does not reconstruct exact type, declaration, or body
+matching rules.
+
 ## Identity ownership
 
 Member identity has two related vocabularies:
@@ -65,6 +88,11 @@ authority for the API identity grammar.
 - Body evidence should flow through `ResearchMemberIdentity`, which formats
   `MethodIdentity` subjects and API-derived `ResolvedMemberTarget` body aliases
   with the same canonical spelling.
+- Assembly-context consumers should use
+  `AssemblyContextMemberSelectionQuery` for an already-issued opaque selector
+  instead of projecting an API surface solely to reimplement exact matching.
+  Consumers that already require the complete surface use
+  `ApiSurfaceMemberSelection`.
 - `MemberAnchor` remains the durable user/agent-facing identity; producer-native
   references remain producer evidence and should not be replaced by selectors.
 - The resolver lives in `ILInspector.Metadata`, so it stays SRM-only and has no

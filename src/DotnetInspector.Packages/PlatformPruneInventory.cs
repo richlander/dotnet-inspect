@@ -327,6 +327,27 @@ public sealed class PlatformPruneInventory
     }
 
     /// <summary>
+    /// Gets one family's normalized target version only when its inventory came from that exact
+    /// selected pack.
+    /// </summary>
+    public bool TryGetExactFamilyTargetVersion(
+        string family,
+        out string targetVersion)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(family);
+        targetVersion = string.Empty;
+        if (!families.TryGetValue(family, out PlatformPruneFamily? value)
+            || value.Precision != PlatformPrunePrecision.Exact
+            || !value.DescribesTarget)
+        {
+            return false;
+        }
+
+        targetVersion = value.TargetPackVersion.ToNormalizedString();
+        return true;
+    }
+
+    /// <summary>
     /// Whether this target supplies <paramref name="requestedVersion"/> of
     /// <paramref name="packageId"/>. Every uncertainty resolves away from
     /// <see cref="PlatformSubsumption.Subsumed"/>.

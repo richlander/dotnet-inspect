@@ -373,7 +373,7 @@ public static class NavigationLensRecommendation
             StructuralSubjectIdentity.EcosystemSubject =>
                 ViewFacetRole.EcosystemOverview,
             StructuralSubjectIdentity.PackageSubject =>
-                ViewFacetRole.PackageOverview,
+                ViewFacetRole.PackageLibraries,
             StructuralSubjectIdentity.AllLibrariesSubject =>
                 ViewFacetRole.LibraryReferences,
             StructuralSubjectIdentity.LibrarySubject =>

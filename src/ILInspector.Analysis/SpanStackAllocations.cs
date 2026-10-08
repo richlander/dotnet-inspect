@@ -15,13 +15,19 @@ namespace ILInspector.Analysis;
 /// Fail-closed: an incomplete typed stack, an unresolved producer, or an unprovable
 /// displacement or bound recognizes nothing, so the reported roles stay.
 /// </remarks>
+/// <param name="WrappingConstructors">
+/// The offset of the compiler-emitted <c>Span&lt;T&gt;(void*, int)</c> constructor that
+/// wraps each recognized allocation, keyed by the allocation's offset.
+/// </param>
 internal sealed record SpanStackAllocations(
     ImmutableHashSet<int> WrappedAllocations,
-    ImmutableHashSet<int> InitializerStores)
+    ImmutableHashSet<int> InitializerStores,
+    ImmutableDictionary<int, int> WrappingConstructors)
 {
     const int MaxTraceDepth = 32;
 
-    internal static SpanStackAllocations None { get; } = new([], []);
+    internal static SpanStackAllocations None { get; } =
+        new([], [], ImmutableDictionary<int, int>.Empty);
 
     internal static SpanStackAllocations Recognize(
         MethodBodyAnalysisContext context,
@@ -51,6 +57,7 @@ internal sealed record SpanStackAllocations(
         var tracer = new Tracer(stack, instructions);
 
         var wrapped = new Dictionary<int, TypeRef>();
+        var constructors = ImmutableDictionary.CreateBuilder<int, int>();
         foreach (DecodedInstruction instruction in instructions.Values)
         {
             if (instruction.OpCode != ILOpCode.Newobj)
@@ -66,6 +73,7 @@ internal sealed record SpanStackAllocations(
                 continue;
             }
             wrapped[allocation] = elementType;
+            constructors[allocation] = instruction.Offset;
         }
         if (wrapped.Count == 0)
             return None;
@@ -92,8 +100,85 @@ internal sealed record SpanStackAllocations(
         }
         return new(
             wrapped.Keys.ToImmutableHashSet(),
-            stores.ToImmutable());
+            stores.ToImmutable(),
+            constructors.ToImmutable());
     }
+
+    /// <summary>
+    /// Offsets of <c>ReadOnlySpan&lt;T&gt;(void*, int)</c> constructor calls whose
+    /// pointer is the address of a same-image field with an RVA: Roslyn's
+    /// lowering of <c>"..."u8</c> literals and constant span data. Fail-closed:
+    /// an incomplete typed stack or any other producer recognizes nothing.
+    /// </summary>
+    internal static ImmutableHashSet<int> RecognizeConstantDataSpans(
+        MethodBodyAnalysisContext context,
+        Func<int, MemberRef> resolveMember,
+        Func<int, bool> isFieldWithRva)
+    {
+        ImmutableArray<DecodedInstruction> body = context.Instructions.Instructions;
+        if (!body.Any(instruction =>
+                instruction.OpCode == ILOpCode.Ldsflda
+                && isFieldWithRva(checked((int)instruction.OperandValue))))
+        {
+            return [];
+        }
+
+        TypedStackResult stack;
+        try
+        {
+            stack = context.Instructions.InterpretStack(
+                !context.Method.ReturnType.Equals(
+                    TypeRef.CoreLib("System", "Void")),
+                new MemberStackTypeResolver(resolveMember));
+        }
+        catch (Exception ex)
+            when (ex is BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException
+                or OverflowException)
+        {
+            return [];
+        }
+        if (!stack.IsComplete)
+            return [];
+
+        var instructions = body.ToDictionary(instruction => instruction.Offset);
+        var constructors = ImmutableHashSet.CreateBuilder<int>();
+        foreach (DecodedInstruction instruction in body)
+        {
+            // Roslyn constructs a temporary with newobj (pointer, length) and a
+            // local in place with call on its address (this, pointer, length).
+            (int count, int index) = instruction.OpCode switch
+            {
+                ILOpCode.Newobj => (2, 0),
+                ILOpCode.Call => (3, 1),
+                _ => (0, 0),
+            };
+            if (count == 0
+                || !IsReadOnlySpanPointerConstructor(
+                    resolveMember(checked((int)instruction.OperandValue)))
+                || ArgumentAt(stack, instruction.Offset, count, index) is not { } pointer
+                || !instructions.TryGetValue(pointer.ProducerOffset, out DecodedInstruction? producer)
+                || producer.OpCode != ILOpCode.Ldsflda
+                || !isFieldWithRva(checked((int)producer.OperandValue)))
+            {
+                continue;
+            }
+            constructors.Add(instruction.Offset);
+        }
+        return constructors.ToImmutable();
+    }
+
+    static bool IsReadOnlySpanPointerConstructor(MemberRef constructor)
+        => constructor.Name == ".ctor"
+            && constructor.DeclaringType.Kind == TypeRefKind.GenericInstance
+            && constructor.DeclaringType.ElementType is { } definition
+            && FrameworkIdentity.IsCoreLibraryType(
+                definition,
+                "System",
+                "ReadOnlySpan`1")
+            && constructor.ParameterTypes.Length == 2
+            && constructor.ParameterTypes[0].Kind == TypeRefKind.Pointer;
 
     static TypeRef? SpanElementType(MemberRef constructor)
         => constructor.Name == ".ctor"

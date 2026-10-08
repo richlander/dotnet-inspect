@@ -555,8 +555,7 @@ public sealed class TypeResolutionCatalog : IDisposable
                 TypeResolutionContextBuildResult.Completed completed =>
                     completed.Context,
                 TypeResolutionContextBuildResult.PolicyVersionChanged =>
-                    throw new InvalidOperationException(
-                        "The binding policy changed version during discovery."),
+                    throw new AssemblyBindingPolicyChangedException(),
                 _ => throw new InvalidOperationException(
                     "Unknown type-resolution context build result."),
             };
@@ -3184,3 +3183,12 @@ public sealed class TypeResolutionContext : IDisposable
                 binding.Binding);
     }
 }
+
+/// <summary>
+/// The issuer's binding policy changed version while references were being
+/// resolved, so earlier answers in the same invocation no longer share one
+/// policy snapshot.
+/// </summary>
+public sealed class AssemblyBindingPolicyChangedException()
+    : InvalidOperationException(
+        "The binding policy changed version during discovery.");

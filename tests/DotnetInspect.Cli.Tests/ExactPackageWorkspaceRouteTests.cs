@@ -406,7 +406,7 @@ public sealed class ExactPackageWorkspaceRouteTests
         Assert.IsType<PortableSubjectRequest.Package>(
             derived.ViewStates[1].Subject);
         Assert.Equal(
-            "package.overview",
+            "package.libraries",
             derived.ViewStates[1].Facet);
         Assert.IsType<PortableSubjectRequest.Workspace>(
             derived.ViewStates[2].Subject);

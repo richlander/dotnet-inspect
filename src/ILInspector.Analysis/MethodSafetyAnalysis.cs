@@ -363,13 +363,16 @@ internal static class MethodSafetyAnalysis
                 occurrences.RemoveAt(index);
             }
             else if (occurrence.Kind == UnsafetyKind.StackAlloc
-                && context.LocalVariablesInitialized
-                && spans.WrappedAllocations.Contains(
-                    occurrence.ILOffset))
+                && spans.WrappingConstructors.TryGetValue(
+                    occurrence.ILOffset,
+                    out int constructorOffset))
             {
                 occurrences[index] = occurrence with
                 {
-                    RequiresUnsafeContext = false,
+                    RequiresUnsafeContext =
+                        occurrence.RequiresUnsafeContext
+                        && !context.LocalVariablesInitialized,
+                    SpanConstructorOffset = constructorOffset,
                 };
             }
         }

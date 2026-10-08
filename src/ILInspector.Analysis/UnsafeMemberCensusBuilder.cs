@@ -224,7 +224,8 @@ internal static class UnsafeMemberCensusBuilder
                 item.Kind,
                 physical,
                 item.ILOffset,
-                item.Detail));
+                item.Detail,
+                item.ContractSource));
         }
         return evidence.ToImmutable();
     }

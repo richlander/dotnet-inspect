@@ -19,6 +19,31 @@ public sealed class AssemblyInspectionSubjectIdentity
 }
 
 /// <summary>
+/// Owner-issued reference binding for one exact assembly subject: the
+/// subject's own resolved assembly and the binding policy the issuer selected
+/// for it. It grants read-only resolution for one synchronous operation and
+/// never acquires, replaces a policy generation, or outlives the access.
+/// </summary>
+public sealed class AssemblyReferenceBindingAccess
+{
+    public AssemblyReferenceBindingAccess(
+        ResolvedAssemblyReference subject,
+        IAssemblyBindingPolicy policy)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        ArgumentNullException.ThrowIfNull(policy);
+        Subject = subject;
+        Policy = policy;
+    }
+
+    /// <summary>The subject assembly as the issuer resolved it.</summary>
+    public ResolvedAssemblyReference Subject { get; }
+
+    /// <summary>The issuer-selected policy for the subject's references.</summary>
+    public IAssemblyBindingPolicy Policy { get; }
+}
+
+/// <summary>
 /// Stack-only access to one exact operation over one exact assembly subject.
 /// </summary>
 public readonly ref struct AssemblyInspectionOperationAccess<TOperation>
@@ -29,11 +54,13 @@ public readonly ref struct AssemblyInspectionOperationAccess<TOperation>
     internal AssemblyInspectionOperationAccess(
         TOperation operation,
         AssemblyInspectionSubjectIdentity subject,
-        ReadOnlyResourceSnapshotView<AssemblyInspectionSession> snapshot)
+        ReadOnlyResourceSnapshotView<AssemblyInspectionSession> snapshot,
+        AssemblyReferenceBindingAccess? referenceBinding = null)
     {
         Operation = operation;
         Subject = subject;
         _snapshot = snapshot;
+        ReferenceBinding = referenceBinding;
     }
 
     /// <summary>The exact operation for which the owner issued this access.</summary>
@@ -41,6 +68,12 @@ public readonly ref struct AssemblyInspectionOperationAccess<TOperation>
 
     /// <summary>The exact subject behind this access.</summary>
     public AssemblyInspectionSubjectIdentity Subject { get; }
+
+    /// <summary>
+    /// The owner-issued reference binding for this subject, or null when the
+    /// issuer supplied none.
+    /// </summary>
+    public AssemblyReferenceBindingAccess? ReferenceBinding { get; }
 
     /// <summary>Whether session-owned admission found managed metadata.</summary>
     public bool HasMetadata => _snapshot.Value.HasMetadata;
@@ -261,6 +294,30 @@ public sealed class AssemblyInspectionSession :
                 _subject,
                 new ReadOnlyResourceSnapshotView<AssemblyInspectionSession>(
                     this)));
+    }
+
+    /// <summary>
+    /// Issues stack-only access like
+    /// <see cref="SnapshotOperation{TOperation, TResult}(TOperation, AssemblyInspectionOperationCallback{TOperation, TResult})"/>
+    /// and additionally carries the issuer's reference binding for the subject.
+    /// </summary>
+    public TResult SnapshotOperation<TOperation, TResult>(
+        TOperation operation,
+        AssemblyReferenceBindingAccess referenceBinding,
+        AssemblyInspectionOperationCallback<TOperation, TResult> callback)
+        where TOperation : class
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(referenceBinding);
+        ArgumentNullException.ThrowIfNull(callback);
+        _image.EnsureAlive();
+        return callback(
+            new AssemblyInspectionOperationAccess<TOperation>(
+                operation,
+                _subject,
+                new ReadOnlyResourceSnapshotView<AssemblyInspectionSession>(
+                    this),
+                referenceBinding));
     }
 
     /// <summary>

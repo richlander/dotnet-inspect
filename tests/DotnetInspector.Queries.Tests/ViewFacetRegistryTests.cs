@@ -43,8 +43,34 @@ public sealed class ViewFacetRegistryTests
                 .Id.Value);
     }
 
+    [Fact]
+    public void PackageRoles_ResolveLibrariesAsDefaultAndOverviewAsFacts()
+    {
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+
+        Assert.Equal(
+            "package.libraries",
+            registry.GetRequiredDescriptor(
+                    StructuralSubjectKind.Package,
+                    ViewFacetRole.PackageLibraries)
+                .Id.Value);
+        Assert.Equal(
+            "package.overview",
+            registry.GetRequiredDescriptor(
+                    StructuralSubjectKind.Package,
+                    ViewFacetRole.PackageOverview)
+                .Id.Value);
+        Assert.Equal(
+            ["package.libraries", "package.overview", "package.dependencies"],
+            registry.Descriptors
+                .Where(static d => d.Kind == StructuralSubjectKind.Package)
+                .Take(3)
+                .Select(static d => d.Id.Value));
+    }
+
     [Theory]
     [InlineData(StructuralSubjectKind.Workspace, "overview", "workspace.overview")]
+    [InlineData(StructuralSubjectKind.Package, "libraries", "package.libraries")]
     [InlineData(StructuralSubjectKind.Ecosystem, "overview", "ecosystem.overview")]
     [InlineData(StructuralSubjectKind.Package, "dependencies", "package.dependencies")]
     [InlineData(StructuralSubjectKind.Library, "types", "library.types")]
@@ -548,6 +574,7 @@ public sealed class ViewFacetRegistryTests
                 .Select(option => option.Descriptor.Id.Value));
         Assert.Equal(
             [
+                "package.libraries",
                 "package.overview",
                 "package.dependencies",
                 "package.dependency-hierarchy",
@@ -558,6 +585,11 @@ public sealed class ViewFacetRegistryTests
             registry.Resolve(
                 "workspace.overview",
                 package,
+                ThrowingFacts.Instance));
+        Assert.IsType<ViewFacetResolution.Inapplicable>(
+            registry.Resolve(
+                "package.libraries",
+                workspace,
                 ThrowingFacts.Instance));
         Assert.IsType<ViewFacetResolution.Inapplicable>(
             registry.Resolve(
@@ -653,6 +685,9 @@ public sealed class ViewFacetRegistryTests
             new("ecosystem.overview", StructuralSubjectKind.Ecosystem, "Overview",
                 "Registered Ecosystem identity, declarations, and population capabilities.",
                 100, ViewFacetRole.EcosystemOverview),
+            new("package.libraries", StructuralSubjectKind.Package, "Libraries",
+                "Libraries of the selected target, or RID packages of a tool pointer package.",
+                50, ViewFacetRole.PackageLibraries),
             new("package.overview", StructuralSubjectKind.Package, "Overview",
                 "Package identity, selected target, assets, and summary facts.",
                 100, ViewFacetRole.PackageOverview),
@@ -744,6 +779,8 @@ public sealed class ViewFacetRegistryTests
                     InspectionViewFacetExecution.WorkspaceOverview),
                 ("ecosystem.overview",
                     InspectionViewFacetExecution.EcosystemOverview),
+                ("package.libraries",
+                    InspectionViewFacetExecution.PackageLibraries),
                 ("package.overview",
                     InspectionViewFacetExecution.PackageOverview),
                 ("package.dependencies",
