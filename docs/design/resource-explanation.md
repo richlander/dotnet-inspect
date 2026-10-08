@@ -955,6 +955,16 @@ checks recovery of the selected core data. Current CLI retrieval for the menu
 with tier descriptions is 49,935 bytes across two requests. These are
 functional data/query measurements, not runtime performance evidence.
 
+The [worked facet demo](../../tools/ExplainReadingScenarios/facets/README.md)
+applies this reasoning to the 19-facet Package Query space and its 14 CLI-exposed
+query terms. A derived host-exposure index distinguishes authorable terms from
+required context; keyed facet records resolve that context locally. The demo
+also exposes a completeness gap for the full agent task: exact operand bounds
+and the CLI context gesture still require supplementary owner-contract guidance.
+Those facts must be issued by Query Space and the host binding before the
+selected facet document can claim to answer execution-preparation queries
+without additional reads.
+
 The proposed normalization rule is to store shared detail once and add derived
 indexes or scalar repetition only when a critical query earns their cost.
 Arrays support discovery; keyed tables support shared detail and known-key

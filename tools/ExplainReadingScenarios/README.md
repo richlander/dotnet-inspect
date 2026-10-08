@@ -102,6 +102,11 @@ reading task separate from a concise summary, tips, or reusable reference.
 The 239 B tier answer is useful selection evidence, not a promised product
 payload budget.
 
+The [worked facet demo](facets/README.md) follows an agent from discovering
+exposed query terms through operand inspection, required-context lookup, and
+host invocation. Its executable prototype also identifies constraint and host
+binding facts that the current catalog does not yet expose.
+
 ## Contextual gaps
 
 The runner also probes the three requested Type gestures against the actual
