@@ -52,6 +52,10 @@ public sealed class PlatformCallerUnsafeContracts
     // call to an unrelated type is rejected without building its identifier.
     readonly HashSet<string>.AlternateLookup<ReadOnlySpan<char>> _declaringTypeNames;
 
+    // Member metadata names (for example "As" or ".ctor"), the second cheap
+    // rejection before an identifier is built.
+    readonly HashSet<string> _memberNames;
+
     PlatformCallerUnsafeContracts(
         UnsafeContractSource.PlatformProjection source,
         string digest,
@@ -64,17 +68,32 @@ public sealed class PlatformCallerUnsafeContracts
             .Select(InnermostDeclaringTypeName)
             .ToHashSet(StringComparer.Ordinal)
             .GetAlternateLookup<ReadOnlySpan<char>>();
+        _memberNames = identifiers
+            .Select(MemberName)
+            .ToHashSet(StringComparer.Ordinal);
     }
 
-    static string InnermostDeclaringTypeName(string identifier)
+    static string MemberName(string identifier)
+    {
+        ReadOnlySpan<char> signature = MemberSignature(identifier);
+        return signature[(signature.LastIndexOf('.') + 1)..].ToString().Replace('#', '.');
+    }
+
+    // "<type>.<member>" with the parameter list, conversion return, and
+    // method generic arity removed.
+    static ReadOnlySpan<char> MemberSignature(string identifier)
     {
         ReadOnlySpan<char> signature = identifier.AsSpan(2);
         int end = signature.IndexOfAny('(', '~');
         if (end >= 0)
             signature = signature[..end];
         int arity = signature.IndexOf("``", StringComparison.Ordinal);
-        if (arity >= 0)
-            signature = signature[..arity];
+        return arity >= 0 ? signature[..arity] : signature;
+    }
+
+    static string InnermostDeclaringTypeName(string identifier)
+    {
+        ReadOnlySpan<char> signature = MemberSignature(identifier);
         ReadOnlySpan<char> type = signature[..signature.LastIndexOf('.')];
         return type[(type.LastIndexOf('.') + 1)..].ToString();
     }
@@ -105,7 +124,8 @@ public sealed class PlatformCallerUnsafeContracts
             return false;
         }
         ReadOnlySpan<char> name = declaring.Name;
-        return _declaringTypeNames.Contains(name[(name.LastIndexOf('+') + 1)..])
+        return _memberNames.Contains(callee.Name)
+            && _declaringTypeNames.Contains(name[(name.LastIndexOf('+') + 1)..])
             && PlatformCallerUnsafeKey.TryCreate(callee, out string? key)
             && _identifiers.Contains(key);
     }
