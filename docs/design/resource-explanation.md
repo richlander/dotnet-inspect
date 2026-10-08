@@ -1074,6 +1074,11 @@ The implementation slice records exact base/head bytes and token counts,
 representative `jq` access paths, and agent task outcomes. It measures total
 retrieved content and operation count, so smaller individual responses cannot
 hide additional fetches. NativeAOT comparisons cover the adopted CLI terminals.
+The executable [reading scenarios](../../tools/ExplainReadingScenarios/README.md)
+compare actual style answers across the browser inspection and compact CLI
+projection, expose map-entry and expansion joins, and record query/navigation
+costs. Their filtered answers do not count as reduced retrieval; the evidence
+supports a further selection experiment before an agent-readability claim.
 Cross-host gates compare resource facts and relationship meaning, allowing
 host-specific usable addresses. Boundary evidence covers identity collisions,
 detached subjects, large integers, octets, record and choice values, non-available
