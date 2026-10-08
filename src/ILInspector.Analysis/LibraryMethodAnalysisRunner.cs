@@ -231,8 +231,9 @@ internal sealed class LibraryMethodAnalysisResult
     public ImmutableArray<UnsafetyOccurrence> Unsafety;
 
     /// <summary>
-    /// Offsets of compiler-emitted <c>ReadOnlySpan&lt;T&gt;(void*, int)</c> calls over
-    /// RVA constant data, which are lowering rather than source calls.
+    /// Offsets of compiler-emitted <c>ReadOnlySpan&lt;T&gt;(void*, int)</c> constructor
+    /// calls (newobj or in-place call) over RVA constant data, which are
+    /// lowering rather than source calls.
     /// </summary>
     public ImmutableHashSet<int> ConstantDataSpanConstructors = [];
     public ImmutableArray<OptimizationOpportunity> Opportunities;

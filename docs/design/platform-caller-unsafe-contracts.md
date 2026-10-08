@@ -101,15 +101,19 @@ not a source call, and admits nothing:
 - a `Span<T>(void*, int)` constructor that wraps a recognized `stackalloc`: the
   [span stackalloc recognition](method-body-inspection.md#updated-semantics-unsafe-member-uses)
   that decides the allocation's own role also excludes that constructor call;
-- a `ReadOnlySpan<T>(void*, int)` constructor whose pointer operand, on the
-  shared typed stack, is `ldsflda` of a primary-image field with an RVA: the
-  lowering of `"..."u8` literals and constant span data; and
+- a `ReadOnlySpan<T>(void*, int)` constructor, as `newobj` or as an in-place
+  `call` on a local's address, whose pointer operand, on the shared typed
+  stack, is `ldsflda` of a primary-image field with an RVA: the lowering of
+  `"..."u8` literals and constant span data; and
 - any projected call inside a top-level `<PrivateImplementationDetails>` body,
   such as the `InlineArrayAsSpan` helpers that lower collection expressions and
   inline arrays.
 
-An explicit source call to the same constructor still matches. The exclusions
-apply only to projected contracts; a same-image marker keeps its role.
+An explicit source call to the same constructor still matches. The two
+constructor exclusions drop the lowered call whatever its contract source,
+because it is never a source call; the `<PrivateImplementationDetails>`
+exclusion applies only to projected contracts, so a same-image marker there
+keeps its role.
 
 ## Contract source
 

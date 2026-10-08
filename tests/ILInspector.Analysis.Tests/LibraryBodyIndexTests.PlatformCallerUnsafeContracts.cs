@@ -79,6 +79,8 @@ public partial class LibraryBodyIndexTests
             nameof(ConstantSpanFixtures.Utf8LiteralLength),
             "get_" + nameof(ConstantSpanFixtures.ConstantBytes),
             nameof(ConstantSpanFixtures.CollectionExpressionSum),
+            nameof(ConstantSpanFixtures.LocalUtf8Lookup),
+            nameof(ConstantSpanFixtures.LocalConstantLookup),
         })
         {
             Assert.DoesNotContain(
@@ -360,6 +362,19 @@ public static class ConstantSpanFixtures
         foreach (int value in values)
             sum += value;
         return sum;
+    }
+
+    // In-place construction: ldloca; ldsflda; ldc; call ReadOnlySpan::.ctor.
+    public static byte LocalUtf8Lookup(int index)
+    {
+        ReadOnlySpan<byte> hex = "0123456789abcdef"u8;
+        return hex[index & 15];
+    }
+
+    public static byte LocalConstantLookup(int index)
+    {
+        ReadOnlySpan<byte> map = [10, 20, 30, 40, 50, 60, 70, 80];
+        return map[index & 7];
     }
 
     public static unsafe int WrapPointer(byte* data, int length)

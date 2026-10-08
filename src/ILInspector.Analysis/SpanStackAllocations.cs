@@ -146,10 +146,18 @@ internal sealed record SpanStackAllocations(
         var constructors = ImmutableHashSet.CreateBuilder<int>();
         foreach (DecodedInstruction instruction in body)
         {
-            if (instruction.OpCode != ILOpCode.Newobj
+            // Roslyn constructs a temporary with newobj (pointer, length) and a
+            // local in place with call on its address (this, pointer, length).
+            (int count, int index) = instruction.OpCode switch
+            {
+                ILOpCode.Newobj => (2, 0),
+                ILOpCode.Call => (3, 1),
+                _ => (0, 0),
+            };
+            if (count == 0
                 || !IsReadOnlySpanPointerConstructor(
                     resolveMember(checked((int)instruction.OperandValue)))
-                || ArgumentAt(stack, instruction.Offset, 2, 0) is not { } pointer
+                || ArgumentAt(stack, instruction.Offset, count, index) is not { } pointer
                 || !instructions.TryGetValue(pointer.ProducerOffset, out DecodedInstruction? producer)
                 || producer.OpCode != ILOpCode.Ldsflda
                 || !isFieldWithRva(checked((int)producer.OperandValue)))
