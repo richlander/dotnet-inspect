@@ -323,6 +323,185 @@ public partial class PackageCommand
             .ConfigureAwait(false);
     }
 
+    private static async Task<int?> TryWriteHouseReadmeSectionAsync(
+        PackageReferenceTarget target,
+        InspectionOptions options,
+        CommandContext context)
+    {
+        if (target.IsLocalFile
+            || DotnetInspector.Networking.HttpClientFactory.IsOffline
+            || options.ForceLatest
+            || options.Discover is not null
+            || options.ContentScope
+                is not (PackageFileContentScope.Full
+                    or PackageFileContentScope.Frontmatter
+                    or PackageFileContentScope.Body)
+            || !string.IsNullOrWhiteSpace(options.Tfm)
+            || options.IncludeSections is not { Count: 1 } sections
+            || !sections.Single().Equals(
+                PackageSections.FilesReadme,
+                StringComparison.OrdinalIgnoreCase)
+            || !(options.Print || options.Raw)
+            || !PackageExtractor.TryNormalizePackageVersion(
+                target.Version,
+                out string normalizedVersion))
+        {
+            return null;
+        }
+
+        ProjectionDestination destination =
+            PackagePayloadDestination(options);
+        if (!ProjectionDestinationWriter.ValidateBeforeAcquisition(
+                destination))
+        {
+            return 1;
+        }
+
+        await using DesktopPackageSourceComposition composition =
+            context.CreatePackageSourceComposition();
+        using var stores = new SearchPackageStores();
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(
+                target.PackageName,
+                normalizedVersion);
+        PackageHouseSettlement inventorySettlement =
+            await composition.AcquireContentAsync(
+                    coordinate,
+                    PackageHouseContentQuery.PackageFileList(),
+                    stores.GetStore,
+                    options.SourceOptions,
+                    context.Logger.Log)
+                .ConfigureAwait(false);
+        if (inventorySettlement
+                is not PackageHouseSettlement.Acquired inventory
+            || inventory.Result.Evidence.FileList is not { } fileList)
+        {
+            return null;
+        }
+
+        PackagePrimaryDocumentResolution resolution =
+            PackagePrimaryDocumentInspection.Execute(
+                fileList.Entries).Content;
+        if (resolution.Status
+            == PackagePrimaryDocumentResolutionStatus.Missing)
+        {
+            return null;
+        }
+        if (resolution.Status
+            == PackagePrimaryDocumentResolutionStatus.Ambiguous)
+        {
+            CommandError.Write(
+                $"Package document '{resolution.CandidatePath}' is ambiguous.");
+            return 1;
+        }
+
+        PackageContentEntry selected =
+            resolution.Entry
+            ?? throw new InvalidOperationException(
+                "A resolved package document entry is required.");
+        PackageFileAcquisitionResult result =
+            await composition.AcquireFileAsync(
+                    coordinate,
+                    selected.Path,
+                    stores.GetStore,
+                    options.SourceOptions,
+                    context.Logger.Log)
+                .ConfigureAwait(false);
+        if (result is not PackageFileAcquisitionResult.Acquired file)
+        {
+            if (TryWritePackageFileSelectionFailure(result.Status))
+                return 1;
+            return null;
+        }
+
+        if (file.Settlement.Result.Evidence.Acquisition?.Transfer
+            is { } transfer)
+        {
+            context.Logger.Log(
+                $"Package transfer for {target.PackageName}@{normalizedVersion} "
+                + $"({file.Entry.Path}): {transfer.Path}, "
+                + $"{transfer.RequestCount} package requests, "
+                + $"{transfer.BytesReceived} bytes received.");
+        }
+
+        if (MayRequireLegacyToolWrapperHandling(
+                file.FileList.Entries.Select(
+                    static entry => entry.Path)))
+        {
+            context.Logger.Log(
+                $"{target.PackageName}@{normalizedVersion} may be a .NET tool wrapper; "
+                + "exporting through the complete package-content path.");
+            return null;
+        }
+
+        InspectionEnvelope<PackageFileContentDocument> inspection =
+            await PackageFileContentInspection.ExecuteAsync(
+                    new(
+                        file,
+                        PackageDocumentContentLimits.MaxDecodedBytes))
+                .ConfigureAwait(false);
+        if (inspection.Content.Status
+            != PackageFileContentStatus.Completed)
+        {
+            CommandError.Write(
+                "Could not read the selected package document.",
+                inspection.Content.Detail?.ToString()
+                    ?? "The package file content operation failed.");
+            return 1;
+        }
+
+        PackageFileContentDocument document = inspection.Content;
+        byte[] exactContent =
+            ImmutableCollectionsMarshal.AsArray(document.Content) ?? [];
+        var projectedFile = new PackageFile(
+            document.Path!,
+            document.Size,
+            IsReadme: true);
+        PackageFileContent content = CreatePackageFileContent(
+            document.PackageId!,
+            document.Version!,
+            projectedFile,
+            options.ContentScope,
+            normalizeGithubLinksToRaw: !options.PreferRenderedUrls,
+            includeExactContent:
+                HasUnstructuredOutputPath(options)
+                && options.ContentScope == PackageFileContentScope.Full,
+            exactContent);
+        if (options.Raw && !options.Print)
+        {
+            ContainmentDiagnosticOutput.Write(content.SelectedContent);
+            if (ProjectionDestinationWriter.IsFile(destination))
+            {
+                WritePackageFileExport(content, destination);
+                return 0;
+            }
+
+            return WriteBarePackageContent(content, destination);
+        }
+
+        var row = new PrintableRow(
+            1,
+            PackageSections.FilesReadme,
+            document.Path!,
+            document.Path!,
+            Url: null);
+        return PrintProjectionOutput.Write(
+            [row],
+            _ => content.SelectedContent is { } selectedContent
+                ? PrintableContent.FromContainmentSelection(
+                    selectedContent)
+                : new PrintableContent(
+                    content.Content,
+                    content.ExactContent),
+            new PrintProjectionOptions(
+                options.PrintRow,
+                options.JsonOutput,
+                options.Jsonl,
+                options.JsonArray,
+                destination,
+                _ => destination));
+    }
+
     private static async Task<int?> WriteLiteralHouseDocumentContentAsync(
         PackageReferenceTarget target,
         string pinnedVersion,
