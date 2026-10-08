@@ -2204,7 +2204,7 @@ public class PackageQueryCliTests
             explanationPath);
 
         var explanation = await Run(
-            ["explain", explanationPath, ".contract", "--json"]);
+            ["explain", explanationPath, "--json"]);
         Assert.Equal(0, explanation.ExitCode);
         Assert.Empty(explanation.Error);
         using JsonDocument explanationDocument =
@@ -2212,8 +2212,7 @@ public class PackageQueryCliTests
         Assert.Equal(
             PackageQuery.LibraryLiteralTermKey,
             explanationDocument.RootElement
-                .GetProperty("resources")[0]
-                .GetProperty("details")
+                .GetProperty("facts")
                 .GetProperty("key")
                 .GetString());
 
