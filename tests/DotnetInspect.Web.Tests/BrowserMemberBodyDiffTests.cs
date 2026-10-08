@@ -125,6 +125,10 @@ public sealed class BrowserMemberBodyDiffTests
         var apiAddition = Assert.Single(type.Members, member =>
             member.Display.Contains("InferClosedTypePolymorphism", StringComparison.Ordinal)
             && member.HasApiChange);
+        Assert.Contains(type.ApiMemberNames,
+            name => name.Contains("InferClosedTypePolymorphism", StringComparison.Ordinal));
+        Assert.DoesNotContain(type.ApiMemberNames,
+            name => name.Contains("get_InferClosedTypePolymorphism", StringComparison.Ordinal));
         Assert.Empty(apiAddition.Mechanisms);
         Assert.Null(apiAddition.MethodToken);
         Assert.False(apiAddition.IsAccessor);

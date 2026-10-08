@@ -24,6 +24,7 @@ public sealed record BrowserMemberBodyCoverage(
 public sealed record BrowserMemberBodyType(
     string Identity, string Display, string Outcome, bool CanNavigate,
     bool HasApiChange,
+    string[] ApiMemberNames,
     BrowserMemberBodyMember[] Members);
 
 public sealed record BrowserMemberBodyMember(

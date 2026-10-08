@@ -156,6 +156,7 @@ public static partial class SourceExports
                 group.Any(member => member.After is not null)
                     || inventory.Api.Comparison.Subjects.Any(type => type.Comparison.After?.Identifier == group.Key),
                 group.Any(HasOverlappingApiChange),
+                [],
                 [.. group.Select(member =>
                     new BrowserMemberBodyMember(member.Subject.Id, member.Subject.Display, member.Outcome,
                         HasOverlappingApiChange(member), IsAccessor(member),
@@ -178,7 +179,15 @@ public static partial class SourceExports
                 : apiType.Comparison.Before is null ? "Added" : "Changed";
             BrowserMemberBodyType type = index >= 0
                 ? types[index] with { Outcome = outcome, HasApiChange = true }
-                : new(identity, apiType.Display, outcome, apiType.Comparison.After is not null, true, []);
+                : new(identity, apiType.Display, outcome, apiType.Comparison.After is not null, true, [], []);
+            string[] apiMemberNames = [.. apiType.Comparison.Members.Select(apiMember =>
+            {
+                var relation = apiMember.Relation;
+                var occupied = apiMember.Role is LibraryApiMemberRelationRole.Before
+                    ? relation.Before!
+                    : relation.After ?? relation.Before!;
+                return $"{occupied.DeclaringType.Display}.{occupied.Display}";
+            }).OrderBy(name => name, StringComparer.Ordinal)];
             var members = type.Members.ToList();
             foreach (var apiMember in apiType.Comparison.Members)
             {
@@ -209,6 +218,7 @@ public static partial class SourceExports
             }
             type = type with
             {
+                ApiMemberNames = apiMemberNames,
                 Members = [.. members.OrderBy(member => member.Display, StringComparer.Ordinal)],
             };
             if (index >= 0) types[index] = type;

@@ -395,6 +395,7 @@ export interface BrowserMemberBodyType {
   readonly outcome: string;
   readonly canNavigate: boolean;
   readonly hasApiChange: boolean;
+  readonly apiMemberNames: ReadonlyArray<string>;
   readonly members: ReadonlyArray<BrowserMemberBodyMember>;
 }
 
@@ -1374,4 +1375,3 @@ export async function queryTypeSource(operationId: string, packageId: string, ve
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeSourceResult;
 }
-

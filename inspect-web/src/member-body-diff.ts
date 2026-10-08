@@ -269,7 +269,7 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
           ])],
           type.identity, null)
       : renderInventoryRow("type", type.display, "Removed", ["API"], null,
-          `Removed in the current version; Before-side evidence only · ${type.members.length} ${type.members.length === 1 ? "Member" : "Members"}${type.members.length > 0 ? `: ${type.members.map(member => member.display).join(", ")}` : ""}`)).join("")
+          `Removed in the current version; Before-side evidence only · ${type.apiMemberNames.length} ${type.apiMemberNames.length === 1 ? "Member" : "Members"}${type.apiMemberNames.length > 0 ? `: ${type.apiMemberNames.join(", ")}` : ""}`)).join("")
       : types.flatMap(type => type.members).map(member => member.fingerprint !== null
         ? renderInventoryRow("member", member.display, member.outcome,
             memberCategories(member), member.id, null)
@@ -372,7 +372,9 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
       return reader ? `${mediaControls(reader, true)}<button type="button" class="primary-action" id="member-body-explore" data-member-body-explore>Explore</button>` : "";
     },
     renderMemberSection,
+    renderLibrarySection: () => renderInventorySection("library"),
     renderTypeSection: () => renderInventorySection("type"),
+    get hasSettledInventory() { return retained?.inventory !== null && retained?.inventory !== undefined; },
     reconcile(next: MemberBodyDiffContext | null): void {
       savePosition();
       const prior = context;

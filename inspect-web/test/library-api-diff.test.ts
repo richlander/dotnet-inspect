@@ -1107,6 +1107,31 @@ test("merged Type Diff keeps Type-level API changes and replaces counted API row
   assert.equal([...html.matchAll(/id="unified-members"/g)].length, 1);
 });
 
+test("merged Library and Type Diff retain settled API rows while body inventory is loading", () => {
+  const state = readyState(withMembers());
+  for (const bodySection of [
+    "<p>Loading implementation changes…</p>",
+    "<p>Body comparison failed</p><button data-member-body-retry>Retry</button>",
+  ]) {
+    const library = renderLibraryApiDiff(state, String, {
+      libraryDiffSection: bodySection,
+      replaceDiffInventory: false,
+    });
+    assert.match(library, /Example\.Widget/);
+    assert.match(library, new RegExp(bodySection.includes("Loading") ? "Loading implementation changes" : "Body comparison failed"));
+    assert.doesNotMatch(library, /library-api-diff-metrics/);
+
+    const type = renderLibraryApiDiff(state, String, {
+      subject: { kind: "type", typeIdentifier: "after-widget" },
+      typeDiffSection: bodySection,
+      replaceDiffInventory: false,
+    });
+    assert.match(type, /data-member-fingerprint=/);
+    assert.match(type, new RegExp(bodySection.includes("Loading") ? "Loading implementation changes" : "Body comparison failed"));
+    assert.doesNotMatch(type, /\d+ changed Members|\d+ breaking|\d+ additive|\d+ potentially breaking/);
+  }
+});
+
 test("Member Diff renders each producer change once with its useful values", () => {
   const html = renderLibraryApiDiff(readyState(withMembers()), String, {
     subject: {

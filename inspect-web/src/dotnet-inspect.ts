@@ -648,7 +648,6 @@ import { createMemberBodyDiff, type MemberBodyDiffContext } from "./member-body-
 import { createMemberDiffExplorer } from "./member-diff-explorer.ts";
 import {
   bindCompareFrame,
-  renderCompareFrame,
   restoreCompareTabFocus,
   type CompareSubjectKind,
 } from "./compare-surface.ts";
@@ -7869,20 +7868,28 @@ function renderCompareSurface(): string {
     });
   }
   if (packageComparisonTargets.get(subject.pkg).diffContent.kind === "member-body") {
+    if (subject.kind === "library") {
+      const options = libraryApiDiffRenderOptions(subject);
+      return renderLibraryApiDiff(state.libraryApiDiff, escapeHtml, {
+        ...options,
+        resultSummaryInDataBar: false,
+        libraryDiffSection: memberBodyDiff.renderLibrarySection(),
+        replaceDiffInventory: memberBodyDiff.hasSettledInventory,
+      });
+    }
     if (subject.kind === "type" || subject.kind === "member") {
       const options = libraryApiDiffRenderOptions(subject);
       return renderLibraryApiDiff(state.libraryApiDiff, escapeHtml, {
         ...options,
         resultSummaryInDataBar: false,
         ...(subject.kind === "type"
-          ? { typeDiffSection: memberBodyDiff.renderTypeSection() }
+          ? {
+              typeDiffSection: memberBodyDiff.renderTypeSection(),
+              replaceDiffInventory: memberBodyDiff.hasSettledInventory,
+            }
           : { memberDiffSection: memberBodyDiff.renderMemberSection() }),
       });
     }
-    const body = memberBodyDiff.render();
-    if (body) return body;
-    return renderCompareFrame({ subjectKind, subjectLabel, mode, targetText, externalToolbar: true,
-      status: "Member Body unavailable", content: "<p>Select an available Gallery comparison target.</p>", escapeHtml });
   }
   const options = libraryApiDiffRenderOptions(subject);
   const memberContext = libraryApiDiffMemberExploreContext(

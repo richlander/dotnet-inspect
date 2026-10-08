@@ -1455,8 +1455,10 @@ export interface LibraryApiDiffRenderOptions {
   readonly targetText?: string;
   readonly mode?: CompareMode;
   readonly tools?: string;
+  readonly libraryDiffSection?: string;
   readonly typeDiffSection?: string;
   readonly memberDiffSection?: string;
+  readonly replaceDiffInventory?: boolean;
 }
 
 function renderTypeRow(
@@ -1944,6 +1946,12 @@ function renderLibrarySubject(
     compactCount(aggregate.potentiallyBreakingCount, "potentially breaking"),
   ].filter(Boolean);
   if (value.types.length === 0) {
+    if (options.libraryDiffSection !== undefined) {
+      return {
+        status: "Comparison complete.",
+        content: options.libraryDiffSection,
+      };
+    }
     return {
       status: options.resultSummaryInDataBar ? "" : "Comparison complete. No changed Types.",
       content: renderCompareEmpty(
@@ -1953,14 +1961,23 @@ function renderLibrarySubject(
       ),
     };
   }
+  const typeRows = `<ol class="library-api-diff-types" aria-label="Changed Types">${value.types.map(type =>
+    renderTypeRow(type, escapeHtml, options.activatableTypes)).join("")}</ol>`;
+  if (options.libraryDiffSection !== undefined) {
+    return {
+      status: "Comparison complete.",
+      content: options.replaceDiffInventory
+        ? options.libraryDiffSection
+        : `${typeRows}${options.libraryDiffSection}`,
+    };
+  }
   return {
     status: options.resultSummaryInDataBar
       ? "" : `Comparison complete. ${aggregate.changedTypeCount.toLocaleString()} changed Types.`,
     content: `${options.resultSummaryInDataBar ? ""
       : `<div class="library-api-diff-metrics">${metrics.map(metric =>
         `<span>${escapeHtml(metric)}</span>`).join("")}</div>`}
-      <ol class="library-api-diff-types" aria-label="Changed Types">${value.types.map(type =>
-        renderTypeRow(type, escapeHtml, options.activatableTypes)).join("")}</ol>`,
+      ${typeRows}`,
   };
 }
 
@@ -2016,7 +2033,11 @@ function renderTypeSubject(
     return {
       status: "Comparison complete.",
       content: `${typeFacts.length === 0 ? "" : `<div class="library-api-diff-metrics">${typeFacts.map(fact =>
-        `<span>${escapeHtml(fact)}</span>`).join("")}</div>`}${typeChanges}${options.typeDiffSection}`,
+        `<span>${escapeHtml(fact)}</span>`).join("")}</div>`}${typeChanges}${
+          options.replaceDiffInventory
+            ? options.typeDiffSection
+            : `${type.members.length === 0 ? "" : `<ol class="library-api-diff-members" aria-label="Changed Members">${type.members.map(member =>
+              renderMemberRow(member, escapeHtml, options.activatableMembers, options.activatableTypes)).join("")}</ol>`}${options.typeDiffSection}`}`,
     };
   }
   // A whole-Type immersive destination is owner-issued. None is issued today,
@@ -2172,7 +2193,8 @@ export function renderLibraryApiDiff(
   escapeHtml: (value: unknown) => string,
   options: LibraryApiDiffRenderOptions = {},
 ): string {
-  const supplementarySection = options.typeDiffSection
+  const supplementarySection = options.libraryDiffSection
+    ?? options.typeDiffSection
     ?? options.memberDiffSection
     ?? "";
   if (state.status === "idle") {

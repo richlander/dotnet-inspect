@@ -8,6 +8,7 @@ import { fakeDom } from "./fake-dom.ts";
 const inventory: BrowserMemberBodyDiffInventory = {
   id: "inventory", isComplete: true, coverage: [], types: [{
     identity: "N.T", display: "N.T", outcome: "Changed", canNavigate: true, hasApiChange: true,
+    apiMemberNames: ["N.T.Run()"],
     members: [{ id: "Run~123", display: "N.T.Run()", outcome: "Changed", hasApiChange: true, isAccessor: false, mechanisms: ["CSharp", "IlBody"],
       fingerprint: "123", selector: "Run~123", methodToken: 0x06000001, identityFailure: null, typeIdentity: "N.T" }],
   }], destinations: [{ id: "Run~123", display: "N.T.Run()", outcome: "Changed", hasApiChange: true, isAccessor: false, mechanisms: [],
@@ -154,17 +155,32 @@ test("removed Type rows retain their Before-side Member count and names without 
       display: "N.Removed",
       outcome: "Removed",
       canNavigate: false,
-      members: [{
-        ...inventory.types[0]!.members[0]!,
-        id: "Old~123",
-        display: "N.Removed.Old()",
-        outcome: "Removed",
-        fingerprint: null,
-        selector: null,
-        methodToken: null,
-        identityFailure: "Removed",
-        typeIdentity: "N.Removed",
-      }],
+      apiMemberNames: ["N.Removed.Old()"],
+      members: [
+        {
+          ...inventory.types[0]!.members[0]!,
+          id: "Old~123",
+          display: "N.Removed.Old()",
+          outcome: "Removed",
+          fingerprint: null,
+          selector: null,
+          methodToken: null,
+          identityFailure: "Removed",
+          typeIdentity: "N.Removed",
+        },
+        {
+          ...inventory.types[0]!.members[0]!,
+          id: "get_Old~123",
+          display: "N.Removed.get_Old()",
+          outcome: "Removed",
+          isAccessor: true,
+          fingerprint: null,
+          selector: null,
+          methodToken: null,
+          identityFailure: "Removed",
+          typeIdentity: "N.Removed",
+        },
+      ],
     }],
     destinations: [],
   };
@@ -179,6 +195,7 @@ test("removed Type rows retain their Before-side Member count and names without 
   await flush(); await flush();
   const html = controller.render();
   assert.match(html, /1 Member: N\.Removed\.Old\(\)/);
+  assert.doesNotMatch(html, /get_Old/);
   assert.match(html, /aria-disabled="true"/);
   assert.doesNotMatch(html, /data-member-body-type="N\.Removed"/);
   controller.dispose();
