@@ -30,10 +30,9 @@ public static class IrPasses
     IrPassComposition.Validate("default",
     [
         new TypedConstantsPass(),
-        // A value-type `this` is a managed pointer in IL. Retire exact stack-slot
-        // aliases before raising so later storage planning cannot turn one into
-        // a value local and silently redirect writes to a copy.
-        new ValueTypeReceiverAliasPass(),
+        // Retire exact receiver aliases before raising when storage would lose
+        // value-type identity or require an unspellable generic receiver local.
+        new ReceiverAliasPass(),
         // Drop identity conversions (the ldlen/conv.i4 array-length idiom)
         // before structuring so loop conditions match on clean lengths.
         new IdentityConvertPass(),

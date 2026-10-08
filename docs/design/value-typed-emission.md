@@ -1986,46 +1986,66 @@ This remains the producer-only exception: ordinary value producers are retired
 by `ProducerOnlySlotRetirementPass`, while managed-reference producers require
 the exact storage identity above.
 
-#### Value-type receiver aliases
+#### Receiver aliases
 
-A value-type instance receiver has two simultaneous identities: C# names it at
-its declared type `T`, while IL `ldarg.0` carries the managed pointer to the
-receiver storage. The receiver binder keeps the declared type because that is
-the C# surface contract; storage planning must not therefore interpret an
-evaluation-stack spill of that binder as a `T` value copy. Before semantic
-raising, `ValueTypeReceiverAliasPass` retires a function-scope slot web when
-every store carries the exact receiver binder and every load carries the
-declaring type. Each load becomes a fresh read of that same binder and the
-synthetic stores disappear. The rewrite iterates so direct slot-copy chains
-whose sources become exact receiver binders retire under the same proof.
+An instance receiver cannot be rebound in C# source. Before semantic raising,
+`ReceiverAliasPass` retires an identity-sensitive function-scope slot web when
+every store carries the exact owner-issued receiver binder and every load
+carries that binder's declared type. Each load becomes a fresh read of the same
+binder and the synthetic stores disappear. The rewrite iterates so direct
+slot-copy chains whose sources become exact receiver binders retire under the
+same proof.
 
-Admission requires metadata proof that the declaring type derives from
-`System.ValueType` or `System.Enum`, and the receiver argument binding must have
-no direct write, increment/decrement target, address escape, or deconstruction
-assignment. Calls may mutate the receiver's target, but the slot alias and the
-direct receiver still name that same target; only rebinding argument zero could
-distinguish them. Reference-type and unresolved receivers, unbound argument-zero
-nodes, mixed producers, mismatched load types, and independently scoped nested
-bodies decline. This is stable-place substitution, not expression reordering,
-value copying, ref-local synthesis, or a printer repair; no side effect or
-control-flow edge moves.
+The receiver argument binding must have no direct write, increment/decrement
+target, address escape, or deconstruction assignment. Calls may mutate the
+receiver's target, but the slot alias and direct receiver still name that same
+target; only rebinding argument zero could distinguish them. Unbound
+argument-zero nodes, mixed producers, mismatched load types, and independently
+scoped nested bodies decline. This is stable-place substitution, not expression
+reordering, value copying, ref-local synthesis, or a printer repair; no side
+effect or control-flow edge moves.
+
+A value-type receiver has an additional identity requirement: C# names it at
+its declared type `T`, while IL `ldarg.0` carries the managed pointer to receiver
+storage. Storage planning must not interpret an evaluation-stack spill of that
+binder as a `T` value copy. The same substitution therefore preserves mutations
+to a value-type receiver rather than redirecting them to a synthetic copy.
+
+Admission has two categories only. A metadata-proven value-type receiver uses
+the identity rule above. A receiver declared by a generic type may use it when
+the receiver's open definition cannot be spelled as named reference storage;
+direct `this` remains the exact C# receiver while a local such as
+`ICollectionDebugView S_0 = this` omits required type arguments and is invalid.
+An ordinary reference receiver whose storage type is spellable stays with
+normal materialization. This narrow boundary avoids changing source merely
+because every receiver alias could in principle be substituted.
 
 The compiler-produced `ValueTypeReceiverAlias` constructor fixture and the
 pinned Microsoft.CodeAnalysis.Common 5.0.0
 `FileLinePositionSpan::.ctor(string, LinePositionSpan)` witness gate the
-positive lowering. Synthetic controls cover an intervening call, an alias copy
-chain, mixed producers, receiver rebinding and address escape, a reference-type
-receiver, and an isolated nested slot namespace. The real witness must retain
-`Full` fidelity, write `this.Path`, and never declare a
-`FileLinePositionSpan` value local initialized from `this`.
+value-type identity boundary. The pinned generic-reference
+`ICollectionDebugView<T>::.ctor(ICollection<T>)` witness gates ordinary receiver
+identity and removes its otherwise unspellable open-generic receiver local.
+Synthetic controls cover an intervening call, an alias copy chain, mixed
+producers, receiver rebinding and address escape, reference and value receivers,
+and an isolated nested slot namespace. The real witnesses must retain `Full`
+fidelity, write through `this`, and never declare a receiver local initialized
+from `this`.
 
-On the fixed 14-assembly, 89,065-method population, the pass changes 74
-methods. At the late-F2 boundary, stack-slot stores, loads, and distinct slots
-move from 43,842/61,148/37,517 to 43,742/61,045/37,444. Materialization then
-sees 36 fewer ordinary candidates and 37 fewer deferred candidates; its
-post-boundary residual population moves from 210 to 173 slots and from 155 to
-121 methods. This is a population result for those immutable inputs, not a
-claim that every future receiver spill is admissible.
+On the fixed 14-assembly, 89,065-method population at base `40eeaa12f`, the
+complete pass changes 125 methods, including receiver aliases that later raises
+would consume. The generic-reference extension retires 10 residual webs:
+residual binding moves from 94 webs / 160 locals / 67 methods to
+84 / 150 / 57. Unified `OutsideCoercionDomain` moves from 14 to 4; split webs
+remain 51, late-decidable webs remain zero, and the same four pre-existing pass
+bugs remain visible. Render A/B over the 46,945 methods outside the known
+Microsoft.CodeAnalysis.CSharp structural-projection failure reports six changed
+methods: two valid-to-valid and four invalid-to-valid, with zero
+valid-to-invalid. Exact pass diffs account for the four additional CSharp
+receiver residuals in `OverloadResolutionResult<T>.ReportDiagnostics`,
+`AbstractFlowPass<TLocalState, TLocalFunctionState>.<VisitBinaryOperatorChildren>g__learnFromOperator|210_3`,
+`RefInitializationHoister<THoistedSymbol, THoistedAccess>.HoistExpression`, and
+`SyntaxReplacer.Replacer<TNode>.CalculateVisitationCriteria`.
 
 Metadata-name spellability is not a storage gate. Both the residual ref-slot
 path and the typed-local path render the same exact type through `TypeText`, and
