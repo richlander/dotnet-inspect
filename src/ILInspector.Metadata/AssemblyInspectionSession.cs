@@ -662,7 +662,9 @@ public sealed class AssemblyInspectionSession :
         IAssemblyBindingPolicy bindingPolicy,
         bool includeAll,
         bool typesOnly,
-        bool includeCompilerGenerated) =>
+        bool includeCompilerGenerated,
+        Func<System.Reflection.Metadata.TypeDefinitionHandle, bool>?
+            includeType = null) =>
         CompatibilityApiSurface(
             source,
             catalog,
@@ -671,7 +673,8 @@ public sealed class AssemblyInspectionSession :
                 ? ApiSurfaceExtractionScope.IncludeAll
                 : ApiSurfaceExtractionScope.Public,
             typesOnly,
-            includeCompilerGenerated);
+            includeCompilerGenerated,
+            includeType);
 
     /// <summary>
     /// Projects declarations at one explicit API scope with resolution-aware
@@ -697,13 +700,20 @@ public sealed class AssemblyInspectionSession :
     /// Projects a temporary compatibility surface with resolution-aware
     /// generic constraints.
     /// </summary>
+    /// <remarks>
+    /// <paramref name="includeType"/>, when supplied, limits decoding to the
+    /// Types it admits; receiver-contextual extension members declared on
+    /// other Types are then absent.
+    /// </remarks>
     public ApiSurface CompatibilityApiSurface(
         ResolvedAssemblyReference source,
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy bindingPolicy,
         ApiSurfaceExtractionScope scope,
         bool typesOnly = false,
-        bool includeCompilerGenerated = false) =>
+        bool includeCompilerGenerated = false,
+        Func<System.Reflection.Metadata.TypeDefinitionHandle, bool>?
+            includeType = null) =>
         ApiSurfaceExtractor.Extract(
             _image.PEReader,
             source,
@@ -711,7 +721,8 @@ public sealed class AssemblyInspectionSession :
             bindingPolicy,
             scope,
             typesOnly,
-            includeCompilerGenerated);
+            includeCompilerGenerated,
+            includeType);
 
     /// <summary>
     /// Reads a TypeDef's instance-field primitive after the durable address
