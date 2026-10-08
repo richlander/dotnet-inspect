@@ -41,7 +41,7 @@ public class MemberGroupPresentationTests
             ├─ public static Run<T>(T value)
             └─ internal extension Run(this C value)
 
-            """,
+            """.ReplaceLineEndings(),
             output.ToString());
     }
 
