@@ -7,6 +7,7 @@ import {
   distinctSpotlightResults,
   nextSpotlightScope,
   nextSpotlightSelection,
+  spotlightAllScopeLimit,
   spotlightCapabilityDraftValue,
   spotlightResultIdentity,
 } from "../src/spotlight.ts";
@@ -726,6 +727,8 @@ test("Spotlight selection clamps without wrapping and scope cycling wraps", () =
   assert.equal(nextSpotlightSelection(2, 1, 4), 3);
   assert.equal(nextSpotlightSelection(3, 1, 4), 3);
   assert.equal(nextSpotlightSelection(0, 1, 0), null);
+  assert.equal(spotlightAllScopeLimit(6, 0), 6);
+  assert.equal(spotlightAllScopeLimit(6, 2), 18);
   assert.equal(nextSpotlightScope(4, 5, false), 0);
   assert.equal(nextSpotlightScope(0, 5, true), 4);
 });
@@ -884,23 +887,26 @@ test("Spotlight keeps the selected result when async rows are inserted before it
     /id="spotlight-result-2" class="spotlight-item selected"[^>]*data-sl-type="Example\.Selected"/);
 });
 
-test("modal arrow navigation reuses rendered results", () => {
+test("modal arrow navigation reveals the next known All-scope result page at the boundary", () => {
   const pkg = { id: "Example.Package", version: "1.0.0" };
-  const rows: SpotlightResult[] = ["First", "Second", "Third"].map(name => ({
+  const rows: SpotlightResult[] = ["First", "Second", "Third", "Fourth"].map(name => ({
     kind: "type",
     pkg,
     type: { id: `Example.${name}`, name, kind: "class" },
     ranges: [],
   }));
   let searchCount = 0;
-  const { keybindings, spotlight, state } = createHarness({
+  let spotlight: ReturnType<typeof createHarness>["spotlight"];
+  const harness = createHarness({
     query: "Example",
     searchResults: () => {
       searchCount++;
-      return rows;
+      return rows.slice(0, spotlight.allScopeResultPage() === 0 ? 2 : 4);
     },
   });
-  spotlight.modalHtml();
+  ({ spotlight } = harness);
+  const { keybindings, state } = harness;
+  assert.match(spotlight.modalHtml(), /↓ more at end/);
 
   const listeners = new Map<string, (event: MockKeyboardEvent) => void>();
   const input: MockInputElement = {
@@ -914,14 +920,24 @@ test("modal arrow navigation reuses rendered results", () => {
     setAttribute: () => {},
     setSelectionRange: () => {},
   };
-  const domRows: MockElement[] = rows.map(() => ({
+  let domRows: MockElement[] = rows.slice(0, 2).map(() => ({
     classList: { toggle: () => {} },
     scrollIntoView: () => {},
     setAttribute: () => {},
   }));
-  const container: MockParentNode = {
+  const container = {
+    get innerHTML() { return ""; },
+    set innerHTML(value: string) {
+      const count = value.match(/data-sl-index="/g)?.length ?? 0;
+      domRows = Array.from({ length: count }, () => ({
+        classList: { toggle: () => {} },
+        scrollIntoView: () => {},
+        setAttribute: () => {},
+      }));
+    },
     querySelector: () => null,
-    querySelectorAll: selector => selector === ".spotlight-item" ? domRows : [],
+    querySelectorAll: (selector: string) =>
+      selector === ".spotlight-item" ? domRows : [],
   };
   const root: MockParentNode = {
     querySelector: selector => selector === "#spotlight-input" ? input : null,
@@ -954,7 +970,7 @@ test("modal arrow navigation reuses rendered results", () => {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     spotlight.bind(root as unknown as ParentNode, "modal");
     const target = fakeDom.eventTarget(input);
-    for (let index = 0; index < 4; index++) {
+    for (let index = 0; index < 2; index++) {
       keybindings.dispatch(fakeDom.keyboardEvent({
         altKey: false,
         ctrlKey: false,
@@ -967,6 +983,25 @@ test("modal arrow navigation reuses rendered results", () => {
         preventDefault: () => {},
       }));
     }
+    assert.equal(searchCount, 2);
+    assert.equal(spotlight.allScopeResultPage(), 1);
+    assert.equal(domRows.length, 4);
+    assert.equal(state.spotlightIndex, 2);
+
+    input.value = "Other";
+    listeners.get("input")?.(fakeDom.keyboardEvent({
+      altKey: false,
+      ctrlKey: false,
+      defaultPrevented: false,
+      key: "",
+      metaKey: false,
+      shiftKey: false,
+      target: fakeDom.eventTarget(input),
+      composedPath: () => [fakeDom.eventTarget(input)],
+      preventDefault: () => {},
+    }));
+    assert.equal(spotlight.allScopeResultPage(), 0);
+    assert.equal(domRows.length, 2);
   } finally {
     if (previousDocument === undefined) delete globals.document;
     else globals.document = previousDocument;
@@ -976,9 +1011,6 @@ test("modal arrow navigation reuses rendered results", () => {
       globals.requestAnimationFrame = previousRequestAnimationFrame;
     }
   }
-
-  assert.equal(searchCount, 1);
-  assert.equal(state.spotlightIndex, 2);
 });
 
 test("closing Spotlight restores focus through the application boundary", () => {
