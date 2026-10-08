@@ -1626,10 +1626,11 @@ inspection is unavailable. Count, sections, Markdown, tables, JSON, filters,
 and windows keep their existing independent routes.
 
 An explicit verbosity keeps the verbosity-driven Type rendering rather than the
-compact Tree. `-v:m` adds the base Type, Member signatures for non-overloaded
-groups, and an overload Count for each overloaded Member group; `-v:n` and
-`-v:d` list every overload signature. `-v:q` requires `--markdown`, which
-renders compact sections.
+compact Tree. `-v:m` adds the base Type and Member signatures, with an overload
+Count in place of the signatures for each overloaded constructor, method,
+operator, or extension group; properties (including indexers), fields, and
+events list each signature. `-v:n` and `-v:d` list every overload signature.
+That rendering rejects `-v:q`; add `--markdown` for compact sections.
 
 ```bash
 dotnet-inspect type System.Math --platform System.Private.CoreLib --tree
