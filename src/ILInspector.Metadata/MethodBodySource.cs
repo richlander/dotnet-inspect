@@ -267,14 +267,16 @@ public sealed partial class MethodBodySource : IOperandNameResolver
 
     /// <summary>
     /// Returns the TypeDef token of the Type whose full metadata name is
-    /// <paramref name="typeName"/> when <see cref="TypeMatcher.Matches"/>
-    /// admits no other Type in the image for that name; otherwise null.
+    /// <paramref name="typeName"/> when no other Type in the image is an exact
+    /// <see cref="TypeMatcher.Lookup"/> match for that name; otherwise null.
     /// </summary>
     /// <remarks>
-    /// Surface Type lookup takes the first <see cref="TypeMatcher.Lookup"/>
-    /// match in surface order, which a case-variant or dotted-suffix name such
-    /// as <c>A.Outer.Widget</c> can win over <c>Outer.Widget</c>. A unique
-    /// candidate is the Type that lookup selects whenever it is in scope.
+    /// Surface Type lookup takes the first exact match
+    /// (<see cref="TypeMatcher.MatchesExactLookup"/>) in surface order, which a
+    /// case-variant or dotted-suffix name such as <c>A.Outer.Widget</c> can win
+    /// over <c>Outer.Widget</c>. Base-name matches such as <c>Task`1</c> for
+    /// <c>Task</c> are consulted only when no exact match exists, so a unique
+    /// exact candidate is the Type that lookup selects whenever it is in scope.
     /// Nested exported Types carry no declaring-Type name here, so any
     /// exported Type with the same simple name also rejects the token.
     /// </remarks>
@@ -290,21 +292,20 @@ public sealed partial class MethodBodySource : IOperandNameResolver
             string name = _reader.GetFullTypeName(_reader.GetTypeDefinition(handle));
             if (selected.IsNil && name == typeName)
                 selected = handle;
-            else if (TypeMatcher.Matches(name, typeName))
+            else if (TypeMatcher.MatchesExactLookup(name, typeName))
                 return null;
         }
 
         if (selected.IsNil)
             return null;
 
-        string simpleName = TypeMatcher.GetBaseName(
-            TypeMatcher.GetSimpleName(typeName));
+        string simpleName = TypeMatcher.GetSimpleName(typeName);
         foreach (var handle in _reader.ExportedTypes)
         {
             var exported = _reader.GetExportedType(handle);
-            if (TypeMatcher.GetBaseName(_reader.GetString(exported.Name))
+            if (_reader.GetString(exported.Name)
                     .Equals(simpleName, StringComparison.OrdinalIgnoreCase)
-                || TypeMatcher.Matches(_reader.GetFullTypeName(exported), typeName))
+                || TypeMatcher.MatchesExactLookup(_reader.GetFullTypeName(exported), typeName))
                 return null;
         }
 

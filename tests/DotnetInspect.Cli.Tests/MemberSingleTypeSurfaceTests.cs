@@ -115,6 +115,37 @@ public class MemberSingleTypeSurfaceTests
     }
 
     [Fact]
+    public async Task GenericAritySibling_UsesSelectedTypeSurface()
+    {
+        // Surface Type lookup prefers the exact ArityWidget over the base-name
+        // match ArityWidget`1, so the sibling does not force the complete route.
+        string[] args =
+        [
+            "member",
+            $"{typeof(ArityWidget).FullName}.{nameof(ArityWidget.Go)}:1",
+            "--library",
+            typeof(ArityWidget).Assembly.Location,
+            "-S",
+            SectionNames.Signature,
+            "-S",
+            SectionNames.IL,
+        ];
+
+        var single = await RunCliAsync([.. args, "--verbose"]);
+        var complete = await RunCliAsync([.. args, "-S", SectionNames.Calls]);
+
+        Assert.Equal(0, single.ExitCode);
+        Assert.DoesNotContain("forwarded types", single.Error);
+        Assert.Equal(complete.ExitCode, single.ExitCode);
+        foreach (string section in (string[])[SectionNames.Signature, SectionNames.IL])
+        {
+            Assert.Equal(
+                SectionBlock(complete.Output, section),
+                SectionBlock(single.Output, section));
+        }
+    }
+
+    [Fact]
     public async Task OutOfScopeType_KeepsCompleteSurfaceSuggestions()
     {
         // The ordinal engages the selected-Type surface, which is empty for a
@@ -225,4 +256,14 @@ internal static class HiddenSingleTypeSurfaceFixture
 public static class SuffixWidget
 {
     public static string Go() => "exact";
+}
+
+public static class ArityWidget
+{
+    public static string Go() => "plain";
+}
+
+public static class ArityWidget<T>
+{
+    public static string Go() => typeof(T).Name;
 }
