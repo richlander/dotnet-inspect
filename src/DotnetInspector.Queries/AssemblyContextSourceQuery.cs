@@ -231,6 +231,12 @@ public sealed record AssemblyMemberSourceRequest
 
     public MetadataTypeDefinitionName Type { get; }
     public MemberAnchor Member { get; }
+    public ProjectedMemberAnchor ProjectedMember => new(
+        Member.StableSelector,
+        Member.CanonicalSignature,
+        Member.Fingerprint,
+        Member.TypeFullName,
+        Member.MemberName);
     public int MetadataToken { get; }
     public PrinterOptions? PrinterOptions { get; }
     public bool IncludeAuthoredParts { get; private init; }

@@ -113,7 +113,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(archive, package.RetainedBytes);
         Assert.False(package.Content.FromCache);
         Assert.IsType<PackageArchiveValidation.Valid>(
-            package.Content.ValidateArchive(
+            Assert.IsType<InMemoryPackageContent>(package.Content).ValidateArchive(
                 BrowserPackageWorkspace.PackageLimits,
                 TestContext.Current.CancellationToken));
         Assert.Equal(
@@ -367,6 +367,7 @@ public sealed partial class BrowserEngineBoundaryTests
         PackageQueryContentResult result =
             await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
                 package,
+                PackageQueryContentDemand.EntryContent,
                 source,
                 PackageSourceIdentity.NuGetOrg,
                 deadline);
@@ -415,6 +416,7 @@ public sealed partial class BrowserEngineBoundaryTests
         PackageQueryContentResult result =
             await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
                 package,
+                PackageQueryContentDemand.EntryContent,
                 source,
                 PackageSourceIdentity.NuGetOrg,
                 deadline);
@@ -1059,7 +1061,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     TestContext.Current.CancellationToken);
             return Assert.IsType<PackageQueryContentResult.Available>(
                 await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
-                    package, source, deadline)).Content;
+                    package, PackageQueryContentDemand.EntryContent, source, deadline)).Content;
         }
     }
 

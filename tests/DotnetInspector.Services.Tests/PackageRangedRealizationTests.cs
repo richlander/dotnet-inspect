@@ -749,7 +749,8 @@ public sealed partial class PackageRangedRealizationTests
             PackageHouseLibraryHandoffMode libraryHandoff =
                 PackageHouseLibraryHandoffMode.PackageOnly,
             PackageHouseLibraryCompanionDemand libraryCompanionDemand =
-                PackageHouseLibraryCompanionDemand.None)
+                PackageHouseLibraryCompanionDemand.None,
+            IPackagePayloadTransferPolicy? transferPolicy = null)
         {
             // The real assets here are small, so the ranged gates set a zero
             // size cut; size first itself is gated separately.
@@ -757,6 +758,7 @@ public sealed partial class PackageRangedRealizationTests
                 Authorization,
                 new PackagePayloadAcquisitionPlan(
                     (_, _) => store,
+                    transferPolicy: transferPolicy,
                     access: access,
                     log: Log.Enqueue,
                     rangedSizeCut: sizeCut));

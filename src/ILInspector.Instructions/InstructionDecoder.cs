@@ -5,6 +5,13 @@ using System.Reflection.Metadata;
 
 namespace ILInspector.Instructions;
 
+/// <summary>Visits one shallow instruction with caller-owned mutable state.</summary>
+public delegate bool InstructionVisitor<TState>(
+    ref TState state,
+    ILOpCode opcode,
+    int operandToken,
+    int encodedLength);
+
 /// <summary>
 /// Decodes a raw IL byte stream into a typed <see cref="DecodedInstruction"/> sequence.
 /// Mechanics (opcode read, operand sizing, branch destinations) are driven by the
@@ -35,6 +42,50 @@ public static class InstructionDecoder
     {
         ArgumentNullException.ThrowIfNull(body);
         ArgumentNullException.ThrowIfNull(visitor);
+        return Visit(
+            body,
+            ref visitor,
+            static (
+                ref Func<ILOpCode, int, int, bool> callback,
+                ILOpCode opcode,
+                int operandToken,
+                int encodedLength) =>
+                    callback(opcode, operandToken, encodedLength),
+            out _);
+    }
+
+    /// <summary>
+    /// Visits one method body without copying IL or materializing decoded
+    /// instructions, while mutating caller-owned state.
+    /// </summary>
+    public static bool Visit<TState>(
+        MethodBodyBlock body,
+        ref TState state,
+        InstructionVisitor<TState> visitor,
+        out int instructionsVisited)
+    {
+        instructionsVisited = 0;
+        return VisitWithProgress(
+            body,
+            ref state,
+            visitor,
+            ref instructionsVisited);
+    }
+
+    /// <summary>
+    /// Visits one method body without copying IL or materializing decoded
+    /// instructions, preserving the completed-prefix count when decoding
+    /// fails.
+    /// </summary>
+    public static bool VisitWithProgress<TState>(
+        MethodBodyBlock body,
+        ref TState state,
+        InstructionVisitor<TState> visitor,
+        ref int instructionsVisited)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        ArgumentNullException.ThrowIfNull(visitor);
+        ArgumentOutOfRangeException.ThrowIfNegative(instructionsVisited);
 
         BlobReader reader = body.GetILReader();
         ILOpCode previous = default;
@@ -87,7 +138,9 @@ public static class InstructionDecoder
             previous = opcode;
             hasPrevious = true;
             int encodedLength = reader.Offset - opcodeStart;
+            instructionsVisited++;
             if (!visitor(
+                    ref state,
                     opcode,
                     operandToken,
                     encodedLength))

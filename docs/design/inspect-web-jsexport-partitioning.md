@@ -312,6 +312,21 @@ PDB source inspections expose their resolved and attributable browse URLs as
 detached Services-owned values. The facade preserves those values in its
 existing source and comparison contracts without interpreting SourceLink
 documents or referencing the SourceLink component directly.
+Exact logical-member identity similarly crosses through Metadata-owned
+`ProjectedMemberAnchor` values. Decompiler documents, Queries source requests,
+and ResearchQueries comparison endpoints perform the projection at their
+owning boundaries; the Source facade transports those values without
+constructing or inspecting
+`MetadataPrimitives.MemberAnchor`.
+Physical MethodDef identity crosses through Metadata-owned
+`ProjectedMethodAddress` values. Queries issues participant-scoped
+designations, while Decompiler documents and Research outcomes project their
+owned addresses before the Source facade consumes them. The facade therefore
+does not construct, inspect, or reference
+`MetadataPrimitives.MetadataMethodAddress`.
+Metadata, Decompiler, and ILDiff similarly project failure mechanism names at
+their owning boundaries, so Source diagnostics do not inspect the primitive
+Metadata failure enum.
 
 ### Call-graph facade: 2 exports
 

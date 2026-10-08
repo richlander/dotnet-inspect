@@ -1711,6 +1711,18 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Equal(
             0,
             execution.SourceCoverage.ModuleLookupMethods.Count);
+        Assert.Equal(
+            1,
+            execution.SourceCoverage.InstructionWork
+                .NoRetentionSourcesOpened);
+        Assert.Equal(
+            0,
+            execution.SourceCoverage.InstructionWork
+                .LazyRetainedSourcesOpened);
+        Assert.True(
+            execution.SourceCoverage.InstructionWork
+                .InstructionsVisited
+            > 0);
     }
 
     [Fact]
@@ -1721,7 +1733,8 @@ public sealed class LibraryBodyAnalysisExecutionTests
             typeof(ImplementationProfileSample).Assembly.Location);
         int token = ReplaceReturnWithTruncatedCall(image);
 
-        (ProducerResult<MethodCallCountProducerResult> result, _) =
+        (ProducerResult<MethodCallCountProducerResult> result,
+            MethodDefinitionExecution execution) =
             ExecuteCallCount(
                 image,
                 token,
@@ -1732,6 +1745,14 @@ public sealed class LibraryBodyAnalysisExecutionTests
             Assert.Single(result.Value!.Bodies);
         Assert.Null(body.Count);
         Assert.NotNull(body.Diagnostic);
+        Assert.Equal(
+            1,
+            execution.SourceCoverage.InstructionWork
+                .NoRetentionSourcesOpened);
+        Assert.True(
+            execution.SourceCoverage.InstructionWork
+                .InstructionsVisited
+            > 0);
     }
 
     [Fact]

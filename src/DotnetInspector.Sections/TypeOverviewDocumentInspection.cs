@@ -25,13 +25,6 @@ public sealed record TypeOverviewDocumentInspectionPlan
         ArgumentNullException.ThrowIfNull(rows);
         Bounds = bounds
             ?? throw new ArgumentNullException(nameof(bounds));
-        if (!rows.IncludeExactMemberCount)
-        {
-            throw new ArgumentException(
-                "A Type overview requires an exact-Member Count for every Member-group row.",
-                nameof(rows));
-        }
-
         Members = new(
             count: null,
             rows: rows,
@@ -271,11 +264,10 @@ public static class TypeOverviewDocumentInspectionOperation
         TypeMemberGroupRowsOutcome.Read rows) =>
         rows.Ordering == population.Binding.Ordering
         && rows.Items.All(row =>
-            row.Binding.Population == population.Binding
-            && row.ExactMemberCount.HasValue)
+            row.Binding.Population == population.Binding)
         && (rows.Continuation is null
-            || rows.Continuation.Binding == population.Binding
-            && rows.Continuation.IncludeExactMemberCount);
+            || rows.Continuation.Binding == population.Binding)
+        && TypeOverviewDocument.HasUniformExactMemberCounts(rows);
 
     private static TypeOverviewDocumentInspectionRejection Rejection(
         TypeDocumentInspectionRejection reason) =>

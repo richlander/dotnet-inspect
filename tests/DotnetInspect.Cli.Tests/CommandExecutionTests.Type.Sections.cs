@@ -1542,6 +1542,29 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        Type_AuditDiscoveryResolvesNestedTypeStateMachines()
+    {
+        // Task+WhenEachState declares an async iterator, so its state machine
+        // is nested under a nested source Type.
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Threading.Tasks.Task+WhenEachState",
+            "--library",
+            typeof(System.Threading.Tasks.Task).Assembly.Location,
+            "--all",
+            "-D",
+            SectionCategoryNames.Audit,
+            "--tsv");
+
+        Assert.True(exit == 0, $"Discovery failed: {error}");
+        Assert.Empty(error);
+        Assert.Contains(
+            $"{SectionNames.SafetyFacts}\tsection",
+            output);
+    }
+
+    [Fact]
+    public async Task
         Type_DiscoveryRejectsNameThatDoesNotRoundTrip()
     {
         string assemblyPath =

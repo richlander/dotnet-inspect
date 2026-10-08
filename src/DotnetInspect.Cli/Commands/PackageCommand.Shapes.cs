@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
 using Markout;
 

@@ -202,6 +202,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             cancellationToken);
         var notFoundAuthorities = new List<ConfiguredPackageAuthority>();
         var transfer = new PackageTransferRecorder();
+        using var reservations = new RangedReservations();
         try
         {
             operation.ThrowIfExpired();
@@ -281,11 +282,16 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                         client.Source.Producer.Key,
                         rangedRead,
                         PackagePayloadAcquisition.ValidateLimits(limits),
-                        log).ConfigureAwait(false);
+                        log,
+                        transferPolicy as IPackageRangedContentPolicy,
+                        reservations,
+                        operation.CancellationToken).ConfigureAwait(false);
                     if (state is null)
                         continue;
                     if (state.Complete is { } complete)
                     {
+                        operation.ThrowIfExpired();
+                        state.Reservation?.Complete(complete);
                         RequireAuthority(client.Source, authority);
                         return new(
                             authority,
@@ -324,6 +330,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                     // An invalid cached item is preserved and bypassed: the
                     // complete fetch answers, and its store answers first from
                     // then on.
+                    cachedState.Reservation?.Dispose();
                     rangedSource = null;
                     sizeGate = null;
                 }
@@ -391,7 +398,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                                     requestLog,
                                     knownArchiveLength,
                                     store as IPackageEntryStore,
-                                    cachedState).ConfigureAwait(false);
+                                    cachedState,
+                                    transferPolicy as IPackageRangedContentPolicy).ConfigureAwait(false);
                             }
                             finally
                             {
@@ -423,6 +431,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                                     break;
                                 case RangedOutcome.Fallback:
                                     // The complete fetch, without the size gate.
+                                    cachedState?.Reservation?.Dispose();
                                     fallback = attempt.Fallback;
                                     nextAuthority = false;
                                     break;
@@ -594,7 +603,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         PackageArchiveRequestLog requestLog,
         long? knownArchiveLength,
         IPackageEntryStore? entryStore = null,
-        EntryCacheState? cachedState = null)
+        EntryCacheState? cachedState = null,
+        IPackageRangedContentPolicy? contentPolicy = null)
     {
         InertString display = PackageSourceDisplay.ForDiagnostics(authority.Source);
         if (entryStore is { KeepsEntries: false })
@@ -657,7 +667,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             }
             string producerKey = client.Source.Producer.Key;
             RangedPackageContent directory =
-                RangedPackageContent.CreateDirectory(entries, producerKey);
+                RangedPackageContent.CreateDirectory(entries, producerKey, reader.Directory.ArchiveLength);
             PackageRangedPlan plan = PackageEntryBlocks.PlanSelection(
                 reader.Directory,
                 rangedRead.SelectEntries(directory)
@@ -720,6 +730,15 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                         ResultSource = client.Source,
                     });
             }
+
+            using IPackageRangedContentReservation? reservation =
+                cachedState?.Reservation
+                ?? (contentPolicy is null
+                    ? null
+                    : await contentPolicy.ReserveRangedAsync(
+                        coordinate,
+                        plan.Required.Sum(path => reader.Directory.Find(path)!.ExpandedLength),
+                        operation.CancellationToken).ConfigureAwait(false));
 
             var materialized = new Dictionary<string, ReadOnlyMemory<byte>>(
                 StringComparer.Ordinal);
@@ -790,6 +809,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             }
 
             RangedPackageContent retained = directory.WithMaterialized(materialized);
+            operation.ThrowIfExpired();
+            reservation?.Complete(retained);
             int fromCache = materialized.Count - contents.Count;
             log?.Invoke(
                 $"Read {coordinate.PackageId} {coordinate.Version} by range from {display}: "
@@ -819,7 +840,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         ZipDirectory Directory,
         Dictionary<string, ReadOnlyMemory<byte>> Cached,
         bool Invalid = false,
-        RangedPackageContent? Complete = null);
+        RangedPackageContent? Complete = null,
+        IPackageRangedContentReservation? Reservation = null);
 
     private static async ValueTask<EntryCacheState?> ReadEntryCacheAsync(
         IPackageEntryStore entryStore,
@@ -827,7 +849,10 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         string producerKey,
         PackageRangedRead rangedRead,
         PackagePayloadLimits limits,
-        Action<string>? log)
+        Action<string>? log,
+        IPackageRangedContentPolicy? contentPolicy,
+        RangedReservations reservations,
+        CancellationToken cancellationToken)
     {
         PackageEntryDirectory? storedDirectory =
             await entryStore.ReadDirectoryAsync(
@@ -866,7 +891,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         }
 
         RangedPackageContent directoryView =
-            RangedPackageContent.CreateDirectory(entries, producerKey);
+            RangedPackageContent.CreateDirectory(entries, producerKey, directory.ArchiveLength);
         // An anchor requires its whole aligned block: a block is present when
         // all of its entries are, so a warm read naming a neighbour in a
         // cached block makes no request.
@@ -876,9 +901,19 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                 ?? throw new InvalidOperationException(
                     "The ranged entry selector returned null."),
             rangedRead.SizeCut).Required;
+        IPackageRangedContentReservation? reservation = null;
+        if (contentPolicy is not null)
+        {
+            long retainedBytes = required.Sum(
+                path => directory.Find(path)?.ExpandedLength ?? 0);
+            reservation = await contentPolicy.ReserveRangedAsync(
+                coordinate, retainedBytes, cancellationToken).ConfigureAwait(false);
+            reservations.Add(reservation);
+        }
         bool complete = true;
         foreach (string path in required)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (directory.Find(path) is not { } entry)
             {
                 complete = false;
@@ -898,13 +933,13 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                 log?.Invoke(
                     $"The cached entry '{path}' of {coordinate.PackageId} {coordinate.Version} "
                     + "does not match its directory; it is kept and bypassed.");
-                return new EntryCacheState(directory, cached, Invalid: true);
+                return new EntryCacheState(directory, cached, Invalid: true, Reservation: reservation);
             }
             cached[path] = content;
         }
 
         if (!complete)
-            return new EntryCacheState(directory, cached);
+            return new EntryCacheState(directory, cached, Reservation: reservation);
         // Only a read the entry cache answers alone counts as a hit; the
         // complete-content lookup before it already recorded its own miss.
         CacheTelemetry.Record(
@@ -917,7 +952,21 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         return new EntryCacheState(
             directory,
             cached,
-            Complete: directoryView.WithMaterialized(cached));
+            Complete: directoryView.WithMaterialized(cached),
+            Reservation: reservation);
+    }
+
+    private sealed class RangedReservations : IDisposable
+    {
+        readonly List<IPackageRangedContentReservation> _items = [];
+        internal void Add(IPackageRangedContentReservation item) => _items.Add(item);
+        internal void ReleasePending()
+        {
+            foreach (var item in _items)
+                item.Dispose();
+            _items.Clear();
+        }
+        public void Dispose() => ReleasePending();
     }
 
     private static RangedAttempt ClassifyRanged(

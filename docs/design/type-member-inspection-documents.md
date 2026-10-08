@@ -143,9 +143,9 @@ include spelling, accessibility, receiver, and hidden-declaration admission
 when their focused owners make them available. This document does not redefine
 the meaning or legal values of those dimensions.
 
-`TypeOverviewDocument` Member rows, each nested exact-Member Count, and an
-optional declaration Composition Count observe one Type population binding and
-intent. `TypeDocument` complete declarations preserve that same membership and
+`TypeOverviewDocument` Member rows, each requested nested exact-Member Count,
+and an optional declaration Composition Count observe one Type population
+binding and intent. `TypeDocument` complete declarations preserve that same membership and
 correspondence while adding full signatures.
 
 `MemberOverviewDocument` rows and exact-Member Count observe one MemberGroup
@@ -169,8 +169,8 @@ It contains:
 
 - the exact Type subject and declaration spelling required to identify the
   Type itself; and
-- compact Member rows containing an owner-issued MemberGroup identity, Member
-  name, and exact-Member Count.
+- compact Member rows containing an owner-issued MemberGroup identity and
+  Member name, plus an exact-Member Count only when the plan requests one.
 
 The overview does not contain complete exact-Member signatures. A row may
 carry the typed activation identity required to resolve its corresponding
@@ -183,10 +183,11 @@ Counts.
 
 `TypeOverviewDocumentInspectionOperation` composes the existing exact-Type and
 Type MemberGroup population operation into this final document. Its plan
-requires Rows with nested exact-Member Counts, while retaining spelling,
-accessibility, receiver, hidden admission, ordering, and continuation as one
-population intent. Bounded Rows remain valid compact documents; the
-continuation retains the same binding and nested-Count demand.
+requests Rows with or without nested exact-Member Counts, while retaining
+spelling, accessibility, receiver, hidden admission, ordering, and continuation
+as one population intent. The document carries exact-Member Counts on every
+row or on none. Bounded Rows remain valid compact documents; the continuation
+retains the same binding and nested-Count demand.
 
 The operation preserves Share and diagnostics from the source inspection. A
 Type or population rejection, bound, or failure remains a closed document
@@ -206,17 +207,33 @@ Type
       -> exact Member
 ```
 
-Its first profile requests FullSpelling for the Type, category Rows with Name,
-MemberGroup Rows with Name, and exact-Member Count beneath each MemberGroup.
-The plan must therefore request complete compact MemberGroup Rows with an exact
-Member Count for every row.
+The default profile requests FullSpelling for the Type, category Rows with
+Name, and MemberGroup Rows with Name as leaves. The MemberGroups are the one
+row population; categories group those same rows. Overloads belong to the
+inner `member` command, so the default requests no exact-Member Count, and no
+returned row carries one.
+
+```text
+static class System.Text.Json.JsonSerializer
+├─ Properties (1)
+│  └─ IsReflectionEnabledByDefault
+└─ Methods (10)
+   ├─ Deserialize
+   └─ …
+```
+
+An explicit profile may add an exact-Member Count beneath each MemberGroup. Its
+plan must request a Count for every row; the leaf profile must request none, so
+a plan never pays for a Count it cannot present. Either profile requests
+complete compact MemberGroup Rows.
 
 The Type overview owner pushes category nodes carrying the category and its
-logical and exact Counts, plus MemberGroup nodes carrying the owner-issued
-compact row. It defines category membership and order, MemberGroup order,
+MemberGroup row Count, plus the exact-Member Count in the Count profile, and
+MemberGroup nodes carrying the owner-issued compact row. It defines category membership and order, MemberGroup order,
 nesting, Counts, and exact last-sibling facts. It rejects unsupported spelling
 or terminal choices and unavailable, partial, or uncounted Rows rather than
-emitting a successful shortened hierarchy. Within each category, projection
+emitting a successful shortened hierarchy. It also rejects a Count request
+over uncounted Rows and a leaf request over counted Rows. Within each category, projection
 preserves the order of the bound MemberGroup Rows exactly; it does not sort
 completed product Rows after population execution.
 

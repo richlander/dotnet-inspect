@@ -33,14 +33,13 @@ public sealed record TypeOverviewDocument
         }
         if (rows.Ordering != members.Binding.Ordering
             || rows.Items.Any(row =>
-                row.Binding.Population != members.Binding
-                || !row.ExactMemberCount.HasValue)
+                row.Binding.Population != members.Binding)
             || rows.Continuation is { } continuation
-                && (continuation.Binding != members.Binding
-                    || !continuation.IncludeExactMemberCount))
+                && continuation.Binding != members.Binding
+            || !HasUniformExactMemberCounts(rows))
         {
             throw new ArgumentException(
-                "Type overview Rows and exact-Member Counts must share the document population binding and ordering.",
+                "Type overview Rows must share the document population binding and ordering, and either every Row or none carries an exact-Member Count.",
                 nameof(members));
         }
 
@@ -50,6 +49,25 @@ public sealed record TypeOverviewDocument
     public TypeSubject Subject { get; }
     public TypeMemberGroupPopulationResult Members { get; }
     public int AssemblyBytes { get; }
+
+    /// <summary>
+    /// The compact overview carries exact-Member Counts on every Row or on
+    /// none, and a continuation keeps the same demand.
+    /// </summary>
+    internal static bool HasUniformExactMemberCounts(
+        TypeMemberGroupRowsOutcome.Read rows)
+    {
+        bool? counted = rows.Continuation?.IncludeExactMemberCount;
+        foreach (TypeMemberGroupShape row in rows.Items)
+        {
+            bool rowCounted = row.ExactMemberCount.HasValue;
+            if (counted is { } expected && expected != rowCounted)
+                return false;
+            counted = rowCounted;
+        }
+
+        return true;
+    }
 
     internal static bool Matches(
         TypeSubject subject,
