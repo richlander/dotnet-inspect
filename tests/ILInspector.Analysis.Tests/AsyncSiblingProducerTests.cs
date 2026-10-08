@@ -176,6 +176,74 @@ public class AsyncSiblingProducerTests
                     StringComparison.Ordinal));
     }
 
+    sealed class BetweenContextsPolicy(IAssemblyBindingPolicy inner)
+        : IAssemblyBindingPolicy
+    {
+        bool _selected;
+        bool _flipPending;
+        AssemblyBindingPolicyVersion _version = inner.Version;
+
+        // The version changes only after the first context's last check, so
+        // no single context observes the change.
+        public AssemblyBindingPolicyVersion Version
+        {
+            get
+            {
+                AssemblyBindingPolicyVersion observed = _version;
+                if (_flipPending)
+                {
+                    _flipPending = false;
+                    _version = new AssemblyBindingPolicyVersion();
+                }
+
+                return observed;
+            }
+        }
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            AssemblyBindingSelectionSnapshot snapshot = inner.Select(request);
+            if (!_selected)
+            {
+                _selected = true;
+                _flipPending = true;
+            }
+
+            return new(_version, snapshot.Selection);
+        }
+    }
+
+    [Fact]
+    public void Producer_FailsExecutionWhenPolicyChangesBetweenResolutions()
+    {
+        var operation = CreateOperation();
+        using var session = AssemblyInspectionSession.Open(FixturePath);
+        AssemblyReferenceBindingAccess real = CreateBinding();
+        var binding = new AssemblyReferenceBindingAccess(
+            real.Subject,
+            new BetweenContextsPolicy(real.Policy));
+
+        ProducerResult<AsyncSiblingProducerResult> result =
+            session.SnapshotOperation(
+                operation,
+                binding,
+                access =>
+                {
+                    var completed = Assert.IsType<
+                        AssemblyAnalysisServiceResult<
+                            AsyncSiblingProducerResult>.Completed>(
+                        AssemblyAnalysisService.Instance.Execute(
+                            operation,
+                            access));
+                    return completed.Execution.ResultOf(
+                        AsyncSiblingProducer.Instance);
+                });
+
+        Assert.False(result.HasValue);
+        Assert.Equal("ReferenceBinding", result.Critical?.Owner);
+    }
+
     [Fact]
     public void Producer_FailsExecutionWhenBindingPolicyChanges()
     {
