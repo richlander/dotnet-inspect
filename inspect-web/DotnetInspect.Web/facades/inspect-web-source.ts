@@ -1375,3 +1375,4 @@ export async function queryTypeSource(operationId: string, packageId: string, ve
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeSourceResult;
 }
+
