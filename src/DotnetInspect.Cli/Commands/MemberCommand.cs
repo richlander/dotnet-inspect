@@ -2256,7 +2256,7 @@ public static class MemberCommand
         {
             using AssemblyInspectionSession session =
                 AssemblyInspectionSession.Open(assemblyPath);
-            if (session.MethodBodies.FindTypeToken(typeName) is not { } token
+            if (session.MethodBodies.FindUniqueLookupTypeToken(typeName) is not { } token
                 || session.MethodBodies.DeclaresExtensionMethod(memberName))
             {
                 return null;

@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Sections;
+using Collision.DotnetInspect.Cli.Tests;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -84,29 +85,56 @@ public class MemberSingleTypeSurfaceTests
     }
 
     [Fact]
+    public async Task SuffixCollidingType_MatchesCompleteSurfaceRoute()
+    {
+        // Surface Type lookup also admits Collision.DotnetInspect.Cli.Tests
+        // .SuffixWidget for this name, so the request keeps the complete route.
+        string[] args =
+        [
+            "member",
+            $"{typeof(SuffixWidget).FullName}.{nameof(SuffixWidget.Go)}:1",
+            "--library",
+            typeof(SuffixWidget).Assembly.Location,
+            "-S",
+            SectionNames.Signature,
+            "-S",
+            SectionNames.IL,
+        ];
+
+        var single = await RunCliAsync(args);
+        var complete = await RunCliAsync([.. args, "-S", SectionNames.Calls]);
+
+        Assert.Equal(complete.ExitCode, single.ExitCode);
+        Assert.Equal(complete.Error, single.Error);
+        foreach (string section in (string[])[SectionNames.Signature, SectionNames.IL])
+        {
+            Assert.Equal(
+                SectionBlock(complete.Output, section),
+                SectionBlock(single.Output, section));
+        }
+    }
+
+    [Fact]
     public async Task OutOfScopeType_KeepsCompleteSurfaceSuggestions()
     {
-        var result = await RunCliAsync(
+        // The ordinal engages the selected-Type surface, which is empty for a
+        // hidden Type without --all; the complete surface then reports it.
+        string[] args =
+        [
             "member",
             $"{typeof(HiddenSingleTypeSurfaceFixture).FullName}."
-                + nameof(HiddenSingleTypeSurfaceFixture.Call),
-            "--library",
-            typeof(HiddenSingleTypeSurfaceFixture).Assembly.Location,
-            "-S",
-            SectionNames.IL);
-
-        var complete = await RunCliAsync(
-            "member",
-            $"{typeof(HiddenSingleTypeSurfaceFixture).FullName}."
-                + nameof(HiddenSingleTypeSurfaceFixture.Call),
+                + $"{nameof(HiddenSingleTypeSurfaceFixture.Call)}:1",
             "--library",
             typeof(HiddenSingleTypeSurfaceFixture).Assembly.Location,
             "-S",
             SectionNames.IL,
-            "-S",
-            SectionNames.Calls);
+        ];
+
+        var result = await RunCliAsync(args);
+        var complete = await RunCliAsync([.. args, "-S", SectionNames.Calls]);
 
         Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("Did you mean", result.Error + result.Output);
         Assert.Equal(complete.ExitCode, result.ExitCode);
         Assert.Equal(complete.Output, result.Output);
         Assert.Equal(complete.Error, result.Error);
@@ -192,4 +220,9 @@ internal static class HiddenSingleTypeSurfaceFixture
 {
     public static void Call() =>
         Console.WriteLine("hidden type");
+}
+
+public static class SuffixWidget
+{
+    public static string Go() => "exact";
 }

@@ -267,13 +267,48 @@ public sealed partial class MethodBodySource : IOperandNameResolver
 
     /// <summary>
     /// Returns the TypeDef token of the Type whose full metadata name is
-    /// <paramref name="typeName"/>, or null when no Type has that name.
+    /// <paramref name="typeName"/> when <see cref="TypeMatcher.Matches"/>
+    /// admits no other Type in the image for that name; otherwise null.
     /// </summary>
-    public int? FindTypeToken(string typeName)
+    /// <remarks>
+    /// Surface Type lookup takes the first <see cref="TypeMatcher.Lookup"/>
+    /// match in surface order, which a case-variant or dotted-suffix name such
+    /// as <c>A.Outer.Widget</c> can win over <c>Outer.Widget</c>. A unique
+    /// candidate is the Type that lookup selects whenever it is in scope.
+    /// Nested exported Types carry no declaring-Type name here, so any
+    /// exported Type with the same simple name also rejects the token.
+    /// </remarks>
+    public int? FindUniqueLookupTypeToken(string typeName)
     {
         _ensureAlive();
-        TypeDefinitionHandle handle = FindType(typeName);
-        return handle.IsNil ? null : MetadataTokens.GetToken(handle);
+        if (TypeMatcher.IsTypeGlobPattern(typeName))
+            return null;
+
+        TypeDefinitionHandle selected = default;
+        foreach (var handle in _reader.TypeDefinitions)
+        {
+            string name = _reader.GetFullTypeName(_reader.GetTypeDefinition(handle));
+            if (selected.IsNil && name == typeName)
+                selected = handle;
+            else if (TypeMatcher.Matches(name, typeName))
+                return null;
+        }
+
+        if (selected.IsNil)
+            return null;
+
+        string simpleName = TypeMatcher.GetBaseName(
+            TypeMatcher.GetSimpleName(typeName));
+        foreach (var handle in _reader.ExportedTypes)
+        {
+            var exported = _reader.GetExportedType(handle);
+            if (TypeMatcher.GetBaseName(_reader.GetString(exported.Name))
+                    .Equals(simpleName, StringComparison.OrdinalIgnoreCase)
+                || TypeMatcher.Matches(_reader.GetFullTypeName(exported), typeName))
+                return null;
+        }
+
+        return MetadataTokens.GetToken(selected);
     }
 
     public bool ContainsType(string typeName)
