@@ -2032,7 +2032,7 @@ and an isolated nested slot namespace. The real witnesses must retain `Full`
 fidelity, write through `this`, and never declare a receiver local initialized
 from `this`.
 
-On the fixed 14-assembly, 89,065-method population at base `40eeaa12f`, the
+On the fixed 14-assembly, 89,065-method population at base `bdf8af069`, the
 complete pass changes 125 methods, including receiver aliases that later raises
 would consume. The generic-reference extension retires 10 residual webs:
 residual binding moves from 94 webs / 160 locals / 67 methods to
