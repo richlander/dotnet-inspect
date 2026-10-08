@@ -503,16 +503,17 @@ internal sealed class LibraryBodyAnalysisAccumulator
                         explicitCalls))
             {
                 HashSet<int> loweredSpanConstructors =
-                    result.Unsafety.IsDefault
+                [
+                    .. result.ConstantDataSpanConstructors,
+                    .. result.Unsafety.IsDefault
                         ? []
-                        : [
-                            .. result.Unsafety
-                                .Where(static occurrence =>
-                                    occurrence.SpanConstructorOffset
-                                        is not null)
-                                .Select(static occurrence =>
-                                    occurrence.SpanConstructorOffset!.Value),
-                        ];
+                        : result.Unsafety
+                            .Where(static occurrence =>
+                                occurrence.SpanConstructorOffset
+                                    is not null)
+                            .Select(static occurrence =>
+                                occurrence.SpanConstructorOffset!.Value),
+                ];
                 foreach ((DirectCall call, UnsafeContractSource? source)
                     in explicitCalls)
                 {
@@ -545,12 +546,24 @@ internal sealed class LibraryBodyAnalysisAccumulator
     // updated rules is also authoritative for its unmarked definitions;
     // otherwise the platform projection supplies the contract
     // (docs/design/platform-caller-unsafe-contracts.md#contract-source).
+    // Roslyn synthesizes <PrivateImplementationDetails> helpers, such as
+    // InlineArrayAsSpan, to lower safe collection expressions and inline
+    // arrays; their platform calls are lowering, not source calls.
+    static bool IsPrivateImplementationDetailsBody(MethodIdentity body)
+        => body.DeclaringType.Kind == TypeRefKind.Definition
+            && body.DeclaringType.Namespace.Length == 0
+            && body.DeclaringType.Name.StartsWith(
+                "<PrivateImplementationDetails>",
+                StringComparison.Ordinal);
+
     internal static UnsafeContractSource? ExplicitCallContractSource(
         DirectCall call,
         bool primaryImageUsesUpdatedRules)
     {
         if (call.TargetCallerUnsafeMode == CallerUnsafeMode.Explicit)
             return UnsafeContractSource.SameImage.Instance;
+        if (IsPrivateImplementationDetailsBody(call.EvidenceMethod))
+            return null;
         if (call.Kind is not (
                 CallKind.Call
                 or CallKind.CallVirtual

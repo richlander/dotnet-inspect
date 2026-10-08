@@ -229,6 +229,12 @@ internal sealed class LibraryMethodAnalysisResult
     public bool FieldAccessCensusComplete;
     public ImmutableArray<AllocationOccurrence> Allocations;
     public ImmutableArray<UnsafetyOccurrence> Unsafety;
+
+    /// <summary>
+    /// Offsets of compiler-emitted <c>ReadOnlySpan&lt;T&gt;(void*, int)</c> calls over
+    /// RVA constant data, which are lowering rather than source calls.
+    /// </summary>
+    public ImmutableHashSet<int> ConstantDataSpanConstructors = [];
     public ImmutableArray<OptimizationOpportunity> Opportunities;
     public bool Suppressed;
     public bool ScopeExcluded;
@@ -311,6 +317,22 @@ internal sealed partial class LibraryMethodAnalysisRunner(
     readonly LibraryBodyAnalysisStageRecorder?
         _stageRecorder =
             stageRecorder;
+
+    // Whether a field token names a field definition of this image that has
+    // an RVA (static data in the image), the source of Roslyn's constant spans.
+    bool IsSameImageFieldWithRva(int token)
+    {
+        MetadataReader reader = _infrastructure.Reader;
+        if ((token >> 24) != 0x04
+            || (token & 0x00FFFFFF) is var row
+                && (row == 0 || row > reader.GetTableRowCount(TableIndex.Field)))
+        {
+            return false;
+        }
+        FieldDefinition field = reader.GetFieldDefinition(
+            MetadataTokens.FieldDefinitionHandle(token & 0x00FFFFFF));
+        return (field.Attributes & System.Reflection.FieldAttributes.HasFieldRVA) != 0;
+    }
 
     /// <summary>
     /// Unsafe-evidence presence, declaration phase: checks the definition's
@@ -1218,6 +1240,13 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         token => ((IMethodAllocationResolver)
                             methodAnalysisResolver)
                             .ResolveMember(token));
+                result.ConstantDataSpanConstructors =
+                    SpanStackAllocations.RecognizeConstantDataSpans(
+                        context,
+                        token => ((IMethodAllocationResolver)
+                            methodAnalysisResolver)
+                            .ResolveMember(token),
+                        IsSameImageFieldWithRva);
                 safetyStage?.Complete();
             }
             BodySignals signals;

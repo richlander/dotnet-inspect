@@ -104,6 +104,74 @@ internal sealed record SpanStackAllocations(
             constructors.ToImmutable());
     }
 
+    /// <summary>
+    /// Offsets of <c>ReadOnlySpan&lt;T&gt;(void*, int)</c> constructor calls whose
+    /// pointer is the address of a same-image field with an RVA: Roslyn's
+    /// lowering of <c>"..."u8</c> literals and constant span data. Fail-closed:
+    /// an incomplete typed stack or any other producer recognizes nothing.
+    /// </summary>
+    internal static ImmutableHashSet<int> RecognizeConstantDataSpans(
+        MethodBodyAnalysisContext context,
+        Func<int, MemberRef> resolveMember,
+        Func<int, bool> isFieldWithRva)
+    {
+        ImmutableArray<DecodedInstruction> body = context.Instructions.Instructions;
+        if (!body.Any(instruction =>
+                instruction.OpCode == ILOpCode.Ldsflda
+                && isFieldWithRva(checked((int)instruction.OperandValue))))
+        {
+            return [];
+        }
+
+        TypedStackResult stack;
+        try
+        {
+            stack = context.Instructions.InterpretStack(
+                !context.Method.ReturnType.Equals(
+                    TypeRef.CoreLib("System", "Void")),
+                new MemberStackTypeResolver(resolveMember));
+        }
+        catch (Exception ex)
+            when (ex is BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException
+                or OverflowException)
+        {
+            return [];
+        }
+        if (!stack.IsComplete)
+            return [];
+
+        var instructions = body.ToDictionary(instruction => instruction.Offset);
+        var constructors = ImmutableHashSet.CreateBuilder<int>();
+        foreach (DecodedInstruction instruction in body)
+        {
+            if (instruction.OpCode != ILOpCode.Newobj
+                || !IsReadOnlySpanPointerConstructor(
+                    resolveMember(checked((int)instruction.OperandValue)))
+                || ArgumentAt(stack, instruction.Offset, 2, 0) is not { } pointer
+                || !instructions.TryGetValue(pointer.ProducerOffset, out DecodedInstruction? producer)
+                || producer.OpCode != ILOpCode.Ldsflda
+                || !isFieldWithRva(checked((int)producer.OperandValue)))
+            {
+                continue;
+            }
+            constructors.Add(instruction.Offset);
+        }
+        return constructors.ToImmutable();
+    }
+
+    static bool IsReadOnlySpanPointerConstructor(MemberRef constructor)
+        => constructor.Name == ".ctor"
+            && constructor.DeclaringType.Kind == TypeRefKind.GenericInstance
+            && constructor.DeclaringType.ElementType is { } definition
+            && FrameworkIdentity.IsCoreLibraryType(
+                definition,
+                "System",
+                "ReadOnlySpan`1")
+            && constructor.ParameterTypes.Length == 2
+            && constructor.ParameterTypes[0].Kind == TypeRefKind.Pointer;
+
     static TypeRef? SpanElementType(MemberRef constructor)
         => constructor.Name == ".ctor"
             && constructor.DeclaringType.Kind == TypeRefKind.GenericInstance

@@ -69,6 +69,40 @@ public partial class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void CompilerLoweredConstantSpansAndHelpersAdmitNothing()
+    {
+        LibraryBodyAnalysisExecution index =
+            BodyAnalysisTestExecution.Open(typeof(ConstantSpanFixtures).Assembly.Location);
+
+        foreach (string name in new[]
+        {
+            nameof(ConstantSpanFixtures.Utf8LiteralLength),
+            "get_" + nameof(ConstantSpanFixtures.ConstantBytes),
+            nameof(ConstantSpanFixtures.CollectionExpressionSum),
+        })
+        {
+            Assert.DoesNotContain(
+                index.Safety.MemberUses,
+                use => use.Method.DeclaringType.Name == nameof(ConstantSpanFixtures)
+                    && use.Method.Name == name);
+        }
+        Assert.DoesNotContain(
+            index.Safety.MemberUses.SelectMany(static use => use.Evidence.Select(evidence => (use, evidence))),
+            item => item.use.Method.DeclaringType.Name.StartsWith("<PrivateImplementationDetails>", StringComparison.Ordinal)
+                && item.evidence.ContractSource is UnsafeContractSource.PlatformProjection);
+
+        // An explicit source call to the same constructor is still admitted.
+        UnsafeMemberUse explicitCall = Assert.Single(
+            index.Safety.MemberUses,
+            use => use.Method.DeclaringType.Name == nameof(ConstantSpanFixtures)
+                && use.Method.Name == nameof(ConstantSpanFixtures.WrapPointer));
+        Assert.Contains(
+            explicitCall.Evidence,
+            evidence => evidence.Kind == UnsafeMemberUseKind.ExplicitContractCall
+                && evidence.ContractSource is UnsafeContractSource.PlatformProjection);
+    }
+
+    [Fact]
     public void SameImageContractKeepsItsSource()
     {
         LibraryBodyAnalysisExecution index =
@@ -311,4 +345,23 @@ public partial class LibraryBodyIndexTests
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
     }
+}
+
+public static class ConstantSpanFixtures
+{
+    public static int Utf8LiteralLength() => "constant"u8.Length;
+
+    public static ReadOnlySpan<byte> ConstantBytes => [1, 2, 3, 4, 5, 6, 7, 8];
+
+    public static int CollectionExpressionSum(int a, int b, int c)
+    {
+        ReadOnlySpan<int> values = [a, b, c];
+        int sum = 0;
+        foreach (int value in values)
+            sum += value;
+        return sum;
+    }
+
+    public static unsafe int WrapPointer(byte* data, int length)
+        => new ReadOnlySpan<byte>(data, length).Length;
 }

@@ -95,11 +95,21 @@ the exact identifier of a platform-defined member, so such a package matches
 only where it carries that platform type itself, as the
 `System.Runtime.CompilerServices.Unsafe` package does.
 
-A `Span<T>(void*, int)` constructor call that Roslyn emits to wrap a
-recognized `stackalloc` is lowering, not a source call: the
-[span stackalloc recognition](method-body-inspection.md#updated-semantics-unsafe-member-uses)
-that decides the allocation's own role also excludes that constructor call.
-An explicit source call to the same constructor still matches.
+Roslyn's lowering of safe source constructs into calls to projected members is
+not a source call, and admits nothing:
+
+- a `Span<T>(void*, int)` constructor that wraps a recognized `stackalloc`: the
+  [span stackalloc recognition](method-body-inspection.md#updated-semantics-unsafe-member-uses)
+  that decides the allocation's own role also excludes that constructor call;
+- a `ReadOnlySpan<T>(void*, int)` constructor whose pointer operand, on the
+  shared typed stack, is `ldsflda` of a primary-image field with an RVA: the
+  lowering of `"..."u8` literals and constant span data; and
+- any projected call inside a top-level `<PrivateImplementationDetails>` body,
+  such as the `InlineArrayAsSpan` helpers that lower collection expressions and
+  inline arrays.
+
+An explicit source call to the same constructor still matches. The exclusions
+apply only to projected contracts; a same-image marker keeps its role.
 
 ## Contract source
 
@@ -207,6 +217,7 @@ Focused Release gates in `ILInspector.Analysis.Tests.LibraryBodyIndexTests`:
 | An image declaring `MemorySafetyRulesAttribute` is authoritative for its own unmarked members | `UpdatedRulesImageIsAuthoritativeForItsMembers` |
 | A projected contract adds no declaration role | `ProjectionAddsNoDeclarationRole` |
 | The constructor wrapping a recognized span `stackalloc` admits nothing | `UnsafeMemberUses_ApplyUpdatedSemanticsToUpdatedAssembly` and `UnsafeMemberUses_ApplyUpdatedSemanticsToLegacyAssembly` |
+| Constant-data spans, `u8` literals, and `<PrivateImplementationDetails>` helpers admit nothing, while an explicit source call to the constructor does | `CompilerLoweredConstantSpansAndHelpersAdmitNothing` |
 | The committed projection matches its recorded digest and count | `ProjectionMatchesItsHeader` |
 | The recorded pack version is the pinned SDK's reference-pack version | `ProjectionTracksPinnedSdk` |
 | An unreadable pack assembly fails generation | `GenerationFailsOnUnreadableAssembly` |
