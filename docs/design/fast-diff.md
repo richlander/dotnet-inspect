@@ -196,9 +196,13 @@ The existing Member Body path is a rejected baseline, not an implementation
 candidate. On the same Browser/Wasm host, its `System.Text.Json` 9.0.0 to
 10.0.0 inventory took 34,272 ms and one retained changed Member took another
 15,134.5 ms. `Aspire.Hosting` ran for 67,923 ms before a Research target
-resolution failure. These results prohibit using Library Body Analysis,
-Research target resolution, or Member Body inventory as a Fast Diff source;
-they do not predict the raw QuerySpace producer's latency.
+resolution failure. The same `Aspire.Hosting` operation under NativeAOT had a
+4,040.1 ms median and 4,088.1 ms p95 over 20 samples, then produced the same
+failure. These results prohibit using Library Body Analysis, Research target
+resolution, or Member Body inventory as a Fast Diff source; they do not
+predict the raw QuerySpace producer's latency. The roughly 16.8x Browser/Wasm
+gap also makes product-host evidence mandatory rather than treating NativeAOT
+as an absolute-latency proxy.
 
 ## Hosts
 
