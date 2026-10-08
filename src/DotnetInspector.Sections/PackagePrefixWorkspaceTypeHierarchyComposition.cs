@@ -467,7 +467,8 @@ public static class PackagePrefixWorkspaceTypeHierarchyComposition
                         request.FocusContext,
                         focusMember,
                         admitted.Admission.Context,
-                        occurrence);
+                        occurrence,
+                        cancellationToken);
                 bool isFocusSource =
                     excludedFocusSource is not null
                     || IsSamePackageScopeFocus(
@@ -530,18 +531,22 @@ public static class PackagePrefixWorkspaceTypeHierarchyComposition
             WorkspaceDeclarationContext focusContext,
             WorkspaceDeclarationMember focus,
             WorkspaceDeclarationContext admittedContext,
-            WorkspacePackageOccurrenceDescriptor occurrence)
+            WorkspacePackageOccurrenceDescriptor occurrence,
+            CancellationToken cancellationToken)
     {
         if (focus.Origin
             is not WorkspaceDeclarationOrigin.ContextLoad
             {
                 Realized: RealizedMemberCoordinate.Package package,
             }
-            || !Equals(
-                package,
-                occurrence.Occurrence.Package.Coordinate)
             || focusContext.Group is not { } focusGroup
             || admittedContext.Group is not { } admittedGroup)
+        {
+            return null;
+        }
+        if (!SamePackageAcquisitionTarget(
+                package,
+                occurrence.Occurrence.Package.Coordinate))
         {
             return null;
         }
@@ -553,9 +558,12 @@ public static class PackagePrefixWorkspaceTypeHierarchyComposition
         {
             return null;
         }
+
         Guid? focusModuleVersionId =
-            focusGroup.Participants[focusIndex]
-                .Assembly.Registration.ModuleVersionId;
+            ObservedModuleVersionId(
+                focusGroup,
+                focusGroup.Participants[focusIndex].Assembly,
+                cancellationToken);
         if (focusModuleVersionId is null)
             return null;
 
@@ -566,14 +574,46 @@ public static class PackagePrefixWorkspaceTypeHierarchyComposition
             WorkspaceDeclarationMember candidate =
                 admittedContext.Receipt.Members[index];
             if (candidate.AssemblyIdentity == focus.AssemblyIdentity
-                && admittedGroup.Participants[index]
-                    .Assembly.Registration.ModuleVersionId
+                && ObservedModuleVersionId(
+                    admittedGroup,
+                    admittedGroup.Participants[index].Assembly,
+                    cancellationToken)
                     == focusModuleVersionId)
             {
                 return candidate.Occurrence;
             }
         }
         return null;
+    }
+
+    private static bool SamePackageAcquisitionTarget(
+        RealizedMemberCoordinate.Package left,
+        RealizedMemberCoordinate.Package right) =>
+        left.PackageId == right.PackageId
+        && left.Version == right.Version
+        && left.Framework == right.Framework
+        && left.RuntimeIdentifier == right.RuntimeIdentifier;
+
+    private static Guid? ObservedModuleVersionId(
+        AssemblyContextGroup group,
+        ResolvedAssemblyReference assembly,
+        CancellationToken cancellationToken)
+    {
+        AssemblyImageAccessResult<Guid> result =
+            group.UseAssemblySession(
+                assembly,
+                cancellationToken,
+                static (session, source) =>
+                {
+                    Guid moduleVersionId = session.ModuleVersionId();
+                    source.Registration.BindObservedModuleVersionId(
+                        moduleVersionId);
+                    return moduleVersionId;
+                });
+        return result
+            is AssemblyImageAccessResult<Guid>.Available available
+                ? available.Value
+                : null;
     }
 
     private static void ValidateContinuation(
