@@ -108,6 +108,7 @@ public enum ViewFacetRole
 {
     WorkspaceOverview,
     EcosystemOverview,
+    PackageLibraries,
     PackageOverview,
     LibraryReferences,
     LibraryTypes,
