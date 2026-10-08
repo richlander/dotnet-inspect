@@ -386,9 +386,9 @@ requires an ID retirement and is not part of this issuance.
 New default Package views record `package.libraries`: Navigation's
 recommendation and the Workspace Package scenario projection. The CLI
 Workspace exact-Package share records `package.libraries` when it renders the
-default Package Tree and `package.overview` for the other projectable Package
-selections: `-S "Package Info"` and bare `-S` at default verbosity. Other
-section selections and the Package lenses produce the Share refusal
+default Package Tree and `package.overview` for the one other projectable
+Package selection, `-S "Package Info"`. Other section selections and the
+Package lenses produce the Share refusal
 ([Workspace Definitions](workspace-definitions.md#package-packet-context-adoption)
 derived Share item 4). A Package view state that names `package.overview` or
 no facet still restores. Source-free share publication
