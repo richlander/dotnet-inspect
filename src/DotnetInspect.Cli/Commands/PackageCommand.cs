@@ -533,6 +533,23 @@ public partial class PackageCommand
                 workspaceLoadOptions).ConfigureAwait(false);
         }
 
+        if (packageArgs.Length == 1)
+        {
+            PackageReferenceTarget houseTarget =
+                options.DeclaredPackageTarget
+                ?? PackageExtractor.ParsePackageTarget(
+                    packageArgs[0],
+                    explicitVersion);
+            int? readmeResult =
+                await TryWriteHouseReadmeSectionAsync(
+                        houseTarget,
+                        options,
+                        context)
+                    .ConfigureAwait(false);
+            if (readmeResult is { } exitCode)
+                return exitCode;
+        }
+
         if (options.ShowContent && packageArgs.Length == 1)
         {
             PackageReferenceTarget houseTarget =
