@@ -44,23 +44,6 @@ public static class TypeMatcher
     }
 
     /// <summary>
-    /// Checks whether <see cref="Lookup"/> treats a candidate as an exact match
-    /// for a non-glob pattern: equal ignoring case, or ending with "." and the
-    /// pattern. Lookup returns the first such candidate before it considers
-    /// any base-name match.
-    /// </summary>
-    public static bool MatchesExactLookup(string candidate, string pattern)
-    {
-        if (string.IsNullOrEmpty(candidate) || string.IsNullOrEmpty(pattern))
-            return false;
-
-        var normalizedCandidate = NormalizeForLookup(candidate);
-        var normalizedPattern = NormalizeForLookup(pattern);
-        return normalizedCandidate.Equals(normalizedPattern, StringComparison.OrdinalIgnoreCase)
-            || EndsWithDottedSuffix(normalizedCandidate, normalizedPattern);
-    }
-
-    /// <summary>
     /// Matches lookup-normalized type names without repeating normalization in
     /// candidate-scanning loops.
     /// </summary>
