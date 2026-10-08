@@ -269,7 +269,7 @@ export function createMemberBodyDiff(dependencies: Dependencies) {
           ])],
           type.identity, null)
       : renderInventoryRow("type", type.display, "Removed", ["API"], null,
-          "Removed in the current version; Before-side evidence only")).join("")
+          `Removed in the current version; Before-side evidence only · ${type.members.length} ${type.members.length === 1 ? "Member" : "Members"}${type.members.length > 0 ? `: ${type.members.map(member => member.display).join(", ")}` : ""}`)).join("")
       : types.flatMap(type => type.members).map(member => member.fingerprint !== null
         ? renderInventoryRow("member", member.display, member.outcome,
             memberCategories(member), member.id, null)

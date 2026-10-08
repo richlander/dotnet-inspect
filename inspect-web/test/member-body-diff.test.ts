@@ -145,6 +145,45 @@ test("inventory rows show qualified names and category chips without count summa
   controller.dispose();
 });
 
+test("removed Type rows retain their Before-side Member count and names without navigation", async () => {
+  const removed = {
+    ...inventory,
+    types: [{
+      ...inventory.types[0]!,
+      identity: "N.Removed",
+      display: "N.Removed",
+      outcome: "Removed",
+      canNavigate: false,
+      members: [{
+        ...inventory.types[0]!.members[0]!,
+        id: "Old~123",
+        display: "N.Removed.Old()",
+        outcome: "Removed",
+        fingerprint: null,
+        selector: null,
+        methodToken: null,
+        identityFailure: "Removed",
+        typeIdentity: "N.Removed",
+      }],
+    }],
+    destinations: [],
+  };
+  const controller = createMemberBodyDiff({
+    authority: createOperationAuthorityPage(), document: fakeDom.document({ querySelector: () => null }),
+    query: async () => ({ kind: "Available", inventory: removed, document: null, detail: null, inspection: null }),
+    cancel: () => undefined, diagnostic: diagnostic => { throw new Error(JSON.stringify(diagnostic)); },
+    render: () => undefined, escapeHtml: escape,
+    activateType: () => undefined, activateMember: () => undefined,
+  });
+  controller.reconcile({ ...context(), subject: "library" });
+  await flush(); await flush();
+  const html = controller.render();
+  assert.match(html, /1 Member: N\.Removed\.Old\(\)/);
+  assert.match(html, /aria-disabled="true"/);
+  assert.doesNotMatch(html, /data-member-body-type="N\.Removed"/);
+  controller.dispose();
+});
+
 test("reader omits the absence banner and preserves unavailable and size-limit outcomes", () => {
   const reader = { document, medium: "CSharp" as const, mode: "unified" as const };
   assert.doesNotMatch(renderMemberBodyReader({ ...reader, document: { ...document, beforeOutcome: "Absent" } }, escape), /Not present on this side/);
