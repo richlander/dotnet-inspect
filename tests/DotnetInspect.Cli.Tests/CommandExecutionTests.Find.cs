@@ -62,6 +62,125 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Find_EcosystemRuntimeMemberCountMatchesCompleteRows()
+    {
+        var (completeExit, completeOutput, completeError) =
+            await RunAppAsync(
+                "find", ".WriteLine", "--ecosystem", "runtime",
+                "--type", "System.Console",
+                "--json", "--compact");
+        var (countExit, countOutput, countError) =
+            await RunAppAsync(
+                "find", ".WriteLine", "--ecosystem", "runtime",
+                "--type", "System.Console",
+                "--count");
+
+        Assert.Equal(0, completeExit);
+        Assert.Equal(0, countExit);
+        Assert.Empty(completeError);
+        Assert.Empty(countError);
+        using JsonDocument complete =
+            JsonDocument.Parse(completeOutput);
+        Assert.Equal(
+            complete.RootElement.GetArrayLength(),
+            int.Parse(
+                countOutput,
+                CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Find_EcosystemRuntimeMemberWindowMatchesCompleteRows()
+    {
+        var (completeExit, completeOutput, completeError) =
+            await RunAppAsync(
+                "find", ".WriteLine", "--ecosystem", "runtime",
+                "--type", "System.Console",
+                "--json", "--compact");
+        var (windowExit, windowOutput, windowError) =
+            await RunAppAsync(
+                "find", ".WriteLine", "--ecosystem", "runtime",
+                "--type", "System.Console",
+                "--rows", "2..3", "--json", "--compact");
+
+        Assert.Equal(0, completeExit);
+        Assert.Equal(0, windowExit);
+        Assert.Empty(completeError);
+        Assert.Empty(windowError);
+        using JsonDocument complete =
+            JsonDocument.Parse(completeOutput);
+        using JsonDocument window =
+            JsonDocument.Parse(windowOutput);
+        Assert.Equal(
+            complete.RootElement
+                .EnumerateArray()
+                .Skip(1)
+                .Take(2)
+                .Select(static row =>
+                    row.GetProperty("signature").GetString()),
+            window.RootElement
+                .EnumerateArray()
+                .Select(static row =>
+                    row.GetProperty("signature").GetString()));
+    }
+
+    [Fact]
+    public async Task Find_EcosystemMemberWindowOffsetsAcrossLayers()
+    {
+        var (completeExit, completeOutput, completeError) =
+            await RunAppAsync(
+                "find", ".Dispose", "--ecosystem", "aspire",
+                "--json", "--compact");
+        var (windowExit, windowOutput, windowError) =
+            await RunAppAsync(
+                "find", ".Dispose", "--ecosystem", "aspire",
+                "--rows", "6..9", "--json", "--compact");
+
+        Assert.Equal(0, completeExit);
+        Assert.Equal(0, windowExit);
+        Assert.Empty(completeError);
+        Assert.Contains(
+            "Stopped after ecosystem.aspnetcore; not searched:",
+            windowError,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ecosystem.runtime",
+            windowError,
+            StringComparison.Ordinal);
+        using JsonDocument complete =
+            JsonDocument.Parse(completeOutput);
+        using JsonDocument window =
+            JsonDocument.Parse(windowOutput);
+        JsonElement[] expected =
+        [
+            .. complete.RootElement
+                .EnumerateArray()
+                .Skip(5)
+                .Take(4),
+        ];
+        Assert.Contains(
+            expected,
+            static row => row.GetProperty("ecosystem").GetString()
+                == "ecosystem.aspire");
+        Assert.Contains(
+            expected,
+            static row => row.GetProperty("ecosystem").GetString()
+                == "ecosystem.aspnetcore");
+        Assert.Equal(
+            expected.Select(MemberIdentity),
+            window.RootElement
+                .EnumerateArray()
+                .Select(MemberIdentity));
+
+        static string MemberIdentity(JsonElement row) =>
+            string.Join(
+                '\n',
+                row.GetProperty("ecosystem").GetString(),
+                row.GetProperty("source").GetString(),
+                row.GetProperty("declaring_type").GetString(),
+                row.GetProperty("signature").GetString());
+    }
+
+    [Fact]
     public async Task Find_EcosystemAspNetCoreSearchesRuntimeWithoutWindow()
     {
         var (exit, output, error) = await RunAppAsync(

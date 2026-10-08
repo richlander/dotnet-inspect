@@ -1020,7 +1020,8 @@ public static class MemberSearch
                         NullabilityReader
                             .GetTypeNullableContext(
                                 _reader,
-                                projectionTypeHandle));
+                                projectionTypeHandle),
+                        includeAll: _includeAll);
             return (
                 ApiMemberIdentity.CreatePropertyAnchor(
                     _reader,
@@ -1077,22 +1078,25 @@ public static class MemberSearch
                 (EventDefinitionHandle)member.Handle;
             EventDefinition eventDefinition =
                 _reader.GetEventDefinition(handle);
-            string signature =
-                MetadataDeclarationQuery.GetEventSignatureText(
+            MethodDefinition adder =
+                _reader.GetMethodDefinition(
+                    eventDefinition.GetAccessors().Adder);
+            var projection =
+                ApiSurfaceExtractor.GetEventSignatureForIdentity(
                     _reader,
-                    projectionType,
-                    eventDefinition);
-            int separator = signature.IndexOf(' ');
+                    GenericContext.ForType(
+                        _reader,
+                        projectionType),
+                    eventDefinition,
+                    adder);
             return (
                 ApiMemberIdentity.CreateEventAnchor(
                     _reader,
                     projectionTypeHandle,
                     eventDefinition,
                     ref _anchorWorkRemaining),
-                signature,
-                separator < 0
-                    ? null
-                    : signature[..separator]);
+                projection.Signature,
+                projection.Type);
         }
 
         private static string Kind(

@@ -257,6 +257,60 @@ namespace ILInspector.Metadata.Tests
         }
 
         [Fact]
+        public void SearchMembers_preserves_dynamic_event_shape()
+        {
+            IReadOnlyList<MemberSearchResult> complete =
+                MemberSearch.SearchAssembly(
+                    SelfAssembly,
+                    [nameof(DynamicSampleClass.DynamicEvent)]);
+            using var session =
+                AssemblyInspectionSession.Open(SelfAssembly);
+
+            MemberSearchWindowResult window =
+                session.SearchMembers(
+                    Path.GetFileNameWithoutExtension(SelfAssembly),
+                    [nameof(DynamicSampleClass.DynamicEvent)],
+                    includeAll: false,
+                    new(1, 1));
+
+            Assert.Single(complete);
+            Assert.Equal(complete, window.Results);
+        }
+
+        [Fact]
+        public void SearchMembers_includeAll_preserves_non_public_property_accessors()
+        {
+            string declaringType =
+                typeof(
+                    MetadataDeclarationQueryFixtures.AbstractBase)
+                    .FullName!
+                    .Replace('+', '.');
+            IReadOnlyList<MemberSearchResult> complete =
+                MemberSearch.SearchAssembly(
+                        SelfAssembly,
+                        ["Name"],
+                        includeAll: true)
+                    .Where(result =>
+                        result.DeclaringType == declaringType)
+                    .ToArray();
+            using var session =
+                AssemblyInspectionSession.Open(SelfAssembly);
+
+            MemberSearchWindowResult window =
+                session.SearchMembers(
+                    Path.GetFileNameWithoutExtension(SelfAssembly),
+                    ["Name"],
+                    includeAll: true,
+                    new(1, 1),
+                    name =>
+                        name.ToMetadataFullName()
+                        == declaringType);
+
+            Assert.Single(complete);
+            Assert.Equal(complete, window.Results);
+        }
+
+        [Fact]
         public void Search_empty_patterns_returns_empty_outcome()
         {
             var outcome = MemberSearch.Search([SelfAssembly], []);

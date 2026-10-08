@@ -397,12 +397,22 @@ public class FindCommand
             patterns, StringComparer.Ordinal);
         bool failures = false;
         bool incomplete = false;
+        int acceptedMemberCount = 0;
+        FindInputRowSelection? memberInputRows =
+            options.QueryPlan?.InputRows;
         FindSearchCompletion completion = FindSearchCompletion.Exhausted;
         for (int index = 0; index < layers.Count; index++)
         {
             int resultCount = CountLayeredRows(
                 options, types.Count, members.Count);
-            if (options.Limit is int limit
+            bool memberEndReached =
+                options.Members
+                && memberInputRows?.End is int memberEnd
+                && acceptedMemberCount >= memberEnd;
+            if (memberEndReached
+                || (!options.Members
+                    || memberInputRows is null)
+                && options.Limit is int limit
                 && resultCount >= limit)
             {
                 CommandError.WriteNote(
@@ -444,6 +454,33 @@ public class FindCommand
                         cancellationToken);
                 if (options.Members)
                 {
+                    FindInputRowSelection? localInputRows =
+                        memberInputRows is { } globalInputRows
+                            ? new(
+                                Math.Max(
+                                    1,
+                                    globalInputRows.Start
+                                        - acceptedMemberCount),
+                                globalInputRows.End
+                                    - acceptedMemberCount)
+                            : null;
+                    FindOptions memberScoped = scoped with
+                    {
+                        QueryPlan =
+                            scoped.QueryPlan is { } queryPlan
+                                ? queryPlan with
+                                {
+                                    InputRows = localInputRows,
+                                }
+                                : null,
+                        InputRows =
+                            options.Count
+                                ? null
+                                : localInputRows,
+                        Limit =
+                            localInputRows?.End
+                            ?? scoped.Limit,
+                    };
                     string[] memberPatterns =
                     [
                         .. patterns.Select(MemberPatternSentinel.Strip)
@@ -451,9 +488,17 @@ public class FindCommand
                     ];
                     FindSearchResult<MemberFindResult> found =
                         await MemberSearchService.FindMembersAsync(
-                            scoped, memberPatterns, context.Logger,
+                            memberScoped,
+                            memberPatterns,
+                            context.Logger,
                             context.HttpClient, cancellationToken, platform,
                             explicitWorkspace);
+                    acceptedMemberCount =
+                        checked(
+                            acceptedMemberCount
+                            + (found.ExactRowCount
+                                ?? found.InputRows?.AcceptedCount
+                                ?? found.Rows.Count));
                     foreach (MemberFindResult row in found.Rows)
                     {
                         MemberFindResult attributed = row with { Ecosystem = layer.Id.Value };
@@ -549,6 +594,17 @@ public class FindCommand
             {
                 SourceSelectionIncomplete = incomplete,
                 Completion = completion,
+                InputRows =
+                    !options.Count
+                    && memberInputRows is { } receiptInputRows
+                        ? new(
+                            receiptInputRows,
+                            acceptedMemberCount)
+                        : null,
+                ExactRowCount =
+                    options.Count
+                        ? acceptedMemberCount
+                        : null,
             });
     }
 
