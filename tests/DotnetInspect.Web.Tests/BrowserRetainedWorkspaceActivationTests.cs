@@ -62,7 +62,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.Equal("UnsupportedDefinition", deepView.Failure?.Kind);
         Assert.Equal("packet.view.active", deepView.Failure?.Path);
         Assert.Contains(
-            "Workspace or Package Overview",
+            "Workspace or default Package",
             deepView.Failure?.Message,
             StringComparison.Ordinal);
     }

@@ -1076,7 +1076,7 @@ internal static class BrowserRetainedWorkspaceActivationService
                     new(
                         "UnsupportedDefinition",
                         "packet.view.active",
-                        "Source-free complete Workspace link activation currently supports only Workspace or Package Overview selections."));
+                        "Source-free complete Workspace link activation currently supports only Workspace or default Package selections."));
             }
             return new(
                 true,

@@ -3521,7 +3521,7 @@ async function installFacades(
               failure: {
                 kind: "UnsupportedDefinition",
                 path: "packet.view.active",
-                message: "Source-free complete Workspace link activation currently supports only Workspace or Package Overview selections.",
+                message: "Source-free complete Workspace link activation currently supports only Workspace or default Package selections.",
               },
             };
           }
