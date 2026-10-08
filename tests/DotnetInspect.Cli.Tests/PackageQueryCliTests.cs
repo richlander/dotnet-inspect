@@ -2535,7 +2535,10 @@ public class PackageQueryCliTests
         var result = await ConsoleCapture.RunAsync(() => PackageQueryCommand.ExecuteAsync(
             query, source, provider));
         Assert.Equal(invalidArchive ? 1 : 0, result.ExitCode);
-        Assert.Equal(1, fixture.PackageRequests);
+        // This handler declines ranges. The large valid archive uses the
+        // bounded probe/directory/complete fallback; the tiny invalid archive
+        // takes the small-package complete path directly.
+        Assert.Equal(invalidArchive ? 1 : 3, fixture.PackageRequests);
         Assert.True(fixture.Payload!.Disposed);
         if (invalidArchive)
             Assert.Contains("PackageContentAcquisition", result.Error);
@@ -2584,7 +2587,7 @@ public class PackageQueryCliTests
         await using (var provider = ContentProvider(fixture, operation))
         {
             var result = Assert.IsType<PackageQueryContentResult.Available>(
-                await provider.GetContentAsync(package, CancellationToken.None));
+                await provider.GetContentAsync(package, PackageQueryContentDemand.EntryContent, CancellationToken.None));
             root = Assert.IsType<string>(result.Content.RootPath);
             Assert.True(Directory.Exists(root));
         }
@@ -2595,7 +2598,7 @@ public class PackageQueryCliTests
         await using (var provider = ContentProvider(fixture, operation))
         {
             var result = Assert.IsType<PackageQueryContentResult.Available>(
-                await provider.GetContentAsync(package, CancellationToken.None));
+                await provider.GetContentAsync(package, PackageQueryContentDemand.EntryContent, CancellationToken.None));
             Assert.Equal(root, result.Content.RootPath);
         }
         Assert.Equal(1, fixture.PackageRequests);

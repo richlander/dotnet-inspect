@@ -1534,7 +1534,6 @@ public sealed class PolicyEvaluatorTests
                 "ILInspector.Decompiler",
                 "ILInspector.ILDiff",
                 "ILInspector.Metadata",
-                "ILInspector.MetadataPrimitives",
                 "ILInspector.Research",
                 "InertText",
                 "Inspector.Findings",
@@ -1559,6 +1558,12 @@ public sealed class PolicyEvaluatorTests
             assemblyRule.Id,
             target[0],
             "ILInspector.SourceLink",
+            DependencyGraphKind.Assembly,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            assemblyRule.Id,
+            target[0],
+            "ILInspector.MetadataPrimitives",
             DependencyGraphKind.Assembly,
             projectPath[0]);
     }

@@ -267,8 +267,18 @@ public sealed class BrowserMethodBodyOperationTests
         LocalComparisonQueryResult original = fixture.Scope.UseImplementation(group =>
         {
             AssemblyContextParticipant participant = Assert.Single(group.Participants);
-            MetadataMethodAddress address = Assert.IsType<AssemblyContextEntry<MetadataMethodAddress>.Available>(
-                AssemblyContextMethodAddressQuery.ExecuteParticipant(group, participant, targets.Before.MetadataToken)).Value;
+            ProjectedMethodAddress designation =
+                Assert.IsType<
+                    AssemblyContextEntry<ProjectedMethodAddress>
+                        .Available>(
+                    AssemblyContextMethodAddressQuery.ExecuteParticipant(
+                        group,
+                        participant,
+                        targets.Before.MetadataToken)).Value;
+            var address = new MetadataMethodAddress(
+                designation.ModuleVersionId,
+                MetadataTokens.MethodDefinitionHandle(
+                    designation.MetadataToken & 0x00ffffff));
             return DirectMemberComparisonQuery.Execute(group,
                 new(new(participant, canceled ? address : address with { ModuleVersionId = Guid.NewGuid() }),
                     new(participant, address), ResearchProducerCatalog.Kinds), cancellation.Token);

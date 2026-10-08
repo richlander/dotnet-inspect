@@ -11,6 +11,36 @@ namespace DotnetInspect.Web.Tests;
 public sealed partial class BrowserEngineBoundaryTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageQuerySkill_InventoryDemandDoesNotMaterializeBodies(bool hasSkill)
+    {
+        string id = $"query.inventory.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        byte[] manifestBytes = Encoding.UTF8.GetBytes(Nuspec(id, version));
+        byte[] package = PackageEntries(
+            ($"{id}.nuspec", manifestBytes),
+            (hasSkill ? "skills/SKILL.md" : "docs/README.md", new byte[2 * 1024 * 1024]));
+        var handler = new GalleryPackageHandler(id, version, package);
+        using IPackageSourceClient source = Gallery(handler);
+        PackageManifestFacts manifest = Assert.IsType<PackageManifestFactsResult.Available>(
+            PackageManifestFactsQuery.Execute(manifestBytes,
+                PackageSourceCoordinate.Create(id, version))).Value;
+        var candidate = new PackageQueryPackage(id, version, [], 0, false, source.Source, manifest);
+        using var deadline = new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
+            TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        PackageHouseFileList inventory = Assert.IsType<PackageQueryContentResult.InventoryAvailable>(
+            await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
+                candidate, PackageQueryContentDemand.Inventory, source, deadline)).FileList;
+
+        Assert.Equal(hasSkill, inventory.Entries.Any(entry => entry.Path == "skills/SKILL.md"));
+        Assert.Equal(2, inventory.Entries.Count);
+        Assert.True(handler.RangedPackageResponses > 0);
+        Assert.True(handler.PackageBytesServed < 256 * 1024,
+            $"served {handler.PackageBytesServed} of {package.Length} bytes");
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData(" ")]
     public async Task MetadataOverview_DirectAbsentLibraryPreservesNoCompileAssets(string selector)

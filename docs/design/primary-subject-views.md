@@ -437,6 +437,22 @@ An empty public population renders as such (obligation 5).
 - the work bound: the default plan requests no Member Count, and no returned
   row carries one.
 
+Type step 2 has adopted its leaf default. Bare CLI `type T`, `--tree`, and
+`--mermaid` list one row per MemberGroup under its category. A category counts
+its MemberGroup rows, and no row carries an overload Count. For bare `type T`
+and `--tree`, a Type resolved through platform find takes the same route as its
+exact spelling; `--mermaid` still requires the exact spelling. The default
+requests no exact-Member Count and no returned row carries one, gated by
+`TypeOverviewDocumentInspectionOperationTests.LeafOverviewRequestsAndReturnsNoExactMemberCounts`
+on System.Text.Json and `TypeHierarchy_PlatformFindResolvedType_UsesSameLeafTree`.
+Attached
+extension rows and their `member` gesture remain open: the MemberGroup
+population does not yet attach receiver extensions, so the `JsonElement`
+extension gate below stays unverified. An explicit `-v:m` on `type` still
+keeps the standard route, because the planner treats an explicit verbosity as a
+format gesture. That, exact Type resolution failures, and retirement of the
+Library-listing fallback also remain open.
+
 ## Gates
 
 This document's obligations are gated through each adoption, in Release,

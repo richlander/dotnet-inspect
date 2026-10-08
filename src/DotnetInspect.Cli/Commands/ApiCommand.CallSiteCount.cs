@@ -18,7 +18,6 @@ public partial class ApiCommand
     {
         if (!IsCallSiteCountRequest(options)
             || options.RouterDeferredTypeOrMember
-            || !options.IncludeAll
             || options.HasCallerScope
             || options.EffectiveDiscovery
             || options.Columns is { Length: > 0 }
@@ -46,26 +45,18 @@ public partial class ApiCommand
         using (AssemblyInspectionSession session =
             AssemblyInspectionSession.Open(assemblyPath))
         {
-            MethodBodySelection? method =
-                options.OverloadIndex is null or 1
-                    ? session.MethodBodies.ResolveUniqueMethod(
-                        typeName,
-                        memberName,
-                        publicOnly: !options.IncludeAll)
-                    : null;
-            if (method is null
-                && options.OverloadIndex is { } accessorIndex)
-            {
-                method = session.MethodBodies.ResolveAccessorMethod(
-                    typeName,
-                    memberName,
-                    accessorIndex - 1,
-                    publicOnly: !options.IncludeAll);
-            }
-            if (method is null)
+            int? selected = options.IncludeAll
+                ? ResolveMetadataOnlyMethod(session, typeName, memberName, options)
+                : null;
+            selected ??= ResolveDeclaredTypeMethod(
+                session,
+                typeName,
+                memberName,
+                options);
+            if (selected is not { } token)
                 return null;
 
-            methodToken = method.MetadataToken;
+            methodToken = token;
         }
 
         return WriteCallSiteCount(
@@ -73,6 +64,70 @@ public partial class ApiCommand
             methodToken,
             options,
             output);
+    }
+
+    // The existing metadata-only selection, admitted only under --all because
+    // it applies no public-scope hidden or obsolete admission.
+    static int? ResolveMetadataOnlyMethod(
+        AssemblyInspectionSession session,
+        string typeName,
+        string memberName,
+        MemberOptions options)
+    {
+        MethodBodySelection? method =
+            options.OverloadIndex is null or 1
+                ? session.MethodBodies.ResolveUniqueMethod(
+                    typeName,
+                    memberName,
+                    publicOnly: false)
+                : null;
+        if (method is null
+            && options.OverloadIndex is { } accessorIndex)
+        {
+            method = session.MethodBodies.ResolveAccessorMethod(
+                typeName,
+                memberName,
+                accessorIndex - 1,
+                publicOnly: false);
+        }
+        return method?.MetadataToken;
+    }
+
+    // Resolves the selector exactly as the complete member route does, through
+    // MemberTargetResolver, but over the selected Type's own declarations
+    // instead of the whole assembly's API surface. A same-image extension
+    // method with this name would be projected onto receiver Types by the
+    // complete surface, and an unselected overload set is resolved by the
+    // complete route's auto-selection, so both keep the complete route.
+    static int? ResolveDeclaredTypeMethod(
+        AssemblyInspectionSession session,
+        string typeName,
+        string memberName,
+        MemberOptions options)
+    {
+        if (memberName.AsSpan().IndexOfAny('*', '?') >= 0
+            || session.MethodBodies.DeclaresExtensionMethod(memberName)
+            || session.MethodBodies.ExtractDeclaredType(
+                typeName,
+                options.IncludeAll) is not { } declared)
+        {
+            return null;
+        }
+
+        MemberTargetResolution resolution = MemberTargetResolver.Resolve(
+            declared,
+            new MemberTargetSelector(
+                memberName,
+                memberName,
+                options.OverloadIndex));
+        if (resolution.Target is not { } target
+            || (options.OverloadIndex is null
+                && resolution.Candidates.Count != 1))
+        {
+            return null;
+        }
+
+        return target.Body?.MetadataToken;
     }
 
     static bool TryGetSingleMemberFilter(

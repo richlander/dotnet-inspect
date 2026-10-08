@@ -96,6 +96,49 @@ public static class GeneratedUnsafeEvidenceSample
     }
 }
 
+// A lifted body's owner is its nearest declaring Type that is not a closure
+// Type, so a large declared nested hierarchy holds none of this Type's lifted
+// bodies (the FluentUI Icons shape).
+public static class GeneratedExpansionDeclaredNestedTypeSample
+{
+    public static int LiftedUnsafe(int value)
+    {
+        int offset = 1;
+        Func<int, int> readUnsafe = current =>
+            System.Runtime.CompilerServices.Unsafe.As<int, int>(
+                ref current) + offset;
+        return readUnsafe(value);
+    }
+
+    public static class First
+    {
+        public static int Value(int value) => value;
+
+        public static class Second
+        {
+            public static int Value(int value) => value;
+
+            public static class Third
+            {
+                public static int Value(int value) => value;
+            }
+        }
+    }
+}
+
+public static class GeneratedExpansionNestedSourceSample
+{
+    public static class Inner
+    {
+        public static async Task<int> NestedAsync(int value)
+        {
+            await Task.Yield();
+            return System.Runtime.CompilerServices.Unsafe.As<int, int>(
+                ref value);
+        }
+    }
+}
+
 public static class GeneratedExpansionAsyncSiblingSample
 {
     public static async Task<int> FirstAsync(int value)
@@ -128,6 +171,26 @@ public static class GeneratedExpansionLiftedChainBudgetSample
 public static class GeneratedExpansionNestedTypeBudgetSample
 {
     public static int Identity(int value) => value;
+
+    // Each capturing lambda emits its own closure Type, which the lifted
+    // owner walk must charge as a nested-Type relationship node.
+    public static int FirstClosure(int value)
+    {
+        Func<int, int> add = current => current + value;
+        return add(1);
+    }
+
+    public static int SecondClosure(int value)
+    {
+        Func<int, int> add = current => current + value;
+        return add(2);
+    }
+
+    public static int ThirdClosure(int value)
+    {
+        Func<int, int> add = current => current + value;
+        return add(3);
+    }
 
     public sealed class First
     {
