@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -21,6 +22,8 @@ import type { CommandContext } from "../src/command-bar.ts";
 import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import { fakeDom } from "./fake-dom.ts";
 import type { TypeLens } from "../src/data.ts";
+
+const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -1189,7 +1192,7 @@ test("same-named Package and Library share one Ecosystem group with independent 
   assert.equal((html.match(/class="spotlight-svg-icon spotlight-pruned"/g) ?? []).length, 1);
   assert.match(html, /Supplied by net10.0 @ 10.0.12/);
   assert.match(html, /class="spotlight-item-ns" title="nuget.org">4\.3\.0<\/span>/);
-  assert.match(html, /title="\.NET Runtime · net10\.0 · 10\.0\.12 · 1 type">10\.0\.12 · net10\.0<\/span>/);
+  assert.match(html, /title="\.NET Runtime · net10\.0 · 10\.0\.12 · 1 type">10\.0\.12<\/span>/);
   assert.notEqual(spotlightResultIdentity(packageResult), spotlightResultIdentity(libraryResult));
   assert.deepEqual(spotlight.results(), [libraryResult, packageResult, external]);
 });
@@ -1251,7 +1254,7 @@ test("unavailable version comparison preserves pair order and unrelated hits sta
 });
 
 
-test("Spotlight artifact rows show date-only metadata without changing activation identity", () => {
+test("Spotlight artifact rows show versions and dates without a visible TFM", () => {
   const results: SpotlightResult[] = [
     { kind: "pkg-nuget", hit: { id: "System.Text.Json", version: "9.0.0" }, ranges: [], publication: { status: "available", date: "2024-11-12" } },
     { kind: "framework-lib", assembly: "System.Text.Json", pack: "netcore.app", publicTypes: 1, ranges: [], version: "10.0.12", tfm: "net10.0", publication: { status: "available", date: "2026-09-08" } },
@@ -1266,12 +1269,22 @@ test("Spotlight artifact rows show date-only metadata without changing activatio
   const html = spotlight.inlineHtml(false);
   assert.match(html, /<time datetime="2024-11-12" aria-label="Published 2024-11-12" title="Published 2024-11-12">2024-11-12<\/time>/);
   assert.match(html, /<time datetime="2026-09-08" aria-label="Published 2026-09-08" title="Published 2026-09-08">2026-09-08<\/time>/);
-  assert.match(html, /class="spotlight-item-ns">1\.0\.0 · net10\.0<\/span>/);
-  assert.match(html, /class="spotlight-item-ns">2\.0\.0 · net10\.0<\/span>/);
+  assert.match(html, /class="spotlight-item-ns">1\.0\.0<\/span>/);
+  assert.match(html, /class="spotlight-item-ns">2\.0\.0<\/span>/);
   assert.match(html, /class="spotlight-item-ns">3\.0\.0<\/span>/);
-  assert.match(html, /title="[^"\n]+">10\.0\.12 · net10\.0<\/span>/);
-  assert.doesNotMatch(html, />[^<]*net8\.0/);
+  assert.match(html, /title="[^"\n]+">10\.0\.12<\/span>/);
+  assert.doesNotMatch(html, /class="spotlight-item-ns"[^>]*>[^<]*net(?:standard|coreapp|[0-9])/);
   assert.deepEqual(spotlight.results().map(spotlightResultIdentity).sort((a, b) => a.localeCompare(b)), identities.sort((a, b) => a.localeCompare(b)));
+});
+
+test("Spotlight gives artifact names more horizontal room", () => {
+  const spotlightRule = styles.match(/\.spotlight \{([\s\S]*?)\n\}/)?.[1] ?? "";
+  assert.match(spotlightRule, /width: 820px;/);
+  assert.match(spotlightRule, /max-width: 94vw;/);
+  assert.match(
+    styles,
+    /\.spotlight-artifact \{ grid-template-columns: 20px minmax\(0, 1fr\) minmax\(120px, 180px\) 100px; \}/,
+  );
 });
 
 
