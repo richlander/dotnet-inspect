@@ -4,6 +4,7 @@ import {
   inspectorTab,
   chooseInspector,
   chooseSubject,
+  core,
   surface,
   platformVersion,
   alternatePlatformVersion,
@@ -579,7 +580,9 @@ test("Spotlight offers NuGet and .NET Library System.Text.Json destinations with
   await search.fill("System.Text.Json");
   await expect(page.locator('[data-sl-pkg-load="System.Text.Json"]')).toBeVisible();
   await expect(page.locator('[data-sl-framework-lib="System.Text.Json"]'))
-    .toContainText(".NET Runtime");
+    .toContainText(platformVersion);
+  await expect(page.locator('[data-sl-framework-lib="System.Text.Json"]'))
+    .toContainText("net11.0");
   await expect(page.locator('[data-sl-scope="runtime"]')).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Platform", exact: true })).toHaveCount(0);
   await expect(page.locator("html")).not.toHaveAttribute("data-platform-warmup");
@@ -860,7 +863,7 @@ test("pending Platform catalog cannot overwrite a loaded Package selected throug
   await page.locator("#spotlight-input").fill("Example.Package");
   await page.locator('[data-sl-pkg-open="Example.Package"]').click();
   await expect(page.locator(".library-overview-surface h1"))
-    .toHaveText("All libraries");
+    .toHaveText(core.name);
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await chooseSubject(page, "package", "Package");
 
@@ -1036,7 +1039,7 @@ test("Package and catalog-only Platform remain distinct coordinates in the same 
   await page.locator("[data-workspace-activate]").click();
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".library-overview-surface h1"))
-    .toHaveText("All libraries");
+    .toHaveText(core.name);
   await openProductDestination(page, "workspace");
   await page.locator("[data-workspace-platform]").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
@@ -1196,7 +1199,17 @@ test("framework Library metadata refresh preserves native pointer activation", a
   const result = page.locator(
     '[data-sl-framework-lib="System.Text.Json"]',
   );
-  await expect(result).not.toContainText("loaded");
+  const resultIdentity = JSON.stringify([
+    "framework-lib",
+    "net11.0",
+    platformVersion,
+    "netcore.app",
+    "System.Text.Json",
+  ]);
+  await expect(result).toHaveAttribute(
+    "data-sl-result-identity",
+    resultIdentity,
+  );
   const name = result.locator(".spotlight-item-name");
   const resultHandle = await result.elementHandle();
   const nameHandle = await name.elementHandle();
@@ -1211,7 +1224,10 @@ test("framework Library metadata refresh preserves native pointer activation", a
   await page.mouse.down();
 
   await releaseFacade(page, "finish-platform-library");
-  await expect(result).toContainText("loaded");
+  await expect(result).toHaveAttribute(
+    "data-sl-result-identity",
+    resultIdentity,
+  );
   expect(await resultHandle.evaluate(element =>
     document.querySelector('[data-sl-framework-lib="System.Text.Json"]')
       === element)).toBe(true);
