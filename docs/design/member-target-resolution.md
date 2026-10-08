@@ -93,7 +93,11 @@ A request keeps the complete surface when it:
 - targets an image that declares a same-named extension method, which the
   complete surface projects onto receiver Types;
 - names a Type that the metadata owner cannot find by full name, such as a
-  forwarded Type.
+  forwarded Type;
+- names a Type for which surface Type lookup (`TypeMatcher`) also admits
+  another TypeDef or exported Type, such as a case-variant or dotted-suffix
+  name like `A.Outer.Widget` for `Outer.Widget`. Lookup takes the first match
+  in surface order, so only a unique candidate is the Type it selects.
 
 When the selected Type is out of scope, for example a hidden Type without
 `--all`, the selected-Type surface is empty. The CLI then rebuilds the complete
@@ -105,5 +109,6 @@ type forwarders elsewhere in the image. Across 12,144 requests (the six
 sections, first and last overload ordinals, both scopes, five shared-framework
 assemblies), output is byte-identical to the complete route except in 1,152
 System.Text.Json requests. Those drop the rejected-row warning and exit 0
-instead of 1. `MemberSingleTypeSurfaceTests` gates section parity and the
-absence of forwarded-Type resolution.
+instead of 1. `MemberSingleTypeSurfaceTests` gates section parity, suffix-colliding
+Type parity, the empty-surface rebuild, and the absence of forwarded-Type
+resolution.
