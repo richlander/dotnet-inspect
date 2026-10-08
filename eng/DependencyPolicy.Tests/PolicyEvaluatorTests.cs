@@ -1528,6 +1528,7 @@ public sealed class PolicyEvaluatorTests
                 "$platform",
                 "CSharpText",
                 "DotnetInspect.Web.Core",
+                "DotnetInspector.InspectionContracts",
                 "DotnetInspector.Packages",
                 "DotnetInspector.Presentation",
                 "DotnetInspector.Queries",
