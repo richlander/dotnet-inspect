@@ -99,7 +99,10 @@ A request keeps the complete surface when it:
   or a dotted suffix such as `A.Outer.Widget` for `Outer.Widget`. Lookup takes
   the first exact match in surface order. It consults base-name matches, such
   as `JsonValue` and ``JsonValue`1``, only when no exact match exists, so those
-  siblings keep the selected-Type surface.
+  siblings keep the selected-Type surface;
+- targets an image whose Type-name scan rejects a malformed row, such as a
+  nested-Type or exported-Type cycle. The complete route reports that row and
+  still renders the selected member.
 
 When the selected Type is out of scope, for example a hidden Type without
 `--all`, the selected-Type surface is empty. The CLI then rebuilds the complete
@@ -112,5 +115,5 @@ sections, first and last overload ordinals, both scopes, five shared-framework
 assemblies), output is byte-identical to the complete route except in 1,152
 System.Text.Json requests. Those drop the rejected-row warning and exit 0
 instead of 1. `MemberSingleTypeSurfaceTests` gates section parity, suffix-colliding
-and generic-arity sibling Types, the empty-surface rebuild, and the absence
-of forwarded-Type resolution.
+and generic-arity sibling Types, malformed unrelated rows, the empty-surface
+rebuild, and the absence of forwarded-Type resolution.
