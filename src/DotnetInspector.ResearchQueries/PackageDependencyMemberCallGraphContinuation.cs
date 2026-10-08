@@ -1256,13 +1256,17 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                             .DescribeScopeOperation(rootAdmission));
                 goto ConstructionComplete;
             }
+            MemberCallGraphFocalScopeReceipt focalScope =
+                MemberCallGraphFocalScopeReceipt.CaptureEverything(
+                    rootedScope,
+                    registrations);
             lowerRequest = new(
                 workspace,
                 rootedScope,
                 registrations,
                 preparation.Traversal,
                 [preparation.Request.Root],
-                preparation.EdgeExecutions,
+                preparation.PrepareEdgeExecutions(focalScope),
                 new(
                     rootOccurrenceIndex: 0,
                     preparation.Request.Focus.ModuleVersionId,

@@ -1826,7 +1826,7 @@ export const engineWorkerOrdinaryOperations = {
   callGraph: {
     queryMemberCallGraph: valueOperation(
       "ordinary-call-graph-query-member",
-      11,
+      12,
       (
         facades,
         ...args: Parameters<CallGraphFacade["queryMemberCallGraph"]>
