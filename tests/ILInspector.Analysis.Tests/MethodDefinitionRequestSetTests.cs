@@ -102,6 +102,267 @@ public sealed class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void
+        Plan_SeparatesInstructionSourceKindsWithoutWideningLanes()
+    {
+        MethodDefinitionSourceAssociation shallow =
+            Association(
+                MethodCallCountProducer.DirectInvocations,
+                ProducerTerminal.Count);
+        MethodDefinitionSourceAssociation retained =
+            Association(
+                PrefixRetainedInstructionProducer.Instance,
+                ProducerTerminal.Count);
+
+        MethodDefinitionSourceRequestSetPlan plan =
+            AcceptedPlan([shallow, retained]);
+        Assert.Equal(2, plan.Groups.Length);
+        MethodDefinitionSourceGroupPlan shallowGroup =
+            Assert.Single(
+                plan.Groups,
+                group => ReferenceEquals(
+                    group.Lanes[0].Associations[0].Identity,
+                    shallow.Identity));
+        MethodDefinitionSourceGroupPlan retainedGroup =
+            Assert.Single(
+                plan.Groups,
+                group => ReferenceEquals(
+                    group.Lanes[0].Associations[0].Identity,
+                    retained.Identity));
+        MethodDefinitionSourceLanePlan shallowLane =
+            Assert.Single(shallowGroup.Lanes);
+        MethodDefinitionSourceLanePlan retainedLane =
+            Assert.Single(retainedGroup.Lanes);
+
+        MethodBodyAnalyzerPlan shallowPlan =
+            Assert.IsType<MethodBodyAnalyzerPlan>(
+                shallowLane.InstructionPlan);
+        Assert.Equal(
+            MethodBodyInstructionAccess.ForwardOnly,
+            shallowPlan.Demand.Access);
+        Assert.Equal(
+            MethodBodyInstructionDetail.OpcodeAndExtent,
+            shallowPlan.Demand.Detail);
+        Assert.Equal(
+            MethodBodyInstructionSourceKind.NoRetentionStream,
+            shallowPlan.Source);
+
+        MethodBodyAnalyzerPlan retainedPlan =
+            Assert.IsType<MethodBodyAnalyzerPlan>(
+                retainedLane.InstructionPlan);
+        Assert.Equal(
+            MethodBodyInstructionSourceKind.LazyRetainedSequence,
+            retainedPlan.Source);
+
+        MethodBodyAnalyzerPlan shallowGroupPlan =
+            Assert.IsType<MethodBodyAnalyzerPlan>(
+                shallowGroup.InstructionPlan);
+        Assert.Equal(
+            MethodBodyInstructionAccess.ForwardOnly,
+            shallowGroupPlan.Demand.Access);
+        Assert.Equal(
+            MethodBodyInstructionDetail.OpcodeAndExtent,
+            shallowGroupPlan.Demand.Detail);
+        Assert.Equal(
+            MethodBodyInstructionSourceKind.NoRetentionStream,
+            shallowGroupPlan.Source);
+        MethodBodyAnalyzerPlan retainedGroupPlan =
+            Assert.IsType<MethodBodyAnalyzerPlan>(
+                retainedGroup.InstructionPlan);
+        Assert.Equal(
+            MethodBodyInstructionAccess.RetainedPrefix,
+            retainedGroupPlan.Demand.Access);
+        Assert.Equal(
+            MethodBodyInstructionDetail.SelectiveOperands,
+            retainedGroupPlan.Demand.Detail);
+        Assert.Equal(
+            MethodBodyInstructionSourceKind.LazyRetainedSequence,
+            retainedGroupPlan.Source);
+        Assert.Single(
+            shallowGroupPlan.StructuralPlan.Requirements);
+        Assert.Single(
+            retainedGroupPlan.StructuralPlan.Requirements);
+    }
+
+    [Fact]
+    public void Execute_SeparatesNoRetentionAndRetainedInstructionSources()
+    {
+        MethodDefinitionSourceAssociation shallow =
+            Association(
+                MethodCallCountProducer.DirectInvocations,
+                ProducerTerminal.Count);
+        MethodDefinitionSourceAssociation retained =
+            Association(
+                PrefixRetainedInstructionProducer.Instance,
+                ProducerTerminal.Count);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(AcceptedPlan([shallow, retained]));
+        Assert.Equal(2, execution.GroupReceipts.Length);
+        MethodDefinitionInstructionWorkCoverage shallowWork =
+            execution.ResultOf(shallow)
+                .SourceReceipt.Coverage.InstructionWork;
+        MethodDefinitionInstructionWorkCoverage retainedWork =
+            execution.ResultOf(retained)
+                .SourceReceipt.Coverage.InstructionWork;
+        MethodDefinitionInstructionWorkCoverage shallowPhysical =
+            Assert.Single(
+                execution.GroupReceipts,
+                group => ReferenceEquals(
+                    group.Source,
+                    execution.ResultOf(shallow).Source))
+                .PhysicalCoverage.InstructionWork;
+        MethodDefinitionInstructionWorkCoverage retainedPhysical =
+            Assert.Single(
+                execution.GroupReceipts,
+                group => ReferenceEquals(
+                    group.Source,
+                    execution.ResultOf(retained).Source))
+                .PhysicalCoverage.InstructionWork;
+
+        Assert.True(shallowPhysical.NoRetentionSourcesOpened > 0);
+        Assert.Equal(0, shallowPhysical.LazyRetainedSourcesOpened);
+        Assert.Equal(shallowPhysical, shallowWork);
+        Assert.Equal(0, retainedPhysical.NoRetentionSourcesOpened);
+        Assert.True(retainedPhysical.LazyRetainedSourcesOpened > 0);
+        Assert.Equal(retainedPhysical, retainedWork);
+        Assert.True(
+            retainedPhysical.InstructionsVisited
+            < shallowPhysical.InstructionsVisited);
+    }
+
+    [Fact]
+    public void Execute_AttributesRetainedSourceOpeningToOpeningLane()
+    {
+        MethodDefinitionSourceAssociation prefix =
+            Association(
+                PrefixRetainedInstructionProducer.Instance,
+                ProducerTerminal.Count);
+        MethodDefinitionSourceAssociation complete =
+            Association(
+                RetainedInstructionProducer.Instance,
+                ProducerTerminal.Count);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(AcceptedPlan([prefix, complete]));
+        MethodDefinitionInstructionWorkCoverage physical =
+            Assert.Single(execution.GroupReceipts)
+                .PhysicalCoverage.InstructionWork;
+        MethodDefinitionInstructionWorkCoverage prefixWork =
+            execution.ResultOf(prefix)
+                .SourceReceipt.Coverage.InstructionWork;
+        MethodDefinitionInstructionWorkCoverage completeWork =
+            execution.ResultOf(complete)
+                .SourceReceipt.Coverage.InstructionWork;
+
+        Assert.Equal(0, physical.NoRetentionSourcesOpened);
+        Assert.True(physical.LazyRetainedSourcesOpened > 0);
+        Assert.Equal(
+            physical.LazyRetainedSourcesOpened,
+            prefixWork.LazyRetainedSourcesOpened);
+        Assert.Equal(0, completeWork.LazyRetainedSourcesOpened);
+        Assert.True(
+            completeWork.InstructionsVisited
+            > prefixWork.InstructionsVisited);
+        Assert.Equal(
+            completeWork.InstructionsVisited,
+            physical.InstructionsVisited);
+    }
+
+    [Fact]
+    public void Execute_FusesNoRetentionInstructionSourceAcrossLanes()
+    {
+        MethodDefinitionSourceAssociation direct =
+            Association(
+                MethodCallCountProducer.DirectInvocations,
+                ProducerTerminal.Count);
+        MethodDefinitionSourceAssociation callSites =
+            Association(
+                MethodCallCountProducer.CallSites,
+                ProducerTerminal.Count);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(AcceptedPlan([direct, callSites]));
+        MethodDefinitionInstructionWorkCoverage physical =
+            Assert.Single(execution.GroupReceipts)
+                .PhysicalCoverage.InstructionWork;
+        MethodDefinitionInstructionWorkCoverage directWork =
+            execution.ResultOf(direct)
+                .SourceReceipt.Coverage.InstructionWork;
+        MethodDefinitionInstructionWorkCoverage callSiteWork =
+            execution.ResultOf(callSites)
+                .SourceReceipt.Coverage.InstructionWork;
+
+        Assert.True(physical.NoRetentionSourcesOpened > 0);
+        Assert.Equal(0, physical.LazyRetainedSourcesOpened);
+        Assert.Equal(
+            physical.NoRetentionSourcesOpened,
+            directWork.NoRetentionSourcesOpened);
+        Assert.Equal(
+            physical.NoRetentionSourcesOpened,
+            callSiteWork.NoRetentionSourcesOpened);
+        Assert.Equal(
+            physical.InstructionsVisited,
+            directWork.InstructionsVisited);
+        Assert.Equal(
+            physical.InstructionsVisited,
+            callSiteWork.InstructionsVisited);
+    }
+
+    [Fact]
+    public void
+        Execute_RejectsScopeGuardOnPendingFusedInstructionFact()
+    {
+        FusedClassificationProducer classifier =
+            FusedClassificationProducer.Instance;
+        var guarded = new GuardedCountProducer(classifier);
+        MethodDefinitionSourceAssociation guardedAssociation =
+            Association(
+                guarded,
+                ProducerTerminal.Count);
+        MethodDefinitionSourceAssociation callSites =
+            Association(
+                MethodCallCountProducer.CallSites,
+                ProducerTerminal.Count);
+
+        ProducerContractException exception =
+            Assert.Throws<ProducerContractException>(
+                () => Execute(
+                    AcceptedPlan(
+                        [guardedAssociation, callSites])));
+
+        Assert.Contains(
+            "before the shared instruction stream completes",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Execute_RetainedInstructionFailureReceiptsCompletedPrefix()
+    {
+        MethodDefinitionSourceAssociation retained =
+            Association(
+                RetainedInstructionProducer.Instance,
+                ProducerTerminal.Count);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(
+                AcceptedPlan([retained]),
+                TwoMethodsInExcludedTypeWithFirstBody(
+                    [0x0A, 0x00, 0x28]));
+        MethodDefinitionInstructionWorkCoverage work =
+            execution.ResultOf(retained)
+                .SourceReceipt.Coverage.InstructionWork;
+
+        Assert.Equal(
+            ProducerOutcome.Failed,
+            ResultOf<int>(execution, retained).Outcome);
+        Assert.Equal(0, work.NoRetentionSourcesOpened);
+        Assert.Equal(1, work.LazyRetainedSourcesOpened);
+        Assert.Equal(1, work.InstructionsVisited);
+    }
+
+    [Fact]
     public void Execute_SharedClosingsEqualIndependentReferenceResults()
     {
         CountingProducer producer = CountingProducer.Instance;
@@ -318,6 +579,36 @@ public sealed class MethodDefinitionRequestSetTests
             completeReceipt.Coverage.TerminalWork.BodiesAdmitted > 1);
         Assert.Null(
             completeReceipt.Coverage.TerminalWork.ReachedLimit);
+    }
+
+    [Fact]
+    public void
+        Execute_CallCountBodyBoundDoesNotOpenUnacquiredInstructionSource()
+    {
+        var limits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies: 1,
+            maximumEncodedIlBytes: long.MaxValue);
+        MethodDefinitionSourceAssociation association =
+            Association(
+                MethodCallCountProducer.DirectInvocations,
+                ProducerTerminal.Count,
+                terminalWorkLimits: limits);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(AcceptedPlan([association]));
+        MethodDefinitionSourceReceipt receipt =
+            execution.ResultOf(association).SourceReceipt;
+
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            receipt.Completion);
+        Assert.Equal(
+            1,
+            receipt.Coverage.TerminalWork.BodiesAdmitted);
+        Assert.Equal(
+            1,
+            receipt.Coverage.InstructionWork
+                .NoRetentionSourcesOpened);
     }
 
     [Fact]
@@ -1209,6 +1500,274 @@ public sealed class MethodDefinitionRequestSetTests
             view.HasManagedBody
                 ? view.GetBody().Size
                 : 0;
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(
+            int accumulator,
+            int fact) =>
+            accumulator + fact;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+    }
+
+    sealed class RetainedInstructionProducer
+        : MethodDefinitionProducer<int, int, int>
+    {
+        RetainedInstructionProducer()
+            : base(
+                "RetainedInstruction",
+                version: 1,
+                tier: 0,
+                MethodDefinitionLayers.Body)
+        {
+        }
+
+        public static RetainedInstructionProducer Instance { get; } =
+            new();
+
+        internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
+            InstructionAnalyzers =>
+            [MethodBodyAnalyzerDeclarations.BoundedFlow];
+
+        internal override int Visit(scoped MethodDefinitionView view)
+        {
+            if (!view.HasManagedBody)
+                return 0;
+
+            int instructions = 0;
+            view.VisitInstructionShapes(
+                ref instructions,
+                static (
+                    ref int count,
+                    ILOpCode _,
+                    int _) =>
+                {
+                    count++;
+                    return true;
+                });
+            return instructions;
+        }
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + fact;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+    }
+
+    sealed class PrefixRetainedInstructionProducer
+        : MethodDefinitionProducer<int, int, int>
+    {
+        PrefixRetainedInstructionProducer()
+            : base(
+                "PrefixRetainedInstruction",
+                version: 1,
+                tier: 0,
+                MethodDefinitionLayers.Body)
+        {
+        }
+
+        public static PrefixRetainedInstructionProducer Instance { get; } =
+            new();
+
+        internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
+            InstructionAnalyzers =>
+            [MethodBodyAnalyzerDeclarations.BoundedFlow];
+
+        internal override int Visit(scoped MethodDefinitionView view)
+        {
+            if (!view.HasManagedBody)
+                return 0;
+
+            int instructions = 0;
+            view.VisitInstructionShapes(
+                ref instructions,
+                static (
+                    ref int count,
+                    ILOpCode _,
+                    int _) =>
+                {
+                    count++;
+                    return false;
+                });
+            return instructions;
+        }
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + fact;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+    }
+
+    sealed class FusedClassificationProducer
+        : MethodDefinitionProducer<int, int, int>
+    {
+        FusedClassificationProducer()
+            : base(
+                "Test.FusedInstructionClassifier",
+                version: 1,
+                tier: 0,
+                MethodDefinitionLayers.Body)
+        {
+        }
+
+        public static FusedClassificationProducer Instance { get; } =
+            new();
+
+        internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
+            InstructionAnalyzers =>
+            [MethodBodyAnalyzerDeclarations.ThrowPresence];
+
+        internal override MethodDefinitionExecution.ProducerState
+            CreateState(
+                MethodDefinitionExecution execution,
+                ProducerTerminal terminal,
+                int? rowLimit,
+                ImmutableArray<int> dependencies,
+                UnitFactRetention retention) =>
+            new FusedState(
+                this,
+                execution,
+                terminal,
+                rowLimit,
+                dependencies,
+                retention);
+
+        internal override int Visit(
+            scoped MethodDefinitionView view)
+        {
+            if (!view.HasManagedBody)
+                return 1;
+
+            int ignored = 0;
+            view.VisitInstructionShapes(
+                ref ignored,
+                static (
+                    ref int state,
+                    ILOpCode opcode,
+                    int encodedLength) =>
+                {
+                    _ = state;
+                    _ = opcode;
+                    _ = encodedLength;
+                    return true;
+                });
+            return 0;
+        }
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(
+            int accumulator,
+            int fact) =>
+            accumulator + 1;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+
+        internal override bool ClassifiesUnits => true;
+
+        internal override int UnitClass(int fact) => fact;
+
+        sealed class FusedState : State
+        {
+            int _methodToken;
+
+            public FusedState(
+                FusedClassificationProducer producer,
+                MethodDefinitionExecution execution,
+                ProducerTerminal terminal,
+                int? rowLimit,
+                ImmutableArray<int> dependencies,
+                UnitFactRetention retention)
+                : base(
+                    producer,
+                    execution,
+                    terminal,
+                    rowLimit,
+                    dependencies,
+                    retention)
+            {
+            }
+
+            public override bool SupportsFusedInstructionShapes =>
+                true;
+
+            public override bool TryBeginInstructionShapes(
+                scoped MethodDefinitionView view,
+                out MethodBodyBlock? body,
+                out bool settled)
+            {
+                _methodToken = view.Token;
+                if (!view.HasManagedBody)
+                {
+                    body = null;
+                    settled = AcceptFact(view.Token, 1);
+                    return false;
+                }
+
+                body = view.GetBody();
+                settled = false;
+                return true;
+            }
+
+            public override bool VisitInstructionShape(
+                ILOpCode opcode,
+                int encodedLength)
+            {
+                _ = opcode;
+                _ = encodedLength;
+                return true;
+            }
+
+            public override bool CompleteInstructionShapes(
+                Exception? failure)
+            {
+                if (failure is not null)
+                    throw failure;
+                return AcceptFact(_methodToken, 0);
+            }
+        }
+    }
+
+    sealed class GuardedCountProducer
+        : MethodDefinitionProducer<int, int, int>
+    {
+        public GuardedCountProducer(
+            FusedClassificationProducer classifier)
+            : base(
+                "Test.GuardedFusedInstructionCount",
+                version: 1,
+                tier: 0,
+                MethodDefinitionLayers.Declaration,
+                () =>
+                [
+                    new ProducerDependency(
+                        classifier,
+                        ProducerDependencyKind.VisitNeedsVisit,
+                        AcceptedUnitClasses: 1),
+                ])
+        {
+        }
+
+        internal override int Visit(
+            scoped MethodDefinitionView view) =>
+            1;
 
         internal override int Seed() => 0;
 

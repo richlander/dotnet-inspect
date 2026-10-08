@@ -61,6 +61,7 @@ public partial class PackageQueryTests
         Assert.Single(source.ManifestRequests);
         Assert.Single(content.Requests);
         Assert.Empty(archive.EntryRequests);
+        Assert.Same(PackageQueryContentDemand.Inventory, Assert.Single(content.Demands));
     }
 
     [Fact]

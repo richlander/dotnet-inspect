@@ -235,6 +235,10 @@ public sealed class PackageQueryPlan
         Intent = intent;
         Prefix = prefix;
         BoundTerms = terms;
+        ContentDemand = terms.Any(term => term.Predicate.RequiresPackageContent
+            && term.Predicate.Kind != PackageQueryPredicateKind.Skill)
+            ? PackageQueryContentDemand.EntryContent
+            : PackageQueryContentDemand.Inventory;
         Terms = [.. terms.Select(term => term.Term)];
         DependencyTarget = dependencyTarget;
         DependencyDepth = dependencyDepth;
@@ -265,6 +269,10 @@ public sealed class PackageQueryPlan
     internal PackageQueryEcosystemMembershipDeclaration? EcosystemMembership { get; }
     public bool RequiresPackageContent =>
         BoundTerms.Any(term => term.Predicate.RequiresPackageContent);
+
+    /// <summary>Evidence needed by the complete bound content predicate set.</summary>
+    public PackageQueryContentDemand ContentDemand { get; }
+
     public bool RequiresLibraryLiteralEvaluation =>
         BoundTerms.Any(term =>
             term.Predicate.Kind == PackageQueryPredicateKind.LibraryLiteral);
@@ -647,12 +655,54 @@ public abstract record PackageQueryEvent
     public sealed record Completed(PackageQuerySummary Value) : PackageQueryEvent;
 }
 
+/// <summary>Shared semantic evidence demand, selected before host acquisition.</summary>
+public sealed class PackageQueryContentDemand
+{
+    private PackageQueryContentDemand(PackageHouseContentQuery? query)
+    {
+        ContentQuery = query;
+    }
+
+    public static PackageQueryContentDemand Inventory { get; } = new(
+        new PackageHouseContentQuery(
+            new PackageHouseContentNarrowing.PackageWide(),
+            [new PackageHouseContentTerminal.FileList()]));
+
+    public static PackageQueryContentDemand EntryContent { get; } = new(null);
+
+    /// <summary>
+    /// The House query for inventory evidence. Null retains entry-content
+    /// acquisition for predicates whose body demand has not yet been narrowed.
+    /// </summary>
+    public PackageHouseContentQuery? ContentQuery { get; }
+}
+
 /// <summary>The result of acquiring admitted package content for one query candidate.</summary>
 public abstract record PackageQueryContentResult
 {
     private PackageQueryContentResult()
     {
     }
+
+    public static PackageQueryContentResult FromSettlement(PackageHouseSettlement settlement) =>
+        settlement is PackageHouseSettlement.Acquired acquired
+            ? acquired.Result.Evidence.FileList is { } fileList
+                ? new InventoryAvailable(fileList)
+                : new Available(acquired.Payload.Content)
+            : new Unavailable(settlement.Result switch
+            {
+                PackageHouseResult.NotFound value => value.Reason.ToString(),
+                PackageHouseResult.NoMatch value => value.Reason.ToString(),
+                PackageHouseResult.Ambiguous value => value.Reason.ToString(),
+                PackageHouseResult.Rejected value => value.Reason.ToString(),
+                PackageHouseResult.Unavailable value => value.Reason.ToString(),
+                PackageHouseResult.Incomplete value => value.Reason.ToString(),
+                PackageHouseResult.Failed value => value.Reason.ToString(),
+                _ => settlement.Result.GetType().Name,
+            });
+
+    public sealed record InventoryAvailable(PackageHouseFileList FileList)
+        : PackageQueryContentResult;
 
     public sealed record Available(IPackageContent Content)
         : PackageQueryContentResult;
@@ -668,6 +718,7 @@ public interface IPackageQueryContentProvider
 {
     ValueTask<PackageQueryContentResult> GetContentAsync(
         PackageQueryPackage package,
+        PackageQueryContentDemand demand,
         CancellationToken cancellationToken);
 }
 
@@ -1980,6 +2031,7 @@ public static partial class PackageQuery
                         PackageQueryContentResult contentResult =
                             await contentProvider!.GetContentAsync(
                                 match.Value,
+                                plan.ContentDemand,
                                 cancellationToken).ConfigureAwait(false);
                         if (contentResult
                             is PackageQueryContentResult.Unavailable unavailable)
@@ -2001,16 +2053,28 @@ public static partial class PackageQuery
                             continue;
                         }
 
-                        IPackageContent content =
-                            ((PackageQueryContentResult.Available)contentResult)
-                                .Content;
                         PackageContentFacts? facts = null;
                         try
                         {
-                            facts = await ReadPackageContentFactsAsync(
-                                content,
-                                plan.BoundTerms,
-                                cancellationToken).ConfigureAwait(false);
+                            facts = contentResult switch
+                            {
+                                PackageQueryContentResult.InventoryAvailable inventory
+                                    when ReferenceEquals(plan.ContentDemand, PackageQueryContentDemand.Inventory) =>
+                                    new PackageContentFacts(
+                                        SummarizeItems(inventory.FileList.Entries
+                                            .Select(entry => entry.Path).Where(IsSkillDocument),
+                                            StringComparer.Ordinal),
+                                        null, []),
+                                PackageQueryContentResult.InventoryAvailable =>
+                                    throw new InvalidDataException(
+                                        "Package inventory cannot satisfy entry-content predicates."),
+                                PackageQueryContentResult.Available available =>
+                                    await ReadPackageContentFactsAsync(
+                                        available.Content, plan.BoundTerms,
+                                        cancellationToken).ConfigureAwait(false),
+                                _ => throw new InvalidOperationException(
+                                    "Package Query content provider returned an unknown outcome."),
+                            };
                         }
                         catch (Exception ex) when (
                             ex is IOException

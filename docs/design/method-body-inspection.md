@@ -855,14 +855,18 @@ A method enters the inventory when Analysis proves at least one of these roles:
 
 - the declaration has an explicit updated-model caller-unsafe contract;
 - its body contains a reconstructed operation that requires an unsafe context;
-- it calls a same-image member with an explicit updated-model caller-unsafe
-  contract.
+- it calls a member with an explicit updated-model caller-unsafe contract:
+  a same-image member that declares one, or a .NET platform member that
+  [Platform caller-unsafe contracts](platform-caller-unsafe-contracts.md)
+  project.
 
 The declaration role records only an explicit caller contract. A legacy
 pointer-bearing signature (`CallerUnsafeMode.Implicit`) is not propagation
-evidence for this inventory. Pointer-bearing signatures and locals, calls to
+evidence for this inventory. Pointer-bearing signatures and locals, a call
+admitted only by its callee's type name, such as any member of
 `System.Runtime.CompilerServices.Unsafe`, and opcode presence by themselves do
-not admit a method. In particular, `localloc` lowered into an initialized
+not admit a method; a call admits one only through its callee's explicit
+contract. In particular, `localloc` lowered into an initialized
 `Span<T>` does not require an unsafe context; raw-pointer stack allocation and
 Span-backed stack allocation under skipped-local-initialization semantics do.
 That holds through Roslyn's collection-initializer lowerings
@@ -888,11 +892,11 @@ The inventory reports compiled roles, not source spelling. It does not claim
 that an `unsafe` block existed, distinguish block and expression forms, grade a
 finding, or infer a source modifier that metadata cannot preserve.
 
-The first publication slice resolves explicit call-target contracts only
-within the primary image. Cross-assembly explicit-contract consumption,
-field-focused operation roles, and additional reconstructed operation families
-remain focused successors; callers must not interpret their absence as a
-whole-closure negative claim.
+Explicit call-target contracts resolve within the primary image and, for .NET
+platform call targets, from the committed reference-pack projection. General
+cross-assembly explicit-contract consumption, field-focused operation roles,
+and additional reconstructed operation families remain focused successors;
+callers must not interpret their absence as a whole-closure negative claim.
 
 The inventory is keyed by physical body.
 [Unsafe member findings](unsafe-member-findings.md) own its attribution to

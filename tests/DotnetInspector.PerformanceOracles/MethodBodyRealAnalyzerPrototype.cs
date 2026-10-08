@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
+using ILInspector.Analysis.Planning;
 using ILInspector.Instructions;
 
 namespace DotnetInspector.PerformanceOracles;

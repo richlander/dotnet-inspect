@@ -165,6 +165,17 @@ test("package document list stays absent when the package ships no documents", (
   assert.equal(renderPackageDocuments([], escapeHtml), "");
 });
 
+test("package nuspec is listed under Metadata, apart from Documentation", () => {
+  const html = renderPackageDocuments([
+    { kind: "readme", name: "README.md", path: "README.md", size: 1 },
+    { kind: "metadata", name: "Widget.nuspec", path: "Widget.nuspec", size: 2 },
+  ], escapeHtml);
+
+  assert.match(html, /Documentation<\/h2><span>1 file — click to read/);
+  assert.match(html, /Metadata<\/h2><span>1 file — click to view/);
+  assert.match(html, /doc-chip doc-metadata" data-doc-path="Widget\.nuspec"/);
+});
+
 test("loading state shows a loading status scoped to the document title, not the body", () => {
   const html = renderDocViewer({
     state: { status: "loading", request },
