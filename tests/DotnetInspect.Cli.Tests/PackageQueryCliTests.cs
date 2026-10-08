@@ -2204,7 +2204,7 @@ public class PackageQueryCliTests
             explanationPath);
 
         var explanation = await Run(
-            ["explain", explanationPath, "--json"]);
+            ["explain", explanationPath, ".contract", "--json"]);
         Assert.Equal(0, explanation.ExitCode);
         Assert.Empty(explanation.Error);
         using JsonDocument explanationDocument =

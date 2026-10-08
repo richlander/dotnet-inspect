@@ -41,7 +41,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var json = await RunAsync(
             "explain",
             "package/sections/readme",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, json.ExitCode);
         Assert.Empty(json.Error);
@@ -83,7 +83,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var result = await RunAsync(
             "explain",
             $"library/sections/{section}",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -101,7 +101,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var result = await RunAsync(
             "explain",
             "library/sections/dependency-structure",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, result.ExitCode);
         using JsonDocument document = JsonDocument.Parse(result.Output);
@@ -122,7 +122,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var result = await RunAsync(
             "explain",
             path,
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -156,7 +156,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var typeInfo = await RunAsync(
             "explain",
             "member/sections/type-info",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, typeInfo.ExitCode);
         Assert.Empty(typeInfo.Error);
@@ -172,7 +172,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var source = await RunAsync(
             "explain",
             "member-detail/sections/source",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, source.ExitCode);
         Assert.Empty(source.Error);
@@ -227,7 +227,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var json = await RunAsync(
             "explain",
             "library/categories",
-            "--json");
+            ".contract", "--json");
         var human = await RunAsync(
             "explain",
             "library/categories");
@@ -369,7 +369,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 .GetProperty("path")
                 .GetString());
 
-        var explanation = await RunAsync("explain", path, "--json");
+        var explanation = await RunAsync("explain", path, ".contract", "--json");
 
         Assert.Equal(0, explanation.ExitCode);
         Assert.Empty(explanation.Error);
@@ -421,7 +421,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             path,
             "--depth",
             "2",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, explanation.ExitCode);
         Assert.Empty(explanation.Error);
@@ -479,7 +479,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             "package-files/routes/default",
             "--depth",
             "2",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -569,7 +569,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var explanation = await RunAsync(
             "explain",
             path,
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, explanation.ExitCode);
         Assert.Empty(explanation.Error);
@@ -654,7 +654,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var result = await RunAsync(
             "explain",
             "library",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -674,7 +674,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             "vocabularies",
             "--depth",
             "1",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -700,7 +700,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var json = await RunAsync(
             "explain",
             "vocabularies/csharp.body-kinds",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, json.ExitCode);
         Assert.Empty(json.Error);
@@ -731,7 +731,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             "vocabularies/csharp.style-tiers",
             "--depth",
             "1",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, bulk.ExitCode);
         Assert.Empty(bulk.Error);
@@ -803,7 +803,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 pin.Path,
                 "--depth",
                 pin.Depth.ToString(CultureInfo.InvariantCulture),
-                "--json");
+                ".contract", "--json");
 
             Assert.Equal(0, result.ExitCode);
             Assert.Empty(result.Error);
@@ -823,7 +823,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var result = await RunAsync(
             "explain",
             "vocabularies/csharp.style-choices",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, result.ExitCode);
         using JsonDocument document = JsonDocument.Parse(result.Output);
@@ -949,7 +949,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             "library/sections/reference-hierarchy",
             "--depth",
             "1",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -1023,6 +1023,58 @@ public sealed class ResourceExplanationCommandTests : IDisposable
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(0, requests);
+    }
+
+    [Theory]
+    [InlineData("vocabularies/csharp.body-kinds", 0)]
+    [InlineData("vocabularies/csharp.style-choices", 1)]
+    [InlineData("package-query/query/facets/library-literal", 0)]
+    public async Task CompactData_ExposesFactsAndUsableLinksWithoutDeclarations(
+        string path, int depth)
+    {
+        var data = await RunAsync("explain", path, "--depth", depth.ToString(
+            CultureInfo.InvariantCulture), "--json");
+        var contract = await RunAsync("explain", path, ".contract", "--depth",
+            depth.ToString(CultureInfo.InvariantCulture), "--json");
+        Assert.Equal(0, data.ExitCode);
+        Assert.Equal(0, contract.ExitCode);
+        using JsonDocument compact = JsonDocument.Parse(data.Output);
+        using JsonDocument complete = JsonDocument.Parse(contract.Output);
+        Assert.False(compact.RootElement.TryGetProperty("schemas", out _));
+        Assert.True(complete.RootElement.TryGetProperty("schemas", out _));
+        Assert.True(data.Output.Length < contract.Output.Length / 2);
+        string href = compact.RootElement.GetProperty("_links").GetProperty("self")
+            .GetProperty("href").GetString()!;
+        var followed = await RunAsync("explain", href, "--json");
+        Assert.Equal(0, followed.ExitCode);
+        using JsonDocument same = JsonDocument.Parse(followed.Output);
+        Assert.Equal(path, same.RootElement.GetProperty("path").GetString());
+        JsonElement facts = compact.RootElement.GetProperty("facts");
+        Assert.Equal(TextFact(complete.RootElement.GetProperty("resources")[0], "name"),
+            facts.GetProperty("name").GetString());
+        if (path.Contains("library-literal", StringComparison.Ordinal))
+        {
+            Assert.Equal("library-literal", facts.GetProperty("key").GetString());
+            Assert.NotEmpty(facts.GetProperty("operators").EnumerateArray());
+        }
+    }
+
+    [Fact]
+    public async Task ContractProjection_RejectsSearchAndUnknownProjection()
+    {
+        Assert.NotEqual(0, (await RunAsync("explain", "literal", ".contract", "--json")).ExitCode);
+        Assert.NotEqual(0, (await RunAsync("explain", "library", ".missing", "--json")).ExitCode);
+    }
+
+    [Fact]
+    public async Task CompactData_DistinguishesAbsentFactFromAvailableEmptyValues()
+    {
+        var result = await RunAsync("explain", "library/sections/dependency-structure", "--json");
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument data = JsonDocument.Parse(result.Output);
+        Assert.False(data.RootElement.GetProperty("facts").TryGetProperty("shape", out _));
+        Assert.Equal("Absent", data.RootElement.GetProperty("fact_states")
+            .GetProperty("shape").GetProperty("state").GetString());
     }
 
     private static string ResourceType(JsonElement resource) =>

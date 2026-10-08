@@ -20,9 +20,19 @@ public static class ResourceExplanationCommand
         OutputFormat format,
         bool envelopeOutput,
         bool noHeaders,
-        string? outputPath)
+        string? outputPath,
+        bool contract = false)
     {
+        if (contract && format != OutputFormat.Json)
+        {
+            CommandError.Write(".contract requires --json.");
+            return 1;
+        }
+        const string resourcePrefix = "inspect-resource:/";
         string normalizedOperand = operand.Trim();
+        bool resourceAddress = normalizedOperand.StartsWith(resourcePrefix, StringComparison.Ordinal);
+        if (resourceAddress)
+            normalizedOperand = normalizedOperand[resourcePrefix.Length..];
         ResourcePath.TryCreate(
             normalizedOperand,
             out ResourcePath? canonicalPath,
@@ -63,7 +73,8 @@ public static class ResourceExplanationCommand
                     maximumResults,
                     format,
                     envelopeOutput,
-                    outputPath);
+                    outputPath,
+                    contract);
             }
 
             if (rootCatalog is not null)
@@ -75,7 +86,8 @@ public static class ResourceExplanationCommand
                     maximumResults,
                     format,
                     envelopeOutput,
-                    outputPath);
+                    outputPath,
+                    contract);
             }
 
             ResourceExplanationCatalog? exactCatalog = root switch
@@ -98,13 +110,23 @@ public static class ResourceExplanationCommand
                     maximumResults,
                     format,
                     envelopeOutput,
-                    outputPath);
+                    outputPath,
+                    contract);
             }
 
             if (canonicalPath.Value.Contains('/'))
             {
                 return WriteCompleteResolutionFailure(normalizedOperand);
             }
+        }
+
+        if (resourceAddress)
+            return WriteCompleteResolutionFailure(normalizedOperand);
+
+        if (contract)
+        {
+            CommandError.Write(".contract applies only to exact Resource Explanation paths.");
+            return 1;
         }
 
         if (depthExplicitlySet)
@@ -293,7 +315,8 @@ public static class ResourceExplanationCommand
         int? maximumResults,
         OutputFormat format,
         bool envelopeOutput,
-        string? outputPath)
+        string? outputPath,
+        bool contract)
     {
         if (!catalog.TryResolveExact(
                 path,
@@ -315,7 +338,8 @@ public static class ResourceExplanationCommand
             depth,
             format,
             envelopeOutput,
-            outputPath);
+            outputPath,
+            contract);
     }
 
     private static int WriteCompleteResolutionFailure(string path)
@@ -342,7 +366,8 @@ public static class ResourceExplanationCommand
         int depth,
         OutputFormat format,
         bool envelopeOutput,
-        string? outputPath)
+        string? outputPath,
+        bool contract)
     {
         if (envelopeOutput
             || format is not (
@@ -369,11 +394,11 @@ public static class ResourceExplanationCommand
                 if (format == OutputFormat.Json)
                 {
                     output.WriteLine(
-                        JsonSerializer.Serialize(
-                            document,
-                            ResourceExplanationJsonContext
-                                .Default
-                                .ResourceExplanationDocument));
+                        contract
+                            ? JsonSerializer.Serialize(document,
+                                ResourceExplanationJsonContext.Default.ResourceExplanationDocument)
+                            : ResourceExplanationDataProjection.Create(document,
+                                static path => "inspect-resource:/" + path.Value).GetRawText());
                     return;
                 }
 

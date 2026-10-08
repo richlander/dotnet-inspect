@@ -2685,3 +2685,24 @@ when maintaining the embedded skill.
 ## License
 
 MIT
+
+## Exact explanation JSON
+
+`explain <resource> --json` returns compact resource facts and HAL navigation.
+The declared fact names are local to the resource type; ordered values remain
+arrays. Non-available facts appear in `fact_states`, and relationship states
+and truncation remain explicit. Integers and decimals are lossless decimal
+strings; octets are base64 strings.
+
+```bash
+dotnet-inspect explain vocabularies/csharp.body-kinds --json
+dotnet-inspect explain package-query/query/facets/library-literal --json
+dotnet-inspect explain vocabularies/csharp.style-choices --depth 1 --json
+dotnet-inspect explain vocabularies/csharp.body-kinds .contract --json
+```
+
+`.contract` explicitly selects the complete self-contained explanation Document
+with its schema declarations. It requires an exact resource and `--json`.
+HAL links use `inspect-resource:/<resource-path>` addresses; pass a returned
+`href` unchanged to `explain` to follow it. These addresses resolve locally,
+without HTTP access. Human explanation and capability search are unchanged.

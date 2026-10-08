@@ -1006,6 +1006,51 @@ host must offer explicit contract selection over the current resource rather
 than emit a dangling schema link. No JSON Schema or result-contract resource
 is advertised before its owning catalog has adopted it.
 
+#### First CLI lowering adoption
+
+The bounded CLI adoption tracked by #9773 changes exact top-level
+`explain <resource> --json` to compact HAL resource data. Explicit
+`explain <resource> .contract --json` retains the existing self-contained
+Document JSON, including its schemas and traversal receipt. `.contract`
+requires JSON and an exact resource; search, contextual Member explanation,
+and human output retain their existing contracts. This is the first production
+consumer of the shared Sections projection; Browser/Wasm adoption remains
+slice 4 of #9762.
+
+The compact wire contains `identity` with separate owner, schema, type, and
+native identity value; direct available `facts`; non-available `fact_states`;
+local `relationships` with exact state, ordered targets, and completeness;
+public `addresses`; and HAL `_links`. The root retains the existing traversal
+receipt. Requested expanded resources appear once in `_embedded.resources` as
+complete projections of their selected data, not as summary copies. This
+expansion collection is a lowering of Document membership, not a new domain
+relationship. Declared relationship links retain their own local relation names.
+
+Integers and decimals use invariant decimal strings so arbitrary precision
+survives JavaScript consumers. Octets use base64 strings. Booleans, finite
+binary floating-point values, and text use native JSON primitives. Record fields
+use their local names and declared cardinality; choices expose a local `case`
+and optional `value`. Term identities carry separate catalog, vocabulary, and
+term values to avoid delimiter collisions. The explicit contract supplies
+value shapes; no declaration wrapper is repeated for each scalar.
+
+CLI HAL links use absolute `inspect-resource:/<canonical-path>` URIs. The CLI
+accepts these values unchanged as exact explanation operands and resolves them
+against the installed explanation catalog; they never fall back to capability
+search or trigger network access. Other host addresses are supplied by the
+consumer binding to the same shared projection. No HTTP endpoint or schema
+resource is minted. Explicit `.contract` selection provides contract inspection
+until an owner registers a navigable contract address.
+
+Gates: `ResourceExplanationDataProjectionTests` covers detached values,
+precision, octets, empty available facts, and unavailable/failed outcomes;
+`ResourceExplanationTests.SchemaDeclarationCount_IncludesComposedRelationships`
+covers direct record/choice values and available-empty relationship outcomes;
+`ResourceExplanationCommandTests` covers actual vocabularies and Package Query
+facets, usable self links, explicit full-contract JSON, absent facts, and
+rejected projection gestures. NativeAOT and cross-host completion evidence
+remain required before their respective adoption claims are complete.
+
 #### Query meaning and evidence
 
 A facet response preserves its issued key, operand kind, operators, values,
