@@ -57,6 +57,15 @@ documents](type-member-inspection-documents.md#memberoverviewdocument) own the
 complete, ordered exact-Member Rows and their display signatures; shared
 presentation owns native Tree lowering without a CLI-built Markout tree.
 
+The standard Type member-shape Tree is the fifth adopter. [Primary subject
+views](primary-subject-views.md#type-and-member-owners-the-type-and-member-command-designs)
+owns its retained compatibility behavior: structural nodes, kind ordering,
+logical-overload collapse, explicit-verbosity expansion, and member limits.
+The CLI selects Members from its gestures and filters; shared presentation
+owns their exact C# spelling and streams the native Tree without a retained
+Markout graph. This adoption does not preempt the later Composition Count
+heading change.
+
 ## Owner and exact claim
 
 Host-neutral hierarchy projection owns this exact claim:
