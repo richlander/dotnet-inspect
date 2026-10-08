@@ -94,10 +94,12 @@ A request keeps the complete surface when it:
   complete surface projects onto receiver Types;
 - names a Type that the metadata owner cannot find by full name, such as a
   forwarded Type;
-- names a Type for which surface Type lookup (`TypeMatcher`) also admits
-  another TypeDef or exported Type, such as a case-variant or dotted-suffix
-  name like `A.Outer.Widget` for `Outer.Widget`. Lookup takes the first match
-  in surface order, so only a unique candidate is the Type it selects.
+- names a Type for which surface Type lookup (`TypeMatcher.Lookup`) also
+  treats another TypeDef or exported Type as an exact match: a case variant,
+  or a dotted suffix such as `A.Outer.Widget` for `Outer.Widget`. Lookup takes
+  the first exact match in surface order. It consults base-name matches, such
+  as `JsonValue` and ``JsonValue`1``, only when no exact match exists, so those
+  siblings keep the selected-Type surface.
 
 When the selected Type is out of scope, for example a hidden Type without
 `--all`, the selected-Type surface is empty. The CLI then rebuilds the complete
@@ -110,5 +112,5 @@ sections, first and last overload ordinals, both scopes, five shared-framework
 assemblies), output is byte-identical to the complete route except in 1,152
 System.Text.Json requests. Those drop the rejected-row warning and exit 0
 instead of 1. `MemberSingleTypeSurfaceTests` gates section parity, suffix-colliding
-Type parity, the empty-surface rebuild, and the absence of forwarded-Type
-resolution.
+and generic-arity sibling Types, the empty-surface rebuild, and the absence
+of forwarded-Type resolution.
