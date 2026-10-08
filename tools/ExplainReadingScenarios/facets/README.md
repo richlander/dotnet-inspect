@@ -11,6 +11,10 @@ those facts, not an implemented CLI selection. The five jq steps run against
 that proposed document. Host-specific authoring and operand constraints that
 the catalog does not yet expose are identified explicitly in step 5.
 
+The complete proposed [facet JSON](../examples/package-query-facets.json) is
+checked in; the jq steps below can use that file directly instead of generating
+the temporary example.
+
 ## Capture and reproduce
 
 From the compact-projection worktree, with its built CLI:

@@ -5,6 +5,9 @@ operation or refining a query. They compare the website's existing vocabulary
 inspection with PR #9774's compact explanation. They measure retrieved content
 separately from filtered answers; running jq locally does not reduce retrieval.
 
+Browse the [checked-in JSON examples](examples/README.md) to compare the proposed
+style shapes and read the complete facet document without running the tools.
+
 Normative owner: [Resource Explanation](../../docs/design/resource-explanation.md#query-meaning-and-evidence).
 Claim: representative reading tasks must expose traversal complexity, answer
 size, total retrieved bytes, and extra requests before a lowering earns its

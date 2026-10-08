@@ -5,6 +5,9 @@ tradeoffs. It does not start from the existing explanation graph's JSON tree.
 It is a proposed lowering experiment, not a production style schema or an
 adoption of Product Vocabulary's separately owned grammar migration (#9401).
 
+The [JSON examples](../examples/README.md) include all three measured shapes,
+pretty-printed for direct inspection.
+
 The main precedent is the self-contained
 [CVE document and specification](https://github.com/dotnet/designs/tree/b9bc7465feae40aa606b8e781fc290c20b690748/accepted/2025/cve-schema).
 That design combines discoverable arrays, keyed shared records, and small
