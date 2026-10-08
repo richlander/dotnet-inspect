@@ -398,9 +398,11 @@ production adoption as focused slices:
 8. Retire transitional document names and superseded host-local composition.
 
 Rendering work is not part of slices 1 through 6 and does not define the object
-model. Future CLI Tree and Mermaid adoption will select shared presentation
-profiles over the owner-issued hierarchy; Count and other projections retain
-their independently admitted routes.
+model. CLI MemberGroup Tree presentation now streams the owner-issued complete
+exact-Member Rows through shared presentation without constructing a
+host-local retained tree. Future Mermaid adoption will select a shared
+presentation profile over the same owner-issued hierarchy; Count and other
+projections retain their independently admitted routes.
 
 As a performance prerequisite for later slice 7 adoption, exact direct-Library
 effective discovery in the CLI uses the transitional host-neutral Type
