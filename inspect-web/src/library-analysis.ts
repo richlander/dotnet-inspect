@@ -5,7 +5,7 @@ import { singlePerformanceBodyTarget, renderTriageCode, triageMemberLabel } from
 
 type LibraryAnalysisResult = Pick<
   BrowserPackagePerformance,
-  "members" | "inspectionError" | "nonPublicOpportunities" | "totalOpportunities"
+  "members" | "inspectionError" | "totalOpportunities"
 >;
 
 export interface LibraryAnalysisOptions {
@@ -45,10 +45,7 @@ export function renderLibraryAnalysisSurface(options: LibraryAnalysisOptions): s
     } else {
       const members = resolved.members ?? [];
       const partial = Boolean(resolved.inspectionError);
-      const nonPublicStatus = resolved.nonPublicOpportunities > 0
-        ? ` \u00b7 ${resolved.nonPublicOpportunities.toLocaleString()} non-public`
-        : "";
-      status = `${members.length.toLocaleString()} public member${members.length === 1 ? "" : "s"} \u00b7 ${resolved.totalOpportunities.toLocaleString()} opportunit${resolved.totalOpportunities === 1 ? "y" : "ies"}${nonPublicStatus}${partial ? " \u00b7 partial" : ""}`;
+      status = `${members.length.toLocaleString()} member${members.length === 1 ? "" : "s"} \u00b7 ${resolved.totalOpportunities.toLocaleString()} opportunit${resolved.totalOpportunities === 1 ? "y" : "ies"}${partial ? " \u00b7 partial" : ""}`;
       const warning = partial
         ? `<section class="document-section metadata-warning"><strong>&#x26A0; This library could not be analyzed completely</strong></section>`
         : "";
@@ -74,12 +71,11 @@ export function renderLibraryAnalysisSurface(options: LibraryAnalysisOptions): s
           <span class="perf-meta">${loopBadge}<span class="perf-confidence perf-${escapeHtml((member.confidence || "").toLowerCase())}">${escapeHtml(member.confidence || "\u2014")}</span></span>
         </button>${previews}</article>`;
       }).join("");
-      const nonPublicNote = resolved.nonPublicOpportunities > 0
-        ? ` ${resolved.nonPublicOpportunities.toLocaleString()} opportunit${resolved.nonPublicOpportunities === 1 ? "y is" : "ies are"} in non-public members.`
-        : "";
       const empty = partial
-        ? `<section class="document-section empty-document"><h2>Analysis incomplete</h2><p>No public-member results are available from this incomplete analysis.</p></section>`
-        : `<section class="document-section empty-document"><span class="large-glyph">&#x25C7;</span><h2>No public allocation hot spots</h2><p>${resolved.totalOpportunities.toLocaleString()} allocation/performance opportunit${resolved.totalOpportunities === 1 ? "y was" : "ies were"} classified, but none surface on a public member of ${escapeHtml(libraryName)}.${nonPublicNote}</p></section>`;
+        ? `<section class="document-section empty-document"><h2>Analysis incomplete</h2><p>No member results are available from this incomplete analysis.</p></section>`
+        : resolved.totalOpportunities === 0
+          ? `<section class="document-section empty-document"><span class="large-glyph">&#x25C7;</span><h2>No allocation hot spots</h2><p>No allocation/performance opportunities were classified for ${escapeHtml(libraryName)}.</p></section>`
+          : `<section class="document-section empty-document"><span class="large-glyph">&#x25C7;</span><h2>No navigable member results</h2><p>${resolved.totalOpportunities.toLocaleString()} allocation/performance opportunit${resolved.totalOpportunities === 1 ? "y was" : "ies were"} classified, but none could be attributed to a navigable member of ${escapeHtml(libraryName)}.</p></section>`;
       content = `${warning}${note}${members.length ? `<div class="perf-list">${rows}</div>` : empty}`;
     }
   }

@@ -103,9 +103,9 @@ test("ranked member rows retain navigation identity and triage evidence", () => 
     data: result(),
   });
 
-  assert.match(html, /1 public member/);
+  assert.match(html, /1 member/);
   assert.match(html, /5 opportunities/);
-  assert.match(html, /2 non-public/);
+  assert.doesNotMatch(html, /non-public/);
   assert.match(html, /data-perf-selector="Run"/);
   assert.match(html, /data-perf-assembly="Test\.Assembly\.dll"/);
   assert.match(html, /data-perf-type="Test\.Namespace\.Widget"/);
@@ -127,15 +127,30 @@ test("the full-area frame leaves Library identity to persistent subject context"
   assert.doesNotMatch(html, /net10\.0 · Test\.Package@1\.0\.0/);
 });
 
-test("a complete empty result may state there are no public hot spots", () => {
+test("a complete empty result states there are no hot spots", () => {
+  const html = renderLibraryAnalysisSurface({
+    ...baseOptions,
+    data: result({
+      members: [],
+      nonPublicOpportunities: 0,
+      totalOpportunities: 0,
+    }),
+  });
+
+  assert.match(html, /No allocation hot spots/);
+  assert.match(html, /No allocation\/performance opportunities were classified/);
+});
+
+test("unattributed opportunities remain visible without a public-only claim", () => {
   const html = renderLibraryAnalysisSurface({
     ...baseOptions,
     data: result({ members: [], totalOpportunities: 2 }),
   });
 
-  assert.match(html, /No public allocation hot spots/);
+  assert.match(html, /No navigable member results/);
   assert.match(html, /2 allocation\/performance opportunities were classified/);
-  assert.match(html, /2 opportunities are in non-public members/);
+  assert.match(html, /none could be attributed to a navigable member/);
+  assert.doesNotMatch(html, /public member|non-public members/);
 });
 
 test("a partial empty result does not claim established absence", () => {
@@ -150,7 +165,7 @@ test("a partial empty result does not claim established absence", () => {
   assert.match(html, /Analysis incomplete/);
   assert.match(html, /partial/);
   assert.match(html, /This library could not be analyzed completely/);
-  assert.doesNotMatch(html, /No public allocation hot spots/);
+  assert.doesNotMatch(html, /No allocation hot spots/);
 });
 
 test("partial rows remain available with a concise warning", () => {

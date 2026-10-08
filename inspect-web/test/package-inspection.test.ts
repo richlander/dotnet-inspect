@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createPackageInspectionCoordinator,
   resolvePackagePerformanceMember,
+  resolvePackagePerformanceType,
   workspaceDependencyKey,
   type PackageInspectionDependencies,
   type PackageInspectionState,
@@ -278,6 +279,14 @@ test(
         packageItem,
         { ...performance, stableSelector: "Bounds~different" }),
       null);
+    assert.equal(
+      resolvePackagePerformanceType(
+        packageItem,
+        {
+          assembly: performance.assembly,
+          typeId: performance.typeId,
+        }),
+      type);
   });
 
 function metadataResult(): PackageMetadata {

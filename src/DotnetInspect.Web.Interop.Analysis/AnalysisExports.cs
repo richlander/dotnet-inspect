@@ -621,7 +621,7 @@ public static partial class AnalysisExports
     /// <see cref="QueryPackagePerformance"/>, one durable Item event per
     /// member in the existing ranked, capped order, instead of returning the
     /// complete array in one round trip. The underlying computation,
-    /// ranking, navigable-surface filtering, and triage cap are unchanged;
+    /// ranking, all-accessibility navigable-Type filtering, and triage cap are unchanged;
     /// see docs/design/streaming-library-performance-analysis.md.
     /// </summary>
     [JSExport]
@@ -1857,10 +1857,9 @@ public static partial class AnalysisExports
             scope.UseMetadataParticipant(
                 participant,
                 AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant);
-        // The ranking only publishes members the site can navigate to, which is the same
-        // browsable surface the package facade renders. The projection is DTO-neutral shared
-        // mechanics in DotnetInspect.Web.Core; this facade never reaches for a sibling's wire
-        // record to decide what is navigable.
+        // The package surface retains every Type but keeps public Types lean until an explicit
+        // all-accessibility member request. Performance Triage is that body-oriented gesture,
+        // so every attributed member of a retained Type is navigable.
         BrowserWorkspaceParticipant? surfaceParticipant =
             scope.TryGetSurfaceParticipant(participant);
         BrowserSurfaceProjection.Surface? surface = surfaceParticipant is null
@@ -1870,15 +1869,12 @@ public static partial class AnalysisExports
                 surfaceParticipant);
         HashSet<(
             string Assembly,
-            string Type,
-            string Selector)> navigableMembers =
+            string Type)> navigableTypes =
         [
             .. (surface?.Types ?? [])
-                .SelectMany(type =>
-                type.Api.Select(member => (
+                .Select(type => (
                     type.Assembly,
-                    type.DefinitionId,
-                    member.StableSelector))),
+                    type.DefinitionId)),
         ];
 
         var failures = new List<string>();
@@ -1931,7 +1927,7 @@ public static partial class AnalysisExports
                     result,
                     participants,
                     scope,
-                    navigableMembers),
+                    navigableTypes),
                 failures);
 
         return new BrowserPackagePerformance(
@@ -1950,14 +1946,13 @@ public static partial class AnalysisExports
         BrowserInspectionScope scope,
         HashSet<(
             string Assembly,
-            string Type,
-            string Selector)> navigableMembers)
+            string Type)> navigableTypes)
     {
         var implementationSurfaces = new Dictionary<BrowserWorkspaceParticipant, ApiSurface?>();
         foreach (AssemblyContextOptimizationOpportunityMember member
             in result.RankedMembers)
         {
-            if (member.Member.PublicMember is not { } publicMember)
+            if (member.Member.Member is not { } surfaceMember)
                 continue;
 
             BrowserWorkspaceParticipant analysisParticipant =
@@ -1968,10 +1963,9 @@ public static partial class AnalysisExports
             BrowserWorkspaceParticipant? surfaceParticipant =
                 scope.TryGetSurfaceParticipant(analysisParticipant);
             if (surfaceParticipant is null
-                || !navigableMembers.Contains((
+                || !navigableTypes.Contains((
                     surfaceParticipant.Asset.AssemblyName,
-                    publicMember.Type,
-                    publicMember.StableSelector)))
+                    surfaceMember.Type)))
             {
                 continue;
             }
@@ -1981,7 +1975,7 @@ public static partial class AnalysisExports
                 AssemblyContextApiSurfaceResult surfaces =
                     scope.UseMetadataParticipant(analysisParticipant,
                         (group, participant) => AssemblyContextApiSurfaceQuery.ExecuteBounded(
-                            group, ApiSurfaceScope.PublicWithNonPublicTypes,
+                            group, ApiSurfaceScope.IncludeAll,
                             BrowserApiSurfacePolicy.Limits, [participant]));
                 AssemblyContextEntry<AssemblyApiSurface> entry = surfaces.Assemblies.Assemblies.Single();
                 implementationSurface =
@@ -1990,16 +1984,16 @@ public static partial class AnalysisExports
             }
             yield return new BrowserPerformanceMember(
                 surfaceParticipant.Asset.AssemblyName,
-                publicMember.Type,
-                publicMember.Member,
-                publicMember.StableSelector,
-                [.. publicMember.BodyTokens],
+                surfaceMember.Type,
+                surfaceMember.Member,
+                surfaceMember.StableSelector,
+                [.. surfaceMember.BodyTokens],
                 member.Member.Ranking.Opportunities.Length,
                 member.Member.Ranking.InLoopCount,
                 [.. member.Member.Ranking.Shapes],
                 member.Member.Ranking.Confidence,
-                PerformanceBodyTargets(implementationSurface, publicMember.Type,
-                    publicMember.StableSelector, publicMember.BodyTokens,
+                PerformanceBodyTargets(implementationSurface, surfaceMember.Type,
+                    surfaceMember.StableSelector, surfaceMember.BodyTokens,
                     member.Member.Ranking.Opportunities));
         }
     }
@@ -2052,7 +2046,7 @@ public static partial class AnalysisExports
             {
                 failures.Add(
                     $"Performance ranking truncated after the top "
-                    + $"{MemberLimit} navigable public members.");
+                    + $"{MemberLimit} navigable members.");
                 break;
             }
 

@@ -60,6 +60,8 @@ public sealed partial class BrowserEngineBoundaryTests
 
     public static object PerformanceBoxingProbe(int value) => value;
 
+    private static object PerformancePrivateBoxingProbe(int value) => value;
+
     public static int PerformanceNoAllocationProbe(int value) => value;
 
     public static int InvocationDestinationProbe(int value) =>

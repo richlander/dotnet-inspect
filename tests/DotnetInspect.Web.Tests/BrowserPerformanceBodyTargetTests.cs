@@ -22,11 +22,11 @@ public sealed class BrowserPerformanceBodyTargetTests
         var surface = Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
             AssemblyContextApiSurfaceQuery.ExecuteParticipant(group, participant)).Value.Surface;
         var rows = ranking.RankedMembers.Where(row =>
-            row.Member.PublicMember?.Type == typeof(PerformanceAccessorFixture).FullName).ToArray();
+            row.Member.Member?.Type == typeof(PerformanceAccessorFixture).FullName).ToArray();
         Assert.Equal(3, rows.Length);
         foreach (var row in rows)
         {
-            var member = row.Member.PublicMember!;
+            var member = row.Member.Member!;
             var targets = AnalysisExports.PerformanceBodyTargets(surface,
                 member.Type, member.StableSelector, member.BodyTokens, row.Member.Ranking.Opportunities);
             Assert.Equal(member.Member == "AccessorBoxedValue" ? 2 : 1, targets.Length);
@@ -73,8 +73,8 @@ public sealed class BrowserPerformanceBodyTargetTests
         var surface = Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
             AssemblyContextApiSurfaceQuery.ExecuteParticipant(group, participant)).Value.Surface;
         var row = Assert.Single(ranking.RankedMembers.Where(row =>
-            row.Member.PublicMember?.Type == typeof(MixedPerformanceBodyFixture).FullName));
-        var member = row.Member.PublicMember!;
+            row.Member.Member?.Type == typeof(MixedPerformanceBodyFixture).FullName));
+        var member = row.Member.Member!;
         Assert.Equal(2, member.BodyTokens.Length);
         var target = Assert.Single(AnalysisExports.PerformanceBodyTargets(surface,
             member.Type, member.StableSelector, member.BodyTokens, row.Member.Ranking.Opportunities));

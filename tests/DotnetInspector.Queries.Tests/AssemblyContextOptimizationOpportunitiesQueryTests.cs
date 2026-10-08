@@ -13,7 +13,7 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
 {
     [Fact]
-    public async Task Execute_RanksCompiledOpportunitiesAndAttributesPublicBodies()
+    public async Task Execute_RanksCompiledOpportunitiesAndAttributesBodies()
     {
         var policy = new RecordingBindingPolicy();
         await using var workspace = new InspectionWorkspace();
@@ -34,25 +34,26 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
             member.Member.Ranking.Opportunities,
             opportunity =>
                 opportunity.Shape == "box-value-type");
-        OptimizationOpportunityPublicMember publicMember =
-            Assert.IsType<OptimizationOpportunityPublicMember>(
-                member.Member.PublicMember);
+        OptimizationOpportunityMemberSurface surfaceMember =
+            Assert.IsType<OptimizationOpportunityMemberSurface>(
+                member.Member.Member);
         Assert.Equal(
             typeof(ResearchProjectionProbe).FullName,
-            publicMember.Type);
+            surfaceMember.Type);
         Assert.Equal(
             nameof(ResearchProjectionProbe.BoxInt),
-            publicMember.Member);
+            surfaceMember.Member);
+        Assert.True(surfaceMember.IsPublic);
         Assert.StartsWith(
             $"{nameof(ResearchProjectionProbe.BoxInt)}~",
-            publicMember.StableSelector);
+            surfaceMember.StableSelector);
         Assert.Equal(
             [
                 typeof(ResearchProjectionProbe)
                     .GetMethod(nameof(ResearchProjectionProbe.BoxInt))!
                     .MetadataToken,
             ],
-            publicMember.BodyTokens);
+            surfaceMember.BodyTokens);
         Assert.Equal(
             [
                 .. OptimizationOpportunityRanking.OrderMembers(
@@ -65,7 +66,42 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
     }
 
     [Fact]
-    public async Task Execute_AttributesLiftedAccessorAndNestedBodiesToPublicOwners()
+    public async Task Execute_AttributesPrivateBodies()
+    {
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            ContentGroup(workspace, policy);
+
+        AssemblyContextOptimizationOpportunitiesResult result =
+            Execute(group);
+
+        AssemblyContextOptimizationOpportunityMember privateMember =
+            Assert.Single(
+                result.RankedMembers,
+                candidate =>
+                    candidate.Member.Member?.Member
+                    == "BoxPrivate");
+        OptimizationOpportunityMemberSurface surfaceMember =
+            privateMember.Member.Member!;
+        Assert.False(surfaceMember.IsPublic);
+        Assert.Equal(
+            typeof(ResearchProjectionProbe).FullName,
+            surfaceMember.Type);
+        Assert.Equal(
+            [
+                typeof(ResearchProjectionProbe)
+                    .GetMethod(
+                        "BoxPrivate",
+                        BindingFlags.Static | BindingFlags.NonPublic)!
+                    .MetadataToken,
+            ],
+            surfaceMember.BodyTokens);
+        Assert.True(result.NonPublicOpportunities > 0);
+    }
+
+    [Fact]
+    public async Task Execute_AttributesLiftedAccessorAndNestedBodiesToOwners()
     {
         var policy = new RecordingBindingPolicy();
         await using var workspace = new InspectionWorkspace();
@@ -92,8 +128,8 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
             nameof(
                 ResearchProjectionProbe
                     .GenericObjectEqualsInLocal),
-            Assert.IsType<OptimizationOpportunityPublicMember>(
-                    lifted.Member.PublicMember)
+            Assert.IsType<OptimizationOpportunityMemberSurface>(
+                    lifted.Member.Member)
                 .Member);
         Assert.Equal(
             lifted.Member.Ranking.Opportunities
@@ -101,16 +137,16 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
                     opportunity.Method.MetadataToken)
                 .Distinct()
                 .Order(),
-            lifted.Member.PublicMember!.BodyTokens);
+            lifted.Member.Member!.BodyTokens);
 
         AssemblyContextOptimizationOpportunityMember accessor =
             Assert.Single(
                 result.RankedMembers,
                 candidate =>
-                    candidate.Member.PublicMember?.Member
+                    candidate.Member.Member?.Member
                     == nameof(ResearchProjectionProbe.BoxedValue));
-        OptimizationOpportunityPublicMember property =
-            accessor.Member.PublicMember!;
+        OptimizationOpportunityMemberSurface property =
+            accessor.Member.Member!;
         Assert.Equal(
             [
                 typeof(ResearchProjectionProbe)
@@ -124,22 +160,22 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
             $"{nameof(ResearchProjectionProbe.BoxedValue)}~",
             property.StableSelector);
 
-        OptimizationOpportunityPublicMember nested =
+        OptimizationOpportunityMemberSurface nested =
             Assert.Single(
                 result.RankedMembers,
                 candidate =>
-                    candidate.Member.PublicMember?.Member
+                    candidate.Member.Member?.Member
                     == nameof(
                         ResearchProjectionProbe.Nested.BoxNested))
                 .Member
-                .PublicMember!;
+                .Member!;
         Assert.Equal(
             $"{typeof(ResearchProjectionProbe).FullName}+Nested",
             nested.Type);
     }
 
     [Fact]
-    public async Task Execute_AggregatesAllAccessorBodiesUnderOnePublicMember()
+    public async Task Execute_AggregatesAllAccessorBodiesUnderOneMember()
     {
         var policy = new RecordingBindingPolicy();
         await using var workspace = new InspectionWorkspace();
@@ -153,7 +189,7 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
             Assert.Single(
                 result.RankedMembers,
                 candidate =>
-                    candidate.Member.PublicMember?.Member
+                    candidate.Member.Member?.Member
                     == nameof(
                         ResearchProjectionProbe
                             .AccessorBoxedValue));
@@ -167,7 +203,7 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
                 property.GetMethod!.MetadataToken,
                 property.SetMethod!.MetadataToken,
             ],
-            accessor.Member.PublicMember!.BodyTokens);
+            accessor.Member.Member!.BodyTokens);
         Assert.Contains(
             accessor.Member.Ranking.Opportunities,
             opportunity =>
@@ -206,7 +242,7 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
             Assert.Single(
                 result.RankedMembers,
                 candidate =>
-                    candidate.Member.PublicMember?.Member
+                    candidate.Member.Member?.Member
                     == nameof(
                         ClassicAsyncSiblingFixture
                             .CallsSyncSiblingFromAsync));
@@ -227,7 +263,7 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
         Assert.NotEqual(kickoffToken, evidenceToken);
         Assert.DoesNotContain(
             kickoffToken,
-            member.Member.PublicMember!.BodyTokens);
+            member.Member.Member!.BodyTokens);
         Assert.Equal(
             [
                 .. member.Member.Ranking.Opportunities
@@ -237,7 +273,7 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
                     .Distinct()
                     .Order(),
             ],
-            member.Member.PublicMember.BodyTokens);
+            member.Member.Member.BodyTokens);
     }
 
     [Fact]

@@ -2788,13 +2788,15 @@ async function installFacades(
             "fixture-analysis-ready:" + requestKey, resolve, { once: true }));
         }
         if (scenario === "query-error") throw new Error("Analysis query unavailable.");
+        const memberToken = memberName => memberName === "Run"
+          ? 100663297 : memberName === "Write" ? 100663298 : 100663299;
         const member = (memberName, opportunityCount, inLoopCount, shapes, confidence) => ({
           assembly: selected.name + ".dll",
           typeId: selectedType.definitionId,
           memberName,
-          stableSelector: "Run",
-          bodyTokens: [100663297],
-          bodyTargets: [{ typeId: selectedType.definitionId, memberName, selectorKey: "Run", methodToken: 100663297, issueOffsets: null }],
+          stableSelector: memberName,
+          bodyTokens: [memberToken(memberName)],
+          bodyTargets: [{ typeId: selectedType.definitionId, memberName, selectorKey: memberName, methodToken: memberToken(memberName), issueOffsets: null }],
           opportunityCount,
           inLoopCount,
           shapes,
@@ -2802,7 +2804,8 @@ async function installFacades(
         });
         const members = scenario === "empty" || scenario === "partial-empty" ? [] : [
           member("Run", 3, 1, ["box-value-type", "string-concat"], "high"),
-          member("Write", 1, 0, ["array-allocation"], "medium")
+          member("Write", 1, 0, ["array-allocation"], "medium"),
+          member("PrivateWork", 2, 0, ["box-value-type"], "high")
         ];
         if (scenario === "long") {
           members.splice(0, members.length, ...Array.from({ length: 80 }, (_, index) =>
@@ -2817,8 +2820,8 @@ async function installFacades(
         return {
           members,
           inspectionError: partial ? "A method body could not be analyzed." : null,
-          nonPublicOpportunities: 2,
-          totalOpportunities: members.reduce((total, item) => total + item.opportunityCount, 0) + 2,
+          nonPublicOpportunities: members.some(item => item.memberName === "PrivateWork") ? 2 : 0,
+          totalOpportunities: members.reduce((total, item) => total + item.opportunityCount, 0),
           compileLibrary: surface.compileLibrary
         };
       }

@@ -3421,6 +3421,32 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.StartsWith(
             $"{nameof(PerformanceBoxingProbe)}~",
             member.GetProperty("stableSelector").GetString());
+        JsonElement privateMember = Assert.Single(
+            root.GetProperty("members").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("memberName").GetString()
+                == nameof(PerformancePrivateBoxingProbe));
+        Assert.Equal(
+            [
+                typeof(BrowserEngineBoundaryTests)
+                    .GetMethod(
+                        nameof(PerformancePrivateBoxingProbe),
+                        BindingFlags.Static | BindingFlags.NonPublic)!
+                    .MetadataToken,
+            ],
+            privateMember.GetProperty("bodyTokens")
+                .EnumerateArray()
+                .Select(token => token.GetInt32()));
+        Assert.StartsWith(
+            $"{nameof(PerformancePrivateBoxingProbe)}~",
+            privateMember.GetProperty("stableSelector").GetString());
+        JsonElement privateBody = Assert.Single(
+            privateMember.GetProperty("bodyTargets").EnumerateArray());
+        Assert.Equal(
+            nameof(PerformancePrivateBoxingProbe),
+            privateBody.GetProperty("memberName").GetString());
+        Assert.True(
+            root.GetProperty("nonPublicOpportunities").GetInt32() > 0);
         JsonElement surfaceType = Assert.Single(
             surfaceDocument.RootElement
                 .GetProperty("types")
@@ -3435,6 +3461,11 @@ public sealed partial class BrowserEngineBoundaryTests
             candidate =>
                 candidate.GetProperty("stableSelector").GetString()
                 == member.GetProperty("stableSelector").GetString());
+        Assert.DoesNotContain(
+            surfaceType.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("stableSelector").GetString()
+                == privateMember.GetProperty("stableSelector").GetString());
         Assert.Contains(
             member.GetProperty("shapes").EnumerateArray(),
             shape => shape.GetString() == "box-value-type");
