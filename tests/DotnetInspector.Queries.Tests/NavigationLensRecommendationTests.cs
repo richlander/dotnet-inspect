@@ -622,7 +622,7 @@ public sealed class NavigationLensRecommendationTests
             ViewFacetRole.EcosystemOverview);
         yield return (
             context.Subject,
-            ViewFacetRole.PackageOverview);
+            ViewFacetRole.PackageLibraries);
         yield return (
             StructuralSubjectIdentity.ForAllLibraries(context.Subject),
             ViewFacetRole.LibraryReferences);

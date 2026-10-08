@@ -228,6 +228,56 @@ test("frontmatter with only a version does not create a metadata card", async ()
   assert.equal(readyViewer(state, document).meta, null);
 });
 
+const nuspecDocument: BrowserPackageDocument = {
+  ...document,
+  kind: "metadata",
+  name: "Example.Package.nuspec",
+  path: "Example.Package.nuspec",
+};
+
+async function renderedNuspecBody(text: string) {
+  const state = inspectionState();
+  let rendered = "";
+  const coordinator = createDocumentInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDocument: async () => content(text),
+      renderMarkdown: async body => {
+        rendered = body;
+        return "<pre></pre>";
+      },
+    }));
+
+  await coordinator.open({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    document: nuspecDocument,
+  });
+
+  return { rendered, meta: readyViewer(state, nuspecDocument).meta };
+}
+
+test("nuspec renders as a fenced xml block without frontmatter parsing", async () => {
+  const xml = "---\nversion: 2.0\n---\n<package />";
+  const { rendered, meta } = await renderedNuspecBody(xml);
+
+  assert.equal(rendered, `\`\`\`xml\n${xml}\n\`\`\``);
+  assert.equal(meta, null);
+});
+
+test("nuspec fence outgrows backtick runs inside the xml", async () => {
+  const xml = "<description>````</description>";
+  const { rendered } = await renderedNuspecBody(xml);
+
+  assert.equal(rendered, `\`\`\`\`\`xml\n${xml}\n\`\`\`\`\``);
+});
+
+test("nuspec with very many backtick runs still renders", async () => {
+  const xml = `<description>${"a`".repeat(200_000)}</description>`;
+  const { rendered } = await renderedNuspecBody(xml);
+
+  assert.equal(rendered, `\`\`\`xml\n${xml}\n\`\`\``);
+});
+
 test("closing during acquisition suppresses stale document publication", async () => {
   const query = deferred<BrowserPackageDocumentContent>();
   let markdownRenders = 0;

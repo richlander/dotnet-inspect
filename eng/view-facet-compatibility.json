@@ -10,6 +10,11 @@
     "purpose": "Registered Ecosystem identity, declarations, and population capabilities."
   },
   {
+    "id": "package.libraries",
+    "kind": "Package",
+    "purpose": "Libraries of the selected target, or RID packages of a tool pointer package."
+  },
+  {
     "id": "package.overview",
     "kind": "Package",
     "purpose": "Package identity, selected target, assets, and summary facts."

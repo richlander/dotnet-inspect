@@ -796,6 +796,120 @@ their Query Space, scope, row set, value vocabulary, route, and result
 contract. HAL-JSON, ordinary JSON, Markdown, and Browser presentation all
 consume the same semantic graph.
 
+### Proposed model collapse: resource data first
+
+This is a proposal for the next focused Resource Explanation slice, not a
+change to the implemented Document or its current serialization contract.
+
+The motivating production assets are the installed C# Body Kinds and C# Style
+Choices vocabularies issued by `ILInspector.Decompiler`. #9471 records their
+explanation JSON at 122,959 bytes without related-resource expansion and
+441,247 bytes with depth-one expansion. A two-scalar map entry occupies about
+600 bytes. These observations justify investigating both the model and its
+lowering; byte size alone does not establish which semantic types to remove.
+
+The proposed claim is: given a validated resource snapshot, ordinary explanation
+presents its facts, relationships, and available navigation directly, preserving
+owner identity, value meaning, ordering, and visible absence, failure, or
+incompleteness without requiring a consumer to decode the declaration model.
+
+The `kubectl explain` precedent supports separating the source contract from
+the explanation response. Its [command contract](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_explain/)
+selects a resource or nested field path, with recursive expansion explicit.
+Its [plaintext template](https://github.com/kubernetes/kubectl/blob/master/pkg/explain/v2/templates/plaintext.tmpl)
+resolves OpenAPI references internally and emits selected descriptions, concise
+types, required markers, and fields. Field lists show at most four enum values
+with an omission marker; exact-field explanation shows the full enum. It does
+not emit its OpenAPI declaration closure alongside that explanation.
+
+This precedent justifies a concise projection and selective navigation. It does
+not establish that our typed construction model is unnecessary: Kubernetes
+already has OpenAPI as its declaration substrate, and `kubectl explain` does
+not provide our machine-readable graph response. Evaluate internal model
+retirement separately from removing its machinery from ordinary output.
+
+The [CVE schema design](https://github.com/dotnet/designs/blob/b9bc7465feae40aa606b8e781fc290c20b690748/accepted/2025/cve-schema/cve_schema.md)
+provides a complementary consumption precedent. Its
+[example data](https://github.com/dotnet/designs/blob/b9bc7465feae40aa606b8e781fc290c20b690748/accepted/2025/cve-schema/cve.json)
+uses flat arrays for discovery, a keyed dictionary for shared commit details,
+and compact derived indexes for frequent relationship lookups. The schema is
+published separately. Repetition earns its place by reducing consumer work;
+normalization earns its place by avoiding repeated shared detail. The design
+uses `jq` query simplicity as a proxy for LLM consumption ease, not as proof of
+agent task success.
+
+Apply that criterion to explanation: record representative questions first,
+then exercise their actual JSON access paths. Getting a facet's accepted
+values, finding its value vocabulary, listing a collection, and following a
+related resource should not require repeated schema joins or wrapper decoding.
+Introduce a derived lookup only when a demonstrated question justifies it;
+derive it from the same owner-issued catalog rather than maintain a second
+inventory. Compare query complexity, response size, and actual agent task
+success instead of treating maximal normalization or minimal bytes as the goal.
+
+Two open `dotnet/designs` proposals extend that precedent:
+[Hypermedia release notes graph](https://github.com/dotnet/designs/pull/358)
+(head `709feed618a38f6ab70cfe6eb83a483846e0d26e`) and
+[Exposing Hypermedia Information Graphs to LLMs](https://github.com/dotnet/designs/pull/359)
+(head `6f18aa6696f705e8e94234d5b07586570ccc36ce`). These are proposed designs,
+not adopted contracts for this product. Their useful comparison points are
+skeletal navigation nodes versus heavier content nodes, semantic relations
+that communicate target purpose, selected embedded summaries with canonical
+resource links, and shortcuts that reduce traversal. They evaluate both `jq`
+queries and LLM navigation. Their reported observations support testing the
+whole task path rather than optimizing one response in isolation.
+
+For explanation, compare a small collection/navigation response with a focused
+facet or vocabulary response that embeds enough data to answer the selected
+question. Preserve the distinction between a partial embedded summary and its
+complete canonical resource; do not call omitted detail absent or complete.
+Measure total retrieved content and operation count together. Clear relation
+names can reduce required guidance, but domain constraints remain owner-issued
+facts rather than meanings inferred from the relation spelling.
+
+The smallest useful resource view consists of:
+
+- one resource identity and type, with its public addresses when available;
+- ordered named facts containing their values or explicit non-available states;
+- ordered named relationships containing targets or explicit non-available
+  states;
+- bounded related-resource expansion when requested; and
+- the completeness information needed to interpret the selected result.
+
+Declarations remain the authority for construction-time validation. They are
+separately inspectable contract data, rather than information every ordinary
+resource response must embed. Cross-owner identities remain unambiguous;
+local field, case, fact, and relationship names use their enclosing declaration
+instead of repeatedly carrying its fully qualified identity. A public path is
+not a substitute identity for detached resources without an owner-issued path.
+
+Evaluate these collapse candidates against existing production consumers:
+
+- Scope member identities to their containing shape or resource type, retaining
+  qualification where a value crosses that boundary.
+- Represent values directly in the resource view instead of exposing nested
+  scalar, field-value, and identity wrappers to readers.
+- Give each navigation collection only its applicable member relationships;
+  do not declare unrelated relationships and manufacture empty observations.
+- Keep one value-shape vocabulary; #9401 owns Product Vocabulary's adoption
+  and retirement of its parallel map-value grammar.
+- Derive redundant owner/type information from the resource key where possible.
+
+HAL is a candidate lowering for this view, using resource state and link
+relations. The choice of lowering does not settle which facts belong in the
+view, whether a declaration is necessary, or which internal types can retire.
+Do not add a second independently maintained explanation inventory.
+
+Before implementation, specify and gate the ordinary resource view versus
+explicit contract inspection. Use the two installed vocabularies above and a
+Package Query facet to measure byte and token counts and demonstrate that a
+reader can obtain accepted values, query constraints, and related-resource
+paths without walking the declaration grammar. Retain tests for cross-owner
+identity, detached subjects, record and choice values, targetless outcomes,
+ordering, and truncation. Compare NativeAOT production terminals and include
+CLI and Browser/Wasm consumption in the adoption plan. Do not choose an
+arbitrary size threshold before measuring these useful results.
+
 ### Primitive-placement test
 
 This object model determines the types that lower layers must be able to
