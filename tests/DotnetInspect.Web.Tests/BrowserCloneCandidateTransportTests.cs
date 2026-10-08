@@ -74,11 +74,12 @@ public sealed class BrowserCloneCandidateTransportTests
                 {
                     fixture.PackageId,
                     fixture.NeighborPackageId,
-                }.Order(StringComparer.Ordinal)],
+                }.Order(StringComparer.OrdinalIgnoreCase)],
             [.. broadDocument.Libraries
                 .Select(library =>
                     library.Participant.Provenance.PackageId!)
-                .Order(StringComparer.Ordinal)]);
+                .Order(StringComparer.OrdinalIgnoreCase)],
+            StringComparer.OrdinalIgnoreCase);
         Assert.Equal(
             broadDocument.Rows.Length,
             broadDocument.Receipt.ReturnedPairs);

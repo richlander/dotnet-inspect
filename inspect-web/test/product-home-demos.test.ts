@@ -5,7 +5,10 @@ import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import { parseSync } from "oxc-parser";
 import { defaultAnalysisMode } from "../src/analysis-inspector.ts";
-import { memberRequestKey } from "../src/data.ts";
+import {
+  callGraphTargetPlatformCoordinate,
+  memberRequestKey,
+} from "../src/data.ts";
 import type {
   MemberCallGraphRequest,
   PlatformDrillRequest,
@@ -310,6 +313,7 @@ test("actual app activation, member reload, drill and workspace reset preserve c
       assembly: "System.Text.Json", memberName: "Serialize",
       typeFullName: type.definitionId, selectorKey: "selector",
     },
+    callGraphTargetPlatformCoordinate,
     memberRequestKey,
     ensurePlatformCatalog: async () => ({ tfm: "net10.0", version: "10.0.12" }),
     navigationSequence: { isCurrent: () => true },

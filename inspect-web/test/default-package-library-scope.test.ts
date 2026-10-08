@@ -9,6 +9,37 @@ const selectDefault = stripTypeScriptTypes(
   sourceText(functionDeclaration("selectDefaultPackageSubject")),
 );
 
+type PackageChildren =
+  Parameters<typeof createNuGetPackageSummaryModel>[0];
+type PackageLibrary = PackageChildren["content"]["libraries"][number];
+
+function packageChildren(
+  packageId: string,
+  libraries: readonly PackageLibrary[],
+): PackageChildren {
+  return {
+    content: {
+      kind: "PackageChildren",
+      status: "Available",
+      packageId,
+      packageVersion: "1.0.0",
+      targetFramework: "net8.0",
+      libraries,
+      runtimeIdentifierPackages: [],
+      detail: null,
+      isComplete: true,
+    },
+    share: {
+      kind: "NonProjectable",
+      fullUrl: null,
+      packet: null,
+      path: null,
+      reason: "Test fixture",
+    },
+    diagnostics: [],
+  };
+}
+
 test("fresh package navigation selects the declared default Library rather than all Libraries", () => {
   const state = { libraryScope: null as Set<string> | null, atLibraryRoot: false, atPackageRoot: true };
   runInNewContext(`${selectDefault}\nselectDefaultPackageSubject(pkg);`, {
@@ -83,13 +114,20 @@ test("All Libraries Overview retains its broad Type navigation request", () => {
 
 
 test("summary model follows the declared default even when it is not the first Library", () => {
-  const children = {
-    content: { packageId: "Sample", packageVersion: "1.0.0", targetFramework: "net8.0",
-      status: "Available", isComplete: true, libraries: [
-        { assetId: "first", assemblyName: "First", assetPath: "lib/First.dll" },
-        { assetId: "best", assemblyName: "Best", assetPath: "lib/Best.dll" },
-      ] },
-  } as unknown as Parameters<typeof createNuGetPackageSummaryModel>[0];
+  const children = packageChildren("Sample", [
+    {
+      assetId: "first",
+      assemblyName: "First",
+      assetPath: "lib/First.dll",
+      role: "Compile",
+    },
+    {
+      assetId: "best",
+      assemblyName: "Best",
+      assetPath: "lib/Best.dll",
+      role: "Compile",
+    },
+  ]);
   const model = createNuGetPackageSummaryModel(children, [], undefined, undefined, "best");
   assert.equal(model.assemblyId, "best");
   assert.equal(model.assembly, "Best");
@@ -99,12 +137,14 @@ test("summary model follows the declared default even when it is not the first L
 
 test("a tool-only summary with no product compile default stays at Package", () => {
   const assetId = "tools/net11.0/any/Tool.Payload.dll";
-  const children = {
-    content: { packageId: "Tool.Payload", packageVersion: "1.0.0", targetFramework: "net11.0",
-      status: "Available", isComplete: true, libraries: [
-        { assetId, assemblyName: "Tool.Payload", assetPath: assetId, role: "ToolEntryPoint" },
-      ] },
-  } as unknown as Parameters<typeof createNuGetPackageSummaryModel>[0];
+  const children = packageChildren("Tool.Payload", [
+    {
+      assetId,
+      assemblyName: "Tool.Payload",
+      assetPath: assetId,
+      role: "ToolEntryPoint",
+    },
+  ]);
   const model = createNuGetPackageSummaryModel(children, [], undefined, undefined, null);
   const state = { libraryScope: new Set(["previous"]), atLibraryRoot: true, atPackageRoot: false };
   runInNewContext(`${selectDefault}\nselectDefaultPackageSubject(pkg);`, {
@@ -120,12 +160,14 @@ test("a tool-only summary with no product compile default stays at Package", () 
 });
 
 test("summary construction without a default field preserves its legacy fallback", () => {
-  const children = {
-    content: { packageId: "Sample", packageVersion: "1.0.0", targetFramework: "net8.0",
-      status: "Available", isComplete: true, libraries: [
-        { assetId: "first", assemblyName: "First", assetPath: "lib/First.dll" },
-      ] },
-  } as unknown as Parameters<typeof createNuGetPackageSummaryModel>[0];
+  const children = packageChildren("Sample", [
+    {
+      assetId: "first",
+      assemblyName: "First",
+      assetPath: "lib/First.dll",
+      role: "Compile",
+    },
+  ]);
   const model = createNuGetPackageSummaryModel(children, []);
   assert.equal(model.assemblyId, "first");
 });

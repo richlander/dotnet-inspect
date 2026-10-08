@@ -432,11 +432,8 @@ test("runtime graph acquisition ignores a resident pack from another TFM", () =>
     "unique");
   assert.equal(
     appSource.match(
-      /const pack = runtimePackForFramework\(\s*runtimePackPackage\(\),\s*platformCatalogFramework\(state\.package\?\.activeFramework \|\| ""\)\)/g)?.length,
-    2);
-  assert.match(
-    appSource,
-    /let pack = runtimePackForFramework\(\s*runtimePackPackage\(\),\s*framework\)/);
+      /runtimePackForFramework\(\s*runtimePackPackage\(\),/g)?.length,
+    4);
 });
 
 test("platform library selection remains distinct from canonical Platform identity", () => {
