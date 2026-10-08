@@ -473,7 +473,7 @@ Member `Call Graph` is the current exception: its legacy command-owned
 `--rows` window clamps an unavailable end to the available edges. It produces
 an empty edge table only when the requested start is beyond the available rows.
 
-`find`, `implements`, `extensions`, `depends`, `ecosystem`, `vocabulary`,
+`find`, focused Type hierarchy sections, `extensions`, `depends`, `ecosystem`, `vocabulary`,
 `diff --history`, `match --similar`, `package query`, `library query`, package
 activity, package `--versions` / `--versions-with-feed`, `demo list`, Workspace inventory,
 Integration graph edges, selected package file/SourceLink inventories,

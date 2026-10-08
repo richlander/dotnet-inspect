@@ -16,7 +16,8 @@ internal static class LibraryApiDiffRunner
         InspectionEnvelope<LibraryApiDiffOutcome>> ExecuteAsync(
             AssemblySetEntry before,
             AssemblySetEntry after,
-            bool includeAll)
+            bool includeAll,
+            ApiTypeSelection? typeSelection = null)
     {
         AssemblyContextParticipant beforeParticipant = CreateParticipant(before);
         AssemblyContextParticipant afterParticipant = CreateParticipant(after);
@@ -32,7 +33,8 @@ internal static class LibraryApiDiffRunner
             afterGroup,
             afterParticipant,
             includeAll ? ApiSurfaceScope.IncludeAll : ApiSurfaceScope.Public,
-            Limits);
+            Limits,
+            typeSelection);
     }
 
     /// <summary>
@@ -44,6 +46,7 @@ internal static class LibraryApiDiffRunner
             PackageEndpointScope before,
             PackageEndpointScope after,
             bool includeAll,
+            ApiTypeSelection? typeSelection = null,
             CancellationToken cancellationToken = default)
     {
         PackageEndpointParticipant beforeLibrary =
@@ -67,7 +70,8 @@ internal static class LibraryApiDiffRunner
                                         includeAll
                                             ? ApiSurfaceScope.IncludeAll
                                             : ApiSurfaceScope.Public,
-                                        Limits)),
+                                        Limits,
+                                        typeSelection)),
                             token),
                     cancellationToken)
                 .ConfigureAwait(false);

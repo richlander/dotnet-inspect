@@ -414,8 +414,10 @@ public static class AssemblyContextApiSurfaceQuery
         AssemblyContextGroup group,
         ApiSurfaceScope scope,
         ApiSurfaceProjectionLimits limits,
-        IReadOnlyList<AssemblyContextParticipant>? participants = null)
-        => ExecuteBoundedCore(group, scope, limits, participants, resolveConstraints: false);
+        IReadOnlyList<AssemblyContextParticipant>? participants = null,
+        ApiTypeSelection? typeSelection = null)
+        => ExecuteBoundedCore(
+            group, scope, limits, participants, resolveConstraints: false, typeSelection);
 
     /// <summary>
     /// Projects a selected participant set under explicit bounds and resolves generic
@@ -433,7 +435,8 @@ public static class AssemblyContextApiSurfaceQuery
         ApiSurfaceScope scope,
         ApiSurfaceProjectionLimits limits,
         IReadOnlyList<AssemblyContextParticipant>? participants,
-        bool resolveConstraints)
+        bool resolveConstraints,
+        ApiTypeSelection? typeSelection = null)
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(limits);
@@ -496,7 +499,7 @@ public static class AssemblyContextApiSurfaceQuery
                     : AssemblyContextQueryExecutor.ExecuteParticipant(
                         group,
                         participant,
-                        session => ProjectBounded(session, scope, bounds));
+                        session => ProjectBounded(session, scope, bounds, typeSelection));
             walked++;
             if (entry is not AssemblyContextEntry<ApiSurfaceExtractionResult>.Available available)
             {
@@ -609,10 +612,12 @@ public static class AssemblyContextApiSurfaceQuery
     static ApiSurfaceExtractionResult ProjectBounded(
         AssemblyInspectionSession session,
         ApiSurfaceScope scope,
-        ApiSurfaceExtractionBounds bounds)
+        ApiSurfaceExtractionBounds bounds,
+        ApiTypeSelection? typeSelection)
         => session.BoundedCompatibilityApiSurface(
             ExtractionScope(scope),
-            bounds);
+            bounds,
+            typeSelection: typeSelection);
 
     /// <summary>
     /// Carries a participant outcome that produced no surface across to the projected result's

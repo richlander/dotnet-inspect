@@ -409,16 +409,30 @@ candidates. When Count was requested, it is incomplete rather than an exact
 count over only the successfully admitted subset.
 
 When the focus context already represents the same exact realized Package
-coordinate as a selected Scope occurrence, the adapter still exercises
-ordinary Package declaration admission. For a direct focus context, population
-capture excludes only the admitted assembly occurrence with the same exact
-assembly identity and module version; sibling assemblies from that Package
-remain candidates. For an already admitted Package Scope focus, ordinary
-context identity prevents duplicate capture. The exact selected focus context
-remains the sole occurrence of its physical assembly source. Other admitted
-members retain Workspace publication order, and the existing hierarchy
-operation preserves canonical rows when equal-looking logical Types arise from
-distinct exact source occurrences.
+target as a selected Scope occurrence, the adapter still exercises ordinary
+Package declaration admission. For a direct focus context, population capture
+excludes only the admitted assembly occurrence with the same package ID,
+version, framework, RID, assembly identity, and observed module version.
+Producer tokens may differ across cache-format migrations; they are not
+physical-module identity. Sibling assemblies from that Package and equal-looking
+assemblies from different package targets remain candidates. For an already
+admitted Package Scope focus, ordinary context identity prevents duplicate
+capture. The exact selected focus context remains the sole occurrence of its
+physical assembly source. Other admitted members retain Workspace publication
+order, and the existing hierarchy operation preserves canonical rows when
+equal-looking logical Types arise from distinct exact source occurrences.
+
+The CLI adapter realizes retained package-prefix registrations before invoking
+this shared hierarchy operation. Browser hierarchy navigation reaches the same
+operation through its retained explicit Package contexts; Browser does not
+currently retain package-prefix registrations in active inspection scope.
+
+For an installed Platform focus, the CLI may inspect the exact implementation
+assembly while hierarchy correspondence selects the matching reference
+declaration. The relation population retains that reference focus and excludes
+the duplicate implementation-focus occurrence, so one logical platform
+assembly does not produce duplicate rows. This does not remove other Platform
+assemblies or collapse distinct Package occurrences.
 
 Composition continuation retains the exact captured population and #9660
 evidence. It does not repeat admission or recapture a later population.
@@ -1688,7 +1702,7 @@ count, not hide several unreviewable changes inside a nominal slice.
 | 16 | CLI ecosystem-to-locator handoff, local sections, shortcuts, query discovery, sharing, and focused ecosystem/relations skill adoption. This consumes the operation/section placement in #7623 and retains top-level Find, Depends, and Graph. |
 | 17 | Inspect Web/Browser-Wasm adoption of the same locator, QuerySpace request, content, Share outcome, diagnostics, typed evidence, and coverage. |
 | 18 | Lightweight production-versus-candidate H2H over the three real discovery scenarios. |
-| 19 | Retire `extensions`, `implements`, and superseded Integration-specific surfaces after population, relation, evidence, failure, format, discovery, sharing, and both-host parity. Retain top-level `diff`, `graph`, `depends`, and ecosystem vocabulary. Preserve the dependency owner's completed `dependency-evidence` retirement. |
+| 19 | **In progress:** retire redundant command surfaces after population, relation, evidence, failure, format, discovery, sharing, and both-host parity. The top-level `implements` command is retired in favor of focused Type `Implementers` and `Derived Types`; `extensions` and superseded Integration-specific surfaces remain. Retain top-level `diff`, `graph`, `depends`, and ecosystem vocabulary. Preserve the dependency owner's completed `dependency-evidence` retirement. |
 
 CLI adoption is step 16 and website adoption step 17; neither is optional
 for this shared substrate. Step 19 is part of completion. Producers may ship

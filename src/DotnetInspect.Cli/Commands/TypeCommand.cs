@@ -93,6 +93,19 @@ public static partial class TypeCommand
             plan,
             exactTypeCapabilities: exactTypeCapabilities);
 
+    internal static Task<int> ExecuteAsync(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan plan,
+        WorkspaceContextLoadOptions exactTypeCapabilities,
+        WorkspacePackagePrefixHierarchyRuntime packagePrefixRuntime,
+        CancellationToken cancellationToken = default)
+        => ExecuteCoreAsync(
+            options,
+            plan,
+            exactTypeCapabilities: exactTypeCapabilities,
+            packagePrefixRuntime: packagePrefixRuntime,
+            cancellationToken: cancellationToken);
+
     internal static Task<int> ExecuteResolvedAsync(
         TypeOptions options,
         ApiSourceResult source,
@@ -189,6 +202,7 @@ public static partial class TypeCommand
         ApiServices.LoadedApiSurface? loadedSurface = null,
         ApiType? preselectedType = null,
         WorkspaceContextLoadOptions? exactTypeCapabilities = null,
+        WorkspacePackagePrefixHierarchyRuntime? packagePrefixRuntime = null,
         TypeCommandPlan? commandPlan = null,
         CancellationToken cancellationToken = default)
     {
@@ -222,6 +236,7 @@ public static partial class TypeCommand
                 plan,
                 exactTypeCapabilities
                     ?? CreateWorkspaceContextLoadOptions(options),
+                packagePrefixRuntime,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -244,6 +259,7 @@ public static partial class TypeCommand
                 plan,
                 exactTypeCapabilities
                     ?? CreateWorkspaceContextLoadOptions(options),
+                packagePrefixRuntime,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -1412,6 +1428,7 @@ public static partial class TypeCommand
         TypeOptions options,
         ResolvedMemberInspectionPlan plan,
         WorkspaceContextLoadOptions capabilities,
+        WorkspacePackagePrefixHierarchyRuntime? packagePrefixRuntime,
         CancellationToken cancellationToken)
     {
         WorkspacePacketRestorationResult result =
@@ -1461,14 +1478,50 @@ public static partial class TypeCommand
                 AssertSingleDefiningSource(envelope.Content);
             ExactTypeRenderSource renderSource =
                 ExactTypeRenderSource.From(source);
+            TypeOptions effectiveOptions = options with
+            {
+                WorkspacePacket = null,
+                ShareFormat = null,
+                CompanionOutput = CompanionOutput.None,
+            };
+            if (TypeHierarchyRelationsInspectionExecutor.IsSelected(options))
+            {
+                WorkspaceDeclarationContext focusContext =
+                    activeRestoration.Activation.SelectedContext
+                    ?? throw new InvalidOperationException(
+                        "An available Workspace Type result requires one "
+                            + "selected declaration context.");
+                (
+                    TypeHierarchyRelationsInspection? relations,
+                    string? hierarchyError) =
+                        await WorkspaceTypeHierarchyRelationsInspectionExecutor
+                            .ExecuteAsync(
+                                activeRestoration.Workspace,
+                                activeRestoration.Activation,
+                                focusContext,
+                                envelope.Content,
+                                options,
+                                capabilities,
+                                packagePrefixRuntime,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                if (hierarchyError is not null)
+                {
+                    CommandError.Write(hierarchyError);
+                    return 1;
+                }
+
+                effectiveOptions = effectiveOptions with
+                {
+                    TypeHierarchyRelations = relations,
+                };
+                if (relations is not null)
+                    WriteHierarchyDiagnostics(relations);
+            }
+
             int outputExitCode =
                 await ExecuteWorkspaceExactTypeResultAsync(
-                    options with
-                    {
-                        WorkspacePacket = null,
-                        ShareFormat = null,
-                        CompanionOutput = CompanionOutput.None,
-                    },
+                    effectiveOptions,
                     plan,
                     inspection,
                     envelope.Diagnostics,
@@ -2062,6 +2115,7 @@ public static partial class TypeCommand
     static void WriteHierarchyDiagnostics(
         TypeHierarchyRelationsInspection inspection)
     {
+        WriteInspectionDiagnostics(inspection.EffectiveDiagnostics);
         foreach (TypeHierarchyRelationSectionInspection section
         in new[]
         {

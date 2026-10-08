@@ -15,6 +15,63 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     private const string NewtonsoftId = "Newtonsoft.Json";
     private const string NewtonsoftVersion = "13.0.4";
 
+    [Theory]
+    [InlineData(true, "README content")]
+    [InlineData(false, "PACKAGE content")]
+    public async Task PackageCommand_ReadmeSection_SelectsPrimaryDocumentByRange(
+        bool includeReadme,
+        string expected)
+    {
+        string id = $"Documents.Primary.{Guid.NewGuid():N}";
+        byte[] package = CreatePrimaryDocumentPackage(
+            id,
+            includeReadme);
+        var feed = new RangeHonoringFeedHandler(
+            FirstFeed,
+            id,
+            package);
+        UseFeed(feed);
+
+        var result = await RunCommandAsync(
+            [
+                "package",
+                $"{id}@{Version}",
+                "--source",
+                FirstFeed,
+                "-S",
+                "README",
+                "--verbose",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Equal(expected, result.Output.Trim());
+        Assert.Equal(1, feed.FullPackageResponses);
+        Assert.True(feed.RangedResponses > 0);
+        Assert.True(
+            feed.PackageBytesServed
+                < 128 * 1024 + AbandonedProbeReadBound,
+            $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+
+        int requests = feed.FullPackageResponses
+            + feed.RangedResponses;
+        var raw = await RunCommandAsync(
+            [
+                "package",
+                $"{id}@{Version}",
+                "--source",
+                FirstFeed,
+                "-S",
+                "README",
+                "--raw",
+            ]);
+
+        Assert.True(raw.Exit == 0, raw.Error);
+        Assert.Equal(expected, raw.Output.Trim());
+        Assert.Equal(
+            requests,
+            feed.FullPackageResponses + feed.RangedResponses);
+    }
+
     /// <summary>
     /// Gates 11 and 13, real asset Newtonsoft.Json 13.0.4 (2.5 MB, root
     /// README.md): the cold file projection is the size probe, the directory
@@ -263,6 +320,40 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         using Stream entry = archive.GetEntry(path)!.Open();
         using var buffer = new MemoryStream();
         entry.CopyTo(buffer);
+        return buffer.ToArray();
+    }
+
+    private static byte[] CreatePrimaryDocumentPackage(
+        string id,
+        bool includeReadme)
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            WriteEntry(
+                archive,
+                $"{id}.nuspec",
+                $"""
+                    <package><metadata>
+                      <id>{id}</id>
+                      <version>{Version}</version>
+                      <authors>Payload tests</authors>
+                      <description>Primary document fixture</description>
+                    </metadata></package>
+                    """);
+            WriteEntry(archive, "PACKAGE.md", "PACKAGE content");
+            if (includeReadme)
+                WriteEntry(archive, "README.md", "README content");
+            using Stream padding = archive.CreateEntry(
+                    "content/padding.bin",
+                    CompressionLevel.NoCompression)
+                .Open();
+            padding.Write(
+                RandomNumberGenerator.GetBytes(2 * 1024 * 1024));
+        }
         return buffer.ToArray();
     }
 }
