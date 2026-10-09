@@ -443,7 +443,7 @@ public class MarkoutRowContainmentTests
             checkedPropertiesByType.GetValueOrDefault(
                 typeof(DotnetInspect.Cli.Views.PackageSourceIntegritySection)));
         Assert.Equal(
-            3,
+            4,
             checkedPropertiesByType.GetValueOrDefault(
                 typeof(DotnetInspect.Cli.Views.PackageQueryRow)));
         Assert.Equal(
