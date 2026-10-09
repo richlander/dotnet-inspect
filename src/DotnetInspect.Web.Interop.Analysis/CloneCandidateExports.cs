@@ -1,5 +1,3 @@
-using System.Reflection.Metadata;
-using System.Reflection.Metadata.Ecma335;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
@@ -94,19 +92,17 @@ public static partial class AnalysisExports
             BrowserCloneCandidateSeedKind.Type =>
                 new StructuralCloneSearchSeed.Type(type!),
             BrowserCloneCandidateSeedKind.Member =>
-                new StructuralCloneSearchSeed.Member(
+                CreateMemberSeed(
+                    scope,
+                    containingLibrary,
                     type!,
-                    CreateMemberAnchor(
-                        scope,
-                        containingLibrary,
-                        type!,
-                        request.Member!,
-                        request.Body)),
+                    request.Member!,
+                    request.Body),
             _ => throw new ArgumentOutOfRangeException(nameof(request)),
         };
     }
 
-    static MemberAnchor CreateMemberAnchor(
+    static StructuralCloneSearchSeed.Member CreateMemberSeed(
         BrowserInspectionScope scope,
         BrowserWorkspaceParticipant containingLibrary,
         MetadataTypeDefinitionName type,
@@ -119,243 +115,51 @@ public static partial class AnalysisExports
             requested.Fingerprint,
             requested.TypeFullName,
             requested.MemberName);
+        var request = new AssemblyContextStructuralCloneMemberSeedRequest(
+            type,
+            logical,
+            body is null
+                ? null
+                : new AssemblyContextMemberSelection(
+                    type.ToEscapedFullName(),
+                    body.MemberName,
+                    body.SelectorKey,
+                    body.MetadataToken));
         BrowserWorkspaceParticipant? surfaceParticipant =
             scope.TryGetSurfaceParticipant(containingLibrary);
-        LogicalMember? source = surfaceParticipant is null
-            ? null
-            : scope.UseSurfaceParticipant(
-                surfaceParticipant,
-                (group, participant) => TryResolveLogicalMember(
-                    BrowserMemberResolution.ImplementationSurface(
-                        group,
-                        participant),
-                    type,
-                    logical));
-
-        return scope.UseMetadataParticipant(
-            containingLibrary,
-            (group, participant) =>
-            {
-                ApiSurface implementation =
-                    BrowserMemberResolution.ImplementationSurface(
-                        group,
-                        participant);
-                AssemblyContextMemberBody? selected = body is null
-                    ? null
-                    : BrowserMemberResolution
-                        .ResolveImplementationMember(
-                            implementation,
-                            type.ToEscapedFullName(),
-                            body.MemberName,
-                            body.SelectorKey,
-                            body.MetadataToken);
-                LogicalMember mapped = ResolveRequestedMember(
-                    implementation,
-                    type,
-                    logical,
-                    source,
-                    body);
-                if (body is null)
-                {
-                    if (mapped.Member.MetadataToken is { } token
-                        && MetadataTokens.EntityHandle(token).Kind
-                            == HandleKind.MethodDefinition)
-                    {
-                        return BrowserSurfaceProjection.Require(
-                            AssemblyContextMethodAnchorQuery
-                                .ExecuteParticipant(
-                                    group,
-                                    participant,
-                                    type,
-                                    token,
-                                    mapped.Member.IsExtension),
-                            $"Clone seed '{type.ToEscapedFullName()}."
-                                + $"{mapped.Member.Name}'");
-                    }
-
-                    return ApiMemberIdentity.GetMemberAnchor(
-                        mapped.Type,
-                        mapped.Member);
-                }
-
-                if (!CallGraphMemberResolver
-                    .CreateBodySelectors(mapped.Type, mapped.Member)
-                    .Any(candidate =>
-                        candidate.BodyToken == selected!.BodyToken))
-                {
-                    throw new ArgumentException(
-                        "The selected body does not belong to the "
-                            + "requested logical member.",
-                        nameof(body));
-                }
-
-                return BrowserSurfaceProjection.Require(
-                    AssemblyContextMethodAnchorQuery.ExecuteParticipant(
-                        group,
-                        participant,
-                        type,
-                        selected!.BodyToken,
-                        mapped.Member.IsExtension),
-                    $"Clone seed '{type.ToEscapedFullName()}."
-                        + $"{body.MemberName}'");
-            });
-    }
-
-    static LogicalMember ResolveRequestedMember(
-        ApiSurface implementation,
-        MetadataTypeDefinitionName type,
-        MemberAnchor logical,
-        LogicalMember? source,
-        BrowserCloneCandidateBodySelection? body)
-    {
-        LogicalMember? implementationSource =
-            TryResolveLogicalMember(
-                implementation,
-                type,
-                logical);
-        if (implementationSource is not null
-            && (body is null
-                || OwnsBody(
-                    implementationSource,
-                    body.MemberName,
-                    body.SelectorKey,
-                    body.MetadataToken)))
+        if (surfaceParticipant is null)
         {
-            return implementationSource;
+            return scope.UseMetadataParticipant(
+                containingLibrary,
+                (implementationGroup, implementationParticipant) =>
+                    BrowserMemberResolution.RequireSelection(
+                        AssemblyContextStructuralCloneSeedQuery.ExecuteMember(
+                            implementationGroup,
+                            implementationParticipant,
+                            sourceGroup: null,
+                            sourceParticipant: null,
+                            request,
+                            BrowserApiSurfacePolicy.Limits),
+                        "Clone seed selection"));
         }
 
-        if (source is not null
-            && (body is null
-                || OwnsBody(
-                    source,
-                    body.MemberName,
-                    body.SelectorKey,
-                    body.MetadataToken)))
-        {
-            return ResolveCorrespondingMember(
-                implementation,
-                type,
-                source);
-        }
-
-        if (body is null)
-        {
-            throw new InvalidOperationException(
-                "The selected implementation and browser API surfaces do "
-                    + "not contain the requested Clone Candidates member.");
-        }
-
-        throw new ArgumentException(
-            "The selected body does not belong to the requested logical "
-                + "member.",
-            nameof(body));
+        return scope.UseSurfaceParticipant(
+            surfaceParticipant,
+            (sourceGroup, sourceParticipant) =>
+                scope.UseMetadataParticipant(
+                    containingLibrary,
+                    (implementationGroup, implementationParticipant) =>
+                        BrowserMemberResolution.RequireSelection(
+                            AssemblyContextStructuralCloneSeedQuery
+                                .ExecuteMember(
+                                    implementationGroup,
+                                    implementationParticipant,
+                                    sourceGroup,
+                                    sourceParticipant,
+                                    request,
+                                    BrowserApiSurfacePolicy.Limits),
+                            "Clone seed selection")));
     }
-
-    static LogicalMember? TryResolveLogicalMember(
-        ApiSurface surface,
-        MetadataTypeDefinitionName type,
-        MemberAnchor member)
-    {
-        ApiType[] types =
-        [
-            .. surface.Types
-                .Where(candidate =>
-                    candidate.DefinitionName == type)
-                .Take(2),
-        ];
-        if (types.Length == 0)
-            return null;
-        if (types.Length != 1)
-        {
-            throw new InvalidOperationException(
-                $"The selected browser API surface contains multiple "
-                    + $"TypeDefs '{type.ToEscapedFullName()}'.");
-        }
-
-        ApiType resolvedType = types[0];
-        ApiMember[] matches =
-        [
-            .. resolvedType.Members
-                .Where(candidate =>
-                    ApiMemberIdentity.GetMemberAnchor(
-                        resolvedType,
-                        candidate)
-                    == member)
-                .Take(2),
-        ];
-        if (matches.Length == 0)
-            return null;
-        if (matches.Length != 1)
-        {
-            throw new InvalidOperationException(
-                "The Clone Candidates member resolves more than once in "
-                    + "the selected browser API surface.");
-        }
-
-        return new LogicalMember(resolvedType, matches[0]);
-    }
-
-    static bool OwnsBody(
-        LogicalMember member,
-        string memberName,
-        string selectorKey,
-        int bodyToken) =>
-        CallGraphMemberResolver
-            .CreateBodySelectors(member.Type, member.Member)
-            .Any(candidate =>
-                candidate.BodyToken == bodyToken
-                && candidate.MemberName == memberName
-                && candidate.SelectorKey == selectorKey);
-
-    static LogicalMember ResolveCorrespondingMember(
-        ApiSurface implementation,
-        MetadataTypeDefinitionName type,
-        LogicalMember source)
-    {
-        ApiType resolvedType = ResolveType(implementation, type);
-        string selector =
-            CallGraphMemberResolver.CreateSelector(
-                source.Type,
-                source.Member).Key;
-        ApiMember[] matches =
-        [
-            .. resolvedType.Members
-                .Where(candidate =>
-                    candidate.Kind == source.Member.Kind
-                    && candidate.Name == source.Member.Name
-                    && CallGraphMemberResolver.CreateSelector(
-                            resolvedType,
-                            candidate).Key
-                        == selector)
-                .Take(2),
-        ];
-        return matches.Length == 1
-            ? new LogicalMember(resolvedType, matches[0])
-            : throw new ArgumentException(
-                "The Clone Candidates member does not map uniquely to the "
-                    + "selected implementation.",
-                nameof(source));
-    }
-
-    static ApiType ResolveType(
-        ApiSurface surface,
-        MetadataTypeDefinitionName type)
-    {
-        ApiType[] matches =
-        [
-            .. surface.Types
-                .Where(candidate =>
-                    candidate.DefinitionName == type)
-                .Take(2),
-        ];
-        return matches.Length == 1
-            ? matches[0]
-            : throw new InvalidOperationException(
-                $"The selected browser API surface does not contain exactly "
-                    + $"one TypeDef '{type.ToEscapedFullName()}'.");
-    }
-
-    sealed record LogicalMember(ApiType Type, ApiMember Member);
 
     static MetadataTypeDefinitionName ParseTypeDefinition(
         string identity) =>

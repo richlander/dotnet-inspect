@@ -496,7 +496,7 @@ internal static class BrowserMemberResolution
                 selectorKey,
                 metadataToken == 0 ? null : metadataToken));
 
-    static TValue RequireSelection<TValue>(
+    internal static TValue RequireSelection<TValue>(
         AssemblyContextEntry<TValue> entry,
         string operation)
     {
