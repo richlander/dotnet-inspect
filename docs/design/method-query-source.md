@@ -571,9 +571,10 @@ Migration is incremental:
    access to the lookup and charges no work for it beyond the producer's own
    declared lookups. This slice is **unverified**; legacy callers stay until
    their consumers move.
-10. Serve scoped legacy body work through the
-    [legacy-remainder declaration](assembly-analysis-operation.md#legacy-remainder-declaration),
-    which consumes this source's method packets and body acquisition.
+10. Move exact-member declaration, direct-call, and callee-safety producers
+    through
+    [exact-member scoped producers](assembly-analysis-operation.md#exact-member-scoped-producers),
+    consuming this source's method packets and targeted receipted lookups.
 11. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 

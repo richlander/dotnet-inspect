@@ -24,10 +24,10 @@ every Method request in request order, plus physical group work recorded once.
 Method Classification is its first production caller: the session-backed query
 uses request-set access while the PEReader overload remains the direct
 reference.
-Other source kinds, cancellation, residual request satisfaction, and legacy-
-remainder composition remain **unverified**. The first scoped
-legacy-remainder declaration is designed under
-[Legacy-remainder declaration](#legacy-remainder-declaration).
+Other source kinds, cancellation, residual request satisfaction, and mixed-
+hub composition remain **unverified**. The first exact-member
+producers are designed under
+[Exact-member scoped producers](#exact-member-scoped-producers).
 
 ## Authority and exact claim
 
@@ -52,7 +52,7 @@ This owner defines:
 - the coarse operation boundary at which optional cancellation is observed;
 - the sequential reference composition required on single-threaded
   Browser/Wasm; and
-- the temporary legacy-remainder rule used while the current producer hub is
+- the exact-member producer rule used while the current producer hub is
   drained.
 
 This owner does not define:
@@ -292,143 +292,87 @@ Migration uses a strangler:
    presence production path.
 2. Land the minimum general request collapse from #8574 needed to compose
    several producer requests.
-3. Introduce one temporary legacy-remainder declaration for producers that
-   have not moved.
+3. Leave unmoved producers on the existing hub; no aggregate remainder
+   producer is introduced.
 4. Move one cohesive producer owner and at least one production consumer per
    slice.
 5. Delete each superseded feature, plan, runner, aggregate, and compatibility
    projection when its final consumer moves.
-6. Delete the legacy remainder and the current producer hub after the final
-   producer and consumer move.
-
-The legacy-remainder declaration is constrained:
-
-- it receives units from the owner-issued QuerySpace source;
-- it never enumerates an assembly, opens content, or calls
-  `LibraryBodyAnalysisBuilder.Build`;
-- it publishes only fields still required by unmigrated consumers; and
-- its request and result shape shrink in every migration that consumes part
-  of it.
+6. Delete the current producer hub after the final producer and consumer
+   move.
 
 A migrated producer computes its focused result from its declaration and
 visits. Filtering a broad legacy aggregate after construction does not count
 as migration.
 
-### Legacy-remainder declaration
+### Exact-member scoped producers
 
-The first remainder slice is designed here and is **unverified** until it
-lands. It supplies this exact claim:
+The first hub-draining slices are designed here and are **unverified** until
+they land. The whole-assembly `LibraryBodyAnalysisResult` is not reproducible
+from source-scoped units: its declaration counts, unsafe-mode counts,
+call-resolution map, declared-source publication, and exception classification
+all span every MethodDef and TypeDef. No aggregate "remainder" producer is
+declared. Each slice instead peels one focused result for one real consumer,
+using exact-member units from the owner-issued Method source and targeted,
+receipted lookups for anything outside the selection. A lookup that would need
+an unrelated body or a whole-table scan is a second planner and is rejected.
 
-> One Method-source producer declaration, `LibraryBodyRemainder`, receives
-> physical MethodDef units from the owner-issued Method source for a scoped
-> request and publishes the scope-bounded surface of the legacy aggregate the
-> broad builder would have published for that scope, without enumerating the
-> assembly or calling `LibraryBodyAnalysisBuilder.Build`.
+Normative claim, owned here with call-site population and identity owned by
+[#8945](https://github.com/richlander/dotnet-inspect/issues/8945):
 
-A scoped broad build still creates declaration results for every MethodDef, so
-some aggregate fields (for example declared-method identities and unsafe-mode
-counts) describe the whole assembly. A source-scoped remainder cannot produce
-them and must not publish a scope-shaped value in their place. The
-**scope-bounded surface** is every aggregate field derived only from the
-selected and expanded units. Population-wide fields are typed-unavailable in
-the remainder's result. A consumer that reads one stays on the old boundary
-until its population has its own owner. The implementation slice enumerates the
-fields from `LibraryBodyAnalysisResult` and its accumulator; a field that is
-neither scope-bounded nor typed-unavailable blocks the slice.
+> For an exact MethodDef token, Method-source producers publish the focused
+> declaration, direct-call, and caller-safety results the consumer reads today,
+> and every unit, lookup, and body they touch is receipted. Completion
+> enumerates nothing outside the selection and its declared lookups.
 
-**Shape.** The declaration is an ordinary Method producer under
-[Producer Planning](producer-planning.md):
+**Producers.**
 
-| Part | Definition |
-| --- | --- |
-| Fact | The current per-method `LibraryMethodAnalysisResult`, produced by the existing per-method runner from the source's method packet. |
-| Accumulator | The current `LibraryBodyAnalysisAccumulator`, fed in source order. |
-| Completion | `accumulator.Build`, scope-expansion diagnostics, declared-source publication, and resource occurrence, ownership, and lifecycle publication, exactly as `Build` ends today. |
-| Layers | Declaration, Body, declared module lookup, and `ReferenceBinding`. It declares no deeper layer than the runner reads. |
-| Result | The legacy `LibraryBodyAnalysisResult`, from which `LibraryBodyAnalysisExecution` still derives its focused results for unmigrated consumers. |
+| Producer | Fact and result | Support |
+| --- | --- | --- |
+| Exact-token declaration | Whether the token is a MethodDef, and if so its identity, signature, and body presence. It distinguishes an invalid token from a bodiless method. It replaces the `callGraph.DeclaredMethods` read for token validity. | Declaration layer only. |
+| Direct calls | The method's call sites with the #8945 identity tiers (Count; exact declaring Type; exact Type.Member.Overload; full signature), consuming the one physical `EvidenceMethod`. | Body layer, plus `ReferenceBinding` when a tier needs cross-assembly identity. |
+| Callee safety | The unsafe mode of each same-image callee the selected method calls, resolved by exact-token lookup. Cross-assembly callees use the `ReferenceBinding` layer. | Targeted lookup. It reads the callee declaration and its own body only when its unsafe mode needs it, never unrelated bodies. Each lookup is a receipted shared-lookup unit. |
 
-**Mapping from the legacy plan.**
+A selected caller's safety result depends on callee unsafe modes, not on a
+whole-assembly call-resolution map. The lookup resolves exactly the callees the
+call sites name, so the result is identical to the legacy value without the
+whole-assembly accumulation.
 
-| Legacy plan input | Source request |
-| --- | --- |
-| `MethodScope` | Exact-MethodDef breadth. |
-| `TypeScope` | Exact-TypeDef breadth, only when the request carries owner-resolved TypeDef coordinates. A `Func<TypeRef, bool>` predicate supplies no handles and stays on the old boundary. |
-| `ExpandEvidenceScope` | Declared generated-execution-body expansion. Its probe work is source work and is receipted as such. |
-| `Features` and `ImplementationMetrics` | Remainder parameters. They select what the runner computes, never what the source enumerates. |
-| The source-generated type flag computed in `Build` | Computed by the remainder from the unit's declaring TypeDef. |
+**Body acquisition.** Producers read the body from the source's packet; none
+calls `GetMethodBody`, `RequireMethodBody`, or `MethodBodySource.Read`. A
+callee lookup that needs a body acquires it through the owner and the receipt
+counts it as lookup work, visible rather than hidden.
 
-**Support.** The builder splits. Its same-image infrastructure (generic
-scope, async-source and declared-source resolvers, exception-type classifier)
-remains the remainder's execution-scoped support, constructed when the source
-first needs it and receipted as declared shared lookup support. Its
-cross-assembly reference resolution no longer comes from a resolver the
-builder obtains on its own: the remainder declares the `ReferenceBinding`
-layer and reads the operation access's
-[reference binding](#reference-binding-access). A scoped request whose access
-carries no binding is rejected with `ReferenceBindingUnavailable`; it never
-degrades to same-assembly evidence. Its traversal (`Build`, the work-item
-list, and the `Parallel.For` branch) is deleted in this slice for scoped
-requests.
+**Admission.** These producers serve exact-MethodDef requests only. Type-wide,
+predicate-scoped, and unscoped requests stay on `LibraryBodyAnalysisService`
+until a later slice gives their population an owner. The service never falls
+back silently, and a request outside admission is rejected with a typed
+planning rejection.
 
-**Body acquisition.** The runner receives the method body from the source's
-packet. It makes no independent body read: neither `GetMethodBody` nor its
-`RequireMethodBody` and `MethodBodySource.Read` paths. Each body-eligible
-unit therefore has at most one terminal body acquisition, and the source
-receipt's terminal body count is the whole terminal body work. A bodiless unit
-acquires none. Generated-body discovery probes are separate source work with
-their own receipt counts; the owner may acquire a probed body again for
-terminal work, and that second acquisition is visible rather than hidden. A
-runner path that still reads a body independently makes the receipt
-under-report and blocks the slice.
+**First adopter.** `AssemblyContextMethodAnalysisQuery` is Workspace-backed,
+uses one exact method token, and already receives its resolver from the
+universe provider (`AssemblyContextAnalysisSource.Resolver`), so the owner that
+issues the [reference binding](#reference-binding-access) exists. It reads
+declaration, direct calls, safety, allocations, optimization opportunities,
+and diagnostics for that one method. This slice moves the declaration, direct
+call, and callee safety producers; allocations and optimization opportunities
+stay on the old boundary until their producers move, and the query composes
+both paths without wrapping `Build`. Issuing the
+`AssemblyReferenceBindingAccess` from the provider is part of this slice.
 
-**Order and results.** Units arrive in ascending MethodDef row order within a
-wave, the same order `Build` merges today. Aggregate output, diagnostics, and
-scope-expansion diagnostics are therefore byte-identical to `Build` on the
-scope-bounded surface for the same scoped request.
+`ILOffsetQuery` follows once an owner can issue operation access and a
+reference binding over its prefetched `PdbContext` image without reopening by
+path. Until then it stays on the old boundary.
 
-**Admission.** The remainder serves only scoped requests, those with a
-`MethodScope` or owner-resolved TypeDef coordinates. Operation formation
-rejects an unscoped or predicate-scoped remainder request with a typed
-planning rejection. Legacy unscoped builds are
-parallel above a method-count threshold, and the sequential Method source
-cannot yet claim wall-time equivalence. They stay on
-`LibraryBodyAnalysisService` until the source owner permits an equivalent
-parallel executor, which is a separate source-owner slice. The service never
-silently falls back from one path to the other.
+**Stage participation.** Migrated producers do not publish the legacy
+`LibraryBodyAnalysisStageParticipation` receipt. The Method source receipt and
+Producer Planning `WorkReceipt` describe their work. A consumer that requires
+the legacy receipt (CLI `--trace`) stays on the old boundary until it moves.
 
-**Stage participation.** The service-owned remainder does not publish the
-legacy `LibraryBodyAnalysisStageParticipation` receipt. The Method source
-receipt and Producer Planning `WorkReceipt` describe its work. Any consumer
-that requires the legacy stage receipt (CLI `--trace`) remains on the old
-boundary until it moves to the source receipt.
-
-**First adopter.** `AssemblyContextMethodAnalysisQuery` is the first
-consumer. It is a Workspace-backed, exact-method-token query that already
-receives its resolver from the universe provider
-(`AssemblyContextAnalysisSource.Resolver`), so the issuing owner named by
-[reference binding access](#reference-binding-access) exists and the
-remainder's reference needs map onto a binding it can issue. It reads only the
-scope-bounded surface (call graph, allocations, safety, optimization
-opportunities, diagnostics, and exception regions for its one method), and the
-slice confirms that before adopting. Issuing the
-`AssemblyReferenceBindingAccess` from that provider is part of this slice.
-
-`ILOffsetQuery` follows as the second adopter. It requests an exact
-method-token scope and consumes `Allocations`, `Safety`, and `CallGraph`, but
-holds only a prefetched image owned by `PdbContext` and has no universe
-provider to issue a binding. It adopts the remainder only after an owner can
-issue operation access and reference binding over that existing image, without
-reopening by path or rereading the file. Until then it stays on the old
-boundary; the slice never wraps `Build` to cover it.
-
-The runner today reads bodies itself (`PEReader.GetMethodBody`) in its per-
-method and implementation-metric paths. Adopting the source packet's
-`MethodBodyBlock` there is part of this slice, not a precondition owned by
-another slice.
-
-**Shrink rule.** Each later producer slice removes its Fact fields, request
-parameters, and Completion publication from the remainder and updates the
-live drain map in #8965. The remainder is deleted when the last field leaves.
+**Shrink rule.** Each slice moves one real consumer, publishes its existing
+focused result, deletes the hub branch, request parameter, or feature it
+superseded, and updates the live drain map in #8965. The hub is deleted when
+its last field leaves.
 
 `CompleteProfileV1` remains a compatibility composition of independently
 owned metrics and relationships. It is not one producer. Metric selection and
@@ -539,29 +483,26 @@ exhausted, producer-failed, or aborted completion. Later source kinds and
 mid-source delegation failures add their owner-issued outcomes and gates when
 they adopt the service.
 
-The slice that introduces the legacy-remainder declaration supplies
+The first exact-member slice supplies
 `AssemblyAnalysisService_MixedLegacyAndMigratedProducersUseOneSourcePlan` and
 these gates:
 
-- `LegacyRemainder_ScopedSurfaceMatchesBuilderOutput` compares the
-  scope-bounded surface, diagnostics, and scope-expansion diagnostics with the
-  broad builder for exact-method, exact-type, and expansion scopes, including
-  malformed and bodiless methods, and asserts that each population-wide field
-  is typed-unavailable;
-- `LegacyRemainder_AcquiresEachTerminalBodyOnce` asserts that the source
-  receipt's terminal body count equals the body-eligible units attempted,
-  that probes are counted separately, and that no runner path reads a body
-  independently;
-- `LegacyRemainder_VisitsOnlySourcePlannedUnits` asserts that definitions
-  examined equal the selected breadth plus declared expansion, with no
-  whole-table scan; and
-- `LegacyRemainder_RejectsUnscopedOrPredicateScopedRequest` asserts the typed
+- `ExactMember_DeclarationDistinguishesInvalidFromBodilessToken` asserts the
+  typed outcome for a valid body, a bodiless method, and an invalid token;
+- `ExactMember_CalleeSafetyResolvesOnlyNamedCallees` asserts that a selected
+  caller with an unsafe callee outside the selection reports the legacy
+  safety result, and that the receipt shows only the named callee lookups and
+  no unrelated body acquisition;
+- `ExactMember_CompletionEnumeratesNothingOutsideSelection` counts every
+  definition, body, and lookup enumeration, including completion, and asserts
+  no whole-assembly or whole-table scan; and
+- `ExactMember_RejectsTypeUnscopedOrPredicateRequest` asserts the typed
   planning rejection and that no fallback executes.
 
 The first adopter's validation compares `AssemblyContextMethodAnalysisQuery`'s
 complete public outcome (call graph, allocations, safety, optimization
-opportunities, diagnostics, and exception regions) with the old boundary, not
-only the aggregate.
+opportunities, diagnostics, and exception regions), including invalid and
+bodiless tokens, with the old boundary, not only the focused result.
 
 The positive session path inherits the Release gates owned by
 [session-owned format admission](assembly-inspection-query.md#session-owned-format-admission).
