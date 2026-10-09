@@ -8,19 +8,12 @@
       "title": "C# Style Choices",
       "type": "application/hal+json"
     },
-    "curies": [
-      {
-        "name": "inspect",
-        "href": "urn:dotnet-inspect:reading:{rel}",
-        "templated": true
-      }
-    ],
     "describedby": {
       "href": "inspect-resource:/vocabularies/csharp.style-choices?projection=contract",
       "title": "Schema and observation details",
       "type": "application/json"
     },
-    "inspect:vocabularies": [
+    "vocabularies": [
       {
         "href": "inspect-resource:/vocabularies/csharp.style-tiers?projection=hal",
         "title": "C# Style Tiers",
@@ -130,7 +123,7 @@
     }
   },
   "_embedded": {
-    "inspect:values": [
+    "values": [
       {
         "kind": "vocabulary-value",
         "name": "Use IL slot local names",
@@ -404,7 +397,7 @@
         "tier": "Spelling"
       }
     ],
-    "inspect:vocabularies": [
+    "vocabularies": [
       {
         "kind": "value-vocabulary",
         "name": "C# Style Tiers",
@@ -449,7 +442,7 @@
         },
         "property_groups": {},
         "_embedded": {
-          "inspect:values": [
+          "values": [
             {
               "kind": "vocabulary-value",
               "name": "Formatting",

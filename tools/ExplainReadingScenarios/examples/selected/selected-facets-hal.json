@@ -8,13 +8,6 @@
       "title": "package-query",
       "type": "application/hal+json"
     },
-    "curies": [
-      {
-        "name": "inspect",
-        "href": "urn:dotnet-inspect:reading:{rel}",
-        "templated": true
-      }
-    ],
     "describedby": {
       "href": "inspect-resource:/package-query/query?projection=contract",
       "title": "Schema and observation details",
@@ -27,7 +20,7 @@
     "completeness": "Complete"
   },
   "_embedded": {
-    "inspect:facets": [
+    "facets": [
       {
         "kind": "query-facet",
         "name": "exact package",
@@ -145,7 +138,7 @@
             "title": "dependencies",
             "type": "application/hal+json"
           },
-          "inspect:bindings": [
+          "bindings": [
             {
               "href": "inspect-resource:/package-query/bindings/cli",
               "title": "dotnet-inspect CLI",
@@ -181,7 +174,7 @@
             "title": "dependency target",
             "type": "application/hal+json"
           },
-          "inspect:bindings": [
+          "bindings": [
             {
               "href": "inspect-resource:/package-query/bindings/cli",
               "title": "dotnet-inspect CLI",
@@ -214,7 +207,7 @@
             "title": "depends on package",
             "type": "application/hal+json"
           },
-          "inspect:bindings": [
+          "bindings": [
             {
               "href": "inspect-resource:/package-query/bindings/cli",
               "title": "dotnet-inspect CLI",
@@ -248,7 +241,7 @@
             "title": "depends on ecosystem",
             "type": "application/hal+json"
           },
-          "inspect:bindings": [
+          "bindings": [
             {
               "href": "inspect-resource:/package-query/bindings/cli",
               "title": "dotnet-inspect CLI",
@@ -281,7 +274,7 @@
             "title": "transitively depends on package",
             "type": "application/hal+json"
           },
-          "inspect:bindings": [
+          "bindings": [
             {
               "href": "inspect-resource:/package-query/bindings/cli",
               "title": "dotnet-inspect CLI",
@@ -314,7 +307,7 @@
             "title": "dependency depth",
             "type": "application/hal+json"
           },
-          "inspect:bindings": [
+          "bindings": [
             {
               "href": "inspect-resource:/package-query/bindings/cli",
               "title": "dotnet-inspect CLI",
@@ -351,7 +344,7 @@
             "title": "license",
             "type": "application/hal+json"
           },
-          "inspect:bindings": [
+          "bindings": [
             {
               "href": "inspect-resource:/package-query/bindings/cli",
               "title": "dotnet-inspect CLI",
@@ -388,7 +381,7 @@
             "title": "downloads",
             "type": "application/hal+json"
           },
-          "inspect:bindings": [
+          "bindings": [
             {
               "href": "inspect-resource:/package-query/bindings/cli",
               "title": "dotnet-inspect CLI",
@@ -425,7 +418,7 @@
             "title": "embedded README",
             "type": "application/hal+json"
           },
-          "inspect:bindings": [
+          "bindings": [
             {
               "href": "inspect-resource:/package-query/bindings/cli",
               "title": "dotnet-inspect CLI",
@@ -460,7 +453,7 @@
             "title": ".NET Tool",
             "type": "application/hal+json"
           },
-          "inspect:bindings": [
+          "bindings": [
             {
               "href": "inspect-resource:/package-query/bindings/cli",
               "title": "dotnet-inspect CLI",
@@ -495,7 +488,7 @@
             "title": "DotNetCliTool",
             "type": "application/hal+json"
           },
-          "inspect:bindings": [
+          "bindings": [
             {
               "href": "inspect-resource:/package-query/bindings/cli",
               "title": "dotnet-inspect CLI",
@@ -532,7 +525,7 @@
             "title": "references assembly",
             "type": "application/hal+json"
           },
-          "inspect:bindings": [
+          "bindings": [
             {
               "href": "inspect-resource:/package-query/bindings/cli",
               "title": "dotnet-inspect CLI",
@@ -566,7 +559,7 @@
             "title": "embedded SKILL.md",
             "type": "application/hal+json"
           },
-          "inspect:bindings": [
+          "bindings": [
             {
               "href": "inspect-resource:/package-query/bindings/cli",
               "title": "dotnet-inspect CLI",
@@ -602,14 +595,14 @@
             "title": "library literal",
             "type": "application/hal+json"
           },
-          "inspect:required-context": [
+          "required-context": [
             {
               "href": "inspect-resource:/package-query/query/facets/library-target?projection=hal",
               "title": "library target",
               "type": "application/hal+json"
             }
           ],
-          "inspect:bindings": [
+          "bindings": [
             {
               "href": "inspect-resource:/package-query/bindings/cli",
               "title": "dotnet-inspect CLI",
@@ -663,7 +656,7 @@
         "requires": []
       }
     ],
-    "inspect:bindings": [
+    "bindings": [
       {
         "kind": "consumer-binding",
         "name": "dotnet-inspect CLI",
@@ -674,7 +667,7 @@
             "title": "dotnet-inspect CLI",
             "type": "application/json"
           },
-          "inspect:exposed-facets": [
+          "exposed-facets": [
             {
               "href": "inspect-resource:/package-query/query/facets/dependencies?projection=hal",
               "title": "dependencies",

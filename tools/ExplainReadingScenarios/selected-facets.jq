@@ -1,8 +1,8 @@
 (if has("_embedded") then
   . as $root
-  | {bindings: (._embedded["inspect:bindings"] | map({key: .id, value: .}) | from_entries),
+  | {bindings: (._embedded.bindings | map({key: .id, value: .}) | from_entries),
      facets: ([ (if $root.kind == "query-facet" then $root else empty end),
-                $root._embedded["inspect:facets"][] ]
+                $root._embedded.facets[] ]
        | map({key: .key, value: {facts: (. + {"value-kind": .value_kind}), requires}}) | from_entries)}
 else . end)
 | .bindings["dotnet-inspect.cli/package-query"] as $binding

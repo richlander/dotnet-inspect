@@ -2,7 +2,7 @@
   "style": {
     "bytes_including_newline": {
       "data": 17578,
-      "hal": 14938
+      "hal": 14817
     },
     "answer_bytes": {
       "menu": 4888,
@@ -18,7 +18,7 @@
   "facets": {
     "bytes_including_newline": {
       "data": 14559,
-      "hal": 15173
+      "hal": 14940
     },
     "answer_bytes": {
       "discover": 2384,
@@ -32,7 +32,7 @@
   "facet": {
     "bytes_including_newline": {
       "data": 2897,
-      "hal": 2397
+      "hal": 2268
     },
     "answer_bytes": {
       "inspect": 238,

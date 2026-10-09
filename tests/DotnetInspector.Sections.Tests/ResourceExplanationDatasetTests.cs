@@ -65,7 +65,7 @@ public sealed class ResourceExplanationDatasetTests
         JsonElement hal = ResourceExplanationDataset.Create(catalog, Resolve(catalog, identity.Value))
             .ToJson(path => path.Value, hal: true);
         Assert.Empty(hal.GetProperty("property_sets").GetProperty("flag").EnumerateArray());
-        JsonElement embeddedValue = hal.GetProperty("_embedded").GetProperty("inspect:values")[0];
+        JsonElement embeddedValue = hal.GetProperty("_embedded").GetProperty("values")[0];
         Assert.Equal("off", embeddedValue.GetProperty("id").GetString());
         Assert.False(embeddedValue.TryGetProperty("summary", out _));
         Assert.False(embeddedValue.TryGetProperty("identity", out _));
@@ -81,7 +81,7 @@ public sealed class ResourceExplanationDatasetTests
             [new(new(identity, "one"), "One", null, [new(map, ExplanationValue.Integer(42))])]));
         JsonElement hal = ResourceExplanationDataset.Create(catalog, Resolve(catalog, identity.Value))
             .ToJson(path => path.Value, hal: true);
-        Assert.Equal("42", hal.GetProperty("_embedded").GetProperty("inspect:values")[0]
+        Assert.Equal("42", hal.GetProperty("_embedded").GetProperty("values")[0]
             .GetProperty("values").GetString());
     }
 

@@ -2721,7 +2721,7 @@ dotnet-inspect explain package-query/query/facets/library-literal .hal --json
 ```
 
 `.hal` presents direct resource state, a titled `_links` menu, and related
-resources in `_embedded` arrays using the `inspect` CURIE vocabulary. HAL links
+resources in `_embedded` arrays with simple, descriptive relation names. HAL links
 advertise `application/hal+json` and preserve the selection through
 `?projection=hal`; JSON detail links advertise `application/json`. A root
 `describedby` link selects the full contract through `?projection=contract`.

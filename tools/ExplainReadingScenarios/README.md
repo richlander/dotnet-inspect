@@ -142,9 +142,9 @@ execute a package query or acquire package content.
 
 | Selected reading dataset | Direct JSON | HAL | Reading tasks |
 | --- | ---: | ---: | ---: |
-| All 17 style choices and 4 tier descriptions | 17,578 B | 14,938 B | 7 |
-| All 19 package-query facets and the CLI binding | 14,559 B | 15,173 B | 5 |
-| Literal facet, required target context, and exposing binding | 2,897 B | 2,397 B | 2 |
+| All 17 style choices and 4 tier descriptions | 17,578 B | 14,817 B | 7 |
+| All 19 package-query facets and the CLI binding | 14,559 B | 14,940 B | 5 |
+| Literal facet, required target context, and exposing binding | 2,897 B | 2,268 B | 2 |
 
 Sizes are UTF-8 minified managed Release CLI output including its newline.
 Pretty examples are larger. These are content measurements, not NativeAOT
@@ -160,10 +160,10 @@ for known selected values. Root `describedby` links disclose the full contract
 separately. This is a deliberate projection, not metadata deletion from the
 underlying model or a second copy of the dataset.
 
-Root `_links.curies` defines the readable `inspect:` relation vocabulary.
-Related resource arrays live under `_embedded["inspect:values"]`,
-`_embedded["inspect:vocabularies"]`, `_embedded["inspect:facets"]`, and
-`_embedded["inspect:bindings"]`. Each has its own state and self link. Complete
+The projection uses simple, descriptive relation names without CURIEs.
+Related resource arrays live under `_embedded.values`,
+`_embedded.vocabularies`, `_embedded.facets`, and
+`_embedded.bindings`. Each has its own state and self link. Complete
 embedded member inventories are not repeated as root link inventories. Links
 carry titles and media types; HAL dataset destinations retain HAL mode while
 JSON resource-detail destinations are explicitly typed. All 47 distinct
@@ -178,18 +178,18 @@ link; no destination path needs to be learned or constructed:
 
 ```bash
 dotnet-inspect explain package-query/query .hal --json > facets-hal.json
-literal_href=$(jq -r '._embedded["inspect:facets"][]
+literal_href=$(jq -r '._embedded.facets[]
   | select(.summary | contains("string-literal")) | ._links.self.href' facets-hal.json)
 dotnet-inspect explain "$literal_href" --json > literal-hal.json
 jq '{key, value_kind, operators, values, examples, effects, requires}' literal-hal.json
 ```
 
-The response is still HAL. Its `inspect:required-context` link names the required
+The response is still HAL. Its `required-context` link names the required
 target framework and advertises another HAL resource:
 
 ```bash
-jq '._links["inspect:required-context"]' literal-hal.json
-context_href=$(jq -r '._links["inspect:required-context"][0].href' literal-hal.json)
+jq '._links["required-context"]' literal-hal.json
+context_href=$(jq -r '._links["required-context"][0].href' literal-hal.json)
 dotnet-inspect explain "$context_href" --json
 ```
 
@@ -197,7 +197,8 @@ The required context is also embedded locally, so an agent can inspect it
 without another request. Following the link demonstrates representation
 continuity, not an optimal fetch requirement. The binding's `exposed_facets`
 excludes `library-target`; it is not an authorable `--where` term. Full schema
-and observation details are available separately:
+and observation details are available separately for advanced client development
+or explanation-contract debugging, rather than ordinary query planning:
 
 ```bash
 contract_href=$(jq -r '._links.describedby.href' literal-hal.json)

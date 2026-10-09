@@ -76,7 +76,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.False(root.TryGetProperty("selection", out _));
         Assert.True(root.TryGetProperty("name", out _));
         JsonElement links = root.GetProperty("_links");
-        Assert.True(links.TryGetProperty("curies", out _));
+        Assert.False(links.TryGetProperty("curies", out _));
         Assert.True(links.TryGetProperty("describedby", out _));
         Assert.Equal("application/hal+json", links.GetProperty("self").GetProperty("type").GetString());
         string href = links.GetProperty("self").GetProperty("href").GetString()!;
@@ -91,9 +91,9 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         JsonElement embedded = root.GetProperty("_embedded");
         Assert.All(embedded.EnumerateObject(), relation => Assert.Equal(JsonValueKind.Array, relation.Value.ValueKind));
         if (root.GetProperty("kind").GetString() == "value-vocabulary")
-            Assert.Equal(17, embedded.GetProperty("inspect:values").GetArrayLength());
+            Assert.Equal(17, embedded.GetProperty("values").GetArrayLength());
         else
-            Assert.Equal(19, embedded.GetProperty("inspect:facets").GetArrayLength());
+            Assert.Equal(19, embedded.GetProperty("facets").GetArrayLength());
     }
 
     [Theory]

@@ -25,10 +25,8 @@ def jq(document, query, **variables):
 def hrefs(value):
     if isinstance(value, dict):
         for relation, links in value.get("_links", {}).items():
-            if relation == "curies":
-                continue
-            if relation not in ("self", "describedby") and not relation.startswith("inspect:"):
-                raise AssertionError("Custom HAL relations must be qualified")
+            if relation not in ("self", "describedby", "vocabularies", "required-context", "bindings", "exposed-facets"):
+                raise AssertionError("Unexpected reading relation: " + relation)
             for link in links if isinstance(links, list) else [links]:
                 yield link["href"]
         for key, item in value.items():
@@ -93,10 +91,10 @@ def follow_hal(link):
     assert "_links" in document and "_embedded" in document
     return document
 focused = follow_hal(literal["_links"]["self"])
-context = follow_hal(focused["_links"]["inspect:required-context"][0])
+context = follow_hal(focused["_links"]["required-context"][0])
 assert context["key"] == "library-target"
 assert all("library-target" not in binding["exposed_facets"]
-           for binding in focused["_embedded"]["inspect:bindings"])
+           for binding in focused["_embedded"]["bindings"])
 report["agent_navigation"] = {"authored_destination_paths": 0, "hal_mode_preserved": True,
                                "facet": focused["key"], "required_context": context["key"]}
 report["navigation"] = {"unique_hal_links_followed": len(all_hrefs)}

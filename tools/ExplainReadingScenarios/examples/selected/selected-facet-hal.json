@@ -8,26 +8,19 @@
       "title": "library literal",
       "type": "application/hal+json"
     },
-    "curies": [
-      {
-        "name": "inspect",
-        "href": "urn:dotnet-inspect:reading:{rel}",
-        "templated": true
-      }
-    ],
     "describedby": {
       "href": "inspect-resource:/package-query/query/facets/library-literal?projection=contract",
       "title": "Schema and observation details",
       "type": "application/json"
     },
-    "inspect:required-context": [
+    "required-context": [
       {
         "href": "inspect-resource:/package-query/query/facets/library-target?projection=hal",
         "title": "library target",
         "type": "application/hal+json"
       }
     ],
-    "inspect:bindings": [
+    "bindings": [
       {
         "href": "inspect-resource:/package-query/bindings/cli",
         "title": "dotnet-inspect CLI",
@@ -56,7 +49,7 @@
     "completeness": "Complete"
   },
   "_embedded": {
-    "inspect:facets": [
+    "facets": [
       {
         "kind": "query-facet",
         "name": "library target",
@@ -85,7 +78,7 @@
         "requires": []
       }
     ],
-    "inspect:bindings": [
+    "bindings": [
       {
         "kind": "consumer-binding",
         "name": "dotnet-inspect CLI",
@@ -96,7 +89,7 @@
             "title": "dotnet-inspect CLI",
             "type": "application/json"
           },
-          "inspect:exposed-facets": [
+          "exposed-facets": [
             {
               "href": "inspect-resource:/package-query/query/facets/library-literal?projection=hal",
               "title": "library literal",

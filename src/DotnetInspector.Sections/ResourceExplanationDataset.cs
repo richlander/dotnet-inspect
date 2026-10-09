@@ -304,22 +304,22 @@ public sealed class ResourceExplanationDataset
             resource.Key.ResourceType == ResourceExplanationVocabulary.ValueVocabularyType))
             rendered[vocabulary.Key]["_embedded"] = new JsonObject
             {
-                ["inspect:values"] = new JsonArray(Targets(vocabulary.Key, "vocabulary-value")
+                ["values"] = new JsonArray(Targets(vocabulary.Key, "vocabulary-value")
                     .Select(key => (JsonNode?)rendered[key].DeepClone()).ToArray()),
             };
         JsonObject root = rendered[_root.Key];
         root["data_scope"] = new JsonObject { ["completeness"] = "Complete" };
         JsonObject embedded = root["_embedded"]?.AsObject() ?? new JsonObject();
         if (_kind == "vocabulary-data")
-            embedded["inspect:vocabularies"] = new JsonArray(_resources.Where(resource =>
+            embedded["vocabularies"] = new JsonArray(_resources.Where(resource =>
                 resource.Key.ResourceType == ResourceExplanationVocabulary.ValueVocabularyType && resource.Key != _root.Key)
                 .Select(resource => (JsonNode?)rendered[resource.Key]).ToArray());
         else
         {
-            embedded["inspect:facets"] = new JsonArray(_resources.Where(resource =>
+            embedded["facets"] = new JsonArray(_resources.Where(resource =>
                 resource.Key.ResourceType == ResourceExplanationVocabulary.QueryFacetType && resource.Key != _root.Key)
                 .Select(resource => (JsonNode?)rendered[resource.Key]).ToArray());
-            embedded["inspect:bindings"] = new JsonArray(_resources.Where(resource =>
+            embedded["bindings"] = new JsonArray(_resources.Where(resource =>
                 resource.Key.ResourceType == ResourceExplanationVocabulary.ConsumerBindingType)
                 .Select(resource => (JsonNode?)rendered[resource.Key]).ToArray());
         }
@@ -332,10 +332,6 @@ public sealed class ResourceExplanationDataset
             var links = new JsonObject { ["self"] = Link(resource) };
             if (resource.Key == _root.Key)
             {
-                links["curies"] = new JsonArray((JsonNode)new JsonObject
-                {
-                    ["name"] = "inspect", ["href"] = "urn:dotnet-inspect:reading:{rel}", ["templated"] = true,
-                });
                 if (bindContractAddress is not null)
                     links["describedby"] = new JsonObject
                     {
@@ -356,7 +352,7 @@ public sealed class ResourceExplanationDataset
                 var targets = new JsonArray(edge.Targets.Select(target => _resources.FirstOrDefault(r => r.Key == target.Resource))
                     .OfType<ResourceExplanationResource>().Select(target => (JsonNode?)Link(target)).ToArray());
                 if (targets.Count > 0)
-                    links["inspect:" + relation] = targets;
+                    links[relation] = targets;
             }
             return links;
         }

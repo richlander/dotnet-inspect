@@ -1015,18 +1015,28 @@ remain in `data_states` beside the affected resource. `data_scope.completeness`
 qualifies the selected population, including sparse negatives, without carrying
 traversal budgets or execution bookkeeping.
 
-The reading projection owns the `inspect` CURIE namespace,
-`urn:dotnet-inspect:reading:{rel}`, declared once at the entry resource. Its
-relations are `values`, `vocabularies`, `facets`, `required-context`, `bindings`,
-and `exposed-facets`. They name reading destinations, not internal schema
-identities. Embedded inventories supply member self links rather than repeating
+The reading projection uses simple local relations: `values`, `vocabularies`,
+`facets`, `required-context`, `bindings`, and `exposed-facets`. It deliberately
+favors readable product navigation over URI-qualified extension relations.
+Unlike the HAL draft's recommended documentation-linked extension relations,
+these names do not resolve to relation documentation. CURIEs are not emitted:
+the current single-product vocabulary demonstrates neither documentation
+lookup nor namespace disambiguation that would justify them.
+Embedded inventories supply member self links rather than repeating
 the complete inventory in root links. Links carry titles and destination media
 types. CLI HAL self and dataset links use
 `inspect-resource:/<path>?projection=hal`; following them unchanged retains HAL.
 JSON detail destinations are explicitly typed `application/json`. Root
 `describedby` links use `?projection=contract` to disclose complete schema and
-observation details separately. Projected addresses require JSON and reject
-conflicting projection or depth overrides.
+observation details separately. `self` identifies the current resource and
+representation; `describedby` describes it rather than naming a canonical
+resource. Its scenario is advanced client development or explanation-contract
+inspection, such as examining declared cardinalities or observation rules.
+Ordinary facet exploration and query preparation must not require this fetch;
+qualifications needed to interpret the returned data belong inline. The
+contract also cannot supply domain validation rules absent from the catalog.
+Projected addresses require JSON and reject conflicting projection or depth
+overrides.
 
 The direct JSON model remains independently usable with its typed metadata.
 Compare equivalent data-reading answers and advertised navigation, not equality
