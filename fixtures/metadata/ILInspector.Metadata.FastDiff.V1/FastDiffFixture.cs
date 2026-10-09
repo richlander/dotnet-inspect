@@ -125,6 +125,21 @@ internal class InternalBodyOnly
     public int Value(int x) => x + 1;
 }
 
+// Roslyn emits NullableContext on NullableOuter only; Inner inherits it.
+public class NullableOuter
+{
+    public string A(string x) => x!;
+    public string B(string x) => x!;
+    public string C(string x) => x!;
+
+    public class Inner
+    {
+        public string X(string x) => x!;
+        public string Y(string x) => x!;
+        public string Z(string x) => x!;
+    }
+}
+
 public class Removed
 {
 }

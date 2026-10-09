@@ -151,6 +151,8 @@ public static class FastDiff
 
     static FastDiffTypeState OneSided(Side side, Unit unit)
     {
+        if (unit.Malformed)
+            return new FastDiffTypeState(unit.FullName, FastDiffState.Indeterminate, FastDiffState.Indeterminate);
         FastDiffState api;
         try
         {
@@ -167,6 +169,8 @@ public static class FastDiff
     {
         FastDiffState api = FastDiffState.Indeterminate;
         FastDiffState body = FastDiffState.Indeterminate;
+        if (unitA.Malformed || unitB.Malformed)
+            return new FastDiffTypeState(unitA.FullName, api, body);
         try
         {
             api = a.ApiCensus(unitA).SequenceEqual(b.ApiCensus(unitB), StringComparer.Ordinal)
@@ -381,32 +385,49 @@ public static class FastDiff
         public long IlBytes;
     }
 
-    sealed record Unit(string FullName, TypeDefinitionHandle Owner, List<TypeDefinitionHandle> Generated);
+    /// <param name="Malformed">
+    /// The Type's declaring chain could not be read, so neither axis can be
+    /// decided.
+    /// </param>
+    sealed record Unit(
+        string FullName,
+        TypeDefinitionHandle Owner,
+        List<TypeDefinitionHandle> Generated,
+        bool Malformed = false);
 
     sealed class Side
     {
         readonly Dictionary<int, string> _keys = [];
         readonly Dictionary<int, string> _displayNames = [];
         readonly SignatureKeys _signatures;
-        readonly HashSet<MethodDefinitionHandle> _explicitImplementations = [];
+        readonly Dictionary<TypeDefinitionHandle, HashSet<MethodDefinitionHandle>> _explicitImplementations = [];
 
         public Side(PEReader pe)
         {
             Pe = pe;
             Md = MetadataFormatAdmission.GetMetadataReader(pe);
             _signatures = new SignatureKeys(this);
-            foreach (TypeDefinitionHandle type in Md.TypeDefinitions)
+        }
+
+        /// <summary>
+        /// The methods of one Type that implement an interface member
+        /// explicitly, read when a unit of that Type is compared.
+        /// </summary>
+        HashSet<MethodDefinitionHandle> ExplicitImplementations(TypeDefinitionHandle type)
+        {
+            if (_explicitImplementations.TryGetValue(type, out var methods))
+                return methods;
+            methods = [];
+            foreach (MethodImplementationHandle handle in Md.GetTypeDefinition(type).GetMethodImplementations())
             {
-                foreach (MethodImplementationHandle handle in
-                    Md.GetTypeDefinition(type).GetMethodImplementations())
+                if (Md.GetMethodImplementation(handle).MethodBody is
+                    { Kind: HandleKind.MethodDefinition } body)
                 {
-                    if (Md.GetMethodImplementation(handle).MethodBody is
-                        { Kind: HandleKind.MethodDefinition } body)
-                    {
-                        _explicitImplementations.Add((MethodDefinitionHandle)body);
-                    }
+                    methods.Add((MethodDefinitionHandle)body);
                 }
             }
+            _explicitImplementations[type] = methods;
+            return methods;
         }
 
         public PEReader Pe { get; }
@@ -417,35 +438,39 @@ public static class FastDiff
         {
             var units = new Dictionary<string, Unit>(StringComparer.Ordinal);
             var generated = new List<(TypeDefinitionHandle Type, TypeDefinitionHandle Owner)>();
+            Span<TypeDefinitionHandle> chain =
+                stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
             foreach (TypeDefinitionHandle handle in Md.TypeDefinitions)
             {
                 if (MetadataTokens.GetRowNumber(handle) == 1)
                     continue;
 
+                if (!TryDeclaringChain(handle, chain, out int length))
+                {
+                    string row = $"!{MetadataTokens.GetToken(handle):X8}";
+                    units[row] = new Unit(SafeName(handle), handle, [], Malformed: true);
+                    continue;
+                }
+
                 // A Type with a compiler-generated Type in its declaring chain
                 // belongs to the nearest declared Type above that generated
                 // Type; under a top-level generated Type it belongs to none.
-                TypeDefinitionHandle owner = handle;
-                TypeDefinitionHandle generatedAncestor = default;
-                int depth = 0;
-                for (TypeDefinitionHandle current = handle; !current.IsNil;
-                    current = Md.GetTypeDefinition(current).GetDeclaringType())
+                int generatedAt = -1;
+                for (int i = 0; i < length; i++)
                 {
-                    if (++depth > Md.TypeDefinitions.Count)
-                        throw new BadImageFormatException("Nested Type chain does not terminate.");
-                    if (IsGeneratedName(Md.GetTypeDefinition(current)))
-                        generatedAncestor = current;
+                    if (IsGeneratedName(Md.GetTypeDefinition(chain[i])))
+                    {
+                        generatedAt = i;
+                        break;
+                    }
                 }
-                if (generatedAncestor.IsNil)
+                if (generatedAt < 0)
                 {
                     units[TypeKey(handle)] = new Unit(DisplayName(handle), handle, []);
                     continue;
                 }
-                owner = Md.GetTypeDefinition(generatedAncestor).GetDeclaringType();
-                while (!owner.IsNil && IsGeneratedName(Md.GetTypeDefinition(owner)))
-                    owner = Md.GetTypeDefinition(owner).GetDeclaringType();
-                if (!owner.IsNil)
-                    generated.Add((handle, owner));
+                if (generatedAt > 0)
+                    generated.Add((handle, chain[generatedAt - 1]));
             }
             foreach ((TypeDefinitionHandle type, TypeDefinitionHandle owner) in generated)
             {
@@ -453,6 +478,27 @@ public static class FastDiff
                     unit.Generated.Add(type);
             }
             return units;
+        }
+
+        /// <summary>
+        /// Writes the declaring chain of a Type, outermost first, through the
+        /// bounded shared traversal.
+        /// </summary>
+        bool TryDeclaringChain(TypeDefinitionHandle handle, Span<TypeDefinitionHandle> chain, out int length)
+            => MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                    Md, handle, chain, out length, out _, out _)
+                && length > 0;
+
+        string SafeName(TypeDefinitionHandle handle)
+        {
+            try
+            {
+                return Md.GetString(Md.GetTypeDefinition(handle).Name);
+            }
+            catch (BadImageFormatException)
+            {
+                return $"<row 0x{MetadataTokens.GetToken(handle):X8}>";
+            }
         }
 
         bool IsGeneratedName(TypeDefinition type)
@@ -472,7 +518,7 @@ public static class FastDiff
 
         bool IsVisible(MethodDefinitionHandle handle, MethodDefinition method)
             => IsVisibleAccess((int)(method.Attributes & MethodAttributes.MemberAccessMask))
-                || _explicitImplementations.Contains(handle);
+                || ExplicitImplementations(method.GetDeclaringType()).Contains(handle);
 
         bool IsVisible(FieldDefinition field)
             => IsVisibleAccess((int)(field.Attributes & FieldAttributes.FieldAccessMask));
@@ -558,6 +604,10 @@ public static class FastDiff
             }
             GenericParameters(census, type.GetGenericParameters(), name);
             Attributes(census, type.GetCustomAttributes(), name);
+            // A nested Type inherits its declaring Type's nullable context
+            // without an attribute row of its own, and that context shapes
+            // the rendered signatures of every member that does not override it.
+            census.Add($"N? {name} {NullabilityReader.GetTypeNullableContext(Md, handle)}");
             TypeLayout layout = type.GetLayout();
             if (!layout.IsDefault)
                 census.Add($"L {name} {layout.PackingSize} {layout.Size}");
@@ -704,6 +754,7 @@ public static class FastDiff
 
         string PropertySignature(PropertyDefinition property)
         {
+            Guard(property.Signature, SignatureBlobGuard.Kind.Property);
             MethodSignature<string> signature = property.DecodeSignature(_signatures, null);
             return $"{signature.Header.IsInstance}({string.Join(",", signature.ParameterTypes)}){signature.ReturnType}";
         }
@@ -712,29 +763,36 @@ public static class FastDiff
         public string TypeKey(TypeDefinitionHandle handle)
         {
             int token = MetadataTokens.GetToken(handle);
-            if (_keys.TryGetValue(token, out string? key))
-                return key;
-            TypeDefinition type = Md.GetTypeDefinition(handle);
-            TypeDefinitionHandle declaring = type.GetDeclaringType();
-            key = declaring.IsNil
-                ? (type.Namespace.IsNil ? "" : Md.GetString(type.Namespace) + ".") + Md.GetString(type.Name)
-                : TypeKey(declaring) + "/" + Md.GetString(type.Name);
-            _keys[token] = key;
+            if (!_keys.TryGetValue(token, out string? key))
+                _keys[token] = key = DefinitionName(handle, '/');
             return key;
         }
 
         string DisplayName(TypeDefinitionHandle handle)
         {
             int token = MetadataTokens.GetToken(handle);
-            if (_displayNames.TryGetValue(token, out string? name))
-                return name;
-            TypeDefinition type = Md.GetTypeDefinition(handle);
-            TypeDefinitionHandle declaring = type.GetDeclaringType();
-            name = declaring.IsNil
-                ? (type.Namespace.IsNil ? "" : Md.GetString(type.Namespace) + ".") + Md.GetString(type.Name)
-                : DisplayName(declaring) + "." + Md.GetString(type.Name);
-            _displayNames[token] = name;
+            if (!_displayNames.TryGetValue(token, out string? name))
+                _displayNames[token] = name = DefinitionName(handle, '.');
             return name;
+        }
+
+        string DefinitionName(TypeDefinitionHandle handle, char nestedSeparator)
+        {
+            Span<TypeDefinitionHandle> chain =
+                stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!TryDeclaringChain(handle, chain, out int length))
+                throw new BadImageFormatException("The Type has an invalid declaring chain.");
+            TypeDefinition root = Md.GetTypeDefinition(chain[0]);
+            var name = new System.Text.StringBuilder();
+            if (!root.Namespace.IsNil)
+                name.Append(Md.GetString(root.Namespace)).Append('.');
+            for (int i = 0; i < length; i++)
+            {
+                if (i > 0)
+                    name.Append(nestedSeparator);
+                name.Append(Md.GetString(Md.GetTypeDefinition(chain[i]).Name));
+            }
+            return name.ToString();
         }
 
         /// <summary>The symbolic name of a metadata entity, resolved once per side.</summary>
@@ -747,8 +805,7 @@ public static class FastDiff
             {
                 HandleKind.TypeDefinition => TypeKey((TypeDefinitionHandle)handle),
                 HandleKind.TypeReference => TypeReferenceKey((TypeReferenceHandle)handle),
-                HandleKind.TypeSpecification =>
-                    Md.GetTypeSpecification((TypeSpecificationHandle)handle).DecodeSignature(_signatures, null),
+                HandleKind.TypeSpecification => TypeSpecificationKey((TypeSpecificationHandle)handle),
                 HandleKind.MethodDefinition => MethodKey((MethodDefinitionHandle)handle),
                 HandleKind.FieldDefinition => FieldKey((FieldDefinitionHandle)handle),
                 HandleKind.MemberReference => MemberReferenceKey((MemberReferenceHandle)handle),
@@ -761,27 +818,66 @@ public static class FastDiff
             return key;
         }
 
+        /// <summary>
+        /// Rejects a signature blob whose shape could exhaust the stack while
+        /// decoding; the unit that needs it becomes Indeterminate.
+        /// </summary>
+        void Guard(BlobHandle signature, SignatureBlobGuard.Kind kind)
+        {
+            if (!SignatureBlobGuard.IsSafeToDecode(Md, signature, kind))
+                throw new BadImageFormatException("The signature blob is too deep to decode.");
+        }
+
+        string TypeSpecificationKey(TypeSpecificationHandle handle)
+        {
+            if (!TypeSpecGuard.TryEnter(Md, handle, out TypeSpecGuard.Scope scope))
+                throw new BadImageFormatException("The Type specification exceeds the decode budget.");
+            using (scope)
+            {
+                TypeSpecification specification = Md.GetTypeSpecification(handle);
+                Guard(specification.Signature, SignatureBlobGuard.Kind.TypeSpecification);
+                return specification.DecodeSignature(_signatures, null);
+            }
+        }
+
         string TypeReferenceKey(TypeReferenceHandle handle)
         {
-            TypeReference type = Md.GetTypeReference(handle);
-            string name = (type.Namespace.IsNil ? "" : Md.GetString(type.Namespace) + ".")
-                + Md.GetString(type.Name);
-            return type.ResolutionScope.Kind == HandleKind.TypeReference
-                ? Key(type.ResolutionScope) + "/" + name
-                : name;
+            Span<TypeReferenceHandle> chain =
+                stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+                    Md, handle, chain, out int length, out _, out var rejection)
+                || length == 0)
+            {
+                throw new BadImageFormatException(
+                    rejection?.Detail ?? "The Type reference has an invalid resolution-scope chain.");
+            }
+            TypeReference root = Md.GetTypeReference(chain[0]);
+            var name = new System.Text.StringBuilder();
+            if (!root.Namespace.IsNil)
+                name.Append(Md.GetString(root.Namespace)).Append('.');
+            for (int i = 0; i < length; i++)
+            {
+                if (i > 0)
+                    name.Append('/');
+                name.Append(Md.GetString(Md.GetTypeReference(chain[i]).Name));
+            }
+            return name.ToString();
         }
 
         string MethodKey(MethodDefinitionHandle handle)
         {
             MethodDefinition method = Md.GetMethodDefinition(handle);
+            Guard(method.Signature, SignatureBlobGuard.Kind.Method);
             MethodSignature<string> signature = method.DecodeSignature(_signatures, null);
             return $"{TypeKey(method.GetDeclaringType())}::{Md.GetString(method.Name)}"
-                + $"`{signature.GenericParameterCount}({string.Join(",", signature.ParameterTypes)}){signature.ReturnType}";
+                + $"`{signature.GenericParameterCount}#{signature.Header.RawValue}"
+                + $"({string.Join(",", signature.ParameterTypes)}){signature.ReturnType}";
         }
 
         string FieldKey(FieldDefinitionHandle handle)
         {
             FieldDefinition field = Md.GetFieldDefinition(handle);
+            Guard(field.Signature, SignatureBlobGuard.Kind.Field);
             return $"{TypeKey(field.GetDeclaringType())}::{Md.GetString(field.Name)}:"
                 + field.DecodeSignature(_signatures, null);
         }
@@ -791,15 +887,20 @@ public static class FastDiff
             MemberReference member = Md.GetMemberReference(handle);
             string parent = Key(member.Parent);
             if (member.GetKind() == MemberReferenceKind.Field)
+            {
+                Guard(member.Signature, SignatureBlobGuard.Kind.Field);
                 return $"{parent}::{Md.GetString(member.Name)}:{member.DecodeFieldSignature(_signatures, null)}";
+            }
+            Guard(member.Signature, SignatureBlobGuard.Kind.Method);
             MethodSignature<string> signature = member.DecodeMethodSignature(_signatures, null);
-            return $"{parent}::{Md.GetString(member.Name)}`{signature.GenericParameterCount}"
+            return $"{parent}::{Md.GetString(member.Name)}`{signature.GenericParameterCount}#{signature.Header.RawValue}"
                 + $"({string.Join(",", signature.ParameterTypes)}){signature.ReturnType}";
         }
 
         string MethodSpecificationKey(MethodSpecificationHandle handle)
         {
             MethodSpecification specification = Md.GetMethodSpecification(handle);
+            Guard(specification.Signature, SignatureBlobGuard.Kind.MethodSpecification);
             return Key(specification.Method)
                 + "<" + string.Join(",", specification.DecodeSignature(_signatures, null)) + ">";
         }
@@ -808,7 +909,11 @@ public static class FastDiff
         {
             StandaloneSignature signature = Md.GetStandaloneSignature(handle);
             if (signature.GetKind() == StandaloneSignatureKind.LocalVariables)
+            {
+                Guard(signature.Signature, SignatureBlobGuard.Kind.LocalVariables);
                 return "L(" + string.Join(",", signature.DecodeLocalSignature(_signatures, null)) + ")";
+            }
+            Guard(signature.Signature, SignatureBlobGuard.Kind.StandaloneMethod);
             MethodSignature<string> method = signature.DecodeMethodSignature(_signatures, null);
             return $"S{(int)method.Header.CallingConvention}({string.Join(",", method.ParameterTypes)}){method.ReturnType}";
         }

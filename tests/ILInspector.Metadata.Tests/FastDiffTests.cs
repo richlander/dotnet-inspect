@@ -28,6 +28,8 @@ public sealed class FastDiffTests
     [InlineData("FastDiffFixture.InterfaceAdded", FastDiffState.Changed, FastDiffState.Unchanged)]
     [InlineData("FastDiffFixture.BecomesPublic", FastDiffState.Changed, FastDiffState.Unchanged)]
     [InlineData("FastDiffFixture.Outer.Inner", FastDiffState.Unchanged, FastDiffState.Changed)]
+    [InlineData("FastDiffFixture.NullableOuter", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.NullableOuter.Inner", FastDiffState.Changed, FastDiffState.Unchanged)]
     [InlineData("FastDiffFixture.Outer", FastDiffState.Unchanged, FastDiffState.Unchanged)]
     [InlineData("FastDiffFixture.Generic`1", FastDiffState.Changed, FastDiffState.Unchanged)]
     [InlineData("FastDiffFixture.InternalBodyOnly", FastDiffState.Unchanged, FastDiffState.Changed)]

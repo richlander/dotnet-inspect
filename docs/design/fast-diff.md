@@ -41,7 +41,8 @@ and the metadata backtick arity.
 The **API** axis compares the Public API facts of a Type and its members:
 
 - Type flags (except `beforefieldinit`), base Type, interfaces, generic
-  parameters and constraints, custom attributes, and layout;
+  parameters and constraints, custom attributes, layout, and the effective
+  nullable context, which a nested Type inherits from its declaring Type;
 - public, protected, and protected internal member signatures and flags,
   parameter names, flags, and defaults, constants, and custom attributes,
   including compiler-emitted attributes such as nullable annotations that
@@ -113,11 +114,26 @@ renumbered tokens. Medians cover both sides, every Type, API and bodies:
 
 | Pair | NativeAOT | API changed (complete) | Body changed (canonical IL owners) |
 | --- | ---: | --- | --- |
-| Aspire.Hosting 13.6.0 to 13.6.1 | 89 ms | 0 (0) | 2 (2) |
-| System.Text.Json 9.0.0 to 10.0.0 | 15 ms | 12 (12) | 112 (84) |
-| Newtonsoft.Json 13.0.3 to 13.0.4 | 18 ms | 36 (33) | 76 (36) |
-| System.Private.Xml 10 to 11 | 63 ms | 3 (0) | 78 (74) |
-| System.Private.CoreLib 10 to 11 | 206 ms | 157 (133) | 641 (314) |
+| Aspire.Hosting 13.6.0 to 13.6.1 | 99 ms | 0 (0) | 2 (2) |
+| System.Text.Json 9.0.0 to 10.0.0 | 16 ms | 12 (12) | 112 (84) |
+| Newtonsoft.Json 13.0.3 to 13.0.4 | 20 ms | 36 (33) | 76 (36) |
+| Newtonsoft.Json 11.0.2 to 13.0.4 | 16 ms | 108 (83) | 213 (104) |
+| System.Private.Xml 10 to 11 | 69 ms | 3 (0) | 78 (74) |
+| System.Private.CoreLib 10 to 11 | 221 ms | 157 (133) | 641 (314) |
+
+Canonical IL comparison could not decode some bodies (for example 5,454 in
+CoreLib), so Body soundness is shown only for the bodies it compared.
+
+### Malformed metadata
+
+Every walk over artifact-derived metadata is bounded. Declaring chains and
+Type reference resolution scopes use the shared `MetadataRelationshipTraversal`
+primitives, and every signature decode passes `SignatureBlobGuard`, with Type
+specifications under `TypeSpecGuard`. A rejected walk or decode makes the
+affected Type `Indeterminate` on both axes; no metadata shape terminates the
+process. `FastDiffMetadataSafetyTests` gates cyclic and 100,000-deep Type
+reference chains, nested Type chains, a self-referential Type specification,
+and a 100,000-deep signature blob in a child process.
 
 ## Adoption
 
@@ -147,3 +163,7 @@ background generation is a later decision.
 - It does not report which change was found, counts, classifications, or text.
 - It does not replace Public API Diff or Member Body Diff; they remain the
   complete views.
+- It reports Type definitions only. Type forwarders and assembly-level
+  attributes are outside the per-Type contract.
+- `FullName` is a display name. A namespace and a nested Type can spell the
+  same name (`A.B.C`); such Types remain distinct results with equal names.
