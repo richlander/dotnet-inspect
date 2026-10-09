@@ -398,6 +398,24 @@ test("production Analysis opens a private ranked member through all accessibilit
         "all",
       ]),
     );
+  await inspectorTab(page, "data-member-section", "overview").click();
+  await expect(page.locator("html"))
+    .toHaveAttribute(
+      "data-member-declaration-request",
+      JSON.stringify([
+        "Example.Package",
+        "1.0.0",
+        "net10.0",
+        "Example.Core.dll",
+        "Example.ImplementationOnlyWorker",
+        "PrivateWork",
+        "PrivateWork",
+        0x06000003,
+        true,
+      ]),
+    );
+  await expect(page.locator(".signature-code"))
+    .toContainText("private void PrivateWork()");
   expect(await page.locator("html").getAttribute(
     "data-type-member-population-request",
   )).toBeNull();

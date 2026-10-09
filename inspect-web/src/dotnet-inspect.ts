@@ -4176,6 +4176,7 @@ function normalizeCurrentNavEntry() {
 }
 
 function applyView(view: WorkspaceView) {
+  performanceMemberSelection = null;
   const capacityError = view.platform
     ? platformCoordinateCapacityError()
     : "";
@@ -6147,6 +6148,7 @@ function enterTypeSubject(
   options: { preserveAggregate?: boolean } = {},
 ) {
   if (!type) return false;
+  performanceMemberSelection = null;
   restoreOrdinaryTypeMemberPopulationIntent();
   const preserveAggregate =
     options.preserveAggregate ?? aggregateLibrarySubjectIsActive();
@@ -8857,6 +8859,7 @@ function drillOut() {
 
 function exitMemberScope() {
   const focusGeneration = beginSpotlightNavigation();
+  performanceMemberSelection = null;
   contentFramePane = "navigation";
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
@@ -12020,6 +12023,24 @@ function ensureExplorerResizeListener() {
 const performanceNavigationTypes =
   new WeakMap<AppPackage, AppTypeSurface[]>();
 
+let performanceMemberSelection: {
+  packageModel: AppPackage;
+  typeId: string;
+  memberKey: string;
+  overloadIndex: number;
+} | null = null;
+
+function selectedMemberUsesImplementationDeclaration(
+  type: AppTypeSurface,
+  overload: AppMemberSurface,
+): boolean {
+  return Boolean(overload.graphOnly)
+    || performanceMemberSelection?.packageModel === state.package
+      && performanceMemberSelection.typeId === type.id
+      && performanceMemberSelection.memberKey === state.selectedMemberKey
+      && performanceMemberSelection.overloadIndex === state.selectedOverloadIndex;
+}
+
 function retainPerformanceNavigationType(
   pkg: AppPackage,
   member: BrowserPerformanceMember,
@@ -12045,6 +12066,7 @@ function drillToPerfMember(
   typeId: string,
   resourceMethodToken?: number,
 ) {
+  performanceMemberSelection = null;
   const pkg = currentPackage();
   const ranked = state.packagePerformance?.members.find(member =>
     member.stableSelector === stableSelector
@@ -12105,9 +12127,17 @@ async function selectPerformanceMember(
     const overloadIndex = group.overloads.findIndex(overload =>
       overload.stableSelector === stableSelector);
     if (overloadIndex < 0) continue;
+    const overload = group.overloads[overloadIndex];
+    if (!overload) continue;
     state.memberBrowseTypeId = type.id;
     state.selectedMemberKey = group.key;
     state.selectedOverloadIndex = overloadIndex;
+    performanceMemberSelection = {
+      packageModel: currentPackage(),
+      typeId: type.id,
+      memberKey: group.key,
+      overloadIndex,
+    };
     render();
     const ranked = state.packagePerformanceKey === packageScopeSignature()
       ? state.packagePerformance?.members.find(candidate => candidate.stableSelector === stableSelector
@@ -21481,7 +21511,8 @@ async function loadSelectedMemberDocumentation() {
       selectorKey: overload.graphSelectorKey,
       metadataToken:
         overload.declarationMetadataToken ?? overload.metadataToken ?? 0,
-      implementationMember: Boolean(overload.graphOnly),
+      implementationMember:
+        selectedMemberUsesImplementationDeclaration(type, overload),
       isCurrent: () => memberRequestIsCurrent(signature),
     }),
   ]);
@@ -21665,6 +21696,7 @@ async function selectTypeMemberPopulation(
     return;
   }
   setTypeMemberPopulationIntent(accessibility, spelling);
+  performanceMemberSelection = null;
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
   await loadSelectedTypeMemberPopulation();

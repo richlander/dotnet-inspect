@@ -1496,7 +1496,11 @@ async function installFacades(
             id, version, framework, assembly, typeIdentity, memberName,
             selectorKey, metadataToken, implementationMember,
           ]);
-        const type = surfaceFor(id, version, framework).types.find(item =>
+        const memberSurface = implementationMember
+          ? implementationPerformanceSurface(
+              surfaceFor(id, version, framework))
+          : surfaceFor(id, version, framework);
+        const type = memberSurface.types.find(item =>
           item.definitionId === typeIdentity || item.queryId === typeIdentity);
         const member = type?.api.find(item =>
           item.name === memberName
