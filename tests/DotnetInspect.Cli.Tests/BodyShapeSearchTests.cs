@@ -210,10 +210,14 @@ public sealed class BodyShapeSearchTests
             || match.MethodToken == iteratorMember.MetadataToken);
         Assert.Contains(result.Failures, failure =>
             failure.Subject.Contains($"0x{asyncMember.MetadataToken:X8}", StringComparison.Ordinal)
-            && failure.Reason.Contains("requires Full fidelity", StringComparison.Ordinal));
+            && failure.Reason.Contains("requires Full fidelity", StringComparison.Ordinal)
+            && failure.Reason.Contains("DEC0009", StringComparison.Ordinal)
+            && failure.Reason.Contains(DecompilerFidelityDiscriminators.StateMachineTypeName, StringComparison.Ordinal));
         Assert.Contains(result.Failures, failure =>
             failure.Subject.Contains($"0x{iteratorMember.MetadataToken:X8}", StringComparison.Ordinal)
-            && failure.Reason.Contains("requires Full fidelity", StringComparison.Ordinal));
+            && failure.Reason.Contains("requires Full fidelity", StringComparison.Ordinal)
+            && failure.Reason.Contains("DEC0004", StringComparison.Ordinal)
+            && failure.Reason.Contains("[iterator]", StringComparison.Ordinal));
     }
 
     [Fact]
