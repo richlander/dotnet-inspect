@@ -20,13 +20,22 @@ public enum FastDiffState
 }
 
 /// <summary>
-/// The API and Body states of one Type, named by its <c>ApiType.FullName</c>
-/// spelling: <c>.</c> between nested names and the metadata backtick arity.
+/// The API and Body states of one Type.
 /// </summary>
+/// <param name="FullName">
+/// The <c>ApiType.FullName</c> spelling: <c>.</c> between nested names and the
+/// metadata backtick arity. It is a display name and need not be unique.
+/// </param>
+/// <param name="Identifier">
+/// The injective <see cref="MetadataTypeDefinitionName.ToEscapedFullName"/>
+/// spelling, which hosts use to join navigation Types. A Type whose name cannot
+/// be read is identified by its row token, prefixed with <c>!</c>.
+/// </param>
 public sealed record FastDiffTypeState(
     string FullName,
     FastDiffState Api,
-    FastDiffState Body);
+    FastDiffState Body,
+    string Identifier);
 
 /// <summary>The work one comparison performed.</summary>
 public sealed record FastDiffReceipt(
@@ -167,7 +176,7 @@ public static class FastDiff
     static FastDiffTypeState OneSided(Side side, Unit unit)
     {
         if (unit.Malformed)
-            return new FastDiffTypeState(unit.FullName, FastDiffState.Indeterminate, FastDiffState.Indeterminate);
+            return new FastDiffTypeState(unit.FullName, FastDiffState.Indeterminate, FastDiffState.Indeterminate, unit.Identifier);
         FastDiffState api;
         try
         {
@@ -177,7 +186,7 @@ public static class FastDiff
         {
             api = FastDiffState.Indeterminate;
         }
-        return new FastDiffTypeState(unit.FullName, api, FastDiffState.Changed);
+        return new FastDiffTypeState(unit.FullName, api, FastDiffState.Changed, unit.Identifier);
     }
 
     static FastDiffTypeState CompareUnit(Side a, Unit unitA, Side b, Unit unitB, Work work)
@@ -185,7 +194,7 @@ public static class FastDiff
         FastDiffState api = FastDiffState.Indeterminate;
         FastDiffState body = FastDiffState.Indeterminate;
         if (unitA.Malformed || unitB.Malformed)
-            return new FastDiffTypeState(unitA.FullName, api, body);
+            return new FastDiffTypeState(unitA.FullName, api, body, unitA.Identifier);
         try
         {
             api = a.ApiCensus(unitA).SequenceEqual(b.ApiCensus(unitB), StringComparer.Ordinal)
@@ -198,7 +207,7 @@ public static class FastDiff
         catch (Exception ex) when (IsMalformed(ex))
         {
         }
-        return new FastDiffTypeState(unitA.FullName, api, body);
+        return new FastDiffTypeState(unitA.FullName, api, body, unitA.Identifier);
     }
 
     static bool BodiesEqual(Side a, Unit unitA, Side b, Unit unitB, Work work)
@@ -406,6 +415,7 @@ public static class FastDiff
     /// </param>
     sealed record Unit(
         string FullName,
+        string Identifier,
         TypeDefinitionHandle Owner,
         List<TypeDefinitionHandle> Generated,
         bool Malformed = false);
@@ -482,7 +492,8 @@ public static class FastDiff
                     }
                     if (generatedAt < 0)
                     {
-                        units[TypeKey(handle)] = new Unit(DisplayName(handle), handle, []);
+                        units[TypeKey(handle)] = new Unit(
+                            DisplayName(handle), EscapedName(handle), handle, []);
                         continue;
                     }
                     if (generatedAt > 0)
@@ -510,8 +521,10 @@ public static class FastDiff
         }
 
         void AddMalformed(Dictionary<string, Unit> units, TypeDefinitionHandle handle)
-            => units[$"!{MetadataTokens.GetToken(handle):X8}"] =
-                new Unit(SafeName(handle), handle, [], Malformed: true);
+        {
+            string row = $"!{MetadataTokens.GetToken(handle):X8}";
+            units[row] = new Unit(SafeName(handle), row, handle, [], Malformed: true);
+        }
 
         /// <summary>
         /// Writes the declaring chain of a Type, outermost first, through the
@@ -807,6 +820,25 @@ public static class FastDiff
             if (!_displayNames.TryGetValue(token, out string? name))
                 _displayNames[token] = name = DefinitionName(handle, '.');
             return name;
+        }
+
+        /// <summary>The injective escaped name of a Type.</summary>
+        string EscapedName(TypeDefinitionHandle handle)
+        {
+            Span<TypeDefinitionHandle> chain =
+                stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!TryDeclaringChain(handle, chain, out int length))
+                throw new BadImageFormatException("The Type has an invalid declaring chain.");
+            TypeDefinition root = Md.GetTypeDefinition(chain[0]);
+            var segments = ImmutableArray.CreateBuilder<string>(length);
+            for (int i = 0; i < length; i++)
+                segments.Add(Md.GetString(Md.GetTypeDefinition(chain[i]).Name));
+            return MetadataTypeDefinitionName.Create(
+                    root.Namespace.IsNil ? "" : Md.GetString(root.Namespace),
+                    segments.MoveToImmutable())
+                is MetadataTypeDefinitionNameResult.Valid { Name: var name }
+                ? name.ToEscapedFullName()
+                : throw new BadImageFormatException("The Type name cannot be represented.");
         }
 
         string DefinitionName(TypeDefinitionHandle handle, char nestedSeparator)
