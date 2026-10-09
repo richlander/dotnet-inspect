@@ -25,7 +25,9 @@ Method Classification is its first production caller: the session-backed query
 uses request-set access while the PEReader overload remains the direct
 reference.
 Other source kinds, cancellation, residual request satisfaction, and legacy-
-remainder composition remain **unverified**.
+remainder composition remain **unverified**. The first scoped
+legacy-remainder declaration is designed under
+[Legacy-remainder declaration](#legacy-remainder-declaration).
 
 ## Authority and exact claim
 
@@ -269,6 +271,90 @@ A migrated producer computes its focused result from its declaration and
 visits. Filtering a broad legacy aggregate after construction does not count
 as migration.
 
+### Legacy-remainder declaration
+
+The first remainder slice is designed here and is **unverified** until it
+lands. It supplies this exact claim:
+
+> One Method-source producer declaration, `LibraryBodyRemainder`, receives
+> physical MethodDef units from the owner-issued Method source for a scoped
+> request and publishes the same legacy aggregate the broad builder would have
+> published for that scope, without enumerating the assembly or calling
+> `LibraryBodyAnalysisBuilder.Build`.
+
+**Shape.** The declaration is an ordinary Method producer under
+[Producer Planning](producer-planning.md):
+
+| Part | Definition |
+| --- | --- |
+| Fact | The current per-method `LibraryMethodAnalysisResult`, produced by the existing per-method runner from the source's method packet. |
+| Accumulator | The current `LibraryBodyAnalysisAccumulator`, fed in source order. |
+| Completion | `accumulator.Build`, scope-expansion diagnostics, declared-source publication, and resource occurrence, ownership, and lifecycle publication, exactly as `Build` ends today. |
+| Layers | Declaration, Body, and declared module lookup. It declares no deeper layer than the runner reads. |
+| Result | The legacy `LibraryBodyAnalysisResult`, from which `LibraryBodyAnalysisExecution` still derives its focused results for unmigrated consumers. |
+
+**Mapping from the legacy plan.**
+
+| Legacy plan input | Source request |
+| --- | --- |
+| `MethodScope` | Exact-MethodDef breadth. |
+| `TypeScope` | Exact-TypeDef breadth. |
+| `ExpandEvidenceScope` | Declared generated-execution-body expansion. Its probe work is source work and is receipted as such. |
+| `Features` and `ImplementationMetrics` | Remainder parameters. They select what the runner computes, never what the source enumerates. |
+| The source-generated type flag computed in `Build` | Computed by the remainder from the unit's declaring TypeDef. |
+
+**Support.** The builder splits. Its infrastructure (generic scope, reference
+resolution, async-source and declared-source resolvers, exception-type
+classifier) remains the remainder's execution-scoped support, constructed from
+the exact owner-issued access when the source first needs it and receipted as
+declared shared lookup support. Its traversal (`Build`, the work-item list,
+and the `Parallel.For` branch) is deleted in this slice for scoped requests.
+
+**Body acquisition.** The runner receives the method body from the source's
+packet. It does not call `GetMethodBody` itself, so each physical method's
+body is acquired once and the source receipt's terminal body count is the
+whole body work. A runner path that still reads a body independently makes the
+receipt under-report and blocks the slice.
+
+**Order and results.** Units arrive in ascending MethodDef row order within a
+wave, the same order `Build` merges today. Aggregate output, diagnostics, and
+scope-expansion diagnostics are therefore byte-identical to `Build` for the
+same scoped request.
+
+**Admission.** The remainder serves only scoped requests, those with a
+`MethodScope` or `TypeScope`. Operation formation rejects an unscoped
+remainder request with a typed planning rejection. Legacy unscoped builds are
+parallel above a method-count threshold, and the sequential Method source
+cannot yet claim wall-time equivalence. They stay on
+`LibraryBodyAnalysisService` until the source owner permits an equivalent
+parallel executor, which is a separate source-owner slice. The service never
+silently falls back from one path to the other.
+
+**Stage participation.** The service-owned remainder does not publish the
+legacy `LibraryBodyAnalysisStageParticipation` receipt. The Method source
+receipt and Producer Planning `WorkReceipt` describe its work. Any consumer
+that requires the legacy stage receipt (CLI `--trace`) remains on the old
+boundary until it moves to the source receipt.
+
+**First adopter.** IL-offset projection (`ILOffsetQuery`) is the first
+consumer. It requests an exact method-token scope, is already sequential, and
+consumes `Allocations`, `Safety`, and `CallGraph` results that the remainder's
+aggregate still derives. It holds a prefetched image owned by `PdbContext`, so
+it obtains operation access by opening an `AssemblyInspectionSession` over
+that existing image through the session's snapshot or prefetched-stream
+opener. It does not reopen by path or reread the file. If no opener can wrap
+the image the projection already holds, the slice stops rather than reopening
+the assembly or wrapping `Build`.
+
+The runner today reads bodies itself (`PEReader.GetMethodBody`) in its per-
+method and implementation-metric paths. Adopting the source packet's
+`MethodBodyBlock` there is part of this slice, not a precondition owned by
+another slice.
+
+**Shrink rule.** Each later producer slice removes its Fact fields, request
+parameters, and Completion publication from the remainder and updates the
+live drain map in #8965. The remainder is deleted when the last field leaves.
+
 `CompleteProfileV1` remains a compatibility composition of independently
 owned metrics and relationships. It is not one producer. Metric selection and
 shared prerequisites follow Evidence and Metric Coordination. Direct-call and
@@ -372,7 +458,21 @@ mid-source delegation failures add their owner-issued outcomes and gates when
 they adopt the service.
 
 The slice that introduces the legacy-remainder declaration supplies
-`AssemblyAnalysisService_MixedLegacyAndMigratedProducersUseOneSourcePlan`.
+`AssemblyAnalysisService_MixedLegacyAndMigratedProducersUseOneSourcePlan` and
+these gates:
+
+- `LegacyRemainder_ScopedAggregateMatchesBuilderOutput` compares aggregate
+  output, diagnostics, and scope-expansion diagnostics with the broad builder
+  for exact-method, exact-type, and expansion scopes, including malformed and
+  bodiless methods;
+- `LegacyRemainder_AcquiresEachBodyOnce` asserts that the source receipt's body
+  count equals the physical methods visited and that the runner performs no
+  independent body read;
+- `LegacyRemainder_VisitsOnlySourcePlannedUnits` asserts that definitions
+  examined equal the selected breadth plus declared expansion, with no
+  whole-table scan; and
+- `LegacyRemainder_RejectsUnscopedRequest` asserts the typed planning
+  rejection and that no fallback executes.
 
 The positive session path inherits the Release gates owned by
 [session-owned format admission](assembly-inspection-query.md#session-owned-format-admission).

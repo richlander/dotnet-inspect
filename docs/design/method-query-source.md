@@ -552,8 +552,11 @@ Migration is incremental:
    requests. Method Classification implements the first mixed-terminal CLI
    operation, and exact-member Calls Count implements a direct body-producer
    CLI operation. Grouped body-producer and Browser/Wasm operations remain.
-9. Move remaining producers and delete each superseded legacy scan and index
-   when its final consumer moves.
+9. Serve scoped legacy body work through the
+   [legacy-remainder declaration](assembly-analysis-operation.md#legacy-remainder-declaration),
+   which consumes this source's method packets and body acquisition.
+10. Move remaining producers and delete each superseded legacy scan and index
+    when its final consumer moves.
 
 Wrapping `LibraryBodyAnalysisBuilder.Build`, constructing every legacy result
 and filtering afterward, or scanning every MethodDef to realize an exact
