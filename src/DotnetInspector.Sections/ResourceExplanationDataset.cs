@@ -278,7 +278,7 @@ public sealed class ResourceExplanationDataset
                     && name is "values" or "property_sets" or "property_groups")
                     continue;
                 string field = name.Replace('-', '_');
-                if (state.ContainsKey(field))
+                if (state.ContainsKey(field) || field is "_embedded" or "data_scope" or "data_states")
                     throw new InvalidOperationException("A HAL state property collides with resource navigation: " + field);
                 state[field] = value?.DeepClone();
             }

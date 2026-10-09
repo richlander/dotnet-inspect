@@ -86,6 +86,19 @@ public sealed class ResourceExplanationDatasetTests
     }
 
     [Fact]
+    public void HalVocabularyValue_RejectsAPropertyCollidingWithHalEmbedding()
+    {
+        var identity = new VocabularyIdentity(ProductVocabularyComposition.Catalog, "test.reserved");
+        var map = VocabularyMapDefinition.Scalar(identity, "_embedded", "Embedded", "Reserved property.",
+            ExplanationScalarKind.Text);
+        ResourceExplanationCatalog catalog = Catalog(new(identity, "Reserved", "Test reserved.", [map],
+            [new(new(identity, "one"), "One", null, [new(map, ExplanationValue.Text("ordinary text"))])]));
+        var selected = ResourceExplanationDataset.Create(catalog, Resolve(catalog, identity.Value));
+        Assert.Contains("collides", Assert.Throws<InvalidOperationException>(
+            () => selected.ToJson(path => path.Value, hal: true)).Message);
+    }
+
+    [Fact]
     public void HalDataset_RejectsAnUnusableHalAddressBinding()
     {
         var identity = new VocabularyIdentity(ProductVocabularyComposition.Catalog, "test.empty");
