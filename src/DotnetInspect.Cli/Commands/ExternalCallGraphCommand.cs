@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchQueries;
 using DotnetInspector.Sections;
@@ -109,16 +110,19 @@ public static class ExternalCallGraphCommand
                     PackageHouseOperationProfile.Realize,
                     fetchOptions.RequestTimeout,
                     fetchOptions.OperationTimeout);
+            TraversalTargetFrameworkPolicy traversalTargetPolicy =
+                options.Tfm is null
+                    ? TraversalTargetFrameworkPolicy.ProductDefault
+                    : new TraversalTargetFrameworkPolicy(
+                        options.Tfm);
+            WorkspacePlan workspacePlan = CreateWorkspacePlan(options);
             var inspectionRequest =
                 new PackageDependencyMemberCallGraphInspectionRequest(
                     loaded.PackageRoots[0],
                     new PackageDependencyMemberCallGraphInspectionFocus(
                         focus.ModuleVersionId,
                         focus.MethodToken),
-                    options.Tfm is null
-                        ? TraversalTargetFrameworkPolicy.ProductDefault
-                        : new TraversalTargetFrameworkPolicy(
-                            options.Tfm),
+                    traversalTargetPolicy,
                     new MemberCallGraphCalleeNeighborhoodRequest(
                         options.Depth,
                         options.MaxNodes),
@@ -129,7 +133,14 @@ public static class ExternalCallGraphCommand
                     supplyChainBaseline:
                         options.SupplyChainBaseline,
                     workspacePlan:
-                        CreateWorkspacePlan(options));
+                        workspacePlan,
+                    platformPruning:
+                        CreateRuntimePlatformPruning(
+                            traversalTargetPolicy,
+                            workspacePlan,
+                            DesktopPackageDependencyMemberCallGraphContinuationSource
+                                .FindActiveDotnetRoot(),
+                            InstalledPlatformPruneSource.Read));
             InspectionEnvelope<
                 PackageDependencyMemberCallGraphInspectionOutcome> envelope =
                 inspectionExecutor is null
@@ -218,6 +229,73 @@ public static class ExternalCallGraphCommand
                 .. firstParty,
                 .. product.Registrations,
             ]);
+    }
+
+    internal static PackageDependencyMemberCallGraphPlatformPruning?
+        CreateRuntimePlatformPruning(
+            TraversalTargetFrameworkPolicy traversalTargetPolicy,
+            WorkspacePlan workspacePlan,
+            string? activeDotnetRoot,
+            Func<
+                string,
+                string?,
+                InstalledPlatformPruneSource.Result> pruneSource)
+    {
+        ArgumentNullException.ThrowIfNull(traversalTargetPolicy);
+        ArgumentNullException.ThrowIfNull(workspacePlan);
+        ArgumentNullException.ThrowIfNull(pruneSource);
+
+        bool runtimePopulationSelected =
+            workspacePlan.Registrations.Any(
+                static registration =>
+                    registration
+                        is WorkspaceRegistration.Ecosystem ecosystem
+                    && ecosystem.Declaration.Id.Value
+                        == "ecosystem.runtime"
+                    && ecosystem.Declaration.Populations.Any(
+                        static population =>
+                            population
+                                is WorkspaceEcosystemPopulationDeclaration
+                                    .Platform platform
+                            && platform.Population.Family
+                                == PlatformFamily.DotNetRuntime));
+        if (!runtimePopulationSelected
+            || string.IsNullOrWhiteSpace(activeDotnetRoot)
+            || !PlatformResolver.TryGetFrameworkSpecsForTargetFramework(
+                traversalTargetPolicy.TargetFramework,
+                out IReadOnlyList<string> frameworkSpecs))
+        {
+            return null;
+        }
+
+        string? runtimeSpec = frameworkSpecs.FirstOrDefault(
+            static framework =>
+                framework.StartsWith(
+                    "runtime@",
+                    StringComparison.Ordinal));
+        if (runtimeSpec is null)
+        {
+            return null;
+        }
+
+        InstalledPlatformPruneSource.Result result =
+            pruneSource(
+                runtimeSpec,
+                Path.Combine(activeDotnetRoot, "packs"));
+        if (!PackageDependencyMemberCallGraphPlatformPruning
+                .TryCreateDotNetRuntime(
+                    result.Inventory,
+                    out PackageDependencyMemberCallGraphPlatformPruning?
+                        pruning)
+            || !string.Equals(
+                pruning.Target.TargetFramework.ToString(),
+                traversalTargetPolicy.TargetFramework,
+                StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return pruning;
     }
 
     internal static async ValueTask<

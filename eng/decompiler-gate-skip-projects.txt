@@ -76,6 +76,8 @@ fixtures/js-export/TsJsExport.ContextFixtures.NormalizationDecomposed
 fixtures/js-export/TsJsExport.ContextFixtures.WrongContract
 fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V1
 fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2
+fixtures/metadata/ILInspector.Metadata.FastDiff.V1
+fixtures/metadata/ILInspector.Metadata.FastDiff.V2
 fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures
 fixtures/metadata/ILInspector.Metadata.EnablementFixtures
 fixtures/metadata/ILInspector.Metadata.ExtensionInstanceNew

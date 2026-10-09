@@ -232,6 +232,16 @@ public static partial class MetadataExports
             currentScope.SurfaceParticipant(currentCoordinate, currentAsset);
 
         cancellationToken.ThrowIfCancellationRequested();
+        var comparisonKey = new LibraryApiComparisonMemo.Key(
+            targetCoordinate.Package.Content.GenerationIdentity,
+            currentCoordinate.Package.Content.GenerationIdentity,
+            targetCoordinate.PackageId,
+            targetCoordinate.Version,
+            targetAsset.Id,
+            currentCoordinate.PackageId,
+            currentCoordinate.Version,
+            currentAsset.Id,
+            request.TargetFramework);
         InspectionEnvelope<DiffAnalysisDocument> inspection =
             targetScope.UseSurfaceParticipant(
                 targetParticipant,
@@ -270,7 +280,10 @@ public static partial class MetadataExports
                                     HostUnavailability:
                                         BrowserHostUnavailability(selection),
                                     StringLiteralQuery:
-                                        stringLiteralQuery))));
+                                        stringLiteralQuery),
+                                compute => LibraryApiComparisonMemo.GetOrCompute(
+                                    comparisonKey,
+                                    compute))));
         cancellationToken.ThrowIfCancellationRequested();
 
         return BrowserLibraryApiDiffWireProjection.Project(

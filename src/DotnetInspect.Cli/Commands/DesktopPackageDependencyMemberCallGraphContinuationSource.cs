@@ -612,7 +612,7 @@ internal sealed class
                 work,
                 retainAssemblies);
 
-    static string? FindActiveDotnetRoot()
+    internal static string? FindActiveDotnetRoot()
     {
         string? configured = Environment.GetEnvironmentVariable(
             "DOTNET_ROOT");

@@ -168,6 +168,19 @@ admission. Only an admitted request proceeds. For each endpoint, it then:
 Before is the target version and After is the current version. Each scope is
 released after the shared comparison and wire projection complete.
 
+The whole-Library comparison and its `LibraryApiDiffOutcome` do not depend on
+the requested surface, Types, or Members. The Worker therefore retains the
+most recent completed pair (`LibraryApiComparisonMemo`) and passes it to
+`DiffAnalysisLibraryInspection.Execute` for a later request over the same
+endpoint pair, so Library, Type, and Member Compare complete it once. The key
+is both endpoints' acquired content generation identity, package coordinates,
+and selected compile assets, plus the framework. Reacquired content never
+reuses an entry. One entry is retained, a different pair replaces it, and a
+failed computation is not retained. The retained value is Worker-epoch state:
+a Worker restart discards it. Every surface still receives the same result it
+would compute
+(`BrowserLibraryApiDiffOperationTests.LibraryTypeAndMemberRequestsCompleteTheComparisonOnce`).
+
 Both hosts consume the same host-neutral `DiffAnalysisInspection` operation.
 The selected-Library composition returns
 `InspectionEnvelope<DiffAnalysisDocument>` and derives its generic API outcome
