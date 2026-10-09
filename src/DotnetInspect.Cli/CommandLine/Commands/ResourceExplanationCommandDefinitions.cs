@@ -23,7 +23,7 @@ public static class ResourceExplanationCommandDefinitions
         };
         var projectionArgument = new Argument<string?>("projection")
         {
-            Description = ".data selects a self-contained reading dataset; .hal adds HAL navigation; .contract selects declarations",
+            Description = ".data selects a self-contained reading dataset; .hal selects HAL resource data and navigation; .contract selects declarations",
             Arity = ArgumentArity.ZeroOrOne,
         };
         projectionArgument.Validators.Add(result =>

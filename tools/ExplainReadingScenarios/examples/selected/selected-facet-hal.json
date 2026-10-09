@@ -1,187 +1,116 @@
 {
-  "format_version": 1,
-  "selection": {
-    "kind": "query-facets",
-    "completeness": "Complete"
-  },
-  "identity": {
-    "owner": "query-space",
-    "schema": "installed",
-    "type": "query-facet",
-    "value": "10:QueryFacet34:package-query.term.library-literal28:package-query/query-space/v1"
-  },
-  "path": "package-query/query/facets/library-literal",
-  "facts": {
-    "identity": "package-query.term.library-literal",
-    "key": "library-literal",
-    "name": "library literal",
-    "summary": "Downloads the package and matches decoded string-literal uses across the selected implementation libraries.",
-    "operators": [
-      "eq"
+  "kind": "query-facet",
+  "name": "library literal",
+  "summary": "Downloads the package and matches decoded string-literal uses across the selected implementation libraries.",
+  "_links": {
+    "self": {
+      "href": "inspect-resource:/package-query/query/facets/library-literal?projection=hal",
+      "title": "library literal",
+      "type": "application/hal+json"
+    },
+    "curies": [
+      {
+        "name": "inspect",
+        "href": "urn:dotnet-inspect:reading:{rel}",
+        "templated": true
+      }
     ],
-    "value-kind": "decoded UTF-16 text",
-    "values": [],
-    "examples": [
-      "https://"
+    "describedby": {
+      "href": "inspect-resource:/package-query/query/facets/library-literal?projection=contract",
+      "title": "Schema and observation details",
+      "type": "application/json"
+    },
+    "inspect:required-context": [
+      {
+        "href": "inspect-resource:/package-query/query/facets/library-target?projection=hal",
+        "title": "library target",
+        "type": "application/hal+json"
+      }
     ],
-    "effects": [
-      "AcquisitionTier: package-content",
-      "Capability: package-content-provider"
+    "inspect:bindings": [
+      {
+        "href": "inspect-resource:/package-query/bindings/cli",
+        "title": "dotnet-inspect CLI",
+        "type": "application/json"
+      }
     ]
   },
-  "fact_states": {},
-  "facets": {
-    "library-literal": {
-      "identity": {
-        "owner": "query-space",
-        "schema": "installed",
-        "type": "query-facet",
-        "value": "10:QueryFacet34:package-query.term.library-literal28:package-query/query-space/v1"
-      },
-      "addresses": [
-        {
-          "owner": "resource-explanation",
-          "schema": "installed",
-          "kind": "resource-path",
-          "value": "package-query/query/facets/library-literal"
-        }
-      ],
-      "fact_states": {},
-      "facts": {
-        "identity": "package-query.term.library-literal",
-        "key": "library-literal",
-        "name": "library literal",
-        "summary": "Downloads the package and matches decoded string-literal uses across the selected implementation libraries.",
-        "operators": [
-          "eq"
-        ],
-        "value-kind": "decoded UTF-16 text",
-        "values": [],
-        "examples": [
-          "https://"
-        ],
-        "effects": [
-          "AcquisitionTier: package-content",
-          "Capability: package-content-provider"
-        ]
-      },
-      "requires": [
-        "library-target"
-      ],
-      "_links": {
-        "self": {
-          "href": "inspect-resource:/package-query/query/facets/library-literal"
-        },
-        "urn:dotnet-inspect:relation:query-space:installed:query-facet:required-context": [
-          {
-            "href": "inspect-resource:/package-query/query/facets/library-target"
-          }
-        ],
-        "urn:dotnet-inspect:relation:query-space:installed:query-facet:exposed-by": [
-          {
-            "href": "inspect-resource:/package-query/bindings/cli"
-          }
-        ]
-      }
-    },
-    "library-target": {
-      "identity": {
-        "owner": "query-space",
-        "schema": "installed",
-        "type": "query-facet",
-        "value": "10:QueryFacet33:package-query.term.library-target28:package-query/query-space/v1"
-      },
-      "addresses": [
-        {
-          "owner": "resource-explanation",
-          "schema": "installed",
-          "kind": "resource-path",
-          "value": "package-query/query/facets/library-target"
-        }
-      ],
-      "fact_states": {},
-      "facts": {
-        "identity": "package-query.term.library-target",
-        "key": "library-target",
+  "key": "library-literal",
+  "operators": [
+    "eq"
+  ],
+  "value_kind": "decoded UTF-16 text",
+  "examples": [
+    "https://"
+  ],
+  "effects": [
+    "AcquisitionTier: package-content",
+    "Capability: package-content-provider"
+  ],
+  "values": [],
+  "id": "package-query.term.library-literal",
+  "requires": [
+    "library-target"
+  ],
+  "data_scope": {
+    "completeness": "Complete"
+  },
+  "_embedded": {
+    "inspect:facets": [
+      {
+        "kind": "query-facet",
         "name": "library target",
         "summary": "Records the exact target framework used to select the implementation libraries.",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/package-query/query/facets/library-target?projection=hal",
+            "title": "library target",
+            "type": "application/hal+json"
+          }
+        },
+        "key": "library-target",
         "operators": [
           "eq"
         ],
-        "value-kind": "NuGet target framework",
-        "values": [],
+        "value_kind": "NuGet target framework",
         "examples": [
           "net10.0"
         ],
         "effects": [
           "AcquisitionTier: package-content",
           "Capability: package-content-provider"
-        ]
-      },
-      "requires": [],
-      "_links": {
-        "self": {
-          "href": "inspect-resource:/package-query/query/facets/library-target"
-        }
-      }
-    }
-  },
-  "facet_order": [
-    "library-literal",
-    "library-target"
-  ],
-  "bindings": {
-    "dotnet-inspect.cli/package-query": {
-      "identity": {
-        "owner": "consumer",
-        "schema": "installed",
-        "type": "consumer-binding",
-        "value": "15:ConsumerBinding32:dotnet-inspect.cli/package-query-1:"
-      },
-      "addresses": [
-        {
-          "owner": "resource-explanation",
-          "schema": "installed",
-          "kind": "resource-path",
-          "value": "package-query/bindings/cli"
-        }
-      ],
-      "fact_states": {},
-      "facts": {
-        "identity": "dotnet-inspect.cli/package-query",
-        "name": "dotnet-inspect CLI",
-        "summary": "A production Cli binding for 'Package Query'.",
-        "consumer-kind": "Cli",
-        "gesture": "package query",
-        "members": "14"
-      },
-      "exposed_facets": [
-        "library-literal"
-      ],
-      "_links": {
-        "self": {
-          "href": "inspect-resource:/package-query/bindings/cli"
-        },
-        "urn:dotnet-inspect:relation:consumer:installed:consumer-binding:exposes": [
-          {
-            "href": "inspect-resource:/package-query/query/facets/library-literal"
-          }
-        ]
-      }
-    }
-  },
-  "_links": {
-    "self": {
-      "href": "inspect-resource:/package-query/query/facets/library-literal"
-    },
-    "urn:dotnet-inspect:relation:query-space:installed:query-facet:required-context": [
-      {
-        "href": "inspect-resource:/package-query/query/facets/library-target"
+        ],
+        "values": [],
+        "id": "package-query.term.library-target",
+        "requires": []
       }
     ],
-    "urn:dotnet-inspect:relation:query-space:installed:query-facet:exposed-by": [
+    "inspect:bindings": [
       {
-        "href": "inspect-resource:/package-query/bindings/cli"
+        "kind": "consumer-binding",
+        "name": "dotnet-inspect CLI",
+        "summary": "A production Cli binding for 'Package Query'.",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/package-query/bindings/cli",
+            "title": "dotnet-inspect CLI",
+            "type": "application/json"
+          },
+          "inspect:exposed-facets": [
+            {
+              "href": "inspect-resource:/package-query/query/facets/library-literal?projection=hal",
+              "title": "library literal",
+              "type": "application/hal+json"
+            }
+          ]
+        },
+        "consumer_kind": "Cli",
+        "gesture": "package query",
+        "members": "14",
+        "id": "dotnet-inspect.cli/package-query",
+        "exposed_facets": [
+          "library-literal"
+        ]
       }
     ]
   }

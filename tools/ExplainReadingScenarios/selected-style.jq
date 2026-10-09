@@ -1,4 +1,11 @@
-.vocabularies["csharp.style-choices"] as $choices
+# HAL presents the selected vocabulary as root state and related resources under _embedded.
+(if has("_embedded") then
+  . as $root
+  | {vocabularies: ([ $root, $root._embedded["inspect:vocabularies"][] ]
+      | map({key: .id, value: {values: ._embedded["inspect:values"], property_sets, property_groups}})
+      | from_entries)}
+else . end)
+| .vocabularies["csharp.style-choices"] as $choices
 | .vocabularies["csharp.style-tiers"] as $tiers
 | {choices: $choices.values,
    tiers: [$tiers.values[] | {id, name, summary, order: (.order | tonumber)}],

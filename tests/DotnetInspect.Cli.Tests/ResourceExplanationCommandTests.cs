@@ -63,33 +63,49 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     [Theory]
     [InlineData("vocabularies/csharp.style-choices")]
     [InlineData("package-query/query")]
-    public async Task SelectedHal_PreservesDirectDataAndAddsFollowableQualifiedRelations(string path)
+    public async Task SelectedHal_LeadsWithDataAndNavigationAndFollowsInHalMode(string path)
     {
         var direct = await RunAsync("explain", path, ".data", "--json");
         var hal = await RunAsync("explain", path, ".hal", "--json");
         Assert.Equal(0, direct.ExitCode);
         Assert.Equal(0, hal.ExitCode);
-        var plain = System.Text.Json.Nodes.JsonNode.Parse(direct.Output)!;
-        var linked = System.Text.Json.Nodes.JsonNode.Parse(hal.Output)!;
-        var links = linked["_links"]!.AsObject();
-        Assert.Contains(links, pair => pair.Key.StartsWith("urn:dotnet-inspect:relation:", StringComparison.Ordinal));
-        string href = links["self"]!["href"]!.GetValue<string>();
-        Assert.Equal(0, (await RunAsync("explain", href, "--json")).ExitCode);
-        RemoveLinks(linked);
-        Assert.True(System.Text.Json.Nodes.JsonNode.DeepEquals(plain, linked));
+        using JsonDocument document = JsonDocument.Parse(hal.Output);
+        JsonElement root = document.RootElement;
+        Assert.False(root.TryGetProperty("facts", out _));
+        Assert.False(root.TryGetProperty("identity", out _));
+        Assert.False(root.TryGetProperty("selection", out _));
+        Assert.True(root.TryGetProperty("name", out _));
+        JsonElement links = root.GetProperty("_links");
+        Assert.True(links.TryGetProperty("curies", out _));
+        Assert.True(links.TryGetProperty("describedby", out _));
+        Assert.Equal("application/hal+json", links.GetProperty("self").GetProperty("type").GetString());
+        string href = links.GetProperty("self").GetProperty("href").GetString()!;
+        var followed = await RunAsync("explain", href, "--json");
+        Assert.Equal(0, followed.ExitCode);
+        using JsonDocument followDocument = JsonDocument.Parse(followed.Output);
+        Assert.Equal(root.GetRawText(), followDocument.RootElement.GetRawText());
+        var contractResult = await RunAsync("explain", links.GetProperty("describedby").GetProperty("href").GetString()!, "--json");
+        Assert.Equal(0, contractResult.ExitCode);
+        using JsonDocument contractDocument = JsonDocument.Parse(contractResult.Output);
+        Assert.True(contractDocument.RootElement.TryGetProperty("schemas", out _));
+        JsonElement embedded = root.GetProperty("_embedded");
+        Assert.All(embedded.EnumerateObject(), relation => Assert.Equal(JsonValueKind.Array, relation.Value.ValueKind));
+        if (root.GetProperty("kind").GetString() == "value-vocabulary")
+            Assert.Equal(17, embedded.GetProperty("inspect:values").GetArrayLength());
+        else
+            Assert.Equal(19, embedded.GetProperty("inspect:facets").GetArrayLength());
+    }
 
-        static void RemoveLinks(System.Text.Json.Nodes.JsonNode node)
-        {
-            if (node is System.Text.Json.Nodes.JsonObject obj)
-            {
-                obj.Remove("_links");
-                foreach (var child in obj.Select(pair => pair.Value).OfType<System.Text.Json.Nodes.JsonNode>())
-                    RemoveLinks(child);
-            }
-            else if (node is System.Text.Json.Nodes.JsonArray array)
-                foreach (var child in array.OfType<System.Text.Json.Nodes.JsonNode>())
-                    RemoveLinks(child);
-        }
+    [Theory]
+    [InlineData(".data", "--json")]
+    [InlineData(".contract", "--json")]
+    [InlineData("--depth", "1", "--json")]
+    [InlineData()]
+    public async Task ProjectedHalAddress_RejectsConflictingSelectionOrDepth(params string[] options)
+    {
+        var result = await RunAsync(["explain", "inspect-resource:/package-query/query?projection=hal", .. options]);
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("projected resource address", result.Error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]

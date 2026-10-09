@@ -77,7 +77,9 @@ public sealed class ResourceExplanationDataset
             vocabulary ? "vocabulary-data" : "query-facets");
     }
 
-    public JsonElement ToJson(Func<ResourcePath, string> bindAddress, bool hal = false)
+    public JsonElement ToJson(Func<ResourcePath, string> bindAddress, bool hal = false,
+        Func<ResourcePath, string>? bindHalAddress = null,
+        Func<ResourcePath, string>? bindContractAddress = null)
     {
         ArgumentNullException.ThrowIfNull(bindAddress);
         ImmutableArray<JsonElement> lowered = ResourceExplanationDataProjection.CreateResources(
@@ -97,21 +99,10 @@ public sealed class ResourceExplanationDataset
         else
             WriteFacets(result, byKey);
         if (hal)
-        {
-            // Every selected record has the same data in both representations.
-            // Navigation is added beside it, rather than copying it into _embedded.
-            AddResourceLinks(result, byKey, bindAddress);
-        }
+            result = WriteHal(result, byKey, bindAddress, bindHalAddress ?? bindAddress, bindContractAddress);
         using JsonDocument document = JsonDocument.Parse(result.ToJsonString());
         return document.RootElement.Clone();
     }
-
-    public static string RelationUri(ExplanationRelationshipIdentity relation) =>
-        "urn:dotnet-inspect:relation:"
-        + Uri.EscapeDataString(relation.ResourceType.Schema.Owner.Value) + ":"
-        + Uri.EscapeDataString(relation.ResourceType.Schema.Value) + ":"
-        + Uri.EscapeDataString(relation.ResourceType.Value) + ":"
-        + Uri.EscapeDataString(relation.Value);
 
     private void WriteVocabularies(JsonObject result,
         Dictionary<ExplanationResourceKey, JsonObject> nodes)
@@ -252,49 +243,145 @@ public sealed class ResourceExplanationDataset
         }
     }
 
-    private void AddResourceLinks(JsonObject result,
-        Dictionary<ExplanationResourceKey, JsonObject> nodes, Func<ResourcePath, string> bindAddress)
+    private JsonObject WriteHal(JsonObject data, Dictionary<ExplanationResourceKey, JsonObject> nodes,
+        Func<ResourcePath, string> bindAddress, Func<ResourcePath, string> bindHalAddress,
+        Func<ResourcePath, string>? bindContractAddress)
     {
-        foreach (JsonObject node in Descendants(result))
+        var rendered = new Dictionary<ExplanationResourceKey, JsonObject>();
+        foreach (ResourceExplanationResource resource in _resources)
         {
-            if (node["identity"] is not JsonObject identity)
-                continue;
-            ResourceExplanationResource? resource = _resources.FirstOrDefault(r =>
-                JsonNode.DeepEquals(nodes[r.Key]["identity"], identity));
-            if (resource is null)
-                continue;
-            var links = new JsonObject();
-            if (resource.Path is not null)
-                links["self"] = new JsonObject { ["href"] = bindAddress(resource.Path) };
+            JsonObject source;
+            if (resource.Key.ResourceType == ResourceExplanationVocabulary.ValueVocabularyType)
+                source = data["vocabularies"]![Text(nodes[resource.Key]["facts"]!, "identity")]!.AsObject();
+            else if (resource.Key.ResourceType == ResourceExplanationVocabulary.VocabularyValueType)
+                source = data["vocabularies"]!.AsObject().SelectMany(pair => pair.Value!["values"]!.AsArray())
+                    .OfType<JsonObject>().Single(value => JsonNode.DeepEquals(value["identity"], nodes[resource.Key]["identity"]));
+            else if (resource.Key.ResourceType == ResourceExplanationVocabulary.QueryFacetType)
+                source = data["facets"]![Text(nodes[resource.Key]["facts"]!, "key")]!.AsObject();
+            else if (resource.Key.ResourceType == ResourceExplanationVocabulary.ConsumerBindingType)
+                source = data["bindings"]![Text(nodes[resource.Key]["facts"]!, "identity")]!.AsObject();
+            else
+                source = nodes[resource.Key];
+
+            JsonObject facts = source["facts"]?.AsObject() ?? source;
+            var state = new JsonObject { ["kind"] = resource.Key.ResourceType.Value };
+            foreach (string field in new[] { "name", "summary" })
+                if (facts[field] is JsonNode value)
+                    state[field] = value.DeepClone();
+            // Navigation is visible before the larger state and embedded populations.
+            state["_links"] = Links(resource);
+            foreach ((string name, JsonNode? value) in facts)
+            {
+                if (name is "name" or "summary" or "identity" or "addresses" or "fact_states")
+                    continue;
+                if (resource.Key.ResourceType != ResourceExplanationVocabulary.VocabularyValueType
+                    && name is "values" or "property_sets" or "property_groups")
+                    continue;
+                string field = name.Replace('-', '_');
+                if (state.ContainsKey(field))
+                    throw new InvalidOperationException("A HAL state property collides with resource navigation: " + field);
+                state[field] = value?.DeepClone();
+            }
+            // Facet listed operand values are state, unlike vocabulary resource members.
+            if (resource.Key.ResourceType == ResourceExplanationVocabulary.QueryFacetType)
+                state["values"] = facts["values"]!.DeepClone();
+            if (facts["identity"] is JsonValue id)
+                state["id"] = id.DeepClone();
+            foreach (string field in new[] { "requires", "exposed_facets", "property_sets", "property_groups" })
+                if (source[field] is JsonNode value)
+                    state[field] = value.DeepClone();
+            // Available state needs no receipt. Non-available outcomes remain beside affected data.
+            var outcomes = new JsonObject();
+            foreach ((string name, JsonNode? outcome) in source["fact_states"]!.AsObject())
+                if (outcome!["state"]!.GetValue<string>() != "Absent")
+                    outcomes[name.Replace('-', '_')] = outcome.DeepClone();
+            if (outcomes.Count > 0)
+                state["data_states"] = outcomes;
+            rendered.Add(resource.Key, state);
+        }
+
+        foreach (ResourceExplanationResource vocabulary in _resources.Where(resource =>
+            resource.Key.ResourceType == ResourceExplanationVocabulary.ValueVocabularyType))
+            rendered[vocabulary.Key]["_embedded"] = new JsonObject
+            {
+                ["inspect:values"] = new JsonArray(Targets(vocabulary.Key, "vocabulary-value")
+                    .Select(key => (JsonNode?)rendered[key].DeepClone()).ToArray()),
+            };
+        JsonObject root = rendered[_root.Key];
+        root["data_scope"] = new JsonObject { ["completeness"] = "Complete" };
+        JsonObject embedded = root["_embedded"]?.AsObject() ?? new JsonObject();
+        if (_kind == "vocabulary-data")
+            embedded["inspect:vocabularies"] = new JsonArray(_resources.Where(resource =>
+                resource.Key.ResourceType == ResourceExplanationVocabulary.ValueVocabularyType && resource.Key != _root.Key)
+                .Select(resource => (JsonNode?)rendered[resource.Key]).ToArray());
+        else
+        {
+            embedded["inspect:facets"] = new JsonArray(_resources.Where(resource =>
+                resource.Key.ResourceType == ResourceExplanationVocabulary.QueryFacetType && resource.Key != _root.Key)
+                .Select(resource => (JsonNode?)rendered[resource.Key]).ToArray());
+            embedded["inspect:bindings"] = new JsonArray(_resources.Where(resource =>
+                resource.Key.ResourceType == ResourceExplanationVocabulary.ConsumerBindingType)
+                .Select(resource => (JsonNode?)rendered[resource.Key]).ToArray());
+        }
+        if (root["_embedded"] is null)
+            root["_embedded"] = embedded;
+        return root;
+
+        JsonObject Links(ResourceExplanationResource resource)
+        {
+            var links = new JsonObject { ["self"] = Link(resource) };
+            if (resource.Key == _root.Key)
+            {
+                links["curies"] = new JsonArray((JsonNode)new JsonObject
+                {
+                    ["name"] = "inspect", ["href"] = "urn:dotnet-inspect:reading:{rel}", ["templated"] = true,
+                });
+                if (bindContractAddress is not null)
+                    links["describedby"] = new JsonObject
+                    {
+                        ["href"] = Bind(bindContractAddress, resource.Path!),
+                        ["title"] = "Schema and observation details", ["type"] = "application/json",
+                    };
+            }
             foreach (ResourceExplanationRelationship edge in _catalog.Relationships.Where(edge => edge.Source == resource.Key))
             {
-                var targets = new JsonArray();
-                foreach (ResourceExplanationRelationshipTarget target in edge.Targets)
+                string? relation = edge.Relationship.Value switch
                 {
-                    ResourceExplanationResource? selected = _resources.FirstOrDefault(r => r.Key == target.Resource);
-                    if (selected?.Path is not null)
-                        targets.Add((JsonNode)new JsonObject { ["href"] = bindAddress(selected.Path) });
-                }
+                    // Complete member inventories are already embedded with their own self links.
+                    "term-map-target" => "vocabularies", "required-context" => "required-context",
+                    "exposed-by" => "bindings", "exposes" => "exposed-facets", _ => null,
+                };
+                if (relation is null)
+                    continue;
+                var targets = new JsonArray(edge.Targets.Select(target => _resources.FirstOrDefault(r => r.Key == target.Resource))
+                    .OfType<ResourceExplanationResource>().Select(target => (JsonNode?)Link(target)).ToArray());
                 if (targets.Count > 0)
-                    links[RelationUri(edge.Relationship)] = targets;
+                    links["inspect:" + relation] = targets;
             }
-            node["_links"] = links;
+            return links;
         }
-    }
 
-    private static IEnumerable<JsonObject> Descendants(JsonNode node)
-    {
-        if (node is JsonObject obj)
+        static string Bind(Func<ResourcePath, string> binder, ResourcePath path)
         {
-            yield return obj;
-            foreach (JsonNode child in obj.Select(pair => pair.Value).OfType<JsonNode>().ToArray())
-                foreach (JsonObject descendant in Descendants(child))
-                    yield return descendant;
+            string address = binder(path);
+            if (string.IsNullOrWhiteSpace(address))
+                throw new InvalidOperationException("A HAL link requires a usable host address.");
+            return address;
         }
-        else if (node is JsonArray array)
-            foreach (JsonNode child in array.OfType<JsonNode>().ToArray())
-                foreach (JsonObject descendant in Descendants(child))
-                    yield return descendant;
+
+        JsonObject Link(ResourceExplanationResource resource)
+        {
+            bool selectedHal = resource.Key.ResourceType == ResourceExplanationVocabulary.ValueVocabularyType
+                || resource.Key.ResourceType == ResourceExplanationVocabulary.QuerySpaceType
+                || resource.Key.ResourceType == ResourceExplanationVocabulary.QueryFacetType;
+            JsonObject facts = nodes[resource.Key]["facts"]!.AsObject();
+            return new JsonObject
+            {
+                ["href"] = Bind(selectedHal ? bindHalAddress : bindAddress, resource.Path!),
+                ["title"] = facts["name"]?.DeepClone() ?? JsonValue.Create(resource.Key.ResourceType.Value),
+                ["type"] = selectedHal ? "application/hal+json" : "application/json",
+            };
+        }
     }
 
     private static JsonObject Metadata(JsonObject node) => new()

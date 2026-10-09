@@ -38,7 +38,23 @@ public static class ResourceExplanationCommand
         string normalizedOperand = operand.Trim();
         bool resourceAddress = normalizedOperand.StartsWith(resourcePrefix, StringComparison.Ordinal);
         if (resourceAddress)
+        {
             normalizedOperand = normalizedOperand[resourcePrefix.Length..];
+            string? linkedProjection = normalizedOperand.EndsWith("?projection=hal", StringComparison.Ordinal)
+                ? ".hal" : normalizedOperand.EndsWith("?projection=contract", StringComparison.Ordinal) ? ".contract" : null;
+            if (linkedProjection is not null)
+            {
+                if (contract || selection is not null && selection != linkedProjection || depthExplicitlySet
+                    || format != OutputFormat.Json)
+                {
+                    CommandError.Write("A projected resource address requires JSON and cannot override its projection or depth.");
+                    return 1;
+                }
+                contract = linkedProjection == ".contract";
+                selection = contract ? null : linkedProjection;
+                normalizedOperand = normalizedOperand[..normalizedOperand.LastIndexOf('?')];
+            }
+        }
         ResourcePath.TryCreate(
             normalizedOperand,
             out ResourcePath? canonicalPath,
@@ -395,7 +411,9 @@ public static class ResourceExplanationCommand
             {
                 ResourceExplanationDataset dataset = ResourceExplanationDataset.Create(catalog, resolution);
                 JsonElement data = dataset.ToJson(static path => "inspect-resource:/" + path.Value,
-                    hal: selection == ".hal");
+                    hal: selection == ".hal",
+                    bindHalAddress: static path => "inspect-resource:/" + path.Value + "?projection=hal",
+                    bindContractAddress: static path => "inspect-resource:/" + path.Value + "?projection=contract");
                 OutputDestination.Write(outputPath, rowWindow: null,
                     output => output.WriteLine(data.GetRawText()));
                 return 0;

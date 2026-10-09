@@ -22,18 +22,12 @@ def jq(document, query, **variables):
                                     capture_output=True, check=True).stdout)
 
 
-def unlinked(value):
-    if isinstance(value, dict):
-        return {key: unlinked(item) for key, item in value.items() if key != "_links"}
-    if isinstance(value, list):
-        return [unlinked(item) for item in value]
-    return value
-
-
 def hrefs(value):
     if isinstance(value, dict):
         for relation, links in value.get("_links", {}).items():
-            if relation != "self" and not relation.startswith("urn:dotnet-inspect:relation:"):
+            if relation == "curies":
+                continue
+            if relation not in ("self", "describedby") and not relation.startswith("inspect:"):
                 raise AssertionError("Custom HAL relations must be qualified")
             for link in links if isinstance(links, list) else [links]:
                 yield link["href"]
@@ -66,7 +60,9 @@ for name, path, tasks, variables, prototype, reference_query in [
         sizes[mode] = len(result.stdout.encode())
         (args.output / f"selected-{name}-{mode}.json").write_text(
             json.dumps(specimens[mode], indent=2, ensure_ascii=False) + "\n")
-    assert unlinked(specimens["hal"]) == specimens["data"], name
+    assert "_links" in specimens["hal"] and "_embedded" in specimens["hal"], name
+    assert "facts" not in specimens["hal"] and "identity" not in specimens["hal"], name
+    assert list(specimens["hal"]).index("_links") < list(specimens["hal"]).index("_embedded"), name
     reference = json.loads((HERE / "examples" / prototype).read_text())
     query = HERE / ("selected-style.jq" if name == "style" else "selected-facets.jq")
     answers = {}
@@ -85,6 +81,24 @@ for name, path, tasks, variables, prototype, reference_query in [
 for href in sorted(all_hrefs):
     subprocess.run([str(args.cli.resolve()), "explain", href, "--json"],
                    text=True, capture_output=True, check=True)
+# Start at an entry resource and navigate only advertised links. No destination paths are authored here.
+entry = json.loads((args.output / "selected-facets-hal.json").read_text())
+literal = next(resource for resources in entry["_embedded"].values() for resource in resources
+               if resource["kind"] == "query-facet" and "string-literal" in resource.get("summary", ""))
+def follow_hal(link):
+    assert link["type"] == "application/hal+json"
+    response = subprocess.run([str(args.cli.resolve()), "explain", link["href"], "--json"],
+                              text=True, capture_output=True, check=True)
+    document = json.loads(response.stdout)
+    assert "_links" in document and "_embedded" in document
+    return document
+focused = follow_hal(literal["_links"]["self"])
+context = follow_hal(focused["_links"]["inspect:required-context"][0])
+assert context["key"] == "library-target"
+assert all("library-target" not in binding["exposed_facets"]
+           for binding in focused["_embedded"]["inspect:bindings"])
+report["agent_navigation"] = {"authored_destination_paths": 0, "hal_mode_preserved": True,
+                               "facet": focused["key"], "required_context": context["key"]}
 report["navigation"] = {"unique_hal_links_followed": len(all_hrefs)}
 (args.output / "comparison.json").write_text(json.dumps(report, indent=2) + "\n")
 print(json.dumps(report, indent=2))

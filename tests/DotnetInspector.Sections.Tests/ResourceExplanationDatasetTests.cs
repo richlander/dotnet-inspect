@@ -8,16 +8,6 @@ namespace DotnetInspector.Sections.Tests;
 public sealed class ResourceExplanationDatasetTests
 {
     [Fact]
-    public void QualifiedRelations_DistinguishResourceTypesWithTheSameLocalName()
-    {
-        var schema = new ExplanationSchemaIdentity(new("test"), "schema");
-        string first = ResourceExplanationDataset.RelationUri(new(new(schema, "first"), "members"));
-        string second = ResourceExplanationDataset.RelationUri(new(new(schema, "second"), "members"));
-        Assert.NotEqual(first, second);
-        Assert.True(Uri.TryCreate(first, UriKind.Absolute, out _));
-    }
-
-    [Fact]
     public void PartialCoverage_CannotBecomeANegativeMembershipAssertion()
     {
         var identity = new VocabularyIdentity(ProductVocabularyComposition.Catalog, "test.flags");
@@ -56,7 +46,7 @@ public sealed class ResourceExplanationDatasetTests
     }
 
     [Fact]
-    public void EmptyPositiveSet_IsCompleteAndDoesNotEraseUnavailableSummary()
+    public void EmptyPositiveSet_IsCompleteAndPreservesAbsentSummaryInDirectData()
     {
         var identity = new VocabularyIdentity(ProductVocabularyComposition.Catalog, "test.flags");
         var map = VocabularyMapDefinition.Scalar(identity, "flag", "Flag", "Observed flag.",
@@ -72,6 +62,37 @@ public sealed class ResourceExplanationDatasetTests
         Assert.False(value.TryGetProperty("summary", out _));
         Assert.Equal("Absent", value.GetProperty("fact_states").GetProperty("summary")
             .GetProperty("state").GetString());
+        JsonElement hal = ResourceExplanationDataset.Create(catalog, Resolve(catalog, identity.Value))
+            .ToJson(path => path.Value, hal: true);
+        Assert.Empty(hal.GetProperty("property_sets").GetProperty("flag").EnumerateArray());
+        JsonElement embeddedValue = hal.GetProperty("_embedded").GetProperty("inspect:values")[0];
+        Assert.Equal("off", embeddedValue.GetProperty("id").GetString());
+        Assert.False(embeddedValue.TryGetProperty("summary", out _));
+        Assert.False(embeddedValue.TryGetProperty("identity", out _));
+    }
+
+    [Fact]
+    public void HalVocabularyValue_PreservesAnOrdinaryPropertyNamedValues()
+    {
+        var identity = new VocabularyIdentity(ProductVocabularyComposition.Catalog, "test.counts");
+        var map = VocabularyMapDefinition.Scalar(identity, "values", "Values", "Observed count.",
+            ExplanationScalarKind.Integer);
+        ResourceExplanationCatalog catalog = Catalog(new(identity, "Counts", "Test counts.", [map],
+            [new(new(identity, "one"), "One", null, [new(map, ExplanationValue.Integer(42))])]));
+        JsonElement hal = ResourceExplanationDataset.Create(catalog, Resolve(catalog, identity.Value))
+            .ToJson(path => path.Value, hal: true);
+        Assert.Equal("42", hal.GetProperty("_embedded").GetProperty("inspect:values")[0]
+            .GetProperty("values").GetString());
+    }
+
+    [Fact]
+    public void HalDataset_RejectsAnUnusableHalAddressBinding()
+    {
+        var identity = new VocabularyIdentity(ProductVocabularyComposition.Catalog, "test.empty");
+        ResourceExplanationCatalog catalog = Catalog(new(identity, "Empty", "Test empty.", [], []));
+        var selected = ResourceExplanationDataset.Create(catalog, Resolve(catalog, identity.Value));
+        Assert.Contains("usable host address", Assert.Throws<InvalidOperationException>(
+            () => selected.ToJson(path => path.Value, hal: true, bindHalAddress: _ => " ")).Message);
     }
 
     private static ResourceExplanationCatalog Catalog(VocabularyDefinition vocabulary) =>

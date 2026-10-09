@@ -2720,7 +2720,14 @@ dotnet-inspect explain package-query/query .data --json
 dotnet-inspect explain package-query/query/facets/library-literal .hal --json
 ```
 
-`.hal` adds qualified relationship links to the same reading dataset. Both
+`.hal` presents direct resource state, a titled `_links` menu, and related
+resources in `_embedded` arrays using the `inspect` CURIE vocabulary. HAL links
+advertise `application/hal+json` and preserve the selection through
+`?projection=hal`; JSON detail links advertise `application/json`. A root
+`describedby` link selects the full contract through `?projection=contract`.
+Pass either address unchanged to `explain --json`. Receipt details stay in the
+contract representation; completeness and non-available data qualifications
+remain beside the data they affect. Both
 selections require `--json` and reject `--depth` and search operands. Selection
 closure is bounded to 256 resources and 4,096 observed targets; excess or
 incomplete selected observations fail visibly instead of producing sparse tables

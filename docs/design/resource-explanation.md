@@ -1003,11 +1003,38 @@ exposure lists contain only selected facets; their original total member count
 remains in binding facts.
 These selections do not claim that unregistered validation rules are present.
 
-The HAL representation uses the same selected content and adds host-bound links
-under qualified owner-issued relationship names. It does not duplicate that
-content in a second embedded inventory. Compare identical data-reading tasks
-and the added navigation task; HAL's extra structure must earn its cost.
-Existing default output and explicit `.contract` remain the comparison surfaces.
+The HAL representation presents domain data directly as resource state, rather
+than retaining a generic `facts` wrapper or the internal identity/address
+receipt. A small `kind`, `name`, and `summary` header leads into `_links`; related
+resources appear once under `_embedded` relation arrays. Vocabulary values are
+embedded in their vocabulary, and referenced vocabularies embed their own
+values. Query facets and exposing bindings are embedded resources. Property
+sets and groups remain state on their owning vocabulary. Available data needs
+no observation receipt; non-available outcomes other than explicit absence
+remain in `data_states` beside the affected resource. `data_scope.completeness`
+qualifies the selected population, including sparse negatives, without carrying
+traversal budgets or execution bookkeeping.
+
+The reading projection owns the `inspect` CURIE namespace,
+`urn:dotnet-inspect:reading:{rel}`, declared once at the entry resource. Its
+relations are `values`, `vocabularies`, `facets`, `required-context`, `bindings`,
+and `exposed-facets`. They name reading destinations, not internal schema
+identities. Embedded inventories supply member self links rather than repeating
+the complete inventory in root links. Links carry titles and destination media
+types. CLI HAL self and dataset links use
+`inspect-resource:/<path>?projection=hal`; following them unchanged retains HAL.
+JSON detail destinations are explicitly typed `application/json`. Root
+`describedby` links use `?projection=contract` to disclose complete schema and
+observation details separately. Projected addresses require JSON and reject
+conflicting projection or depth overrides.
+
+The direct JSON model remains independently usable with its typed metadata.
+Compare equivalent data-reading answers and advertised navigation, not equality
+of layouts after stripping links. These gates establish the representation and
+link mechanics; whether unfamiliar agents immediately recognize HAL and need
+fewer navigation tips remains an agent usability evaluation, not an asserted
+outcome. Existing default output and explicit `.contract` remain comparison
+surfaces.
 
 ### Compact resource projection contract
 
