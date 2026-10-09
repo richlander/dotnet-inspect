@@ -9,6 +9,7 @@ using System.Text;
 using System.Text.Json;
 using System.Globalization;
 using DotnetInspect.Cli.Options;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -554,7 +555,6 @@ public static class ApiOutputFormatter
 
     public static void WriteShapeOutput(
         ApiType type,
-        string? foundIn,
         string? packageName,
         string? packageVersion,
         HashSet<string> memberFilter,
@@ -562,40 +562,31 @@ public static class ApiOutputFormatter
         Verbosity verbosity = Verbosity.Minimal,
         int? memberLimit = null)
     {
-        bool filtersMatchedMembers = FilterShapeMembers(type, memberFilter, kindFilter).Any();
-        var view = BuildShapeView(
-            type,
-            foundIn,
-            packageName,
-            packageVersion,
-            memberFilter,
-            kindFilter,
-            verbosity,
-            memberLimit);
-        if (view.Members is { Count: > 0 })
-        {
-            // Lead with a declaration-style header when the type carries modifiers
-            // (ref/readonly struct, static/sealed/abstract class) so the spelling is
-            // not silently dropped (#1066); a plain type keeps its bare name header.
-            string header = view.Modifiers is { Length: > 0 } modifiers
-                ? $"{modifiers.Replace(", ", " ")} {view.Kind} {view.FullName}"
-                : view.FullName;
-            Console.WriteLine(header);
-            var writer = new MarkoutWriter(Console.Out, new MarkdownFormatter());
-            writer.WriteTree([.. view.Members]);
-        }
-        else if ((kindFilter?.Count > 0 || memberFilter.Count > 0)
-                 && !filtersMatchedMembers)
+        List<ApiMember> selectedMembers = FilterShapeMembers(
+                type,
+                memberFilter,
+                kindFilter)
+            .ToList();
+        if ((kindFilter?.Count > 0 || memberFilter.Count > 0)
+            && selectedMembers.Count == 0)
         {
             var filterDesc = kindFilter?.Count > 0
                 ? string.Join(", ", kindFilter)
                 : string.Join(", ", memberFilter);
             CommandError.WriteLine($"No matching members for filter: {filterDesc}");
+            return;
         }
-        else
-        {
-            Console.WriteLine(view.FullName);
-        }
+
+        TypeShapePresentation.Write(
+            type,
+            selectedMembers,
+            new TypeShapePresentationPlan(
+                packageName,
+                packageVersion,
+                ExpandOverloads:
+                    verbosity >= Verbosity.Normal,
+                MemberLimit: memberLimit),
+            Console.Out);
     }
 
     // ===== View Model Factories =====
@@ -769,213 +760,6 @@ public static class ApiOutputFormatter
             fields.Add(new("Source", apiSource));
 
         return fields;
-    }
-
-    internal static TypeShapeView BuildShapeView(
-        ApiType type,
-        string? foundIn,
-        string? packageName,
-        string? packageVersion,
-        HashSet<string> memberFilter,
-        HashSet<string>? kindFilter = null,
-        Verbosity verbosity = Verbosity.Minimal,
-        int? memberLimit = null)
-    {
-        bool hasFilter = memberFilter.Count > 0 || kindFilter?.Count > 0;
-        bool expandOverloads = verbosity >= Verbosity.Normal;
-        List<TreeNode> nodes = [];
-
-        // Group members by kind
-        bool filtersMatchedMembers = false;
-        if (type.Members.Count > 0)
-        {
-            var memberList = FilterShapeMembers(type, memberFilter, kindFilter).ToList();
-            filtersMatchedMembers = memberList.Count > 0;
-            if (memberLimit.HasValue)
-            {
-                var displayEntries = memberList
-                    .GroupBy(m => m.Kind)
-                    .OrderBy(g => GetTreeKindOrder(g.Key))
-                    .SelectMany(group =>
-                        !IsOverloadGroupedKind(group.Key)
-                            ? group
-                                .OrderBy(m => m.Name, StringComparer.Ordinal)
-                                .Select(member => new List<ApiMember> { member })
-                            : expandOverloads
-                                ? group
-                                    .GroupBy(m => m.Name)
-                                    .OrderBy(g => OperatorNames.FormatDisplayName(g.Key), StringComparer.Ordinal)
-                                    .SelectMany(overloads => overloads
-                                        .OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
-                                        .Select(member => new List<ApiMember> { member }))
-                            : group
-                                .GroupBy(m => m.Name)
-                                .OrderBy(g => OperatorNames.FormatDisplayName(g.Key), StringComparer.Ordinal)
-                                .Select(overloads => overloads
-                                    .OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
-                                    .ToList()))
-                    .ToList();
-
-                if (memberLimit.Value < displayEntries.Count)
-                {
-                    memberList = displayEntries
-                        .Take(memberLimit.Value)
-                        .SelectMany(entry => entry)
-                        .ToList();
-                }
-            }
-
-            var membersByKind = memberList
-                .GroupBy(m => m.Kind)
-                .OrderBy(g => GetTreeKindOrder(g.Key))
-                .ToList();
-
-            foreach (var group in membersByKind)
-            {
-                var membersInGroup = group.ToList();
-                var children = BuildShapeMemberNodes(
-                    group.Key,
-                    membersInGroup,
-                    expandOverloads,
-                    type);
-                var logicalCount = IsOverloadGroupedKind(group.Key)
-                    ? membersInGroup.Select(m => m.Name).Distinct(StringComparer.Ordinal).Count()
-                    : membersInGroup.Count;
-                var kindLabel = GetShapeKindLabel(group.Key, membersInGroup.Count, logicalCount);
-                nodes.Add(new TreeNode(kindLabel) { Children = children });
-            }
-        }
-
-        static List<TreeNode> BuildShapeMemberNodes(
-            string kind,
-            IEnumerable<ApiMember> members,
-            bool expandOverloads,
-            ApiType declaringType)
-        {
-            if (IsOverloadGroupedKind(kind))
-            {
-                var groups = members
-                    .GroupBy(m => m.Name)
-                    .OrderBy(g => OperatorNames.FormatDisplayName(g.Key), StringComparer.Ordinal)
-                    .ToList();
-
-                if (expandOverloads)
-                {
-                    return groups
-                        .SelectMany(g => g.OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal))
-                        .Select(m => new TreeNode(CSharpIdentifier.ContainRenderedText(m.Signature ?? OperatorNames.FormatDisplayName(m.Name))))
-                        .ToList();
-                }
-
-                return groups
-                    .Select(g =>
-                    {
-                        var ordered = g
-                            .OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
-                            .ToList();
-                        if (ordered.Count == 1)
-                            return new TreeNode(CSharpIdentifier.ContainRenderedText(ordered[0].Signature ?? OperatorNames.FormatDisplayName(ordered[0].Name)));
-
-                        var displayName = OperatorNames.FormatDisplayName(g.Key);
-                        return new TreeNode($"{displayName} ({ordered.Count} overloads)");
-                    })
-                    .ToList();
-            }
-
-            return members
-                .OrderBy(m => m.Name, StringComparer.Ordinal)
-                .Select(m => new TreeNode(
-                    m.IsFinalizer
-                        ? ShapeDestructorSpelling(declaringType)
-                        : CSharpIdentifier.ContainRenderedText(m.Signature ?? OperatorNames.FormatDisplayName(m.Name))))
-                .ToList();
-        }
-
-        // A finalizer renders as the C# destructor `~Type()` rather than its raw
-        // metadata signature (`void Finalize()`).
-        static string ShapeDestructorSpelling(ApiType type)
-        {
-            string name =
-                CSharpFormatter.FormatDeclarationLeafMetadataName(type);
-            return CSharpIdentifier.ContainRenderedText($"~{name}()");
-        }
-
-        static bool IsOverloadGroupedKind(string kind)
-            => kind is "constructor" or "method" or "operator" or "explicit-interface-implementation" or "extension-method";
-
-        static string GetShapeKindLabel(string kind, int memberCount, int logicalCount)
-        {
-            if (IsOverloadGroupedKind(kind) && memberCount != logicalCount)
-            {
-                var noun = kind switch
-                {
-                    "constructor" => "Constructors",
-                    "method" => "Methods",
-                    "operator" => "Operators",
-                    "explicit-interface-implementation" => "Explicit Interface Implementations",
-                    "extension-method" => "Extension Methods",
-                    _ => GetTreeKindLabel(kind, memberCount).Split(' ')[0]
-                };
-                return $"{noun} ({logicalCount} logical, {memberCount} overloads)";
-            }
-
-            return GetTreeKindLabel(kind, memberCount);
-        }
-
-        // Structural nodes (suppress when a filter is active but matched nothing)
-        if (!hasFilter || filtersMatchedMembers)
-        {
-            // Inheritance
-            if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "Object")
-            {
-                nodes.Insert(0, new TreeNode("Inherits")
-                {
-                    Children = [new TreeNode(CSharpIdentifier.ContainRenderedText(type.BaseType))]
-                });
-            }
-
-            // Interfaces
-            if (type.Interfaces.Count > 0)
-            {
-                var insertAt = nodes.Count > 0 && nodes[0].Text == "Inherits" ? 1 : 0;
-                nodes.Insert(insertAt, new TreeNode("Implements")
-                {
-                    Children = type.Interfaces
-                        .Select(i => new TreeNode(CSharpIdentifier.ContainRenderedText(i)))
-                        .ToList()
-                });
-            }
-
-            // Type parameters with constraints
-            if (type.TypeParameters.Count > 0)
-            {
-                var typeParamDescriptions = type.TypeParameters
-                    .Select(tp => tp.Constraints.Count > 0
-                        ? $"{tp.DisplayName} : {ConstraintSummary(type.TypeParameters, tp)}"
-                        : tp.DisplayName)
-                    .ToList();
-                var insertAt = nodes.FindIndex(n => n.Text != "Inherits" && n.Text != "Implements");
-                if (insertAt < 0) insertAt = nodes.Count;
-                nodes.Insert(insertAt, new TreeNode("Type Parameters") { Children = typeParamDescriptions.Select(t => new TreeNode(t)).ToList() });
-            }
-        }
-
-        var modifiers = ILInspector.Research.ResearchViews.TypeModifiers(type);
-
-        var packageInfo = packageName != null && packageVersion != null
-            ? $" ({packageName} {packageVersion})"
-            : packageName != null ? $" ({packageName})" : "";
-
-        return new TypeShapeView
-        {
-            FullName = $"{FormatGenericFullName(type)}{packageInfo}",
-            Kind = type.Kind,
-            Modifiers = modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
-            Assembly = foundIn,
-            Package = packageName,
-            Version = packageVersion,
-            Members = nodes
-        };
     }
 
     private static IEnumerable<ApiMember> FilterShapeMembers(
@@ -3853,38 +3637,6 @@ public static class ApiOutputFormatter
         "delegate" => 4,
         _ => 5
     };
-
-    private static int GetTreeKindOrder(string kind) => kind switch
-    {
-        "constructor" => 0,
-        "finalizer" => 1,
-        "field" => 2,
-        "property" => 3,
-        "method" => 4,
-        "operator" => 5,
-        "explicit-interface-implementation" => 6,
-        "extension-method" => 7,
-        "event" => 8,
-        _ => 9
-    };
-
-    private static string GetTreeKindLabel(string kind, int count)
-    {
-        var plural = kind switch
-        {
-            "property" => "Properties",
-            "method" => "Methods",
-            "operator" => "Operators",
-            "explicit-interface-implementation" => "Explicit Interface Implementations",
-            "extension-method" => "Extension Methods",
-            "constructor" => "Constructors",
-            "finalizer" => "Finalizer",
-            "event" => "Events",
-            "field" => "Fields",
-            _ => kind + "s"
-        };
-        return $"{plural} ({count})";
-    }
 
     private static HashSet<string>? GetRequestedMemberKinds(HashSet<string>? includeSections)
     {

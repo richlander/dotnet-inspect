@@ -385,10 +385,12 @@ requires an ID retirement and is not part of this issuance.
 
 New default Package views record `package.libraries`: Navigation's
 recommendation and the Workspace Package scenario projection. The CLI
-Workspace exact-Package share records the facet it rendered:
-`package.libraries` for the default Package Tree and `package.overview` for an
-explicit section selection. A Package view state that names
-`package.overview` or no facet still restores. Source-free share publication
+Workspace exact-Package share records `package.libraries` when it renders the
+default Package Tree and `package.overview` for the one other projectable
+Package selection, `-S "Package Info"`. Other section selections and Package
+lenses produce no Share
+([Workspace Definitions](workspace-definitions.md#package-packet-context-adoption)). A Package view state that names `package.overview` or
+no facet still restores. Source-free share publication
 accepts either ID, or no facet, as the default Package state. The descriptor has a
 private execution binding and no executor, like the Library facets, and the
 compatibility manifest records the ID from issuance.
