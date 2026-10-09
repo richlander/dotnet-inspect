@@ -28,6 +28,11 @@ changed axis at its first difference.
 > compares. `Changed` may over-report. A row that cannot be decoded makes the
 > unsettled axes of its Type `Indeterminate`, never `Unchanged`.
 
+What counts as a difference follows [Diff observability](diff-observability.md):
+the Body axis compares at the symbolic IL level the body diff presents, so a
+`Changed` state points to something a user can see, and an encoding-only
+difference such as a renumbered token is not a change.
+
 The two axes are independent searches. Each stops at its own first
 difference, and a host derives **Any** as either axis `Changed`. A Type that
 changed its API still walks its bodies until the first body difference, so the
@@ -108,9 +113,10 @@ their content-named members still compares those names.
 
 `eng/measure-fast-diff.cs` runs the same checks over a real image pair and
 reports NativeAOT timing and over-reporting. At introduction, over six real
-pairs, no Type was missed on either axis except three CoreLib `calli` sites
-that canonical IL comparison reports from raw signature bytes containing
-renumbered tokens. Medians cover both sides, every Type, API and bodies:
+pairs, no Type was missed on either axis. Canonical IL comparison reports
+three System.Private.CoreLib `calli` sites that Fast Diff does not; those are
+encoding-only differences (see
+[Diff observability](diff-observability.md#known-divergences)). Medians cover both sides, every Type, API and bodies:
 
 | Pair | NativeAOT | API changed (complete) | Body changed (canonical IL owners) |
 | --- | ---: | --- | --- |
@@ -120,6 +126,10 @@ renumbered tokens. Medians cover both sides, every Type, API and bodies:
 | Newtonsoft.Json 11.0.2 to 13.0.4 | 16 ms | 108 (83) | 213 (104) |
 | System.Private.Xml 10 to 11 | 68 ms | 3 (0) | 78 (74) |
 | System.Private.CoreLib 10 to 11 | 216 ms | 157 (133) | 641 (314) |
+
+For most Libraries, Fast Diff compares both sides, every Type, API and
+bodies, in under 100 ms on NativeAOT; only the largest assemblies, such as
+System.Private.CoreLib, take longer.
 
 Canonical IL comparison could not decode some bodies (for example 5,454 in
 CoreLib), so Body soundness is shown only for the bodies it compared.

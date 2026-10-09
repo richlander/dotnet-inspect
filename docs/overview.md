@@ -1035,6 +1035,9 @@ rules, this document describes subsystem ownership, and
 - [Library API diff presentation](design/library-api-diff-presentation.md):
   portable Library-root changed-Type composition, complete compatibility
   changes, and distinct changed-member summaries for shared host adoption.
+- [Diff observability](design/diff-observability.md): the principle that a
+  reported change is observable in a complete diff view at that view's level,
+  and how producers and views reason about subtle differences.
 - [Fast Diff](design/fast-diff.md): per-Type API and Body change states for a
   Library image pair, sound for the facts each axis compares, without building
   either complete diff.
