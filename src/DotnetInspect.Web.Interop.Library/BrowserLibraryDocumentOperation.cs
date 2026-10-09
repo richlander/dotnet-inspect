@@ -74,8 +74,11 @@ internal static class BrowserLibraryDocumentOperation
                     await BrowserPackageWorkspace.OpenLibraryScopeAsync(
                         package.PackageId,
                         package.Version,
-                        package.TargetFramework, package.AssemblyId,
-                        PackageAssetDemand.SurfaceAndImplementation, cancellationToken).ConfigureAwait(false);
+                        package.TargetFramework,
+                        PackageLibraryInspectionDemandPlanner.Plan(
+                            new PackageLibrarySelector(package.AssemblyId, PackageLibrarySelectionKind.AssetId),
+                            PackageLibraryInspectionRequirement.ImplementationFacts),
+                        cancellationToken).ConfigureAwait(false);
                 return await InspectPackageAsync(
                         scopeLease.Scope,
                         package.AssemblyId,

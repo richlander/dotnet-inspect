@@ -2783,11 +2783,37 @@ Publish the harness separately from each worktree:
 dotnet publish eng/measure-inspect-web-library-open.cs -c Release \
   -p:IsPublishable=true -o /tmp/library-open-before
 # In the candidate worktree, use -o /tmp/library-open-after.
-/tmp/library-open-before/measure-inspect-web-library-open \
+/tmp/library-open-before/DotnetInspect.Web.Tests \
   Avalonia 12.1.2 net10.0 legacy compile:ref/net10.0/Avalonia.Base.dll
-/tmp/library-open-after/measure-inspect-web-library-open \
+/tmp/library-open-after/DotnetInspect.Web.Tests \
   Avalonia 12.1.2 net10.0 overview compile:ref/net10.0/Avalonia.Base.dll
 ```
+
+For a native comparison of the website's entry-store acquisition branch, publish
+with `-p:DefineConstants=WEB_PACKAGE_ENTRY_CACHE`. The probe apphost uses the test
+assembly identity to access that internal seam. Its bounded memory adapter
+models entry availability, not JavaScript, Cache Storage I/O, or Wasm execution.
+For a candidate with joint Overview demand, add
+`WEB_LIBRARY_SHARED_DEMAND` to those constants. The baseline retains the
+four-argument API export; the candidate declares the accompanying Enablements.
+
+`browser/benchmark-library-overview.ts` measures the page-owned production
+Worker, real Cache Storage, and complete Summary/API/Enablements output through
+the opt-in runtime benchmark bridge. Run it against separately published
+baseline and candidate sites with:
+
+```bash
+node browser/benchmark-library-overview.ts \
+  http://127.0.0.1:4193/index.html http://127.0.0.1:4194/index.html \
+  /tmp/library-overview-browser-results 7
+```
+
+Both sites need the same benchmark bridge exposure. The harness alternates
+fresh browser contexts, discards one warm-up pair per asset, records startup
+separately, and verifies complete result hashes for cold and warm requests.
+Roslyn must retain its explicit projection-limit outcome; other APIs must be
+available and complete. The corpus includes both Avalonia's default facade and
+its substantive `Avalonia.Base` Library.
 
 The baseline summary-only default did not activate Library navigation because
 its assembly surface was empty. These pairs compare entering Library Overview

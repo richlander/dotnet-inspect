@@ -109,6 +109,9 @@ internal abstract record BrowserPackageRealizationResult
         : BrowserPackageRealizationResult;
 }
 
+internal sealed class BrowserPackageLibraryAcquisitionException(string message)
+    : InvalidOperationException(message);
+
 /// <summary>
 /// Browser acquisition adapter: shared package owners resolve and admit payloads, while this host
 /// owns the bounded session cache and registry of open workspaces.
@@ -923,9 +926,11 @@ internal static class BrowserPackageWorkspace
                 sourceOperation).ConfigureAwait(false);
         if (houseSettlement is not PackageHouseSettlement.Acquired acquired)
         {
-            throw new InvalidOperationException(
-                "Package realization did not acquire the settled package "
-                + $"({DescribePackageHouseResult(houseSettlement.Result)}).");
+            string message = "Package realization did not acquire the settled package "
+                + $"({DescribePackageHouseResult(houseSettlement.Result)}).";
+            throw librarySelector is null
+                ? new InvalidOperationException(message)
+                : new BrowserPackageLibraryAcquisitionException(message);
         }
         if (PackageHouseRootContributionAdapter.Create(houseSettlement)
             is not PackageHouseRootContributionOutcome.Contributed contributed)
@@ -2727,6 +2732,44 @@ internal static class BrowserPackageWorkspace
                 lock (CacheSync)
                     Cache[packageKey] = Cache[packageKey] with { Realization = narrowed, LastAccess = NextClock() };
                 return narrowed;
+            }, operationTimeout, cancellationToken).ConfigureAwait(false);
+        return await OpenScopeAsync(realization, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
+        string packageId, string version, string targetFramework,
+        PackageLibraryInspectionDemandPlan plan, CancellationToken cancellationToken = default) =>
+        OpenLibraryScopeAsync(packageId, version, targetFramework, plan,
+            Gallery, PackageOperationTimeout, cancellationToken);
+
+    internal static async Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
+        string packageId, string version, string targetFramework,
+        PackageLibraryInspectionDemandPlan plan, IPackageSourceClient source,
+        TimeSpan operationTimeout, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        BrowserPackageRealization realization = await RunPackageOperationAsync(
+            async deadline =>
+            {
+                BrowserPackageRealizationResult result;
+                try
+                {
+                    result = await RealizeCoreAsync(packageId, version, targetFramework,
+                        source, deadline, librarySelector: plan.Selector,
+                        assetDemand: plan.AssetDemand).ConfigureAwait(false);
+                }
+                catch (BrowserPackageLibraryAcquisitionException) when (
+                    plan.AssetDemand == PackageAssetDemand.SurfaceAndImplementation
+                    && plan.Requirements.Contains(PackageLibraryInspectionRequirement.PublicApi))
+                {
+                    // A companion's content failure cannot invalidate the independent API.
+                    // Reuse the caller's deadline; cancellation cannot start another read.
+                    deadline.Token.ThrowIfCancellationRequested();
+                    result = await RealizeCoreAsync(packageId, version, targetFramework,
+                        source, deadline, librarySelector: plan.Selector,
+                        assetDemand: PackageAssetDemand.Surface).ConfigureAwait(false);
+                }
+                return RequireRealization(result, deadline);
             }, operationTimeout, cancellationToken).ConfigureAwait(false);
         return await OpenScopeAsync(realization, cancellationToken).ConfigureAwait(false);
     }

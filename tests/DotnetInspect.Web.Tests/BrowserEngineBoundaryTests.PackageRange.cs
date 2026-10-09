@@ -10,6 +10,161 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserEngineBoundaryTests
 {
+    // PR-fast: managed fixture images and deterministic gated HTTP responses.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OverviewDemand_SharesAcquisitionAndPreservesWaiterCancellation(bool cancelApi)
+    {
+        string id = $"library.overview.{Guid.NewGuid():N}";
+        byte[] assembly = File.ReadAllBytes(typeof(PackageSource).Assembly.Location);
+        var inner = new GalleryPackageHandler(id, "1.0.0", PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(Nuspec(id, "1.0.0"))),
+            ($"ref/net11.0/{id}.dll", assembly),
+            ("ref/net11.0/Sibling.dll", assembly),
+            ("content/padding.bin", new byte[2 * MiB]),
+            ($"lib/net11.0/{id}.dll", assembly)));
+        var handler = new LibraryDemandGateHandler(inner);
+        using IPackageSourceClient source = Gallery(handler);
+        var selector = new PackageLibrarySelector($"compile:ref/net11.0/{id}.dll", PackageLibrarySelectionKind.AssetId);
+        using var apiCancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        Task<BrowserScopeLease<BrowserInspectionScope>> api = BrowserPackageWorkspace.OpenLibraryScopeAsync(
+            id, "1.0.0", "net11.0", PackageLibraryInspectionDemandPlanner.Plan(selector,
+                PackageLibraryInspectionRequirement.PublicApi, PackageLibraryInspectionRequirement.ImplementationFacts),
+            source, TimeSpan.FromSeconds(10), apiCancellation.Token);
+        await handler.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
+        Task<BrowserScopeLease<BrowserInspectionScope>> document = BrowserPackageWorkspace.OpenLibraryScopeAsync(
+            id, "1.0.0", "net11.0", PackageLibraryInspectionDemandPlanner.Plan(selector,
+                PackageLibraryInspectionRequirement.ImplementationFacts),
+            source, TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        if (cancelApi)
+        {
+            apiCancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => api);
+        }
+        handler.Release.SetResult();
+        await using var documentLease = await document;
+        if (!cancelApi)
+        {
+            await using var apiLease = await api;
+            Assert.Same(documentLease.Scope, apiLease.Scope);
+        }
+        Assert.Equal(1, inner.OrdinaryPackageResponses);
+        Assert.Single(documentLease.Scope.SurfaceParticipants);
+        Assert.Single(documentLease.Scope.ImplementationParticipants);
+        RangedPackageContent content = Assert.IsType<RangedPackageContent>(documentLease.Scope.Coordinates[0].Package.Content);
+        Assert.False(content.IsMaterialized("ref/net11.0/Sibling.dll"));
+    }
+
+    sealed class LibraryDemandGateHandler(HttpMessageHandler inner) : HttpMessageHandler
+    {
+        readonly HttpMessageInvoker _inner = new(inner);
+        int _started;
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Headers.Range is not null && Interlocked.Exchange(ref _started, 1) == 0)
+            {
+                Started.SetResult();
+                await Release.Task.WaitAsync(cancellationToken);
+            }
+            return await _inner.SendAsync(request, cancellationToken);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _inner.Dispose();
+            base.Dispose(disposing);
+        }
+    }
+
+    // PR-fast: the selected implementation transfer fails; surface acquisition remains valid.
+    [Fact]
+    public async Task OverviewDemand_ImplementationFailurePreservesIndependentApi()
+    {
+        string id = $"library.failure.{Guid.NewGuid():N}";
+        byte[] assembly = File.ReadAllBytes(typeof(PackageSource).Assembly.Location);
+        byte[] archive = PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(Nuspec(id, "1.0.0"))),
+            ($"ref/net11.0/{id}.dll", assembly),
+            ("content/before.bin", new byte[2 * MiB]),
+            ($"lib/net11.0/{id}.dll", assembly),
+            ("content/after.bin", new byte[2 * MiB]));
+        var handler = new LibraryImplementationFailureHandler(new GalleryPackageHandler(id, "1.0.0", archive),
+            archive.Length, assembly.LongLength + MiB);
+        using IPackageSourceClient source = Gallery(handler);
+        var selector = new PackageLibrarySelector($"compile:ref/net11.0/{id}.dll", PackageLibrarySelectionKind.AssetId);
+        await using var api = await BrowserPackageWorkspace.OpenLibraryScopeAsync(id, "1.0.0", "net11.0",
+            PackageLibraryInspectionDemandPlanner.Plan(selector, PackageLibraryInspectionRequirement.PublicApi,
+                PackageLibraryInspectionRequirement.ImplementationFacts),
+            source, TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        Assert.True(handler.FailedRanges > 0);
+        Assert.Single(api.Scope.SurfaceParticipants);
+        Assert.Empty(api.Scope.ImplementationParticipants);
+        ExactLibraryApiInspectionExecution result = api.Scope.UsePackageAssemblyRoles(api.Scope.Coordinates[0],
+            (root, realization) => ExactLibraryApiInspectionOperation.Execute(root, realization,
+                new(id, "1.0.0", "net11.0", selector.Value, ExactLibraryApiSelectionKind.AssetId),
+                ExactLibraryApiInspectionOperation.DefaultLimits));
+        Assert.True(result.Inspection.Content.IsAvailable);
+        Assert.True(result.Inspection.Content.IsComplete);
+        await Assert.ThrowsAsync<BrowserPackageLibraryAcquisitionException>(() =>
+            BrowserPackageWorkspace.OpenLibraryScopeAsync(id, "1.0.0", "net11.0",
+                PackageLibraryInspectionDemandPlanner.Plan(selector, PackageLibraryInspectionRequirement.ImplementationFacts),
+                source, TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+    }
+
+    sealed class LibraryImplementationFailureHandler(HttpMessageHandler inner, long archiveLength, long failureStart) : HttpMessageHandler
+    {
+        readonly HttpMessageInvoker _inner = new(inner);
+        public int FailedRanges { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            HttpResponseMessage response = await _inner.SendAsync(request, cancellationToken);
+            var range = request.Headers.Range?.Ranges.SingleOrDefault();
+            if (range?.From > failureStart && range.To != archiveLength - 1)
+            {
+                // The malformed implementation response leaves surface ranges usable.
+                FailedRanges++;
+                var contentRange = response.Content.Headers.ContentRange;
+                response.Content.Dispose();
+                response.Content = new ByteArrayContent([0]);
+                response.Content.Headers.ContentRange = contentRange;
+            }
+            else if (range is null && request.RequestUri!.AbsolutePath.EndsWith(".nupkg", StringComparison.Ordinal))
+            {
+                response.Content.Dispose();
+                response.Content = new StreamContent(new LibraryFullPayloadFailureStream());
+                response.Content.Headers.ContentLength = archiveLength;
+            }
+            return response;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _inner.Dispose();
+            base.Dispose(disposing);
+        }
+    }
+
+    sealed class LibraryFullPayloadFailureStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override int Read(byte[] buffer, int offset, int count) => throw new IOException("Complete transfer failed.");
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<int>(new IOException("Complete transfer failed."));
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
     // PR-fast: real managed fixture images, no broad analysis.
     [Theory]
     [InlineData("net11.0", PackageAssetDemand.Surface)]
@@ -31,7 +186,11 @@ public sealed partial class BrowserEngineBoundaryTests
         await BrowserPackageWorkspace.InventoryWithSettlementAsync(id, "1.0.0", target,
             source, TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         await using var lease = await BrowserPackageWorkspace.OpenLibraryScopeAsync(id, "1.0.0", target,
-            $"compile:ref/net11.0/{id}.dll", demand, source,
+            PackageLibraryInspectionDemandPlanner.Plan(
+                new($"compile:ref/net11.0/{id}.dll", PackageLibrarySelectionKind.AssetId),
+                demand == PackageAssetDemand.Surface
+                    ? PackageLibraryInspectionRequirement.PublicApi
+                    : PackageLibraryInspectionRequirement.ImplementationFacts), source,
             TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         BrowserInspectionScope scope = lease.Scope;
         Assert.Single(scope.SurfaceParticipants);

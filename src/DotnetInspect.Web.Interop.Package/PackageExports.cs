@@ -420,7 +420,8 @@ public static partial class PackageExports
         string packageId,
         string version,
         string targetFramework,
-        string assemblyId)
+        string assemblyId,
+        bool includeEnablements = false)
     {
         BrowserExactLibraryApiInspection inspection =
             BrowserPackageWireProjection.Project(
@@ -428,7 +429,8 @@ public static partial class PackageExports
                     packageId,
                     version,
                     targetFramework,
-                    assemblyId));
+                    assemblyId,
+                    includeEnablements));
         return JsonSerializer.Serialize(
             inspection,
             BrowserPackageJsonContext
@@ -441,13 +443,20 @@ public static partial class PackageExports
         string packageId,
         string version,
         string targetFramework,
-        string assemblyId)
+        string assemblyId,
+        bool includeEnablements)
     {
+        PackageLibraryInspectionDemandPlan plan = PackageLibraryInspectionDemandPlanner.Plan(
+            new PackageLibrarySelector(assemblyId, PackageLibrarySelectionKind.AssetId),
+            includeEnablements
+                ? [PackageLibraryInspectionRequirement.PublicApi,
+                    PackageLibraryInspectionRequirement.ImplementationFacts]
+                : [PackageLibraryInspectionRequirement.PublicApi]);
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenLibraryScopeAsync(
                 packageId,
                 version,
-                targetFramework, assemblyId, PackageAssetDemand.Surface);
+                targetFramework, plan);
         BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         ExactLibraryApiInspectionRequest request =

@@ -1,8 +1,12 @@
 #:project ../src/DotnetInspect.Web.Interop.Package/DotnetInspect.Web.Interop.Package.csproj
 #:project ../src/DotnetInspect.Web.Interop.Library/DotnetInspect.Web.Interop.Library.csproj
 #:property EnablePreviewFeatures=true
+#:property AssemblyName=DotnetInspect.Web.Tests
 
 using System.Diagnostics;
+#if WEB_PACKAGE_ENTRY_CACHE
+using DotnetInspect.Web;
+#endif
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -20,6 +24,11 @@ if (args.Length is not (4 or 5) || args[3] is not ("legacy" or "overview"))
 }
 
 #pragma warning disable CA1416 // Deliberate native-host measurement of Browser exports.
+#if WEB_PACKAGE_ENTRY_CACHE
+// The test assembly identity permits this probe to exercise the same entry-store
+// acquisition branch as the website. This adapter does not model JS Cache Storage I/O.
+BrowserPackageWorkspace.ConfigurePackageEntryPersistence(new ProbeEntryPersistence());
+#endif
 Console.WriteLine("package\tversion\tframework\tmode\tcache\ttotalMs\tsummaryMs\tbroadMs\tapiMs\tenablementsMs\tsummaryBytes\tbroadBytes\tapiBytes\tenablementsBytes\tapiSha256\tenablementsSha256\tresidentBytes");
 for (int i = 0; i < 2; i++)
 {
@@ -42,7 +51,11 @@ for (int i = 0; i < 2; i++)
         Task<(string, double)>? broadTask = args[3] == "legacy"
             ? Timed(() => PackageExports.QueryPackage(args[0], args[1], args[2])) : null;
         Task<(string, double)> apiTask = Timed(() =>
-            PackageExports.QueryLibraryApi(args[0], args[1], args[2], library));
+            PackageExports.QueryLibraryApi(args[0], args[1], args[2], library
+#if WEB_LIBRARY_SHARED_DEMAND
+                , includeEnablements: true
+#endif
+                ));
         string request = JsonSerializer.Serialize(
             new BrowserLibraryInspectionRequest(
                 new BrowserLibrarySelector(BrowserLibrarySelectorKind.Package,
@@ -83,3 +96,29 @@ static async Task<(string, double)> Timed(Func<Task<string>> operation)
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserLibraryInspectionRequest))]
 internal partial class ProbeJsonContext : JsonSerializerContext;
+
+#if WEB_PACKAGE_ENTRY_CACHE
+internal sealed class ProbeEntryPersistence : IBrowserPackageEntryPersistence
+{
+    readonly Dictionary<string, byte[]> _entries = new(StringComparer.Ordinal);
+    long _bytes;
+    public bool IsPersistent => false;
+    public ValueTask<byte[]?> ReadAsync(string key)
+    {
+        lock (_entries)
+            return ValueTask.FromResult(_entries.TryGetValue(key, out var value) ? value.ToArray() : null);
+    }
+    public ValueTask PublishAsync(string key, ReadOnlyMemory<byte> content)
+    {
+        lock (_entries)
+        {
+            long previous = _entries.TryGetValue(key, out var value) ? value.Length : 0;
+            if (_bytes - previous + content.Length > 128L * 1024 * 1024)
+                throw new InvalidOperationException("The probe entry-cache budget was exceeded.");
+            _entries[key] = content.ToArray();
+            _bytes = _bytes - previous + content.Length;
+        }
+        return ValueTask.CompletedTask;
+    }
+}
+#endif

@@ -385,6 +385,49 @@ The gates are `ExactCompileLibraryDemand_RequiresDeclaredRolesAndPackageOnlyHand
 `ExactLibraryDemand_NarrowsTransferAndWorkspace`, plus existing tool-package
 API and Library document gates.
 
+### Joint exact Library inspection demand
+
+For one exact Library selector, the host-neutral
+`PackageLibraryInspectionDemandPlanner` receives the complete set of PublicApi
+and ImplementationFacts acquisition requirements before source work starts.
+It uses QuerySpace producer-capability planning to retain one association per
+requirement and choose one source provision. SurfaceAndImplementation covers
+Surface acquisition for that same selector; it does not replace the API result
+with implementation declarations. API-only demand selects Surface. Empty or
+invalid requirement sets fail before acquisition, and a plan cannot combine
+selectors or authorize sibling Libraries.
+
+The website Overview is the first adopter: when API and Enablements are both
+needed, the API export declares both requirements and the Enablements export
+declares ImplementationFacts. Both lower the accepted plan to the existing
+exact Library scope demand and may join the same source operation. Independent
+result publication, lease ownership, and waiter cancellation remain unchanged.
+A failed shared acquisition cannot make a surface-only API unavailable merely
+because implementation content was requested: the API retries its independent
+Surface acquisition for a settled acquisition failure, while cancellation does
+not start another operation. No timed batching or live reader retention is
+introduced.
+
+`Microsoft.CodeAnalysis.CSharp@5.9.0` and `Newtonsoft.Json@13.0.4` motivate this
+adoption: the diagnostics below show two retained copies of their same selected
+DLL when Overview uses separate demands. `Avalonia@12.1.3` exercises distinct
+reference and implementation participants; `Dapper@2.1.66` retains the shared
+complete-download size-cut behavior. Durable gates must verify standalone
+Surface demand, one acquisition for a concurrent Overview, sibling exclusion,
+independent outcomes when implementation acquisition fails, and complete
+API/Enablements result parity. The CLI exact-Library adoption remains the
+subsequent host under #9754 and uses this same resource-free demand API.
+
+`PackageLibraryInspectionDemandPlanningTests` gates the structural requirement
+associations and covering provision. `ExactLibraryDemand_NarrowsTransferAndWorkspace`
+gates standalone Surface demand through the shared planner.
+`OverviewDemand_SharesAcquisitionAndPreservesWaiterCancellation` and
+`OverviewDemand_ImplementationFailurePreservesIndependentApi` gate successful
+sharing, cancellation, sibling exclusion, and independent acquisition failure.
+`library-overview-demand.test.ts` checks the website's companion declaration.
+QuerySpace producer capabilities supplies plan validation; existing Root,
+Workspace, cache, and range contracts retain their respective ownership.
+
 ### Acquisition performance investigation
 
 The 2026-10-09 continuation compares candidate `08a1138` with a diagnostic
