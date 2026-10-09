@@ -112,6 +112,21 @@ public static class FastDiff
         PEReader after,
         string fullName)
     {
+        try
+        {
+            return ExplainCore(before, after, fullName);
+        }
+        catch (Exception ex) when (IsMalformed(ex))
+        {
+            return ("malformed: " + ex.Message, "malformed: " + ex.Message);
+        }
+    }
+
+    static (string? Api, string? Body) ExplainCore(
+        PEReader before,
+        PEReader after,
+        string fullName)
+    {
         var a = new Side(before);
         var b = new Side(after);
         Unit? unitA = a.Units().Values.FirstOrDefault(unit => unit.FullName == fullName);
@@ -445,40 +460,58 @@ public static class FastDiff
                 if (MetadataTokens.GetRowNumber(handle) == 1)
                     continue;
 
-                if (!TryDeclaringChain(handle, chain, out int length))
+                try
                 {
-                    string row = $"!{MetadataTokens.GetToken(handle):X8}";
-                    units[row] = new Unit(SafeName(handle), handle, [], Malformed: true);
-                    continue;
-                }
-
-                // A Type with a compiler-generated Type in its declaring chain
-                // belongs to the nearest declared Type above that generated
-                // Type; under a top-level generated Type it belongs to none.
-                int generatedAt = -1;
-                for (int i = 0; i < length; i++)
-                {
-                    if (IsGeneratedName(Md.GetTypeDefinition(chain[i])))
+                    if (!TryDeclaringChain(handle, chain, out int length))
                     {
-                        generatedAt = i;
-                        break;
+                        AddMalformed(units, handle);
+                        continue;
                     }
+
+                    // A Type with a compiler-generated Type in its declaring chain
+                    // belongs to the nearest declared Type above that generated
+                    // Type; under a top-level generated Type it belongs to none.
+                    int generatedAt = -1;
+                    for (int i = 0; i < length; i++)
+                    {
+                        if (IsGeneratedName(Md.GetTypeDefinition(chain[i])))
+                        {
+                            generatedAt = i;
+                            break;
+                        }
+                    }
+                    if (generatedAt < 0)
+                    {
+                        units[TypeKey(handle)] = new Unit(DisplayName(handle), handle, []);
+                        continue;
+                    }
+                    if (generatedAt > 0)
+                        generated.Add((handle, chain[generatedAt - 1]));
                 }
-                if (generatedAt < 0)
+                catch (Exception ex) when (IsMalformed(ex))
                 {
-                    units[TypeKey(handle)] = new Unit(DisplayName(handle), handle, []);
-                    continue;
+                    // A name or row that cannot be read affects only its own Type.
+                    AddMalformed(units, handle);
                 }
-                if (generatedAt > 0)
-                    generated.Add((handle, chain[generatedAt - 1]));
             }
             foreach ((TypeDefinitionHandle type, TypeDefinitionHandle owner) in generated)
             {
-                if (units.TryGetValue(TypeKey(owner), out Unit? unit))
-                    unit.Generated.Add(type);
+                try
+                {
+                    if (units.TryGetValue(TypeKey(owner), out Unit? unit))
+                        unit.Generated.Add(type);
+                }
+                catch (Exception ex) when (IsMalformed(ex))
+                {
+                    // The owner's own row is malformed and already reported.
+                }
             }
             return units;
         }
+
+        void AddMalformed(Dictionary<string, Unit> units, TypeDefinitionHandle handle)
+            => units[$"!{MetadataTokens.GetToken(handle):X8}"] =
+                new Unit(SafeName(handle), handle, [], Malformed: true);
 
         /// <summary>
         /// Writes the declaring chain of a Type, outermost first, through the
@@ -493,9 +526,9 @@ public static class FastDiff
         {
             try
             {
-                return Md.GetString(Md.GetTypeDefinition(handle).Name);
+                return DisplayName(handle);
             }
-            catch (BadImageFormatException)
+            catch (Exception ex) when (IsMalformed(ex))
             {
                 return $"<row 0x{MetadataTokens.GetToken(handle):X8}>";
             }

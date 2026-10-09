@@ -130,10 +130,12 @@ Every walk over artifact-derived metadata is bounded. Declaring chains and
 Type reference resolution scopes use the shared `MetadataRelationshipTraversal`
 primitives, and every signature decode passes `SignatureBlobGuard`, with Type
 specifications under `TypeSpecGuard`. A rejected walk or decode makes the
-affected Type `Indeterminate` on both axes; no metadata shape terminates the
-process. `FastDiffMetadataSafetyTests` gates cyclic and 100,000-deep Type
-reference chains, nested Type chains, a self-referential Type specification,
-and a 100,000-deep signature blob in a child process.
+affected Type `Indeterminate` on both axes, and so does a Type row whose name
+cannot be read; other Types keep their states, and no metadata shape
+terminates the process. `FastDiffMetadataSafetyTests` gates cyclic and
+100,000-deep Type reference chains, nested Type chains, a self-referential
+Type specification, a 100,000-deep signature blob, and top-level and nested
+Type names outside the string heap in a child process.
 
 ## Adoption
 

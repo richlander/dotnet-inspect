@@ -31,6 +31,8 @@ public sealed class FastDiffMetadataSafetyTests
         AssertIndeterminate(BaseTypeSpecificationImage(), "N.C");
         AssertIndeterminate(DeepFieldSignatureImage(), "N.C");
         AssertAllIndeterminateOrAbsent(NestedTypeImage(depth: 1, cyclic: true));
+        AssertUnreadableNameContained(UnreadableNameImage(nested: false));
+        AssertUnreadableNameContained(UnreadableNameImage(nested: true));
         AssertDeepNestingContained(NestedTypeImage(DeepGraphLength, cyclic: false));
     }
 
@@ -48,6 +50,16 @@ public sealed class FastDiffMetadataSafetyTests
             Assert.Equal(FastDiffState.Indeterminate, type.Api);
             Assert.Equal(FastDiffState.Indeterminate, type.Body);
         });
+    }
+
+    static void AssertUnreadableNameContained(byte[] image)
+    {
+        FastDiffResult result = Compare(image);
+        FastDiffTypeState good = Assert.Single(result.Types, type => type.FullName == "N.Good");
+        Assert.Equal((FastDiffState.Unchanged, FastDiffState.Unchanged), (good.Api, good.Body));
+        Assert.Contains(
+            result.Types,
+            type => type.Api == FastDiffState.Indeterminate && type.Body == FastDiffState.Indeterminate);
     }
 
     static void AssertDeepNestingContained(byte[] image)
@@ -178,6 +190,60 @@ public sealed class FastDiffMetadataSafetyTests
         if (cyclic)
             metadata.AddNestedType(parent, parent);
         return Serialize(metadata);
+    }
+
+    /// <summary>
+    /// A well-formed <c>N.Good</c> beside a Type whose Name string offset lies
+    /// beyond the #Strings heap, top-level or nested.
+    /// </summary>
+    static byte[] UnreadableNameImage(bool nested)
+    {
+        const string Marker = "ZZUNREADABLE";
+        MetadataBuilder metadata = CreateMetadata();
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Good"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle outer = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(nested ? "Outer" : Marker),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        if (nested)
+        {
+            TypeDefinitionHandle inner = metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString(Marker),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddNestedType(inner, outer);
+        }
+
+        byte[] image = Serialize(metadata);
+        using var pe = new PEReader(new MemoryStream(image, writable: false));
+        MetadataReader reader = pe.GetMetadataReader();
+        int table = pe.PEHeaders.MetadataStartOffset + reader.GetTableMetadataOffset(TableIndex.TypeDef);
+        int rowSize = reader.GetTableRowSize(TableIndex.TypeDef);
+        int row = 0;
+        foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+        {
+            if (reader.GetString(reader.GetTypeDefinition(handle).Name) == Marker)
+            {
+                // The Name column follows the 4-byte Flags column; point it past the heap.
+                int name = table + row * rowSize + 4;
+                image[name] = 0xF0;
+                image[name + 1] = 0xFF;
+            }
+            row++;
+        }
+        return image;
     }
 
     static MetadataBuilder CreateMetadata()
