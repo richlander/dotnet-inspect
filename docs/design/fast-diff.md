@@ -225,6 +225,11 @@ one `ApiAndBody` comparison runs; it takes 1 ms when the Worker is idle:
 | Newtonsoft.Json 13.0.3 → 13.0.4 | 300 | 348 ms | 104 ms | 39 ms (45 ms) |
 
 Before stepping, one Aspire.Hosting comparison held the Worker for 1,490 ms.
+
+The export returns the result once, when the last step completes. Streaming
+each step's reported Types through the operation's event channel is the
+deferred option for time to first result, if an explicit Compare list on a
+large Library needs it.
 The comparison itself accounts for more than 99% of each call; the interpreter
 costs roughly 15x relative to NativeAOT.
 
