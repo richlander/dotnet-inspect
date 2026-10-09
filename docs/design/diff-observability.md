@@ -32,23 +32,30 @@ about it per level:
 
 ## Rules
 
-1. **A view declares its level and reports only differences at that level.**
-   A symbolic view does not present an encoding-only difference as a change,
-   and a semantic view does not hide a symbolic difference it claims to cover.
-2. **A summarizing producer targets the level of the view it summarizes.** A
+1. **A view declares its level and does not overstate.** It presents only
+   differences at its level as changes there: a symbolic view does not
+   present an encoding-only difference as a symbolic change, and a semantic
+   view does not hide a semantic difference it claims to cover. When a view
+   shows no difference at its level but the subject changed at another level,
+   it says so and names the level, rather than saying nothing.
+2. **Every reported change has a view.** A surface that reports a change
+   provides a view that shows it, defaulting to the highest level at which the
+   change is visible. Declaring a change without any view that shows it is not
+   sufficient.
+3. **A summarizing producer targets the level of the view it summarizes.** A
    producer that answers "would this view show a difference?" compares at
    that view's level, so its `Unchanged` means no observable difference at
    that level and its `Changed` means there is something to see.
-3. **Over-reporting stays within observability.** A producer that may
+4. **Over-reporting stays within observability.** A producer that may
    over-report reports only differences a user can find in some view at some
    level. A compared fact that no view presents is a known divergence of that
    producer until a view presents it or the producer stops comparing it.
-4. **A level below every view is a view gap, not a hidden change.** When
-   encoding-only differences matter, the answer is an explicit view at the
-   encoded level, such as an encoded-IL view, that reports at that level.
-   Producers do not leak encoding differences into views at other levels to
+5. **A level below every view is a gap to close.** When differences at a level
+   matter, the answer is a view at that level, such as an encoded-IL view.
+   Until it exists, a difference only at that level is a producer's known
+   divergence, and producers do not leak it into views at other levels to
    compensate.
-5. **Oracles are views too.** When a producer and an oracle disagree, the side
+6. **Oracles are views too.** When a producer and an oracle disagree, the side
    that breaks rule 1 is wrong. An oracle that reports an encoding-only
    difference at the symbolic level is not evidence of a missed change, and a
    producer that reports one is over-reporting.
@@ -60,7 +67,7 @@ An adopting owner records, in its own document:
 - the level each of its results targets;
 - the facts it compares that fall outside that level or that no view
   presents, as known divergences; and
-- how its gates or oracles are read under rule 5.
+- how its gates or oracles are read under rule 6.
 
 Divergences are fixed by their owner as follow-ups. They do not change this
 pattern.

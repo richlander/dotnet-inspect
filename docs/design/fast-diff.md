@@ -119,7 +119,7 @@ Two other reported differences are observable and remain by design:
 - non-IL implementation facts on the Body axis, such as an attribute added to
   an internal member, which the complete views with every member show.
 
-Canonical IL comparison is read under rule 5 of Diff observability: it
+Canonical IL comparison is read under rule 6 of Diff observability: it
 reports three System.Private.CoreLib 10 to 11 `calli` sites whose stand-alone
 signatures differ only in token numbers. Fast Diff decodes those signatures
 symbolically and correctly reports them `Unchanged`; IL diff canonicalization's
