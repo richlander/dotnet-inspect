@@ -1235,7 +1235,8 @@ internal static class MethodQuerySource
         MethodDefinitionSourceRequestSetPlan plan,
         AssemblyInspectionSubjectIdentity subject,
         string sourceName,
-        PEReader peReader)
+        PEReader peReader,
+        AssemblyReferenceBindingAccess? referenceBinding = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(subject);
@@ -1262,7 +1263,8 @@ internal static class MethodQuerySource
                         sourceName,
                         peReader,
                         group.Breadth,
-                        group.Lanes[0].TerminalWorkLimits);
+                        group.Lanes[0].TerminalWorkLimits,
+                        referenceBinding);
                 laneExecutions = [execution];
                 physicalCoverage = execution.SourceCoverage;
             }
@@ -1287,7 +1289,8 @@ internal static class MethodQuerySource
                             .ToArray(),
                         group.InstructionPlan,
                         sourceName,
-                        peReader);
+                        peReader,
+                        referenceBinding);
                 laneExecutions = shared.Lanes;
                 physicalCoverage = shared.PhysicalCoverage;
             }
