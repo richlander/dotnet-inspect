@@ -1,7 +1,10 @@
+using ILInspector.Metadata;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+
+using ILInspector.Instructions;
 
 namespace ILInspector.Analysis.Planning;
 
@@ -21,6 +24,7 @@ internal readonly record struct MethodDefinitionSharedExecution(
 public sealed class MethodDefinitionExecution
 {
     readonly WorkDescription _description;
+    readonly MethodBodyAnalyzerPlan? _instructionPlan;
     readonly ProducerState[] _states;
     MethodDefinitionSourceBreadth _breadth;
     readonly MethodDefinitionSourceCoverageBuilder _sourceCoverage;
@@ -38,9 +42,11 @@ public sealed class MethodDefinitionExecution
         WorkDescription description,
         MethodDefinitionSourceBreadth breadth,
         MethodDefinitionTerminalWorkLimits terminalWorkLimits,
-        bool tracksSourceCoverage)
+        bool tracksSourceCoverage,
+        MethodBodyAnalyzerPlan? instructionPlan)
     {
         _description = description;
+        _instructionPlan = instructionPlan;
         _breadth = breadth;
         _sourceCoverage =
             new MethodDefinitionSourceCoverageBuilder(
@@ -70,6 +76,8 @@ public sealed class MethodDefinitionExecution
 
     internal LibraryMethodAnalysisRunner? Lookup => _lookup;
 
+    internal MethodBodyAnalyzerPlan? InstructionPlan => _instructionPlan;
+
     internal int CurrentOrdinal { get; private set; } = -1;
 
     /// <summary>
@@ -87,21 +95,25 @@ public sealed class MethodDefinitionExecution
             peReader,
             MethodDefinitionSourceBreadth.AllDefinitions,
             MethodDefinitionTerminalWorkLimits.Unbounded,
-            tracksSourceCoverage: false);
+            tracksSourceCoverage: false,
+            MethodBodyAnalyzerPlanner.Plan(description));
 
     internal static MethodDefinitionExecution Execute(
         WorkDescription description,
         string sourceName,
         PEReader peReader,
         MethodDefinitionSourceBreadth breadth,
-        MethodDefinitionTerminalWorkLimits terminalWorkLimits)
+        MethodDefinitionTerminalWorkLimits terminalWorkLimits,
+        AssemblyReferenceBindingAccess? referenceBinding = null)
         => Execute(
             description,
             sourceName,
             peReader,
             breadth,
             terminalWorkLimits,
-            tracksSourceCoverage: true);
+            tracksSourceCoverage: true,
+            MethodBodyAnalyzerPlanner.Plan(description),
+            referenceBinding);
 
     static MethodDefinitionExecution Execute(
         WorkDescription description,
@@ -109,7 +121,9 @@ public sealed class MethodDefinitionExecution
         PEReader peReader,
         MethodDefinitionSourceBreadth breadth,
         MethodDefinitionTerminalWorkLimits terminalWorkLimits,
-        bool tracksSourceCoverage)
+        bool tracksSourceCoverage,
+        MethodBodyAnalyzerPlan? instructionPlan,
+        AssemblyReferenceBindingAccess? referenceBinding = null)
     {
         ArgumentNullException.ThrowIfNull(description);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
@@ -122,7 +136,8 @@ public sealed class MethodDefinitionExecution
                 description,
                 breadth,
                 terminalWorkLimits,
-                tracksSourceCoverage);
+                tracksSourceCoverage,
+                instructionPlan);
         if (!peReader.HasMetadata)
         {
             execution.CompleteWithoutUnits();
@@ -142,8 +157,18 @@ public sealed class MethodDefinitionExecution
             (FieldsRead(description) & MethodDefinitionLayers.IdentityText) != 0);
 
         bool lookupDeclared = false;
+        bool referenceBindingDeclared = false;
         foreach (ProducerState state in execution._states)
+        {
             lookupDeclared |= state.HasLookupLayer;
+            referenceBindingDeclared |= state.HasReferenceBindingLayer;
+        }
+        if (referenceBindingDeclared && referenceBinding is null)
+        {
+            throw new ProducerContractException(
+                "A producer declared reference binding but the operation "
+                + "access carries none.");
+        }
         bool generatedExpansion =
             breadth.Expansion.HasFlag(
                 MethodDefinitionSourceExpansion.GeneratedExecutionBodies);
@@ -161,6 +186,8 @@ public sealed class MethodDefinitionExecution
                 sourceName,
                 reader,
                 peReader,
+                bindingPolicy: referenceBinding?.Policy,
+                rootAssembly: referenceBinding?.Subject,
                 generatedExpansionWork: expansionWork)
             : null;
         execution._lookup =
@@ -295,13 +322,15 @@ public sealed class MethodDefinitionExecution
         WorkDescription description,
         MethodDefinitionSourceBreadth breadth,
         MethodDefinitionTerminalWorkLimits terminalWorkLimits,
-        bool tracksSourceCoverage)
+        bool tracksSourceCoverage,
+        MethodBodyAnalyzerPlan? instructionPlan)
     {
         var execution = new MethodDefinitionExecution(
             description,
             breadth,
             terminalWorkLimits,
-            tracksSourceCoverage);
+            tracksSourceCoverage,
+            instructionPlan);
         ImmutableArray<ProducerDeclaration> producers = description.Producers;
         for (int i = 0; i < producers.Length; i++)
         {
@@ -338,8 +367,10 @@ public sealed class MethodDefinitionExecution
         IReadOnlyList<WorkDescription> descriptions,
         IReadOnlyList<MethodDefinitionTerminalWorkLimits>
             terminalWorkLimits,
+        MethodBodyAnalyzerPlan? instructionPlan,
         string sourceName,
-        PEReader peReader)
+        PEReader peReader,
+        AssemblyReferenceBindingAccess? referenceBinding = null)
     {
         ArgumentNullException.ThrowIfNull(descriptions);
         ArgumentNullException.ThrowIfNull(terminalWorkLimits);
@@ -379,7 +410,8 @@ public sealed class MethodDefinitionExecution
                     description,
                     MethodDefinitionSourceBreadth.AllDefinitions,
                     terminalWorkLimits[i],
-                    tracksSourceCoverage: true));
+                    tracksSourceCoverage: true,
+                    instructionPlan));
         }
 
         ImmutableArray<MethodDefinitionExecution> lanes =
@@ -410,13 +442,23 @@ public sealed class MethodDefinitionExecution
                 bool lookupDeclared = false;
                 foreach (ProducerState state in lane._states)
                     lookupDeclared |= state.HasLookupLayer;
+                if (referenceBinding is null
+                    && lane._states.Any(
+                        static state => state.HasReferenceBindingLayer))
+                {
+                    throw new ProducerContractException(
+                        "A request-set lane declared reference binding but "
+                        + "the operation access carries none.");
+                }
                 if (lookupDeclared)
                 {
                     builders[laneIndex] =
                         new LibraryBodyAnalysisBuilder(
                             sourceName,
                             reader,
-                            peReader);
+                            peReader,
+                            bindingPolicy: referenceBinding?.Policy,
+                            rootAssembly: referenceBinding?.Subject);
                     lane._lookup =
                         new LibraryMethodAnalysisRunner(
                             builders[laneIndex]!);
@@ -440,6 +482,22 @@ public sealed class MethodDefinitionExecution
                 peReader,
                 physicalCoverage);
             bool[] laneInScope = new bool[lanes.Length];
+            bool fuseInstructionShapes =
+                instructionPlan?.Source
+                    == MethodBodyInstructionSourceKind.NoRetentionStream;
+            var fusedInstructionVisits =
+                fuseInstructionShapes
+                    ? new FusedInstructionShapeVisit[
+                        visiting.Sum(static states => states.Length)]
+                    : null;
+            int[] laneInstructionVisits =
+                fuseInstructionShapes
+                    ? new int[lanes.Length]
+                    : [];
+            bool[] laneVisitedInstructions =
+                fuseInstructionShapes
+                    ? new bool[lanes.Length]
+                    : [];
 
             foreach (TypeDefinitionHandle typeHandle
                 in reader.TypeDefinitions)
@@ -498,6 +556,7 @@ public sealed class MethodDefinitionExecution
                             typeHandle,
                             typeDefinition,
                             methodHandle);
+                        int fusedInstructionVisitCount = 0;
 
                         for (int laneIndex = 0;
                             laneIndex < lanes.Length;
@@ -515,10 +574,34 @@ public sealed class MethodDefinitionExecution
                                 methodHandle);
                             lane.PassUnitsVisited =
                                 lane.CurrentOrdinal + 1;
-                            lane.VisitPreparedUnit(
-                                visiting[laneIndex],
+                            if (fusedInstructionVisits is null)
+                            {
+                                lane.VisitPreparedUnit(
+                                    visiting[laneIndex],
+                                    ref unit,
+                                    methodHandle);
+                            }
+                            else
+                            {
+                                lane.VisitPreparedUnit(
+                                    visiting[laneIndex],
+                                    ref unit,
+                                    methodHandle,
+                                    laneIndex,
+                                    fusedInstructionVisits,
+                                    ref fusedInstructionVisitCount);
+                            }
+                        }
+
+                        if (fusedInstructionVisitCount != 0)
+                        {
+                            VisitFusedInstructionShapes(
+                                lanes,
                                 ref unit,
-                                methodHandle);
+                                fusedInstructionVisits!,
+                                fusedInstructionVisitCount,
+                                laneInstructionVisits,
+                                laneVisitedInstructions);
                         }
 
                         if (!AnyLaneActiveInScope(
@@ -570,6 +653,84 @@ public sealed class MethodDefinitionExecution
         {
             foreach (LibraryBodyAnalysisBuilder? builder in builders)
                 builder?.Dispose();
+        }
+    }
+
+    static void VisitFusedInstructionShapes(
+        ImmutableArray<MethodDefinitionExecution> lanes,
+        ref MethodDefinitionUnit unit,
+        FusedInstructionShapeVisit[] visits,
+        int visitCount,
+        int[] laneInstructionVisits,
+        bool[] laneVisitedInstructions)
+    {
+        Array.Clear(laneInstructionVisits);
+        Array.Clear(laneVisitedInstructions);
+        var dispatch = new FusedInstructionShapeDispatch(
+            visits,
+            visitCount);
+        int physicalInstructionsVisited = 0;
+        Exception? failure = null;
+        try
+        {
+            InstructionDecoder.VisitWithProgress(
+                visits[0].Body,
+                ref dispatch,
+                static (
+                    ref FusedInstructionShapeDispatch current,
+                    ILOpCode opcode,
+                    int _,
+                    int encodedLength) =>
+                        current.Visit(opcode, encodedLength),
+                ref physicalInstructionsVisited);
+        }
+        catch (Exception ex)
+            when (ex
+                    is not
+                        MethodDefinitionTerminalWorkLimitExceededException
+                && LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(ex))
+        {
+            failure = ex;
+        }
+        finally
+        {
+            unit.RecordPhysicalNoRetentionInstructionWork(
+                physicalInstructionsVisited);
+            for (int i = 0; i < visitCount; i++)
+            {
+                ref FusedInstructionShapeVisit visit =
+                    ref visits[i];
+                int laneIndex = visit.LaneIndex;
+                laneVisitedInstructions[laneIndex] = true;
+                laneInstructionVisits[laneIndex] =
+                    Math.Max(
+                        laneInstructionVisits[laneIndex],
+                        visit.InstructionsVisited);
+            }
+            for (int laneIndex = 0;
+                laneIndex < lanes.Length;
+                laneIndex++)
+            {
+                if (laneVisitedInstructions[laneIndex])
+                {
+                    lanes[laneIndex]
+                        .RecordNoRetentionInstructionWork(
+                            laneInstructionVisits[laneIndex]);
+                }
+            }
+        }
+
+        for (int i = 0; i < visitCount; i++)
+        {
+            ref FusedInstructionShapeVisit visit =
+                ref visits[i];
+            bool settled =
+                visit.State.CompleteInstructionShapes(failure);
+            visit.State.Execution.CompleteVisitedUnit(
+                visit.State,
+                settled);
+            visit = default;
         }
     }
 
@@ -1089,6 +1250,24 @@ public sealed class MethodDefinitionExecution
         ref MethodDefinitionUnit unit,
         MethodDefinitionHandle methodHandle)
     {
+        int fusedInstructionVisitCount = 0;
+        return VisitPreparedUnit(
+            visiting,
+            ref unit,
+            methodHandle,
+            laneIndex: -1,
+            fusedInstructionVisits: null,
+            ref fusedInstructionVisitCount);
+    }
+
+    bool VisitPreparedUnit(
+        ProducerState[] visiting,
+        ref MethodDefinitionUnit unit,
+        MethodDefinitionHandle methodHandle,
+        int laneIndex,
+        FusedInstructionShapeVisit[]? fusedInstructionVisits,
+        ref int fusedInstructionVisitCount)
+    {
         int unitToken = MetadataTokens.GetToken(methodHandle);
         bool anyActive = false;
         foreach (ProducerState state in visiting)
@@ -1100,9 +1279,27 @@ public sealed class MethodDefinitionExecution
             if (!state.IsActive)
                 continue;
 
-            if (!state.TypeInScopeNow
-                || (state.GuardStates.Length != 0
-                    && !InScope(state, unitToken)))
+            if (!state.TypeInScopeNow)
+            {
+                anyActive = true;
+                continue;
+            }
+
+            if (fusedInstructionVisits is not null
+                && DependsOnPendingInstructionVisit(
+                    state,
+                    fusedInstructionVisits,
+                    fusedInstructionVisitCount,
+                    laneIndex))
+            {
+                throw new ProducerContractException(
+                    $"Producer '{state.Producer.Identity}' reads a "
+                    + "same-unit fact from a fused Method-body analyzer "
+                    + "before the shared instruction stream completes.");
+            }
+
+            if (state.GuardStates.Length != 0
+                && !InScope(state, unitToken))
             {
                 anyActive = true;
                 continue;
@@ -1123,7 +1320,45 @@ public sealed class MethodDefinitionExecution
                     }
                 }
 
-                VisitUnit(ref unit, state);
+                if (fusedInstructionVisits is not null
+                    && !state.InstructionAnalyzers.IsEmpty)
+                {
+                    if (!state.SupportsFusedInstructionShapes)
+                    {
+                        throw new ProducerContractException(
+                            $"Producer '{state.Producer.Identity}' declares "
+                            + "a forward-only Method-body analyzer but does "
+                            + "not support fused instruction visitation.");
+                    }
+
+                    state.UnitsAttempted++;
+                    var view = new MethodDefinitionView(
+                        ref unit,
+                        state);
+                    if (state.TryBeginInstructionShapes(
+                            view,
+                            out MethodBodyBlock? body,
+                            out bool settled))
+                    {
+                        fusedInstructionVisits[
+                            fusedInstructionVisitCount++] =
+                                new(
+                                    state,
+                                    body
+                                    ?? throw new InvalidOperationException(
+                                        "An instruction consumer did not "
+                                        + "supply its acquired body."),
+                                    laneIndex);
+                    }
+                    else
+                    {
+                        CompleteVisitedUnit(state, settled);
+                    }
+                }
+                else
+                {
+                    VisitUnit(ref unit, state);
+                }
             }
             catch (ProducerAbortException abort)
             {
@@ -1142,6 +1377,37 @@ public sealed class MethodDefinitionExecution
         }
 
         return anyActive;
+    }
+
+    static bool DependsOnPendingInstructionVisit(
+        ProducerState state,
+        FusedInstructionShapeVisit[] visits,
+        int visitCount,
+        int laneIndex)
+    {
+        foreach (ProducerDependency dependency
+            in state.Producer.Dependencies)
+        {
+            if (dependency.Kind
+                != ProducerDependencyKind.VisitNeedsVisit)
+            {
+                continue;
+            }
+
+            for (int i = 0; i < visitCount; i++)
+            {
+                FusedInstructionShapeVisit visit = visits[i];
+                if (visit.LaneIndex == laneIndex
+                    && ReferenceEquals(
+                        visit.State.Producer,
+                        dependency.Producer))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     static bool AnyActive(ProducerState[] visiting)
@@ -1285,6 +1551,13 @@ public sealed class MethodDefinitionExecution
             return;
         }
 
+        CompleteVisitedUnit(state, settled);
+    }
+
+    void CompleteVisitedUnit(
+        ProducerState state,
+        bool settled)
+    {
         state.UnitsCompleted++;
         if (!settled)
             return;
@@ -1298,6 +1571,12 @@ public sealed class MethodDefinitionExecution
             state.IsActive = false;
         }
     }
+
+    void RecordNoRetentionInstructionWork(
+        int instructionsVisited) =>
+        _sourceCoverage.RecordInstructionWork(
+            MethodBodyInstructionSourceKind.NoRetentionStream,
+            instructionsVisited);
 
     void FailIfPrerequisiteFailed(ProducerState state)
     {
@@ -1432,7 +1711,9 @@ public sealed class MethodDefinitionExecution
             if (state.HasLookupLayer)
             {
                 layers.Add(new ProducerLayerParticipation(
-                    nameof(MethodDefinitionLayers.ModuleLookup),
+                    state.HasReferenceBindingLayer
+                        ? nameof(MethodDefinitionLayers.ReferenceBinding)
+                        : nameof(MethodDefinitionLayers.ModuleLookup),
                     state.LookupUses));
             }
 
@@ -1456,6 +1737,52 @@ public sealed class MethodDefinitionExecution
         };
     }
 
+    struct FusedInstructionShapeVisit(
+        ProducerState state,
+        MethodBodyBlock body,
+        int laneIndex)
+    {
+        public ProducerState State = state;
+
+        public MethodBodyBlock Body = body;
+
+        public int LaneIndex = laneIndex;
+
+        public int InstructionsVisited;
+
+        public bool IsActive = true;
+    }
+
+    readonly struct FusedInstructionShapeDispatch(
+        FusedInstructionShapeVisit[] visits,
+        int count)
+    {
+        readonly FusedInstructionShapeVisit[] _visits = visits;
+        readonly int _count = count;
+
+        public bool Visit(
+            ILOpCode opcode,
+            int encodedLength)
+        {
+            bool anyActive = false;
+            for (int i = 0; i < _count; i++)
+            {
+                ref FusedInstructionShapeVisit visit =
+                    ref _visits[i];
+                if (!visit.IsActive)
+                    continue;
+
+                visit.InstructionsVisited++;
+                visit.IsActive =
+                    visit.State.VisitInstructionShape(
+                        opcode,
+                        encodedLength);
+                anyActive |= visit.IsActive;
+            }
+            return anyActive;
+        }
+    }
+
     /// <summary>
     /// A producer's per-execution bookkeeping. The executor holds every state
     /// in one array; the per-unit operations are virtual members that the
@@ -1472,6 +1799,11 @@ public sealed class MethodDefinitionExecution
         public MethodDefinitionExecution Execution => execution;
 
         public ProducerDeclaration Producer => producer;
+
+        public ImmutableArray<MethodBodyAnalyzerDeclaration>
+            InstructionAnalyzers =>
+                ((IMethodDefinitionProducer)producer)
+                    .InstructionAnalyzers;
 
         public ProducerTerminal Terminal => terminal;
 
@@ -1503,6 +1835,29 @@ public sealed class MethodDefinitionExecution
             out int unitsVisited);
 
         public abstract bool Visit(scoped MethodDefinitionView view);
+
+        public virtual bool SupportsFusedInstructionShapes => false;
+
+        public virtual bool TryBeginInstructionShapes(
+            scoped MethodDefinitionView view,
+            out MethodBodyBlock? body,
+            out bool settled) =>
+            throw new ProducerContractException(
+                $"Producer '{Producer.Identity}' does not support fused "
+                + "instruction visitation.");
+
+        public virtual bool VisitInstructionShape(
+            ILOpCode opcode,
+            int encodedLength) =>
+            throw new ProducerContractException(
+                $"Producer '{Producer.Identity}' does not support fused "
+                + "instruction visitation.");
+
+        public virtual bool CompleteInstructionShapes(
+            Exception? failure) =>
+            throw new ProducerContractException(
+                $"Producer '{Producer.Identity}' does not support fused "
+                + "instruction visitation.");
 
         public abstract void Complete(MethodDefinitionCompletionView completion);
 
@@ -1537,7 +1892,12 @@ public sealed class MethodDefinitionExecution
             (layers & MethodDefinitionLayers.Body) != 0;
 
         public bool HasLookupLayer { get; } =
-            (layers & MethodDefinitionLayers.ModuleLookup) != 0;
+            (layers
+                & (MethodDefinitionLayers.ModuleLookup
+                    | MethodDefinitionLayers.ReferenceBinding)) != 0;
+
+        public bool HasReferenceBindingLayer { get; } =
+            (layers & MethodDefinitionLayers.ReferenceBinding) != 0;
 
         public bool IsActive { get; set; } = true;
 

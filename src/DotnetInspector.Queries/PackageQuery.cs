@@ -235,6 +235,10 @@ public sealed class PackageQueryPlan
         Intent = intent;
         Prefix = prefix;
         BoundTerms = terms;
+        ContentDemand = terms.Any(term => term.Predicate.RequiresPackageContent
+            && term.Predicate.Kind != PackageQueryPredicateKind.Skill)
+            ? PackageQueryContentDemand.EntryContent
+            : PackageQueryContentDemand.Inventory;
         Terms = [.. terms.Select(term => term.Term)];
         DependencyTarget = dependencyTarget;
         DependencyDepth = dependencyDepth;
@@ -265,6 +269,10 @@ public sealed class PackageQueryPlan
     internal PackageQueryEcosystemMembershipDeclaration? EcosystemMembership { get; }
     public bool RequiresPackageContent =>
         BoundTerms.Any(term => term.Predicate.RequiresPackageContent);
+
+    /// <summary>Evidence needed by the complete bound content predicate set.</summary>
+    public PackageQueryContentDemand ContentDemand { get; }
+
     public bool RequiresLibraryLiteralEvaluation =>
         BoundTerms.Any(term =>
             term.Predicate.Kind == PackageQueryPredicateKind.LibraryLiteral);
@@ -647,12 +655,54 @@ public abstract record PackageQueryEvent
     public sealed record Completed(PackageQuerySummary Value) : PackageQueryEvent;
 }
 
+/// <summary>Shared semantic evidence demand, selected before host acquisition.</summary>
+public sealed class PackageQueryContentDemand
+{
+    private PackageQueryContentDemand(PackageHouseContentQuery? query)
+    {
+        ContentQuery = query;
+    }
+
+    public static PackageQueryContentDemand Inventory { get; } = new(
+        new PackageHouseContentQuery(
+            new PackageHouseContentNarrowing.PackageWide(),
+            [new PackageHouseContentTerminal.FileList()]));
+
+    public static PackageQueryContentDemand EntryContent { get; } = new(null);
+
+    /// <summary>
+    /// The House query for inventory evidence. Null retains entry-content
+    /// acquisition for predicates whose body demand has not yet been narrowed.
+    /// </summary>
+    public PackageHouseContentQuery? ContentQuery { get; }
+}
+
 /// <summary>The result of acquiring admitted package content for one query candidate.</summary>
 public abstract record PackageQueryContentResult
 {
     private PackageQueryContentResult()
     {
     }
+
+    public static PackageQueryContentResult FromSettlement(PackageHouseSettlement settlement) =>
+        settlement is PackageHouseSettlement.Acquired acquired
+            ? acquired.Result.Evidence.FileList is { } fileList
+                ? new InventoryAvailable(fileList)
+                : new Available(acquired.Payload.Content)
+            : new Unavailable(settlement.Result switch
+            {
+                PackageHouseResult.NotFound value => value.Reason.ToString(),
+                PackageHouseResult.NoMatch value => value.Reason.ToString(),
+                PackageHouseResult.Ambiguous value => value.Reason.ToString(),
+                PackageHouseResult.Rejected value => value.Reason.ToString(),
+                PackageHouseResult.Unavailable value => value.Reason.ToString(),
+                PackageHouseResult.Incomplete value => value.Reason.ToString(),
+                PackageHouseResult.Failed value => value.Reason.ToString(),
+                _ => settlement.Result.GetType().Name,
+            });
+
+    public sealed record InventoryAvailable(PackageHouseFileList FileList)
+        : PackageQueryContentResult;
 
     public sealed record Available(IPackageContent Content)
         : PackageQueryContentResult;
@@ -668,6 +718,7 @@ public interface IPackageQueryContentProvider
 {
     ValueTask<PackageQueryContentResult> GetContentAsync(
         PackageQueryPackage package,
+        PackageQueryContentDemand demand,
         CancellationToken cancellationToken);
 }
 
@@ -1068,8 +1119,8 @@ public static partial class PackageQuery
         },
         new(
             ToolFormatTermKey,
-            ".NET tool format",
-            "Downloads the package and matches its .NET tool CLI format.",
+            "DotNetCliTool",
+            "Downloads the package and matches the DotNetCliTool format version in its DotnetToolSettings.xml.",
             510,
             PackageQueryAcquisitionTier.PackageContent,
             PackageQueryExecutionClass.PackageContent,
@@ -1081,8 +1132,8 @@ public static partial class PackageQuery
         {
             Options =
             [
-                new("v1", "v1", "Portable .NET tool format."),
-                new("v2", "v2", "RID-specific .NET tool format."),
+                new("v1", "v1", "Portable DotNetCliTool format (Version=\"1\")."),
+                new("v2", "v2", "RID-specific DotNetCliTool format (Version=\"2\")."),
             ],
             SelectionGroupId = PackageQueryVocabulary.ToolFormatFamily,
             CombinesWithinSelectionGroup = true,
@@ -1134,7 +1185,18 @@ public static partial class PackageQuery
             "decoded UTF-16 text",
             "https://",
             PackageQueryTermRole.Inspection,
-            PackageQueryTermControlKind.MultilineInput),
+            PackageQueryTermControlKind.MultilineInput)
+        {
+            InputRules =
+            [
+                "Any decoded UTF-16 text within these constraints is accepted; the empty values list is not an allow list.",
+                $"Length: 1..{StringLiteralUsePredicate.MaximumLength} UTF-16 code units.",
+                "Preserve all operand text, including whitespace, newlines, and case; do not normalize.",
+                "Match an ordinal substring of each decoded string-literal use.",
+                "Single distinct operand: identical repeated values collapse; distinct values are incompatible.",
+                "Queries using this facet admit at most five package candidates; an exact package ID admits at most one.",
+            ],
+        },
         new(
             LibraryTargetTermKey,
             "library target",
@@ -1980,6 +2042,7 @@ public static partial class PackageQuery
                         PackageQueryContentResult contentResult =
                             await contentProvider!.GetContentAsync(
                                 match.Value,
+                                plan.ContentDemand,
                                 cancellationToken).ConfigureAwait(false);
                         if (contentResult
                             is PackageQueryContentResult.Unavailable unavailable)
@@ -2001,16 +2064,28 @@ public static partial class PackageQuery
                             continue;
                         }
 
-                        IPackageContent content =
-                            ((PackageQueryContentResult.Available)contentResult)
-                                .Content;
                         PackageContentFacts? facts = null;
                         try
                         {
-                            facts = await ReadPackageContentFactsAsync(
-                                content,
-                                plan.BoundTerms,
-                                cancellationToken).ConfigureAwait(false);
+                            facts = contentResult switch
+                            {
+                                PackageQueryContentResult.InventoryAvailable inventory
+                                    when ReferenceEquals(plan.ContentDemand, PackageQueryContentDemand.Inventory) =>
+                                    new PackageContentFacts(
+                                        SummarizeItems(inventory.FileList.Entries
+                                            .Select(entry => entry.Path).Where(IsSkillDocument),
+                                            StringComparer.Ordinal),
+                                        null, []),
+                                PackageQueryContentResult.InventoryAvailable =>
+                                    throw new InvalidDataException(
+                                        "Package inventory cannot satisfy entry-content predicates."),
+                                PackageQueryContentResult.Available available =>
+                                    await ReadPackageContentFactsAsync(
+                                        available.Content, plan.BoundTerms,
+                                        cancellationToken).ConfigureAwait(false),
+                                _ => throw new InvalidOperationException(
+                                    "Package Query content provider returned an unknown outcome."),
+                            };
                         }
                         catch (Exception ex) when (
                             ex is IOException
@@ -2914,6 +2989,13 @@ public static partial class PackageQuery
         return preview with { Count = matches.Count };
     }
 
+    static string ToolPackageType(PackageManifestFacts manifest) =>
+        manifest.PackageTypes.FirstOrDefault(static type =>
+            type.Equals("DotnetToolRidPackage", StringComparison.OrdinalIgnoreCase))
+        ?? manifest.PackageTypes.FirstOrDefault(static type =>
+            type.Equals("DotnetTool", StringComparison.OrdinalIgnoreCase))
+        ?? "DotnetTool";
+
     static PackageQueryTermResult CreateTermResult(
         BoundPackageQueryTerm term,
         PackageQueryPackage package,
@@ -2962,8 +3044,13 @@ public static partial class PackageQuery
                                 "License answers require a bound identity."),
                         },
                     PackageQueryPredicateKind.Readme => "true",
-                    PackageQueryPredicateKind.Tool => "true",
-                    PackageQueryPredicateKind.ToolFormat => term.Term.Value,
+                    PackageQueryPredicateKind.Tool =>
+                        ToolPackageType(package.RequiredManifest),
+                    PackageQueryPredicateKind.ToolFormat =>
+                        "v"
+                        + (content?.ToolSettingsVersion
+                            ?? throw new InvalidOperationException(
+                                "DotNetCliTool format answers require package-content facts.")),
                     PackageQueryPredicateKind.AssemblyReference =>
                         term.Predicate.Text
                         ?? throw new InvalidOperationException(
@@ -3077,7 +3164,12 @@ public static partial class PackageQuery
             PackageQueryPredicateKind.Tool =>
                 new PackageQueryEvidence(term.Descriptor.Key)
                 {
-                    Properties = [Property("package-type", "DotnetTool")],
+                    Properties =
+                    [
+                        Property(
+                            "package-type",
+                            ToolPackageType(package.RequiredManifest)),
+                    ],
                 },
             PackageQueryPredicateKind.ToolFormat =>
                 new PackageQueryEvidence(term.Descriptor.Key)
@@ -3088,7 +3180,7 @@ public static partial class PackageQuery
                             "settings-version",
                             content?.ToolSettingsVersion
                             ?? throw new InvalidOperationException(
-                                ".NET tool format evidence requires package-content facts.")),
+                                "DotNetCliTool format evidence requires package-content facts.")),
                     ],
                 },
             PackageQueryPredicateKind.AssemblyReference =>

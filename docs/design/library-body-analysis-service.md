@@ -860,13 +860,36 @@ The first production consumer is exact-member `Calls --count`. After source
 acquisition, an explicit `--all` request allows the CLI to ask the metadata
 owner to resolve an exact MethodDef before public API extraction. An omitted
 method ordinal, or ordinal one on a unique method family, resolves only when
-the canonical case-insensitive member name is unambiguous. Overloaded method
-ordinals continue through the ordinary resolver because its displayed-signature
-order is not metadata order. An explicit property or event ordinal resolves
-over the accessors that are present, in getter/adder then setter/remover order.
-Ordinary public-surface admission, ambiguous names, forwarded types, qualified
-selectors, and selectors outside that exact metadata subset continue through
-the ordinary public-surface resolver. Once a MethodDef is selected, the CLI
+the canonical case-insensitive member name is unambiguous. An explicit
+property or event ordinal resolves over the accessors that are present, in
+getter/adder then setter/remover order.
+
+Overloaded method ordinals and ordinary public-surface admission use the
+ordinary `MemberTargetResolver`. They resolve over the selected Type's own
+declarations, which `MethodBodySource.ExtractDeclaredType` decodes without
+decoding any other Type, so the displayed-signature order and scope match the
+complete route without building the assembly's API surface. These cases keep
+the complete public-surface route:
+
+- an image that declares a same-named extension method, which the complete
+  surface would project onto receiver Types;
+- a wildcard member name or an unselected overload set;
+- a Type the metadata owner cannot find by full name, such as a forwarded
+  Type;
+- a resolver diagnostic, such as a missing member or an out-of-range ordinal,
+  so that the complete route reports it.
+
+Qualified, digest, and generic-arity selectors also keep the ordinary route.
+Count reports failures of the work it performs: Type selection, body
+acquisition, and decode. It does not report diagnostics of an API-surface
+extraction it no longer runs. These include unbound type forwarders elsewhere
+in the image, and incomplete generic-constraint classification, which Count
+does not consume, even for the selected member. Over 7,964
+exact-member requests in five shared-framework assemblies, in both scopes, the
+Count values match the complete route exactly. Only System.Text.Json requests
+change, from a rejected-row warning and exit 1 to exit 0.
+
+Once a MethodDef is selected, the CLI
 lowers the terminal to Calls-row Count before ordinary call-row Analysis. It
 sums the authenticated physical-body entries for the selected logical member.
 An identity-decode failure that cannot publish a `MethodIdentity` remains an
@@ -1049,6 +1072,14 @@ changes.
 
 ### Production adoption for #8450
 
+Method Query Source owns the prerequisite instruction planning: each focused
+producer declares minimum Access and Detail, the request-set plan joins those
+facets for the physical group, and compatible lanes share one packet-local
+instruction source. Complete-profile migration must therefore decompose the
+metric set into owner-focused producers over that source. It must not wrap
+`LibraryBodyAnalysisBuilder.Build` or recreate one complete-profile producer
+with the same monolithic work hidden behind a new declaration.
+
 The counted implementation path is:
 
 1. Add the validated parameterized request, closed metric and fact vocabularies,
@@ -1074,6 +1105,33 @@ The counted implementation path is:
 Each slice is independently coherent and reaches an existing production
 consumer or the next named host-neutral consumer. No unused generic execution
 substrate lands ahead of adoption.
+
+### Fusion-payoff admission for profile migration
+
+The implementation-profile migration does not count producer declarations,
+request-set planning, or a neutral single-lane command as proof that the
+substrate earns its cost. Before a profile consumer moves, the proposed
+multi-lane request set must name the legacy body traversals it removes and
+pass both of these gates:
+
+1. **Physical work.** Exact result identities match independent execution, and
+   owner-issued source receipts show at least one complete instruction
+   traversal removed for every successfully analyzed managed body in scope.
+2. **Production effect.** Exact-base/head NativeAOT evidence preserves output,
+   improves the body-dense CoreLib `Library Metrics` median by at least 5%, and
+   keeps the exact-family `StringBuilder.AppendFormat` `Member Metrics` median
+   and median RSS within 2% of base. The report includes p95 and binary size.
+
+The contributor harness mode
+`--method-fusion <System.Private.CoreLib.dll> --iterations 20 --json` is the
+structural precondition. It executes the production direct-invocation and
+Calls-row count producers both in one QuerySpace request set and independently.
+The command fails unless shared execution records positive physical work,
+results are identical, the shared execution forms one physical group, and
+physical no-retention source openings and instruction visits are exactly half
+the independent totals. Its elapsed and allocation figures are diagnostic
+until the exact NativeAOT product commands above run; the harness alone is not
+a production speedup claim or a profile adoption.
 
 ## Producer Planning adoption
 

@@ -102,10 +102,10 @@ public static partial class SourceExports
         var afterScope = afterLease.Scope;
         var oldCoordinate = beforeScope.Coordinates[0];
         var newCoordinate = afterScope.Coordinates[0];
-        var oldAsset = oldCoordinate.Selection.FindAsset(request.CompileAssetId)
-            ?? throw new ArgumentException("The exact Before compile asset is unavailable.");
         var newAsset = newCoordinate.Selection.FindAsset(request.CompileAssetId)
             ?? throw new ArgumentException("The exact After compile asset is unavailable.");
+        var oldAsset = oldCoordinate.Selection.FindComparisonAsset(newAsset)
+            ?? throw new ArgumentException("The Before endpoint has no unique selected compile counterpart.");
         var oldSurface = beforeScope.SurfaceParticipant(oldCoordinate, oldAsset);
         var newSurface = afterScope.SurfaceParticipant(newCoordinate, newAsset);
         var oldImplementation = beforeScope.ImplementationParticipant(oldSurface);

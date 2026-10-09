@@ -487,7 +487,7 @@ public partial class CommandExecutionTests
                 "find",
                 "graph cluster",
                 "graph libraries",
-                "implements",
+                "graph packages",
                 "library",
                 "library address",
                 "library query",
@@ -541,7 +541,6 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("library")]
-    [InlineData("implements")]
     [InlineData("extensions")]
     public async Task ProjectedJsonRoutingAudit_UnadoptedTypedDocumentFailsClosed(string command)
     {
@@ -549,8 +548,6 @@ public partial class CommandExecutionTests
         {
             "library" =>
                 [command, TestAssemblyPath, "-S", "Library Info", "--fields", "Assembly Version", "--json"],
-            "implements" =>
-                [command, "IDisposable", "--library", TestAssemblyPath, "--columns", "Type", "--json"],
             "extensions" =>
                 [command, "String", "--library", TestAssemblyPath, "--columns", "Method", "--json"],
             _ => throw new ArgumentOutOfRangeException(nameof(command)),
@@ -568,7 +565,6 @@ public partial class CommandExecutionTests
     [InlineData("--versions", "--print")]
     [InlineData("--versions-with-feed", "--value")]
     [InlineData("--versions", "--urls")]
-    [InlineData("--tfms", "--paths")]
     [InlineData("--content", "--value")]
     public async Task ProjectedJsonRoutingAudit_PackageLensPayloadFailsBeforeAcquisition(
         string lens,
@@ -594,7 +590,6 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("--versions")]
     [InlineData("--versions-with-feed")]
-    [InlineData("--tfms")]
     [InlineData("--content")]
     public async Task ProjectedJsonRoutingAudit_PackageLensFieldsFailBeforeAcquisition(
         string lens)
@@ -641,6 +636,11 @@ public partial class CommandExecutionTests
                 "package", packagePath,
                 "--files", "--json", "--columns", "Path");
 
+            var tfmSection = await RunAppAsync("package", packagePath,
+                "-S", "Target Frameworks", "--json", "--columns", "TFM");
+            Assert.Equal(tfmSection.Exit, tfms.Exit);
+            Assert.Equal(tfmSection.Output, tfms.Output);
+            Assert.Equal(tfmSection.Error, tfms.Error);
             var section = await RunAppAsync("package", packagePath,
                 "-S", "Files", "--json", "--columns", "Path");
             Assert.Equal(section.Exit, layout.Exit);
@@ -649,7 +649,6 @@ public partial class CommandExecutionTests
             foreach (var (lens, result) in new[]
             {
                 ("--versions", versions),
-                ("--tfms", tfms),
             })
             {
                 Assert.Equal(1, result.Exit);

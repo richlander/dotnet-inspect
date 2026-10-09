@@ -7,6 +7,7 @@ using ILInspector.Metadata;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
@@ -92,6 +93,31 @@ public static partial class TypeCommand
             options,
             plan,
             exactTypeCapabilities: exactTypeCapabilities);
+
+    internal static Task<int> ExecuteAsync(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan plan,
+        PackageHouse exactTypeHouse,
+        Func<CancellationToken, PackageSourceOperationLease>
+            issueExactTypeOperation)
+        => ExecuteCoreAsync(
+            options,
+            plan,
+            exactTypeHouse: exactTypeHouse,
+            issueExactTypeOperation: issueExactTypeOperation);
+
+    internal static Task<int> ExecuteAsync(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan plan,
+        WorkspaceContextLoadOptions exactTypeCapabilities,
+        WorkspacePackagePrefixHierarchyRuntime packagePrefixRuntime,
+        CancellationToken cancellationToken = default)
+        => ExecuteCoreAsync(
+            options,
+            plan,
+            exactTypeCapabilities: exactTypeCapabilities,
+            packagePrefixRuntime: packagePrefixRuntime,
+            cancellationToken: cancellationToken);
 
     internal static Task<int> ExecuteResolvedAsync(
         TypeOptions options,
@@ -189,6 +215,10 @@ public static partial class TypeCommand
         ApiServices.LoadedApiSurface? loadedSurface = null,
         ApiType? preselectedType = null,
         WorkspaceContextLoadOptions? exactTypeCapabilities = null,
+        PackageHouse? exactTypeHouse = null,
+        Func<CancellationToken, PackageSourceOperationLease>?
+            issueExactTypeOperation = null,
+        WorkspacePackagePrefixHierarchyRuntime? packagePrefixRuntime = null,
         TypeCommandPlan? commandPlan = null,
         CancellationToken cancellationToken = default)
     {
@@ -222,6 +252,7 @@ public static partial class TypeCommand
                 plan,
                 exactTypeCapabilities
                     ?? CreateWorkspaceContextLoadOptions(options),
+                packagePrefixRuntime,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -244,6 +275,7 @@ public static partial class TypeCommand
                 plan,
                 exactTypeCapabilities
                     ?? CreateWorkspaceContextLoadOptions(options),
+                packagePrefixRuntime,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -286,16 +318,23 @@ public static partial class TypeCommand
                 options,
                 out ExactTypeInspectionRequest? exactTypeRequest))
         {
-            return await (exactTypeCapabilities is null
+            return await (exactTypeHouse is null
                 ? ExecuteSharedExactTypeAsync(
                     options,
                     plan,
-                    exactTypeRequest)
+                    exactTypeRequest,
+                    cancellationToken)
                 : ExecuteSharedExactTypeAsync(
                     options,
                     plan,
                     exactTypeRequest,
-                    exactTypeCapabilities)).ConfigureAwait(false);
+                    exactTypeHouse,
+                    (issueExactTypeOperation
+                        ?? throw new InvalidOperationException(
+                            "An injected exact-Type PackageHouse requires "
+                                + "a source-operation issuer."))(
+                        cancellationToken),
+                    cancellationToken)).ConfigureAwait(false);
         }
 
         if (resolvedSource is null
@@ -1335,28 +1374,50 @@ public static partial class TypeCommand
         Hints.WriteTips(companionOutput, () => [.. tips]);
     }
 
-    static Task<int> ExecuteSharedExactTypeAsync(
+    static async Task<int> ExecuteSharedExactTypeAsync(
         TypeOptions options,
         ResolvedMemberInspectionPlan plan,
-        ExactTypeInspectionRequest request) =>
-        ExecuteSharedExactTypeAsync(
-            options,
-            plan,
-            request,
-            CreateWorkspaceContextLoadOptions(options));
+        ExactTypeInspectionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var logger = new VerboseLogger(options.Verbose);
+        await using var composition =
+            new DesktopPackageSourceComposition(
+                HttpClientFactory.Shared.Timeout);
+        using var stores = new SearchPackageStores("inspect-type");
+        PackageHouse house = composition.CreateRealizationHouse(
+            new PackagePayloadAcquisitionPlan(
+                stores.GetLegacyCompatibleStore,
+                PackagePayloadLimits.Default,
+                log: options.Verbose ? logger.Log : null),
+            options.SourceOptions,
+            options.Verbose ? logger.Log : null);
+        return await ExecuteSharedExactTypeAsync(
+                options,
+                plan,
+                request,
+                house,
+                composition.IssueSettlementOperation(cancellationToken),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
 
     internal static async Task<int> ExecuteSharedExactTypeAsync(
         TypeOptions options,
         ResolvedMemberInspectionPlan plan,
         ExactTypeInspectionRequest request,
-        WorkspaceContextLoadOptions capabilities)
+        PackageHouse house,
+        PackageSourceOperationLease sourceOperation,
+        CancellationToken cancellationToken = default)
     {
         InspectionEnvelope<ExactTypeInspectionResult> envelope;
         try
         {
             envelope = await ExactTypeInspectionOperation.ExecuteAsync(
                 request,
-                capabilities).ConfigureAwait(false);
+                house,
+                sourceOperation,
+                cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -1412,6 +1473,7 @@ public static partial class TypeCommand
         TypeOptions options,
         ResolvedMemberInspectionPlan plan,
         WorkspaceContextLoadOptions capabilities,
+        WorkspacePackagePrefixHierarchyRuntime? packagePrefixRuntime,
         CancellationToken cancellationToken)
     {
         WorkspacePacketRestorationResult result =
@@ -1461,14 +1523,50 @@ public static partial class TypeCommand
                 AssertSingleDefiningSource(envelope.Content);
             ExactTypeRenderSource renderSource =
                 ExactTypeRenderSource.From(source);
+            TypeOptions effectiveOptions = options with
+            {
+                WorkspacePacket = null,
+                ShareFormat = null,
+                CompanionOutput = CompanionOutput.None,
+            };
+            if (TypeHierarchyRelationsInspectionExecutor.IsSelected(options))
+            {
+                WorkspaceDeclarationContext focusContext =
+                    activeRestoration.Activation.SelectedContext
+                    ?? throw new InvalidOperationException(
+                        "An available Workspace Type result requires one "
+                            + "selected declaration context.");
+                (
+                    TypeHierarchyRelationsInspection? relations,
+                    string? hierarchyError) =
+                        await WorkspaceTypeHierarchyRelationsInspectionExecutor
+                            .ExecuteAsync(
+                                activeRestoration.Workspace,
+                                activeRestoration.Activation,
+                                focusContext,
+                                envelope.Content,
+                                options,
+                                capabilities,
+                                packagePrefixRuntime,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                if (hierarchyError is not null)
+                {
+                    CommandError.Write(hierarchyError);
+                    return 1;
+                }
+
+                effectiveOptions = effectiveOptions with
+                {
+                    TypeHierarchyRelations = relations,
+                };
+                if (relations is not null)
+                    WriteHierarchyDiagnostics(relations);
+            }
+
             int outputExitCode =
                 await ExecuteWorkspaceExactTypeResultAsync(
-                    options with
-                    {
-                        WorkspacePacket = null,
-                        ShareFormat = null,
-                        CompanionOutput = CompanionOutput.None,
-                    },
+                    effectiveOptions,
                     plan,
                     inspection,
                     envelope.Diagnostics,
@@ -2062,6 +2160,7 @@ public static partial class TypeCommand
     static void WriteHierarchyDiagnostics(
         TypeHierarchyRelationsInspection inspection)
     {
+        WriteInspectionDiagnostics(inspection.EffectiveDiagnostics);
         foreach (TypeHierarchyRelationSectionInspection section
         in new[]
         {

@@ -103,7 +103,8 @@ export function prepareProductHomeDemoSource(
   }
 
   if (activation.focusKind === "package") {
-    const packages = result.packages.map(createNuGetPackageModel);
+    const packages = result.packages.map(surface =>
+      createNuGetPackageModel(surface));
     const matches = packages.filter(item =>
       item.id === activation.focusId
       && item.version === activation.focusVersion

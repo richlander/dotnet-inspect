@@ -1447,7 +1447,8 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Equal(
                 $"{surfaceAsset.AssemblyName}:{typeof(BrowserEngineBoundaryTests).FullName}",
                 type.GetProperty("id").GetString());
-            Assert.Single(type.GetProperty("api").EnumerateArray());
+            JsonElement member =
+                Assert.Single(type.GetProperty("api").EnumerateArray());
 
             string declarationJson =
                 await DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryMemberDeclaration(
@@ -1457,7 +1458,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     surfaceAsset.Id,
                     typeof(BrowserEngineBoundaryTests).FullName!,
                     method.Name,
-                    "stale-selector",
+                    member.GetProperty("graphSelectorKey").GetString()!,
                     method.MetadataToken,
                     implementationMember: true);
             using JsonDocument declarationDocument =

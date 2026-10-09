@@ -15,12 +15,15 @@ public enum UnsafeMemberUseKind
 }
 
 /// <summary>
-/// Positive compiled evidence for one unsafe-member role.
+/// Positive compiled evidence for one unsafe-member role. Only an
+/// <see cref="UnsafeMemberUseKind.ExplicitContractCall"/> carries a
+/// <paramref name="ContractSource"/>.
 /// </summary>
 public sealed record UnsafeMemberUseEvidence(
     UnsafeMemberUseKind Kind,
     int? ILOffset,
-    string Detail);
+    string Detail,
+    UnsafeContractSource? ContractSource = null);
 
 /// <summary>
 /// One physical method with positive compiled unsafe-member evidence.

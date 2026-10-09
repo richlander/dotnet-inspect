@@ -274,6 +274,36 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void PackageDocuments_ProjectOnlyThePreferredRootDocument()
+    {
+        IReadOnlyList<BrowserPackageDocumentEntry> preferred =
+            BrowserPackage.ProjectDocuments(
+                [
+                    new("PACKAGE.md", 8),
+                    new("README.md", 7),
+                    new("skills/demo/SKILL.md", 6),
+                    new("Contoso.nuspec", 5),
+                ],
+                "Contoso",
+                "1.0.0");
+        IReadOnlyList<BrowserPackageDocumentEntry> fallback =
+            BrowserPackage.ProjectDocuments(
+                [new("PACKAGE.md", 8)],
+                "Contoso",
+                "1.0.0");
+
+        Assert.DoesNotContain(
+            preferred,
+            document => document.Path == "PACKAGE.md");
+        Assert.Contains(
+            preferred,
+            document => document.Path == "README.md");
+        Assert.Equal(
+            "PACKAGE.md",
+            Assert.Single(fallback).Path);
+    }
+
+    [Fact]
     public async Task PackageDocument_RealNewtonsoftReadmeUsesRangeAndWarmEntryCache()
     {
         const string PackageId = "Newtonsoft.Json";
@@ -367,6 +397,7 @@ public sealed partial class BrowserEngineBoundaryTests
         PackageQueryContentResult result =
             await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
                 package,
+                PackageQueryContentDemand.EntryContent,
                 source,
                 PackageSourceIdentity.NuGetOrg,
                 deadline);
@@ -415,6 +446,7 @@ public sealed partial class BrowserEngineBoundaryTests
         PackageQueryContentResult result =
             await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
                 package,
+                PackageQueryContentDemand.EntryContent,
                 source,
                 PackageSourceIdentity.NuGetOrg,
                 deadline);
@@ -1059,7 +1091,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     TestContext.Current.CancellationToken);
             return Assert.IsType<PackageQueryContentResult.Available>(
                 await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
-                    package, source, deadline)).Content;
+                    package, PackageQueryContentDemand.EntryContent, source, deadline)).Content;
         }
     }
 

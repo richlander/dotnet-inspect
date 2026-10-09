@@ -334,7 +334,7 @@ issues the Library default facet and the Library facts facet:
 
 `library.types` identifies the Content of the Library hierarchy projection in
 [Library inspection documents](library-inspection-document.md#hierarchy-projection):
-Library, namespaces, public Type declarations, and Member Counts. `library.info`
+Library, namespaces, and public Type declarations as leaves. `library.info`
 identifies the Library document facts (identity, Image, Description, and
 Enablements); it does not identify the non-fact rows that the CLI
 `Library Info` section composes beside them under
@@ -358,6 +358,42 @@ slice; hosts that report every active entry as executable on demand carry the
 identities through Navigation, sharing, and restoration unchanged. The CLI
 and Browser adopt the Content in later #9547 slices, and the compatibility
 manifest records both IDs from issuance.
+
+## Package Libraries facet
+
+Issue [#9746](https://github.com/richlander/dotnet-inspect/issues/9746), under
+[#9547](https://github.com/richlander/dotnet-inspect/issues/9547), issues the
+Package default facet:
+
+| ID | Title | Summary and stable purpose | Kind | Order | Role |
+| --- | --- | --- | --- | ---: | --- |
+| `package.libraries` | Libraries | Libraries of the selected target, or RID packages of a tool pointer package. | Package | 50 | Package libraries |
+
+`package.libraries` identifies the Content of the Package children document
+owned by [Package library scope](package-library-scope.md#adoption): the
+selected target's compile Libraries, or the RID Packages of a tool pointer
+Package. It opens no Library binary. It is the Content that bare CLI `package`
+and the commandless router already render as the Package Tree.
+
+`package.libraries` carries the new Package libraries role, which Navigation
+prefers for a Package subject. `package.overview` keeps its ID, kind, purpose,
+order 100, and the Package overview role as the Package facts facet. Order 50
+places the new descriptor first without renumbering any issued descriptor, so
+registry fallback for a Package after an unavailable Libraries facet is
+Overview, then Dependencies. A later facts rename, such as `package.info`,
+requires an ID retirement and is not part of this issuance.
+
+New default Package views record `package.libraries`: Navigation's
+recommendation and the Workspace Package scenario projection. The CLI
+Workspace exact-Package share records `package.libraries` when it renders the
+default Package Tree and `package.overview` for the one other projectable
+Package selection, `-S "Package Info"`. Other section selections and Package
+lenses produce no Share
+([Workspace Definitions](workspace-definitions.md#package-packet-context-adoption)). A Package view state that names `package.overview` or
+no facet still restores. Source-free share publication
+accepts either ID, or no facet, as the default Package state. The descriptor has a
+private execution binding and no executor, like the Library facets, and the
+compatibility manifest records the ID from issuance.
 
 ## Compare facet extension
 

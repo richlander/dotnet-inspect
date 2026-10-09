@@ -90,6 +90,12 @@ public sealed class InstructionSequence
     /// </summary>
     public bool IsComplete => _isComplete;
 
+    /// <summary>
+    /// The number of shallow instructions retained so far. Reading this
+    /// property never advances scanning.
+    /// </summary>
+    public int RetainedCount => _prefix.Count;
+
     /// <summary>Creates an independent cursor at the beginning of the sequence.</summary>
     public InstructionCursor GetCursor() => new(this);
 

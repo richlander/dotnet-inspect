@@ -43,7 +43,6 @@ internal partial class SimpleTableJsonlContext : JsonSerializerContext
 [JsonSerializable(typeof(LibraryIntegrationSummaryJson))]
 [JsonSerializable(typeof(List<LibraryIntegrationSummaryJson>))]
 [JsonSerializable(typeof(List<VersionJson>))]
-[JsonSerializable(typeof(List<PackageTfmJson>))]
 [JsonSerializable(typeof(List<VersionListingJson>))]
 [JsonSerializable(typeof(List<VersionFeedJson>))]
 [JsonSerializable(typeof(LibraryIntegrationSignalJson))]
@@ -260,20 +259,21 @@ internal partial class ExtensionsJsonContext : JsonSerializerContext { }
 [JsonSerializable(typeof(List<ExtensionMethodJsonResult>))]
 internal partial class ExtensionsCompactJsonContext : JsonSerializerContext { }
 
-// Implements command JSON contexts
 [JsonSourceGenerationOptions(
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<ImplementerJsonResult>))]
-internal partial class ImplementsJsonContext : JsonSerializerContext { }
+[JsonSerializable(typeof(TypeHierarchyRelationsJsonResult))]
+internal partial class TypeHierarchyRelationsJsonContext :
+    JsonSerializerContext { }
 
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<ImplementerJsonResult>))]
-internal partial class ImplementsCompactJsonContext : JsonSerializerContext { }
+[JsonSerializable(typeof(TypeHierarchyRelationsJsonResult))]
+internal partial class TypeHierarchyRelationsCompactJsonContext :
+    JsonSerializerContext { }
 
 [JsonSourceGenerationOptions(
     WriteIndented = true,

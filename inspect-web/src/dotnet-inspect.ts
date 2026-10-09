@@ -570,7 +570,7 @@ import {
 } from "./brand.ts";
 import {
   loadPlatformIndex, parsePlatformCatalogTarget,
-  platformCatalogFramework,
+  platformCatalogFramework, platformRuntimePruningInventory,
   type PlatformAssemblyRow, type PlatformIndex, type PlatformCatalogTarget,
 } from "./platform-index.ts";
 import {
@@ -584,6 +584,7 @@ import {
 import {
   createSpotlight,
   type ManagedTypeResult,
+  spotlightAllScopeLimit,
   spotlightCapabilityDraftValue,
   type RemovableSpotlightResult,
   type SpotlightCapabilityResult,
@@ -3988,18 +3989,26 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
 });
 const callGraphInspection = createCallGraphInspectionCoordinator({
   state,
-  queryPackage: request => inspectMemberCallGraph(
-    request.packageId,
-    request.version,
-    request.framework,
-    request.assembly,
-    request.typeIdentity,
-    request.type,
-    request.member,
-    request.memberSignature,
-    request.selectorKey,
-    request.metadataToken,
-    request.traversalFramework),
+  queryPackage: async request => {
+    state.platformIndex ??= await loadPlatformIndex();
+    const target = state.platformIndex?.target(
+      platformCatalogFramework(request.traversalFramework)) ?? null;
+    return inspectMemberCallGraph(
+      request.packageId,
+      request.version,
+      request.framework,
+      request.assembly,
+      request.typeIdentity,
+      request.type,
+      request.member,
+      request.memberSignature,
+      request.selectorKey,
+      request.metadataToken,
+      request.traversalFramework,
+      platformRuntimePruningInventory(
+        target,
+        request.traversalFramework));
+  },
   queryPlatform: request =>
     queryPlatformCallGraph(inspectExpandPlatformCallGraph, request),
   describeError: errorMessage,
@@ -7555,7 +7564,11 @@ function currentLibraryApiDiffSelection(): LibraryApiDiffSelection | null {
               "il",
             ],
             views: "Changes, Summary, Transitions",
-            typeNames: [overload.anchorTypeFullName],
+            // The producer matches Types by ApiType.FullName (`.` nesting,
+            // backtick arity). The Member anchor names the same Type in
+            // anchor spelling (`+`, `<T>`), which matches no nested or
+            // generic Type.
+            typeNames: [typeQueryIdentifierOf(subject.type)],
             memberTargetIdentities: [overload.stableSelector],
           };
         }
@@ -15533,6 +15546,8 @@ function spotlightResults(): SpotlightResult[] {
   }
 
   const all = spotlightScope === "all";
+  const allLimit = (initialLimit: number) =>
+    spotlightAllScopeLimit(initialLimit, spotlight.allScopeResultPage());
   const prefixQuery = (all || spotlightScope === "packages") && query.includes("*");
   const requestsTypes = (all && !prefixQuery) || spotlightScope === "types";
   spotlightTypeFind.schedule(
@@ -15575,7 +15590,7 @@ function spotlightResults(): SpotlightResult[] {
       }
       return annotateSpotlightPackageMetadata(annotateSpotlightEcosystems(results));
     }
-    const loaded = spotlightLoadedPackageMatches(query).slice(0, all ? 3 : 20);
+    const loaded = spotlightLoadedPackageMatches(query).slice(0, all ? allLimit(3) : 20);
     for (const match of loaded) results.push({ kind: "pkg-loaded", pkg: match.pkg, ranges: match.ranges });
     const openIds = new Set(state.packages.map(pkg => pkg.id.toLowerCase()));
     // Persisted recently-opened packages that are not currently open. These carry the
@@ -15589,7 +15604,7 @@ function spotlightResults(): SpotlightResult[] {
       if (lowerQuery && !key.includes(lowerQuery)) continue;
       recentShown.add(key);
       results.push({ kind: "pkg-recent", entry, ranges: computeHighlightRanges(entry.id, lowerQuery) });
-      if (all && recentShown.size >= 6) break;
+      if (all && recentShown.size >= allLimit(6)) break;
     }
     let added = 0;
     const packageHits = visibleSpotlightPackageHits(
@@ -15599,7 +15614,7 @@ function spotlightResults(): SpotlightResult[] {
     for (const hit of packageHits) {
       if (openIds.has(hit.id.toLowerCase()) || recentShown.has(hit.id.toLowerCase())) continue;
       results.push({ kind: "pkg-nuget", hit, ranges: computeHighlightRanges(hit.id, query.toLowerCase()) });
-      if (all && ++added >= 4) break;
+      if (all && ++added >= allLimit(4)) break;
     }
   }
   if (all && query) {
@@ -15622,6 +15637,7 @@ function spotlightResults(): SpotlightResult[] {
     for (const candidate of spotlightTypeCandidatesForScope(
       spotlightTypeFind.results(),
       all,
+      allLimit(6),
     )) {
       results.push({
         kind: "managed-type",
@@ -15634,16 +15650,16 @@ function spotlightResults(): SpotlightResult[] {
       });
     }
   } else if ((all || spotlightScope === "types") && query) {
-    for (const match of spotlightTypeMatches(query).slice(0, all ? 6 : 50)) results.push({ ...match, kind: "type" });
+    for (const match of spotlightTypeMatches(query).slice(0, all ? allLimit(6) : 50)) results.push({ ...match, kind: "type" });
   } else if (spotlightScope === "types" && !query) {
     for (const match of spotlightTypeMatches("").slice(0, 40)) results.push({ ...match, kind: "type" });
   }
   if ((all || spotlightScope === "members") && query) {
-    for (const match of spotlightMemberMatches(query).slice(0, all ? 6 : 50)) results.push({ ...match, kind: "member" });
+    for (const match of spotlightMemberMatches(query).slice(0, all ? allLimit(6) : 50)) results.push({ ...match, kind: "member" });
   }
   if (all || spotlightScope === "libraries") {
     const libraries = frameworkLibrarySpotlightResults(query, all);
-    results.push(...(all ? libraries.slice(0, 5)
+    results.push(...(all ? libraries.slice(0, allLimit(5))
       : libraries.filter(result => result.kind === "framework-lib")));
   }
   return annotateSpotlightPackageMetadata(annotateSpotlightEcosystems(results));

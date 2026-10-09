@@ -208,6 +208,110 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         return methodHandle is { } handle ? CreateSelection(handle) : null;
     }
 
+    /// <summary>
+    /// Extracts the declarations of one Type without decoding any other Type.
+    /// Members are exactly those a complete declaration walk yields for that
+    /// Type at the same scope; receiver-contextual extension members declared
+    /// on other Types are not projected (see <see cref="DeclaresExtensionMethod"/>).
+    /// </summary>
+    /// <returns>The Type, or null when no Type has that full name or the
+    /// scope excludes it.</returns>
+    public ApiType? ExtractDeclaredType(string typeName, bool includeAll)
+    {
+        _ensureAlive();
+        TypeDefinitionHandle typeHandle = FindType(typeName);
+        if (typeHandle.IsNil)
+            return null;
+
+        int token = MetadataTokens.GetToken(typeHandle);
+        ApiSurface surface = ApiSurfaceExtractor.ExtractDeclarations(
+            _peReader,
+            includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
+            handle => handle == typeHandle);
+        return surface.Types.FirstOrDefault(
+            type => type.MetadataToken == token);
+    }
+
+    /// <summary>
+    /// Reports whether any static method in this image whose name matches
+    /// <paramref name="methodName"/> under <see cref="TypeMatcher.MatchesMemberName"/>
+    /// carries <c>[Extension]</c>. A complete API
+    /// surface projects such a method onto its receiver Type, so a caller that
+    /// selects members from <see cref="ExtractDeclaredType"/> must use the
+    /// complete surface when this returns true.
+    /// </summary>
+    public bool DeclaresExtensionMethod(string methodName)
+    {
+        _ensureAlive();
+        foreach (MethodDefinitionHandle handle in _reader.MethodDefinitions)
+        {
+            MethodDefinition method = _reader.GetMethodDefinition(handle);
+            if ((method.Attributes & MethodAttributes.Static) == 0
+                || !TypeMatcher.MatchesMemberName(
+                    _reader.GetString(method.Name),
+                    methodName))
+            {
+                continue;
+            }
+            if (AttributeReader.HasExtensionAttribute(
+                    _reader,
+                    method.GetCustomAttributes()))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Returns the TypeDef token of the Type whose full metadata name is
+    /// <paramref name="typeName"/> when no other Type in the image is an exact
+    /// <see cref="TypeMatcher.Lookup"/> match for that name; otherwise null.
+    /// </summary>
+    /// <remarks>
+    /// Surface Type lookup takes the first exact match
+    /// (<see cref="TypeMatcher.MatchesExactTypeName"/>) in surface order, which a
+    /// case-variant or dotted-suffix name such as <c>A.Outer.Widget</c> can win
+    /// over <c>Outer.Widget</c>. Base-name matches such as <c>Task`1</c> for
+    /// <c>Task</c> are consulted only when no exact match exists, so a unique
+    /// exact candidate is the Type that lookup selects whenever it is in scope.
+    /// </remarks>
+    public int? FindUniqueLookupTypeToken(string typeName)
+    {
+        _ensureAlive();
+        if (TypeMatcher.IsTypeGlobPattern(typeName))
+            return null;
+
+        // A rejected name traversal anywhere in the image returns null, so the
+        // complete route owns that row's failure report.
+        TypeDefinitionHandle selected = default;
+        foreach (var handle in _reader.TypeDefinitions)
+        {
+            if (_reader.ResolveFullTypeName(handle)
+                is not RelationshipTraversalResult<string>.Completed { Value: var name })
+                return null;
+            if (selected.IsNil && name == typeName)
+                selected = handle;
+            else if (TypeMatcher.MatchesExactTypeName(name, typeName))
+                return null;
+        }
+
+        if (selected.IsNil)
+            return null;
+
+        foreach (var handle in _reader.ExportedTypes)
+        {
+            if (_reader.ResolveFullTypeName(handle)
+                    is not RelationshipTraversalResult<string>.Completed { Value: var name }
+                || TypeMatcher.MatchesExactTypeName(name, typeName))
+                return null;
+        }
+
+        return MetadataTokens.GetToken(selected);
+    }
+
     public bool ContainsType(string typeName)
     {
         _ensureAlive();

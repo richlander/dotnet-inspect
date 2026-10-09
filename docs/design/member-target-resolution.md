@@ -27,6 +27,29 @@ Diagnostics are typed (`MemberTargetDiagnosticKind`) and include candidate
 anchors for ambiguous or out-of-range selections. CLI commands should render the
 diagnostic instead of falling back to partial string matching.
 
+## Assembly-context exact selection
+
+`ApiSurfaceMemberSelection` owns exact type, declaration, and physical body
+selection over one complete API surface. Its member request carries the escaped
+structured type identity, member name, owner-issued opaque selector key, and
+optional image-local metadata token. A matching token may identify the
+declaration or body in the selected image; when reference and implementation
+row numbers differ, the owner-issued selector is the structural fallback.
+
+`AssemblyContextMemberSelectionQuery` composes that selection over one
+caller-authorized participant. The caller supplies explicit API-surface bounds
+and retains ownership of the participant, workspace lifetime, and acquisition
+authority. The query performs one bounded `IncludeAll` projection, refuses to
+select from a truncated surface, and returns the participant-scoped type,
+declaration, or physical body through the ordinary `AssemblyContextEntry<T>`
+outcome. A caller that already projected the complete surface uses
+`ApiSurfaceMemberSelection` directly rather than repeating that work.
+
+Inspect Web uses this operation after its package or Platform workspace has
+selected the participant. Web continues to own browser bounds and protected
+scope leases, but it does not reconstruct exact type, declaration, or body
+matching rules.
+
 ## Identity ownership
 
 Member identity has two related vocabularies:
@@ -65,6 +88,11 @@ authority for the API identity grammar.
 - Body evidence should flow through `ResearchMemberIdentity`, which formats
   `MethodIdentity` subjects and API-derived `ResolvedMemberTarget` body aliases
   with the same canonical spelling.
+- Assembly-context consumers should use
+  `AssemblyContextMemberSelectionQuery` for an already-issued opaque selector
+  instead of projecting an API surface solely to reimplement exact matching.
+  Consumers that already require the complete surface use
+  `ApiSurfaceMemberSelection`.
 - `MemberAnchor` remains the durable user/agent-facing identity; producer-native
   references remain producer evidence and should not be replaced by selectors.
 - The resolver lives in `ILInspector.Metadata`, so it stays SRM-only and has no
@@ -73,3 +101,47 @@ authority for the API identity grammar.
   anchor-construction helpers in producers. Add or extend the owning identity
   layer instead, then cover the bridge with a round-trip or alias-vs-subject
   test.
+
+## Selected-Type population
+
+`MemberTargetResolver` selects within one `ApiType`, so its result depends only
+on that Type's members. A member request whose sections read only the selected
+member therefore resolves over a surface built from the selected Type's own
+declarations. Those sections are Signature, IL, Custom Attributes, Exception
+Regions, Source Locations, and Fidelity Causes. The extractor skips every other
+Type during the same image walk, and the CLI skips forwarded-Type resolution,
+which only the complete surface consumes. Overload ordinals keep the
+displayed-signature order and scope of the complete route.
+
+A request keeps the complete surface when it:
+
+- includes any other section, or uses discovery, a caller scope, or a deferred
+  Type or member;
+- selects more than one member or uses a wildcard member name;
+- targets an image that declares a same-named extension method, which the
+  complete surface projects onto receiver Types;
+- names a Type that the metadata owner cannot find by full name, such as a
+  forwarded Type;
+- names a Type for which surface Type lookup (`TypeMatcher.Lookup`) also
+  treats another TypeDef or exported Type as an exact match: a case variant,
+  or a dotted suffix such as `A.Outer.Widget` for `Outer.Widget`. Lookup takes
+  the first exact match in surface order. It consults base-name matches, such
+  as `JsonValue` and ``JsonValue`1``, only when no exact match exists, so those
+  siblings keep the selected-Type surface;
+- targets an image whose Type-name scan rejects a malformed row, such as a
+  nested-Type or exported-Type cycle. The complete route reports that row and
+  still renders the selected member.
+
+When the selected Type is out of scope, for example a hidden Type without
+`--all`, the selected-Type surface is empty. The CLI then rebuilds the complete
+surface so the not-found report keeps its suggestions.
+
+These requests report failures of the work they perform. They do not report
+diagnostics of an API-surface extraction they no longer run, such as unbound
+type forwarders elsewhere in the image. Across 12,144 requests (the six
+sections, first and last overload ordinals, both scopes, five shared-framework
+assemblies), output is byte-identical to the complete route except in 1,152
+System.Text.Json requests. Those drop the rejected-row warning and exit 0
+instead of 1. `MemberSingleTypeSurfaceTests` gates section parity, suffix-colliding
+and generic-arity sibling Types, malformed unrelated rows, the empty-surface
+rebuild, and the absence of forwarded-Type resolution.

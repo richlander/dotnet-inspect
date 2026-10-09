@@ -343,6 +343,7 @@ public sealed class NavigationRestorationPreparationTests
 
     [Theory]
     [InlineData("ecosystem.unknown")]
+    [InlineData("package.libraries")]
     [InlineData("package.overview")]
     public async Task
         CanonicalRestoration_RejectsUnknownOrInapplicableEcosystemLens(
@@ -493,6 +494,7 @@ public sealed class NavigationRestorationPreparationTests
 
     [Theory]
     [InlineData("type.unknown")]
+    [InlineData("package.libraries")]
     [InlineData("package.overview")]
     public async Task
         CanonicalRestoration_RejectsUnknownOrInapplicableExactLens(

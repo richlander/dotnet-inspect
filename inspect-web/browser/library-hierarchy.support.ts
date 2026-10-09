@@ -982,6 +982,7 @@ async function installFacades(
             diagnostics: [],
           },
           documents: surface.documents,
+          defaultLibraryId: surface.defaultAssemblyId,
           surface: {
           ...surfaceFor(id, version, framework),
           package: id,
@@ -3510,7 +3511,9 @@ async function installFacades(
             }
             return view?.u?.k === "package"
               && view?.r?.k === "package"
-              && (view?.f === undefined || view.f === "package.overview");
+              && (view?.f === undefined
+                || view.f === "package.libraries"
+                || view.f === "package.overview");
           });
           if (!workspaceSupported || !tabsSupported) {
             return {
@@ -3519,7 +3522,7 @@ async function installFacades(
               failure: {
                 kind: "UnsupportedDefinition",
                 path: "packet.view.active",
-                message: "Source-free complete Workspace link activation currently supports only Workspace or Package Overview selections.",
+                message: "Source-free complete Workspace link activation currently supports only Workspace or default Package selections.",
               },
             };
           }

@@ -34,6 +34,8 @@ internal static class MemberSearchService
     {
         bool hasFailures = false;
         void MarkFailure() => hasFailures = true;
+        MemberFindAcceptedRows? acceptedRows =
+            CreateAcceptedRows(options);
         MemberFindQuestion question =
             MemberFindQuestion.Create(
                 patterns,
@@ -41,7 +43,8 @@ internal static class MemberSearchService
                     ? FindVisibility.All
                     : FindVisibility.Public,
                 options.TypeFilter,
-                options.Limit);
+                acceptedRows?.End ?? options.Limit,
+                acceptedRows);
         if (platformWorkspace is not null)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -67,6 +70,14 @@ internal static class MemberSearchService
             {
                 SourceSelectionIncomplete =
                     options.PackagePrefixLimitReached,
+                InputRows = CreateAcceptedReceipt(
+                    options,
+                    acceptedRows,
+                    block.AcceptedCount),
+                ExactRowCount =
+                    options.Count
+                        ? block.AcceptedCount
+                        : null,
             };
         }
 
@@ -85,9 +96,9 @@ internal static class MemberSearchService
                     logger.Log,
                     cancellationToken,
                     FindSourceCollector.CreateWorkspacePlan(options));
-            List<MemberFindResult> configuredResults =
+            MemberCollection configuredResult =
                 configured is null
-                ? []
+                ? new([], 0)
                 : await CollectMembersAsync(
                     options,
                     question,
@@ -97,26 +108,48 @@ internal static class MemberSearchService
                     cancellationToken);
             if (configured is null)
                 MarkFailure();
-            return new(configuredResults, hasFailures)
+            return new(configuredResult.Rows, hasFailures)
             {
                 SourceSelectionIncomplete =
                     options.PackagePrefixLimitReached,
+                InputRows = CreateAcceptedReceipt(
+                    options,
+                    acceptedRows,
+                    configuredResult.AcceptedCount),
+                ExactRowCount =
+                    options.Count
+                        ? configuredResult.AcceptedCount
+                        : null,
             };
         }
 
         if (explicitWorkspace is not null)
         {
-            return new(
+            MemberCollection explicitResult =
                 await CollectMembersAsync(
                     options,
-                    patterns,
+                    question,
                     logger,
                     explicitWorkspace,
-                    MarkFailure),
+                    MarkFailure);
+            return new(
+                explicitResult.Rows,
                 hasFailures)
             {
                 SourceSelectionIncomplete =
                     options.PackagePrefixLimitReached,
+                InputRows = CreateAcceptedReceipt(
+                    options,
+                    acceptedRows,
+                    explicitResult.AcceptedCount),
+                ExactRowCount =
+                    options.Count
+                        ? explicitResult.AcceptedCount
+                        : null,
+                Completion =
+                    hasFailures
+                        ? FindSearchCompletion.Incomplete
+                        : FindSearchCompletion.Exhausted,
             };
         }
 
@@ -126,25 +159,119 @@ internal static class MemberSearchService
                 httpClient,
                 logger.Log,
                 cancellationToken);
-        return new(
+        MemberCollection ownedResult =
             await CollectMembersAsync(
                 options,
-                patterns,
+                question,
                 logger,
                 ownedWorkspace,
-                MarkFailure),
+                MarkFailure);
+        return new(
+            ownedResult.Rows,
             hasFailures)
         {
             SourceSelectionIncomplete =
                 options.PackagePrefixLimitReached,
+            InputRows = CreateAcceptedReceipt(
+                options,
+                acceptedRows,
+                ownedResult.AcceptedCount),
+            ExactRowCount =
+                options.Count
+                    ? ownedResult.AcceptedCount
+                    : null,
+            Completion =
+                hasFailures
+                    ? FindSearchCompletion.Incomplete
+                    : FindSearchCompletion.Exhausted,
         };
     }
+
+    private static MemberFindAcceptedRows? CreateAcceptedRows(
+        FindOptions options)
+    {
+        if (options.Count)
+        {
+            return options.QueryPlan?.InputRows is { } input
+                ? new(
+                    input.Start,
+                    input.End,
+                    materializeRows: false)
+                : new(
+                    start: 1,
+                    end: null,
+                    materializeRows: false);
+        }
+        if (options.InputRows is { } window)
+        {
+            return new(
+                window.Start,
+                window.End,
+                materializeRows: true);
+        }
+        if (options.Limit is int limit)
+        {
+            return new(
+                start: 1,
+                limit,
+                materializeRows: true);
+        }
+
+        return null;
+    }
+
+    private static FindAcceptedRowReceipt? CreateAcceptedReceipt(
+        FindOptions options,
+        MemberFindAcceptedRows? acceptedRows,
+        int acceptedCount) =>
+        !options.Count
+        && acceptedRows is
+            {
+                MaterializeRows: true,
+                End: int end,
+            }
+            ? new(
+                new(
+                    acceptedRows.Start,
+                    end),
+                acceptedCount)
+            : null;
 
     /// <summary>
     /// Resolves configured sources and searches their members through typed
     /// participant queries.
     /// </summary>
-    private static async Task<List<MemberFindResult>> CollectMembersAsync(
+    private static async Task<MemberCollection> CollectMembersAsync(
+        FindOptions options,
+        MemberFindQuestion question,
+        VerboseLogger logger,
+        ExplicitFindSearchWorkspace workspace,
+        Action markFailure)
+    {
+        if (question.AcceptedRows is null)
+        {
+            List<MemberFindResult> rows =
+                await CollectCompatibilityMembersAsync(
+                    options,
+                    question.Patterns
+                        .Select(static pattern => pattern.Text)
+                        .ToArray(),
+                    logger,
+                    workspace,
+                    markFailure);
+            return new(rows, rows.Count);
+        }
+
+        return await CollectSelectiveMembersAsync(
+            options,
+            question,
+            logger,
+            workspace,
+            markFailure);
+    }
+
+    private static async Task<List<MemberFindResult>>
+        CollectCompatibilityMembersAsync(
         FindOptions options,
         IReadOnlyList<string> patterns,
         VerboseLogger logger,
@@ -194,7 +321,111 @@ internal static class MemberSearchService
         return results;
     }
 
-    private static async Task<List<MemberFindResult>> CollectMembersAsync(
+    private static async Task<MemberCollection>
+        CollectSelectiveMembersAsync(
+            FindOptions options,
+            MemberFindQuestion question,
+            VerboseLogger logger,
+            ExplicitFindSearchWorkspace workspace,
+            Action markFailure)
+    {
+        MemberFindAcceptedRows acceptedRows =
+            question.AcceptedRows
+            ?? throw new InvalidOperationException(
+                "Selective Member collection requires accepted-row intent.");
+        List<MemberFindResult> results = [];
+        int acceptedCount = 0;
+        bool ReachedEnd() =>
+            acceptedRows.End is int end
+            && acceptedCount >= end;
+
+        await workspace.RunPerAssemblyAsync(
+            AssemblyContextMemberAcceptedRowsQuery.Definition,
+            group =>
+            {
+                int localStart =
+                    Math.Max(
+                        1,
+                        acceptedRows.Start
+                            - acceptedCount);
+                int? localEnd =
+                    acceptedRows.End is int end
+                        ? end - acceptedCount
+                        : null;
+                return AssemblyContextMemberAcceptedRowsQuery
+                    .Execute(
+                        group,
+                        [
+                            .. question.Patterns.Select(
+                                static pattern =>
+                                    pattern.Text),
+                        ],
+                        question.Visibility,
+                        new(
+                            localStart,
+                            localEnd,
+                            acceptedRows.MaterializeRows),
+                        question.DeclaringTypeFilter);
+            },
+            (assembly, entry) =>
+            {
+                switch (entry)
+                {
+                    case AssemblyContextEntry<
+                        MemberSearchWindowResult>.Available
+                            available:
+                        MemberSearchWindowResult value =
+                            available.Value;
+                        acceptedCount =
+                            checked(
+                                acceptedCount
+                                + value.AcceptedCount);
+                        AddMembers(
+                            results,
+                            SearchAssemblySource
+                                .FromAssemblySet(
+                                    assembly),
+                            value.Results,
+                            options.OnMemberRow);
+                        WriteInspectionFailures(
+                            SearchAssemblySource
+                                .FromAssemblySet(
+                                    assembly),
+                            value.InspectionFailures,
+                            logger,
+                            markFailure);
+                        break;
+                    case AssemblyContextEntry<
+                        MemberSearchWindowResult>.Rejected
+                            rejected:
+                        markFailure();
+                        CommandError.WriteWarning(
+                            $"Could not read {assembly.Path}: "
+                            + rejected.Failure.Detail);
+                        break;
+                    case AssemblyContextEntry<
+                        MemberSearchWindowResult>.Failed
+                            failed:
+                        markFailure();
+                        CommandError.WriteWarning(
+                            $"Could not read {assembly.Path}: "
+                            + failed.Error.Message);
+                        break;
+                }
+            },
+            (assembly, failure) =>
+            {
+                markFailure();
+                CommandError.WriteWarning(
+                    $"Could not read {assembly.Path}: {failure}");
+            },
+            markFailure,
+            ReachedEnd);
+
+        return new(results, acceptedCount);
+    }
+
+    private static async Task<MemberCollection> CollectMembersAsync(
         FindOptions options,
         MemberFindQuestion question,
         VerboseLogger logger,
@@ -202,7 +433,6 @@ internal static class MemberSearchService
         Action markFailure,
         CancellationToken cancellationToken)
     {
-        List<MemberFindResult> results = [];
         ConfiguredPackageSearchQueryResult<
             MemberFindSemanticPopulation>? execution =
                 await workspace.QuerySurfaceAsync(
@@ -217,18 +447,19 @@ internal static class MemberSearchService
         if (execution is null)
         {
             markFailure();
-            return results;
+            return new([], 0);
         }
         if (execution.Sources is not { } sources
             || execution.Result is not { } population)
         {
-            return results;
+            return new([], 0);
         }
 
         MemberFindBlock block =
             FindSemanticReducer.ReduceMember(
                 question,
                 population);
+        List<MemberFindResult> results = [];
         AddMembers(
             results,
             block,
@@ -239,7 +470,41 @@ internal static class MemberSearchService
             sources.SourceFor,
             logger,
             markFailure);
-        return results;
+        return new(results, block.AcceptedCount);
+    }
+
+    private sealed record MemberCollection(
+        List<MemberFindResult> Rows,
+        int AcceptedCount);
+
+    private static void AddMembers(
+        List<MemberFindResult> results,
+        SearchAssemblySource assembly,
+        IReadOnlyList<MemberSearchResult> members,
+        Action<MemberFindResult>? onRow)
+    {
+        foreach (MemberSearchResult member in members)
+        {
+            var row = new MemberFindResult
+            {
+                Pattern = member.Pattern,
+                Match = member.IsGlob
+                    ? MemberFindMatchKind.Glob
+                    : MemberFindMatchKind.Direct,
+                Member = member.MemberName,
+                Kind = member.Kind,
+                DeclaringType = member.DeclaringType,
+                Namespace =
+                    member.DeclaringNamespace ?? "",
+                Signature = member.Signature,
+                ReturnType = member.ReturnType,
+                Library = assembly.Library,
+                Source = assembly.Source,
+                SourceVersion = assembly.SourceVersion,
+            };
+            results.Add(row);
+            onRow?.Invoke(row);
+        }
     }
 
     private static void AddMembers(

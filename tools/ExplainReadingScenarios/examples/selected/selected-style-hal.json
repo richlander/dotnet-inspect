@@ -1,0 +1,510 @@
+{
+  "kind": "value-vocabulary",
+  "name": "C# Style Choices",
+  "summary": "Selectable product-owned C# rendering choices.",
+  "_links": {
+    "self": {
+      "href": "inspect-resource:/vocabularies/csharp.style-choices?projection=hal",
+      "title": "C# Style Choices",
+      "type": "application/hal+json"
+    },
+    "describedby": {
+      "href": "inspect-resource:/vocabularies/csharp.style-choices?projection=contract",
+      "title": "Explanation schema for client development",
+      "type": "application/json"
+    },
+    "vocabularies": [
+      {
+        "href": "inspect-resource:/vocabularies/csharp.style-tiers?projection=hal",
+        "title": "C# Style Tiers",
+        "type": "application/hal+json"
+      }
+    ]
+  },
+  "members": "17",
+  "accepted_by": [
+    "decompiler.style-picker",
+    "decompiler.render"
+  ],
+  "maps": [
+    {
+      "identity": "option",
+      "name": "Option",
+      "summary": "Owning style option identity.",
+      "value-kind": "text",
+      "target-vocabulary": null,
+      "cardinality": "exactly-one",
+      "coverage": "complete"
+    },
+    {
+      "identity": "value",
+      "name": "Value",
+      "summary": "Selected value token on the owning option axis.",
+      "value-kind": "text",
+      "target-vocabulary": null,
+      "cardinality": "exactly-one",
+      "coverage": "complete"
+    },
+    {
+      "identity": "tier",
+      "name": "Tier",
+      "summary": "Owning fidelity/presentation tier.",
+      "value-kind": "term",
+      "target-vocabulary": "csharp.style-tiers",
+      "cardinality": "exactly-one",
+      "coverage": "complete"
+    },
+    {
+      "identity": "byte_divergent",
+      "name": "Byte Divergent",
+      "summary": "Whether this choice may change emitted IL bytes.",
+      "value-kind": "boolean",
+      "target-vocabulary": null,
+      "cardinality": "exactly-one",
+      "coverage": "complete"
+    },
+    {
+      "identity": "oracle_endorsed",
+      "name": "Oracle Endorsed",
+      "summary": "Whether the declared runtime style oracle endorses this choice.",
+      "value-kind": "boolean",
+      "target-vocabulary": null,
+      "cardinality": "exactly-one",
+      "coverage": "complete"
+    },
+    {
+      "identity": "corpus_endorsed",
+      "name": "Corpus Endorsed",
+      "summary": "Whether the runtime source corpus endorses this choice.",
+      "value-kind": "boolean",
+      "target-vocabulary": null,
+      "cardinality": "exactly-one",
+      "coverage": "complete"
+    },
+    {
+      "identity": "conflict_group",
+      "name": "Conflict Group",
+      "summary": "Product-owned mutually-exclusive selection group.",
+      "value-kind": "text",
+      "target-vocabulary": null,
+      "cardinality": "optional-one",
+      "coverage": "complete"
+    }
+  ],
+  "defaults": [],
+  "id": "csharp.style-choices",
+  "property_sets": {
+    "byte_divergent": [
+      "guarded-boolean-return-style:conditional-expression",
+      "guarded-boolean-return-style:branchless"
+    ],
+    "oracle_endorsed": [
+      "qualify-field-access",
+      "qualify-property-access",
+      "qualify-method-access",
+      "qualify-event-access",
+      "guarded-boolean-return-style:conditional-expression"
+    ],
+    "corpus_endorsed": [
+      "wrap-splittable-expressions"
+    ]
+  },
+  "property_groups": {
+    "conflict_group": {
+      "guarded-boolean-return-style": [
+        "guarded-boolean-return-style:conditional-expression",
+        "guarded-boolean-return-style:branchless"
+      ],
+      "var-spelling-style": [
+        "var-spelling-style:var-for-built-in-types",
+        "var-spelling-style:var-when-type-apparent",
+        "var-spelling-style:var-elsewhere"
+      ]
+    }
+  },
+  "_embedded": {
+    "values": [
+      {
+        "kind": "vocabulary-value",
+        "name": "Use IL slot local names",
+        "summary": "Keep V_index for a local that has no PDB source name instead of synthesizing a readable name.",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/vocabularies/csharp.style-choices/values/slot-local-names",
+            "title": "Use IL slot local names",
+            "type": "application/json"
+          }
+        },
+        "id": "slot-local-names",
+        "option": "slot-local-names",
+        "value": "true",
+        "tier": "Synthesis"
+      },
+      {
+        "kind": "vocabulary-value",
+        "name": "Prefer approximate PDB local names",
+        "summary": "When exact scoped identity cannot be represented, use a deterministic collision-resolved name associated with the physical PDB slot; fidelity remains Partial.",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/vocabularies/csharp.style-choices/values/approximate-pdb-local-names",
+            "title": "Prefer approximate PDB local names",
+            "type": "application/json"
+          }
+        },
+        "id": "approximate-pdb-local-names",
+        "option": "approximate-pdb-local-names",
+        "value": "true",
+        "tier": "Synthesis"
+      },
+      {
+        "kind": "vocabulary-value",
+        "name": "Wrap long boolean chains",
+        "summary": "Break a long short-circuit &&/|| chain across lines instead of one very wide line (whitespace only).",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/vocabularies/csharp.style-choices/values/wrap-splittable-expressions",
+            "title": "Wrap long boolean chains",
+            "type": "application/json"
+          }
+        },
+        "id": "wrap-splittable-expressions",
+        "option": "wrap-splittable-expressions",
+        "value": "true",
+        "tier": "Formatting"
+      },
+      {
+        "kind": "vocabulary-value",
+        "name": "Keep one-liners on one line",
+        "summary": "Suppress the always-on width wrappers (long fluent chains and long member signatures) so a wide construct stays on a single physical line instead of wrapping (whitespace only).",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/vocabularies/csharp.style-choices/values/disable-one-liner-wrapping",
+            "title": "Keep one-liners on one line",
+            "type": "application/json"
+          }
+        },
+        "id": "disable-one-liner-wrapping",
+        "option": "disable-one-liner-wrapping",
+        "value": "true",
+        "tier": "Formatting"
+      },
+      {
+        "kind": "vocabulary-value",
+        "name": "Wrap expression-body arrow",
+        "summary": "Wrap the => of an expression-bodied member or accessor onto the next line instead of keeping it on the declaration line (whitespace only).",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/vocabularies/csharp.style-choices/values/wrap-expression-body-arrow",
+            "title": "Wrap expression-body arrow",
+            "type": "application/json"
+          }
+        },
+        "id": "wrap-expression-body-arrow",
+        "option": "wrap-expression-body-arrow",
+        "value": "true",
+        "tier": "Formatting"
+      },
+      {
+        "kind": "vocabulary-value",
+        "name": "Qualify field access with this.",
+        "summary": "Render this. on an instance field even where the bare name is unambiguous (IL-identical).",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/vocabularies/csharp.style-choices/values/qualify-field-access",
+            "title": "Qualify field access with this.",
+            "type": "application/json"
+          }
+        },
+        "id": "qualify-field-access",
+        "option": "qualify-field-access",
+        "value": "true",
+        "tier": "Spelling"
+      },
+      {
+        "kind": "vocabulary-value",
+        "name": "Qualify property access with this.",
+        "summary": "Render this. on an instance property even where the bare name is unambiguous (IL-identical).",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/vocabularies/csharp.style-choices/values/qualify-property-access",
+            "title": "Qualify property access with this.",
+            "type": "application/json"
+          }
+        },
+        "id": "qualify-property-access",
+        "option": "qualify-property-access",
+        "value": "true",
+        "tier": "Spelling"
+      },
+      {
+        "kind": "vocabulary-value",
+        "name": "Qualify method access with this.",
+        "summary": "Render this. on an instance method call even where the bare name is unambiguous (IL-identical).",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/vocabularies/csharp.style-choices/values/qualify-method-access",
+            "title": "Qualify method access with this.",
+            "type": "application/json"
+          }
+        },
+        "id": "qualify-method-access",
+        "option": "qualify-method-access",
+        "value": "true",
+        "tier": "Spelling"
+      },
+      {
+        "kind": "vocabulary-value",
+        "name": "Qualify event access with this.",
+        "summary": "Render this. on an instance event even where the bare name is unambiguous (IL-identical).",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/vocabularies/csharp.style-choices/values/qualify-event-access",
+            "title": "Qualify event access with this.",
+            "type": "application/json"
+          }
+        },
+        "id": "qualify-event-access",
+        "option": "qualify-event-access",
+        "value": "true",
+        "tier": "Spelling"
+      },
+      {
+        "kind": "vocabulary-value",
+        "name": "Guarded boolean return style · Conditional expression (ternary)",
+        "summary": "How to render a declined guarded boolean return: the byte-faithful flat if/return (default), the oracle-preferred ternary return c ? A : B; (byte-divergent), or the compact short-circuit \"bool hack\" (byte-divergent, not oracle-endorsed).",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/vocabularies/csharp.style-choices/values/guarded-boolean-return-style.conditional-expression",
+            "title": "Guarded boolean return style · Conditional expression (ternary)",
+            "type": "application/json"
+          }
+        },
+        "id": "guarded-boolean-return-style:conditional-expression",
+        "option": "guarded-boolean-return-style",
+        "value": "conditional-expression",
+        "tier": "Lens"
+      },
+      {
+        "kind": "vocabulary-value",
+        "name": "Guarded boolean return style · Branchless \"bool hack\"",
+        "summary": "How to render a declined guarded boolean return: the byte-faithful flat if/return (default), the oracle-preferred ternary return c ? A : B; (byte-divergent), or the compact short-circuit \"bool hack\" (byte-divergent, not oracle-endorsed).",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/vocabularies/csharp.style-choices/values/guarded-boolean-return-style.branchless",
+            "title": "Guarded boolean return style · Branchless \"bool hack\"",
+            "type": "application/json"
+          }
+        },
+        "id": "guarded-boolean-return-style:branchless",
+        "option": "guarded-boolean-return-style",
+        "value": "branchless",
+        "tier": "Lens"
+      },
+      {
+        "kind": "vocabulary-value",
+        "name": "var vs. explicit type · var for built-in types",
+        "summary": "When to spell a local declaration with var instead of its explicit type: never (explicit, the default), for built-in types, when the type is apparent from the initializer, and/or elsewhere. Byte-neutral; the three var categories are independent, matching the csharp_style_var_* editorconfig keys.",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/vocabularies/csharp.style-choices/values/var-spelling-style.var-for-built-in-types",
+            "title": "var vs. explicit type · var for built-in types",
+            "type": "application/json"
+          }
+        },
+        "id": "var-spelling-style:var-for-built-in-types",
+        "option": "var-spelling-style",
+        "value": "var-for-built-in-types",
+        "tier": "Spelling"
+      },
+      {
+        "kind": "vocabulary-value",
+        "name": "var vs. explicit type · var when the type is apparent",
+        "summary": "When to spell a local declaration with var instead of its explicit type: never (explicit, the default), for built-in types, when the type is apparent from the initializer, and/or elsewhere. Byte-neutral; the three var categories are independent, matching the csharp_style_var_* editorconfig keys.",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/vocabularies/csharp.style-choices/values/var-spelling-style.var-when-type-apparent",
+            "title": "var vs. explicit type · var when the type is apparent",
+            "type": "application/json"
+          }
+        },
+        "id": "var-spelling-style:var-when-type-apparent",
+        "option": "var-spelling-style",
+        "value": "var-when-type-apparent",
+        "tier": "Spelling"
+      },
+      {
+        "kind": "vocabulary-value",
+        "name": "var vs. explicit type · var elsewhere",
+        "summary": "When to spell a local declaration with var instead of its explicit type: never (explicit, the default), for built-in types, when the type is apparent from the initializer, and/or elsewhere. Byte-neutral; the three var categories are independent, matching the csharp_style_var_* editorconfig keys.",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/vocabularies/csharp.style-choices/values/var-spelling-style.var-elsewhere",
+            "title": "var vs. explicit type · var elsewhere",
+            "type": "application/json"
+          }
+        },
+        "id": "var-spelling-style:var-elsewhere",
+        "option": "var-spelling-style",
+        "value": "var-elsewhere",
+        "tier": "Spelling"
+      },
+      {
+        "kind": "vocabulary-value",
+        "name": "Use explicit object creation",
+        "summary": "Keep the constructed type in new T(...) instead of shortening to target-typed new(...) where the assignment target already supplies it.",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/vocabularies/csharp.style-choices/values/explicit-object-creation",
+            "title": "Use explicit object creation",
+            "type": "application/json"
+          }
+        },
+        "id": "explicit-object-creation",
+        "option": "object-creation-style",
+        "value": "explicit",
+        "tier": "Spelling"
+      },
+      {
+        "kind": "vocabulary-value",
+        "name": "Shared enum case-label order",
+        "summary": "Order named enum labels that share one switch body alphabetically (default) or by recovered numeric value. Byte-neutral; mixed or unnamed labels keep value order.",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/vocabularies/csharp.style-choices/values/enum-case-label-order",
+            "title": "Shared enum case-label order",
+            "type": "application/json"
+          }
+        },
+        "id": "enum-case-label-order",
+        "option": "enum-case-label-order",
+        "value": "value",
+        "tier": "Spelling"
+      },
+      {
+        "kind": "vocabulary-value",
+        "name": "Use explicit long literal casts",
+        "summary": "Render compiler-shaped long constants as explicit (long)N casts instead of the default terse spelling: NL when a marker is required, or bare N when a binary sibling fixes long promotion. Genuine ldc.i8 sources keep their current spelling.",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/vocabularies/csharp.style-choices/values/explicit-long-literal-cast",
+            "title": "Use explicit long literal casts",
+            "type": "application/json"
+          }
+        },
+        "id": "explicit-long-literal-cast",
+        "option": "prefer-long-literal-suffix",
+        "value": "false",
+        "tier": "Spelling"
+      }
+    ],
+    "vocabularies": [
+      {
+        "kind": "value-vocabulary",
+        "name": "C# Style Tiers",
+        "summary": "Fidelity and presentation tiers used to group C# style choices.",
+        "_links": {
+          "self": {
+            "href": "inspect-resource:/vocabularies/csharp.style-tiers?projection=hal",
+            "title": "C# Style Tiers",
+            "type": "application/hal+json"
+          }
+        },
+        "members": "4",
+        "accepted_by": [
+          "decompiler.style-picker"
+        ],
+        "maps": [
+          {
+            "identity": "order",
+            "name": "Order",
+            "summary": "Product-owned presentation order.",
+            "value-kind": "integer",
+            "target-vocabulary": null,
+            "cardinality": "exactly-one",
+            "coverage": "complete"
+          },
+          {
+            "identity": "byte_divergent",
+            "name": "Byte Divergent",
+            "summary": "Whether every choice in the tier may change emitted IL bytes.",
+            "value-kind": "boolean",
+            "target-vocabulary": null,
+            "cardinality": "exactly-one",
+            "coverage": "complete"
+          }
+        ],
+        "defaults": [],
+        "id": "csharp.style-tiers",
+        "property_sets": {
+          "byte_divergent": [
+            "Lens"
+          ]
+        },
+        "property_groups": {},
+        "_embedded": {
+          "values": [
+            {
+              "kind": "vocabulary-value",
+              "name": "Formatting",
+              "summary": "Layout only — whitespace and line breaks. The code itself is unchanged, and compiles to identical IL.",
+              "_links": {
+                "self": {
+                  "href": "inspect-resource:/vocabularies/csharp.style-tiers/values/formatting",
+                  "title": "Formatting",
+                  "type": "application/json"
+                }
+              },
+              "id": "Formatting",
+              "order": "1"
+            },
+            {
+              "kind": "vocabulary-value",
+              "name": "Spelling",
+              "summary": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+              "_links": {
+                "self": {
+                  "href": "inspect-resource:/vocabularies/csharp.style-tiers/values/spelling",
+                  "title": "Spelling",
+                  "type": "application/json"
+                }
+              },
+              "id": "Spelling",
+              "order": "2"
+            },
+            {
+              "kind": "vocabulary-value",
+              "name": "Local naming",
+              "summary": "Readable or approximate display names for locals. Compiles to identical IL, but the selected names may not represent exact source identity.",
+              "_links": {
+                "self": {
+                  "href": "inspect-resource:/vocabularies/csharp.style-tiers/values/synthesis",
+                  "title": "Local naming",
+                  "type": "application/json"
+                }
+              },
+              "id": "Synthesis",
+              "order": "3"
+            },
+            {
+              "kind": "vocabulary-value",
+              "name": "Style lenses",
+              "summary": "Keeps what the code does, but not the exact bytes: this rendering recompiles to different IL than the shipped output, so it is excluded from byte-level fidelity checking.",
+              "_links": {
+                "self": {
+                  "href": "inspect-resource:/vocabularies/csharp.style-tiers/values/lens",
+                  "title": "Style lenses",
+                  "type": "application/json"
+                }
+              },
+              "id": "Lens",
+              "order": "4"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "data_scope": {
+    "completeness": "Complete"
+  }
+}

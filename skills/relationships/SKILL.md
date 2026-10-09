@@ -65,15 +65,24 @@ separate comparison evidence. An older platform-provided version produces
 
 ## What implements or extends it?
 
-`implements Interface` finds concrete implementors and subclasses;
-`extensions Type` finds extension methods. Add `--reachable` (with `--depth N`)
-to include extensions on types reachable through properties and methods.
+`type Interface -S Implementers` finds concrete implementors;
+`type Base -S "Derived Types"` finds subclasses. `extensions Type` finds
+extension methods. Add `--reachable` (with `--depth N`) to include extensions
+on types reachable through properties and methods.
 
 ```bash
-dnx dotnet-inspect -y -- implements IDisposable --platform
+dnx dotnet-inspect -y -- type IDisposable \
+  --platform System.Private.CoreLib -S Implementers
 dnx dotnet-inspect -y -- extensions HttpClient --platform --reachable
-dnx dotnet-inspect -y -- implements ILogger --package-prefix Microsoft.Extensions
-dnx dotnet-inspect -y -- implements IEquatable --project ./src/App/App.csproj -v:q
+packet=$(dnx dotnet-inspect -y -- workspace \
+  --package Microsoft.Extensions.Logging.Abstractions@10.0.0 \
+  --tfm net10.0 \
+  --register-package-prefix Microsoft.Extensions \
+  --share packet)
+dnx dotnet-inspect -y -- type Microsoft.Extensions.Logging.ILogger \
+  --workspace "$packet" -S Implementers
+dnx dotnet-inspect -y -- type IEquatable \
+  --project ./src/App/App.csproj -S Implementers -v:q
 dnx dotnet-inspect -y -- extensions string --project ./src/App/App.csproj -v:n
 ```
 

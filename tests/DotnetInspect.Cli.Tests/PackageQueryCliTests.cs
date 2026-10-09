@@ -1083,6 +1083,10 @@ public class PackageQueryCliTests
         Assert.Contains("Contoso.Third", result.Output);
         Assert.DoesNotContain("Contoso.First", result.Output);
         Assert.Contains("cross-prefix", result.Output);
+        Assert.Contains("package-prefix=Contoso", result.Output);
+        Assert.Contains(
+            "Dependency.One 1.0.0",
+            result.Output);
         Assert.Equal(3, fixture.ManifestRequests);
         Assert.Equal(0, fixture.PackageRequests);
         Assert.Empty(result.Error);
@@ -1139,8 +1143,9 @@ public class PackageQueryCliTests
         Assert.DoesNotContain("Contoso.First", result.Output);
         Assert.DoesNotContain("Contoso.Third", result.Output);
         Assert.Contains(
-            "\tOSMF\n",
+            "\tOSMF\t",
             result.Output.ReplaceLineEndings("\n"));
+        Assert.Contains("declaration-kind=File", result.Output);
         Assert.DoesNotContain("Nuspec license", result.Output);
         Assert.Equal(3, fixture.ManifestRequests);
         Assert.Equal(0, fixture.PackageRequests);
@@ -1653,7 +1658,9 @@ public class PackageQueryCliTests
             Assert.Equal(
                 "Dependency.One",
                 json.RootElement.GetProperty("answer").GetString());
-            Assert.False(json.RootElement.TryGetProperty("evidence", out _));
+            Assert.Contains(
+                "Dependency.One 1.0.0",
+                json.RootElement.GetProperty("evidence").GetString());
         }
     }
 
@@ -1701,9 +1708,9 @@ public class PackageQueryCliTests
     }
 
     [Theory]
-    [InlineData("markdown", "| Package | Version | Tier | Source | Answer |")]
-    [InlineData("table", "Package  Version  Tier  Source  Answer")]
-    [InlineData("tsv", "package\tversion\ttier\tsource\tanswer")]
+    [InlineData("markdown", "| Package | Version | Tier | Source | Answer | Evidence |")]
+    [InlineData("table", "Package  Version  Tier  Source  Answer  Evidence")]
+    [InlineData("tsv", "package\tversion\ttier\tsource\tanswer\tevidence")]
     [InlineData("jsonl", null)]
     [InlineData("json", "\"packages\": []")]
     public async Task ExplicitPackages_PreservesEmptyPackageShape(
@@ -2212,8 +2219,7 @@ public class PackageQueryCliTests
         Assert.Equal(
             PackageQuery.LibraryLiteralTermKey,
             explanationDocument.RootElement
-                .GetProperty("resources")[0]
-                .GetProperty("details")
+                .GetProperty("facts")
                 .GetProperty("key")
                 .GetString());
 
@@ -2535,7 +2541,10 @@ public class PackageQueryCliTests
         var result = await ConsoleCapture.RunAsync(() => PackageQueryCommand.ExecuteAsync(
             query, source, provider));
         Assert.Equal(invalidArchive ? 1 : 0, result.ExitCode);
-        Assert.Equal(1, fixture.PackageRequests);
+        // This handler declines ranges. The large valid archive uses the
+        // bounded probe/directory/complete fallback; the tiny invalid archive
+        // takes the small-package complete path directly.
+        Assert.Equal(invalidArchive ? 1 : 3, fixture.PackageRequests);
         Assert.True(fixture.Payload!.Disposed);
         if (invalidArchive)
             Assert.Contains("PackageContentAcquisition", result.Error);
@@ -2584,7 +2593,7 @@ public class PackageQueryCliTests
         await using (var provider = ContentProvider(fixture, operation))
         {
             var result = Assert.IsType<PackageQueryContentResult.Available>(
-                await provider.GetContentAsync(package, CancellationToken.None));
+                await provider.GetContentAsync(package, PackageQueryContentDemand.EntryContent, CancellationToken.None));
             root = Assert.IsType<string>(result.Content.RootPath);
             Assert.True(Directory.Exists(root));
         }
@@ -2595,7 +2604,7 @@ public class PackageQueryCliTests
         await using (var provider = ContentProvider(fixture, operation))
         {
             var result = Assert.IsType<PackageQueryContentResult.Available>(
-                await provider.GetContentAsync(package, CancellationToken.None));
+                await provider.GetContentAsync(package, PackageQueryContentDemand.EntryContent, CancellationToken.None));
             Assert.Equal(root, result.Content.RootPath);
         }
         Assert.Equal(1, fixture.PackageRequests);

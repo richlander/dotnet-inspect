@@ -418,7 +418,10 @@ windows, projections, and scalar Count use its complete child population.
 Every emitted child row carries the exact gesture that reaches the same
 Library occurrence or RID Package. Inspect Web transports the same document,
 uses its declaration Counts, and retains exact compile asset IDs for Library
-navigation. Explicit sections remain the opt-in sectioned Package views.
+navigation. Explicit sections remain the opt-in sectioned Package views. The
+View Facet Registry identifies this Content as `package.libraries`, which
+Navigation prefers for a Package subject
+([#9746](https://github.com/richlander/dotnet-inspect/issues/9746)).
 
 Library step 3 has adopted its compact native Tree for one resolved Library.
 Bare CLI `library L`, `--tree`, and `-v:m` render the Library owner's default
@@ -450,8 +453,13 @@ extension rows and their `member` gesture remain open: the MemberGroup
 population does not yet attach receiver extensions, so the `JsonElement`
 extension gate below stays unverified. An explicit `-v:m` on `type` still
 keeps the standard route, because the planner treats an explicit verbosity as a
-format gesture. That, exact Type resolution failures, and retirement of the
-Library-listing fallback also remain open.
+format gesture. That standard route now gives its selected `ApiMember` values
+to shared Presentation, which preserves its structural nodes, logical-overload
+collapse, explicit-verbosity expansion, limits, headings, and C# spelling while
+streaming the native Tree without a CLI-built Markout graph. This is a lowering
+boundary only; the planned Composition Count adoption still owns any change
+from logical-overload headings to declaration Counts. Exact Type resolution
+failures and retirement of the Library-listing fallback also remain open.
 
 ## Gates
 

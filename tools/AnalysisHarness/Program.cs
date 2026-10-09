@@ -32,6 +32,11 @@ const string Usage =
           over the public System.Text.StringBuilder.AppendFormat family in one immutable image.
           Reports elapsed time, allocated bytes, work receipts, and participating stages.
 
+      --method-fusion <System.Private.CoreLib.dll> [--iterations N] [--json]
+          Compare shared and independent execution of the production direct-invocation and
+          Calls-row count producers. Requires exact result equality and a 2:1 reduction in
+          physical instruction-source openings and visits.
+
       --precision-sample <assembly> [--top N] [--json]
           Layer 3 precision: emit the top-N triage candidates as a labeling worksheet for sampled
           true/false-positive judgement. No automatic oracle.
@@ -130,6 +135,7 @@ bool list = false;
 string? recallAssembly = null;
 string? historicalPerformanceReference = null;
 string? implementationMetricAssembly = null;
+string? methodFusionAssembly = null;
 string? referenceFile = null;
 bool referenceFileSpecified = false;
 string? precisionAssembly = null;
@@ -237,6 +243,14 @@ for (int i = 0; i < args.Length; i++)
                 args,
                 ref i,
                 "--implementation-metrics",
+                missingValueOptions);
+            break;
+        case "--method-fusion":
+            selectedModes.Add("--method-fusion");
+            methodFusionAssembly = NextRequiredValue(
+                args,
+                ref i,
+                "--method-fusion",
                 missingValueOptions);
             break;
         case "--precision-sample":
@@ -591,10 +605,11 @@ if (maxDepthSpecified
     return 2;
 }
 if (iterationsSpecified
-    && !selectedModes.Contains("--implementation-metrics"))
+    && !selectedModes.Contains("--implementation-metrics")
+    && !selectedModes.Contains("--method-fusion"))
 {
     Console.Error.WriteLine(
-        "--iterations requires --implementation-metrics.");
+        "--iterations requires --implementation-metrics or --method-fusion.");
     return 2;
 }
 if (topSpecified
@@ -645,6 +660,14 @@ if (implementationMetricAssembly is not null)
 {
     return ImplementationMetricPerformance.Run(
         implementationMetricAssembly,
+        iterations,
+        json);
+}
+
+if (methodFusionAssembly is not null)
+{
+    return MethodFusionPerformance.Run(
+        methodFusionAssembly,
         iterations,
         json);
 }

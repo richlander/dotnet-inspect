@@ -89,6 +89,9 @@ public enum AssemblyAnalysisRejectionKind
 
     /// <summary>Session-owned admission found no managed metadata source.</summary>
     ManagedMetadataUnavailable,
+
+    /// <summary>A planned producer declared reference binding and the access carries none.</summary>
+    ReferenceBindingUnavailable,
 }
 
 /// <summary>Result of binding and executing one assembly analysis operation.</summary>
@@ -201,9 +204,23 @@ public sealed class AssemblyAnalysisService
                 AssemblyAnalysisRejectionKind.ManagedMetadataUnavailable);
         }
 
+        if ((operation.MethodDefinitions.DeclaredLayers
+                & MethodDefinitionLayers.ReferenceBinding) != 0
+            && access.ReferenceBinding is null)
+        {
+            return new AssemblyAnalysisServiceResult<TResult>.Rejected(
+                AssemblyAnalysisRejectionKind.ReferenceBindingUnavailable);
+        }
+
         AssemblyInspectionSubjectIdentity subject = access.Subject;
+        AssemblyReferenceBindingAccess? referenceBinding =
+            access.ReferenceBinding;
         return access.InspectImage(
-            peReader => Execute(operation, subject, peReader));
+            peReader => Execute(
+                operation,
+                subject,
+                peReader,
+                referenceBinding));
     }
 
     /// <summary>
@@ -227,7 +244,17 @@ public sealed class AssemblyAnalysisService
                 AssemblyAnalysisRejectionKind.ManagedMetadataUnavailable);
         }
 
+        if ((operation.MethodDefinitions.DeclaredLayers
+                & MethodDefinitionLayers.ReferenceBinding) != 0
+            && access.ReferenceBinding is null)
+        {
+            return new AssemblyAnalysisRequestSetServiceResult.Rejected(
+                AssemblyAnalysisRejectionKind.ReferenceBindingUnavailable);
+        }
+
         AssemblyInspectionSubjectIdentity subject = access.Subject;
+        AssemblyReferenceBindingAccess? referenceBinding =
+            access.ReferenceBinding;
         return access.InspectImage(
             peReader =>
                 new AssemblyAnalysisRequestSetServiceResult.Completed(
@@ -235,13 +262,15 @@ public sealed class AssemblyAnalysisService
                         operation.MethodDefinitions,
                         subject,
                         operation.SourceName,
-                        peReader)));
+                        peReader,
+                        referenceBinding)));
     }
 
     static AssemblyAnalysisServiceResult<TResult> Execute<TResult>(
         AssemblyAnalysisOperation<TResult> operation,
         AssemblyInspectionSubjectIdentity subject,
-        PEReader peReader)
+        PEReader peReader,
+        AssemblyReferenceBindingAccess? referenceBinding)
     {
         MethodDefinitionSourceRequest<TResult> request =
             operation.MethodDefinitions;
@@ -250,7 +279,8 @@ public sealed class AssemblyAnalysisService
                 request,
                 subject,
                 operation.SourceName,
-                peReader);
+                peReader,
+                referenceBinding);
         var execution = new AssemblyAnalysisExecution<TResult>(
             operation,
             subject,

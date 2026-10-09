@@ -347,9 +347,13 @@ holds. Shared links carry the canonical `:Platform` group version and selected l
 identity. An exact version bypasses discovery, keys retained Platform state
 separately from floating acquisition, and follows every later assembly and
 query operation; a different resident patch cannot satisfy it. A missing pin or
-the Browser `latest` sentinel remains floating and uses version discovery.
+the Browser `latest` sentinel remains floating and uses prerelease-inclusive
+version discovery, so a framework line can resolve before its stable platform
+pack is published.
 `PlatformWorkspace_ExactVersionSkipsDiscoveryAndDoesNotReuseLatestState` and
-`PlatformWorkspace_LatestSentinelUsesVersionDiscovery` gate those behaviors.
+`PlatformWorkspace_LatestSentinelUsesVersionDiscovery`, and
+`PlatformWorkspace_VersionlessDiscoveryAdmitsPrereleasePlatformLine` gate those
+behaviors.
 Initial member graphs use the same escaped definition identity as subsequent
 graph descent. Platform graph loads and descents also carry the target's
 complete assembly identity and reject an acquired root that is not
@@ -2709,7 +2713,9 @@ text escaping.
 - `Cmd/Ctrl+P` opens Spotlight in the All scope.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
 - Arrow keys select a Spotlight result, `Tab` cycles scopes, and `Enter`
-  completes or runs a command.
+  completes or runs a command. At the final All-scope result, Down Arrow
+  reveals the next already-known result batch without fetching more remote
+  matches.
 - Arrow keys or `j`/`k` navigate the type index.
 - Number keys switch the active scope's lenses when an input is not focused.
 - `share` copies the package, version, framework, library, type, and lens

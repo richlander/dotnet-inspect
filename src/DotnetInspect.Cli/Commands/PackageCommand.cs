@@ -299,7 +299,7 @@ public partial class PackageCommand
             // filter, so requiring -S here would force the caller to name a section that is then
             // ignored. LensProjection answers the projection for those modes instead, and -S is
             // rejected outright below rather than silently dropped.
-            var lensMode = options.ListVersions || options.ListTfms
+            var lensMode = options.ListVersions
                 || options.ShowContent;
             var dependencyHierarchyProjection = options.Tree
                 && options.Discover == null
@@ -319,7 +319,6 @@ public partial class PackageCommand
                     || options.Tree))
             {
                 var lensName = options.ListVersions ? "--versions"
-                    : options.ListTfms ? "--tfms"
                     : "--content";
                 if (options.Tree
                     && !options.SelectExplicitlySet)
@@ -332,8 +331,6 @@ public partial class PackageCommand
 
             string? packageLens = options.ListVersions
                 ? GetVersionQueryLens(options)
-                : options.ListTfms
-                    ? "--tfms"
                     : options.ShowContent
                         ? "--content"
                         : null;
@@ -531,6 +528,23 @@ public partial class PackageCommand
                 options,
                 context,
                 workspaceLoadOptions).ConfigureAwait(false);
+        }
+
+        if (packageArgs.Length == 1)
+        {
+            PackageReferenceTarget houseTarget =
+                options.DeclaredPackageTarget
+                ?? PackageExtractor.ParsePackageTarget(
+                    packageArgs[0],
+                    explicitVersion);
+            int? readmeResult =
+                await TryWriteHouseReadmeSectionAsync(
+                        houseTarget,
+                        options,
+                        context)
+                    .ConfigureAwait(false);
+            if (readmeResult is { } exitCode)
+                return exitCode;
         }
 
         if (options.ShowContent && packageArgs.Length == 1)
@@ -1236,20 +1250,25 @@ public partial class PackageCommand
             // Update version from resolution (may have been auto-discovered)
             version = resolution.Version ?? version;
 
-            // Handle --tfms mode: list target frameworks and exit early
-            if (options.ListTfms)
-                return ListPackageTfms(extractPath, options);
+            bool lightweightTargetFrameworks = options.Discover is null
+                && options.IncludeSections is { Count: 1 }
+                && options.IncludeSections.Contains(PackageSections.TargetFrameworks)
+                && (!options.JsonOutput || options.Count);
 
             bool wantsEcosystemDependencies =
                 RequestsPackageEcosystemDependencies(
                     producerOptions,
                     pipeline);
 
-            // Parse nuspec for full package inspection.
-            NuspecData? nuspec = FindPackageNuspecForInspection(
-                extractPath,
-                resolution,
-                wantsEcosystemDependencies);
+            // Typed JSON needs full inspection; local packages and Markdown titles need nuspec identity.
+            NuspecData? nuspec = lightweightTargetFrameworks
+                && !target.IsLocalFile
+                && (options.Count || options.Format != OutputFormat.Markdown)
+                ? null
+                : FindPackageNuspecForInspection(
+                    extractPath,
+                    resolution,
+                    wantsEcosystemDependencies);
 
             // Handle file content modes and exit early.
             if (options.ShowContent)
@@ -1353,7 +1372,14 @@ public partial class PackageCommand
                     producerOptions,
                     pipeline,
                     includeSignals: enrichesSignals);
-            var result = await PackageInspector.InspectAsync(
+            var result = lightweightTargetFrameworks
+                ? new InspectionResult
+                {
+                    PackageName = nuspec?.PackageName ?? packageName,
+                    Version = nuspec?.Version ?? version,
+                    TargetFrameworks = TfmSelector.GetPackageFrameworkFolders(extractPath),
+                }
+                : await PackageInspector.InspectAsync(
                 resolution, packageName, version, target.IsLocalFile,
                 target.IsLocalFile ? target.OriginalArgument : null,
                 nuspec, client, logger,
@@ -1376,7 +1402,7 @@ public partial class PackageCommand
                     admittedPackageInfoMeasurements(),
                     logger.Log);
             }
-            else
+            else if (!lightweightTargetFrameworks)
             {
                 await ApplyPackageInfoMeasurementsAsync(
                     result,
@@ -1413,36 +1439,40 @@ public partial class PackageCommand
             await PopulatePackageSignatureAsync(
                 result,
                 resolution.NupkgPath,
-                ShouldVerifyPackageSignature(options, wantsSignals),
+                !lightweightTargetFrameworks && ShouldVerifyPackageSignature(options, wantsSignals),
                 logger.Log);
 
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
-            PopulatePackageFileSectionsLegacy(
-                result,
-                extractPath,
-                options);
+            if (!lightweightTargetFrameworks)
+                PopulatePackageFileSectionsLegacy(
+                    result,
+                    extractPath,
+                    options);
             if (ShouldPopulatePackageContentAudit(
                     producerOptions,
                     pipeline))
                 PopulatePackageContentAudit(result, extractPath);
-            PackageSourceQueryPlan sourceQueryPlan = CreatePackageSourceQueryPlan(
-                sectionCatalog,
-                queryCatalog,
-                producerOptions,
-                excludeUnbounded: effectiveDiscovery);
-            if (ShouldPopulatePackageSourceFiles(producerOptions)
-                || !sourceQueryPlan.SectionPlan.Queries.IsEmpty)
+            if (!lightweightTargetFrameworks)
             {
-                await PopulatePackageSourceLinkAsync(
-                    result,
-                    extractPath,
-                    packageName,
-                    version,
+                PackageSourceQueryPlan sourceQueryPlan = CreatePackageSourceQueryPlan(
+                    sectionCatalog,
+                    queryCatalog,
                     producerOptions,
-                    context,
-                    logger,
-                    sourceQueryPlan);
+                    excludeUnbounded: effectiveDiscovery);
+                if (ShouldPopulatePackageSourceFiles(producerOptions)
+                    || !sourceQueryPlan.SectionPlan.Queries.IsEmpty)
+                {
+                    await PopulatePackageSourceLinkAsync(
+                        result,
+                        extractPath,
+                        packageName,
+                        version,
+                        producerOptions,
+                        context,
+                        logger,
+                        sourceQueryPlan);
+                }
             }
 
             if (!effectiveDiscovery
@@ -1515,6 +1545,9 @@ public partial class PackageCommand
                         PortableQueryIntent.Empty);
                 return ((DependencyQueryPlanResult.Accepted)result).Plan;
             }
+
+            if (!TrySelectPackageTargetFrameworks(result, options))
+                return 1;
 
             // Filter output based on options
             FilterResultForOutput(result, options);

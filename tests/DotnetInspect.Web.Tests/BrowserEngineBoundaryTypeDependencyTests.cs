@@ -87,14 +87,15 @@ public sealed partial class BrowserEngineBoundaryTests
             "Browser.TypeDependencies.Workspace.Consumer";
         Type dependency = typeof(IPackagePayloadReservation);
 
-        _ = await Coordinate(
+        BrowserPackageCoordinate rootCoordinate = await ArtifactCoordinate(
             rootPackageId,
             Package(
                 BuildTypeDependencyImage(
                     rootAssemblyName,
                     typeName,
                     dependency),
-                $"lib/net11.0/{rootAssemblyName}.dll"));
+                $"lib/net11.0/{rootAssemblyName}.dll"),
+            TestContext.Current.CancellationToken);
         _ = await Coordinate(
             dependencyPackageId,
             Package(
@@ -157,27 +158,24 @@ public sealed partial class BrowserEngineBoundaryTests
             workspace.ExactTypeInspection.Content.Type?.FullName);
         Assert.IsType<InspectionShare.Available>(
             workspace.ExactTypeInspection.Share);
-        InspectionEnvelope<ExactTypeInspectionResult> direct =
-            await ExactTypeInspectionOperation.ExecuteAsync(
-                new ExactTypeInspectionRequest(
-                    rootPackageId,
-                    "1.0.0",
-                    "net11.0",
-                    typeName),
-                new WorkspaceContextLoadOptions
-                {
-                    HttpClient = BrowserPackageWorkspace.NetworkClient,
-                    SourceAuthorization =
-                        BrowserPackageWorkspace.PackageSourceAuthorization,
-                    PackageStore =
-                        BrowserPackageWorkspace.SessionPackageStore,
-                    PackageTransferPolicy =
-                        BrowserPackageWorkspace.PackageTransferPolicy,
-                    PayloadLimits =
-                        BrowserPackageWorkspace.PackageLimits,
-                },
-                BrowserApiSurfacePolicy.Limits,
+        await using BrowserInspectionScope directScope =
+            await BrowserInspectionScope.CreateAsync(
+                [rootCoordinate],
                 TestContext.Current.CancellationToken);
+        InspectionEnvelope<ExactTypeInspectionResult> direct =
+            await directScope.UsePackageAssemblyRoles(
+                rootCoordinate,
+                (inspectionWorkspace, package, realization) =>
+                    ExactTypeInspectionOperation.ExecuteAsync(
+                        inspectionWorkspace,
+                        package,
+                        realization,
+                        new ExactTypeInspectionRequest(
+                            rootPackageId,
+                            "1.0.0",
+                            "net11.0",
+                            typeName),
+                        BrowserApiSurfacePolicy.Limits));
         Assert.Equal(
             JsonSerializer.Serialize(
                 direct,
@@ -208,7 +206,7 @@ public sealed partial class BrowserEngineBoundaryTests
         const string packageId = "Browser.ExactType.Bounds";
         const string selectedType = "Browser.Bounds.Selected";
         const string omittedType = "Browser.Bounds.Omitted";
-        _ = await Coordinate(
+        BrowserPackageCoordinate coordinate = await ArtifactCoordinate(
             packageId,
             PackageEntries(
                 ("lib/net11.0/First.dll",
@@ -220,7 +218,8 @@ public sealed partial class BrowserEngineBoundaryTests
                     BuildTypeDependencyImage(
                         "Browser.Bounds.Second",
                         omittedType,
-                        typeof(IAsyncDisposable)))));
+                        typeof(IAsyncDisposable)))),
+            TestContext.Current.CancellationToken);
         var limits = new ApiSurfaceProjectionLimits(
             maxParticipants: 2,
             maxTypes: 1,
@@ -228,39 +227,38 @@ public sealed partial class BrowserEngineBoundaryTests
             maxInspectionFailures: 100,
             maxTypeForwarders: 100,
             maxMetadataRows: 10_000);
-        WorkspaceContextLoadOptions capabilities = new()
-        {
-            HttpClient = BrowserPackageWorkspace.NetworkClient,
-            SourceAuthorization =
-                BrowserPackageWorkspace.PackageSourceAuthorization,
-            PackageStore =
-                BrowserPackageWorkspace.SessionPackageStore,
-            PackageTransferPolicy =
-                BrowserPackageWorkspace.PackageTransferPolicy,
-            PayloadLimits =
-                BrowserPackageWorkspace.PackageLimits,
-        };
-
+        await using BrowserInspectionScope scope =
+            await BrowserInspectionScope.CreateAsync(
+                [coordinate],
+                TestContext.Current.CancellationToken);
         InspectionEnvelope<ExactTypeInspectionResult> selected =
-            await ExactTypeInspectionOperation.ExecuteAsync(
-                new ExactTypeInspectionRequest(
-                    packageId,
-                    "1.0.0",
-                    "net11.0",
-                    selectedType),
-                capabilities,
-                limits,
-                TestContext.Current.CancellationToken);
+            await scope.UsePackageAssemblyRoles(
+                coordinate,
+                (workspace, package, realization) =>
+                    ExactTypeInspectionOperation.ExecuteAsync(
+                        workspace,
+                        package,
+                        realization,
+                        new ExactTypeInspectionRequest(
+                            packageId,
+                            "1.0.0",
+                            "net11.0",
+                            selectedType),
+                        limits));
         InspectionEnvelope<ExactTypeInspectionResult> unavailable =
-            await ExactTypeInspectionOperation.ExecuteAsync(
-                new ExactTypeInspectionRequest(
-                    packageId,
-                    "1.0.0",
-                    "net11.0",
-                    omittedType),
-                capabilities,
-                limits,
-                TestContext.Current.CancellationToken);
+            await scope.UsePackageAssemblyRoles(
+                coordinate,
+                (workspace, package, realization) =>
+                    ExactTypeInspectionOperation.ExecuteAsync(
+                        workspace,
+                        package,
+                        realization,
+                        new ExactTypeInspectionRequest(
+                            packageId,
+                            "1.0.0",
+                            "net11.0",
+                            omittedType),
+                        limits));
 
         Assert.Equal(
             ExactTypeInspectionOutcome.Unavailable,

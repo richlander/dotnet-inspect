@@ -519,13 +519,16 @@ public partial class PackageQueryTests
         : IPackageQueryContentProvider
     {
         public List<string> Requests { get; } = [];
+        public List<PackageQueryContentDemand> Demands { get; } = [];
 
         public ValueTask<PackageQueryContentResult> GetContentAsync(
             PackageQueryPackage package,
+            PackageQueryContentDemand demand,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Requests.Add(package.PackageId);
+            Demands.Add(demand);
             return ValueTask.FromResult<PackageQueryContentResult>(
                 content.TryGetValue(
                     package.PackageId,

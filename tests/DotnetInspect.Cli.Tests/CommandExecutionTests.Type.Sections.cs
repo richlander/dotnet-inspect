@@ -77,6 +77,151 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_HierarchyJsonReturnsTheSelectedRelationDocument()
+    {
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.Implementers,
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement rows =
+            document.RootElement.GetProperty("implementers");
+        Assert.Equal(4, rows.GetArrayLength());
+        Assert.Equal(
+            typeof(WorkspaceImplementation).FullName!,
+            rows[0].GetProperty("type").GetString());
+        Assert.Equal(
+            "DotnetInspect.Cli.Tests",
+            rows[0].GetProperty("library").GetString());
+    }
+
+    [Fact]
+    public async Task Type_HierarchyJsonAppliesTheSelectedRowRange()
+    {
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.Implementers,
+            "--rows",
+            "2..2",
+            "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            "Hierarchy relation output reached the CLI row bound and is "
+                + "incomplete.",
+            error,
+            StringComparison.Ordinal);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(
+                document.RootElement
+                    .GetProperty("implementers")
+                    .EnumerateArray());
+        Assert.Equal(
+            typeof(WorkspaceImplementationA).FullName!,
+            row.GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public async Task Type_HierarchyJsonRejectsColumnProjection()
+    {
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            SectionNames.Implementers,
+            "--columns",
+            "NoSuchColumn",
+            "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("cannot be combined with --json", error);
+    }
+
+    [Fact]
+    public async Task Type_HierarchyJsonRejectsMixedTypeSections()
+    {
+        string assembly =
+            typeof(IWorkspaceImplementationMarker).Assembly.Location;
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            assembly,
+            "--all",
+            "-S",
+            $"{SectionNames.TypeInfo},{SectionNames.Implementers}",
+            "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Hierarchy Document --json cannot combine",
+            error);
+    }
+
+    [Fact]
+    public async Task
+        Type_PlatformHierarchyDoesNotDuplicateTheExactFocusAssembly()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "IJsonTypeInfoResolver",
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            SectionNames.Implementers,
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        string[] rows =
+        [
+            .. document.RootElement
+                .GetProperty("implementers")
+                .EnumerateArray()
+                .Select(row => row.GetProperty("type").GetString()!),
+        ];
+        Assert.Equal(2, rows.Length);
+        Assert.Equal(2, rows.Distinct(StringComparer.Ordinal).Count());
+        Assert.Contains(
+            "System.Text.Json.Serialization.JsonSerializerContext",
+            rows);
+        Assert.Contains(
+            "System.Text.Json.Serialization.Metadata."
+                + "DefaultJsonTypeInfoResolver",
+            rows);
+    }
+
+    [Fact]
     public async Task
         Type_HierarchyRetainsPackageInternalLibrarySelection()
     {
@@ -373,64 +518,6 @@ public partial class CommandExecutionTests
             "cannot select tail rows without materializing the complete "
                 + "relation population",
             error);
-    }
-
-    [Fact]
-    public async Task
-        Type_ImplementersMatchesLegacyImplementsResultSetForLocalFixture()
-    {
-        string assembly =
-            typeof(IWorkspaceImplementationMarker).Assembly.Location;
-        string target =
-            typeof(IWorkspaceImplementationMarker).FullName!;
-
-        var legacy = await RunAppAsync(
-            "implements",
-            target,
-            "--library",
-            assembly,
-            "--all",
-            "--json");
-        var hierarchy = await RunAppAsync(
-            "type",
-            target,
-            "--library",
-            assembly,
-            "--all",
-            "-S",
-            SectionNames.Implementers,
-            "--rows",
-            "100",
-            "--jsonl");
-
-        Assert.Equal(0, legacy.Exit);
-        Assert.Equal(0, hierarchy.Exit);
-        Assert.Empty(legacy.Error);
-        Assert.Empty(hierarchy.Error);
-        using JsonDocument legacyDocument =
-            JsonDocument.Parse(legacy.Output);
-        string[] legacyTypes =
-        [
-            .. legacyDocument.RootElement
-                .EnumerateArray()
-                .Select(row => row.GetProperty("type").GetString()!),
-        ];
-        string[] hierarchyTypes =
-        [
-            .. hierarchy.Output
-                .Split(
-                    Environment.NewLine,
-                    StringSplitOptions.RemoveEmptyEntries)
-                .Select(line =>
-                {
-                    using JsonDocument row = JsonDocument.Parse(line);
-                    return row.RootElement
-                        .GetProperty("type")
-                        .GetString()!;
-                }),
-        ];
-
-        Assert.Equal(legacyTypes, hierarchyTypes);
     }
 
     [Fact]
@@ -1529,6 +1616,29 @@ public partial class CommandExecutionTests
             "DotnetInspect.Cli.Tests.ExactTypeDiscoveryExtensions.IExtensionOnlyTarget",
             "--library",
             TestAssemblyPath,
+            "-D",
+            SectionCategoryNames.Audit,
+            "--tsv");
+
+        Assert.True(exit == 0, $"Discovery failed: {error}");
+        Assert.Empty(error);
+        Assert.Contains(
+            $"{SectionNames.SafetyFacts}\tsection",
+            output);
+    }
+
+    [Fact]
+    public async Task
+        Type_AuditDiscoveryResolvesNestedTypeStateMachines()
+    {
+        // Task+WhenEachState declares an async iterator, so its state machine
+        // is nested under a nested source Type.
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Threading.Tasks.Task+WhenEachState",
+            "--library",
+            typeof(System.Threading.Tasks.Task).Assembly.Location,
+            "--all",
             "-D",
             SectionCategoryNames.Audit,
             "--tsv");

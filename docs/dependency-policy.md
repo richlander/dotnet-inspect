@@ -151,11 +151,19 @@ The checked-in rules provide full gate coverage for these dependency claims:
    assembly edges. Its home-demo call-graph path reaches the host-neutral
    projection through Web Core, so both graph rules reject a direct
    `ILInspector.Analysis` dependency.
-11. The Inspect Web Source facade cannot expand beyond its current thirteen
-    evaluated project edges or its current twenty-five repository and external
+11. The Inspect Web Metadata facade cannot expand beyond its current twelve
+    evaluated project edges or its current twenty repository and external
+    assembly edges. Queries owns exact type, declaration, and physical-body
+    selection over bounded participant surfaces, so both graph rules reject
+    the facade's retired direct `ILInspector.Analysis` dependency.
+12. The Inspect Web Source facade cannot expand beyond its current thirteen
+    evaluated project edges or its current twenty-four repository and external
     assembly edges. Services projects detached resolved and attributable browse
     URLs from typed PDB source inspections, so both graph rules reject the
-    retired direct `ILInspector.SourceLink` dependency.
+    retired direct `ILInspector.SourceLink` dependency. Metadata, Decompiler,
+    Queries, and Research project logical-member and physical-MethodDef values
+    before the facade boundary, so the assembly rule also rejects the retired
+    `ILInspector.MetadataPrimitives` dependency.
 
 Claims not represented by a JSON rule remain unverified by this gate. Changing
 an allowed set requires changing the rule's cited owner contract or showing

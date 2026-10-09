@@ -16,12 +16,26 @@ public sealed record WorkspacePackageInspectionContent(
 
 public partial class PackageCommand
 {
-    static readonly ViewFacetId ExactPackageDefaultFacet =
+    static readonly ViewFacetId ExactPackageLibrariesFacet =
+        InspectionViewFacetCatalog.Registry
+            .GetRequiredDescriptor(
+                StructuralSubjectKind.Package,
+                ViewFacetRole.PackageLibraries)
+            .Id;
+
+    static readonly ViewFacetId ExactPackageOverviewFacet =
         InspectionViewFacetCatalog.Registry
             .GetRequiredDescriptor(
                 StructuralSubjectKind.Package,
                 ViewFacetRole.PackageOverview)
             .Id;
+
+    // The share names the facet the command rendered: the default Libraries
+    // Tree, or the section document for any other Package selection.
+    static ViewFacetId ExactPackageShareFacet(InspectionOptions options) =>
+        IsPackageChildrenProjection(options)
+            ? ExactPackageLibrariesFacet
+            : ExactPackageOverviewFacet;
 
     static async Task<int> ExecuteWorkspaceExactPackageAsync(
         InspectionOptions options,
@@ -104,7 +118,7 @@ public partial class PackageCommand
                                 options,
                                 context,
                                 target),
-                            facet: ExactPackageDefaultFacet,
+                            facet: ExactPackageShareFacet(options),
                             shareRefusal).ConfigureAwait(false);
             if (operation
                 is SelectedContextExactPackageEvidenceOperationResult<
@@ -402,13 +416,11 @@ public partial class PackageCommand
         }
 #if DEBUG
         if (options.EvidenceEnvelopePath is not null
-            && (options.ListTfms
-                || options.ShowContent))
+            && options.ShowContent)
         {
             CommandError.Write(
                 "--evidence-envelope requires section-based Package "
-                    + "inspection; it cannot combine with --tfms, "
-                    + "or --content.");
+                    + "inspection; it cannot combine with --content.");
             return false;
         }
 #endif
@@ -446,7 +458,6 @@ public partial class PackageCommand
         if (options.ShareFormat is null)
             return null;
         if (options.ListVersions
-            || options.ListTfms
             || options.ShowContent
             || options.Discover is not null
             || options.PackageLibrary is not null

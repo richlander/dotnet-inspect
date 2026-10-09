@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 
 using DotnetInspector.PackageQueries;
@@ -13,6 +14,65 @@ using NuGetFetch;
 using PackageQueries = DotnetInspector.PackageQueries;
 
 namespace DotnetInspector.Sections;
+
+public sealed record PackageDependencyMemberCallGraphPlatformPruning
+{
+    const string DotNetRuntimeFramework = "Microsoft.NETCore.App";
+
+    PackageDependencyMemberCallGraphPlatformPruning(
+        PlatformFamilyTarget target,
+        PlatformPruneInventory inventory)
+    {
+        Target = target;
+        Inventory = inventory;
+    }
+
+    public PlatformFamilyTarget Target { get; }
+
+    public PlatformPruneInventory Inventory { get; }
+
+    public static bool TryCreateDotNetRuntime(
+        PlatformPruneInventory? inventory,
+        [NotNullWhen(true)]
+        out PackageDependencyMemberCallGraphPlatformPruning? pruning)
+    {
+        pruning = null;
+        if (inventory is null
+            || !PlatformTargetFramework.TryParse(
+                inventory.TargetFramework,
+                out PlatformTargetFramework? targetFramework))
+        {
+            return false;
+        }
+
+        string[] families =
+        [
+            .. inventory.Families.Select(
+                static family => family.Name),
+        ];
+        if (families is not [var family]
+            || !family.Equals(
+                DotNetRuntimeFramework,
+                StringComparison.OrdinalIgnoreCase)
+            || !inventory.TryGetExactFamilyTargetVersion(
+                DotNetRuntimeFramework,
+                out string targetVersion)
+            || !PlatformVersion.TryParse(
+                targetVersion,
+                out PlatformVersion? version))
+        {
+            return false;
+        }
+
+        pruning = new(
+            new PlatformFamilyTarget(
+                PlatformFamily.DotNetRuntime,
+                targetFramework,
+                version),
+            inventory);
+        return true;
+    }
+}
 
 public sealed record PackageDependencyMemberCallGraphInspectionFocus
 {
@@ -55,7 +115,9 @@ public sealed record PackageDependencyMemberCallGraphInspectionRequest
         PackageAssemblyContextRealizationOptions? realizationOptions = null,
         PackageSupplyChainBaseline supplyChainBaseline =
             PackageSupplyChainBaseline.Nothing,
-        WorkspacePlan? workspacePlan = null)
+        WorkspacePlan? workspacePlan = null,
+        PackageDependencyMemberCallGraphPlatformPruning?
+            platformPruning = null)
     {
         ArgumentNullException.ThrowIfNull(root);
         ArgumentNullException.ThrowIfNull(focus);
@@ -92,6 +154,17 @@ public sealed record PackageDependencyMemberCallGraphInspectionRequest
         }
         SupplyChainBaseline = supplyChainBaseline;
         WorkspacePlan = workspacePlan ?? WorkspacePlan.Empty;
+        if (platformPruning is not null
+            && !string.Equals(
+                platformPruning.Target.TargetFramework.ToString(),
+                traversalTargetPolicy.TargetFramework,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "Dependency call-graph Platform pruning must describe the traversal target framework.",
+                nameof(platformPruning));
+        }
+        PlatformPruning = platformPruning;
     }
 
     public PackageRootBinding Root { get; }
@@ -118,6 +191,9 @@ public sealed record PackageDependencyMemberCallGraphInspectionRequest
     public PackageSupplyChainBaseline SupplyChainBaseline { get; }
 
     public WorkspacePlan WorkspacePlan { get; }
+
+    public PackageDependencyMemberCallGraphPlatformPruning?
+        PlatformPruning { get; }
 }
 
 public sealed class PackageDependencyMemberCallGraphInspectionSource
@@ -188,9 +264,16 @@ public sealed class PackageDependencyMemberCallGraphInspectionSource
 public sealed record PackageDependencyMemberCallGraphInspectionPreparation(
     PackageDependencyMemberCallGraphInspectionRequest Request,
     PackageDependencyMemberCallGraphInspectionSource Source,
-    PackageDependencyTraversalOutcome Traversal,
-    ImmutableArray<PackageDependencyEdgeRealizationExecution>
-        EdgeExecutions);
+    PackageDependencyTraversalOutcome Traversal)
+{
+    public ImmutableArray<PackageDependencyEdgeRealizationExecution>
+        PrepareEdgeExecutions(
+            MemberCallGraphFocalScopeReceipt focalScope) =>
+        PackageDependencyMemberCallGraphInspection.PrepareExecutions(
+            Request,
+            Traversal,
+            focalScope);
+}
 
 public abstract class
     PackageDependencyMemberCallGraphInspectionContinuation
@@ -406,16 +489,13 @@ public static class PackageDependencyMemberCallGraphInspection
                     cancellationToken,
                     traversalOperation)
                 .ConfigureAwait(false);
-        ImmutableArray<PackageDependencyEdgeRealizationExecution>
-            executions = PrepareExecutions(request, traversal);
         if (continuation is not null)
         {
             return await continuation.ExecuteAsync(
                     new(
                         request,
                         source,
-                        traversal,
-                        executions),
+                        traversal),
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -477,6 +557,15 @@ public static class PackageDependencyMemberCallGraphInspection
                     DescribeScopeOperation(rootAdmission)));
         }
 
+        MemberCallGraphFocalScopeReceipt focalScope =
+            MemberCallGraphFocalScopeReceipt.CaptureEverything(
+                rootedScope,
+                registration.Revision);
+        ImmutableArray<PackageDependencyEdgeRealizationExecution>
+            executions = PrepareExecutions(
+                request,
+                traversal,
+                focalScope);
         var lowerRequest =
             new PackageDependencyMemberCallGraphRequest(
                 workspace,
@@ -531,17 +620,37 @@ public static class PackageDependencyMemberCallGraphInspection
         string detail) =>
         Envelope(Unavailable(reason, detail));
 
-    static ImmutableArray<PackageDependencyEdgeRealizationExecution>
+    internal static ImmutableArray<
+        PackageDependencyEdgeRealizationExecution>
         PrepareExecutions(
             PackageDependencyMemberCallGraphInspectionRequest request,
-            PackageDependencyTraversalOutcome traversal)
+            PackageDependencyTraversalOutcome traversal,
+            MemberCallGraphFocalScopeReceipt focalScope)
     {
+        ArgumentNullException.ThrowIfNull(focalScope);
         var executions =
             ImmutableArray.CreateBuilder<
                 PackageDependencyEdgeRealizationExecution>();
+        PackageDependencyMemberCallGraphPlatformPruning? pruning =
+            request.PlatformPruning;
+        bool platformPruningApplies =
+            pruning is not null
+            && focalScope.PlatformPopulations.Any(
+                static population =>
+                    population.Family
+                        == PlatformFamily.DotNetRuntime
+                    && population.Ecosystem.Ecosystem.Declaration.Id.Value
+                        == "ecosystem.runtime");
         PackageHouseTargetContext target =
             PackageHouseTargetContext.Exact(
-                request.TraversalTargetPolicy.TargetFramework);
+                request.TraversalTargetPolicy.TargetFramework,
+                platformTarget: platformPruningApplies
+                    ? pruning!.Target
+                    : null);
+        PlatformPruneInventory? inventory =
+            platformPruningApplies
+                ? pruning!.Inventory
+                : null;
         for (var rootIndex = 0;
             rootIndex < traversal.Roots.Length;
             rootIndex++)
@@ -567,7 +676,8 @@ public static class PackageDependencyMemberCallGraphInspection
                             rootIndex,
                             edgeIndex,
                             request.RealizationOperation,
-                            target)));
+                            target,
+                            inventory)));
             }
         }
 

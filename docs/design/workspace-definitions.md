@@ -787,9 +787,12 @@ retained view state. It changes only the owner-required active scenario state:
 3. Existing valid retained descendant context remains; otherwise the state
    carries explicit Package-only retained context required by an active Package
    request.
-4. A projectable Package facet or query choice is retained. The ordinary
-   overview maps to `package.overview`; an unsupported choice produces the
-   ordinary Share refusal rather than a substituted default.
+4. A projectable Package facet or query choice is retained. The default
+   Package Tree maps to `package.libraries` and any other projectable Package
+   selection maps to `package.overview`
+   ([View Facet Registry](view-facet-registry.md#package-libraries-facet)); an
+   unsupported choice produces the ordinary Share refusal rather than a
+   substituted default.
 
 Schemas 3 and 4 are valid packet inputs for ordinary Package inspection and
 derived Package Share because both already represent an active Package. The

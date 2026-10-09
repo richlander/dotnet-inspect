@@ -522,7 +522,7 @@ clone-assisted differ.
 | `ILInspector.MetadataPrimitives` and Metadata | Neutral string-distance currency, decoded exact names, and metadata safety |
 | [Workspace Scope and Expansion](workspace-scope-and-expansion.md) | Exact Workspace revision, registrations, participant outcomes, and lifetime |
 | Structural Clone Search Scope | Seed populations, candidate breadth and discovery, name-filter admission, pair suppression, global ranking composition, and coverage |
-| Queries | Focused execution over retained Workspace participants |
+| Queries | Focused execution and owner-issued seed binding over retained Workspace participants |
 | [Clone Candidates presentation](clone-candidate-presentation.md) | Portable globally ranked candidate document and Query-result adapter |
 | [Comparison Document](comparison-document.md) | Portable one-root comparison composition after an explicit pair selection, when adopted |
 | CLI host | Request binding, advanced work controls, Markout lowering, and disclosure |
@@ -555,6 +555,9 @@ The counted production-adoption path under #7213 has seven stages:
    or the implementation-backed Graph Member surface; it prefers an exact
    implementation identity, uses structural correspondence only for a
    reference-only match, and never compares MethodDef tokens across images.
+   `AssemblyContextStructuralCloneSeedQuery` owns that binding; the Browser
+   facade supplies retained participants, explicit surface limits, and
+   operation lifetime without observing or reconstructing API surfaces.
    Browser member projections carry the complete owner-issued anchor, including
    its declaring-type spelling, so consumers do not reconstruct it from the
    TypeDef identity or display text. The generated transport preserves

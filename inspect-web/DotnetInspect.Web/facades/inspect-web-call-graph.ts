@@ -49,6 +49,17 @@ export interface BrowserCallGraphNode {
   readonly memberName: string;
 }
 
+export interface BrowserCallGraphPruningInventory {
+  readonly tfm: string;
+  readonly version: string | null;
+  readonly supplies: ReadonlyArray<BrowserCallGraphPruningSupply> | null;
+}
+
+export interface BrowserCallGraphPruningSupply {
+  readonly package: string;
+  readonly version: string;
+}
+
 export interface BrowserCallGraphScope {
   readonly packages: number;
   readonly assemblies: number;
@@ -143,7 +154,7 @@ type $ManagedExports = {
           readonly "CallGraphExports": {
             readonly "ExpandPlatformCallGraph.232153955": (targetFramework: string, platformVersion: string, assembly: string, pack: string, assemblyVersion: string, assemblyCulture: string | null, assemblyPublicKeyToken: string | null, typeFullName: string, memberName: string, selectorKey: string, metadataToken: number, contextId: string | null) => Promise<string>;
             readonly "QueryDirectUseClusters.642387634": (sourcePackageId: string, sourceVersion: string, sourceTargetFramework: string, sourceAssembly: string, targetPackageId: string, targetVersion: string, targetTargetFramework: string, targetAssembly: string, selectedCluster: number) => Promise<string>;
-            readonly "QueryMemberCallGraph.1135530322": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, traversalTargetFramework: string) => Promise<string>;
+            readonly "QueryMemberCallGraph.861956385": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, traversalTargetFramework: string, pruningInventoryJson: string) => Promise<string>;
           };
         };
       };
@@ -224,9 +235,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "CallGraph");
     value = $ownDataProperty(value, "CallGraphExports");
-    value = $ownDataProperty(value, "QueryMemberCallGraph.1135530322");
+    value = $ownDataProperty(value, "QueryMemberCallGraph.861956385");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.CallGraph.CallGraphExports.QueryMemberCallGraph.1135530322\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.CallGraph.CallGraphExports.QueryMemberCallGraph.861956385\u0027 is not callable.");
     }
   }
 }
@@ -266,6 +277,20 @@ export function runEntryPoint(
   return $requireRuntime().runMain(mainAssemblyName, args);
 }
 
+function $serializeJsonInput(
+  value: unknown,
+  operation: string,
+  parameter: string,
+): string {
+  const json = JSON.stringify(value);
+  if (json === undefined) {
+    throw new TypeError(
+      `${operation} parameter '${parameter}' could not be serialized as JSON.`,
+    );
+  }
+  return json;
+}
+
 export async function expandPlatformCallGraph(targetFramework: string, platformVersion: string, assembly: string, pack: string, assemblyVersion: string, assemblyCulture: string | null, assemblyPublicKeyToken: string | null, typeFullName: string, memberName: string, selectorKey: string, metadataToken: number, contextId: string | null): Promise<BrowserCallGraph> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["CallGraph"]["CallGraphExports"]["ExpandPlatformCallGraph.232153955"](targetFramework, platformVersion, assembly, pack, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, typeFullName, memberName, selectorKey, metadataToken, contextId);
   const $parsed: unknown = JSON.parse($result);
@@ -278,8 +303,8 @@ export async function queryDirectUseClusters(sourcePackageId: string, sourceVers
   return $parsed as BrowserDirectUseClusterInspection;
 }
 
-export async function queryMemberCallGraph(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, traversalTargetFramework: string): Promise<BrowserCallGraph> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["CallGraph"]["CallGraphExports"]["QueryMemberCallGraph.1135530322"](packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, traversalTargetFramework);
+export async function queryMemberCallGraph(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, traversalTargetFramework: string, pruningInventoryJson: BrowserCallGraphPruningInventory): Promise<BrowserCallGraph> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["CallGraph"]["CallGraphExports"]["QueryMemberCallGraph.861956385"](packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, traversalTargetFramework, $serializeJsonInput(pruningInventoryJson, "DotnetInspect.Web.Interop.CallGraph.CallGraphExports.QueryMemberCallGraph.861956385", "pruningInventoryJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserCallGraph;
 }

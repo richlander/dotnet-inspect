@@ -577,7 +577,8 @@ internal static class BrowserPackageWorkspace
         PackageSourceCoordinate coordinate,
         PackageHouseContentQuery query,
         IPackageSourceClient source,
-        BrowserPackageOperationDeadline deadline)
+        BrowserPackageOperationDeadline deadline,
+        IPackagePayloadTransferPolicy? transferPolicy = null)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
         ArgumentNullException.ThrowIfNull(query);
@@ -630,7 +631,7 @@ internal static class BrowserPackageWorkspace
                         : throw new InvalidOperationException(
                             "Portable PDB settlement requested another configured package source."),
                 PayloadLimits,
-                new BrowserPackageOperationTransferPolicy(
+                transferPolicy ?? new BrowserPackageOperationTransferPolicy(
                     store,
                     deadline)));
         return await house.ExecuteAsync(
@@ -1353,6 +1354,8 @@ internal static class BrowserPackageWorkspace
             int metadataToken,
             WorkspacePlan workspacePlan,
             PackageSupplyChainBaseline supplyChainBaseline,
+            PackageDependencyMemberCallGraphPlatformPruning?
+                platformPruning = null,
             CancellationToken cancellationToken = default) =>
         RunPackageOperationAsync(
             async deadline =>
@@ -1531,7 +1534,9 @@ internal static class BrowserPackageWorkspace
                             supplyChainBaseline:
                                 supplyChainBaseline,
                             workspacePlan:
-                                workspacePlan),
+                                workspacePlan,
+                            platformPruning:
+                                platformPruning),
                         inspectionSource,
                         continuation,
                         deadline.Token)
@@ -2852,10 +2857,12 @@ internal static class BrowserPackageWorkspace
     internal static ValueTask<PackageQueryContentResult>
         AcquirePackageQueryContentAsync(
             PackageQueryPackage package,
+            PackageQueryContentDemand demand,
             IPackageSourceClient source,
             BrowserPackageOperationDeadline deadline) =>
         AcquirePackageQueryContentAsync(
             package,
+            demand,
             source,
             ConfiguredSourceIdentityFor(source),
             deadline);
@@ -2863,6 +2870,7 @@ internal static class BrowserPackageWorkspace
     internal static async ValueTask<PackageQueryContentResult>
         AcquirePackageQueryContentAsync(
             PackageQueryPackage package,
+            PackageQueryContentDemand demand,
             IPackageSourceClient source,
             PackageSourceIdentity configuredSourceIdentity,
             BrowserPackageOperationDeadline deadline)
@@ -2879,6 +2887,15 @@ internal static class BrowserPackageWorkspace
         PackageSourcePayloadResult result;
         try
         {
+            if (demand.ContentQuery is { } query)
+            {
+                return PackageQueryContentResult.FromSettlement(
+                    await AcquireContentCoreAsync(
+                        coordinate, query, source, deadline,
+                        new BrowserPackageQueryTransferPolicy(
+                            new BrowserPackageOperationTransferPolicy(store, deadline)))
+                        .ConfigureAwait(false));
+            }
             result = await PackagePayloadAcquisition.AcquireAsync(
                     source,
                     configuredSourceIdentity,
@@ -5222,7 +5239,8 @@ internal sealed class BrowserPackage
     }
 
     /// <summary>
-    /// The package's browsable Markdown: a root <c>README.md</c>/<c>PACKAGE.md</c> and any
+    /// The package's browsable text: its preferred root <c>README.md</c> or
+    /// <c>PACKAGE.md</c>, the root <c>*.nuspec</c> metadata, and any
     /// <c>*.md</c> under a <c>skills</c> directory. Presence and size only; bodies are served by
     /// <see cref="ReadDocumentAsync"/>, which accepts only a path from this list, so no caller can
     /// coax an arbitrary entry — an assembly, a signature — out of the package.
@@ -5240,39 +5258,80 @@ internal sealed class BrowserPackage
         string packageId,
         string version)
     {
-        var documents = new List<BrowserPackageDocumentEntry>();
-        foreach (PackageContentEntry entry in entries)
+        PackageContentEntry[] snapshot = [.. entries];
+        PackagePrimaryDocumentResolution primaryDocument =
+            PackagePrimaryDocumentInspection.Execute(snapshot).Content;
+        if (primaryDocument.Status
+            == PackagePrimaryDocumentResolutionStatus.Ambiguous)
         {
-            string[] segments = entry.Path.Split('/');
-            string fileName = segments[^1];
-            bool isRoot = segments.Length == 1;
-            string? kind =
-                isRoot && fileName.Equals("README.md", StringComparison.OrdinalIgnoreCase) ? "readme"
-                : isRoot && fileName.Equals("PACKAGE.md", StringComparison.OrdinalIgnoreCase) ? "package"
-                : IsSkillDocumentPath(entry.Path) ? "skill"
-                : null;
-            if (kind is null)
-                continue;
-            if (entry.Length > PackageDocumentContentLimits.MaxDecodedBytes)
-            {
-                throw new InvalidOperationException(
-                    $"A browsable document in {packageId} {version} exceeds the browser byte "
-                    + "limit.");
-            }
+            throw new InvalidOperationException(
+                $"Package documentation path "
+                    + $"'{primaryDocument.CandidatePath}' is ambiguous in "
+                    + $"{packageId} {version}.");
+        }
 
-            documents.Add(new BrowserPackageDocumentEntry(
-                kind,
-                kind == "skill" ? SkillDisplayName(segments) : fileName,
-                entry.Path,
-                (int)entry.Length));
+        var documents = new List<BrowserPackageDocumentEntry>();
+        foreach (PackageContentEntry entry in snapshot)
+        {
+            if (PackagePrimaryDocument.IsConventionalPath(entry.Path)
+                && (primaryDocument.Entry is not { } selected
+                    || !entry.Path.Equals(
+                        selected.Path,
+                        StringComparison.Ordinal)))
+            {
+                continue;
+            }
+            if (ProjectDocument(
+                    entry,
+                    packageId,
+                    version) is { } document)
+            {
+                documents.Add(document);
+            }
         }
 
         return
         [
             .. documents
-                .OrderBy(document => document.Kind switch { "readme" => 0, "package" => 1, _ => 2 })
+                .OrderBy(document => document.Kind switch { "readme" => 0, "package" => 1, "skill" => 2, _ => 3 })
                 .ThenBy(document => document.Name, StringComparer.OrdinalIgnoreCase),
         ];
+    }
+
+    private static BrowserPackageDocumentEntry? ProjectDocument(
+        PackageContentEntry entry,
+        string packageId,
+        string version)
+    {
+        string[] segments = entry.Path.Split('/');
+        string fileName = segments[^1];
+        bool isRoot = segments.Length == 1;
+        string? kind =
+            isRoot && fileName.Equals(
+                "README.md",
+                StringComparison.OrdinalIgnoreCase)
+                ? "readme"
+            : isRoot && fileName.Equals(
+                "PACKAGE.md",
+                StringComparison.OrdinalIgnoreCase)
+                ? "package"
+            : IsNuspecDocumentPath(entry.Path) ? "metadata"
+            : IsSkillDocumentPath(entry.Path) ? "skill"
+            : null;
+        if (kind is null)
+            return null;
+        if (entry.Length > PackageDocumentContentLimits.MaxDecodedBytes)
+        {
+            throw new InvalidOperationException(
+                $"A browsable document in {packageId} {version} exceeds the browser byte "
+                + "limit.");
+        }
+
+        return new BrowserPackageDocumentEntry(
+            kind,
+            kind == "skill" ? SkillDisplayName(segments) : fileName,
+            entry.Path,
+            (int)entry.Length);
     }
 
     internal static async Task<BrowserPackageDocumentPayload> ReadDocumentAsync(
@@ -5283,20 +5342,17 @@ internal sealed class BrowserPackage
         PackageHouseSettlement.Acquired settlement = file.Settlement;
         IPackageContent content = settlement.Payload.Content;
         PackageSourceCoordinate coordinate = settlement.Payload.Coordinate;
-        if (content is not IPackageContentEntryManifest manifest)
+        if (content is not IPackageContentEntryManifest)
         {
             throw new InvalidOperationException(
                 $"Package content for {coordinate.PackageId} {coordinate.Version} "
                     + "does not expose a document manifest.");
         }
 
-        BrowserPackageDocumentEntry document = ProjectDocuments(
-                manifest.EnumerateEntriesWithLengths(),
+        BrowserPackageDocumentEntry document = ProjectDocument(
+                file.Entry,
                 coordinate.PackageId,
                 coordinate.Version)
-            .FirstOrDefault(candidate => candidate.Path.Equals(
-                file.Entry.Path,
-                StringComparison.Ordinal))
             ?? throw new InvalidOperationException(
                 $"'{file.Entry.Path}' is not a browsable document in "
                     + $"{coordinate.PackageId} {coordinate.Version}.");
@@ -5441,8 +5497,13 @@ internal sealed class BrowserPackage
                     || fileName.Equals(
                         "PACKAGE.md",
                         StringComparison.OrdinalIgnoreCase))
+            || IsNuspecDocumentPath(path)
             || IsSkillDocumentPath(path);
     }
+
+    static bool IsNuspecDocumentPath(string path) =>
+        !path.Contains('/')
+        && path.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase);
 
     static bool IsSkillDocumentPath(string path)
     {

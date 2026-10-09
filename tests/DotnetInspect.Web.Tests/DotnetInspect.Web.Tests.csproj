@@ -102,6 +102,8 @@
     <ProjectReference Include="..\..\fixtures\inspect-web\InspectWeb.SourceComparisonFixtures.V2\InspectWeb.SourceComparisonFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\presentation\LibraryApiDiff.V1\LibraryApiDiff.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\presentation\LibraryApiDiff.V2\LibraryApiDiff.V2.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\metadata\ILInspector.Metadata.FastDiff.V1\ILInspector.Metadata.FastDiff.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\metadata\ILInspector.Metadata.FastDiff.V2\ILInspector.Metadata.FastDiff.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
   </ItemGroup>
 </Project>

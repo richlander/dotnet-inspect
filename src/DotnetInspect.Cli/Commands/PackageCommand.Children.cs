@@ -7,10 +7,10 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using Markout;
-using Markout.Formatting;
 using QuerySpace.Composition;
 
 namespace DotnetInspect.Cli.Commands;
@@ -54,7 +54,6 @@ public partial class PackageCommand
         && !options.SelectDefault
         && !options.FixedOverview
         && !options.ListVersions
-        && !options.ListTfms
         && !options.ShowContent
         && !options.Raw
         && !options.Print
@@ -156,7 +155,6 @@ public partial class PackageCommand
                 .ConfigureAwait(false);
         if (!WritePackageChildren(
                 projection,
-                result,
                 options))
         {
             return 1;
@@ -522,7 +520,6 @@ public partial class PackageCommand
 
     private static bool WritePackageChildren(
         PackageChildrenProjection projection,
-        InspectionResult package,
         InspectionOptions options)
     {
         InspectionEnvelope<PackageChildrenDocument> inspection =
@@ -569,7 +566,6 @@ public partial class PackageCommand
             null,
             output => WritePackageChildren(
                 output,
-                package,
                 content,
                 outputDocument,
                 allRows,
@@ -581,7 +577,6 @@ public partial class PackageCommand
 
     private static void WritePackageChildren(
         TextWriter output,
-        InspectionResult package,
         PackageChildrenDocument content,
         PackageChildrenOutputDocument outputDocument,
         IReadOnlyList<PackageChildOutputRow> selectedRows,
@@ -627,13 +622,12 @@ public partial class PackageCommand
             case OutputFormat.Mermaid:
                 WritePackageChildrenTree(
                     output,
-                    package,
                     content,
                     selectedRows,
                     totalCount,
                     duplicateLibraryNames,
                     options,
-                    new MermaidFormatter());
+                    PackageChildrenTreePresentationFormat.Mermaid);
                 return;
             case OutputFormat.PlainText:
                 if (PackageChildrenColumns(options)
@@ -649,13 +643,12 @@ public partial class PackageCommand
                 }
                 WritePackageChildrenTree(
                     output,
-                    package,
                     content,
                     selectedRows,
                     totalCount,
                     duplicateLibraryNames,
                     options,
-                    new PlainTextFormatter());
+                    PackageChildrenTreePresentationFormat.PlainText);
                 return;
             default:
                 if (PackageChildrenColumns(options)
@@ -671,62 +664,39 @@ public partial class PackageCommand
                 }
                 WritePackageChildrenTree(
                     output,
-                    package,
                     content,
                     selectedRows,
                     totalCount,
                     duplicateLibraryNames,
                     options,
-                    new MarkdownFormatter());
+                    PackageChildrenTreePresentationFormat.Markdown);
                 return;
         }
     }
 
     private static void WritePackageChildrenTree(
         TextWriter output,
-        InspectionResult package,
         PackageChildrenDocument document,
         IReadOnlyList<PackageChildOutputRow> selectedRows,
         int totalCount,
         IReadOnlySet<string> duplicateLibraryNames,
         InspectionOptions options,
-        IMarkoutFormatter formatter)
+        PackageChildrenTreePresentationFormat format)
     {
-        if (formatter is not MermaidFormatter)
-            output.WriteLine(PackageChildrenTitle(document));
-        var writer = new MarkoutWriter(output, formatter);
         bool windowedEmpty =
             totalCount > 0
             && selectedRows.Count == 0;
-        List<TreeNode> nodes = windowedEmpty
-            ? []
-            : PackageChildrenNodes(
-                document,
-                options.Verbosity,
-                allowMinimalCollapse:
+        PackageChildrenTreePresentation.Write(
+            document,
+            new(
+                format,
+                suppressNodes: windowedEmpty,
+                collapseToolDependencies:
                     !options.FormatFlagExplicitlySet
-                    && options.Rows is null,
-                duplicateLibraryNames:
-                    duplicateLibraryNames);
-        if (formatter is MermaidFormatter)
-        {
-            writer.WriteTree(
-            [
-                new(PackageChildrenTitle(document))
-                {
-                    Children = [.. nodes],
-                },
-            ]);
-        }
-        else if (windowedEmpty)
-        {
-            writer.WriteTree([]);
-        }
-        else
-        {
-            writer.WriteTree([.. nodes]);
-        }
-        writer.Flush();
+                    && options.Rows is null
+                    && options.Verbosity == Verbosity.Minimal,
+                duplicateLibraryNames),
+            output);
     }
 
     private static void WritePackageChildrenTable(
@@ -920,146 +890,6 @@ public partial class PackageCommand
             null,
             document.Status.ToString(),
             document.Detail?.ToString());
-
-    /// <summary>
-    /// The Package Tree title: the subject identity followed by the
-    /// owner-issued properties, rendered generically by
-    /// <see cref="ResultTitle"/>.
-    /// </summary>
-    private static string PackageChildrenTitle(
-        PackageChildrenDocument document) =>
-        ResultTitle.Compose(
-            $"{document.Subject.PackageId} {document.Subject.PackageVersion}",
-            PackageChildrenProperties.For(document));
-
-    private static List<TreeNode> PackageChildrenNodes(
-        PackageChildrenDocument document,
-        Verbosity verbosity,
-        bool allowMinimalCollapse,
-        IReadOnlySet<string> duplicateLibraryNames) =>
-        document.Kind switch
-        {
-            PackageChildrenKind.Libraries =>
-                LibraryNodes(
-                    document,
-                    verbosity,
-                    allowMinimalCollapse,
-                    duplicateLibraryNames),
-            PackageChildrenKind.RuntimeIdentifierPackages =>
-            [
-                new(
-                    $"RID packages "
-                        + $"({document.RuntimeIdentifierPackages.Length})")
-                {
-                    Children =
-                    [
-                        .. document.RuntimeIdentifierPackages.Select(
-                            static package =>
-                                new TreeNode(
-                                    $"{package.RuntimeIdentifier}: "
-                                        + $"{package.PackageId}")),
-                    ],
-                },
-            ],
-            PackageChildrenKind.NoManagedLibraries =>
-            [
-                new(
-                    "No managed Libraries"
-                        + (document.Detail is { } detail
-                            ? $" ({detail})"
-                            : "")),
-            ],
-            _ => throw new InvalidOperationException(
-                "Unknown Package children kind."),
-        };
-
-    private static List<TreeNode> LibraryNodes(
-        PackageChildrenDocument document,
-        Verbosity verbosity,
-        bool allowMinimalCollapse,
-        IReadOnlySet<string> duplicateNames)
-    {
-        if (document.Libraries.IsEmpty)
-        {
-            return
-            [
-                new(
-                    document.Status switch
-                    {
-                        PackageChildrenStatus.SelectedEmpty =>
-                            "No Libraries in the selected compile group",
-                        PackageChildrenStatus.NoCompileAssets =>
-                            "No compile Libraries",
-                        PackageChildrenStatus.NoApplicableTarget =>
-                            "No applicable Library target",
-                        PackageChildrenStatus.InvalidSelection =>
-                            "Invalid Library selection",
-                        PackageChildrenStatus.Unavailable =>
-                            "Library population unavailable",
-                        _ => "No Libraries",
-                    }
-                    + (document.Detail is { } detail
-                        ? $" ({detail})"
-                        : "")),
-            ];
-        }
-
-        PackageLibraryChild[] entryPoints =
-        [
-            .. document.Libraries.Where(
-                static library =>
-                    library.Role
-                        == PackageLibraryChildRole.ToolEntryPoint),
-        ];
-        PackageLibraryChild[] dependencies =
-        [
-            .. document.Libraries.Where(
-                static library =>
-                    library.Role
-                        != PackageLibraryChildRole.ToolEntryPoint),
-        ];
-        var nodes = new List<TreeNode>(document.Libraries.Length);
-        nodes.AddRange(
-            entryPoints.Select(
-                library => LibraryNode(
-                    library,
-                    duplicateNames)));
-        if (allowMinimalCollapse
-            && verbosity == Verbosity.Minimal
-            && entryPoints.Length > 0
-            && dependencies.Length > 8)
-        {
-            nodes.Add(
-                new(
-                    $"Dependencies ({dependencies.Length} Libraries; "
-                        + "use -v:n for full inventory)"));
-        }
-        else
-        {
-            nodes.AddRange(
-                dependencies.Select(
-                    library => LibraryNode(
-                        library,
-                        duplicateNames)));
-        }
-        return nodes;
-    }
-
-    private static TreeNode LibraryNode(
-        PackageLibraryChild library,
-        IReadOnlySet<string> duplicateNames)
-    {
-        string assemblyName = library.AssemblyName.ToString();
-        string label = duplicateNames.Contains(assemblyName)
-            ? library.AssetPath.ToString()
-            : assemblyName;
-        if (library.Role
-            == PackageLibraryChildRole.ToolEntryPoint)
-        {
-            label += " (entry point)";
-        }
-        return new(label);
-    }
 
     private sealed record PackageChildCandidate(
         string AssetId,

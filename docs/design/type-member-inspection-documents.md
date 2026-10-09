@@ -85,7 +85,8 @@ The family is:
 exact Type
   -> TypeOverviewDocument
        Type declaration
-       Member names and exact-overload Counts
+       Member names, with exact-Member Counts only when the Rows request
+       sets IncludeExactMemberCount
 
   -> TypeDocument
        complete Type declaration
@@ -171,6 +172,15 @@ It contains:
   Type itself; and
 - compact Member rows containing an owner-issued MemberGroup identity and
   Member name, plus an exact-Member Count only when the plan requests one.
+
+The plan requests Counts through its MemberGroup Rows request:
+`TypeMemberGroupRowsRequest.IncludeExactMemberCount`. A plan that also carries
+a hierarchy request must agree with it. The Count profile ends the MemberGroup
+Rows in a Count terminal (`Rows(Name) -> Rows(Name) -> Count`) and sets
+`IncludeExactMemberCount`; the default leaf profile ends at MemberGroup Rows
+(`Rows(Name) -> Rows(Name)`) and does not set it. The plan rejects either
+mismatch before inspection. Bare `type T` and `type T --tree` use the leaf
+profile, so no CLI gesture currently requests Type overview Counts.
 
 The overview does not contain complete exact-Member signatures. A row may
 carry the typed activation identity required to resolve its corresponding
@@ -398,9 +408,11 @@ production adoption as focused slices:
 8. Retire transitional document names and superseded host-local composition.
 
 Rendering work is not part of slices 1 through 6 and does not define the object
-model. Future CLI Tree and Mermaid adoption will select shared presentation
-profiles over the owner-issued hierarchy; Count and other projections retain
-their independently admitted routes.
+model. CLI MemberGroup Tree presentation now streams the owner-issued complete
+exact-Member Rows through shared presentation without constructing a
+host-local retained tree. Future Mermaid adoption will select a shared
+presentation profile over the same owner-issued hierarchy; Count and other
+projections retain their independently admitted routes.
 
 As a performance prerequisite for later slice 7 adoption, exact direct-Library
 effective discovery in the CLI uses the transitional host-neutral Type
@@ -433,8 +445,10 @@ The inspected CoreLib SHA-256 is
 
 Implementation slices must add Release gates proving:
 
-- `TypeOverviewDocument` returns names and Counts without complete
-  exact-Member signatures;
+- `TypeOverviewDocument` returns Member names without complete exact-Member
+  signatures, with an exact-Member Count on every row when the plan's
+  `TypeMemberGroupRowsRequest` sets `IncludeExactMemberCount` and on none when
+  it does not;
 - `TypeDocument` returns every admitted exact Member with a full signature and
   the same exact Type and population correspondence as the overview;
 - `MemberOverviewDocument` returns the complete same-named exact-Member

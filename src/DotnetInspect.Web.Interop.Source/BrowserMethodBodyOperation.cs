@@ -1,9 +1,9 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Queries;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
-using ILInspector.MetadataPrimitives;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Source;
 using DotnetInspect.Web.Interop.Source.Operations;
@@ -55,11 +55,18 @@ public static partial class SourceExports
                 {
                     ApiSurface surface = MethodBodyOperations.Select(() =>
                         BrowserMemberResolution.ImplementationSurface(group, participant));
-                    CallGraphMemberResolution before = MethodBodyOperations.Select(() =>
+                    AssemblyContextMemberBody before = MethodBodyOperations.Select(() =>
                         BrowserMemberResolution.ResolveImplementationMember(
-                            surface, typeIdentity, memberName, selectorKey, metadataToken));
-                    MetadataMethodAddress address = MethodBodyOperations.RequireAddress(
-                        group, participant, before.BodyToken);
+                            surface,
+                            typeIdentity,
+                            memberName,
+                            selectorKey,
+                            metadataToken));
+                    ProjectedMethodAddress designation =
+                        MethodBodyOperations.RequireDesignation(
+                            group,
+                            participant,
+                            before.BodyToken);
                     BrowserMethodBodySelection[] methods =
                         MethodBodyOperations.Inventory(surface);
                     BrowserMethodBodySelection selection = methods.SingleOrDefault(
@@ -68,7 +75,9 @@ public static partial class SourceExports
                             "SelectionUnavailable: the selected implementation body has no inventory identity.");
                     return new BrowserMethodBodyTargets(
                         packageId, version, targetFramework, assemblyName,
-                        address.ModuleVersionId.ToString("D"), selection, methods);
+                        designation.ModuleVersionId.ToString("D"),
+                        selection,
+                        methods);
                 }));
         BrowserMethodBodyTargetsResult wire = result switch
         {
@@ -115,7 +124,7 @@ public static partial class SourceExports
                         BrowserMemberResolution.ImplementationSurface(
                             group,
                             participant));
-                    CallGraphMemberResolution before =
+                    AssemblyContextMemberBody before =
                         MethodBodyOperations.Select(() =>
                             BrowserMemberResolution
                                 .ResolveImplementationMember(
@@ -124,8 +133,8 @@ public static partial class SourceExports
                                     memberName,
                                     selectorKey,
                                     metadataToken));
-                    MetadataMethodAddress address =
-                        MethodBodyOperations.RequireAddress(
+                    ProjectedMethodAddress designation =
+                        MethodBodyOperations.RequireDesignation(
                             group,
                             participant,
                             before.BodyToken);
@@ -144,7 +153,7 @@ public static partial class SourceExports
                         version,
                         targetFramework,
                         assemblyName,
-                        address.ModuleVersionId.ToString("D"),
+                        designation.ModuleVersionId.ToString("D"),
                         selection,
                         methods);
                 },

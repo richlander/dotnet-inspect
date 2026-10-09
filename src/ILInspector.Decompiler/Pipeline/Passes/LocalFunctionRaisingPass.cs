@@ -1657,7 +1657,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 continue;
             if (allowLocalStatements && statement is StoreField)
                 continue;
-            if (allowLoops && statement is WhileLoop)
+            if (statement is DoWhileLoop || allowLoops && statement is WhileLoop)
                 continue;
             if (allowIteratorStatements
                 && statement is UsingStatement

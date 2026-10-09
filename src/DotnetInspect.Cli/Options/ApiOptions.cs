@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
@@ -464,20 +465,28 @@ public record TypeOptions : ApiOptions
 
 internal sealed record TypeHierarchyRelationsInspection(
     TypeHierarchyRelationSectionInspection? Implementers,
-    TypeHierarchyRelationSectionInspection? DerivedTypes)
+    TypeHierarchyRelationSectionInspection? DerivedTypes,
+    ImmutableArray<InspectionDiagnostic> Diagnostics = default,
+    bool AdditionalEvidenceComplete = true)
 {
+    internal ImmutableArray<InspectionDiagnostic> EffectiveDiagnostics =>
+        Diagnostics.IsDefault ? [] : Diagnostics;
+
     internal bool IsComplete =>
-        (Implementers?.IsComplete ?? true)
+        AdditionalEvidenceComplete
+        && (Implementers?.IsComplete ?? true)
         && (DerivedTypes?.IsComplete ?? true);
 }
 
 internal sealed record TypeHierarchyRelationSectionInspection(
     InspectionEnvelope<WorkspaceTypeHierarchySubjectRelationsDocument>
         Inspection,
-    IReadOnlyList<TypeHierarchyRelationCandidate> Candidates)
+    IReadOnlyList<TypeHierarchyRelationCandidate> Candidates,
+    bool AdditionalEvidenceComplete = true)
 {
     internal bool IsComplete =>
-        (Inspection.Content.Relations.Count is null
+        AdditionalEvidenceComplete
+        && (Inspection.Content.Relations.Count is null
             or SubjectRelationPopulationCountOutcome.Counted)
         && (Inspection.Content.Relations.Rows is null
             or SubjectRelationPopulationRowsOutcome.Read

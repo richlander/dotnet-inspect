@@ -208,6 +208,29 @@ populated members. Row formats require a concrete section or homogeneous
 family. Heterogeneous categories use Markdown/JSON; `Performance:*` flattens
 kinds and adds `Kind` when multiple kinds have rows.
 
+## Explain discovered resources
+
+Use `explain` to read installed query meaning without acquiring the target.
+Copy the `resource_path` returned by discovery instead of constructing paths.
+For vocabulary, query-space, and query-facet resources, select HAL:
+
+```bash
+dnx dotnet-inspect -y -- explain package-query/query .hal --json > query.json
+```
+
+HAL uses `_links` for navigation and `_embedded` for included resources. Read
+embedded data before making another request. Follow an emitted href unchanged
+with `explain "$href" --json`; its link media type identifies the representation.
+Read the facet's input rules and required context together with its consumer
+binding's invocation rules. Filter locally with jq before reading the answer,
+retaining `data_scope` and applicable `data_states` for interpretation.
+
+`.data --json` supplies the direct data model. `.contract --json` supplies the
+explanation schema and observation details for client development. Empty listed
+values or unregistered input rules do not establish unrestricted acceptance.
+Other resource kinds retain their ordinary `explain <resource_path> --json`
+projection; `.hal` is currently bounded to the three resource kinds above.
+
 ## Discover query capabilities
 
 `-Q` (alias `--query-help`) is structural and does not acquire or inspect a
@@ -473,7 +496,7 @@ Member `Call Graph` is the current exception: its legacy command-owned
 `--rows` window clamps an unavailable end to the available edges. It produces
 an empty edge table only when the requested start is beyond the available rows.
 
-`find`, `implements`, `extensions`, `depends`, `ecosystem`, `vocabulary`,
+`find`, focused Type hierarchy sections, `extensions`, `depends`, `ecosystem`, `vocabulary`,
 `diff --history`, `match --similar`, `package query`, `library query`, package
 activity, package `--versions` / `--versions-with-feed`, `demo list`, Workspace inventory,
 Integration graph edges, selected package file/SourceLink inventories,

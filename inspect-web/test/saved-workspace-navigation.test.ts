@@ -122,6 +122,7 @@ function isCapturedWorkspaceUrlState(
 
 const hostNames = new Set([
   "captureSavedWorkspacePacket", "captureWorkspaceUrlState",
+  "currentCompareSubject",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
   "workspaceCoordinateCount",
   "selectedLibraryShareKey", "scope", "syncUrl", "buildStateUrl",
@@ -601,6 +602,9 @@ function harness() {
       }
     },
     catalogRequests, packageComparisonTargets,
+    memberBodyDiff: {
+      copyPackages: () => {},
+    },
     navigationSequence, navigationHistory,
     pendingDemoNavigation: null as { navigationSeq: number; destination: string } | null,
     pendingWorkspaceConstruction: null,
@@ -2436,7 +2440,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
   assert.equal(h.retained[0]!.packageModel, added);
   assert.equal(h.retained[0]!.replacedPackage, null);
   assert.equal(added.types[0]?.id, "Added.Widget");
-  assert.deepEqual(h.recent, [["Added.Package", "4.5.6", "net10.0", true]]);
+  assert.deepEqual(h.recent, [["Added.Package", "4.5.6", "net10.0", true, "net9.0"]]);
   assert.equal(h.state.loading, false);
   assert.equal(h.state.queryNotice, "");
   assert.equal(h.state.queryNoticeRetryAction, null);
@@ -2720,7 +2724,7 @@ test("Add whose last slot fills during query refuses before retention and preser
   ]);
   assert.equal(h.retained.length, 1);
   assert.equal(h.retained[0]!.packageModel, arrived);
-  assert.deepEqual(h.recent, [["Arrived", "8.9.0", "net9.0", true]]);
+  assert.deepEqual(h.recent, [["Arrived", "8.9.0", "net9.0", true, "net9.0"]]);
   assert.deepEqual(h.state.packages, admitted);
   admitted.forEach((pkg, index) => assert.equal(h.state.packages[index], pkg));
   assert.deepEqual(h.state.workspaceDependencies, dependencies);

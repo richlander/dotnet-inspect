@@ -467,7 +467,7 @@ public sealed class WorkspaceDeclarationPopulation
         }
     }
 
-    static WorkspaceDeclarationAssemblyUseOutcome<TResult>
+    WorkspaceDeclarationAssemblyUseOutcome<TResult>
         UseAssemblyContextSession<TResult>(
             WorkspaceDeclarationMemberAccess.AssemblyContext access,
             Func<
@@ -483,7 +483,9 @@ public sealed class WorkspaceDeclarationPopulation
                 (session, source) =>
                     callback(
                         session,
-                        MetadataRelationGraphSource.From(source)));
+                        RelationSource(
+                            session,
+                            source)));
         cancellationToken.ThrowIfCancellationRequested();
         return outcome switch
         {
@@ -498,6 +500,27 @@ public sealed class WorkspaceDeclarationPopulation
             _ => throw new InvalidOperationException(
                 "Unknown assembly-image access result."),
         };
+    }
+
+    static MetadataRelationGraphSource RelationSource(
+        AssemblyInspectionSession session,
+        ResolvedAssemblyReference source)
+    {
+        AssemblyAcquisitionRegistration registration =
+            source.Registration;
+        Guid moduleVersionId = session.ModuleVersionId();
+        registration.BindObservedModuleVersionId(moduleVersionId);
+        if (registration.ModuleVersionId is Guid bound
+            && bound != moduleVersionId)
+        {
+            throw new BadImageFormatException(
+                "The selected Library content changed module generation.");
+        }
+
+        return new(
+            registration,
+            source.Identity,
+            source.Provenance);
     }
 
     WorkspaceDeclarationAssemblyUseOutcome<TResult>
