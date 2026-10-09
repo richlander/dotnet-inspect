@@ -332,7 +332,7 @@ Normative claim, owned here with call-site population and identity owned by
 | --- | --- | --- |
 | Exact-token declaration | Whether the token is a MethodDef, and if so its identity, signature, and body presence. It distinguishes an invalid token from a bodiless method. It replaces the `callGraph.DeclaredMethods` read for token validity. | Declaration layer only. |
 | Direct calls | The method's call sites with the #8945 identity tiers (Count; exact declaring Type; exact Type.Member.Overload; full signature), consuming the one physical `EvidenceMethod`. | Body layer, plus `ReferenceBinding` when a tier needs cross-assembly identity. |
-| Callee safety | The unsafe mode of each same-image callee the selected method calls, resolved by exact-token lookup. Cross-assembly callees use the `ReferenceBinding` layer. | Targeted lookup. It reads the callee declaration and its own body only when its unsafe mode needs it, never unrelated bodies. Each lookup is a receipted shared-lookup unit. |
+| Callee safety | The unsafe mode of each same-image callee the selected method calls, resolved by exact-token lookup. Cross-assembly callees keep the legacy outcome, an unset unsafe mode; resolving external contracts is a later, separately gated behavior change. | Targeted lookup. It reads the callee declaration and its own body only when its unsafe mode needs it, never unrelated bodies. Each lookup is a receipted shared-lookup unit. |
 
 A selected caller's safety result depends on callee unsafe modes, not on a
 whole-assembly call-resolution map. The lookup resolves exactly the callees the
@@ -493,10 +493,13 @@ these gates:
 - `ExactMember_CalleeSafetyResolvesOnlyNamedCallees` asserts that a selected
   caller with an unsafe callee outside the selection reports the legacy
   safety result, and that the receipt shows only the named callee lookups and
-  no unrelated body acquisition;
+  no unrelated body acquisition, and that a cross-assembly callee leaves the
+  unsafe mode unset exactly as legacy does;
 - `ExactMember_CompletionEnumeratesNothingOutsideSelection` counts every
-  definition, body, and lookup enumeration, including completion, and asserts
-  no whole-assembly or whole-table scan; and
+  definition, body, and lookup enumeration of the migrated source plan,
+  including completion, and asserts no whole-assembly or whole-table scan. It
+  does not measure producers that remain on the old boundary, whose `Build`
+  still enumerates the assembly until they move; and
 - `ExactMember_RejectsTypeUnscopedOrPredicateRequest` asserts the typed
   planning rejection and that no fallback executes.
 
