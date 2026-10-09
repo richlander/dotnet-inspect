@@ -4266,6 +4266,7 @@ function applyView(view: WorkspaceView) {
   state.memberAccessibilityFilter = isMemberAccessibility(requestedAccessibility)
     ? requestedAccessibility
     : "public";
+  restoreOrdinaryTypeMemberPopulationIntent();
   const historyGraphTarget =
     graphMemberTargetFromShare(graphMemberShareTarget(view.bodyTarget));
   const member = type
@@ -6146,6 +6147,7 @@ function enterTypeSubject(
   options: { preserveAggregate?: boolean } = {},
 ) {
   if (!type) return false;
+  restoreOrdinaryTypeMemberPopulationIntent();
   const preserveAggregate =
     options.preserveAggregate ?? aggregateLibrarySubjectIsActive();
   revealTypeInFilters(type);
@@ -6898,7 +6900,27 @@ function groupMembers(
   return [...groups.values()];
 }
 
-function typeMemberPopulationKey(type: AppTypeSurface) {
+type TypeMemberPopulationSource = "ordinary" | "performance";
+let typeMemberPopulationSource: TypeMemberPopulationSource = "ordinary";
+
+function currentMemberAccessibility(): MemberAccessibility {
+  return isMemberAccessibility(state.memberAccessibilityFilter)
+    ? state.memberAccessibilityFilter
+    : "public";
+}
+
+function restoreOrdinaryTypeMemberPopulationIntent(): boolean {
+  if (typeMemberPopulationSource !== "performance") return false;
+  setTypeMemberPopulationIntent(
+    currentMemberAccessibility(),
+    state.memberSpelling);
+  return true;
+}
+
+function typeMemberPopulationKey(
+  type: AppTypeSurface,
+  source = typeMemberPopulationSource,
+) {
   const pkg = state.package;
   return memberRequestKey([
     state.rootKind,
@@ -6908,6 +6930,7 @@ function typeMemberPopulationKey(type: AppTypeSurface) {
     platformDemoContextIdFor(pkg ?? null) ?? "",
     type.assemblyId,
     type.definitionId ?? type.id,
+    source,
     state.memberSpelling,
     state.memberAccessibilityFilter,
   ]);
@@ -8839,7 +8862,12 @@ function exitMemberScope() {
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   resetMemberSectionState();
+  const restoreOrdinaryPopulation =
+    restoreOrdinaryTypeMemberPopulationIntent();
   render();
+  if (restoreOrdinaryPopulation) {
+    loadCurrentSelectionData("Restoring ordinary Type members");
+  }
   restoreContentNavigationFocus(focusGeneration);
   return true;
 }
@@ -12036,7 +12064,7 @@ function drillToPerfMember(
   state.memberBrowseTypeId = "";
   state.namespaceFilter = "";
   resetMemberFilters();
-  setTypeMemberPopulationIntent("all", "csharp");
+  setTypeMemberPopulationIntent("all", "csharp", "performance");
   state.lens = "api";
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
@@ -21501,7 +21529,15 @@ function loadSelectedTypeMemberPopulation(
     renderPreservingMemberFocus();
     return Promise.resolve(null);
   }
-  const key = typeMemberPopulationKey(type);
+  const source: TypeMemberPopulationSource =
+    performance ? "performance" : "ordinary";
+  if (typeMemberPopulationSource !== source) {
+    setTypeMemberPopulationIntent(
+      currentMemberAccessibility(),
+      state.memberSpelling,
+      source);
+  }
+  const key = typeMemberPopulationKey(type, source);
   if (!key) {
     renderPreservingMemberFocus();
     return Promise.resolve(null);
@@ -21606,8 +21642,10 @@ function loadSelectedTypeMemberPopulation(
 function setTypeMemberPopulationIntent(
   accessibility: MemberAccessibility,
   spelling: "csharp" | "metadata",
+  source: TypeMemberPopulationSource = "ordinary",
 ) {
   typeMemberPopulationIntentGeneration++;
+  typeMemberPopulationSource = source;
   state.memberAccessibilityFilter = accessibility;
   state.memberSpelling = spelling;
   typeMemberPopulationLoad = null;

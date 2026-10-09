@@ -401,6 +401,25 @@ test("production Analysis opens a private ranked member through all accessibilit
   expect(await page.locator("html").getAttribute(
     "data-type-member-population-request",
   )).toBeNull();
+  await page.keyboard.press("Backspace");
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("html"))
+    .toHaveAttribute(
+      "data-type-member-population-request",
+      JSON.stringify([
+        "Example.Package",
+        "1.0.0",
+        "net10.0",
+        "Example.Core.dll",
+        "Example.ImplementationOnlyWorker",
+        "csharp",
+        "all",
+      ]),
+    );
+  await expect(subjectTab(page, "member")).toHaveCount(0);
+  await expect(page.locator(".inspection-error"))
+    .toContainText("The exact Type was not found.");
 });
 
 test("ranked Analysis members replace sticky private intent with all accessibility", async ({
