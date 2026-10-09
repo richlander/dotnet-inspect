@@ -286,6 +286,113 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void FirstLibraryRequest_PrefersFirstNamesakeInLibraryOrder()
+    {
+        // Two namesakes share one assembly simple name and differ only in
+        // the asset-path tie-break; an earlier non-namesake is passed over.
+        string laterNamesake = WriteAssembly(
+            "lib/net8.0/z/Renamed.dll",
+            typeof(TfmSelectorTests).Assembly.Location);
+        string earlierNamesake = WriteAssembly(
+            "lib/net8.0/a/Other.dll",
+            typeof(TfmSelectorTests).Assembly.Location);
+        string companion = WriteAssembly(
+            "lib/net8.0/m/Companion.dll",
+            typeof(TfmSelector).Assembly.Location);
+        string packageId =
+            typeof(TfmSelectorTests).Assembly.GetName().Name!;
+
+        var result = TfmSelector.SelectFirstPackageLibrary(
+            [laterNamesake, companion, earlierNamesake],
+            packageId,
+            tfm: "net8.0");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal([earlierNamesake], result.Paths);
+        Assert.Equal(
+            TfmSelector.FirstPackageLibraryReason.Namesake,
+            result.FirstLibraryReason);
+        Assert.Equal(
+            [companion, earlierNamesake, laterNamesake],
+            result.CandidatePaths);
+        Assert.Equal("net8.0", result.Tfm);
+    }
+
+    [Fact]
+    public void FirstLibraryRequest_WithoutNamesakeSelectsFirstInLibraryOrder()
+    {
+        // Library order compares assembly simple names before asset paths,
+        // so the Library under the later path is first.
+        string tests = WriteAssembly(
+            "lib/net8.0/a/Tests.dll",
+            typeof(TfmSelectorTests).Assembly.Location);
+        string services = WriteAssembly(
+            "lib/net8.0/z/Services.dll",
+            typeof(TfmSelector).Assembly.Location);
+        string placeholder = WriteDll("lib/net8.0/Text.dll");
+        File.WriteAllText(placeholder, "placeholder");
+
+        var result = TfmSelector.SelectFirstPackageLibrary(
+            [tests, placeholder, services],
+            "Contoso.Missing");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal([services], result.Paths);
+        Assert.Equal(
+            TfmSelector.FirstPackageLibraryReason.FirstInLibraryOrder,
+            result.FirstLibraryReason);
+        Assert.Equal([services, tests], result.CandidatePaths);
+    }
+
+    [Fact]
+    public void FirstLibraryRequest_UnresolvedIdentityFailsClosed()
+    {
+        string namesake = WriteAssembly(
+            "lib/net8.0/Renamed.dll",
+            typeof(TfmSelectorTests).Assembly.Location);
+        string unreadable = WriteDll("lib/net8.0/Unreadable.dll");
+        string packageId =
+            typeof(TfmSelectorTests).Assembly.GetName().Name!;
+
+        var result = TfmSelector.SelectFirstPackageLibrary(
+            [namesake, unreadable],
+            packageId);
+
+        Assert.False(result.IsSelected);
+        Assert.Empty(result.Paths);
+        Assert.Equal(
+            TfmSelector.PackageLibraryResolutionStatus
+                .NamesakeIdentityUnavailable,
+            result.Status);
+        Assert.Equal([unreadable], result.IdentityFailurePaths);
+        Assert.Null(result.FirstLibraryReason);
+    }
+
+    [Fact]
+    public void FirstLibraryRequest_EmptyPopulationIsUnavailable()
+    {
+        string placeholder = WriteDll("lib/net8.0/Text.dll");
+        File.WriteAllText(placeholder, "placeholder");
+
+        var empty = TfmSelector.SelectFirstPackageLibrary(
+            [],
+            "MyPackage");
+        var nonAssembly = TfmSelector.SelectFirstPackageLibrary(
+            [placeholder],
+            "MyPackage");
+
+        foreach (var result in new[] { empty, nonAssembly })
+        {
+            Assert.False(result.IsSelected);
+            Assert.Equal(
+                TfmSelector.PackageLibraryResolutionStatus.NoAssemblies,
+                result.Status);
+            Assert.Empty(result.Paths);
+            Assert.Null(result.FirstLibraryReason);
+        }
+    }
+
+    [Fact]
     public void SelectPackageLibrary_RequestedLibraryNotFound_ReturnsTfmCandidates()
     {
         var candidate = WriteDll("lib/net8.0/Actual.dll");

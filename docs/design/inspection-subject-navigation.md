@@ -1227,13 +1227,19 @@ not repeat namesake matching or Library ordering. Navigation never derives a
 namesake from an asset path, file stem, display label, or package-relative
 text.
 
-First Library remains **unverified** until
+Navigation does not yet issue typed Library gestures. Until it does, the
+shared package Library resolver implements Library order and First Library
+selection: `TfmSelector.SelectFirstPackageLibrary` in `DotnetInspector.Services`
+returns the chosen Library, whether it was chosen as the namesake or as the
+first Library, and the candidates in Library order. Host routes and the later
+Navigation gesture consume that result rather than repeating it.
 `FirstLibraryRequest_PrefersFirstNamesakeInLibraryOrder`, whose fixture holds
 several namesakes that differ only in tie-break order,
 `FirstLibraryRequest_WithoutNamesakeSelectsFirstInLibraryOrder`,
-`FirstLibraryRequest_UnresolvedIdentityFailsClosed`,
-`FirstLibraryRequest_EmptyPopulationIsUnavailable`, and
-`FirstLibraryRequest_ChosenLibraryNonSuccessDoesNotFallback` gate it, under
+`FirstLibraryRequest_UnresolvedIdentityFailsClosed`, and
+`FirstLibraryRequest_EmptyPopulationIsUnavailable` gate the resolver. The
+chosen-Library rule remains **unverified** until a consuming route adds
+`FirstLibraryRequest_ChosenLibraryNonSuccessDoesNotFallback`, under
 [#9683](https://github.com/richlander/dotnet-inspect/issues/9683).
 
 One Navigation evaluation consumes one selected framework projection. A
