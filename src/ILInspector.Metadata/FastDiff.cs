@@ -19,16 +19,6 @@ public enum FastDiffState
     Indeterminate,
 }
 
-/// <summary>Which Types and members form the API axis.</summary>
-public enum FastDiffScope
-{
-    /// <summary>Types and members visible outside the assembly.</summary>
-    Public,
-
-    /// <summary>Every Type and member.</summary>
-    IncludeAll,
-}
-
 /// <summary>
 /// The API and Body states of one Type, named by its <c>ApiType.FullName</c>
 /// spelling: <c>.</c> between nested names and the metadata backtick arity.
@@ -54,13 +44,13 @@ public sealed record FastDiffResult(
 /// </summary>
 /// <remarks>
 /// <para>
-/// The API axis compares the facts of the Type and its members that the
-/// selected scope makes visible: Type flags, base Type, interfaces, generic
+/// The API axis compares the Public API facts of the Type and its members:
+/// Type flags, base Type, interfaces, generic
 /// parameters and constraints, custom attributes, layout, member signatures
 /// and flags, parameter names and defaults, constants, and explicit interface
-/// implementations. The Body axis compares everything else: IL, exception
-/// regions, locals, stack size, and the metadata of members and
-/// compiler-generated nested Types the scope does not make visible.
+/// implementations. The Body axis compares the implementation of every
+/// member, public or not: IL, exception regions, locals, stack size, and the
+/// metadata of non-public members and compiler-generated nested Types.
 /// </para>
 /// <para>
 /// Tokens compare by symbolic name, resolved once per side, never by token
@@ -78,15 +68,13 @@ public sealed record FastDiffResult(
 /// </remarks>
 public static class FastDiff
 {
-    public static FastDiffResult Compare(PEReader before, PEReader after, FastDiffScope scope)
+    public static FastDiffResult Compare(PEReader before, PEReader after)
     {
         ArgumentNullException.ThrowIfNull(before);
         ArgumentNullException.ThrowIfNull(after);
-        if (!Enum.IsDefined(scope))
-            throw new ArgumentOutOfRangeException(nameof(scope));
 
-        var a = new Side(before, scope);
-        var b = new Side(after, scope);
+        var a = new Side(before);
+        var b = new Side(after);
         Dictionary<string, Unit> unitsA = a.Units();
         Dictionary<string, Unit> unitsB = b.Units();
 
@@ -122,11 +110,10 @@ public static class FastDiff
     public static (string? Api, string? Body) Explain(
         PEReader before,
         PEReader after,
-        FastDiffScope scope,
         string fullName)
     {
-        var a = new Side(before, scope);
-        var b = new Side(after, scope);
+        var a = new Side(before);
+        var b = new Side(after);
         Unit? unitA = a.Units().Values.FirstOrDefault(unit => unit.FullName == fullName);
         Unit? unitB = b.Units().Values.FirstOrDefault(unit => unit.FullName == fullName);
         if (unitA is null || unitB is null)
@@ -208,8 +195,8 @@ public static class FastDiff
             return false;
         }
 
-        // Equal censuses declare the same members the scope does not make
-        // visible. A visible method on one side only is an API fact.
+        // Equal censuses declare the same non-public members. A public method
+        // on one side only is an API fact; its body is not compared.
         foreach ((string key, MethodDefinitionHandle methodA) in methodsA)
         {
             if (!methodsB.TryGetValue(key, out MethodDefinitionHandle methodB))
@@ -401,14 +388,12 @@ public static class FastDiff
         readonly Dictionary<int, string> _keys = [];
         readonly Dictionary<int, string> _displayNames = [];
         readonly SignatureKeys _signatures;
-        readonly FastDiffScope _scope;
         readonly HashSet<MethodDefinitionHandle> _explicitImplementations = [];
 
-        public Side(PEReader pe, FastDiffScope scope)
+        public Side(PEReader pe)
         {
             Pe = pe;
             Md = MetadataFormatAdmission.GetMetadataReader(pe);
-            _scope = scope;
             _signatures = new SignatureKeys(this);
             foreach (TypeDefinitionHandle type in Md.TypeDefinitions)
             {
@@ -479,21 +464,18 @@ public static class FastDiff
         /// so the API axis must compare it.
         /// </remarks>
         public bool IsVisible(TypeDefinitionHandle handle)
-            => _scope == FastDiffScope.IncludeAll
-                || (Md.GetTypeDefinition(handle).Attributes & TypeAttributes.VisibilityMask)
+            => (Md.GetTypeDefinition(handle).Attributes & TypeAttributes.VisibilityMask)
                     is TypeAttributes.Public
                     or TypeAttributes.NestedPublic
                     or TypeAttributes.NestedFamily
                     or TypeAttributes.NestedFamORAssem;
 
         bool IsVisible(MethodDefinitionHandle handle, MethodDefinition method)
-            => _scope == FastDiffScope.IncludeAll
-                || IsVisibleAccess((int)(method.Attributes & MethodAttributes.MemberAccessMask))
+            => IsVisibleAccess((int)(method.Attributes & MethodAttributes.MemberAccessMask))
                 || _explicitImplementations.Contains(handle);
 
         bool IsVisible(FieldDefinition field)
-            => _scope == FastDiffScope.IncludeAll
-                || IsVisibleAccess((int)(field.Attributes & FieldAttributes.FieldAccessMask));
+            => IsVisibleAccess((int)(field.Attributes & FieldAttributes.FieldAccessMask));
 
         // Public, Family, and FamORAssem share their encoding across method and field access.
         static bool IsVisibleAccess(int access)
@@ -587,8 +569,8 @@ public static class FastDiff
         }
 
         /// <param name="api">
-        /// True for the visible members only, false for the members the scope
-        /// does not make visible, and null for every member.
+        /// True for the public members only, false for the non-public members,
+        /// and null for every member.
         /// </param>
         void MemberFacts(
             List<string> census,

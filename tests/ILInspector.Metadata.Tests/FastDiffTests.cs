@@ -39,7 +39,7 @@ public sealed class FastDiffTests
         FastDiffState body)
     {
         FastDiffTypeState state = Assert.Single(
-            Compare(FixtureCatalog.MetadataFastDiffPair, FastDiffScope.Public).Types,
+            Compare(FixtureCatalog.MetadataFastDiffPair).Types,
             type => type.FullName == fullName);
 
         Assert.Equal((api, body), (state.Api, state.Body));
@@ -48,40 +48,26 @@ public sealed class FastDiffTests
     [Fact]
     public void GeneratedTypes_FoldIntoTheirDeclaredOwner()
     {
-        FastDiffResult result = Compare(FixtureCatalog.MetadataFastDiffPair, FastDiffScope.Public);
+        FastDiffResult result = Compare(FixtureCatalog.MetadataFastDiffPair);
 
         Assert.DoesNotContain(result.Types, type => type.FullName.Contains('<'));
     }
 
-    public static TheoryData<string, FastDiffScope> Pairs()
-    {
-        var data = new TheoryData<string, FastDiffScope>();
-        foreach (string pair in (string[])["fast-diff", "diff", "library-api-diff"])
-        {
-            data.Add(pair, FastDiffScope.Public);
-            data.Add(pair, FastDiffScope.IncludeAll);
-        }
-        return data;
-    }
-
     [Theory]
-    [MemberData(nameof(Pairs))]
-    public void ApiUnchanged_IsSoundAgainstTheCompleteApiComparison(
-        string pairName,
-        FastDiffScope scope)
+    [InlineData("fast-diff")]
+    [InlineData("diff")]
+    [InlineData("library-api-diff")]
+    public void ApiUnchanged_IsSoundAgainstTheCompletePublicApiComparison(string pairName)
     {
         FixturePair pair = PairOf(pairName);
-        ApiSurfaceExtractionScope surfaceScope = scope == FastDiffScope.Public
-            ? ApiSurfaceExtractionScope.Public
-            : ApiSurfaceExtractionScope.IncludeAll;
-        ApiSurface before = Surface(pair.OldAssemblyPath(), surfaceScope);
-        ApiSurface after = Surface(pair.NewAssemblyPath(), surfaceScope);
+        ApiSurface before = Surface(pair.OldAssemblyPath());
+        ApiSurface after = Surface(pair.NewAssemblyPath());
         ApiFindingComparison comparison =
             MetadataFindings.CompareApi(
                 before, after, Subject, new ApiDiffOptions(ApiDiffScope.All));
         HashSet<string> changed = ChangedTypes(comparison);
 
-        FastDiffResult result = Compare(pair, scope);
+        FastDiffResult result = Compare(pair);
 
         Assert.NotEmpty(changed);
         Assert.All(changed, typeName =>
@@ -107,7 +93,7 @@ public sealed class FastDiffTests
             maxExamples: int.MaxValue,
     normalization: IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
         | IlBodyDiffNormalization.NormalizePlatformAssemblyScope).Diff;
-        FastDiffResult result = Compare(pair, FastDiffScope.Public);
+        FastDiffResult result = Compare(pair);
 
         Assert.NotEmpty(il.Examples);
         Assert.All(il.Examples, example =>
@@ -170,17 +156,17 @@ public sealed class FastDiffTests
         _ => FixtureCatalog.LibraryApiDiffPair,
     };
 
-    static ApiSurface Surface(string path, ApiSurfaceExtractionScope scope)
+    static ApiSurface Surface(string path)
     {
         using var stream = File.OpenRead(path);
         using var reader = new PEReader(stream);
-        return ApiSurfaceExtractor.Extract(reader, scope);
+        return ApiSurfaceExtractor.Extract(reader, ApiSurfaceExtractionScope.Public);
     }
 
-    static FastDiffResult Compare(FixturePair pair, FastDiffScope scope)
+    static FastDiffResult Compare(FixturePair pair)
     {
         using var before = new PEReader(File.OpenRead(pair.OldAssemblyPath()));
         using var after = new PEReader(File.OpenRead(pair.NewAssemblyPath()));
-        return FastDiff.Compare(before, after, scope);
+        return FastDiff.Compare(before, after);
     }
 }

@@ -3,7 +3,7 @@
 
 // Measures FastDiff over one Library image pair and checks it against the
 // complete API comparison and canonical IL comparison.
-// Usage: measure-fast-diff <before.dll> <after.dll> [iterations] [public|all]
+// Usage: measure-fast-diff <before.dll> <after.dll> [iterations]
 
 using System.Diagnostics;
 using System.Reflection.PortableExecutable;
@@ -11,16 +11,15 @@ using ILInspector.ILDiff;
 using ILInspector.Metadata;
 using Inspector.Findings;
 
-if (args.Length is < 2 or > 4)
+if (args.Length is < 2 or > 3)
 {
-    Console.Error.WriteLine("Usage: measure-fast-diff <before.dll> <after.dll> [iterations] [public|all]");
+    Console.Error.WriteLine("Usage: measure-fast-diff <before.dll> <after.dll> [iterations]");
     return 2;
 }
 
 string beforePath = args[0];
 string afterPath = args[1];
 int iterations = args.Length > 2 ? int.Parse(args[2]) : 20;
-FastDiffScope scope = args.Length > 3 && args[3] == "all" ? FastDiffScope.IncludeAll : FastDiffScope.Public;
 byte[] beforeBytes = File.ReadAllBytes(beforePath);
 byte[] afterBytes = File.ReadAllBytes(afterPath);
 
@@ -28,7 +27,7 @@ FastDiffResult Run()
 {
     using var before = new PEReader(new MemoryStream(beforeBytes, writable: false));
     using var after = new PEReader(new MemoryStream(afterBytes, writable: false));
-    return FastDiff.Compare(before, after, scope);
+    return FastDiff.Compare(before, after);
 }
 
 FastDiffResult result = Run();
@@ -43,10 +42,8 @@ for (int i = 0; i < iterations; i++)
 }
 samples.Sort();
 
-// Complete API comparison over the same scope.
-ApiSurfaceExtractionScope surfaceScope = scope == FastDiffScope.Public
-    ? ApiSurfaceExtractionScope.Public
-    : ApiSurfaceExtractionScope.IncludeAll;
+// Complete Public API comparison, signatures and attributes.
+const ApiSurfaceExtractionScope surfaceScope = ApiSurfaceExtractionScope.Public;
 ApiSurface Surface(byte[] bytes)
 {
     using var reader = new PEReader(new MemoryStream(bytes, writable: false));
@@ -96,7 +93,7 @@ int apiOverReported = result.Types.Count(s => s.Api == FastDiffState.Changed && 
 int bodyMissed = bodyChanged.Count(name => byName.TryGetValue(name, out var s) && s.Body == FastDiffState.Unchanged);
 int bodyUnmatched = bodyChanged.Count(name => !byName.ContainsKey(name));
 
-Console.WriteLine($"pair\t{Path.GetFileName(beforePath)}\tscope={scope}");
+Console.WriteLine($"pair\t{Path.GetFileName(beforePath)}");
 Console.WriteLine(
     $"types\t{result.Types.Length}\tapiChanged={result.Types.Count(s => s.Api == FastDiffState.Changed)}"
         + $"\tbodyChanged={result.Types.Count(s => s.Body == FastDiffState.Changed)}"
@@ -132,12 +129,12 @@ if (Environment.GetEnvironmentVariable("EXPLAIN") == "1")
     using var explainAfter = new PEReader(new MemoryStream(afterBytes, writable: false));
     foreach (FastDiffTypeState state in result.Types.Where(s => s.Api == FastDiffState.Changed && !apiChanged.Contains(s.FullName)).Take(40))
     {
-        var (api, _) = FastDiff.Explain(explainBefore, explainAfter, scope, state.FullName);
+        var (api, _) = FastDiff.Explain(explainBefore, explainAfter, state.FullName);
         Console.WriteLine($"  api-over\t{state.FullName}\n{api}");
     }
     foreach (FastDiffTypeState state in result.Types.Where(s => s.Body == FastDiffState.Changed && !bodyChanged.Contains(s.FullName)).Take(40))
     {
-        var (_, body) = FastDiff.Explain(explainBefore, explainAfter, scope, state.FullName);
+        var (_, body) = FastDiff.Explain(explainBefore, explainAfter, state.FullName);
         Console.WriteLine($"  body-over\t{state.FullName}\n{body}");
     }
 }
