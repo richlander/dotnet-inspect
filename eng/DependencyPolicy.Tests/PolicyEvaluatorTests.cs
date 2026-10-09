@@ -1527,6 +1527,7 @@ public sealed class PolicyEvaluatorTests
                 "$platform",
                 "DotnetInspect.Web.Core",
                 "DotnetInspector.DocumentationHouse.Contracts",
+                "DotnetInspector.InspectionContracts",
                 "DotnetInspector.Libraries",
                 "DotnetInspector.LibraryMetadata",
                 "DotnetInspector.Packages",
