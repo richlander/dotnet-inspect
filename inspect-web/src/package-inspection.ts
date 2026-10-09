@@ -27,6 +27,7 @@ import type {
   AppPackage,
   AppTypeSurface,
 } from "./package-acquisition.ts";
+import { createAppTypeSurface } from "./package-acquisition.ts";
 import type {
   LibraryMetricsRelationshipState,
 } from "./library-metrics.ts";
@@ -52,6 +53,15 @@ export function resolvePackagePerformanceType(
   return packageModel.types.find(candidate =>
     candidate.assembly === performanceMember.assembly
     && candidate.definitionId === performanceMember.typeId) ?? null;
+}
+
+export function projectPackagePerformanceType(
+  performanceMember: BrowserPerformanceMember,
+): AppTypeSurface {
+  return createAppTypeSurface({
+    ...performanceMember.declaringType,
+    api: [],
+  });
 }
 
 export function resolvePackagePerformanceMember(

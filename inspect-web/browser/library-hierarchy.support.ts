@@ -1515,6 +1515,29 @@ async function installFacades(
               compatibility: false,
             };
       }
+      function implementationPerformanceSurface(surface) {
+        const source = surface.types.find(type =>
+          type.api.some(member => member.name === "PrivateWork"));
+        const privateMember =
+          source?.api.find(member => member.name === "PrivateWork");
+        if (!source || !privateMember) return surface;
+        const implementationType = {
+          ...source,
+          id: source.assemblyId + ":Example.ImplementationOnlyWorker",
+          definitionId: "Example.ImplementationOnlyWorker",
+          queryId: "Example.ImplementationOnlyWorker",
+          metadataId: "Example.ImplementationOnlyWorker",
+          name: "ImplementationOnlyWorker",
+          displayName: "ImplementationOnlyWorker",
+          members: 1,
+          signature: "public sealed class ImplementationOnlyWorker",
+          api: [privateMember],
+        };
+        return {
+          ...surface,
+          types: [...surface.types, implementationType],
+        };
+      }
       function typeMemberPopulation(
         surface, typeIdentity, spelling, accessibility) {
         function accessibilityBucket(member) {
@@ -1677,7 +1700,8 @@ async function installFacades(
           ]);
         await waitForTypeMemberPopulationGate();
         return typeMemberPopulation(
-          surfaceFor(id, version, framework),
+          implementationPerformanceSurface(
+            surfaceFor(id, version, framework)),
           typeIdentity,
           spelling,
           accessibility);
@@ -1706,7 +1730,8 @@ async function installFacades(
             ]);
         await waitForTypeMemberPopulationGate();
         return typeMemberPopulation(
-          surfaceFor("Microsoft.NETCore.App", version, framework),
+          implementationPerformanceSurface(
+            surfaceFor("Microsoft.NETCore.App", version, framework)),
           typeIdentity,
           spelling,
           accessibility);
@@ -1735,7 +1760,7 @@ async function installFacades(
             ]);
         await waitForTypeMemberPopulationGate();
         return typeMemberPopulation(
-          surfaces[0],
+          implementationPerformanceSurface(surfaces[0]),
           typeIdentity,
           spelling,
           accessibility);
@@ -2824,9 +2849,35 @@ async function installFacades(
         return opportunitiesFor(
           surface.package, surface, selected, version, framework, selected.id);
       }
+      function implementationPerformanceSurface(surface) {
+        const source = surface.types.find(type =>
+          type.api.some(member => member.name === "PrivateWork"));
+        const privateMember =
+          source?.api.find(member => member.name === "PrivateWork");
+        if (!source || !privateMember) return surface;
+        const implementationType = {
+          ...source,
+          id: source.assemblyId + ":Example.ImplementationOnlyWorker",
+          definitionId: "Example.ImplementationOnlyWorker",
+          queryId: "Example.ImplementationOnlyWorker",
+          metadataId: "Example.ImplementationOnlyWorker",
+          name: "ImplementationOnlyWorker",
+          displayName: "ImplementationOnlyWorker",
+          members: 1,
+          signature: "public sealed class ImplementationOnlyWorker",
+          api: [privateMember],
+        };
+        return {
+          ...surface,
+          types: [...surface.types, implementationType],
+        };
+      }
       async function performanceFor(surface, selected, version, framework, requestKey) {
         const selectedType = surface.types.find(item => item.assemblyId === selected.id);
         if (!selectedType) throw new Error("Library has no projected type: " + selected.asset);
+        const privateType =
+          implementationPerformanceSurface(surface).types.find(type =>
+            type.definitionId === "Example.ImplementationOnlyWorker");
         const scenario = ${JSON.stringify(analysis)};
         if (scenario === "deferred") {
           await new Promise(resolve => document.addEventListener(
@@ -2835,22 +2886,39 @@ async function installFacades(
         if (scenario === "query-error") throw new Error("Analysis query unavailable.");
         const memberToken = memberName => memberName === "Run"
           ? 100663297 : memberName === "Write" ? 100663298 : 100663299;
-        const member = (memberName, opportunityCount, inLoopCount, shapes, confidence) => ({
-          assembly: selected.name + ".dll",
-          typeId: selectedType.definitionId,
+        const member = (
           memberName,
-          stableSelector: memberName,
-          bodyTokens: [memberToken(memberName)],
-          bodyTargets: [{ typeId: selectedType.definitionId, memberName, selectorKey: memberName, methodToken: memberToken(memberName), issueOffsets: null }],
           opportunityCount,
           inLoopCount,
           shapes,
-          confidence
-        });
+          confidence,
+          declaringType = selectedType,
+        ) => {
+          const { api: _, ...declaringTypeSurface } = declaringType;
+          return {
+            assembly: selected.name + ".dll",
+            typeId: declaringType.definitionId,
+            memberName,
+            stableSelector: memberName,
+            bodyTokens: [memberToken(memberName)],
+            bodyTargets: [{ typeId: declaringType.definitionId, memberName, selectorKey: memberName, methodToken: memberToken(memberName), issueOffsets: null }],
+            opportunityCount,
+            inLoopCount,
+            shapes,
+            confidence,
+            declaringType: declaringTypeSurface,
+          };
+        };
         const members = scenario === "empty" || scenario === "partial-empty" ? [] : [
           member("Run", 3, 1, ["box-value-type", "string-concat"], "high"),
           member("Write", 1, 0, ["array-allocation"], "medium"),
-          member("PrivateWork", 2, 0, ["box-value-type"], "high")
+          member(
+            "PrivateWork",
+            2,
+            0,
+            ["box-value-type"],
+            "high",
+            privateType ?? selectedType)
         ];
         if (scenario === "long") {
           members.splice(0, members.length, ...Array.from({ length: 80 }, (_, index) =>

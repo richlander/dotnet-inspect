@@ -393,7 +393,7 @@ test("production Analysis opens a private ranked member through all accessibilit
         "1.0.0",
         "net10.0",
         "Example.Core.dll",
-        "Example.Widget",
+        "Example.ImplementationOnlyWorker",
         "csharp",
         "all",
       ]),

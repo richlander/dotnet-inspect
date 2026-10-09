@@ -1857,9 +1857,6 @@ public static partial class AnalysisExports
             scope.UseMetadataParticipant(
                 participant,
                 AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant);
-        // The package surface retains every Type but keeps public Types lean until an explicit
-        // all-accessibility member request. Performance Triage is that body-oriented gesture,
-        // so every attributed member of a retained Type is navigable.
         BrowserWorkspaceParticipant? surfaceParticipant =
             scope.TryGetSurfaceParticipant(participant);
         BrowserSurfaceProjection.Surface? surface = surfaceParticipant is null
@@ -1867,16 +1864,6 @@ public static partial class AnalysisExports
             : BrowserPackageSurfaceProjection.ProjectParticipantSurface(
                 scope,
                 surfaceParticipant);
-        HashSet<(
-            string Assembly,
-            string Type)> navigableTypes =
-        [
-            .. (surface?.Types ?? [])
-                .Select(type => (
-                    type.Assembly,
-                    type.DefinitionId)),
-        ];
-
         var failures = new List<string>();
         if (!string.IsNullOrWhiteSpace(surface?.InspectionError))
             failures.Add($"API surface: {surface.InspectionError}");
@@ -1926,8 +1913,7 @@ public static partial class AnalysisExports
                 PerformanceMembers(
                     result,
                     participants,
-                    scope,
-                    navigableTypes),
+                    scope),
                 failures);
 
         return new BrowserPackagePerformance(
@@ -1943,10 +1929,7 @@ public static partial class AnalysisExports
     static IEnumerable<BrowserPerformanceMember> PerformanceMembers(
         AssemblyContextOptimizationOpportunitiesResult result,
         ImmutableArray<BrowserWorkspaceParticipant> participants,
-        BrowserInspectionScope scope,
-        HashSet<(
-            string Assembly,
-            string Type)> navigableTypes)
+        BrowserInspectionScope scope)
     {
         var implementationSurfaces = new Dictionary<BrowserWorkspaceParticipant, ApiSurface?>();
         foreach (AssemblyContextOptimizationOpportunityMember member
@@ -1962,13 +1945,8 @@ public static partial class AnalysisExports
                         member.Subject.Registration));
             BrowserWorkspaceParticipant? surfaceParticipant =
                 scope.TryGetSurfaceParticipant(analysisParticipant);
-            if (surfaceParticipant is null
-                || !navigableTypes.Contains((
-                    surfaceParticipant.Asset.AssemblyName,
-                    surfaceMember.Type)))
-            {
+            if (surfaceParticipant is null)
                 continue;
-            }
 
             if (!implementationSurfaces.TryGetValue(analysisParticipant, out ApiSurface? implementationSurface))
             {
@@ -1982,6 +1960,14 @@ public static partial class AnalysisExports
                     (entry as AssemblyContextEntry<AssemblyApiSurface>.Available)?.Value.Surface;
                 implementationSurfaces.Add(analysisParticipant, implementationSurface);
             }
+            BrowserTypeSurfaceInfo projectedType =
+                BrowserSurfaceProjection.Type(
+                    surfaceMember.DeclaringType,
+                    surfaceParticipant.Asset.AssemblyName,
+                    surfaceParticipant.Asset.Id,
+                    surfaceParticipant.Assembly.Identity.Name,
+                    qualifyId: true,
+                    selectedMembers: []);
             yield return new BrowserPerformanceMember(
                 surfaceParticipant.Asset.AssemblyName,
                 surfaceMember.Type,
@@ -1992,6 +1978,7 @@ public static partial class AnalysisExports
                 member.Member.Ranking.InLoopCount,
                 [.. member.Member.Ranking.Shapes],
                 member.Member.Ranking.Confidence,
+                BrowserAnalysisWireProjection.Project(projectedType),
                 PerformanceBodyTargets(implementationSurface, surfaceMember.Type,
                     surfaceMember.StableSelector, surfaceMember.BodyTokens,
                     member.Member.Ranking.Opportunities));

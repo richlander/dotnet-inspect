@@ -3524,7 +3524,7 @@ public sealed partial class BrowserEngineBoundaryTests
             typeof(BrowserEngineBoundaryTests).Assembly.Location);
         byte[] surface = BuildSurfaceImageWithType(
             typeof(BrowserEngineBoundaryTests).Assembly.GetName(),
-            typeof(BrowserEngineBoundaryTests).FullName!);
+            "ReferenceOnly");
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(
                 PackageId,
@@ -3548,6 +3548,9 @@ public sealed partial class BrowserEngineBoundaryTests
             member =>
                 member.MemberName
                 == nameof(PerformancePrivateBoxingProbe));
+        Assert.Equal(
+            typeof(BrowserEngineBoundaryTests).FullName,
+            ranked.DeclaringType.DefinitionId);
 
         BrowserTypeMemberPopulationInspection ordinary =
             Assert.IsType<BrowserTypeMemberPopulationInspection>(
@@ -3563,14 +3566,10 @@ public sealed partial class BrowserEngineBoundaryTests
                     BrowserMetadataJsonContext.Default
                         .BrowserTypeMemberPopulationInspection));
         Assert.Equal(
-            BrowserTypeMemberPopulationOutcome.Available,
+            BrowserTypeMemberPopulationOutcome.Failed,
             ordinary.Outcome);
-        Assert.DoesNotContain(
-            Assert.IsType<BrowserTypeMemberPopulation>(
-                    ordinary.Population)
-                .Groups
-                .SelectMany(group => group.Members),
-            member => member.StableSelector == ranked.StableSelector);
+        Assert.Equal("The exact Type was not found.", ordinary.Detail);
+        Assert.Null(ordinary.Population);
 
         BrowserTypeMemberPopulationInspection performancePopulation =
             Assert.IsType<BrowserTypeMemberPopulationInspection>(

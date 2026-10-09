@@ -1710,6 +1710,10 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Equal(expected.InLoopCount, actual.InLoopCount);
             Assert.Equal(expected.Shapes, actual.Shapes);
             Assert.Equal(expected.Confidence, actual.Confidence);
+            Assert.Equivalent(
+                expected.DeclaringType,
+                actual.DeclaringType,
+                strict: true);
         }
 
         Assert.Equal(final.InspectionError, summary.InspectionError);
@@ -1736,7 +1740,26 @@ public sealed partial class BrowserEngineBoundaryTests
                 1,
                 0,
                 ["box-value-type"],
-                "high");
+                "high",
+                new(
+                    $"Example.dll:Example.Type{index}",
+                    $"Example.Type{index}",
+                    $"Example.Type{index}",
+                    $"Example.Type{index}",
+                    $"Type{index}",
+                    $"Type{index}",
+                    "Example",
+                    "class",
+                    "api.type-kind.class",
+                    [],
+                    "public",
+                    "public",
+                    "Example.dll",
+                    "example",
+                    "Example",
+                    0,
+                    $"public class Type{index}",
+                    null));
 
         var exactFailures = new List<string>();
         BrowserPerformanceMember[] exact =

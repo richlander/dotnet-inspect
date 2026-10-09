@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   createPackageInspectionCoordinator,
+  projectPackagePerformanceType,
   resolvePackagePerformanceMember,
   resolvePackagePerformanceType,
   workspaceDependencyKey,
@@ -252,6 +253,13 @@ function performanceType(
   };
 }
 
+function performanceDeclaringType(
+  type: AppTypeSurface,
+): BrowserPerformanceMember["declaringType"] {
+  const { api: _, ...declaringType } = type;
+  return declaringType;
+}
+
 test(
   "performance navigation uses stable surface identity across body tokens",
   () => {
@@ -269,6 +277,7 @@ test(
       inLoopCount: 0,
       shapes: ["box-value-type"],
       confidence: "high",
+      declaringType: performanceDeclaringType(type),
     };
 
     assert.deepEqual(
@@ -287,6 +296,32 @@ test(
           typeId: performance.typeId,
         }),
       type);
+  });
+
+test(
+  "performance navigation projects an implementation-only Type without mutating the package",
+  () => {
+    const member = performanceMember();
+    const type = performanceType(member);
+    const packageItem: AppPackage = packageModel({ types: [] });
+    const performance: BrowserPerformanceMember = {
+      assembly: type.assembly,
+      typeId: type.definitionId,
+      memberName: member.name,
+      stableSelector: member.stableSelector,
+      bodyTokens: [0x06001000],
+      bodyTargets: [],
+      opportunityCount: 1,
+      inLoopCount: 0,
+      shapes: ["box-value-type"],
+      confidence: "high",
+      declaringType: performanceDeclaringType(type),
+    };
+
+    assert.deepEqual(
+      projectPackagePerformanceType(performance),
+      { ...type, api: [] });
+    assert.deepEqual(packageItem.types, []);
   });
 
 function metadataResult(): PackageMetadata {

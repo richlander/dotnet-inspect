@@ -179,6 +179,7 @@ import {
 } from "./platform-forwarders.ts";
 import {
   createPackageInspectionCoordinator,
+  projectPackagePerformanceType,
   resolvePackagePerformanceType,
   workspaceDependencyKey,
   type PackagePerformance,
@@ -835,6 +836,7 @@ import type {
 import type {
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
+  BrowserPerformanceMember,
 } from "./facades/inspect-web-analysis.d.ts";
 import {
   createTypeLeverageCoordinator,
@@ -5436,6 +5438,9 @@ function selectedType() {
     !state.libraryScope || state.libraryScope.has(libraryKey(item));
   return state.package.types.find(item =>
       item.id === state.selectedTypeId && withinLibrary(item))
+    || performanceNavigationTypes.get(state.package)
+      ?.find(item =>
+        item.id === state.selectedTypeId && withinLibrary(item))
     || filteredTypes()[0]
     || state.package.types.find(withinLibrary)
     || null;
@@ -5444,7 +5449,14 @@ function selectedType() {
 function filteredTypes() {
   if (!state.package) return [];
   const needle = state.typeFilter.toLowerCase();
-  return state.package.types.filter(item => {
+  const retained = performanceNavigationTypes.get(state.package)
+    ?.find(item =>
+      item.id === state.selectedTypeId
+      && !state.package?.types.some(type => type.id === item.id));
+  const types = retained
+    ? [...state.package.types, retained]
+    : state.package.types;
+  return types.filter(item => {
     return typeMatchesFilterText(item, needle)
       && (selectedNamespaceFilter() === null
         || item.namespace === selectedNamespaceFilter())
@@ -11977,8 +11989,28 @@ function ensureExplorerResizeListener() {
 }
 
 
-// Stable product identities bridge implementation-body evidence to the
-// reference-preferred surface the navigation pane renders.
+const performanceNavigationTypes =
+  new WeakMap<AppPackage, AppTypeSurface[]>();
+
+function retainPerformanceNavigationType(
+  pkg: AppPackage,
+  member: BrowserPerformanceMember,
+): AppTypeSurface {
+  const existing = resolvePackagePerformanceType(pkg, member);
+  if (existing) return existing;
+  const retained = performanceNavigationTypes.get(pkg) ?? [];
+  const prior = retained.find(type =>
+    type.assembly === member.assembly
+    && type.definitionId === member.typeId);
+  if (prior) return prior;
+  const projected = projectPackagePerformanceType(member);
+  retained.push(projected);
+  performanceNavigationTypes.set(pkg, retained);
+  return projected;
+}
+
+// Stable product identities bridge implementation-body evidence to an exact
+// transient Type when the ordinary API surface does not carry that Type.
 function drillToPerfMember(
   stableSelector: string,
   assembly: string,
@@ -11986,16 +12018,21 @@ function drillToPerfMember(
   resourceMethodToken?: number,
 ) {
   const pkg = currentPackage();
-  const targetType = resolvePackagePerformanceType(pkg, {
-    assembly,
-    typeId,
-  });
-  if (!targetType) return;
+  const ranked = state.packagePerformance?.members.find(member =>
+    member.stableSelector === stableSelector
+    && member.assembly === assembly
+    && member.typeId === typeId);
+  if (!ranked) {
+    showToast("That ranked Member is no longer available.");
+    return;
+  }
+  const targetType = retainPerformanceNavigationType(pkg, ranked);
 
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
   state.libraryScope = new Set([libraryKey(targetType)]);
   state.selectedTypeId = targetType.id;
+  reconcileAccessibilityFilter(targetType);
   state.memberBrowseTypeId = "";
   state.namespaceFilter = "";
   resetMemberFilters();

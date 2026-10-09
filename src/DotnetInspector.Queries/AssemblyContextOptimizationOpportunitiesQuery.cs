@@ -11,6 +11,7 @@ public sealed record OptimizationOpportunityMemberSurface(
     string Member,
     string StableSelector,
     bool IsPublic,
+    ApiType DeclaringType,
     ImmutableArray<int> BodyTokens);
 
 public sealed record AssemblyOptimizationOpportunityMember(
@@ -297,6 +298,7 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
                 anchor.StableSelector,
                 type.Accessibility is null
                     && member.Accessibility is null,
+                type,
                 []);
     }
 
