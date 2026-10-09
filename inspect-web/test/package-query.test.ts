@@ -387,6 +387,36 @@ test("switching traversal to direct retains another dependency term's target", (
     ]);
 });
 
+test("dependency reach is query-wide across repeated exact terms", () => {
+    const traversed = withDependencyTerm(
+      createQueryRequest("Contoso.*"),
+      DEPENDS_TERM,
+      null,
+      "eq",
+      "Contoso.First",
+      "2",
+      "net10.0",
+      DEPTH_2_FACET,
+      DEPENDENCY_TARGET_TERM);
+    const direct = withDependencyTerm(
+      traversed,
+      DEPENDS_TERM,
+      null,
+      "eq",
+      "Contoso.Second",
+      "direct",
+      "net10.0",
+      null,
+      null);
+
+    assert.equal(dependencyReach(direct), "direct");
+    assert.equal(direct.requestedLimit, 200);
+    assert.deepEqual(
+      direct.terms.filter(
+        term => term.descriptor.key === "depends").map(term => term.value),
+      ["Contoso.First", "Contoso.Second"]);
+});
+
 test("Ecosystem requests preserve curated identity with 24 initial and 96 maximum matches", () => {
   const request = createEcosystemQueryRequest("ecosystem.aspire");
 

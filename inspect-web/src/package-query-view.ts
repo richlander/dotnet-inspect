@@ -898,7 +898,7 @@ function renderDependencyTermEditor(
         index,
         escapeHtml)}
       <label class="query-dependency-reach">
-        <span>Reach</span>
+        <span>Shared reach for exact package dependencies</span>
         <select
           data-query-dependency-reach
           ${control("dependency-reach")}
@@ -910,7 +910,7 @@ function renderDependencyTermEditor(
         </select>
       </label>
       <label class="query-dependency-target">
-        <span>Target framework</span>
+        <span>Shared dependency target framework</span>
         <input
           data-query-dependency-target
           ${control("dependency-target")}
@@ -921,7 +921,7 @@ function renderDependencyTermEditor(
           autocomplete="off"
           spellcheck="false" />
       </label>
-      <p class="query-preset-disclosure">Direct only inspects declared dependencies. A bounded reach includes direct and transitive declaration paths and inspects at most five candidates.</p>
+      <p class="query-preset-disclosure">Reach applies to every exact package dependency in this query. Direct only inspects declared dependencies. A bounded reach includes direct and transitive declaration paths and inspects at most five candidates. The target framework scopes every dependency fact.</p>
       <div class="query-term-actions">
         <button type="submit" ${control("apply")}>Apply</button>
         ${draft

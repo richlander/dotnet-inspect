@@ -549,6 +549,11 @@ test("dependency package, reach, and target render as one facet", () => {
   });
 
   assert.match(html, /data-query-dependency-term/);
+  assert.match(html, /Shared reach for exact package dependencies/);
+  assert.match(html, /Shared dependency target framework/);
+  assert.match(
+    html,
+    /Reach applies to every exact package dependency in this query/);
   assert.match(html, /Within 2 edges/);
   assert.match(html, /value="2" selected/);
   assert.match(html, /data-query-dependency-target/);
