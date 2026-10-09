@@ -55,6 +55,8 @@ public sealed class MethodBodyApiOverloadResolverTests
                                 GenericArity: null));
                     bool directSelectionIsSupported =
                         candidates.Count > 1
+                        && !session.MethodBodies
+                            .DeclaresExtensionMethod(memberName)
                         && candidates.All(static candidate =>
                             candidate.Member.Kind == "method"
                             && candidate.Member.MetadataToken.HasValue);
