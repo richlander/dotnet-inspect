@@ -90,10 +90,9 @@ public sealed class AsyncSiblingProducer
                     view.MethodHandle,
                     view.MethodDefinition,
                     view.GetBody(),
+                    view.Terminal == ProducerTerminal.Rows,
                     CancellationToken.None);
-            return view.Terminal == ProducerTerminal.Rows
-                ? new(result.Rows, result.Diagnostics, result.Rows.Length)
-                : new([], result.Diagnostics, result.Rows.Length);
+            return new(result.Rows, result.Diagnostics, result.Count);
         }
         catch (AssemblyBindingPolicyChangedException exception)
         {
