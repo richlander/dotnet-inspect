@@ -247,6 +247,14 @@ never retain a participant after the scope is disposed.
 6. **Platform endpoints.** Platform `diff --platform` endpoints adopt the
    scope when platform lookups move onto the House. That migration belongs to
    [package-backed platform realization](package-backed-platform-realization.md#production-adoption-and-retirement).
+7. **Exact package Type inspection.** The cold shared exact-Type operation
+   opens a `Surface` endpoint scope and executes the existing Metadata query
+   against its admitted Root. CLI `type` supplies desktop House policy.
+   Inspect Web executes the same operation over its already-retained
+   House-backed Root and assembly-role realization rather than reacquiring the
+   package. The detached `InspectionEnvelope<ExactTypeInspectionResult>`
+   remains unchanged; raw `WorkspaceContextLoadOptions` are no longer an input
+   to the completed operation.
 
 `diff --library` compares local files and needs no scope.
 

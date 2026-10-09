@@ -96,23 +96,15 @@ public static partial class MetadataExports
                 : null;
         InspectionEnvelope<ExactTypeInspectionResult> exactTypeInspection =
             hierarchyInspection is null
-                ? await ExactTypeInspectionOperation.ExecuteAsync(
-                    exactTypeRequest,
-                    new WorkspaceContextLoadOptions
-                    {
-                        HttpClient =
-                            BrowserPackageWorkspace.NetworkClient,
-                        SourceAuthorization =
-                            BrowserPackageWorkspace
-                                .PackageSourceAuthorization,
-                        PackageStore =
-                            BrowserPackageWorkspace.SessionPackageStore,
-                        PackageTransferPolicy =
-                            BrowserPackageWorkspace.PackageTransferPolicy,
-                        PayloadLimits =
-                            BrowserPackageWorkspace.PackageLimits,
-                    },
-                    BrowserApiSurfacePolicy.Limits)
+                ? scope.UsePackageAssemblyRoles(
+                    root,
+                    (workspace, package, realization) =>
+                        ExactTypeInspectionOperation.Execute(
+                            workspace,
+                            package,
+                            realization,
+                            exactTypeRequest,
+                            BrowserApiSurfacePolicy.Limits))
                 : new(
                     hierarchyInspection.ExactTypeInspection.Content
                         .Inspection,
