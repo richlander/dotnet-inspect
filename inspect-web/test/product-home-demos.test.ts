@@ -227,6 +227,9 @@ test("package activation retains a non-first exact focus", () => {
   assert.deepEqual(
     prepared.packages.map(packageModel => packageModel.id),
     ["Peer.Package", "Focus.Package"]);
+  assert.deepEqual(
+    prepared.packages.map(packageModel => packageModel.packageInfo),
+    [undefined, undefined]);
   assert.equal(prepared.focusPackage.id, "Focus.Package");
 });
 

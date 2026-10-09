@@ -982,6 +982,7 @@ async function installFacades(
             diagnostics: [],
           },
           documents: surface.documents,
+          defaultLibraryId: surface.defaultAssemblyId,
           surface: {
           ...surfaceFor(id, version, framework),
           package: id,

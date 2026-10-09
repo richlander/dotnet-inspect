@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -134,6 +135,16 @@ internal interface ILibraryMethodAnalysisInfrastructure
             MethodDefinition methodDefinition,
             bool typeSourceGenerated,
             ref MethodIdentity? asyncSource);
+
+    AsyncSiblingOpportunityAnalyzer AsyncSiblingAnalyzer { get; }
+
+    bool IsSourceGeneratedTypeOrEnclosing(TypeDefinitionHandle handle);
+
+    bool TryResolveAsyncSiblingSource(
+        MethodIdentity method,
+        MethodDefinition methodDefinition,
+        bool typeSourceGenerated,
+        [NotNullWhen(true)] ref MethodIdentity? asyncSource);
 
     bool TryResolveLiftedSourceOwner(
         MethodDefinitionHandle liftedHandle,

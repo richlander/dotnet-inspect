@@ -818,7 +818,10 @@ recreate those steps.
 The first production consumer is exact-version online CLI content for one
 literal root `README.md` or `skills/**/SKILL.md` path. The command calls
 `DesktopPackageSourceComposition.AcquireFileAsync`, without invoking the
-legacy `PackageExtractor` route. The host-neutral file-content inspection
+legacy `PackageExtractor` route. The README section first asks PackageHouse for
+File List evidence, delegates `README.md`-then-`PACKAGE.md` selection to the
+host-neutral `PackagePrimaryDocumentInspection` API, and acquires only that
+exact entry through the same range-capable path. The host-neutral file-content inspection
 drains the acquired file through EOF, so length and checksum validation
 complete, and returns detached immutable bytes up to the caller's explicit
 limit. The CLI applies its existing separator, raw, JSONL, or Skill projection.
@@ -827,16 +830,17 @@ destination with one bounded buffer. Local archives, floating or range version
 selection, target-framework filters, path globs and roles, partial document
 scopes, and .NET tool-wrapper redirection retain their existing paths.
 
-The second production consumer is the Browser/Wasm viewer for exact root
-`README.md`, root `PACKAGE.md`, and `skills/**/*.md` document entries. The host
-first validates that the path belongs to that browsable vocabulary, then calls
-`PackageFileAcquisition` and incrementally decodes the acquired file through
-bounded pooled UTF-8 buffers. The Browser package-entry store publishes the
-archive directory and selected expanded entries to Cache Storage, so a warm
-read after store recreation makes no package request. The final displayed
-string remains resident, but the complete `.nupkg` is not downloaded for an
-archive above the size cut. The managed-to-TypeScript wire DTO and frontend
-call site remain unchanged.
+The second production consumer is the Browser/Wasm viewer. The package
+overview projects the `PackagePrimaryDocumentInspection` selection plus
+`skills/**/*.md`; an explicit browsable-document request still accepts either
+root conventional document. The host validates that an opened path belongs to
+the browsable vocabulary, then calls `PackageFileAcquisition` and
+incrementally decodes the acquired file through bounded pooled UTF-8 buffers.
+The Browser package-entry store publishes the archive directory and selected
+expanded entries to Cache Storage, so a warm read after store recreation makes
+no package request. The final displayed string remains resident, but the
+complete `.nupkg` is not downloaded for an archive above the size cut. The
+managed-to-TypeScript wire DTO and frontend call site remain unchanged.
 
 `PackageHouseExecutionTests.ExactPayloadRead_IsColdAndPullsFromTheHouseGeneration`
 gates cold start, pre-read cancellation, receipt association, and progressive

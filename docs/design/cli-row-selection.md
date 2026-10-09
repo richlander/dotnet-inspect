@@ -16,7 +16,7 @@ rendered-line sequence even when semantic rows are available. Legacy `--rows`
 contracts remain command-owned until their semantic adoption.
 
 The package `--versions` and `--versions-with-feed` lenses, finite `demo list`
-catalog, `find`, `implements`, `extensions`, `depends`, `ecosystem`,
+catalog, `find`, `extensions`, `depends`, `ecosystem`,
 `diff --history`, `package query`, package activity,
 projected member Facts JSON, Workspace top-level inventory, and Integration
 graph edges, a single package's layout lens, `Files`, or

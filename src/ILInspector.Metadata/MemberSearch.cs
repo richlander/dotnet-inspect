@@ -1,3 +1,8 @@
+using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -70,6 +75,59 @@ public sealed record MemberSearchResult
 public sealed record MemberSearchOutcome(
     IReadOnlyList<MemberSearchResult> Results,
     IReadOnlyList<string> SkippedAssemblies);
+
+/// <summary>
+/// One-based inclusive accepted-match positions retained by Member search.
+/// </summary>
+public sealed record MemberSearchWindow
+{
+    public MemberSearchWindow(
+        int start,
+        int? end,
+        bool materializeRows = true)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(start);
+        if (end is int finiteEnd && finiteEnd < start)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(end),
+                finiteEnd,
+                "The member-search Window end must not precede its start.");
+        }
+        if (materializeRows && end is null)
+        {
+            throw new ArgumentException(
+                "A row-materializing Member search requires a finite end.",
+                nameof(end));
+        }
+
+        Start = start;
+        End = end;
+        MaterializeRows = materializeRows;
+    }
+
+    public int Start { get; }
+    public int? End { get; }
+    public bool MaterializeRows { get; }
+}
+
+/// <summary>Evidence for work performed by one metadata-native search.</summary>
+public sealed record MemberSearchReceipt(
+    int TypeDefinitionsVisited,
+    int MemberCandidatesVisited,
+    int MemberNamesDecoded,
+    int AcceptedMatches,
+    int ProjectedRows);
+
+/// <summary>
+/// Retained Member projections, accepted-row position, and scan evidence.
+/// </summary>
+public sealed record MemberSearchWindowResult(
+    ImmutableArray<MemberSearchResult> Results,
+    int AcceptedCount,
+    bool EndReached,
+    ImmutableArray<ApiSurfaceInspectionFailure> InspectionFailures,
+    MemberSearchReceipt Receipt);
 
 /// <summary>
 /// Closed-set member search: given a finite set of already-resolved assembly paths, find members
@@ -183,6 +241,182 @@ public static class MemberSearch
         return results;
     }
 
+    /// <summary>
+    /// Scans admitted metadata declarations in the established Type/member
+    /// order, retaining only requested accepted positions. Before
+    /// <see cref="MemberSearchWindow.Start"/>, only visibility, hidden-state,
+    /// accessor folding, name matching, and the optional declaring-Type
+    /// predicate are evaluated.
+    /// </summary>
+    internal static MemberSearchWindowResult SearchWindow(
+        PEReader peReader,
+        string assemblyName,
+        IReadOnlyList<string> patterns,
+        bool includeAll,
+        MemberSearchWindow window,
+        Func<MetadataTypeDefinitionName, bool>? declaringTypeMatches = null)
+    {
+        ArgumentNullException.ThrowIfNull(peReader);
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyName);
+        ArgumentNullException.ThrowIfNull(patterns);
+        ArgumentNullException.ThrowIfNull(window);
+
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(peReader);
+        AttachedExtensionMap attachedExtensions =
+            AttachedExtensionMap.Build(
+                reader,
+                includeAll);
+        var results =
+            ImmutableArray.CreateBuilder<MemberSearchResult>();
+        var failures =
+            ImmutableArray.CreateBuilder<ApiSurfaceInspectionFailure>();
+        int acceptedCount = 0;
+        int declarationOrder = 0;
+        int typeDefinitionsVisited = 0;
+        int memberCandidatesVisited = 0;
+        int memberNamesDecoded = 0;
+        int projectedRows = 0;
+        bool endReached = false;
+
+        foreach (TypeDefinitionHandle typeHandle
+            in reader.TypeDefinitions)
+        {
+            if (endReached)
+                break;
+
+            typeDefinitionsVisited =
+                checked(typeDefinitionsVisited + 1);
+            try
+            {
+                TypeDefinition type =
+                    reader.GetTypeDefinition(typeHandle);
+                string metadataName =
+                    reader.GetString(type.Name);
+                if (TypeFilters.IsCompilerGenerated(metadataName)
+                    || !includeAll && !type.IsPublic
+                    || !includeAll
+                        && AttributeReader.HasHiddenAttribute(
+                            reader,
+                            type.GetCustomAttributes()))
+                {
+                    continue;
+                }
+
+                MetadataTypeDefinitionNameReadResult typeName =
+                    MetadataTypeDefinitionNameReader.Read(
+                        reader,
+                        typeHandle);
+                if (typeName is
+                    MetadataTypeDefinitionNameReadResult.Rejected
+                        rejected)
+                {
+                    failures.Add(
+                        InspectionFailure(
+                            "type identity",
+                            typeHandle,
+                            rejected.Failure));
+                    continue;
+                }
+                MetadataTypeDefinitionName declaringType =
+                    typeName is
+                        MetadataTypeDefinitionNameReadResult.Read read
+                        ? read.Name
+                        : throw new InvalidOperationException(
+                            "Unknown Type-definition name result.");
+                bool admitsDeclaringType =
+                    declaringTypeMatches?.Invoke(declaringType)
+                    ?? true;
+                bool extensionContainer =
+                    (type.Attributes
+                        & (TypeAttributes.Sealed
+                            | TypeAttributes.Abstract))
+                    == (TypeAttributes.Sealed
+                        | TypeAttributes.Abstract)
+                    && AttributeReader.HasExtensionAttribute(
+                        reader,
+                        type.GetCustomAttributes());
+                var sink = new SearchSink(
+                    reader,
+                    typeHandle,
+                    type,
+                    declaringType,
+                    assemblyName,
+                    patterns,
+                    includeAll,
+                    admitsDeclaringType,
+                    window,
+                    declarationOrder,
+                    acceptedCount,
+                    results,
+                    memberCandidatesVisited,
+                    memberNamesDecoded,
+                    projectedRows);
+                ApiSurfaceExtractor.ClassifyDeclaredMembers(
+                    reader,
+                    typeHandle,
+                    type,
+                    MetadataMemberSpelling.CSharp,
+                    publicOnly: !includeAll,
+                    extensionContainer,
+                    classifyLogicalMethodKinds: true,
+                    ref sink);
+                if (!sink.EndReached
+                    && attachedExtensions.TryGet(
+                        typeHandle,
+                        out IReadOnlyList<AttachedExtensionCandidate>
+                            attached))
+                {
+                    foreach (AttachedExtensionCandidate candidate
+                        in attached)
+                    {
+                        TypeDefinition extensionDeclaringType =
+                            reader.GetTypeDefinition(
+                                candidate.DeclaringType);
+                        sink.AddAttached(
+                            candidate.Member,
+                            candidate.DeclaringType,
+                            extensionDeclaringType);
+                        if (sink.EndReached)
+                            break;
+                    }
+                }
+                acceptedCount = sink.AcceptedCount;
+                memberCandidatesVisited =
+                    sink.MemberCandidatesVisited;
+                memberNamesDecoded = sink.MemberNamesDecoded;
+                projectedRows = sink.ProjectedRows;
+                endReached = sink.EndReached;
+                declarationOrder =
+                    checked(declarationOrder + 1);
+            }
+            catch (Exception exception) when (
+                exception is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                failures.Add(
+                    InspectionFailure(
+                        "type row",
+                        typeHandle,
+                        MetadataTypeNameFailure.Malformed(
+                            typeHandle,
+                            exception.Message)));
+            }
+        }
+
+        return new(
+            results.DrainToImmutable(),
+            acceptedCount,
+            endReached,
+            failures.DrainToImmutable(),
+            new(
+                typeDefinitionsVisited,
+                memberCandidatesVisited,
+                memberNamesDecoded,
+                acceptedCount,
+                projectedRows));
+    }
+
     private static void CollectFromSurface(
         ApiSurface surface,
         string assemblyName,
@@ -246,5 +480,644 @@ public static class MemberSearch
                 }
             }
         }
+    }
+
+    private static ApiSurfaceInspectionFailure InspectionFailure(
+                    string operation,
+                    EntityHandle subject,
+                    MetadataTypeNameFailure failure) =>
+                    new(
+                        operation,
+                        failure.SubjectToken
+                            ?? MetadataTokens.GetToken(subject),
+                        failure.Mechanism,
+                        failure.Kind,
+                        failure.Detail);
+
+    private sealed class AttachedExtensionMap
+    {
+        private readonly Dictionary<
+            TypeDefinitionHandle,
+            List<AttachedExtensionCandidate>> _byReceiver;
+
+        private AttachedExtensionMap(
+            Dictionary<
+                TypeDefinitionHandle,
+                List<AttachedExtensionCandidate>> byReceiver)
+        {
+            _byReceiver = byReceiver;
+        }
+
+        internal static AttachedExtensionMap Build(
+            MetadataReader reader,
+            bool includeAll)
+        {
+            var targets = new Dictionary<
+                MetadataTypeDefinitionName,
+                TypeDefinitionHandle>();
+            var ambiguous =
+                new HashSet<MetadataTypeDefinitionName>();
+            foreach (TypeDefinitionHandle handle
+                in reader.TypeDefinitions)
+            {
+                TypeDefinition type =
+                    reader.GetTypeDefinition(handle);
+                string metadataName =
+                    reader.GetString(type.Name);
+                if (TypeFilters.IsCompilerGenerated(
+                        metadataName)
+                    || !includeAll && !type.IsPublic
+                    || !includeAll
+                        && AttributeReader.HasHiddenAttribute(
+                            reader,
+                            type.GetCustomAttributes()))
+                {
+                    continue;
+                }
+
+                if (MetadataTypeDefinitionNameReader.Read(
+                        reader,
+                        handle)
+                    is not
+                        MetadataTypeDefinitionNameReadResult.Read
+                            read
+                    || ambiguous.Contains(read.Name))
+                {
+                    continue;
+                }
+                if (!targets.TryAdd(read.Name, handle))
+                {
+                    targets.Remove(read.Name);
+                    ambiguous.Add(read.Name);
+                }
+            }
+
+            var byReceiver = new Dictionary<
+                TypeDefinitionHandle,
+                List<AttachedExtensionCandidate>>();
+            var sink = new AttachedExtensionSink(
+                targets,
+                byReceiver);
+            ApiSurfaceExtractor.ClassifyAttachedExtensions(
+                reader,
+                publicOnly: !includeAll,
+                ref sink);
+            return new(byReceiver);
+        }
+
+        internal bool TryGet(
+            TypeDefinitionHandle receiver,
+            out IReadOnlyList<AttachedExtensionCandidate>
+                candidates)
+        {
+            bool found =
+                _byReceiver.TryGetValue(
+                    receiver,
+                    out List<AttachedExtensionCandidate>? rows);
+            candidates = rows ?? [];
+            return found;
+        }
+    }
+
+    private readonly record struct AttachedExtensionCandidate(
+        TypeDefinitionHandle DeclaringType,
+        ClassifiedMember Member);
+
+    private struct AttachedExtensionSink(
+        IReadOnlyDictionary<
+            MetadataTypeDefinitionName,
+            TypeDefinitionHandle> targets,
+        Dictionary<
+            TypeDefinitionHandle,
+            List<AttachedExtensionCandidate>> byReceiver)
+        : IAttachedExtensionSink
+    {
+        private TypeDefinitionHandle _receiver;
+        private TypeDefinitionHandle _declaringType;
+
+        public bool Wants(
+            in ExtensionReceiver receiver,
+            TypeDefinitionHandle declaringType)
+        {
+            if (receiver.ReadName() is not { } name
+                || !targets.TryGetValue(
+                    name,
+                    out _receiver)
+                || _receiver == declaringType)
+            {
+                return false;
+            }
+
+            _declaringType = declaringType;
+            return true;
+        }
+
+        public void Add(
+            in ExtensionReceiver receiver,
+            in ClassifiedMember member)
+        {
+            if (!byReceiver.TryGetValue(
+                    _receiver,
+                    out List<AttachedExtensionCandidate>?
+                        candidates))
+            {
+                candidates = [];
+                byReceiver.Add(_receiver, candidates);
+            }
+            candidates.Add(
+                new(
+                    _declaringType,
+                    member));
+        }
+    }
+
+    private struct SearchSink : IClassifiedMemberSink
+    {
+        private readonly MetadataReader _reader;
+        private readonly TypeDefinitionHandle _typeHandle;
+        private readonly TypeDefinition _type;
+        private readonly MetadataTypeDefinitionName _declaringType;
+        private readonly string _assemblyName;
+        private readonly IReadOnlyList<string> _patterns;
+        private readonly bool _includeAll;
+        private readonly bool _admitsDeclaringType;
+        private readonly MemberSearchWindow _window;
+        private readonly int _declarationOrder;
+        private readonly ImmutableArray<MemberSearchResult>.Builder
+            _results;
+        private int _memberOrder;
+        private int _anchorWorkRemaining;
+
+        internal SearchSink(
+            MetadataReader reader,
+            TypeDefinitionHandle typeHandle,
+            TypeDefinition type,
+            MetadataTypeDefinitionName declaringType,
+            string assemblyName,
+            IReadOnlyList<string> patterns,
+            bool includeAll,
+            bool admitsDeclaringType,
+            MemberSearchWindow window,
+            int declarationOrder,
+            int acceptedCount,
+            ImmutableArray<MemberSearchResult>.Builder results,
+            int memberCandidatesVisited,
+            int memberNamesDecoded,
+            int projectedRows)
+        {
+            _reader = reader;
+            _typeHandle = typeHandle;
+            _type = type;
+            _declaringType = declaringType;
+            _assemblyName = assemblyName;
+            _patterns = patterns;
+            _includeAll = includeAll;
+            _admitsDeclaringType = admitsDeclaringType;
+            _window = window;
+            _declarationOrder = declarationOrder;
+            _results = results;
+            _anchorWorkRemaining =
+                MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+            AcceptedCount = acceptedCount;
+            MemberCandidatesVisited = memberCandidatesVisited;
+            MemberNamesDecoded = memberNamesDecoded;
+            ProjectedRows = projectedRows;
+        }
+
+        internal int AcceptedCount { get; private set; }
+        internal int MemberCandidatesVisited { get; private set; }
+        internal int MemberNamesDecoded { get; private set; }
+        internal int ProjectedRows { get; private set; }
+        internal bool EndReached { get; private set; }
+
+        public void Add(in ClassifiedMember member)
+            => AddCore(
+                member,
+                _typeHandle,
+                _type);
+
+        internal void AddAttached(
+            in ClassifiedMember member,
+            TypeDefinitionHandle declaringTypeHandle,
+            TypeDefinition declaringType)
+            => AddCore(
+                member,
+                declaringTypeHandle,
+                declaringType);
+
+        private void AddCore(
+            in ClassifiedMember member,
+            TypeDefinitionHandle projectionTypeHandle,
+            TypeDefinition projectionType)
+        {
+            if (EndReached)
+                return;
+            MemberCandidatesVisited =
+                checked(MemberCandidatesVisited + 1);
+            if (member.IsHidden && !_includeAll)
+                return;
+
+            int memberOrder = _memberOrder++;
+            string memberName =
+                ReadName(member);
+            MemberNamesDecoded =
+                checked(MemberNamesDecoded + 1);
+            if (!_admitsDeclaringType)
+                return;
+
+            for (int patternOrdinal = 0;
+                patternOrdinal < _patterns.Count;
+                patternOrdinal++)
+            {
+                string pattern = _patterns[patternOrdinal];
+                bool isGlob =
+                    pattern.Contains('*')
+                    || pattern.Contains('?');
+                bool matched =
+                    isGlob
+                        ? TypeMatcher.MatchesGlob(
+                            memberName,
+                            pattern)
+                        : TypeMatcher.MatchesMemberName(
+                            memberName,
+                            pattern);
+                if (!matched)
+                    continue;
+
+                AcceptedCount = checked(AcceptedCount + 1);
+                if (_window.MaterializeRows
+                    && AcceptedCount >= _window.Start)
+                {
+                    _results.Add(
+                        Project(
+                            member,
+                            memberName,
+                            pattern,
+                            patternOrdinal,
+                            isGlob,
+                            memberOrder,
+                            projectionTypeHandle,
+                            projectionType));
+                    ProjectedRows =
+                        checked(ProjectedRows + 1);
+                }
+                if (_window.End is int end
+                    && AcceptedCount >= end)
+                {
+                    EndReached = true;
+                    break;
+                }
+            }
+        }
+
+        private string ReadName(
+            in ClassifiedMember member) =>
+            member.Kind switch
+            {
+                ClassifiedMemberKind.Method
+                    or ClassifiedMemberKind.Constructor
+                    or ClassifiedMemberKind.Operator
+                    or ClassifiedMemberKind.Finalizer
+                    or ClassifiedMemberKind
+                        .ExplicitInterfaceImplementation
+                    or ClassifiedMemberKind.ExtensionMethod =>
+                    _reader.GetString(
+                        _reader.GetMethodDefinition(
+                            (MethodDefinitionHandle)
+                                member.Handle).Name),
+                ClassifiedMemberKind.Property =>
+                    _reader.GetString(
+                        _reader.GetPropertyDefinition(
+                            (PropertyDefinitionHandle)
+                                member.Handle).Name),
+                ClassifiedMemberKind.Field =>
+                    _reader.GetString(
+                        _reader.GetFieldDefinition(
+                            (FieldDefinitionHandle)
+                                member.Handle).Name),
+                ClassifiedMemberKind.Event =>
+                    _reader.GetString(
+                        _reader.GetEventDefinition(
+                            (EventDefinitionHandle)
+                                member.Handle).Name),
+                _ => throw new InvalidOperationException(
+                    "Unknown classified Member kind."),
+            };
+
+        private MemberSearchResult Project(
+            in ClassifiedMember member,
+            string memberName,
+            string pattern,
+            int patternOrdinal,
+            bool isGlob,
+            int memberOrder,
+            TypeDefinitionHandle projectionTypeHandle,
+            TypeDefinition projectionType)
+        {
+            (MemberAnchor anchor, string? signature, string? returnType) =
+                member.Handle.Kind switch
+                {
+                    HandleKind.MethodDefinition =>
+                        ProjectMethod(
+                            member,
+                            memberName,
+                            projectionTypeHandle,
+                            projectionType),
+                    HandleKind.PropertyDefinition =>
+                        ProjectProperty(
+                            member,
+                            projectionTypeHandle,
+                            projectionType),
+                    HandleKind.FieldDefinition =>
+                        ProjectField(
+                            member,
+                            projectionTypeHandle,
+                            projectionType),
+                    HandleKind.EventDefinition =>
+                        ProjectEvent(
+                            member,
+                            projectionTypeHandle,
+                            projectionType),
+                    _ => throw new BadImageFormatException(
+                        "A classified Member has an unsupported declaration handle."),
+                };
+            return new()
+            {
+                Pattern = pattern,
+                PatternOrdinal = patternOrdinal,
+                MemberName = memberName,
+                DeclaringTypeName = _declaringType,
+                Anchor = anchor,
+                DeclarationOrder = _declarationOrder,
+                MemberOrder = memberOrder,
+                DeclaringType =
+                    _declaringType.ToMetadataFullName(),
+                DeclaringNamespace =
+                    _declaringType.Namespace.Length == 0
+                        ? null
+                        : _declaringType.Namespace,
+                Kind = Kind(member.Kind),
+                Signature = signature,
+                ReturnType = returnType,
+                Digest = null,
+                Assembly = _assemblyName,
+                IsGlob = isGlob,
+            };
+        }
+
+        private (
+            MemberAnchor Anchor,
+            string? Signature,
+            string? ReturnType)
+            ProjectMethod(
+                in ClassifiedMember member,
+                string memberName,
+                TypeDefinitionHandle projectionTypeHandle,
+                TypeDefinition projectionType)
+        {
+            var handle =
+                (MethodDefinitionHandle)member.Handle;
+            MethodDefinition method =
+                _reader.GetMethodDefinition(handle);
+            var signature =
+                ApiSurfaceExtractor
+                    .GetMethodSignatureForIdentity(
+                        _reader,
+                        GenericContext.ForType(
+                            _reader,
+                            projectionType),
+                        handle,
+                        method,
+                        NullabilityReader
+                            .GetTypeNullableContext(
+                                _reader,
+                                projectionTypeHandle),
+                        captureExtensionReceiver:
+                            member.Receiver
+                            is MetadataMethodReceiver
+                                .Extension);
+            MetadataTypeDefinitionName projectionTypeName =
+                MetadataTypeDefinitionNameReader.Read(
+                    _reader,
+                    projectionTypeHandle)
+                is MetadataTypeDefinitionNameReadResult.Read
+                    read
+                    ? read.Name
+                    : throw new BadImageFormatException(
+                        "The Member declaring Type name "
+                            + "could not be read.");
+            ApiType receiverType =
+                SearchType(
+                    _reader,
+                    _typeHandle,
+                    _type,
+                    _declaringType);
+            ApiType physicalType =
+                SearchType(
+                    _reader,
+                    projectionTypeHandle,
+                    projectionType,
+                    projectionTypeName);
+            var projected = new ApiMember
+            {
+                Name = memberName,
+                Kind = Kind(member.Kind),
+                Signature = signature.Text,
+                SignatureModel = signature.Model,
+                SignatureDecodeStatus =
+                    signature.IsDegraded
+                        ? SignatureDecodeStatus.Degraded
+                        : null,
+                ReturnType =
+                    ApiMemberIdentity.IsConversionOperator(
+                        memberName)
+                        ? signature.Model.ReturnType
+                        : null,
+                MetadataToken =
+                    MetadataTokens.GetToken(handle),
+                GenericArity =
+                    method.GetGenericParameters().Count,
+                IsExtension =
+                    member.Receiver
+                    is MetadataMethodReceiver.Extension,
+                DeclaringType =
+                    member.IsAttached
+                        ? projectionTypeName
+                            .ToMetadataFullName()
+                        : null,
+                DeclaringTypeCanonicalName =
+                    member.IsAttached
+                        ? ApiMemberIdentity
+                            .FormatTypeAnchorName(
+                                physicalType)
+                        : null,
+                DeclaringTypeDefinitionName =
+                    member.IsAttached
+                        ? projectionTypeName
+                        : null,
+            };
+            return (
+                ApiMemberIdentity.GetMemberAnchor(
+                    receiverType,
+                    projected),
+                signature.Text,
+                projected.ReturnType);
+        }
+
+        private static ApiType SearchType(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            TypeDefinition type,
+            MetadataTypeDefinitionName name) =>
+            new()
+            {
+                Namespace =
+                    name.Namespace.Length == 0
+                        ? null
+                        : name.Namespace,
+                Name =
+                    string.Join(".", name.Segments),
+                DefinitionName = name,
+                IntroducedTypeParameterCounts =
+                    MetadataDeclarationQuery
+                        .GetIntroducedTypeParameterCounts(
+                            reader,
+                            handle),
+                TypeParameters =
+                    MetadataDeclarationQuery
+                        .GetTypeParameters(
+                            reader,
+                            type)
+                        .ToList(),
+            };
+
+        private (
+            MemberAnchor Anchor,
+            string? Signature,
+            string? ReturnType)
+            ProjectProperty(
+                in ClassifiedMember member,
+                TypeDefinitionHandle projectionTypeHandle,
+                TypeDefinition projectionType)
+        {
+            var handle =
+                (PropertyDefinitionHandle)member.Handle;
+            PropertyDefinition property =
+                _reader.GetPropertyDefinition(handle);
+            var signature =
+                ApiSurfaceExtractor
+                    .GetPropertySignatureForIdentity(
+                        _reader,
+                        GenericContext.ForType(
+                            _reader,
+                            projectionType),
+                        property,
+                        property.GetAccessors(),
+                        ApiSurfaceExtractor
+                            .GetExplicitImplementationBodies(
+                                _reader,
+                                projectionType),
+                        NullabilityReader
+                            .GetTypeNullableContext(
+                                _reader,
+                                projectionTypeHandle),
+                        includeAll: _includeAll);
+            return (
+                ApiMemberIdentity.CreatePropertyAnchor(
+                    _reader,
+                    projectionTypeHandle,
+                    property,
+                    ref _anchorWorkRemaining),
+                signature.Text,
+                null);
+        }
+
+        private (
+            MemberAnchor Anchor,
+            string? Signature,
+            string? ReturnType)
+            ProjectField(
+                in ClassifiedMember member,
+                TypeDefinitionHandle projectionTypeHandle,
+                TypeDefinition projectionType)
+        {
+            var handle =
+                (FieldDefinitionHandle)member.Handle;
+            FieldDefinition field =
+                _reader.GetFieldDefinition(handle);
+            (string? fieldType, _) =
+                ApiSurfaceExtractor
+                    .GetFieldTypeForIdentity(
+                        _reader,
+                        projectionType,
+                        field,
+                        NullabilityReader
+                            .GetTypeNullableContext(
+                                _reader,
+                                projectionTypeHandle));
+            return (
+                ApiMemberIdentity.CreateFieldAnchor(
+                    _reader,
+                    projectionTypeHandle,
+                    field,
+                    ref _anchorWorkRemaining),
+                null,
+                fieldType);
+        }
+
+        private (
+            MemberAnchor Anchor,
+            string? Signature,
+            string? ReturnType)
+            ProjectEvent(
+                in ClassifiedMember member,
+                TypeDefinitionHandle projectionTypeHandle,
+                TypeDefinition projectionType)
+        {
+            var handle =
+                (EventDefinitionHandle)member.Handle;
+            EventDefinition eventDefinition =
+                _reader.GetEventDefinition(handle);
+            MethodDefinition adder =
+                _reader.GetMethodDefinition(
+                    eventDefinition.GetAccessors().Adder);
+            var projection =
+                ApiSurfaceExtractor.GetEventSignatureForIdentity(
+                    _reader,
+                    GenericContext.ForType(
+                        _reader,
+                        projectionType),
+                    eventDefinition,
+                    adder);
+            return (
+                ApiMemberIdentity.CreateEventAnchor(
+                    _reader,
+                    projectionTypeHandle,
+                    eventDefinition,
+                    ref _anchorWorkRemaining),
+                projection.Signature,
+                projection.Type);
+        }
+
+        private static string Kind(
+            ClassifiedMemberKind kind) =>
+            kind switch
+            {
+                ClassifiedMemberKind.Method => "method",
+                ClassifiedMemberKind.Constructor =>
+                    "constructor",
+                ClassifiedMemberKind.Operator => "operator",
+                ClassifiedMemberKind.Finalizer => "finalizer",
+                ClassifiedMemberKind
+                    .ExplicitInterfaceImplementation =>
+                    "explicit-interface-implementation",
+                ClassifiedMemberKind.ExtensionMethod =>
+                    "extension-method",
+                ClassifiedMemberKind.Property => "property",
+                ClassifiedMemberKind.Field => "field",
+                ClassifiedMemberKind.Event => "event",
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(kind)),
+            };
     }
 }

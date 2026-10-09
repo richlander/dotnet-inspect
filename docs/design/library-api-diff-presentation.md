@@ -116,7 +116,8 @@ The projection accepts one `AssemblyContextApiComparisonResult`. It produces an
 available document only when:
 
 1. both endpoint projections are complete under the same requested
-   `ApiSurfaceScope`;
+   `ApiSurfaceScope` and, when present, the same paired Type selection (see
+   [Type-scoped comparison](#type-scoped-comparison));
 2. the query produced complete type and member Finding comparisons;
 3. Metadata produced the corresponding `ApiDiff`;
 4. every selected changed Type has an exact
@@ -136,6 +137,45 @@ The adapter does not repair incomplete identity, rerun matching, or recover a
 subject from `ApiChange.Message`, `TypeDiff.TypeFullName`, member names,
 signatures, metadata tokens, collection positions, or object reference
 identity.
+
+## Type-scoped comparison
+
+A host that will present only some Types may pass an `ApiTypeSelection`, a
+predicate over Type full names. The comparison then projects only the admitted
+Types on each endpoint instead of projecting both complete Libraries and
+discarding most of the result. The CLI passes its `-t`/`--type` filter, with
+the same matching it applies to the finished document, so the projected Types
+are exactly the Types its output keeps, nested Types included.
+
+Extension/instance member pairing can relate a selected Type to a Type that
+declares an extension method on either endpoint. Before projecting either
+side, the comparison reads both endpoints' top-level extension-declaring Types
+and pairs the selection with their union:
+
+- those Types and their nested Types are projected on both endpoints, so
+  pairing and relation placement match the complete comparison;
+- a selection that admits one of them projects both endpoints completely; and
+- a Type whose name traversal is rejected is projected, so its failure is
+  still reported.
+
+Completeness is operation-scoped. Truncation, inspection failures, degraded
+signatures, and identity checks apply to the projected Types. A failure in a
+Type the selection does not project no longer makes the comparison
+Unavailable, and endpoint evidence describes the selected projection. An
+unselected comparison keeps every existing gate. The CLI therefore reports
+"type filter matched no changed types" whenever the filter selects no changed
+Type, because it no longer knows whether other Types changed.
+
+Over 2,582 Type-filtered CLI diffs (shared-framework 10 to 11 pairs and
+package version pairs, exact, simple, namespace, case-variant, arity-free,
+glob, and missing filters, both scopes), stdout and exit codes are
+byte-identical to the complete comparison. The only difference is the note
+above, which 538 requests now print where the Library has no API change in
+the requested scope. A one-Type
+`System.Private.CoreLib` 10 to 11 diff drops from 1.27 s to 0.18 s on
+NativeAOT. `LibraryApiDiffTypeSelectionTests` gates subject parity, the
+projected Type set, the extension-declaring fallback, and operation-scoped
+completeness; `LibraryApiDiffTypeSelectionCommandTests` gates the CLI route.
 
 ## Outcome cases and complete Document
 

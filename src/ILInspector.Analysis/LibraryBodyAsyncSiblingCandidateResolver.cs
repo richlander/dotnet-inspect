@@ -68,10 +68,47 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
             int CalleeDefinitionToken),
         AsyncSiblingLookup?> _lookupCache = [];
 
+    // Set while a lookup runs under _lookupCacheGate when a base type's
+    // assembly cannot be resolved, so the absence of a sibling is unproven.
+    bool _sawUnresolvedBase;
+
+    readonly HashSet<(
+        MemberRef Callee,
+        string ExactCalleeIdentity,
+        int CalleeDefinitionToken)> _unresolvedLookups = [];
+
+    /// <summary>
+    /// True when the callee's declaring type could not be resolved, so the
+    /// absence of a sibling is unknown rather than proven.
+    /// </summary>
+    internal bool IsDeclaringTypeUnresolved(DirectCall call)
+    {
+        MemberRef callee = call.Callee;
+        var key = (
+            callee,
+            LibraryBodyAsyncSiblingSignatureMatcher
+                .ExactAsyncSiblingMemberIdentity(callee),
+            call.CalleeDefinitionToken);
+        lock (_lookupCacheGate)
+            return _unresolvedLookups.Contains(key);
+    }
+
     internal MemberRef? FindAsyncSibling(
         DirectCall call,
-        MethodIdentity asyncSource)
+        MethodIdentity asyncSource) =>
+        FindAsyncSibling(call, asyncSource, out _);
+
+    /// <summary>
+    /// As above; <paramref name="skippedOnUnresolved"/> is true when a
+    /// candidate was skipped because a type it depends on could not be
+    /// resolved, so its absence is unproven.
+    /// </summary>
+    internal MemberRef? FindAsyncSibling(
+        DirectCall call,
+        MethodIdentity asyncSource,
+        out bool skippedOnUnresolved)
     {
+        skippedOnUnresolved = false;
         MemberRef callee = call.Callee;
         if (callee.Kind != MemberKind.Method
             || callee.Name.EndsWith("Async", StringComparison.Ordinal)
@@ -86,15 +123,18 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
             call.CalleeDefinitionToken,
             asyncSource,
             LibraryBodyAsyncSiblingSignatureMatcher
-                .ExactAsyncSiblingMemberIdentity(callee));
+                .ExactAsyncSiblingMemberIdentity(callee),
+            out skippedOnUnresolved);
     }
 
     MemberRef? FindAsyncSiblingCore(
         MemberRef callee,
         int calleeDefinitionToken,
         MethodIdentity asyncSource,
-        string exactCalleeIdentity)
+        string exactCalleeIdentity,
+        out bool skippedOnUnresolved)
     {
+        skippedOnUnresolved = false;
         var lookupKey = (
             callee,
             exactCalleeIdentity,
@@ -106,9 +146,13 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
                     lookupKey,
                     out lookup))
             {
+                _sawUnresolvedBase = false;
                 lookup = PrepareAsyncSiblingLookup(
                     callee,
-                    calleeDefinitionToken);
+                    calleeDefinitionToken,
+                    out bool unresolved);
+                if (unresolved || _sawUnresolvedBase)
+                    _unresolvedLookups.Add(lookupKey);
                 _lookupCache.Add(
                     lookupKey,
                     lookup);
@@ -126,10 +170,16 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
             in lookup.Candidates)
         {
             if (prepared.SameAssembly
-                    && MetadataTokens.GetToken(
-                        prepared.Handle)
-                        == asyncSource.MetadataToken
-                || !_accessibilityAnalyzer
+                && MetadataTokens.GetToken(prepared.Handle)
+                    == asyncSource.MetadataToken)
+            {
+                continue;
+            }
+
+            int failuresBefore =
+                LibraryBodyAsyncSiblingDispatchAnalyzer
+                    .FailedResolutionCount;
+            if (!_accessibilityAnalyzer
                     .IsCallableAsyncSibling(
                     prepared.Definition,
                     prepared.SameAssembly,
@@ -154,6 +204,11 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
                         prepared.Reference,
                         asyncSource))
             {
+                if (LibraryBodyAsyncSiblingDispatchAnalyzer
+                        .FailedResolutionCount != failuresBefore)
+                {
+                    skippedOnUnresolved = true;
+                }
                 continue;
             }
 
@@ -177,13 +232,16 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
 
     AsyncSiblingLookup? PrepareAsyncSiblingLookup(
         MemberRef callee,
-        int calleeDefinitionToken)
+        int calleeDefinitionToken,
+        out bool unresolved)
     {
+        unresolved = false;
         if (TryResolveTypeDefinition(
                 callee.DeclaringType,
                 calleeDefinitionToken)
             is not { } resolved)
         {
+            unresolved = true;
             return null;
         }
 
@@ -338,13 +396,17 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
             if (FrameworkIdentity.IsCoreLibraryType(
                     LibraryBodyAsyncSiblingSignatureMatcher.DefinitionType(baseType),
                     "System",
-                    "Object")
-                || _dispatchAnalyzer
+                    "Object"))
+            {
+                return [];
+            }
+            if (_dispatchAnalyzer
                     .TryResolveTypeDefinition(
                         reader,
                         baseType)
                     is not { } resolvedBase)
             {
+                _sawUnresolvedBase = true;
                 return [];
             }
             reader = resolvedBase.DefiningReader;
@@ -487,6 +549,7 @@ internal sealed class LibraryBodyAsyncSiblingCandidateResolver(
                         baseType)
                 is not { } resolvedBase)
             {
+                _sawUnresolvedBase = true;
                 return null;
             }
             reader = resolvedBase.DefiningReader;

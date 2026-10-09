@@ -129,7 +129,7 @@ public static class ArgumentPreprocessor
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "api", "audit", // removed commands, reserved so they are not treated as implicit package targets
-        "package", "project", "library", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "explain", "ecosystem", "source", "list", "ls", "skill", "demo", "extensions", "implements", "match", "depends", "dependency-evidence", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
+        "package", "project", "library", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "explain", "ecosystem", "source", "list", "ls", "skill", "demo", "extensions", "match", "depends", "dependency-evidence", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
 
     internal static bool TryGetRemovedCommandError(
@@ -782,7 +782,7 @@ public static class ArgumentPreprocessor
     private static readonly string[] AtCategoryOptionAliases = [.. SelectAliases, "-D", "--discover", "-Q", "--query-help"];
     private static readonly HashSet<string> SearchScopeCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "find", "implements", "extensions", "depends"
+        "find", "extensions", "depends"
     };
     private static readonly HashSet<string> OptionsWithFollowingValue = new(StringComparer.OrdinalIgnoreCase)
     {
