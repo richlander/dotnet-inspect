@@ -48,9 +48,13 @@ export interface QueryTermDescriptor {
   multiline: boolean;
 }
 
+export type DependencyReach = "direct" | "2" | "3" | "4";
+
 interface QueryTermEditor {
   operator: string;
   value: string;
+  dependencyReach?: DependencyReach;
+  dependencyTarget?: string;
 }
 
 interface QueryTermDraft extends QueryTermEditor {
@@ -258,6 +262,80 @@ export function withTerm(
   });
 }
 
+export function dependencyReach(request: QueryRequest): DependencyReach {
+  const value = request.presets.find(
+    preset => preset.key === "dependency-depth")?.value;
+  return value === "2" || value === "3" || value === "4"
+    ? value
+    : "direct";
+}
+
+export function dependencyTarget(request: QueryRequest): string {
+  return request.terms.find(
+    term => term.descriptor.key === "dependency-target")?.value
+    ?? request.targetFramework;
+}
+
+export function withDependencyTerm(
+  request: QueryRequest,
+  descriptor: QueryTermDescriptor,
+  index: number | null,
+  operator: string,
+  value: string,
+  reach: DependencyReach,
+  targetFramework: string,
+  depthPreset: QueryPreset | null,
+  targetDescriptor: QueryTermDescriptor | null,
+): QueryRequest {
+  const selected = index === null ? null : request.terms[index] ?? null;
+  if (index !== null && selected?.descriptor.key !== "depends") {
+    return request;
+  }
+
+  const traverses = operator === "eq" && reach !== "direct";
+  if (traverses && (!depthPreset || !targetDescriptor)) return request;
+
+  const hadTraversal = request.presets.some(
+    preset => preset.key === "dependency-depth");
+  const preservesTraversal = hadTraversal
+    && operator !== "eq"
+    && request.terms.some((term, termIndex) =>
+      termIndex !== index
+      && term.descriptor.key === "depends"
+      && term.operator === "eq");
+  const terms = request.terms.flatMap((term, termIndex) => {
+    if (term.descriptor.key === "dependency-target"
+      && (traverses || (hadTraversal && !preservesTraversal))) return [];
+    if (index !== null && termIndex === index) {
+      return [{ descriptor, operator, value }];
+    }
+    return [term];
+  });
+  if (index === null) {
+    terms.push({ descriptor, operator, value });
+  }
+  if (traverses) {
+    if (!targetDescriptor) return request;
+    terms.push({
+      descriptor: targetDescriptor,
+      operator: targetDescriptor.operators[0] ?? "eq",
+      value: targetFramework,
+    });
+  }
+
+  const presets = request.presets.filter(
+    preset => preset.key !== "dependency-depth" || preservesTraversal);
+  if (traverses) {
+    if (!depthPreset) return request;
+    presets.push(depthPreset);
+  }
+  return queryRequest(request, {
+    presets,
+    terms,
+    requestedLimit: queryCandidateLimit(presets, terms),
+  });
+}
+
 export function replaceTerm(
   request: QueryRequest,
   index: number,
@@ -282,6 +360,32 @@ export function withoutTerm(
   return queryRequest(request, {
     terms,
     requestedLimit: queryCandidateLimit(request.presets, terms),
+  });
+}
+
+export function withoutDependencyTerm(
+  request: QueryRequest,
+  index: number,
+): QueryRequest {
+  if (request.terms[index]?.descriptor.key !== "depends") return request;
+  const terms = request.terms.filter((_term, termIndex) => termIndex !== index);
+  const hasExactDependency = terms.some(term =>
+    term.descriptor.key === "depends" && term.operator === "eq");
+  const hasDependencyPredicate = terms.some(term =>
+    term.descriptor.key === "depends"
+    || term.descriptor.key === "depends-transitive"
+    || term.descriptor.key === "depends-ecosystem")
+    || request.presets.some(preset => preset.key === "dependencies");
+  const retainedTerms = hasDependencyPredicate
+    ? terms
+    : terms.filter(term => term.descriptor.key !== "dependency-target");
+  const presets = hasExactDependency
+    ? request.presets
+    : request.presets.filter(preset => preset.key !== "dependency-depth");
+  return queryRequest(request, {
+    presets,
+    terms: retainedTerms,
+    requestedLimit: queryCandidateLimit(presets, retainedTerms),
   });
 }
 

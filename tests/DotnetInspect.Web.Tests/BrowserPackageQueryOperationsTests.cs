@@ -619,6 +619,42 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
+    public void Plan_DependsWithDepthAuthorsInclusiveTraversal()
+    {
+        var accepted = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            BrowserPackageQueryOperations.Plan(
+                "Contoso.*",
+                [
+                    new PortableQueryTerm(
+                        PackageQuery.DependsTermKey,
+                        PortableQueryOperator.Equal,
+                        "Contoso.Target"),
+                    new PortableQueryTerm(
+                        PackageQuery.DependencyTargetTermKey,
+                        PortableQueryOperator.Equal,
+                        "net10.0"),
+                    new PortableQueryTerm(
+                        PackageQuery.DependencyDepthTermKey,
+                        PortableQueryOperator.Equal,
+                        "2"),
+                ],
+                maximumCandidates:
+                    PackageQuery.MaximumNuspecExpensiveCandidates,
+                maximumMatches: 100,
+                includePrerelease: false,
+                targetFramework: null));
+
+        Assert.True(accepted.Plan.RequiresDependencyTraversal);
+        Assert.Equal(2, accepted.Plan.DependencyDepth);
+        Assert.Contains(
+            accepted.Plan.BoundTerms,
+            term => term.Predicate.Kind == PackageQueryPredicateKind.Depends);
+        Assert.Equal(
+            "net10.0",
+            accepted.Plan.DependencyTarget.RequestedTargetFramework);
+    }
+
+    [Fact]
     public void Plan_ReferencesTermReachesTheProductContentPlan()
     {
         var term = new PortableQueryTerm(

@@ -9,6 +9,8 @@ import {
   createEcosystemQueryRequest,
   createPackageQueryController,
   createQueryRequest,
+  dependencyReach,
+  dependencyTarget,
   emptyOutcome,
   initialQueryState,
   isLibraryLiteralQuery,
@@ -16,12 +18,14 @@ import {
   togglePreset,
   replaceTerm,
   withCompletion,
+  withDependencyTerm,
   withEditorDraft,
   withPreset,
   withTerm,
   withSourceSelection,
   withScopeQuery,
   withoutPreset,
+  withoutDependencyTerm,
   withoutTerm,
   type PackageQueryDataSource,
   type QueryAssemblyAssessment,
@@ -118,10 +122,30 @@ const DEPENDS_TERM: QueryTermDescriptor = {
   weight: 10,
   tier: "nuspec",
   executionClass: "nuspec",
-  operators: ["eq"],
+  operators: ["eq", "starts-with"],
   valueKind: "package-id",
   example: "Microsoft.Extensions.Hosting",
   multiline: false,
+};
+
+const DEPENDENCY_TARGET_TERM: QueryTermDescriptor = {
+  ...DEPENDS_TERM,
+  key: "dependency-target",
+  label: "Dependency target",
+  summary: "Selects one compatible dependency group.",
+  operators: ["eq"],
+  valueKind: "target framework",
+  example: "net10.0",
+};
+
+const DEPTH_2_FACET: QueryPreset = {
+  id: "dependency-depth:eq:2",
+  key: "dependency-depth",
+  operator: "eq",
+  value: "2",
+  label: "Depth 2",
+  tier: "nuspec",
+  executionClass: "nuspec-expensive",
 };
 
 const CONTENT_TERM: QueryTermDescriptor = {
@@ -197,6 +221,117 @@ test("createQueryRequest gives candidate and match limits independent defaults",
   assert.notEqual(defaults.requestedLimit, defaults.requestedMatchLimit);
   assert.equal(defaults.includePrerelease, false);
   assert.deepEqual(defaults.terms, []);
+});
+
+test("dependency facet applies direct or bounded reach atomically", () => {
+  const base = createQueryRequest("Microsoft.Extensions.*");
+  const traversed = withDependencyTerm(
+    base,
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Microsoft.Extensions.Primitives",
+    "2",
+    "net10.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+
+  assert.deepEqual(
+    traversed.terms.map(term => [
+      term.descriptor.key,
+      term.operator,
+      term.value,
+    ]),
+    [
+      ["depends", "eq", "Microsoft.Extensions.Primitives"],
+      ["dependency-target", "eq", "net10.0"],
+    ]);
+  assert.deepEqual(traversed.presets, [DEPTH_2_FACET]);
+  assert.equal(dependencyReach(traversed), "2");
+  assert.equal(dependencyTarget(traversed), "net10.0");
+  assert.equal(traversed.requestedLimit, 5);
+
+  const direct = withDependencyTerm(
+    traversed,
+    DEPENDS_TERM,
+    0,
+    "eq",
+    "Microsoft.Extensions.Primitives",
+    "direct",
+    "net10.0",
+    null,
+    null);
+
+  assert.deepEqual(
+    direct.terms.map(term => term.descriptor.key),
+    ["depends"]);
+  assert.deepEqual(direct.presets, []);
+  assert.equal(dependencyReach(direct), "direct");
+  assert.equal(direct.requestedLimit, 200);
+});
+
+test("dependency prefix forces direct reach and removing the last dependency clears traversal", () => {
+  const traversed = withDependencyTerm(
+    createQueryRequest("Contoso.*"),
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Contoso.First",
+    "2",
+    "net10.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+  const withSecond = withDependencyTerm(
+    traversed,
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Contoso.Second",
+    "2",
+    "net10.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+  const withDirectPrefix = withDependencyTerm(
+    withSecond,
+    DEPENDS_TERM,
+    null,
+    "starts-with",
+    "Contoso.",
+    "direct",
+    "net10.0",
+    null,
+    null);
+
+  assert.equal(dependencyReach(withDirectPrefix), "2");
+  assert.equal(
+    withDirectPrefix.terms.filter(
+      term => term.descriptor.key === "dependency-target").length,
+    1);
+
+  const firstRemoved = withoutDependencyTerm(withSecond, 0);
+
+  assert.equal(dependencyReach(firstRemoved), "2");
+  assert.deepEqual(
+    firstRemoved.terms.map(term => term.descriptor.key),
+    ["depends", "dependency-target"]);
+
+  const directPrefix = withDependencyTerm(
+    firstRemoved,
+    DEPENDS_TERM,
+    0,
+    "starts-with",
+    "Contoso.",
+    "2",
+    "net10.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+
+  assert.equal(dependencyReach(directPrefix), "direct");
+  assert.deepEqual(
+    directPrefix.terms.map(term => term.descriptor.key),
+    ["depends"]);
+  assert.equal(directPrefix.requestedLimit, 200);
+  assert.deepEqual(withoutDependencyTerm(directPrefix, 0).terms, []);
 });
 
 test("Ecosystem requests preserve curated identity with 24 initial and 96 maximum matches", () => {
