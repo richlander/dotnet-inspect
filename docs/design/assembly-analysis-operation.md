@@ -247,9 +247,10 @@ becomes a negative finding. A policy snapshot that changes during the
 invocation fails the execution, as it does for the existing binding-policy
 resolver.
 
-Request-set operations carry no binding, so a request-set plan that declares
-the `ReferenceBinding` layer is rejected with `ReferenceBindingUnavailable`
-before a producer runs.
+A request-set operation carries the binding access to every lane, so a plan
+that declares the `ReferenceBinding` layer runs when the access is present. It
+is rejected with `ReferenceBindingUnavailable` before a producer runs only when
+the access is absent.
 
 The detached execution retains no binding access, policy, resolved
 assembly, or referenced reader.

@@ -314,332 +314,180 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Tfms_Count_CountsTheListedFrameworks()
+    public async Task Tfms_RealPackageShortcutMatchesSection()
     {
-        var (listExit, listOutput, _) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--tfms");
-        Assert.Equal(0, listExit);
-        var expected = listOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
-        Assert.True(expected > 0, "The package must list frameworks for this test to prove anything.");
-
-        var (exit, output, error) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--tfms", "--count");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Equal(expected, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
-    }
-
-    [Fact]
-    public async Task Tfms_SemanticTailSelectsTheSameFrameworkAcrossFormats()
-    {
-        var (packagePath, tempDir) = CreateLocalLibPackage();
-        try
+        const string package = "System.Text.Json@10.0.12";
+        var shortcut = await RunAppAsync("package", package, "--tfms", "--no-headers");
+        var section = await RunAppAsync("package", package, "-S", "Target Frameworks", "--no-headers");
+        Assert.True(shortcut.Exit == 0, shortcut.Error);
+        Assert.True(section.Exit == 0, section.Error);
+        Assert.Equal(section.Output, shortcut.Output);
+        Assert.Equal(new[] { "net10.0", "net9.0", "net8.0", "netstandard2.0", "net462" },
+            shortcut.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        foreach (string[] entrance in new[] { new[] { "--tfms" }, new[] { "-S", "Target Frameworks" } })
         {
-            string[] args =
-            [
-                "package",
-                packagePath,
-                "--tfms",
-                "-n",
-                "1",
-                "--tail",
-            ];
-
-            var markdown = await RunAppAsync(args);
-            var table = await RunAppAsync([.. args, "--table"]);
-            var tsv = await RunAppAsync([.. args, "--tsv"]);
-            var jsonl = await RunAppAsync([.. args, "--jsonl"]);
-            var json = await RunAppAsync([.. args, "--json"]);
-            var count = await RunAppAsync([.. args, "--count"]);
-
-            foreach (var result in new[]
-            {
-                markdown,
-                table,
-                tsv,
-                jsonl,
-                json,
-            })
-            {
-                Assert.Equal(0, result.Exit);
-                Assert.Empty(result.Error);
-                Assert.Contains("net8.0", result.Output, StringComparison.Ordinal);
-                Assert.DoesNotContain("net10.0", result.Output, StringComparison.Ordinal);
-            }
-
-            Assert.Single(
-                jsonl.Output.Split(
-                    '\n',
-                    StringSplitOptions.RemoveEmptyEntries));
+            var json = await RunAppAsync(["package", package, .. entrance, "--json"]);
+            Assert.True(json.Exit == 0, json.Error);
             using var document = JsonDocument.Parse(json.Output);
-            JsonElement tfm = Assert.Single(
-                document.RootElement.EnumerateArray());
-            Assert.Equal(
-                "net8.0",
-                tfm.GetProperty("tfm").GetString());
-
-            Assert.Equal(0, count.Exit);
-            Assert.Empty(count.Error);
-            Assert.Equal("1", count.Output.Trim());
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
+            var root = document.RootElement;
+            Assert.Equal("Microsoft", root.GetProperty("authors").GetString());
+            Assert.Equal("2013/05", root.GetProperty("manifest_version").GetString());
+            Assert.True(root.GetProperty("package_size").GetInt64() > 0);
+            Assert.Equal(5, root.GetProperty("target_frameworks").GetArrayLength());
         }
     }
 
-    [Fact]
-    public async Task Tfms_UnavailableWindowWithholdsOutput()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("--markdown")]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    [InlineData("--json")]
+    [InlineData("--count")]
+    [InlineData("--value")]
+    public async Task Tfms_SectionShortcutMatchesExplicitSection(string? format)
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "package",
-                packagePath,
-                "--tfms",
-                "--rows",
-                "2..3",
-                "--json");
-
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains(
-                "Package TFM row selection stage 1 requires row 3, "
-                    + "but only 2 TFM rows are available.",
-                error,
-                StringComparison.Ordinal);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Tfms_LinesMakesRenderedClippingExplicit()
-    {
-        var (packagePath, tempDir) = CreateLocalLibPackage();
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "package",
-                packagePath,
-                "--tfms",
-                "--lines",
-                "-n",
-                "1",
-                "--tail");
-
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
-            Assert.Equal("net8.0", output.Trim());
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Tfms_RejectInvalidSelectionBeforePackageResolution()
-    {
-        var legacyCount = await RunAppAsync(
-            "--offline",
-            "package",
-            "Package.That.Must.Not.Resolve",
-            "--tfms",
-            "--rows",
-            "1",
-            "--json");
-        var jsonLines = await RunAppAsync(
-            "--offline",
-            "package",
-            "Package.That.Must.Not.Resolve",
-            "--tfms",
-            "--lines",
-            "-n",
-            "1",
-            "--json");
-
-        Assert.Equal(1, legacyCount.Exit);
-        Assert.Empty(legacyCount.Output);
-        Assert.Contains(
-            "--rows requires N..M, N.., or ..M with positive positions.",
-            legacyCount.Error,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "Package.That.Must.Not.Resolve",
-            legacyCount.Error,
-            StringComparison.Ordinal);
-
-        Assert.Equal(1, jsonLines.Exit);
-        Assert.Empty(jsonLines.Output);
-        Assert.Contains(
-            "Rendered-line selection cannot be combined with JSON output.",
-            jsonLines.Error,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "Package.That.Must.Not.Resolve",
-            jsonLines.Error,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task Tfms_CompetingLayoutRetainsRenderedLineFallback()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "--offline",
-            "package",
-            "Package.That.Must.Not.Resolve",
-            "--tfms",
-            "--files",
-            "--rows",
-            "..1");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("--rows", error, StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "Package.That.Must.Not.Resolve",
-            error,
-            StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData(
-        "Package.That.Must.Not.Resolve",
-        "--tree",
-        "--tree cannot be combined with --tfms.")]
-    [InlineData(
-        "Newtonsoft.Json@1.0.0..2.0.0",
-        null,
-        "Package range 'Newtonsoft.Json@1.0.0..2.0.0' requires --versions for package inspection.")]
-    [InlineData(
-        "Example@bad..2.0.0",
-        null,
-        "Invalid package version 'bad' in range 'Example@bad..2.0.0'.")]
-    public async Task Tfms_CompetingTreeAndRangesRetainOwnedDiagnostics(
-        string package,
-        string? competingOption,
-        string expectedError)
-    {
-        var args = new List<string>
-        {
-            "--offline",
-            "package",
-            package,
-            "--tfms",
-        };
-        if (competingOption is not null)
-            args.Add(competingOption);
-        args.AddRange(["--rows", "1"]);
-
-        var (exit, output, error) =
-            await RunAppAsync([.. args]);
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            expectedError,
-            error,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "--rows requires",
-            error,
-            StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("--frontmatter", null, "--frontmatter/--yaml-header and --body require --print or --content.")]
-    [InlineData("--body", null, "--frontmatter/--yaml-header and --body require --print or --content.")]
-    [InlineData("--print", null, "--print is not available with --tfms")]
-    [InlineData("--value", null, "--value is not available with --tfms")]
-    [InlineData("--urls", null, "--urls is not available with --tfms")]
-    [InlineData("--paths", null, "--paths is not available with --tfms")]
-    [InlineData("--roots", null, "--tfms cannot be combined with --roots.")]
-    [InlineData("--json-array", null, "--json-array requires --value, --urls, --paths, --roots, or --print.")]
-    [InlineData("--row", "1", "--row requires --print, --value, --urls, --paths, or --roots.")]
-    [InlineData("--columns", "count", "--fields/--columns are not available with --tfms")]
-    [InlineData("--fields", "count", "--fields/--columns are not available with --tfms")]
-    [InlineData("--envelope", null, "--envelope cannot be combined with --tfms.")]
-    public async Task Tfms_CompetingProjectionsRetainOwnedDiagnostics(
-        string option,
-        string? value,
-        string expectedError)
-    {
-        var args = new List<string>
-        {
-            "--offline",
-            "package",
-            "Package.That.Must.Not.Resolve",
-            "--tfms",
-            option,
-        };
-        if (value is not null)
-            args.Add(value);
-        args.AddRange(["--rows", "1"]);
-
-        var (exit, output, error) =
-            await RunAppAsync([.. args]);
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(expectedError, error, StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "--rows requires N..M, N.., or ..M with positive positions.",
-            error,
-            StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("--type", "Example")]
-    [InlineData("--lib", null)]
-    [InlineData("--tools", null)]
-    [InlineData("--tfm", "net8.0")]
-    [InlineData("--match", "first")]
-    [InlineData("--skip-empty", null)]
-    [InlineData("--prefer-rendered-urls", null)]
-    [InlineData("--schema", null)]
-    [InlineData("--include-unlisted", null)]
-    public async Task Tfms_CompetingModifiersRetainLegacyWindow(
-        string option,
-        string? value)
-    {
-        var (packagePath, tempDir) = CreateLocalLibPackage();
-        try
-        {
-            var args = new List<string>
+            string[] suffix = format is null ? [] : [format];
+            var shortcut = await RunAppAsync(["package", packagePath, "--tfms", "-n", "1", "--tail", .. suffix]);
+            var section = await RunAppAsync(["package", packagePath, "-S", "Target Frameworks", "-n", "1", "--tail", .. suffix]);
+            Assert.Equal(format == "--value" ? 1 : 0, shortcut.Exit);
+            Assert.Equal(section.Exit, shortcut.Exit);
+            Assert.Equal(section.Output, shortcut.Output);
+            Assert.Equal(section.Error, shortcut.Error);
+            if (format == "--json")
             {
-                "package",
-                packagePath,
-                "--tfms",
-                option,
-            };
-            if (value is not null)
-                args.Add(value);
-            args.AddRange(["--rows", "1"]);
-
-            var (exit, output, error) =
-                await RunAppAsync([.. args]);
-
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
-            Assert.Equal("net10.0", output.Trim());
+                using var document = JsonDocument.Parse(shortcut.Output);
+                var frameworks = document.RootElement.GetProperty("target_frameworks");
+                Assert.Equal(1, frameworks.GetArrayLength());
+                Assert.Equal("net8.0", frameworks[0].GetString());
+            }
+            else Assert.DoesNotContain("net10.0", shortcut.Output);
+            if (format == "--count") Assert.Equal("1", shortcut.Output.Trim());
+            else if (format != "--value") Assert.Contains("net8.0", shortcut.Output);
         }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
+        finally { Directory.Delete(tempDir, recursive: true); }
     }
 
     [Fact]
-    public async Task Tfms_ShapeProjection_IsRefused()
+    public async Task Tfms_LocalArchivePreservesTypedFactsAndNuspecIdentity()
     {
-        var (exit, output, error) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--tfms", "--value");
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.TfmIdentity", "README.md", "readme",
+            extraFiles: [("lib/net8.0/_._", "")]);
+        try
+        {
+            string renamedPath = Path.Combine(tempDir, "unrelated-filename.nupkg");
+            File.Move(packagePath, renamedPath);
+            foreach (string[] entrance in new[] { new[] { "--tfms" }, new[] { "-S", "Target Frameworks" } })
+            {
+                var json = await RunAppAsync(["package", renamedPath, .. entrance, "--json"]);
+                Assert.True(json.Exit == 0, json.Error);
+                using var document = JsonDocument.Parse(json.Output);
+                var root = document.RootElement;
+                Assert.Equal("Test.TfmIdentity", root.GetProperty("package_name").GetString());
+                Assert.Equal("1.0.0", root.GetProperty("version").GetString());
+                Assert.Equal("nuspec", root.GetProperty("manifest_version").GetString());
+                Assert.Equal("tests", root.GetProperty("authors").GetString());
+                Assert.Equal("test package", root.GetProperty("description").GetString());
+                Assert.Equal(new FileInfo(renamedPath).Length, root.GetProperty("package_size").GetInt64());
+                Assert.Equal("net8.0", root.GetProperty("target_frameworks")[0].GetString());
+                var markdown = await RunAppAsync(["package", renamedPath, .. entrance, "--markdown"]);
+                Assert.True(markdown.Exit == 0, markdown.Error);
+                Assert.Contains("Test.TfmIdentity", markdown.Output);
+                Assert.DoesNotContain("unrelated-filename", markdown.Output);
+            }
+        }
+        finally { Directory.Delete(tempDir, recursive: true); }
+    }
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("--value is not available with --tfms", error);
+    [Fact]
+    public async Task Tfms_SectionShortcutComposesAndWithholdsUnavailableWindow()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var composed = await RunAppAsync("package", packagePath, "--tfms", "-S", "Package Info", "--markdown");
+            Assert.Equal(0, composed.Exit);
+            Assert.Contains("## Target Frameworks", composed.Output);
+            Assert.Contains("## Package Info", composed.Output);
+            var signing = await RunAppAsync("package", packagePath, "--tfms", "-S", "Signature", "--markdown");
+            Assert.Equal(0, signing.Exit);
+            Assert.Contains("## Signature", signing.Output);
+            Assert.Contains("net8.0", signing.Output);
+            foreach (string[] entrance in new[] { new[] { "--tfms" }, new[] { "-S", "Target Frameworks" } })
+            {
+                var window = await RunAppAsync(["package", packagePath, .. entrance, "--rows", "2..3", "--json"]);
+                Assert.Equal(1, window.Exit);
+                Assert.Empty(window.Output);
+                Assert.Contains("only 2 TFM rows", window.Error);
+            }
+        }
+        finally { Directory.Delete(tempDir, recursive: true); }
+    }
+
+    [Fact]
+    public async Task Tfms_CanonicalFoldersIncludePlaceholdersAndExcludeOtherAssetRoots()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.TfmFolders", "README.md", "readme", extraFiles:
+            [
+                ("lib/net8.0/_._", ""),
+                ("lib/NET8.0/_._", ""),
+                ("tools/net10.0/any/tool.txt", "tool"),
+                ("tools/any/win-x64/tool.txt", "native"),
+                ("ref/net9.0/A.dll", "reference"),
+                ("runtimes/win/lib/net7.0/A.dll", "runtime"),
+            ]);
+        try
+        {
+            var shortcut = await RunAppAsync("package", packagePath, "--tfms", "--no-headers");
+            var section = await RunAppAsync("package", packagePath, "-S", "Target Frameworks", "--no-headers");
+            Assert.Equal(0, shortcut.Exit);
+            Assert.Equal(section.Output, shortcut.Output);
+            Assert.Equal(new[] { "net10.0", "net8.0" }, shortcut.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(value => value.ToLowerInvariant()));
+            var count = await RunAppAsync("package", packagePath, "--tfms", "--count");
+            Assert.Equal(0, count.Exit);
+            Assert.Equal("2", count.Output.Trim());
+        }
+        finally { Directory.Delete(tempDir, recursive: true); }
+    }
+
+    [Fact]
+    public async Task Tfms_EmptySectionCountAndUnsupportedShapeHaveParity()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.EmptyTfms", "README.md", "readme");
+        try
+        {
+            foreach (string[] entrance in new[] { new[] { "--tfms" }, new[] { "-S", "Target Frameworks" } })
+            {
+                var count = await RunAppAsync(["package", packagePath, .. entrance, "--count"]);
+                Assert.Equal(0, count.Exit);
+                Assert.Equal("0", count.Output.Trim());
+                var invalid = await RunAppAsync(["--offline", "package", "Package.Must.Not.Resolve", .. entrance, "--tree"]);
+                Assert.Equal(1, invalid.Exit);
+                Assert.Empty(invalid.Output);
+                Assert.Contains("Target Frameworks", invalid.Error);
+                Assert.DoesNotContain("Could not resolve", invalid.Error);
+            }
+        }
+        finally { Directory.Delete(tempDir, recursive: true); }
+    }
+
+    [Fact]
+    public async Task Tfms_InvalidWindowFailsBeforeAcquisitionForBothEntrances()
+    {
+        foreach (string[] entrance in new[] { new[] { "--tfms" }, new[] { "-S", "Target Frameworks" } })
+        {
+            var invalid = await RunAppAsync(["--offline", "package", "Package.Must.Not.Resolve", .. entrance, "--rows", "1"]);
+            Assert.Equal(1, invalid.Exit);
+            Assert.Empty(invalid.Output);
+            Assert.Contains("--rows requires", invalid.Error);
+            Assert.DoesNotContain("Could not resolve", invalid.Error);
+        }
     }
 
     [Fact]

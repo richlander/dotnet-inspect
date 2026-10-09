@@ -369,7 +369,8 @@ public sealed class MethodDefinitionExecution
             terminalWorkLimits,
         MethodBodyAnalyzerPlan? instructionPlan,
         string sourceName,
-        PEReader peReader)
+        PEReader peReader,
+        AssemblyReferenceBindingAccess? referenceBinding = null)
     {
         ArgumentNullException.ThrowIfNull(descriptions);
         ArgumentNullException.ThrowIfNull(terminalWorkLimits);
@@ -441,12 +442,13 @@ public sealed class MethodDefinitionExecution
                 bool lookupDeclared = false;
                 foreach (ProducerState state in lane._states)
                     lookupDeclared |= state.HasLookupLayer;
-                if (lane._states.Any(
+                if (referenceBinding is null
+                    && lane._states.Any(
                         static state => state.HasReferenceBindingLayer))
                 {
                     throw new ProducerContractException(
-                        "A request-set lane declared reference binding, "
-                        + "which request-set execution does not carry.");
+                        "A request-set lane declared reference binding but "
+                        + "the operation access carries none.");
                 }
                 if (lookupDeclared)
                 {
@@ -454,7 +456,9 @@ public sealed class MethodDefinitionExecution
                         new LibraryBodyAnalysisBuilder(
                             sourceName,
                             reader,
-                            peReader);
+                            peReader,
+                            bindingPolicy: referenceBinding?.Policy,
+                            rootAssembly: referenceBinding?.Subject);
                     lane._lookup =
                         new LibraryMethodAnalysisRunner(
                             builders[laneIndex]!);

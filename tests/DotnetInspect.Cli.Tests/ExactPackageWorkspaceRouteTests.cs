@@ -1455,7 +1455,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             EvidenceEnvelopePath = Path.Combine(
                 Path.GetTempPath(),
                 "package-workspace-evidence.json"),
-            ListTfms = true,
+            ShowContent = true,
             CompanionOutput = CompanionOutput.None,
         };
 
