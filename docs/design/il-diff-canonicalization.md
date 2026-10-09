@@ -123,10 +123,7 @@ resolved to symbolic identities before comparison:
 - strings resolve as user-string values;
 - method, field, type, and `ldtoken` operands resolve to formatted symbolic
   identities;
-- standalone signatures resolve to a signature-byte identity. Those bytes
-  embed token numbers, so a renumbered Type in a `calli` signature shows as a
-  change; this is a known divergence from
-  [Diff observability](diff-observability.md#known-divergences).
+- standalone signatures resolve to a signature-byte identity.
 
 Without a metadata-backed comparison, token operands fail closed. This prevents
 raw token numbers from being treated as comparable identities across assemblies

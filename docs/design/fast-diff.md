@@ -28,11 +28,6 @@ changed axis at its first difference.
 > compares. `Changed` may over-report. A row that cannot be decoded makes the
 > unsettled axes of its Type `Indeterminate`, never `Unchanged`.
 
-What counts as a difference follows [Diff observability](diff-observability.md):
-the Body axis compares at the symbolic IL level the body diff presents, so a
-`Changed` state points to something a user can see, and an encoding-only
-difference such as a renumbered token is not a change.
-
 The two axes are independent searches. Each stops at its own first
 difference, and a host derives **Any** as either axis `Changed`. A Type that
 changed its API still walks its bodies until the first body difference, so the
@@ -86,15 +81,42 @@ beneath a top-level compiler-generated Type, such as
 `<PrivateImplementationDetails>`, are not reported; a body that references
 their content-named members still compares those names.
 
-### Known over-reports
+### Observability
 
-`Changed` may appear where the complete diff shows nothing:
+Fast Diff adopts [Diff observability](diff-observability.md). The API axis
+targets the semantic level of the Public API diff, and the Body axis targets
+the symbolic IL level of the body diff, so `Changed` should point to something
+a user can see. Token numbers and referenced assembly identity are never
+compared, so a renumbered token is not a change.
+
+`Changed` may still over-report. These compared facts are known divergences
+from that target:
+
+- **Encoded IL.** The Body axis walks IL in lockstep and compares opcode
+  encodings (`br.s` against `br`), branch and switch offsets, body size, stack
+  size, and exception region offsets. An encoding-only difference, such as a
+  re-encoded branch that canonical comparison treats as equal, reports
+  `Changed`.
+- **Type flags no view presents.** Type flags are compared raw, except
+  `beforefieldinit`. Sealed, abstract, static, visibility, and layout are
+  presented; flags such as `Serializable` and the string format are not, on
+  the API axis for public Types and on the Body axis otherwise.
+  `beforefieldinit` is a Body fact when the Type has a static constructor, and
+  no view presents it.
+
+Two other reported differences are observable and remain by design:
 
 - a renumbered compiler-generated name, such as a closure or state machine
-  renumbered by a new member earlier in the Type;
-- reordered or re-encoded IL that canonical comparison treats as equal; and
+  renumbered by a new member earlier in the Type, which the IL view shows; and
 - non-IL implementation facts on the Body axis, such as an attribute added to
-  an internal member.
+  an internal member, which the complete views with every member show.
+
+Canonical IL comparison is read under rule 5 of Diff observability: it
+reports three System.Private.CoreLib 10 to 11 `calli` sites whose stand-alone
+signatures differ only in token numbers. Fast Diff decodes those signatures
+symbolically and correctly reports them `Unchanged`; IL diff canonicalization's
+adoption is
+[#9801](https://github.com/richlander/dotnet-inspect/issues/9801).
 
 ## Gates
 
@@ -113,10 +135,10 @@ their content-named members still compares those names.
 
 `eng/measure-fast-diff.cs` runs the same checks over a real image pair and
 reports NativeAOT timing and over-reporting. At introduction, over six real
-pairs, no Type was missed on either axis. Canonical IL comparison reports
-three System.Private.CoreLib `calli` sites that Fast Diff does not; those are
-encoding-only differences (see
-[Diff observability](diff-observability.md#known-divergences)). Medians cover both sides, every Type, API and bodies:
+pairs, no Type was missed on either axis, apart from the three encoding-only
+`calli` sites described under [Observability](#observability). Medians cover
+both sides, every Type, API and bodies, on one Apple silicon development
+machine:
 
 | Pair | NativeAOT | API changed (complete) | Body changed (canonical IL owners) |
 | --- | ---: | --- | --- |
@@ -127,9 +149,9 @@ encoding-only differences (see
 | System.Private.Xml 10 to 11 | 68 ms | 3 (0) | 78 (74) |
 | System.Private.CoreLib 10 to 11 | 216 ms | 157 (133) | 641 (314) |
 
-For most Libraries, Fast Diff compares both sides, every Type, API and
-bodies, in under 100 ms on NativeAOT; only the largest assemblies, such as
-System.Private.CoreLib, take longer.
+In these measurements, Fast Diff compares both sides of most Libraries,
+every Type, API and bodies, in under 100 ms on NativeAOT; only the largest
+assemblies, such as System.Private.CoreLib, take longer.
 
 Canonical IL comparison could not decode some bodies (for example 5,454 in
 CoreLib), so Body soundness is shown only for the bodies it compared.
