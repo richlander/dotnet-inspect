@@ -7563,7 +7563,11 @@ function currentLibraryApiDiffSelection(): LibraryApiDiffSelection | null {
               "il",
             ],
             views: "Changes, Summary, Transitions",
-            typeNames: [overload.anchorTypeFullName],
+            // The producer matches Types by ApiType.FullName (`.` nesting,
+            // backtick arity). The Member anchor names the same Type in
+            // anchor spelling (`+`, `<T>`), which matches no nested or
+            // generic Type.
+            typeNames: [typeQueryIdentifierOf(subject.type)],
             memberTargetIdentities: [overload.stableSelector],
           };
         }
