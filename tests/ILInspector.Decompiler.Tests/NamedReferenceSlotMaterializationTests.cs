@@ -55,6 +55,67 @@ public class NamedReferenceSlotMaterializationTests
     }
 
     [Fact]
+    public void DeclaringTypeNameCollisionMaterializesWithoutBecomingSpellable()
+    {
+        var colliding = TypeRef.Definition("Foreign", "Other", "Owner");
+        var function = Function(colliding,
+            new StoreStackSlot(0, new Constant(null, colliding)),
+            new Return(new LoadStackSlot(0, colliding)));
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape>
+        {
+            [colliding] = TypeShape.Reference,
+        };
+
+        Assert.False(CSharpSpellability.CanSpellNamedReferenceStorageType(colliding, function));
+        Assert.True(CSharpSpellability.CanMaterializeNamedReferenceStorageType(colliding, function));
+        Assert.True(Assert.Single(SlotMaterializationPass.Analyze(function)).WillMaterialize);
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        Assert.Equal(colliding, Assert.Single(function.Locals));
+        function.CheckInvariant(includeSemantics: true);
+    }
+
+    [Fact]
+    public void DeclarationOnlyCustomModifierMaterializesWithoutBecomingSpellable()
+    {
+        var modifier = TypeRef.CoreLib("System.Runtime.CompilerServices", "IsVolatile");
+        var modified = Reference.WithCustomModifier(modifier, isRequired: true);
+        var function = Function(modified,
+            new StoreStackSlot(0, new Constant(null, modified)),
+            new Return(new LoadStackSlot(0, modified)));
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape>
+        {
+            [Reference] = TypeShape.Reference,
+        };
+
+        Assert.False(CSharpSpellability.CanSpellNamedReferenceStorageType(modified, function));
+        Assert.True(CSharpSpellability.CanMaterializeNamedReferenceStorageType(modified, function));
+        Assert.True(Assert.Single(SlotMaterializationPass.Analyze(function)).WillMaterialize);
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        Assert.Equal(modified, Assert.Single(function.Locals));
+        function.CheckInvariant(includeSemantics: true);
+    }
+
+    [Fact]
+    public void UnsupportedCustomModifierRemainsDeferred()
+    {
+        var modified = Reference.WithCustomModifier(
+            TypeRef.Unsupported("unsupported modifier"),
+            isRequired: true);
+        var function = Function(modified,
+            new StoreStackSlot(0, new Constant(null, modified)),
+            new Return(new LoadStackSlot(0, modified)));
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape>
+        {
+            [Reference] = TypeShape.Reference,
+        };
+
+        Assert.False(CSharpSpellability.CanMaterializeNamedReferenceStorageType(modified, function));
+        Assert.Equal(SlotMaterializationVeto.OutsideCoercionDomain,
+            Assert.Single(SlotMaterializationPass.Analyze(function)).Vetoes);
+        AssertRetained(function);
+    }
+
+    [Fact]
     public void NullLiteralAssignsToProvenNamedReference()
     {
         var function = Function(Reference,
@@ -200,6 +261,56 @@ public class NamedReferenceSlotMaterializationTests
         var invariant = SlotMaterializationInvariant.Capture(function);
         new SlotMaterializationPass().Run(function, PassContext.None);
         invariant.Check();
+        function.CheckInvariant(includeSemantics: true);
+    }
+
+    [Fact]
+    public void RealRoslynDeclaringTypeNameCollisionMaterializes()
+    {
+        using var source = MetadataSource.Open(
+            typeof(Microsoft.CodeAnalysis.CSharp.CSharpCompilation).Assembly.Location);
+        var function = RaiseToMaterialization(
+            source,
+            "Microsoft.CodeAnalysis.CSharp.Symbols.PublicModel.NamedTypeSymbol",
+            "Microsoft.CodeAnalysis.INamedTypeSymbol.get_TupleUnderlyingType");
+        var decision = Assert.Single(
+            SlotMaterializationPass.Analyze(function),
+            decision => decision.Slot == 256);
+
+        Assert.NotNull(decision.Type);
+        Assert.Equal("Microsoft.CodeAnalysis.CSharp.Symbols", decision.Type.Namespace);
+        Assert.Equal("NamedTypeSymbol", decision.Type.Name);
+        Assert.False(CSharpSpellability.CanSpellNamedReferenceStorageType(decision.Type, function));
+        Assert.True(CSharpSpellability.CanMaterializeNamedReferenceStorageType(decision.Type, function));
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 256);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 256);
+        function.CheckInvariant(includeSemantics: true);
+    }
+
+    [Fact]
+    public void CompilerProducedVolatileReferenceMaterializes()
+    {
+        using var source = MetadataSource.Open(
+            typeof(NamedReferenceSlotMaterializationSamples).Assembly.Location);
+        var function = RaiseToMaterialization(
+            source,
+            typeof(VolatileReferenceHolder).FullName!,
+            nameof(VolatileReferenceHolder.Read));
+        var decision = Assert.Single(
+            SlotMaterializationPass.Analyze(function),
+            decision => decision.Type?.Name == nameof(VolatileReference));
+
+        Assert.NotNull(decision.Type);
+        Assert.Contains(
+            decision.Type.CustomModifiers,
+            modifier => modifier.IsRequired
+                && modifier.Modifier.Name == "IsVolatile");
+        Assert.False(CSharpSpellability.CanSpellNamedReferenceStorageType(decision.Type, function));
+        Assert.True(CSharpSpellability.CanMaterializeNamedReferenceStorageType(decision.Type, function));
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == decision.Slot);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == decision.Slot);
         function.CheckInvariant(includeSemantics: true);
     }
 

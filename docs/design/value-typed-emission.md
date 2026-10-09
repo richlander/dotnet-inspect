@@ -1712,7 +1712,7 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    passes that same explicit-type spelling gate. This includes classes,
    interfaces, delegates, and their spellable constructed generic forms.
    Unresolved definitions, non-exact producers, and
-   unspellable or out-of-scope constructions remain deferred. Admission
+   other unspellable or out-of-scope constructions remain deferred. Admission
    consumes existing metadata facts; it does not acquire dependencies or
    infer assignability, boxing, covariance, or generic constraints.
    **Generated-name reference storage.** A compiler-generated metadata type
@@ -1722,12 +1722,15 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    named reference storage, for the reason the managed-reference rule below
    states: the residual path and the typed local render the same `TypeText`,
    and the existing fidelity diagnostic reports the name either way, so the
-   name cannot make one path more valid than the other. Every other spelling
-   check still applies (shape and arity, contextual names, shadowing and
-   collisions, unsupported constituents, generated generic-parameter and
-   function-pointer constituent names), the definition must still be a proven
-   reference type, and producers must still be exact. Value storage keeps the
-   full gate: a struct's `this` spilled to a slot is a managed pointer the
+   name cannot make one path more valid than the other. A generated name alone
+   does not excuse another defect: shape and arity, contextual names, ordinary
+   shadowing and collisions, unsupported constituents, generated
+   generic-parameter names, and function-pointer constituent names retain
+   their gates. The separately bounded residual-equivalence cases below own
+   declaration modifiers and a declaring-type simple-name collision. The
+   definition must still be a proven reference type, and producers must still
+   be exact. Value storage keeps the full gate: a struct's `this` spilled to a
+   slot is a managed pointer the
    importer types as the value, so admitting a generated struct state machine
    as value storage would turn the spill into a copy that loses writes
    ([#9395](https://github.com/richlander/dotnet-inspect/issues/9395)), the
@@ -1742,6 +1745,43 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    defects a generated name does not excuse. Output stays invalid where the
    generated name is printed — the methods were and remain `Partial` — so this
    rule retires residual bindings without claiming validity.
+   **Residual-equivalent reference declaration defects.** Exact named-reference
+   storage also tolerates two declaration facts that the residual slot path
+   necessarily erases through the same `TypeText`: custom modifiers attached to
+   the storage type, and a bare named type whose simple name collides with the
+   current declaring type. Custom modifiers remain attached to the typed IR;
+   this rule does not erase signature identity or field-access semantics. In
+   particular, a volatile field read keeps its `IsVolatile` operation fact while
+   `modreq(IsVolatile)` ceases to veto the local that receives the read. A
+   declaring-type collision may leave the same pre-existing invalid bare type
+   spelling that residual binding emitted; materialization makes no validity
+   claim and does not treat the type as ordinarily spellable. The stricter
+   named-reference spelling predicate therefore remains the receiver-alias
+   boundary.
+
+   Every other gate remains: the named definition must be a metadata-proven
+   reference type, every producer must satisfy the existing storage-assignment
+   rule, unsupported modifier types remain unsupported, and shape, arity,
+   contextual-name, generic-parameter, visible-nested-name, alias-shadow, and
+   ordinary bare-name-shadow checks still apply. Value storage keeps the full
+   spelling gate. The motivating witnesses are Microsoft.CodeAnalysis.CSharp
+   5.0.0
+   `Symbols.PublicModel.NamedTypeSymbol.INamedTypeSymbol.get_TupleUnderlyingType`,
+   whose internal `Symbols.NamedTypeSymbol` storage collides with the public
+   wrapper's simple name, and Microsoft.ApplicationInsights 2.23.0
+   `MemoryMappedFileHandler.get_CurrentFilePath`, whose volatile `FileStream`
+   field contributes `modreq(IsVolatile)` to the testified slot type.
+   `NamedReferenceSlotMaterializationTests` gates synthetic controls, the real
+   Roslyn collision, and a compiler-produced volatile-reference equivalent.
+   On the fixed 14-assembly, 89,065-method population, exactly those two webs
+   retire: residual binding moves from 84 webs / 150 locals / 57 methods to
+   82 / 148 / 55. Unified `OutsideCoercionDomain` moves from four to the two
+   already-unsupported `SectionPipeline<T>.Add` delegate webs; split webs stay
+   51, late-decidable webs stay zero, and the same four pass bugs remain
+   visible. Exact base/head product renders for both witnesses are identical;
+   this changes storage ownership, not emitted C#. Exact pass impact moves from
+   6,988 to 6,990 of 89,065 methods, with those two witnesses as the complete
+   candidate-only delta.
    Named value storage follows the same exact-type rule when the imported
    definition is a known value type, the complete type is spellable, and the
    type is not byref-like. This includes ordinary structs and their
