@@ -155,13 +155,15 @@ export function libraryApiDiffPresence(
       : emptyLibraryApiDiffPresence;
 }
 
+/** The last successful result, retained for the navigation cue. */
+export interface LibraryApiDiffRetained {
+  readonly input: LibraryApiDiffOperationInput;
+  readonly result: BrowserLibraryApiDiffResult;
+}
+
 export interface LibraryApiDiffStateHost {
   libraryApiDiff: LibraryApiDiffState;
-  /** The last successful result, retained for the navigation cue. */
-  libraryApiDiffRetained?: {
-    readonly input: LibraryApiDiffOperationInput;
-    readonly result: BrowserLibraryApiDiffResult;
-  };
+  libraryApiDiffRetained?: LibraryApiDiffRetained;
 }
 
 export interface LibraryApiDiffDependencies {

@@ -642,7 +642,7 @@ import {
   type LibraryApiDiffRenderOptions,
   type LibraryApiDiffSelection,
   type LibraryApiDiffState,
-  type LibraryApiDiffStateHost,
+  type LibraryApiDiffRetained,
   type LibraryApiDiffSubject,
 } from "./library-api-diff.ts";
 import { createMemberBodyDiff, type MemberBodyDiffContext } from "./member-body-diff.ts";
@@ -1711,7 +1711,7 @@ interface StateOverrides {
   packageLens: PackageLens;
   libraryLens: LibraryLens;
   libraryApiDiff: LibraryApiDiffState;
-  libraryApiDiffRetained?: LibraryApiDiffStateHost["libraryApiDiffRetained"];
+  libraryApiDiffRetained?: LibraryApiDiffRetained;
   compareClone: CompareCloneState;
   compareCloneSelectedRank: number | null;
   platformRecent: PlatformRecent[];
