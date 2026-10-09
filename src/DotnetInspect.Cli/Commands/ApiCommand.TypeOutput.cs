@@ -210,7 +210,6 @@ public partial class ApiCommand
 
             ApiOutputFormatter.WriteShapeOutput(
                 type,
-                foundIn,
                 packageName,
                 packageVersion,
                 options.MemberFilter,
