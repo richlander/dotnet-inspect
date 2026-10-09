@@ -1,3 +1,4 @@
+using DotnetInspector.Packages;
 using System.Text;
 
 namespace DotnetInspector.Services.Tests;
@@ -286,66 +287,61 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
-    public void FirstLibraryRequest_PrefersFirstNamesakeInLibraryOrder()
+    public void SelectFirstPackageLibrary_OrdersByAssemblyNameNotFileStemOrPath()
     {
-        // Two namesakes share one assembly simple name and differ only in
-        // the asset-path tie-break; an earlier non-namesake is passed over.
-        string laterNamesake = WriteAssembly(
-            "lib/net8.0/z/Renamed.dll",
-            typeof(TfmSelectorTests).Assembly.Location);
-        string earlierNamesake = WriteAssembly(
-            "lib/net8.0/a/Other.dll",
-            typeof(TfmSelectorTests).Assembly.Location);
-        string companion = WriteAssembly(
-            "lib/net8.0/m/Companion.dll",
-            typeof(TfmSelector).Assembly.Location);
-        string packageId =
-            typeof(TfmSelectorTests).Assembly.GetName().Name!;
-
-        var result = TfmSelector.SelectFirstPackageLibrary(
-            [laterNamesake, companion, earlierNamesake],
-            packageId,
-            tfm: "net8.0");
-
-        Assert.True(result.IsSelected);
-        Assert.Equal([earlierNamesake], result.Paths);
-        Assert.Equal(
-            TfmSelector.FirstPackageLibraryReason.Namesake,
-            result.FirstLibraryReason);
-        Assert.Equal(
-            [companion, earlierNamesake, laterNamesake],
-            result.CandidatePaths);
-        Assert.Equal("net8.0", result.Tfm);
-    }
-
-    [Fact]
-    public void FirstLibraryRequest_WithoutNamesakeSelectsFirstInLibraryOrder()
-    {
-        // Library order compares assembly simple names before asset paths,
-        // so the Library under the later path is first.
+        // File stems and paths both put Tests first; assembly simple names
+        // put DotnetInspector.Services first.
         string tests = WriteAssembly(
-            "lib/net8.0/a/Tests.dll",
+            "lib/net8.0/a/A.dll",
             typeof(TfmSelectorTests).Assembly.Location);
         string services = WriteAssembly(
-            "lib/net8.0/z/Services.dll",
+            "lib/net8.0/z/Z.dll",
             typeof(TfmSelector).Assembly.Location);
         string placeholder = WriteDll("lib/net8.0/Text.dll");
         File.WriteAllText(placeholder, "placeholder");
 
         var result = TfmSelector.SelectFirstPackageLibrary(
             [tests, placeholder, services],
-            "Contoso.Missing");
+            _tempDir,
+            "Contoso.Missing",
+            tfm: "net8.0");
 
         Assert.True(result.IsSelected);
         Assert.Equal([services], result.Paths);
         Assert.Equal(
-            TfmSelector.FirstPackageLibraryReason.FirstInLibraryOrder,
+            FirstPackageLibraryReason.FirstInLibraryOrder,
+            result.FirstLibraryReason);
+        Assert.Equal([services, tests], result.CandidatePaths);
+        Assert.Equal("net8.0", result.Tfm);
+    }
+
+    [Fact]
+    public void SelectFirstPackageLibrary_MatchesNamesakeIgnoringCase()
+    {
+        string tests = WriteAssembly(
+            "lib/net8.0/a/A.dll",
+            typeof(TfmSelectorTests).Assembly.Location);
+        string services = WriteAssembly(
+            "lib/net8.0/z/Z.dll",
+            typeof(TfmSelector).Assembly.Location);
+        string packageId = typeof(TfmSelectorTests).Assembly.GetName().Name!
+            .ToUpperInvariant();
+
+        var result = TfmSelector.SelectFirstPackageLibrary(
+            [services, tests],
+            _tempDir,
+            packageId);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal([tests], result.Paths);
+        Assert.Equal(
+            FirstPackageLibraryReason.Namesake,
             result.FirstLibraryReason);
         Assert.Equal([services, tests], result.CandidatePaths);
     }
 
     [Fact]
-    public void FirstLibraryRequest_UnresolvedIdentityFailsClosed()
+    public void SelectFirstPackageLibrary_ReportsUnreadableIdentity()
     {
         string namesake = WriteAssembly(
             "lib/net8.0/Renamed.dll",
@@ -356,40 +352,35 @@ public class TfmSelectorTests : IDisposable
 
         var result = TfmSelector.SelectFirstPackageLibrary(
             [namesake, unreadable],
+            _tempDir,
             packageId);
 
         Assert.False(result.IsSelected);
-        Assert.Empty(result.Paths);
         Assert.Equal(
             TfmSelector.PackageLibraryResolutionStatus
                 .NamesakeIdentityUnavailable,
             result.Status);
         Assert.Equal([unreadable], result.IdentityFailurePaths);
+        Assert.Equal([namesake, unreadable], result.CandidatePaths);
         Assert.Null(result.FirstLibraryReason);
     }
 
     [Fact]
-    public void FirstLibraryRequest_EmptyPopulationIsUnavailable()
+    public void SelectFirstPackageLibrary_NoManagedAssemblyIsUnavailable()
     {
         string placeholder = WriteDll("lib/net8.0/Text.dll");
         File.WriteAllText(placeholder, "placeholder");
 
-        var empty = TfmSelector.SelectFirstPackageLibrary(
-            [],
-            "MyPackage");
-        var nonAssembly = TfmSelector.SelectFirstPackageLibrary(
+        var result = TfmSelector.SelectFirstPackageLibrary(
             [placeholder],
+            _tempDir,
             "MyPackage");
 
-        foreach (var result in new[] { empty, nonAssembly })
-        {
-            Assert.False(result.IsSelected);
-            Assert.Equal(
-                TfmSelector.PackageLibraryResolutionStatus.NoAssemblies,
-                result.Status);
-            Assert.Empty(result.Paths);
-            Assert.Null(result.FirstLibraryReason);
-        }
+        Assert.False(result.IsSelected);
+        Assert.Equal(
+            TfmSelector.PackageLibraryResolutionStatus.NoAssemblies,
+            result.Status);
+        Assert.Null(result.FirstLibraryReason);
     }
 
     [Fact]

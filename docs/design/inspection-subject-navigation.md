@@ -1227,18 +1227,21 @@ not repeat namesake matching or Library ordering. Navigation never derives a
 namesake from an asset path, file stem, display label, or package-relative
 text.
 
-Navigation does not yet issue typed Library gestures. Until it does, the
-shared package Library resolver implements Library order and First Library
-selection: `TfmSelector.SelectFirstPackageLibrary` in `DotnetInspector.Services`
-returns the chosen Library, whether it was chosen as the namesake or as the
-first Library, and the candidates in Library order. Host routes and the later
-Navigation gesture consume that result rather than repeating it.
+Navigation does not yet issue typed Library gestures. Until it does,
+`PackageLibraryOrder` in `DotnetInspector.Packages` implements Library order and
+First Library selection over issued identities: package-relative `/` asset
+paths and owner-issued assembly simple names, plus any unresolved asset paths.
+It returns the chosen Library with whether it was chosen as the namesake or as
+the first Library and the admitted Libraries in Library order, an unresolved
+identity failure, or unavailable. Host routes and the later Navigation gesture
+consume that result rather than repeating it; the CLI resolver
+`TfmSelector.SelectFirstPackageLibrary` only reads assembly names and calls it.
 `FirstLibraryRequest_PrefersFirstNamesakeInLibraryOrder`, whose fixture holds
 several namesakes that differ only in tie-break order,
 `FirstLibraryRequest_WithoutNamesakeSelectsFirstInLibraryOrder`,
 `FirstLibraryRequest_UnresolvedIdentityFailsClosed`, and
-`FirstLibraryRequest_EmptyPopulationIsUnavailable` gate the resolver. The
-chosen-Library rule remains **unverified** until a consuming route adds
+`FirstLibraryRequest_EmptyPopulationIsUnavailable` gate `PackageLibraryOrder`.
+The chosen-Library rule remains **unverified** until a consuming route adds
 `FirstLibraryRequest_ChosenLibraryNonSuccessDoesNotFallback`, under
 [#9683](https://github.com/richlander/dotnet-inspect/issues/9683).
 
