@@ -580,9 +580,13 @@ test("Spotlight offers NuGet and .NET Library System.Text.Json destinations with
   await search.fill("System.Text.Json");
   await expect(page.locator('[data-sl-pkg-load="System.Text.Json"]')).toBeVisible();
   await expect(page.locator('[data-sl-framework-lib="System.Text.Json"]'))
-    .toContainText(platformVersion);
-  await expect(page.locator('[data-sl-framework-lib="System.Text.Json"]'))
-    .toContainText("net11.0");
+    .toHaveAttribute("data-sl-result-identity", JSON.stringify([
+      "framework-lib",
+      "net11.0",
+      platformVersion,
+      "netcore.app",
+      "System.Text.Json",
+    ]));
   await expect(page.locator('[data-sl-scope="runtime"]')).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Platform", exact: true })).toHaveCount(0);
   await expect(page.locator("html")).not.toHaveAttribute("data-platform-warmup");
