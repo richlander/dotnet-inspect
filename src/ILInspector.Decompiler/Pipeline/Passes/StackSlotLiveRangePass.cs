@@ -19,11 +19,116 @@ public sealed class StackSlotLiveRangePass : IIrPass
     {
         bool hasStructuredEh = function.Descendants.Any(node => node is TryCatch or TryFinally or CatchClause);
         while (SplitOnce(function, context.Stepper, hasStructuredEh)
+            || SplitReferenceCoalesceSelfUpdateOnce(
+                function,
+                context.Stepper,
+                hasStructuredEh)
             || SplitBlockContainedOnce(function, context.Stepper)
             || SplitCrossBlockOnce(function, context.Stepper, hasStructuredEh))
         {
         }
     }
+
+    static bool SplitReferenceCoalesceSelfUpdateOnce(
+        IrFunction function,
+        Stepper stepper,
+        bool hasStructuredEh)
+    {
+        if (hasStructuredEh)
+            return false;
+
+        var scopeNodes = CoercionSinks.ScopeNodes(function.Body).ToList();
+        foreach (var block in scopeNodes.OfType<Block>())
+        {
+            if (IsWithinStructuredLoop(block))
+                continue;
+
+            for (int i = 0; i < block.Children.Count; i++)
+            {
+                if (block.Children[i] is not StoreStackSlot
+                    {
+                        Value: Coalesce
+                        {
+                            Left: LoadStackSlot priorLoad,
+                        } coalesce,
+                    } store
+                    || priorLoad.Slot != store.Slot
+                    || priorLoad.Type is not { } priorType
+                    || !ReferenceEquals(store.Parent, block))
+                {
+                    continue;
+                }
+
+                int slot = store.Slot;
+                if (coalesce.Descendants.OfType<LoadStackSlot>()
+                        .Count(load => load.Slot == slot) != 1
+                    || scopeNodes
+                        .Where(node => node is StoreStackSlot candidateStore
+                                && candidateStore.Slot == slot
+                            || node is LoadStackSlot candidateLoad
+                                && candidateLoad.Slot == slot)
+                        .Any(reference =>
+                            !ReferenceEquals(EnclosingBlock(reference), block)))
+                {
+                    continue;
+                }
+
+                var liveLoads = LiveLoads(block, i, slot).ToList();
+                if (liveLoads.Count == 0
+                    || liveLoads[0].Type is not { } target
+                    || target.Equals(priorType)
+                    || liveLoads.Any(load => !target.Equals(load.Type))
+                    || coalesce.Right.AssignmentType is not { } rightType
+                    || !HasProvenReferenceAssignment(
+                        function,
+                        priorType,
+                        target)
+                    || !HasProvenReferenceAssignment(
+                        function,
+                        rightType,
+                        target))
+                {
+                    continue;
+                }
+
+                int newSlot = FreshStackSlot(function);
+                stepper.StepOver(
+                    $"split stack slot {slot} reference-coalesce self-update to S_{newSlot}",
+                    store);
+                var left = coalesce.Left;
+                var witness = new Coerce(
+                    target,
+                    (IrExpression)left.Clone(),
+                    CoercionKind.ReferenceWitness);
+                witness.InheritSourceOffset(left);
+                left.ReplaceWith(witness);
+                coalesce.BindReferenceAssignmentType(target);
+                foreach (var load in liveLoads)
+                    load.ReplaceWith(new LoadStackSlot(newSlot, load.Type));
+
+                var value = (IrExpression)store.DetachChildren()[0];
+                var replacement = new StoreStackSlot(newSlot, value);
+                replacement.InheritSourceOffset(store);
+                store.ReplaceWith(replacement);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool HasProvenReferenceAssignment(
+        IrFunction function,
+        TypeRef source,
+        TypeRef target)
+        => CoercionRendering.IsProvenReference(
+                source,
+                function.TypeShapes)
+            && CoercionRendering.IsProvenReference(
+                target,
+                function.TypeShapes)
+            && (source.Equals(target)
+                || function.ProvenReferenceWidenings.Contains(
+                    new ReferenceWidening(source, target)));
 
     static bool SplitBlockContainedOnce(IrFunction function, Stepper stepper)
     {
