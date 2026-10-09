@@ -559,6 +559,48 @@ public sealed class BrowserLibraryApiDiffOperationTests
     }
 
     [Fact]
+    public async Task LibraryTypeAndMemberRequestsCompleteTheComparisonOnce()
+    {
+        await using Fixture fixture = await Fixture.Open();
+        BrowserLibraryApiDiffSucceeded library =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(
+                (await fixture.Query(fixture.Request())).Value);
+        BrowserLibraryApiDiffType changedType = Assert.Single(
+            library.Types,
+            type => type.Display == "LibraryApiDiffFixture.ProjectionReceiver");
+        BrowserLibraryApiDiffMemberIdentity member = Assert.Single(
+            changedType.Members,
+            member => member.Role == BrowserLibraryApiDiffMemberRelationRole.After)
+            .After!;
+        BrowserLibraryApiDiffRequest typeRequest = fixture.Request() with
+        {
+            Surface = BrowserDiffAnalysisSurface.Type,
+            Analyses = ["api", "api-attribute"],
+            Views = BrowserDiffAnalysisViews.Changes
+                | BrowserDiffAnalysisViews.Summary
+                | BrowserDiffAnalysisViews.Transitions,
+            TypeNames = [changedType.Display],
+        };
+
+        string reused = JsonSerializer.Serialize(await fixture.Query(typeRequest));
+        await fixture.Query(typeRequest with
+        {
+            Surface = BrowserDiffAnalysisSurface.Member,
+            Analyses = ["api"],
+            Views = BrowserDiffAnalysisViews.Changes,
+            MemberTargetIdentities = [member.StableSelector],
+        });
+
+        Assert.Equal(1, LibraryApiComparisonMemo.Computations(fixture.PackageId));
+
+        // A fresh computation of the same request produces the same result.
+        LibraryApiComparisonMemo.Clear();
+        string fresh = JsonSerializer.Serialize(await fixture.Query(typeRequest));
+        Assert.Equal(2, LibraryApiComparisonMemo.Computations(fixture.PackageId));
+        Assert.Equal(fresh, reused);
+    }
+
+    [Fact]
     public async Task TypeUiSelectionExecutesApiAndApiAttributeInBrowser()
     {
         await using Fixture fixture = await Fixture.Open();

@@ -139,9 +139,13 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
   metadata: {
     cancelLibraryApiDiff: () =>
       unexpected("cancelLibraryApiDiff"),
+    cancelLibraryFastDiff: () =>
+      unexpected("cancelLibraryFastDiff"),
     findTypes: () => unexpected("findTypes"),
     queryLibraryApiDiff: () =>
       unexpected("queryLibraryApiDiff"),
+    queryLibraryFastDiff: () =>
+      unexpected("queryLibraryFastDiff"),
     queryMemberDeclaration: () =>
       unexpected("queryMemberDeclaration"),
     queryMemberDocument: () =>
@@ -2342,8 +2346,10 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     ],
     metadata: [
       "cancelLibraryApiDiff",
+      "cancelLibraryFastDiff",
       "findTypes",
       "queryLibraryApiDiff",
+      "queryLibraryFastDiff",
       "queryGraphMemberSurface",
       "queryMemberDeclaration",
       "queryMemberDocument",
@@ -2453,7 +2459,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 121);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 123);
 
   const state = fixture();
   const groups = [

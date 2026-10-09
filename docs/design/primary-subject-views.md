@@ -453,8 +453,13 @@ extension rows and their `member` gesture remain open: the MemberGroup
 population does not yet attach receiver extensions, so the `JsonElement`
 extension gate below stays unverified. An explicit `-v:m` on `type` still
 keeps the standard route, because the planner treats an explicit verbosity as a
-format gesture. That, exact Type resolution failures, and retirement of the
-Library-listing fallback also remain open.
+format gesture. That standard route now gives its selected `ApiMember` values
+to shared Presentation, which preserves its structural nodes, logical-overload
+collapse, explicit-verbosity expansion, limits, headings, and C# spelling while
+streaming the native Tree without a CLI-built Markout graph. This is a lowering
+boundary only; the planned Composition Count adoption still owns any change
+from logical-overload headings to declaration Counts. Exact Type resolution
+failures and retirement of the Library-listing fallback also remain open.
 
 ## Gates
 

@@ -147,10 +147,12 @@ test("Types scope keeps every managed observation reachable", () => {
 
   const types = spotlightTypeCandidatesForScope(candidates, false);
   const all = spotlightTypeCandidatesForScope(candidates, true);
+  const expandedAll = spotlightTypeCandidatesForScope(candidates, true, 12);
 
   assert.equal(types.length, 51);
   assert.equal(types.at(-1)?.identity, "observation-51");
   assert.equal(all.length, 6);
+  assert.equal(expandedAll.length, 12);
 });
 
 test("rejects missing activation correspondence", () => {

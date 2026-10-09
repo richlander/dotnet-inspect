@@ -981,7 +981,7 @@ equivalents. The following map distinguishes those contracts:
 | `--namesake-library` | Select the Library whose assembly name matches the package ID | Selects a Library subject; it is not `Root=lib` or a filename filter |
 | `--tfm TFM` with library inspection | Select the package target before Library scope | Uses package asset selection; it is not Files `Target=TFM` |
 | `--roots` | Project distinct top-level folders from selected Files | A result projection, not a predicate or another section |
-| `--tfms` | List distinct package target frameworks in TFM-priority order | A separate TFM row population; Files predicates select files, not distinct framework rows |
+| `--tfms` | Select the Target Frameworks section | `-S "Target Frameworks"`; native output, formats, row selection, and Count are identical |
 | `--versions`, `--versions-with-feed` | Enumerate available package versions, optionally with feed provenance | A separate version population; these do not select a section of one package version |
 | `--content` | Read documents selected by `--path` | A content operation; selecting Files inventories entries without reading their contents |
 
@@ -998,15 +998,19 @@ package asset-role selection before inspecting metadata; a file path predicate
 cannot replace that subject selection. Files `Target=net8.0` can also match
 entries under `buildTransitive/net8.0` unless a Root predicate narrows them.
 
-The separate `--tfms`, version-listing, and content modes reject explicit
+The separate version-listing and content modes reject explicit
 `-S` selection because they render their own populations. Giving one of these
 a section entrance would require preserving its row identity, ordering,
 acquisition, and output contract; it would not follow from replacing its flag
 with a Files predicate.
 
-For one package with `--tfms`, `-n`, `--tail`, and `--rows A..B` select
-complete target-framework rows after archive extraction, framework
-de-duplication, and TFM-priority ordering. Count, table, TSV, JSONL, and JSON
+For one package with only `--tfms` or `-S "Target Frameworks"`, `-n`,
+`--tail`, and `--rows A..B` select complete target-framework rows after
+framework folder enumeration, de-duplication, and TFM-priority ordering.
+`--tfms` can compose with other sections. Its former standalone JSON array
+is replaced by the section's established JSON contracts: plain `--json`
+preserves the typed package object; field or column projections follow
+Projected JSON. Bare output uses native TSV. Count, table, TSV, JSONL, and JSON
 observe the same selected rows; add `--lines` only to clip rendered text.
 
 For one package with exactly `SourceLink: Files` selected, `-n`, `--tail`, and
@@ -1626,6 +1630,13 @@ netmodules or bounded inventory), even if an XML documentation sidecar is
 present. Tree retains the legacy Type rendering fallback when compact
 inspection is unavailable. Count, sections, Markdown, tables, JSON, filters,
 and windows keep their existing independent routes.
+
+An explicit verbosity keeps the verbosity-driven Type rendering rather than the
+compact Tree. `-v:m` adds the base Type and Member signatures, with an overload
+Count in place of the signatures for each overloaded constructor, method,
+operator, explicit interface implementation, or extension group; properties
+(including indexers) and events list each signature, and fields list each name. `-v:n` and `-v:d` list every overload signature.
+That rendering rejects `-v:q`; add `--markdown` for compact sections.
 
 ```bash
 dotnet-inspect type System.Math --platform System.Private.CoreLib --tree

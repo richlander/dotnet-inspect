@@ -178,7 +178,7 @@ public static class AssemblyContextMemberSelectionQuery
         ApiSurfaceProjectionLimits limits)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(typeIdentity);
-        return Execute<ApiType>(
+        return AssemblyContextApiSurfaceSelection.Execute<ApiType>(
             group,
             participant,
             limits,
@@ -195,7 +195,8 @@ public static class AssemblyContextMemberSelectionQuery
         ApiSurfaceProjectionLimits limits)
     {
         ArgumentNullException.ThrowIfNull(selection);
-        return Execute<AssemblyContextMemberDeclaration>(
+        return AssemblyContextApiSurfaceSelection.Execute<
+            AssemblyContextMemberDeclaration>(
             group,
             participant,
             limits,
@@ -211,7 +212,8 @@ public static class AssemblyContextMemberSelectionQuery
         ApiSurfaceProjectionLimits limits)
     {
         ArgumentNullException.ThrowIfNull(selection);
-        return Execute<AssemblyContextMemberBody>(
+        return AssemblyContextApiSurfaceSelection.Execute<
+            AssemblyContextMemberBody>(
             group,
             participant,
             limits,
@@ -219,8 +221,11 @@ public static class AssemblyContextMemberSelectionQuery
                 surface,
                 selection));
     }
+}
 
-    static AssemblyContextEntry<TValue> Execute<TValue>(
+internal static class AssemblyContextApiSurfaceSelection
+{
+    internal static AssemblyContextEntry<TValue> Execute<TValue>(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,
         ApiSurfaceProjectionLimits limits,
@@ -242,7 +247,8 @@ public static class AssemblyContextMemberSelectionQuery
             return new AssemblyContextEntry<TValue>.Failed(
                 new AssemblyContextSubject(participant.Assembly),
                 new InvalidOperationException(
-                    $"Member selection exceeded the {truncation.Limit} bound "
+                    $"API-surface selection exceeded the "
+                        + $"{truncation.Limit} bound "
                         + $"({truncation.Bound})."));
         }
 
@@ -253,7 +259,7 @@ public static class AssemblyContextMemberSelectionQuery
             return new AssemblyContextEntry<TValue>.Failed(
                 new AssemblyContextSubject(participant.Assembly),
                 new InvalidOperationException(
-                    "Member selection produced no participant outcome."));
+                    "API-surface selection produced no participant outcome."));
         }
 
         return entry switch
@@ -290,5 +296,4 @@ public static class AssemblyContextMemberSelectionQuery
                 ex);
         }
     }
-
 }

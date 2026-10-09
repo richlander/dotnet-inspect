@@ -788,8 +788,8 @@ retained view state. It changes only the owner-required active scenario state:
    carries explicit Package-only retained context required by an active Package
    request.
 4. A projectable Package facet or query choice is retained. The default
-   Package Tree maps to `package.libraries` and an explicit section selection
-   maps to `package.overview`
+   Package Tree maps to `package.libraries` and any other projectable Package
+   selection maps to `package.overview`
    ([View Facet Registry](view-facet-registry.md#package-libraries-facet)); an
    unsupported choice produces the ordinary Share refusal rather than a
    substituted default.
