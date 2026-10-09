@@ -428,6 +428,149 @@ sharing, cancellation, sibling exclusion, and independent acquisition failure.
 QuerySpace producer capabilities supplies plan validation; existing Root,
 Workspace, cache, and range contracts retain their respective ownership.
 
+### Adopted shared-demand measurements
+
+The adopted implementation was measured on 2026-10-09 against effective base
+`479f3536e153b5f90e5cc78d07a0920b33c9d664`, candidate
+`2b538c3f95759f9647059d5c11ee91a72b950ae4`. Both use the candidate's
+`eng/measure-inspect-web-library-open.cs` probe; the baseline's production
+implementation is unchanged. The candidate defines
+`WEB_PACKAGE_ENTRY_CACHE;WEB_LIBRARY_SHARED_DEMAND`; the baseline defines only
+`WEB_PACKAGE_ENTRY_CACHE`. The same bounded entry-persistence adapter is
+configured in both. This models the website's acquisition branch, not
+JavaScript Cache Storage I/O. The candidate passes the known companion demand
+through the production API export and shared QuerySpace planner.
+
+The host is Linux x64, AMD Ryzen 9 9900X, SDK
+`11.0.100-rc.1.26425.128`, Release NativeAOT. Builds finished before timing.
+Each pinned scenario has one discarded warm-up pair followed by seven
+alternating before/after pairs. Each invocation starts a fresh process and
+executes cold then warm Summary plus concurrent API and Enablements, consuming
+all outputs. CDN state is uncontrolled. Tail is the largest of seven samples
+(nearest-rank p95), not a high-confidence population percentile.
+
+| Scenario | Cold median / tail before (ms) | Cold median / tail after (ms) | Warm median / tail before (ms) | Warm median / tail after (ms) |
+| --- | --- | --- | --- | --- |
+| Avalonia 12.1.3 / net10.0 / default facade | 405.5 / 424.4 | 226.6 / 336.7 | 0.5 / 0.5 | 0.6 / 0.6 |
+| Avalonia 12.1.3 / net10.0 / Avalonia.Base | 505.4 / 538.0 | 428.5 / 483.4 | 162.3 / 165.3 | 146.4 / 147.3 |
+| Microsoft.CodeAnalysis.CSharp 5.9.0 / netstandard2.0 | 462.4 / 515.1 | 390.2 / 477.0 | 53.5 / 54.3 | 52.3 / 54.5 |
+| Newtonsoft.Json 13.0.4 / net6.0 | 230.3 / 311.7 | 235.4 / 290.9 | 19.5 / 21.2 | 18.7 / 23.2 |
+| Dapper 2.1.66 / net8.0 | 128.4 / 154.0 | 119.0 / 141.0 | 9.9 / 11.0 | 9.3 / 11.4 |
+
+These operation times include serialization. Whole-process wall time includes
+startup, both cold and warm operations, and output collection:
+
+| Scenario | Process median / tail before (ms) | Process median / tail after (ms) | Retained package bytes before / after |
+| --- | --- | --- | --- |
+| Avalonia default facade | 422.0 / 439.8 | 239.9 / 350.0 | 16,503,751 / 10,133 |
+| Avalonia.Base | 683.0 / 715.5 | 589.7 / 645.7 | 16,503,751 / 4,711,829 |
+| Roslyn | 532.4 / 582.4 | 455.8 / 542.7 | 14,031,739 / 7,556,994 |
+| Newtonsoft.Json | 263.5 / 346.4 | 263.1 / 324.4 | 1,444,030 / 725,781 |
+| Dapper | 148.4 / 178.8 | 139.5 / 165.3 | 437,579 / 437,579 |
+
+Retained bytes are the cache's logical image accounting, not transferred
+bytes or process RSS. Every pair has identical Summary bytes and identical
+API and Enablements SHA-256 hashes. Each request selects one exact Library.
+All APIs are available and complete except Roslyn, which retains the same
+explicit RetainedTextCharacters projection-limit outcome on both sides.
+
+Publish the two binaries from the respective worktrees:
+
+```bash
+dotnet publish eng/measure-inspect-web-library-open.cs -c Release \
+  -p:IsPublishable=true -p:DefineConstants=WEB_PACKAGE_ENTRY_CACHE \
+  -o /tmp/web-overview-shared-before
+dotnet publish eng/measure-inspect-web-library-open.cs -c Release \
+  -p:IsPublishable=true \
+  -p:DefineConstants=WEB_PACKAGE_ENTRY_CACHE%3BWEB_LIBRARY_SHARED_DEMAND \
+  -o /tmp/web-overview-shared-after
+```
+
+Run each apphost with the coordinate and `overview`; add
+`compile:ref/net10.0/Avalonia.Base.dll` as the fifth argument for the explicit
+Avalonia.Base scenario. `WEB_LIBRARY_OPEN_RESULT_DIR` retains full output for
+parity checking. Native apphost SHA-256 identities are:
+
+- Before: `7df62cea542a48cb1d084f356911fee2299298740faf6fcbf2ff2eb7d5ed05c0`.
+- After: `514226849e62ee4416ffe352761fab13060358712aa8057246f054e81c0628e1`.
+
+Raw measurements and full outputs are retained locally under
+`/tmp/web-overview-shared-native-perf` and
+`/tmp/web-overview-shared-native-base-perf`. Newtonsoft's cold operation
+median remains slower, while its complete-process median is unchanged. This
+candidate does not establish the intended Newtonsoft latency win and is not
+presented as merge-ready. Its later missing-entry acquisition still reads a
+fresh central directory before the DLL span; eliminating that round trip
+requires a separate source-owned representation/snapshot design under the
+range and cache owners, preserving operation deadlines and source authority.
+
+### Browser host corroboration
+
+The same base and candidate were published as Release Browser/Wasm sites,
+with the same opt-in benchmark bridge exposing their existing production
+Worker operations. `browser/benchmark-library-overview.ts` drives Firefox,
+fresh contexts and actual Cache Storage, one discarded pair then seven
+alternating pairs per scenario. It requests Summary, then concurrent exact
+Library API and Enablements, and consumes the JSON results. These browser
+numbers diagnose the production host; they do not replace the NativeAOT
+performance gate. Page painting is not measured.
+
+| Scenario | Cold median / tail before (ms) | Cold median / tail after (ms) | Warm median / tail before (ms) | Warm median / tail after (ms) |
+| --- | --- | --- | --- | --- |
+| Avalonia default facade | 1069 / 1134 | 723 / 762 | 11 / 12 | 13 / 14 |
+| Avalonia.Base | 3390 / 3473 | 3145 / 3258 | 1934 / 1975 | 1933 / 1974 |
+| Roslyn | 1937 / 1994 | 1875 / 2180 | 657 / 676 | 679 / 693 |
+| Newtonsoft.Json | 1244 / 1292 | 1293 / 1428 | 348 / 358 | 352 / 370 |
+| Dapper | 859 / 874 | 880 / 896 | 184 / 191 | 183 / 185 |
+
+| Scenario | Cold observed wall median / tail before (ms) | Cold observed wall median / tail after (ms) | Startup median before / after (ms) | Cold archive requests before / after |
+| --- | --- | --- | --- | --- |
+| Avalonia default facade | 1075.1 / 1153.8 | 729.3 / 768.4 | 119.8 / 122.6 | 10 / 6 |
+| Avalonia.Base | 3404.2 / 3487.4 | 3152.1 / 3264.7 | 120.6 / 130.7 | 10 / 6 |
+| Roslyn | 1945.5 / 2001.9 | 1881.8 / 2189.4 | 122.8 / 121.4 | 5 / 5 |
+| Newtonsoft.Json | 1252.4 / 1298.6 | 1307.5 / 1434.7 | 122.7 / 122.4 | 4 / 5 |
+| Dapper | 873.2 / 885.8 | 887.5 / 929.5 | 121.4 / 123.9 | 1 / 1 |
+
+Observed wall includes Worker result transfer and output consumption; startup
+is measured separately. Warm archive requests are zero in every scenario.
+All 140 retained cold/warm measurements preserve full JSON hash parity and the
+same API completeness or explicit Roslyn projection-limit outcome. The bridge
+reports a null commit identity in these local publications, so artifact hashes
+identify the publications instead:
+
+- Package interop assembly before:
+  `f5420a12c6e2c30e4c86c9a934f20ff42f0bcbde70c439a9cdd05dd6cd0c5943`.
+- Package interop assembly after:
+  `caa32ef2af7dbc5d556078a5ec427201ca1c4fd25ea59d968274d679c7f3b812`.
+- Worker entry before:
+  `3942e3f1633003d2e2fa49765a1a228c7ddd3b417983c7dd52f56048fd090548`.
+- Worker entry after:
+  `835beb7f3bcf6875968683db85888006cc78ae1bcfc9d5a8a08505e155a582f5`.
+
+The measured Newtonsoft request trace confirms the cost: the baseline reads
+`bytes=2419169-2484725` once, while the candidate reads that directory tail
+once for Summary and again before the DLL. The candidate DLL range is smaller
+(`1162439-1438309`, versus `1162439-1490735`), but one extra serial round trip
+outweighs that saving. Both use modern ranged infrastructure. Warm Roslyn and
+cold Dapper also show browser slowdowns; the candidate is not a universal
+latency improvement.
+
+Run the published sites with `scripts/serve-package-adoption-gate.ts`, then:
+
+```bash
+node browser/benchmark-library-overview.ts \
+  http://127.0.0.1:4193/index.html http://127.0.0.1:4194/index.html \
+  /tmp/web-overview-shared-browser-perf 7
+```
+
+Full results, request traces, startup and wall times remain under
+`/tmp/web-overview-shared-browser-perf`. The next focused acquisition slice
+belongs to the shared range and cache owners: preserve resource-free validated
+directory evidence across operations, reopen with fresh operation context,
+and bind reuse to the exact authorized source and representation. It must not
+retain a reader with an expired deadline, trust a cache key alone, or bypass
+representation-change handling for mutable feeds.
+
 ### Acquisition performance investigation
 
 The 2026-10-09 continuation compares candidate `08a1138` with a diagnostic
