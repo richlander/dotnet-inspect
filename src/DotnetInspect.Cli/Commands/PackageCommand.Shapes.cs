@@ -45,7 +45,6 @@ public partial class PackageCommand
             || options.Roots
             || options.ShowContent
             || options.ListVersions
-            || options.ListTfms
             || options.Discover is not null
             || options.Schema
             || options.Fields is { Length: > 0 }
