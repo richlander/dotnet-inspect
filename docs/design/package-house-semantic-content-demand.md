@@ -369,9 +369,12 @@ correspondence or choose range versus complete access. Complete acquisition
 below the shared size cut preserves the same selected participants.
 
 `Avalonia@12.1.3` and `Microsoft.CodeAnalysis.CSharp@5.9.0` motivate this boundary:
-on 2026-10-09 the inventory-only candidate made Summary faster but its separate
-broad Library realization regressed the complete cold sequence from 394.6 to
-500.4 ms and 390.3 to 497.9 ms respectively. The production browser API and
+on 2026-10-09 the inventory-only candidate made Summary faster but left
+substantial acquisition work on the subsequent Library operation. Earlier
+Roslyn measurements requested `net8.0` and returned PackageMismatch, so they
+are not evidence of a successful Library API sequence. Valid measurements
+use the browser-selected `netstandard2.0` target and explicitly retain its
+existing API projection-limit outcome. The production browser API and
 Library enablements exports must adopt the exact shared demand before this
 candidate is ready. The CLI exact-Library caller is the subsequent shared
 adoption boundary under #9754. Before/after evidence uses the existing
@@ -381,6 +384,95 @@ The gates are `ExactCompileLibraryDemand_RequiresDeclaredRolesAndPackageOnlyHand
 `ExactCompileLibrary_PreservesInventoryAndNarrowsParticipants`, and
 `ExactLibraryDemand_NarrowsTransferAndWorkspace`, plus existing tool-package
 API and Library document gates.
+
+### Acquisition performance investigation
+
+The 2026-10-09 continuation compares candidate `08a1138` with a diagnostic
+publication that changes only the API acquisition demand to the same
+SurfaceAndImplementation demand already declared by concurrent Enablements.
+This diagnostic is not the production API contract: an API-only request must
+retain Surface demand. Any adoption must declare the requests known together
+through host-neutral QuerySpace planning before acquisition, preserving each
+independent result. Existing shared-operation lifetime and cancellation remain
+a supporting constraint, rather than a new browser batching mechanism.
+
+Seven alternating cold/warm pairs follow one discarded warm-up pair per asset.
+The harness is `eng/measure-inspect-web-library-open.cs`, Linux x64 Release
+NativeAOT, SDK `11.0.100-rc.1.26425.128`. Builds finish before measurement.
+Cold means a fresh process with empty host state; CDN state is uncontrolled.
+Full Summary bytes and API/Enablements hashes match in every cold/warm pair.
+Roslyn retains the same RetainedTextCharacters projection limit in both cases;
+the other API results are available and complete. Avalonia uses its default
+namesake facade, rather than the larger `Avalonia.Base` Library.
+
+| Package and selected target | Current cold median (ms) | Shared-demand diagnostic (ms) | Current / diagnostic resident bytes |
+| --- | --- | --- | --- |
+| Avalonia 12.1.3 / net10.0 | 286.3 | 279.6 | 14,229 / 10,133 |
+| Microsoft.CodeAnalysis.CSharp 5.9.0 / netstandard2.0 | 465.4 | 412.1 | 15,111,338 / 7,556,994 |
+| Newtonsoft.Json 13.0.4 / net6.0 | 328.8 | 305.2 | 1,449,149 / 725,781 |
+| Dapper 2.1.66 / net8.0 | 120.7 | 120.4 | 437,579 / 437,579 |
+
+The duplicate retained DLL disappears for Roslyn and Newtonsoft, but this
+change alone does not establish the intended end-to-end improvement over the
+pre-inventory baseline. The native harness also does not configure the
+website's Cache Storage entry persistence. Its later missing-entry acquisition
+therefore repeats the size probe and directory read instead of consuming a
+cached directory. Browser-mode entry persistence must be isolated separately
+before attributing that native overhead to the website. The shared range and
+cache owners retain archive-validation and operation-lifetime authority.
+
+The separate entry-store diagnostic keeps production demand unchanged and
+configures a bounded in-memory implementation of the browser entry-persistence
+interface. This isolates the existing acquisition branch; it does not measure
+JavaScript, base64 interop, Cache Storage I/O, Wasm execution, or page paint.
+Seven alternating pairs with identical complete outputs produced:
+
+| Package | Entry persistence absent: cold median (ms) | Entry persistence configured: cold median (ms) |
+| --- | --- | --- |
+| Avalonia 12.1.3 | 272.2 | 205.0 |
+| Microsoft.CodeAnalysis.CSharp 5.9.0 | 462.8 | 409.8 |
+| Newtonsoft.Json 13.0.4 | 310.3 | 248.6 |
+| Dapper 2.1.66 | 133.9 | 128.7 |
+
+These results establish a measurement limitation and the cost of repeating the
+size probe. They do not establish a missing production browser cache: the
+website already configures entry persistence during host initialization.
+Missing-entry reads continue to validate the fresh directory as required by
+Package cache policy; this investigation changes no validation contract.
+
+The final diagnostic comparison configures the same entry-persistence adapter
+on baseline `e562f035` and on `08a1138` with shared Overview acquisition demand.
+It uses seven alternating pairs after one discarded warm-up pair and the same
+result-parity checks. It is an acquisition-path experiment, not a production
+browser performance gate.
+
+| Package / selected Library | Baseline cold median (ms) | Combined diagnostic cold median (ms) | Baseline / diagnostic largest cold sample (ms) |
+| --- | --- | --- | --- |
+| Avalonia 12.1.3 / default facade | 392.3 | 184.5 | 504.8 / 210.7 |
+| Avalonia 12.1.3 / Avalonia.Base | 511.1 | 453.9 | 566.6 / 482.7 |
+| Microsoft.CodeAnalysis.CSharp 5.9.0 | 455.2 | 358.4 | 515.4 / 404.8 |
+| Newtonsoft.Json 13.0.4 | 206.3 | 227.0 | 243.3 / 305.1 |
+| Dapper 2.1.66 | 126.2 | 125.2 | 136.4 / 134.7 |
+
+Avalonia.Base uses the exact
+`compile:ref/net10.0/Avalonia.Base.dll` selector; both API outcomes are available
+and complete. Its warm median is 170.0 / 155.8 ms. The remaining default-Library
+warm medians are 0.4 / 0.5 ms for Avalonia, 55.2 / 55.6 for Roslyn, 17.2 / 18.9
+for Newtonsoft, and 9.0 / 9.3 for Dapper. Roslyn's unchanged projection-limit
+outcome remains a bounded-result control.
+
+The corrected comparison still does not close the performance claim:
+Newtonsoft regresses even with entry reuse and one concurrent acquisition.
+Its baseline Summary median is 181.3 ms followed by an already resident API;
+the diagnostic Summary median is 156.2 ms, followed by approximately 75 ms of
+Library work. The cached missing-entry path uses modern ranged acquisition,
+but still reads a fresh directory before its DLL transfer. Eliminating that
+round trip requires a separately owned range/cache proof; retaining a live
+reader would incorrectly retain its expired operation deadline and credential
+lifetime. This semantic-demand effort does not authorize such a shortcut.
+Production adoption must also preserve Surface-only demand for standalone API
+requests, collapse only declared compatible requirements through QuerySpace,
+and pass actual browser measurements before claiming the intended E2E gain.
 
 ## House-owned acquisition planning
 
