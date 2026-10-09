@@ -692,15 +692,19 @@ internal sealed class PackageSearchQuerySources
 
 /// <summary>
 /// One authority-scoped desktop store per configured authority for one
-/// search, one package document export, or one pairwise package diff, and
-/// the temporary root that holds authorities without a durable cache
-/// identity. The root is deleted when the search, export, or diff closes.
+/// search, exact Type inspection, one package document export, or one pairwise
+/// package diff, and the temporary root that holds authorities without a
+/// durable cache identity. The root is deleted when its owning operation
+/// closes.
 /// </summary>
 internal sealed class SearchPackageStores(string temporaryPrefix = "inspect-search")
     : IDisposable
 {
     readonly Dictionary<ConfiguredPackageAuthority, IPackageStore> _stores =
         new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<ConfiguredPackageAuthority, IPackageStore>
+        _legacyCompatibleStores =
+            new(ReferenceEqualityComparer.Instance);
     string? _temporaryRoot;
 
     readonly Lock _sync = new();
@@ -708,17 +712,43 @@ internal sealed class SearchPackageStores(string temporaryPrefix = "inspect-sear
     /// <summary>Safe to call from concurrent acquisitions, as a pairwise diff's endpoints are.</summary>
     internal IPackageStore GetStore(
         ConfiguredPackageAuthority authority,
-        PackageProducerIdentity producer)
+        PackageProducerIdentity producer) =>
+        GetStore(
+            _stores,
+            authority,
+            producer,
+            readLegacySourceCache: false);
+
+    internal IPackageStore GetLegacyCompatibleStore(
+        ConfiguredPackageAuthority authority,
+        PackageProducerIdentity producer) =>
+        GetStore(
+            _legacyCompatibleStores,
+            authority,
+            producer,
+            readLegacySourceCache: true);
+
+    IPackageStore GetStore(
+        Dictionary<ConfiguredPackageAuthority, IPackageStore> stores,
+        ConfiguredPackageAuthority authority,
+        PackageProducerIdentity producer,
+        bool readLegacySourceCache)
     {
         lock (_sync)
         {
-            if (!_stores.TryGetValue(authority, out IPackageStore? store))
+            if (!stores.TryGetValue(authority, out IPackageStore? store))
             {
-                store = new AuthorityScopedFileSystemPackageStore(
-                    authority,
-                    producer,
-                    TemporaryRoot);
-                _stores.Add(authority, store);
+                store = readLegacySourceCache
+                    ? AuthorityScopedFileSystemPackageStore
+                        .CreateWithLegacyApplicationCache(
+                            authority,
+                            producer,
+                            TemporaryRoot)
+                    : new AuthorityScopedFileSystemPackageStore(
+                        authority,
+                        producer,
+                        TemporaryRoot);
+                stores.Add(authority, store);
             }
             return store;
         }
@@ -736,6 +766,7 @@ internal sealed class SearchPackageStores(string temporaryPrefix = "inspect-sear
     public void Dispose()
     {
         _stores.Clear();
+        _legacyCompatibleStores.Clear();
         DotnetInspector.Packages.PackageExtractor.Cleanup(_temporaryRoot);
         _temporaryRoot = null;
     }

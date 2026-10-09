@@ -309,6 +309,26 @@ public sealed record ExactTypeInspectionResult(
                         $"{failure.Kind}: {failure.Message}")),
             ]);
 
+    internal static ExactTypeInspectionResult ContextUnavailable(
+        ExactTypeInspectionRequest request,
+        string detail) =>
+        new(
+            ExactTypeInspectionOutcome.Unavailable,
+            request.Type,
+            MatchedType: null,
+            Type: null,
+            RequestedAssembly: null,
+            SupplierAssembly: null,
+            ForwardingHops: [],
+            Suggestions: [],
+            InspectionFailures: [],
+            Failures:
+            [
+                new ExactTypeInspectionFailure(
+                    ExactTypeInspectionFailureKind.ContextLoad,
+                    detail),
+            ]);
+
     internal static ExactTypeInspectionResult RuntimeUnavailable(
         ExactTypeInspectionRequest request,
         string detail) =>

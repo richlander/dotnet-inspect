@@ -203,7 +203,10 @@ public sealed class BrowserEngineLayeringTests
                 "M:DotnetInspector.Queries.AssemblyContextApiSurfaceQuery.ExecuteBounded",
                 StringComparison.Ordinal));
         Assert.Contains(
-            "M:DotnetInspector.Sections.ExactTypeInspectionOperation.ExecuteAsync(DotnetInspector.Queries.ExactTypeInspectionRequest,DotnetInspector.Queries.WorkspaceContextLoadOptions,System.Threading.CancellationToken)",
+            "M:DotnetInspector.Sections.ExactTypeInspectionOperation.ExecuteAsync(DotnetInspector.Queries.ExactTypeInspectionRequest,DotnetInspector.Packages.PackageHouse,DotnetInspector.Packages.PackageSourceOperationLease,System.Threading.CancellationToken)",
+            banned);
+        Assert.Contains(
+            "M:DotnetInspector.Sections.ExactTypeInspectionOperation.ExecuteAsync(DotnetInspector.Queries.InspectionWorkspace,DotnetInspector.Queries.PackageRootBinding,DotnetInspector.Queries.PackageAssemblyContextRealization,DotnetInspector.Queries.ExactTypeInspectionRequest,System.Threading.CancellationToken)",
             banned);
         Assert.Contains(
             "M:DotnetInspector.Sections.ExactTypeInspectionOperation.Execute(DotnetInspector.Queries.WorkspaceRealizationOperationLease,DotnetInspector.Queries.WorkspaceContextLoadOutcome.Loaded,DotnetInspector.Queries.ExactTypeInspectionRequest)",

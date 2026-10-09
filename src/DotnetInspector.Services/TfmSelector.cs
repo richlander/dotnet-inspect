@@ -274,6 +274,20 @@ public static class TfmSelector
     public static List<string> GetPackageAssemblies(string extractPath)
         => FilterResourceAssemblies(GetPackageDlls(extractPath));
 
+    /// <summary>Framework folders represented by the Package Target Frameworks section.</summary>
+    public static List<string> GetPackageFrameworkFolders(string extractPath)
+        => OrderByTfmPriorityDescending(
+            new[] { "lib", "tools" }
+                .Select(root => Path.Combine(extractPath, root))
+                .Where(Directory.Exists)
+                .SelectMany(Directory.GetDirectories)
+                .Where(path => !Path.GetFileName(Path.GetDirectoryName(path))!.Equals("tools", StringComparison.OrdinalIgnoreCase)
+                    || !Path.GetFileName(path).Equals("any", StringComparison.OrdinalIgnoreCase))
+                .Select(path => Path.GetFileName(path))
+                .Order(StringComparer.Ordinal)
+                .Distinct(StringComparer.OrdinalIgnoreCase), static tfm => tfm)
+            .ToList();
+
     public static List<string> GetPackageTfms(string extractPath)
         => GetPackageTfms(GetPackageDlls(extractPath), extractPath);
 

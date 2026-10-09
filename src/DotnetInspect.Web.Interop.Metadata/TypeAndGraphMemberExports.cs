@@ -94,30 +94,28 @@ public static partial class MetadataExports
                     participant,
                     typeDefinitionId)
                 : null;
-        InspectionEnvelope<ExactTypeInspectionResult> exactTypeInspection =
-            hierarchyInspection is null
-                ? await ExactTypeInspectionOperation.ExecuteAsync(
-                    exactTypeRequest,
-                    new WorkspaceContextLoadOptions
-                    {
-                        HttpClient =
-                            BrowserPackageWorkspace.NetworkClient,
-                        SourceAuthorization =
-                            BrowserPackageWorkspace
-                                .PackageSourceAuthorization,
-                        PackageStore =
-                            BrowserPackageWorkspace.SessionPackageStore,
-                        PackageTransferPolicy =
-                            BrowserPackageWorkspace.PackageTransferPolicy,
-                        PayloadLimits =
-                            BrowserPackageWorkspace.PackageLimits,
-                    },
-                    BrowserApiSurfacePolicy.Limits)
-                : new(
-                    hierarchyInspection.ExactTypeInspection.Content
-                        .Inspection,
-                    hierarchyInspection.ExactTypeInspection.Share,
-                    hierarchyInspection.ExactTypeInspection.Diagnostics);
+        InspectionEnvelope<ExactTypeInspectionResult> exactTypeInspection;
+        if (hierarchyInspection is null)
+        {
+            exactTypeInspection =
+                await scope.UsePackageAssemblyRoles(
+                    root,
+                    (workspace, package, realization) =>
+                        ExactTypeInspectionOperation.ExecuteAsync(
+                            workspace,
+                            package,
+                            realization,
+                            exactTypeRequest,
+                            BrowserApiSurfacePolicy.Limits));
+        }
+        else
+        {
+            exactTypeInspection = new(
+                hierarchyInspection.ExactTypeInspection.Content
+                    .Inspection,
+                hierarchyInspection.ExactTypeInspection.Share,
+                hierarchyInspection.ExactTypeInspection.Diagnostics);
+        }
         BrowserTypeHierarchyMetadata? hierarchy =
             hierarchyInspection is null
                 ? ProjectUnavailableHierarchy(exactTypeInspection)

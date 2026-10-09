@@ -1103,7 +1103,7 @@ public sealed class MethodDefinitionRequestSetTests
     }
 
     [Fact]
-    public void RequestSet_RejectsPlanDeclaringReferenceBinding()
+    public void RequestSet_RejectsPlanDeclaringReferenceBindingWithoutBinding()
     {
         MethodDefinitionSourceRequestSetPlan plan = AcceptedPlan(
             [
