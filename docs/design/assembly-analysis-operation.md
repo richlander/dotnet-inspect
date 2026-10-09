@@ -321,9 +321,20 @@ lands. It supplies this exact claim:
 
 > One Method-source producer declaration, `LibraryBodyRemainder`, receives
 > physical MethodDef units from the owner-issued Method source for a scoped
-> request and publishes the same legacy aggregate the broad builder would have
-> published for that scope, without enumerating the assembly or calling
-> `LibraryBodyAnalysisBuilder.Build`.
+> request and publishes the scope-bounded surface of the legacy aggregate the
+> broad builder would have published for that scope, without enumerating the
+> assembly or calling `LibraryBodyAnalysisBuilder.Build`.
+
+A scoped broad build still creates declaration results for every MethodDef, so
+some aggregate fields (for example declared-method identities and unsafe-mode
+counts) describe the whole assembly. A source-scoped remainder cannot produce
+them and must not publish a scope-shaped value in their place. The
+**scope-bounded surface** is every aggregate field derived only from the
+selected and expanded units. Population-wide fields are typed-unavailable in
+the remainder's result. A consumer that reads one stays on the old boundary
+until its population has its own owner. The implementation slice enumerates the
+fields from `LibraryBodyAnalysisResult` and its accumulator; a field that is
+neither scope-bounded nor typed-unavailable blocks the slice.
 
 **Shape.** The declaration is an ordinary Method producer under
 [Producer Planning](producer-planning.md):
@@ -341,7 +352,7 @@ lands. It supplies this exact claim:
 | Legacy plan input | Source request |
 | --- | --- |
 | `MethodScope` | Exact-MethodDef breadth. |
-| `TypeScope` | Exact-TypeDef breadth. |
+| `TypeScope` | Exact-TypeDef breadth, only when the request carries owner-resolved TypeDef coordinates. A `Func<TypeRef, bool>` predicate supplies no handles and stays on the old boundary. |
 | `ExpandEvidenceScope` | Declared generated-execution-body expansion. Its probe work is source work and is receipted as such. |
 | `Features` and `ImplementationMetrics` | Remainder parameters. They select what the runner computes, never what the source enumerates. |
 | The source-generated type flag computed in `Build` | Computed by the remainder from the unit's declaring TypeDef. |
@@ -360,19 +371,25 @@ list, and the `Parallel.For` branch) is deleted in this slice for scoped
 requests.
 
 **Body acquisition.** The runner receives the method body from the source's
-packet. It does not call `GetMethodBody` itself, so each physical method's
-body is acquired once and the source receipt's terminal body count is the
-whole body work. A runner path that still reads a body independently makes the
-receipt under-report and blocks the slice.
+packet. It makes no independent body read: neither `GetMethodBody` nor its
+`RequireMethodBody` and `MethodBodySource.Read` paths. Each body-eligible
+unit therefore has at most one terminal body acquisition, and the source
+receipt's terminal body count is the whole terminal body work. A bodiless unit
+acquires none. Generated-body discovery probes are separate source work with
+their own receipt counts; the owner may acquire a probed body again for
+terminal work, and that second acquisition is visible rather than hidden. A
+runner path that still reads a body independently makes the receipt
+under-report and blocks the slice.
 
 **Order and results.** Units arrive in ascending MethodDef row order within a
 wave, the same order `Build` merges today. Aggregate output, diagnostics, and
-scope-expansion diagnostics are therefore byte-identical to `Build` for the
-same scoped request.
+scope-expansion diagnostics are therefore byte-identical to `Build` on the
+scope-bounded surface for the same scoped request.
 
 **Admission.** The remainder serves only scoped requests, those with a
-`MethodScope` or `TypeScope`. Operation formation rejects an unscoped
-remainder request with a typed planning rejection. Legacy unscoped builds are
+`MethodScope` or owner-resolved TypeDef coordinates. Operation formation
+rejects an unscoped or predicate-scoped remainder request with a typed
+planning rejection. Legacy unscoped builds are
 parallel above a method-count threshold, and the sequential Method source
 cannot yet claim wall-time equivalence. They stay on
 `LibraryBodyAnalysisService` until the source owner permits an equivalent
@@ -390,8 +407,10 @@ consumer. It is a Workspace-backed, exact-method-token query that already
 receives its resolver from the universe provider
 (`AssemblyContextAnalysisSource.Resolver`), so the issuing owner named by
 [reference binding access](#reference-binding-access) exists and the
-remainder's reference needs map onto a binding it can issue. It consumes the
-`CallGraph` result the remainder's aggregate still derives. Issuing the
+remainder's reference needs map onto a binding it can issue. It reads only the
+scope-bounded surface (call graph, allocations, safety, optimization
+opportunities, diagnostics, and exception regions for its one method), and the
+slice confirms that before adopting. Issuing the
 `AssemblyReferenceBindingAccess` from that provider is part of this slice.
 
 `ILOffsetQuery` follows as the second adopter. It requests an exact
@@ -524,18 +543,25 @@ The slice that introduces the legacy-remainder declaration supplies
 `AssemblyAnalysisService_MixedLegacyAndMigratedProducersUseOneSourcePlan` and
 these gates:
 
-- `LegacyRemainder_ScopedAggregateMatchesBuilderOutput` compares aggregate
-  output, diagnostics, and scope-expansion diagnostics with the broad builder
-  for exact-method, exact-type, and expansion scopes, including malformed and
-  bodiless methods;
-- `LegacyRemainder_AcquiresEachBodyOnce` asserts that the source receipt's body
-  count equals the physical methods visited and that the runner performs no
-  independent body read;
+- `LegacyRemainder_ScopedSurfaceMatchesBuilderOutput` compares the
+  scope-bounded surface, diagnostics, and scope-expansion diagnostics with the
+  broad builder for exact-method, exact-type, and expansion scopes, including
+  malformed and bodiless methods, and asserts that each population-wide field
+  is typed-unavailable;
+- `LegacyRemainder_AcquiresEachTerminalBodyOnce` asserts that the source
+  receipt's terminal body count equals the body-eligible units attempted,
+  that probes are counted separately, and that no runner path reads a body
+  independently;
 - `LegacyRemainder_VisitsOnlySourcePlannedUnits` asserts that definitions
   examined equal the selected breadth plus declared expansion, with no
   whole-table scan; and
-- `LegacyRemainder_RejectsUnscopedRequest` asserts the typed planning
-  rejection and that no fallback executes.
+- `LegacyRemainder_RejectsUnscopedOrPredicateScopedRequest` asserts the typed
+  planning rejection and that no fallback executes.
+
+The first adopter's validation compares `AssemblyContextMethodAnalysisQuery`'s
+complete public outcome (call graph, allocations, safety, optimization
+opportunities, diagnostics, and exception regions) with the old boundary, not
+only the aggregate.
 
 The positive session path inherits the Release gates owned by
 [session-owned format admission](assembly-inspection-query.md#session-owned-format-admission).
