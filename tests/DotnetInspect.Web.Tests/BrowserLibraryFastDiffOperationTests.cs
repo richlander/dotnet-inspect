@@ -15,6 +15,8 @@ public sealed class BrowserLibraryFastDiffOperationTests
     const string CurrentVersion = "2.0.0";
     const string AssetPath = "lib/net11.0/ILInspector.Metadata.FastDiff.dll";
     const string AssetId = "compile:" + AssetPath;
+    const string ReferencePath = "ref/net11.0/ILInspector.Metadata.FastDiff.dll";
+    const string ReferenceAssetId = "compile:" + ReferencePath;
 
     [Fact]
     public async Task Export_ReportsApiAndBodyStatesByNavigationIdentity()
@@ -42,6 +44,49 @@ public sealed class BrowserLibraryFastDiffOperationTests
         Assert.Equal("FastDiffFixture.Outer.Inner", inner.FullName);
         // A Type with no difference on either axis is omitted.
         Assert.DoesNotContain(value.Types, type => type.Identifier == "FastDiffFixture.Unchanged");
+    }
+
+    [Fact]
+    public async Task Export_ComparesImplementationsBehindReferenceAssemblies()
+    {
+        // Both versions share one reference assembly, so only their
+        // implementations differ; comparing references would find nothing.
+        string packageId = "Fast.Diff.Ref." + Guid.NewGuid().ToString("N");
+        byte[] reference = File.ReadAllBytes(FixtureCatalog.MetadataFastDiffV1.AssemblyPath());
+        await Register(packageId, TargetVersion,
+            (ReferencePath, reference),
+            (AssetPath, File.ReadAllBytes(FixtureCatalog.MetadataFastDiffV1.AssemblyPath())));
+        await Register(packageId, CurrentVersion,
+            (ReferencePath, reference),
+            (AssetPath, File.ReadAllBytes(FixtureCatalog.MetadataFastDiffV2.AssemblyPath())));
+
+        BrowserLibraryFastDiffResult result = await Query(
+            Request(packageId) with { CompileAssetId = ReferenceAssetId });
+
+        Assert.True(
+            result.Kind == BrowserLibraryFastDiffResultKind.Succeeded,
+            $"{result.Kind}: {result.Error}\n{result.Diagnostic}");
+        BrowserLibraryFastDiffValue value = Assert.IsType<BrowserLibraryFastDiffValue>(result.Value);
+        Assert.Equal(
+            (BrowserFastDiffState.Unchanged, BrowserFastDiffState.Changed),
+            State(value, "FastDiffFixture.BodyOnly"));
+    }
+
+    [Fact]
+    public async Task Export_FailsVisiblyWithoutAnImplementationAssembly()
+    {
+        string packageId = "Fast.Diff.RefOnly." + Guid.NewGuid().ToString("N");
+        await Register(packageId, TargetVersion,
+            (ReferencePath, File.ReadAllBytes(FixtureCatalog.MetadataFastDiffV1.AssemblyPath())));
+        await Register(packageId, CurrentVersion,
+            (ReferencePath, File.ReadAllBytes(FixtureCatalog.MetadataFastDiffV2.AssemblyPath())));
+
+        BrowserLibraryFastDiffResult result = await Query(
+            Request(packageId) with { CompileAssetId = ReferenceAssetId });
+
+        Assert.Equal(BrowserLibraryFastDiffResultKind.Failed, result.Kind);
+        Assert.Null(result.Value);
+        Assert.False(string.IsNullOrEmpty(result.Error));
     }
 
     [Fact]
@@ -90,14 +135,20 @@ public sealed class BrowserLibraryFastDiffOperationTests
     }
 
     static ValueTask Register(string packageId, string version, string assemblyPath)
+        => Register(packageId, version, (AssetPath, File.ReadAllBytes(assemblyPath)));
+
+    static ValueTask Register(
+        string packageId,
+        string version,
+        params (string Path, byte[] Bytes)[] entries)
         => BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(
                 packageId,
                 version,
-                Archive(packageId, version, File.ReadAllBytes(assemblyPath)),
+                Archive(packageId, version, entries),
                 fromCache: false));
 
-    static byte[] Archive(string packageId, string version, byte[] assembly)
+    static byte[] Archive(string packageId, string version, (string Path, byte[] Bytes)[] entries)
     {
         using var buffer = new MemoryStream();
         using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
@@ -109,8 +160,11 @@ public sealed class BrowserLibraryFastDiffOperationTests
                         + "<authors>Tests</authors><description>Fast Diff fixture</description>"
                         + "</metadata></package>"));
             }
-            using Stream library = archive.CreateEntry(AssetPath).Open();
-            library.Write(assembly);
+            foreach ((string path, byte[] bytes) in entries)
+            {
+                using Stream entry = archive.CreateEntry(path).Open();
+                entry.Write(bytes);
+            }
         }
         return buffer.ToArray();
     }
