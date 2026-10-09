@@ -1126,11 +1126,12 @@ The contributor harness mode
 `--method-fusion <System.Private.CoreLib.dll> --iterations 20 --json` is the
 structural precondition. It executes the production direct-invocation and
 Calls-row count producers both in one QuerySpace request set and independently.
-The command fails unless results are identical, the shared execution forms one
-physical group, and physical no-retention source openings and instruction
-visits are exactly half the independent totals. Its elapsed and allocation
-figures are diagnostic until the exact NativeAOT product commands above run;
-the harness alone is not a production speedup claim or a profile adoption.
+The command fails unless shared execution records positive physical work,
+results are identical, the shared execution forms one physical group, and
+physical no-retention source openings and instruction visits are exactly half
+the independent totals. Its elapsed and allocation figures are diagnostic
+until the exact NativeAOT product commands above run; the harness alone is not
+a production speedup claim or a profile adoption.
 
 ## Producer Planning adoption
 

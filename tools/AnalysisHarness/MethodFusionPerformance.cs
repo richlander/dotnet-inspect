@@ -121,7 +121,12 @@ public static class MethodFusionPerformance
             CreateReport(sharedSamples, lastShared);
         MethodFusionScenarioReport independentReport =
             CreateReport(independentSamples, lastIndependent);
-        VerifyWorkReduction(sharedReport, independentReport);
+        if (WorkReductionFailure(sharedReport, independentReport)
+            is string failure)
+        {
+            Console.Error.WriteLine(failure);
+            return 2;
+        }
 
         var report = new MethodFusionPerformanceReport(
             Path.GetFullPath(assemblyPath),
@@ -317,10 +322,19 @@ public static class MethodFusionPerformance
         }
     }
 
-    static void VerifyWorkReduction(
+    static string? WorkReductionFailure(
         MethodFusionScenarioReport shared,
         MethodFusionScenarioReport independent)
     {
+        if (shared.NoRetentionSourcesOpened == 0
+            || shared.InstructionsVisited == 0)
+        {
+            return "Method fusion requires positive physical instruction "
+                + "work; shared execution opened "
+                + $"{shared.NoRetentionSourcesOpened:N0} no-retention "
+                + "sources and visited "
+                + $"{shared.InstructionsVisited:N0} instructions.";
+        }
         if (shared.GroupCount != 1
             || independent.GroupCount != 2
             || checked(shared.NoRetentionSourcesOpened * 2)
@@ -328,10 +342,10 @@ public static class MethodFusionPerformance
             || checked(shared.InstructionsVisited * 2)
                 != independent.InstructionsVisited)
         {
-            throw new InvalidOperationException(
-                "Shared execution did not halve physical instruction-source "
-                + "openings and visits.");
+            return "Shared execution did not halve physical "
+                + "instruction-source openings and visits.";
         }
+        return null;
     }
 
     static MethodFusionScenarioReport CreateReport(
