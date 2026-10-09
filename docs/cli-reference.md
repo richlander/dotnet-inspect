@@ -926,20 +926,21 @@ dotnet-inspect package System.Text.Json -S Files -n 5
 dotnet-inspect package System.Text.Json -S @Files --tsv
 ```
 
-For an exact online package version, requesting one literal root `README.md` or
-`skills/**/SKILL.md` path with `--content` acquires directly through the
-PackageHouse semantic Files route rather than the legacy extraction route.
-PackageHouse selects cache, size-first HTTP Range access, or complete fallback,
-while the operation publishes only the exact requested entry. That entry is
-detached through the shared package document-content inspection, then the CLI
-applies its existing separator, `--raw`, JSONL, or `--out` projection. Skill
-documents retain their containment and link-normalization behavior. Detached
-content projections accept documents up to 16 MiB; an exact README written to
-`--out` remains a bounded byte stream and is not subject to that
-detached-content limit. Local packages, floating or range version selection,
-target-framework filters, path globs and roles, scoped documents, .NET
-tool-wrapper redirection, and other package files retain their existing
-behavior.
+For an exact online package version, `-S README` and one literal root
+`README.md` or `skills/**/SKILL.md` path with `--content` acquire directly
+through the PackageHouse semantic Files route rather than the legacy
+extraction route. The README section uses one host-neutral selection:
+`README.md` when present, otherwise `PACKAGE.md`. PackageHouse selects cache,
+size-first HTTP Range access, or complete fallback, while the operation
+publishes only the selected entry. That entry is detached through the shared
+package document-content inspection, then the CLI applies its existing
+separator, `--raw`, JSONL, or `--out` projection. Skill documents retain their
+containment and link-normalization behavior. Detached content projections
+accept documents up to 16 MiB; an exact README written to `--out` remains a
+bounded byte stream and is not subject to that detached-content limit. Local
+packages, floating or range version selection, target-framework filters, path
+globs and roles, scoped documents, .NET tool-wrapper redirection, and other
+package files retain their existing behavior.
 
 The `--files` flag selects exactly the same section as `-S Files`.
 File predicates compose before row windows and Count:

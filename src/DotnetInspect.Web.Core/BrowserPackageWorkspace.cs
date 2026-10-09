@@ -5239,8 +5239,9 @@ internal sealed class BrowserPackage
     }
 
     /// <summary>
-    /// The package's browsable text: a root <c>README.md</c>/<c>PACKAGE.md</c>, the root
-    /// <c>*.nuspec</c> metadata, and any <c>*.md</c> under a <c>skills</c> directory. Presence and size only; bodies are served by
+    /// The package's browsable text: its preferred root <c>README.md</c> or
+    /// <c>PACKAGE.md</c>, the root <c>*.nuspec</c> metadata, and any
+    /// <c>*.md</c> under a <c>skills</c> directory. Presence and size only; bodies are served by
     /// <see cref="ReadDocumentAsync"/>, which accepts only a path from this list, so no caller can
     /// coax an arbitrary entry — an assembly, a signature — out of the package.
     /// </summary>
@@ -5257,32 +5258,36 @@ internal sealed class BrowserPackage
         string packageId,
         string version)
     {
-        var documents = new List<BrowserPackageDocumentEntry>();
-        foreach (PackageContentEntry entry in entries)
+        PackageContentEntry[] snapshot = [.. entries];
+        PackagePrimaryDocumentResolution primaryDocument =
+            PackagePrimaryDocumentInspection.Execute(snapshot).Content;
+        if (primaryDocument.Status
+            == PackagePrimaryDocumentResolutionStatus.Ambiguous)
         {
-            string[] segments = entry.Path.Split('/');
-            string fileName = segments[^1];
-            bool isRoot = segments.Length == 1;
-            string? kind =
-                isRoot && fileName.Equals("README.md", StringComparison.OrdinalIgnoreCase) ? "readme"
-                : isRoot && fileName.Equals("PACKAGE.md", StringComparison.OrdinalIgnoreCase) ? "package"
-                : IsNuspecDocumentPath(entry.Path) ? "metadata"
-                : IsSkillDocumentPath(entry.Path) ? "skill"
-                : null;
-            if (kind is null)
-                continue;
-            if (entry.Length > PackageDocumentContentLimits.MaxDecodedBytes)
-            {
-                throw new InvalidOperationException(
-                    $"A browsable document in {packageId} {version} exceeds the browser byte "
-                    + "limit.");
-            }
+            throw new InvalidOperationException(
+                $"Package documentation path "
+                    + $"'{primaryDocument.CandidatePath}' is ambiguous in "
+                    + $"{packageId} {version}.");
+        }
 
-            documents.Add(new BrowserPackageDocumentEntry(
-                kind,
-                kind == "skill" ? SkillDisplayName(segments) : fileName,
-                entry.Path,
-                (int)entry.Length));
+        var documents = new List<BrowserPackageDocumentEntry>();
+        foreach (PackageContentEntry entry in snapshot)
+        {
+            if (PackagePrimaryDocument.IsConventionalPath(entry.Path)
+                && (primaryDocument.Entry is not { } selected
+                    || !entry.Path.Equals(
+                        selected.Path,
+                        StringComparison.Ordinal)))
+            {
+                continue;
+            }
+            if (ProjectDocument(
+                    entry,
+                    packageId,
+                    version) is { } document)
+            {
+                documents.Add(document);
+            }
         }
 
         return
@@ -5293,6 +5298,42 @@ internal sealed class BrowserPackage
         ];
     }
 
+    private static BrowserPackageDocumentEntry? ProjectDocument(
+        PackageContentEntry entry,
+        string packageId,
+        string version)
+    {
+        string[] segments = entry.Path.Split('/');
+        string fileName = segments[^1];
+        bool isRoot = segments.Length == 1;
+        string? kind =
+            isRoot && fileName.Equals(
+                "README.md",
+                StringComparison.OrdinalIgnoreCase)
+                ? "readme"
+            : isRoot && fileName.Equals(
+                "PACKAGE.md",
+                StringComparison.OrdinalIgnoreCase)
+                ? "package"
+            : IsNuspecDocumentPath(entry.Path) ? "metadata"
+            : IsSkillDocumentPath(entry.Path) ? "skill"
+            : null;
+        if (kind is null)
+            return null;
+        if (entry.Length > PackageDocumentContentLimits.MaxDecodedBytes)
+        {
+            throw new InvalidOperationException(
+                $"A browsable document in {packageId} {version} exceeds the browser byte "
+                + "limit.");
+        }
+
+        return new BrowserPackageDocumentEntry(
+            kind,
+            kind == "skill" ? SkillDisplayName(segments) : fileName,
+            entry.Path,
+            (int)entry.Length);
+    }
+
     internal static async Task<BrowserPackageDocumentPayload> ReadDocumentAsync(
         PackageFileAcquisitionResult.Acquired file,
         CancellationToken cancellationToken)
@@ -5301,20 +5342,17 @@ internal sealed class BrowserPackage
         PackageHouseSettlement.Acquired settlement = file.Settlement;
         IPackageContent content = settlement.Payload.Content;
         PackageSourceCoordinate coordinate = settlement.Payload.Coordinate;
-        if (content is not IPackageContentEntryManifest manifest)
+        if (content is not IPackageContentEntryManifest)
         {
             throw new InvalidOperationException(
                 $"Package content for {coordinate.PackageId} {coordinate.Version} "
                     + "does not expose a document manifest.");
         }
 
-        BrowserPackageDocumentEntry document = ProjectDocuments(
-                manifest.EnumerateEntriesWithLengths(),
+        BrowserPackageDocumentEntry document = ProjectDocument(
+                file.Entry,
                 coordinate.PackageId,
                 coordinate.Version)
-            .FirstOrDefault(candidate => candidate.Path.Equals(
-                file.Entry.Path,
-                StringComparison.Ordinal))
             ?? throw new InvalidOperationException(
                 $"'{file.Entry.Path}' is not a browsable document in "
                     + $"{coordinate.PackageId} {coordinate.Version}.");

@@ -684,6 +684,27 @@ public static partial class ApiSurfaceExtractor
             [.. fieldNode.ReferencedTypes().Distinct()]);
     }
 
+    internal static (string? Text, bool IsDegraded)
+        GetFieldTypeForIdentity(
+            MetadataReader reader,
+            TypeDefinition declaringType,
+            FieldDefinition field,
+            byte typeNullableContext)
+    {
+        if (IsEnum(reader, declaringType))
+            return (null, false);
+
+        (string text, bool degraded, _) =
+            DecodeFieldType(
+                reader,
+                GenericContext.ForType(
+                    reader,
+                    declaringType),
+                field,
+                typeNullableContext);
+        return (text, degraded);
+    }
+
     /// <summary>
     /// Property and event semantic methods from
     /// <c>MethodSemantics</c>. Ordinary accessors are represented by their

@@ -1,32 +1,34 @@
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Retires synthetic stack slots that are exact aliases of a value-type
-/// instance receiver.
+/// Retires identity-sensitive synthetic stack slots that are exact aliases of
+/// an instance receiver.
 ///
-/// <para>IL represents value-type <c>this</c> as a managed pointer. The IR
-/// receiver binder intentionally carries the declared type used by C# emission,
-/// so a spill such as <c>S_0 = this</c> otherwise looks like value storage and
-/// can later materialize as a struct copy. Replacing every use of a proven alias
-/// with the same receiver binder preserves the managed-reference identity
-/// without introducing a synthetic <c>ref</c> local.</para>
+/// <para>C# does not permit rebinding <c>this</c>. Replacing every use of a
+/// proven alias with the same receiver binder therefore preserves identity
+/// without introducing synthetic storage. For a value-type receiver, IL
+/// represents <c>this</c> as a managed pointer, so the rewrite additionally
+/// prevents a spill such as <c>S_0 = this</c> from later materializing as a
+/// struct copy.</para>
 ///
-/// <para>The rewrite is limited to the root function scope, requires metadata
-/// proof that the declaring type is a value type, rejects any receiver binding
+/// <para>The rewrite is limited to the root function scope, rejects any receiver
 /// write or address escape, and requires every store to the slot to carry that
 /// exact receiver binder. Calls may mutate the receiver's target, but both the
 /// slot alias and direct receiver still name that same target; only rebinding
 /// argument zero would distinguish them, and that is the explicit decline
-/// boundary.</para>
+/// boundary. Admission is deliberately limited to value-type receivers and
+/// generic declaring-type receivers whose open definition cannot be spelled as
+/// reference storage; ordinary reference receivers remain with normal storage
+/// planning.</para>
 /// </summary>
-public sealed class ValueTypeReceiverAliasPass : IIrPass
+public sealed class ReceiverAliasPass : IIrPass
 {
-    public string Name => "value-type-receiver-alias";
+    public string Name => "receiver-alias";
 
     public void Run(IrFunction function, PassContext context)
     {
         if (function.ReceiverParameter is not { } receiver
-            || !IsKnownValueTypeReceiver(function)
+            || !IsIdentitySensitiveReceiver(function, receiver.Type)
             || SpilledReceiverFold.OrderSensitiveArgumentsInScope(function.Body).Contains(0))
         {
             return;
@@ -65,7 +67,7 @@ public sealed class ValueTypeReceiverAliasPass : IIrPass
                     }
                     || !ReferenceEquals(parameter, receiver))
                 || slotLoads.Any(load => load.ResultType is not { } type
-                    || !type.Equals(function.DeclaringType)))
+                    || !type.Equals(receiver.Type)))
             {
                 continue;
             }
@@ -73,14 +75,14 @@ public sealed class ValueTypeReceiverAliasPass : IIrPass
             foreach (var load in slotLoads)
             {
                 context.Stepper.StepOver(
-                    $"replace value-type receiver alias slot {slot} load with this",
+                    $"replace receiver alias slot {slot} load with this",
                     load);
                 load.ReplaceWith(new LoadArgument(0, receiver));
             }
             foreach (var store in slotStores)
             {
                 context.Stepper.StepOver(
-                    $"retire value-type receiver alias slot {slot} store",
+                    $"retire receiver alias slot {slot} store",
                     store);
                 store.Detach();
             }
@@ -89,7 +91,13 @@ public sealed class ValueTypeReceiverAliasPass : IIrPass
         return false;
     }
 
-    static bool IsKnownValueTypeReceiver(IrFunction function)
+    static bool IsIdentitySensitiveReceiver(
+        IrFunction function,
+        TypeRef receiverType)
         => MemberIdentity.IsCoreLibraryType(function.BaseType, "System", "ValueType")
-            || MemberIdentity.IsCoreLibraryType(function.BaseType, "System", "Enum");
+            || MemberIdentity.IsCoreLibraryType(function.BaseType, "System", "Enum")
+            || !function.DeclaringTypeGenericParameterNames.IsEmpty
+                && !CSharpSpellability.CanSpellNamedReferenceStorageType(
+                    receiverType,
+                    function);
 }
