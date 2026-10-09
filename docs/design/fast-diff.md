@@ -210,9 +210,11 @@ display. Malformed rows that have no decodable name receive a row-token
 identifier and never join a navigation entry.
 
 The Worker is single-threaded, so the operation runs the comparison in
-[steps](#steps) of at most 8 ms and yields to the Worker event loop between
-them. Foreground operations and cancellation run between steps; one Fast Diff
-never holds the Worker for its whole duration.
+[steps](#steps) with an 8 ms budget each and yields to the Worker event loop
+between them. A step ends at the first Type row or compared Type after its
+budget, so one large Type can extend it. Foreground operations and
+cancellation run between steps; one Fast Diff never holds the Worker for its
+whole duration.
 
 Firefox, published Release site, warm calls through the production Worker
 (interpreted Wasm). Foreground is a cheap Worker call issued every 25 ms while
