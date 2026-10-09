@@ -241,6 +241,13 @@ export function nextSpotlightSelection(
   return next < 0 ? null : Math.min(count - 1, next);
 }
 
+export function spotlightAllScopeLimit(
+  initialLimit: number,
+  resultPage: number,
+): number {
+  return initialLimit * (resultPage + 1);
+}
+
 export function nextSpotlightScope(
   current: number,
   count: number,
@@ -429,6 +436,7 @@ export function createSpotlight(options: SpotlightOptions) {
   const dismissedPackageIds = new Set<string>();
   let dismissalQuery = state.spotlightQuery;
   let packageAddition: PackageAdditionOptions | null = null;
+  let allScopeResultPage = 0;
 
   function scopes() {
     if (packageAddition) return BASE_SCOPES.filter(scope => scope.id === "packages");
@@ -806,7 +814,7 @@ export function createSpotlight(options: SpotlightOptions) {
           <div class="spotlight-results" id="spotlight-results" role="listbox">${resultsHtml(items)}</div>
           <div class="spotlight-foot">${packageAddition
             ? '<span>↑↓ select</span><span>Add <kbd>Enter</kbd></span><span>esc cancel</span><button type="button" id="spotlight-cancel">Cancel</button>'
-            : `<span><kbd>Ctrl P</kbd> search</span><span>↑↓ select</span><span>→ target</span><span>↵ ${commands ? "complete / run" : "open"}</span>${options.removeResult && !commands ? "<span>Shift+Delete remove</span>" : ""}<span>esc close</span>`}</div>
+            : `<span><kbd>Ctrl P</kbd> search</span><span>↑↓ select</span>${state.spotlightScope === "all" ? "<span>↓ more at end</span>" : ""}<span>→ target</span><span>↵ ${commands ? "complete / run" : "open"}</span>${options.removeResult && !commands ? "<span>Shift+Delete remove</span>" : ""}<span>esc close</span>`}</div>
         </div>
       </div>`;
   }
@@ -937,6 +945,7 @@ export function createSpotlight(options: SpotlightOptions) {
     if (!available.some(item => item.id === scope)) return;
     state.spotlightScope = scope;
     state.spotlightIndex = 0;
+    allScopeResultPage = 0;
     selectedResultIdentity = null;
     options.schedulePackageFetch();
     options.scheduleCapabilitySearch();
@@ -957,6 +966,7 @@ export function createSpotlight(options: SpotlightOptions) {
     state.spotlightFocus = "input";
     state.spotlightChipIndex = 0;
     state.spotlightIndex = 0;
+    allScopeResultPage = 0;
     renderedResults = [];
     renderedResultsByIdentity = new Map();
     selectedResultIdentity = null;
@@ -995,6 +1005,7 @@ export function createSpotlight(options: SpotlightOptions) {
     state.spotlightFocus = "input";
     state.spotlightChipIndex = 0;
     state.spotlightIndex = 0;
+    allScopeResultPage = 0;
     renderedResults = [];
     selectedResultIdentity = null;
     options.schedulePackageFetch();
@@ -1061,9 +1072,35 @@ export function createSpotlight(options: SpotlightOptions) {
 
   function moveSelection(delta: number): boolean {
     const container = document.querySelector<HTMLElement>("#spotlight-results");
-    const count = container
+    let count = container
       ? container.querySelectorAll(".spotlight-item").length
       : 0;
+    if (delta > 0
+      && count > 0
+      && state.spotlightIndex >= count - 1
+      && !packageAddition
+      && state.spotlightScope === "all") {
+      const previousCount = renderedResults.length;
+      const previousIdentities = new Set(
+        renderedResults.map(spotlightResultIdentity),
+      );
+      allScopeResultPage++;
+      updateResults();
+      count = container?.querySelectorAll(".spotlight-item").length ?? 0;
+      if (renderedResults.length <= previousCount) {
+        allScopeResultPage--;
+      } else {
+        const firstNewIndex = renderedResults.findIndex(
+          result => !previousIdentities.has(spotlightResultIdentity(result)),
+        );
+        if (firstNewIndex >= 0) {
+          state.spotlightIndex = firstNewIndex;
+          rememberSelection(renderedResults);
+          highlightSelection();
+          return true;
+        }
+      }
+    }
     const next = nextSpotlightSelection(state.spotlightIndex, delta, count);
     if (next === null) return false;
     state.spotlightIndex = next;
@@ -1182,22 +1219,10 @@ export function createSpotlight(options: SpotlightOptions) {
     }
     const items = renderedResults;
     if (event.key === "ArrowDown") {
-      state.spotlightIndex = nextSpotlightSelection(
-        state.spotlightIndex,
-        1,
-        items.length,
-      ) ?? 0;
-      rememberSelection(items);
-      highlightSelection();
+      moveSelection(1);
       return true;
     } else if (event.key === "ArrowUp") {
-      state.spotlightIndex = nextSpotlightSelection(
-        state.spotlightIndex,
-        -1,
-        items.length,
-      ) ?? 0;
-      rememberSelection(items);
-      highlightSelection();
+      moveSelection(-1);
       return true;
     } else if (event.key === "Enter") {
       pick(items[state.spotlightIndex]);
@@ -1221,6 +1246,7 @@ export function createSpotlight(options: SpotlightOptions) {
       input.addEventListener("input", () => {
         state.spotlightQuery = input.value;
         state.spotlightIndex = 0;
+        allScopeResultPage = 0;
         selectedResultIdentity = null;
         if (state.spotlightFocus === "chips") {
           state.spotlightFocus = "input";
@@ -1283,6 +1309,7 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   return {
+    allScopeResultPage: () => allScopeResultPage,
     bind,
     close,
     inlineHtml,

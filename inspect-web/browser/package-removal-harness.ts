@@ -3,7 +3,12 @@ import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import { createPlatformSpotlightSuggestions } from "../src/spotlight-platform-suggestions.ts";
 import { createPackageRemoval } from "../src/package-removal.ts";
 import type { PackageControlPackage } from "../src/package-controls.ts";
-import { createSpotlight, type SpotlightResult, type SpotlightState } from "../src/spotlight.ts";
+import {
+  createSpotlight,
+  spotlightAllScopeLimit,
+  type SpotlightResult,
+  type SpotlightState,
+} from "../src/spotlight.ts";
 import {
   bindWorkspaceSubject, captureWorkspaceFocus, renderWorkspaceView,
   restoreWorkspaceFocus,
@@ -66,10 +71,22 @@ const suggestions = createPlatformSpotlightSuggestions({
 const platformRow = { kind: "framework-lib" as const, assembly: "System.Runtime", pack: "netcore.app", publicTypes: 1,
   version: "11.0.0-rc.1.26425.128", tfm: "net11.0", ranges: [],
   publication: { status: "available" as const, date: "2026-09-08" } };
+const pagedRows: SpotlightResult[] = Array.from({ length: 6 }, (_, index) => ({
+  kind: "pkg-nuget",
+  hit: { id: `Example.Package.${index + 1}`, version: "1.0.0" },
+  ranges: [],
+}));
+let allScopeResultPage = () => 0;
 const spotlight = createSpotlight({
   state: search, keybindings: keys, lenses: () => [],
   escapeHtml, highlightRanges: value => escapeHtml(value), kindIcon: () => "T",
   searchResults: (): SpotlightResult[] => {
+    if (params.has("paged")) {
+      return pagedRows.slice(
+        0,
+        spotlightAllScopeLimit(2, allScopeResultPage()),
+      );
+    }
     const query = search.spotlightQuery.toLowerCase();
     const loaded = state.packages.filter(pkg => pkg.id.toLowerCase().includes(query));
     const recent = state.recentPackages.filter(entry =>
@@ -107,6 +124,7 @@ const spotlight = createSpotlight({
   packageCount: () => state.packages.length,
   render,
 });
+allScopeResultPage = spotlight.allScopeResultPage;
 
 function render() {
   const focused = document.activeElement instanceof HTMLElement
