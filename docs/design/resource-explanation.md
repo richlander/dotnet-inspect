@@ -1665,6 +1665,13 @@ gate.
 
 ### Skill
 
+The primary agent scenario begins after reading the shipped skill. That skill
+teaches the explain gestures and HAL vocabulary (`_links`, `_embedded`, link
+media types, and unchanged-href navigation). Spontaneous recognition without
+that guidance is not a prerequisite for landing the registered data model.
+Agent testing after landing optimizes filtering, navigation, and context use;
+ordinary correctness and adoption gates remain required.
+
 The shipped skill retains:
 
 - command-family orientation;

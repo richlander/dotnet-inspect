@@ -1,7 +1,13 @@
 # Agent query-preparation usability
 
-These exploratory trials test the goal that complete explain data can replace
-most skill prose. They measure correct preparation, discovery requests,
+The primary production scenario is an agent that has read the shipped skill,
+including its explain workflow and HAL vocabulary. The skill supplies the
+orientation; installed explain data supplies complete registered meaning for
+the selected resource. Further agent testing will optimize that workflow after
+the implementation lands.
+
+These earlier exploratory trials test the goal that complete explain data can
+replace most skill prose. They measure correct preparation, discovery requests,
 retrieved bytes, and filtered content read separately. They do not measure
 latency, token use, HAL recognition without a bootstrap, or result execution.
 
@@ -103,6 +109,8 @@ and compares equal across both layouts. This is a deterministic worked query,
 not the content consumption observed in the agent trials. The final literal
 HAL resource is 3,188 bytes; the whole query-space HAL resource is 16,149 bytes.
 
-Shipped skill content is unchanged. Expand acceptance to other facets, styles,
+The current query skill now includes the explain/HAL bootstrap. The recorded
+trials used the earlier skill and standalone bootstraps; they are not measurements
+of that updated skill. Expand post-landing acceptance to other facets, styles,
 contextual gestures, and real execution before making a general replacement
 claim. Registration completeness and efficient guidance are separate gates.

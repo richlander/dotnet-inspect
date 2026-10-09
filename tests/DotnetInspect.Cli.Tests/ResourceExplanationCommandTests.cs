@@ -23,6 +23,23 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task RelationsCategory_RegistersCanonicalNavigationToItsSections()
+    {
+        var result = await RunAsync("explain", "member/categories/relations", "--json");
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement;
+        Assert.Equal("@Relations", root.GetProperty("facts").GetProperty("name").GetString());
+        JsonElement members = root.GetProperty("relationships").GetProperty("category-member");
+        Assert.Equal("Complete", members.GetProperty("completeness").GetString());
+        Assert.Equal(
+            ["member/sections/derived-types", "member/sections/implementers"],
+            members.GetProperty("targets").EnumerateArray()
+                .Select(target => target.GetProperty("addresses")[0].GetProperty("value").GetString())
+                .ToArray());
+    }
+
+    [Fact]
     public async Task SelectedStyleData_ClosesTierReferencesAndUsesCompleteMembershipTables()
     {
         var result = await RunAsync("explain", "vocabularies/csharp.style-choices", ".data", "--json");
