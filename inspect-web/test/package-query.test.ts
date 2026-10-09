@@ -138,6 +138,16 @@ const DEPENDENCY_TARGET_TERM: QueryTermDescriptor = {
   example: "net10.0",
 };
 
+const DEPENDS_ECOSYSTEM_TERM: QueryTermDescriptor = {
+  ...DEPENDS_TERM,
+  key: "depends-ecosystem",
+  label: "Depends on ecosystem",
+  summary: "Matches a direct dependency in an ecosystem.",
+  operators: ["eq"],
+  valueKind: "ecosystem ID",
+  example: "ecosystem.aspire",
+};
+
 const DEPTH_2_FACET: QueryPreset = {
   id: "dependency-depth:eq:2",
   key: "dependency-depth",
@@ -332,6 +342,49 @@ test("dependency prefix forces direct reach and removing the last dependency cle
     ["depends"]);
   assert.equal(directPrefix.requestedLimit, 200);
   assert.deepEqual(withoutDependencyTerm(directPrefix, 0).terms, []);
+});
+
+test("switching traversal to direct retains another dependency term's target", () => {
+  const ecosystemScoped = withTerm(
+    withTerm(
+      createQueryRequest("Contoso.*"),
+      DEPENDS_ECOSYSTEM_TERM,
+      "eq",
+      "ecosystem.aspire"),
+    DEPENDENCY_TARGET_TERM,
+    "eq",
+    "net10.0");
+  const traversed = withDependencyTerm(
+    ecosystemScoped,
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Contoso.Target",
+    "2",
+    "net10.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+  const dependencyIndex = traversed.terms.findIndex(
+    term => term.descriptor.key === "depends");
+  const direct = withDependencyTerm(
+    traversed,
+    DEPENDS_TERM,
+    dependencyIndex,
+    "eq",
+    "Contoso.Target",
+    "direct",
+    "net10.0",
+    null,
+    null);
+
+  assert.equal(dependencyReach(direct), "direct");
+  assert.deepEqual(
+    direct.terms.map(term => [term.descriptor.key, term.value]),
+    [
+      ["depends-ecosystem", "ecosystem.aspire"],
+      ["depends", "Contoso.Target"],
+      ["dependency-target", "net10.0"],
+    ]);
 });
 
 test("Ecosystem requests preserve curated identity with 24 initial and 96 maximum matches", () => {

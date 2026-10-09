@@ -297,15 +297,29 @@ export function withDependencyTerm(
 
   const hadTraversal = request.presets.some(
     preset => preset.key === "dependency-depth");
-  const preservesTraversal = hadTraversal
-    && operator !== "eq"
-    && request.terms.some((term, termIndex) =>
+  const hasOtherExactDependency = request.terms.some((term, termIndex) =>
+    termIndex !== index
+    && term.descriptor.key === "depends"
+    && term.operator === "eq");
+  const hasOtherTransitiveDependency = request.terms.some(
+    (term, termIndex) =>
       termIndex !== index
-      && term.descriptor.key === "depends"
-      && term.operator === "eq");
+      && term.descriptor.key === "depends-transitive");
+  const preservesTraversal = hadTraversal
+    && (hasOtherTransitiveDependency
+      || (operator !== "eq" && hasOtherExactDependency));
+  const hasOtherDependencyPredicate = request.terms.some(
+    (term, termIndex) =>
+      termIndex !== index
+      && (term.descriptor.key === "depends"
+        || term.descriptor.key === "depends-transitive"
+        || term.descriptor.key === "depends-ecosystem"))
+    || request.presets.some(preset => preset.key === "dependencies");
+  const preservesTarget = preservesTraversal
+    || (hadTraversal && hasOtherDependencyPredicate);
   const terms = request.terms.flatMap((term, termIndex) => {
     if (term.descriptor.key === "dependency-target"
-      && (traverses || (hadTraversal && !preservesTraversal))) return [];
+      && (traverses || (hadTraversal && !preservesTarget))) return [];
     if (index !== null && termIndex === index) {
       return [{ descriptor, operator, value }];
     }
