@@ -68,10 +68,11 @@ its facts as public on both, so a visibility change is an API fact only.
 
 ### Identity
 
-Tokens compare by symbolic name, resolved once per side and memoized. They
-never compare by token number or referenced assembly identity, so a
-referenced framework moving from one major version to the next is not a
-difference.
+Metadata tokens, in IL operands and in signatures, compare by symbolic name,
+resolved once per side and memoized. They never compare by token number or
+referenced assembly identity, so a renumbered or retargeted reference in an
+operand or signature is not a difference. Custom attribute and constant
+values are compared as raw blob bytes (see [Observability](#observability)).
 
 Compiler-generated nested Types (state machines, closures, local-function
 holders, and Types nested beneath them) belong to their nearest declared
@@ -86,8 +87,8 @@ their content-named members still compares those names.
 Fast Diff adopts [Diff observability](diff-observability.md). The API axis
 targets the semantic level of the Public API diff, and the Body axis targets
 the symbolic IL level of the body diff, so `Changed` should point to something
-a user can see. Token numbers and referenced assembly identity are never
-compared, so a renumbered token is not a change.
+a user can see. IL operand and signature keys never compare token numbers or
+referenced assembly identity, so a renumbered token there is not a change.
 
 `Changed` may still over-report. These compared facts are known divergences
 from that target:
@@ -103,6 +104,13 @@ from that target:
   the API axis for public Types and on the Body axis otherwise.
   `beforefieldinit` is a Body fact when the Type has a static constructor, and
   no view presents it.
+- **Attribute blobs.** Custom attribute values are compared as raw blob
+  bytes. A Type-valued or enum-typed argument is stored as an
+  assembly-qualified name that includes the referenced assembly version, so a
+  framework major-version move reports `Changed` for a semantically identical
+  attribute, for example on System.Linq.Queryable from 10 to 11. Comparing
+  those arguments by symbolic name is
+  [#9802](https://github.com/richlander/dotnet-inspect/issues/9802).
 
 Two other reported differences are observable and remain by design:
 
