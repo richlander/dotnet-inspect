@@ -118,8 +118,8 @@ renumbered tokens. Medians cover both sides, every Type, API and bodies:
 | System.Text.Json 9.0.0 to 10.0.0 | 16 ms | 12 (12) | 112 (84) |
 | Newtonsoft.Json 13.0.3 to 13.0.4 | 20 ms | 36 (33) | 76 (36) |
 | Newtonsoft.Json 11.0.2 to 13.0.4 | 16 ms | 108 (83) | 213 (104) |
-| System.Private.Xml 10 to 11 | 69 ms | 3 (0) | 78 (74) |
-| System.Private.CoreLib 10 to 11 | 221 ms | 157 (133) | 641 (314) |
+| System.Private.Xml 10 to 11 | 68 ms | 3 (0) | 78 (74) |
+| System.Private.CoreLib 10 to 11 | 216 ms | 157 (133) | 641 (314) |
 
 Canonical IL comparison could not decode some bodies (for example 5,454 in
 CoreLib), so Body soundness is shown only for the bodies it compared.
