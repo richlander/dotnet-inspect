@@ -355,7 +355,7 @@ stderr rather than mixed into structured output.
 | Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
 | Library vocabulary | `library -S "Name Families"` | Ranked one- and two-word Type-name suffix families, exact supporting Type evidence, and optional source-provenance populations. |
 | Library dependency structure | `library -S "Dependency Structure"` | Internal namespace dependency graph with relationship counts, topological levels, and cycle membership. |
-| Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
+| Relationships | `graph`, `depends`, `extensions`, `type -S Implementers`, `type -S "Derived Types"` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
 | Direct dependency evidence | `depends -S Dependencies` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. |
 | Package pruning policy | `depends -S Pruning` | Explicitly compares source-authorized direct dependency candidates with an exact installed runtime or ASP.NET Core platform inventory, without changing graph traversal. |
 | Source | `type`/`member -S Source` / `@Source`, `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` | `Source` is authored-first and retains provider and fallback context. `@Source` adds forced `PDB Source` and `Decompiled Source` views plus `Source Diff`; SourceLink inventories remain separate. |
@@ -389,7 +389,8 @@ stderr rather than mixed into structured output.
 | `graph cluster N` | Inspect exact calls for one local-Library-pair or Package-pair Direct-Use Cluster ordinal; the local route also supports public-entrypoint paths. |
 | `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
-| `implements X` | Find concrete implementors or subclasses. |
+| `type X -S Implementers` | Find concrete implementors of an exact interface focus. |
+| `type X -S "Derived Types"` | Find subclasses of an exact base-type focus. |
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `explain vocabularies` | Explain product-owned query vocabularies such as `api.accessibility`, `csharp.style-choices`, and `csharp.body-kinds`. Add `/<id>` for one vocabulary, `--depth 1` for all of its values, or `/<id>/values/<value>` for one value. |
@@ -925,20 +926,21 @@ dotnet-inspect package System.Text.Json -S Files -n 5
 dotnet-inspect package System.Text.Json -S @Files --tsv
 ```
 
-For an exact online package version, requesting one literal root `README.md` or
-`skills/**/SKILL.md` path with `--content` acquires directly through the
-PackageHouse semantic Files route rather than the legacy extraction route.
-PackageHouse selects cache, size-first HTTP Range access, or complete fallback,
-while the operation publishes only the exact requested entry. That entry is
-detached through the shared package document-content inspection, then the CLI
-applies its existing separator, `--raw`, JSONL, or `--out` projection. Skill
-documents retain their containment and link-normalization behavior. Detached
-content projections accept documents up to 16 MiB; an exact README written to
-`--out` remains a bounded byte stream and is not subject to that
-detached-content limit. Local packages, floating or range version selection,
-target-framework filters, path globs and roles, scoped documents, .NET
-tool-wrapper redirection, and other package files retain their existing
-behavior.
+For an exact online package version, `-S README` and one literal root
+`README.md` or `skills/**/SKILL.md` path with `--content` acquire directly
+through the PackageHouse semantic Files route rather than the legacy
+extraction route. The README section uses one host-neutral selection:
+`README.md` when present, otherwise `PACKAGE.md`. PackageHouse selects cache,
+size-first HTTP Range access, or complete fallback, while the operation
+publishes only the selected entry. That entry is detached through the shared
+package document-content inspection, then the CLI applies its existing
+separator, `--raw`, JSONL, or `--out` projection. Skill documents retain their
+containment and link-normalization behavior. Detached content projections
+accept documents up to 16 MiB; an exact README written to `--out` remains a
+bounded byte stream and is not subject to that detached-content limit. Local
+packages, floating or range version selection, target-framework filters, path
+globs and roles, scoped documents, .NET tool-wrapper redirection, and other
+package files retain their existing behavior.
 
 The `--files` flag selects exactly the same section as `-S Files`.
 File predicates compose before row windows and Count:
@@ -2347,7 +2349,8 @@ dotnet-inspect depends \
   --nuspec ./artifacts/package.nuspec \
   -S "Dependencies,Failures" \
   -v:n
-dotnet-inspect implements IEquatable --project ./src/DotnetInspect.Cli -v:q
+dotnet-inspect type IEquatable --project ./src/DotnetInspect.Cli \
+  -S Implementers -v:q
 dotnet-inspect extensions string --project ./src/DotnetInspect.Cli -v:q
 dotnet-inspect graph integrations \
   --package Microsoft.Extensions.DependencyInjection.Abstractions@10.0.0 \

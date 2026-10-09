@@ -18,6 +18,7 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
     readonly MetadataReader _reader;
     readonly TypeResolutionCatalog? _resolutionCatalog;
     readonly IAssemblyBindingPolicy? _bindingPolicy;
+    readonly AssemblyBindingPolicyVersion? _policyVersion;
     readonly ResolvedAssemblyReference? _rootAssembly;
     readonly Dictionary<
         AssemblyAcquisitionRegistration,
@@ -29,7 +30,8 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
         MetadataReader reader,
         IAssemblyReferenceResolver? resolver,
         LibraryBodyRootSnapshot? rootSnapshot,
-        IAssemblyBindingPolicy? bindingPolicy = null)
+        IAssemblyBindingPolicy? bindingPolicy = null,
+        ResolvedAssemblyReference? rootAssembly = null)
     {
         _reader = reader;
         if ((resolver is not null || bindingPolicy is not null)
@@ -38,6 +40,10 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
             if (rootSnapshot is not null)
             {
                 _rootAssembly = rootSnapshot.Assembly;
+            }
+            else if (rootAssembly is not null)
+            {
+                _rootAssembly = rootAssembly;
             }
             else
             {
@@ -52,6 +58,7 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
             _bindingPolicy =
                 bindingPolicy
                 ?? new AssemblyReferenceBindingPolicy(resolver!);
+            _policyVersion = _bindingPolicy.Version;
             _resolutionCatalog = new TypeResolutionCatalog();
             if (rootSnapshot is not null)
             {
@@ -64,6 +71,15 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
     }
 
     internal IAssemblyBindingPolicy? BindingPolicy => _bindingPolicy;
+
+    void EnsurePolicyVersionUnchanged()
+    {
+        if (_bindingPolicy is not null
+            && !ReferenceEquals(_bindingPolicy.Version, _policyVersion))
+        {
+            throw new AssemblyBindingPolicyChangedException();
+        }
+    }
 
     internal ResolvedAssemblyReference? RootAssembly => _rootAssembly;
 
@@ -151,13 +167,17 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
             AssemblyBindingOrigin.FromAssembly(_rootAssembly),
             scope,
             type);
+        // Each request builds its own context, so the version observed when
+        // the invocation began is verified around every one.
+        EnsurePolicyVersionUnchanged();
         using TypeResolutionContext context =
             _resolutionCatalog.CreateContext(
                 _bindingPolicy,
                 [_rootAssembly],
                 [request]);
-        if (context.Resolve(request)
-            is not TypeResolutionOutcome.Resolved resolved)
+        TypeResolutionOutcome outcome = context.Resolve(request);
+        EnsurePolicyVersionUnchanged();
+        if (outcome is not TypeResolutionOutcome.Resolved resolved)
         {
             return null;
         }

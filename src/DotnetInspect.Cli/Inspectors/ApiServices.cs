@@ -121,7 +121,9 @@ internal static class ApiServices
         string? packageExtractPath = null,
         bool usePackageSourcePolicy = false,
         bool useTypedSelection = false,
-        string? platformFramework = null)
+        string? platformFramework = null,
+        Func<string, Func<System.Reflection.Metadata.TypeDefinitionHandle, bool>?>?
+            selectDeclaredType = null)
     {
         string? apiDllPath = FindApiDll(searchPath, logger);
         if (apiDllPath is null)
@@ -165,10 +167,18 @@ internal static class ApiServices
                     options.SourceOptions,
                     usePackageSourcePolicy:
                         usePackageSourcePolicy || packageExtractPath is not null);
+        // A caller that needs one Type's declarations supplies a selector.
+        // It decodes only that Type and skips forwarder resolution, which only
+        // adds other Types to the surface.
+        Func<System.Reflection.Metadata.TypeDefinitionHandle, bool>?
+            includeType = resolution is not null
+                ? selectDeclaredType?.Invoke(apiDllPath)
+                : null;
         ApiSurface? api =
             resolution is not null
                 ? resolution.ExtractApiSurface(
-                    options.IncludeAll)
+                    options.IncludeAll,
+                    includeType: includeType)
                 : AssemblyReader.ExtractModuleApiSurface(
                     apiDllPath,
                     options.IncludeAll);
@@ -197,7 +207,7 @@ internal static class ApiServices
             }
         }
 
-        if (resolution is not null)
+        if (resolution is not null && includeType is null)
         {
             ResolveForwardedTypes(
                 api,

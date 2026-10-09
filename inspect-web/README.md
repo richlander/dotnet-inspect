@@ -347,9 +347,13 @@ holds. Shared links carry the canonical `:Platform` group version and selected l
 identity. An exact version bypasses discovery, keys retained Platform state
 separately from floating acquisition, and follows every later assembly and
 query operation; a different resident patch cannot satisfy it. A missing pin or
-the Browser `latest` sentinel remains floating and uses version discovery.
+the Browser `latest` sentinel remains floating and uses prerelease-inclusive
+version discovery, so a framework line can resolve before its stable platform
+pack is published.
 `PlatformWorkspace_ExactVersionSkipsDiscoveryAndDoesNotReuseLatestState` and
-`PlatformWorkspace_LatestSentinelUsesVersionDiscovery` gate those behaviors.
+`PlatformWorkspace_LatestSentinelUsesVersionDiscovery`, and
+`PlatformWorkspace_VersionlessDiscoveryAdmitsPrereleasePlatformLine` gate those
+behaviors.
 Initial member graphs use the same escaped definition identity as subsequent
 graph descent. Platform graph loads and descents also carry the target's
 complete assembly identity and reject an acquired root that is not

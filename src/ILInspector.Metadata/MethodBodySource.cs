@@ -265,6 +265,53 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         return false;
     }
 
+    /// <summary>
+    /// Returns the TypeDef token of the Type whose full metadata name is
+    /// <paramref name="typeName"/> when no other Type in the image is an exact
+    /// <see cref="TypeMatcher.Lookup"/> match for that name; otherwise null.
+    /// </summary>
+    /// <remarks>
+    /// Surface Type lookup takes the first exact match
+    /// (<see cref="TypeMatcher.MatchesExactTypeName"/>) in surface order, which a
+    /// case-variant or dotted-suffix name such as <c>A.Outer.Widget</c> can win
+    /// over <c>Outer.Widget</c>. Base-name matches such as <c>Task`1</c> for
+    /// <c>Task</c> are consulted only when no exact match exists, so a unique
+    /// exact candidate is the Type that lookup selects whenever it is in scope.
+    /// </remarks>
+    public int? FindUniqueLookupTypeToken(string typeName)
+    {
+        _ensureAlive();
+        if (TypeMatcher.IsTypeGlobPattern(typeName))
+            return null;
+
+        // A rejected name traversal anywhere in the image returns null, so the
+        // complete route owns that row's failure report.
+        TypeDefinitionHandle selected = default;
+        foreach (var handle in _reader.TypeDefinitions)
+        {
+            if (_reader.ResolveFullTypeName(handle)
+                is not RelationshipTraversalResult<string>.Completed { Value: var name })
+                return null;
+            if (selected.IsNil && name == typeName)
+                selected = handle;
+            else if (TypeMatcher.MatchesExactTypeName(name, typeName))
+                return null;
+        }
+
+        if (selected.IsNil)
+            return null;
+
+        foreach (var handle in _reader.ExportedTypes)
+        {
+            if (_reader.ResolveFullTypeName(handle)
+                    is not RelationshipTraversalResult<string>.Completed { Value: var name }
+                || TypeMatcher.MatchesExactTypeName(name, typeName))
+                return null;
+        }
+
+        return MetadataTokens.GetToken(selected);
+    }
+
     public bool ContainsType(string typeName)
     {
         _ensureAlive();

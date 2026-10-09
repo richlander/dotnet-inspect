@@ -17,7 +17,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     [Theory]
     [InlineData("type")]
     [InlineData("member")]
-    [InlineData("implements")]
     [InlineData("extensions")]
     public async Task SearchCommands_QueryCommittedPackageRoot(
         string operation)
@@ -51,17 +50,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             [
                 "find",
                 $".{MemberSearchServiceTests.SearchTargetMemberName}",
-                "--package", $"{id}@{Version}",
-                "--tfm", "net11.0",
-                "--source", FirstFeed,
-                "--all",
-                "--json",
-                "--verbose",
-            ],
-            "implements" =>
-            [
-                "implements",
-                typeof(IWorkspaceImplementationMarker).FullName!,
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
@@ -115,7 +103,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "type" => nameof(WorkspaceImplementation),
                 "member" =>
                     MemberSearchServiceTests.SearchTargetMemberName,
-                "implements" => nameof(WorkspaceImplementation),
                 "extensions" =>
                     nameof(
                         ExtensionWorkspaceMethods.WorkspaceExtension),

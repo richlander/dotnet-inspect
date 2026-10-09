@@ -1845,6 +1845,21 @@ test("call graph request coordination stays outside the composition root", () =>
     /request\.isRuntimePack[\s\S]*loadPlatformGraph\(request\)/);
 });
 
+test("package call graphs keep working without an exact pruning catalog", () => {
+  const start = appSource.indexOf(
+    "const callGraphInspection = createCallGraphInspectionCoordinator({");
+  const end = appSource.indexOf(
+    "const directUseClusterInspection =",
+    start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const composition = appSource.slice(start, end);
+  assert.match(
+    composition,
+    /state\.platformIndex \?\?= await loadPlatformIndex\(\)[\s\S]*state\.platformIndex\?\.target\([\s\S]*\) \?\? null[\s\S]*platformRuntimePruningInventory\(\s*target,\s*request\.traversalFramework\)/);
+  assert.doesNotMatch(composition, /ensurePlatformCatalog/);
+});
+
 test("typeless member lookup and request guards stay empty", () => {
   assert.match(
     appSource,

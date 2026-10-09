@@ -88,7 +88,13 @@ public partial class PackageQueryTests
             PrefixHierarchyFocusContext(
                 workspace,
                 focusPackage,
-                focusOccurrence.Occurrence.Package.Coordinate,
+                new(
+                    focusOccurrence.Occurrence.Package.Coordinate.PackageId,
+                    focusOccurrence.Occurrence.Package.Coordinate.Version,
+                    "legacy-producer",
+                    focusOccurrence.Occurrence.Package.Coordinate.Framework,
+                    focusOccurrence.Occurrence.Package.Coordinate
+                        .RuntimeIdentifier),
                 focusAssembly);
         WorkspaceTypeHierarchySubjectRelationsFocus focus =
             PrefixHierarchyFocus(focusContext);

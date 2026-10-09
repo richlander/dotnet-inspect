@@ -3435,8 +3435,8 @@ kbd {
   animation: spotlight-fade 120ms ease-out;
 }
 .spotlight {
-  width: 580px;
-  max-width: 92vw;
+  width: 820px;
+  max-width: 94vw;
   max-height: 68vh;
   display: flex;
   flex-direction: column;
@@ -6524,11 +6524,11 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 .forwarder-status[role="alert"] { color: var(--text); }
 
 .spotlight-artifact-row { display: grid; grid-template-columns: minmax(0, 1fr) 28px; }
-.spotlight-artifact { grid-template-columns: 20px minmax(0, 1fr) min(220px, 30vw) 100px; }
+.spotlight-artifact { grid-template-columns: 20px minmax(0, 1fr) minmax(120px, 180px) 100px; }
 .spotlight-artifact .spotlight-item-ns { max-width: 100%; }
 .spotlight-artifact .spotlight-item-date { justify-self: end; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 @media (max-width: 600px) {
-  .spotlight-artifact { grid-template-columns: 20px minmax(0, 1fr) min(150px, 28vw) 82px; gap: 6px; }
+  .spotlight-artifact { grid-template-columns: 20px minmax(0, 1fr) minmax(100px, 150px) 82px; gap: 6px; }
 }
 .spotlight-item-date { color: var(--muted); font: 11px var(--mono); white-space: nowrap; }
 

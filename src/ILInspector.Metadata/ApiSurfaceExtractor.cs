@@ -745,7 +745,8 @@ public static partial class ApiSurfaceExtractor
         IAssemblyBindingPolicy bindingPolicy,
         ApiSurfaceExtractionScope scope,
         bool typesOnly = false,
-        bool includeCompilerGenerated = false)
+        bool includeCompilerGenerated = false,
+        Func<TypeDefinitionHandle, bool>? includeType = null)
         => ExtractResolved(
             peReader,
             source,
@@ -754,7 +755,8 @@ public static partial class ApiSurfaceExtractor
             scope,
             typesOnly,
             includeCompilerGenerated,
-            includeLocalExtensionProjections: true);
+            includeLocalExtensionProjections: true,
+            includeType);
 
     internal static ApiSurface ExtractDeclarations(
         PEReader peReader,
@@ -782,7 +784,8 @@ public static partial class ApiSurfaceExtractor
         ApiSurfaceExtractionScope scope,
         bool typesOnly,
         bool includeCompilerGenerated,
-        bool includeLocalExtensionProjections)
+        bool includeLocalExtensionProjections,
+        Func<TypeDefinitionHandle, bool>? includeType = null)
     {
         ArgumentNullException.ThrowIfNull(peReader);
         ArgumentNullException.ThrowIfNull(source);
@@ -803,7 +806,8 @@ public static partial class ApiSurfaceExtractor
             includeCompilerGenerated,
             includeLocalExtensionProjections,
             budget: null,
-            constraintResolution);
+            constraintResolution,
+            includeType: includeType);
         CompleteConstraintResolution(
             surface, constraintResolution, source, catalog, bindingPolicy);
         return surface;
@@ -904,11 +908,13 @@ public static partial class ApiSurfaceExtractor
         ApiSurfaceExtractionScope scope,
         ApiSurfaceExtractionBounds bounds,
         bool typesOnly = false,
-        bool includeCompilerGenerated = false)
+        bool includeCompilerGenerated = false,
+        ApiTypeSelection? typeSelection = null)
         => ExtractBoundedCore(
             peReader, scope, bounds, typesOnly, includeCompilerGenerated,
             includeLocalExtensionProjections: true,
-            source: null, catalog: null, bindingPolicy: null);
+            source: null, catalog: null, bindingPolicy: null,
+            typeSelection);
 
     /// <summary>
     /// Extracts declarations physically owned by each retained Type under hard
@@ -972,7 +978,8 @@ public static partial class ApiSurfaceExtractor
         bool includeLocalExtensionProjections,
         ResolvedAssemblyReference? source,
         TypeResolutionCatalog? catalog,
-        IAssemblyBindingPolicy? bindingPolicy)
+        IAssemblyBindingPolicy? bindingPolicy,
+        ApiTypeSelection? typeSelection = null)
     {
         ArgumentNullException.ThrowIfNull(bounds);
         if (!Enum.IsDefined(scope))
@@ -996,7 +1003,9 @@ public static partial class ApiSurfaceExtractor
                 includeLocalExtensionProjections,
                 budget,
                 constraintResolution,
-                operationContext);
+                operationContext,
+                includeType: typeSelection?.Bind(
+                    MetadataFormatAdmission.GetMetadataReader(peReader)));
             if (constraintResolution is not null)
             {
                 CompleteConstraintResolution(
@@ -2445,61 +2454,18 @@ public static partial class ApiSurfaceExtractor
                     out var obsoleteMessage,
                     out var obsoleteIsError,
                     observeDecodeWork);
-                TypeNode? structuralEventNode = null;
-                var eventType = ResolveRequiredTypeName(
+                (
+                    string eventName,
+                    string eventType,
+                    string eventSignature,
+                    TypeNode? structuralEventNode) =
+                    GetEventSignatureForIdentity(
                     reader,
-                    evt.Type,
                     typeContext,
+                    evt,
+                    adder,
                     observeText,
-                    observeDecodeWork,
-                    captureTypeNode: node => structuralEventNode = node);
-                var eventNullableBytes = NullabilityReader.GetNullableBytes(
-                    reader,
-                    evt.GetCustomAttributes(),
                     observeDecodeWork);
-                eventNullableBytes ??= NullabilityReader.GetParameterNullableBytes(
-                    reader,
-                    adder.GetParameters(),
-                    1,
-                    observeDecodeWork);
-                if (eventNullableBytes is { Length: > 0 } && eventNullableBytes[0] == 2 && !eventType.EndsWith("?", StringComparison.Ordinal))
-                    eventType += "?";
-                // A `dynamic` event handler (e.g. EventHandler<dynamic>) or a
-                // named-tuple handler (EventHandler<(int a, int b)>) is always a
-                // generic instantiation, so re-decode the TypeSpec through the
-                // TypeNode tree to recover the dynamic / tuple view. Plain events
-                // are untouched.
-                var eventTupleNames = TupleElementNamesReader.GetTupleElementNames(
-                    reader,
-                    evt.GetCustomAttributes(),
-                    observeDecodeWork);
-                var eventDynamicFlags = evt.Type.Kind == HandleKind.TypeSpecification
-                    ? DynamicReader.GetDynamicFlags(
-                        reader,
-                        evt.GetCustomAttributes(),
-                        observeDecodeWork)
-                    : null;
-                if (evt.Type.Kind == HandleKind.TypeSpecification
-                    && (eventDynamicFlags is not null || eventTupleNames is not null))
-                {
-                    var eventNode = GuardedProviderDecode.TypeSpec(
-                        reader,
-                        (TypeSpecificationHandle)evt.Type,
-                        new TypeNodeProvider(observeText, observeDecodeWork),
-                        typeContext,
-                        (TypeNode)new DegradedTypeNode());
-                    // Skip a rejected/degraded decode: its bare "object"/"dynamic" render
-                    // would obliterate the resolved eventType string computed above.
-                    if (!eventNode.IsDegraded)
-                    {
-                        int eventPos = 0;
-                        eventNode.ApplyNullability(eventNullableBytes, ref eventPos, 0);
-                        eventPos = 0;
-                        eventNode.ApplyDynamic(eventDynamicFlags, ref eventPos);
-                        eventNode.ApplyTupleNames(eventTupleNames);
-                        eventType = eventNode.Render();
-                    }
-                }
                 var adderAttributes = adder.Attributes;
                 var isVirtualEvent = (adderAttributes & MethodAttributes.Virtual) != 0;
                 var isOverrideEvent = isVirtualEvent && (adderAttributes & MethodAttributes.NewSlot) == 0;
@@ -2546,10 +2512,6 @@ public static partial class ApiSurfaceExtractor
                     observeText,
                     observeDecodeWork);
 
-                string eventName = DecodeString(
-                    reader,
-                    evt.Name,
-                    observeDecodeWork);
                 var member = new ApiMember
                 {
                     Name = eventName,
@@ -2575,7 +2537,7 @@ public static partial class ApiSurfaceExtractor
                         [accessors.Adder, accessors.Remover, accessors.Raiser, .. accessors.Others]),
                     BackingStorage = backingStorage[MetadataTokens.GetToken(eventHandle)],
                     ReturnType = eventType,
-                    Signature = $"{eventType} {SanitizeIdentifier(eventName)}",
+                    Signature = eventSignature,
                     SignatureModel = new ApiSignature
                     {
                         ReturnType = eventType,

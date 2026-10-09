@@ -910,6 +910,137 @@ ordering, and truncation. Compare NativeAOT production terminals and include
 CLI and Browser/Wasm consumption in the adoption plan. Do not choose an
 arbitrary size threshold before measuring these useful results.
 
+### Compact resource projection contract
+
+Status: **proposed; not implemented**. This is slice 2 of
+[#9762](https://github.com/richlander/dotnet-inspect/issues/9762). It specifies
+one projection of the validated catalog; it does not replace the catalog,
+change owner declarations, or admit new CLI gestures. The existing complete
+Document remains supported until the production adoption changes its default.
+
+#### Claim and selection
+
+For one resolved resource, the compact projection returns directly readable
+owner-issued facts and typed relationship targets, with enough identity and
+completeness information to navigate and interpret the selected response.
+It performs no subject acquisition or query execution and cannot infer facts
+from labels, rendered output, or neighboring resources.
+
+Two explicit selections have different completeness obligations:
+
+- **Resource data:** the selected resource's fact values, relationship outcomes,
+  available addresses, and requested bounded expansion. Declaration closure
+  is not part of this selection.
+- **Contract inspection:** the declarations needed to interpret the selected
+  resource type, including referenced value shapes and relationship target
+  types. This selection retains the existing complete declaration semantics.
+
+Resource-data completeness means completeness of the selected resource data,
+not completeness of its contract or the entire catalog. Omitted declarations
+are neither absent facts nor truncation. A partial embedded summary is marked
+as a summary; it never claims complete resource-data coverage. Requested data
+that exceeds a bound retains an explicit truncation outcome.
+
+The host-neutral selection is shared by CLI and Browser/Wasm. Host admission
+and dotted spelling remain with their focused owners; this section does not
+reserve `.schema`, `.facts`, or another spelling by implication.
+
+#### Data and identity
+
+A resource carries its canonical key once, its owner-issued type once, and its
+available public addresses. Public paths remain routing projections, not the
+identity of a detached resource. Cross-owner targets retain canonical keys
+and types even when they have no navigable public address.
+
+Fact and relationship names are local to their resource type. Record fields
+and choice cases are local to their declaring shapes. Crossing those scopes
+requires an unambiguous qualified identity; nesting within them does not repeat
+the enclosing owner, schema, and type on every value. Qualification must be
+lossless and collision-free, not derived from display names.
+
+Available facts expose native values: text, booleans, and finite numeric
+values directly; ordered-many values as arrays; records by named fields;
+choices by a local case and optional payload. Term values retain a stable term
+identity, with their vocabulary supplied by the declared shape or explicitly
+when several vocabularies are possible. Large integers and octets require an
+explicit lossless encoding in the lowering contract; no precision-losing
+conversion to a JSON number is allowed. The contract is authoritative even
+when it is not embedded in every response.
+
+Non-available observations retain their exact absent, unavailable, or failed
+state and owner-issued outcome data. Missing selected data does not become
+`null`, an empty array, or an omitted success. Available empty arrays remain
+available empty arrays. An explicitly selected response must let a reader
+distinguish these cases without fetching the contract.
+
+Relationships preserve target order, target identity, target availability,
+and target-projection completeness. An available target without an address
+remains a typed target rather than a fabricated link. Targetless observations
+remain visible. Each resource view uses the same validated catalog facts;
+there is no separately authored compact inventory.
+
+#### HAL lowering and navigation
+
+HAL is the preferred machine-reading lowering to evaluate for this projection.
+Its state contains directly readable facts; `_links` carries available
+navigable targets under meaningful relation names; `_embedded` carries only
+explicitly selected related-resource data or marked summaries. Relationship
+states and non-navigable targets require explicit state data alongside HAL
+links. HAL alone does not encode every observation outcome.
+
+A relation name is an addressable projection of a declared relationship, not
+a source of new domain meaning. Local names may be used where the resource
+type supplies the scope. An alias or traversal shortcut requires owner-issued
+relationship evidence; it cannot manufacture a capability or query.
+
+Link targets must be supplied as usable addresses for the consuming host.
+CLI product-resource paths are not silently promoted to HTTP URLs. Browser
+URLs remain host bindings over the same typed target; command examples remain
+CLI bindings. Lowering must specify URI resolution and address-kind handling
+before implementation, including targets that are addressable only in one
+host. A host binding may not replace the canonical target identity.
+
+Contract inspection is explicitly discoverable from resource data when its
+owner has registered a usable address. Until that registration exists, the
+host must offer explicit contract selection over the current resource rather
+than emit a dangling schema link. No JSON Schema or result-contract resource
+is advertised before its owning catalog has adopted it.
+
+#### Query meaning and evidence
+
+A facet response preserves its issued key, operand kind, operators, values,
+examples, effects, and declared relationship targets. Vocabulary navigation
+does not mean the facet accepts all vocabulary terms. An empty values list
+does not establish an open domain. Query-local constraints remain Query Space
+facts; an accepted subset or open-domain assertion requires that owner's
+explicit declaration.
+
+Acceptance uses three current production witnesses:
+
+- `vocabularies/csharp.body-kinds`: read listed values and map entries without
+  traversing identity wrappers or a declaration closure.
+- `vocabularies/csharp.style-choices` at depth one: distinguish selected values,
+  related data, summaries, and incomplete expansion.
+- `package-query/query/facets/library-literal`: obtain the issued query key,
+  operand kind, operators, examples, and related-resource targets without
+  inferring acceptance from a vocabulary link.
+
+The implementation slice records exact base/head bytes and token counts,
+representative `jq` access paths, and agent task outcomes. It measures total
+retrieved content and operation count, so smaller individual responses cannot
+hide additional fetches. NativeAOT comparisons cover the adopted CLI terminals.
+Cross-host gates compare resource facts and relationship meaning, allowing
+host-specific usable addresses. Boundary evidence covers identity collisions,
+detached subjects, large integers, octets, record and choice values, non-available
+observations, empty available collections, unaddressable targets, and truncation.
+
+The ordinary compact view must reduce the two vocabulary witness payloads
+relative to the current full Document while preserving their selected facts.
+No absolute byte or token threshold is claimed before a measured candidate.
+The full Document remains available for explicit contract inspection; its
+round-trip equality is not an obligation for a resource-data projection that
+intentionally omits declarations.
+
 ### Primitive-placement test
 
 This object model determines the types that lower layers must be able to

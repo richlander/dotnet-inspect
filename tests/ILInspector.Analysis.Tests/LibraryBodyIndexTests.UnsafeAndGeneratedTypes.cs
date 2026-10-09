@@ -60,7 +60,9 @@ public partial class LibraryBodyIndexTests
             && evidence.Reason == "Unsafe call"
             && evidence.Detail.Contains("System.Runtime.CompilerServices.Unsafe.As<int, uint>", StringComparison.Ordinal)
             && evidence.OperandToken is not null);
-        Assert.DoesNotContain(
+        // Unsafe.As is a projected platform contract
+        // (PlatformContractCallIsAnExplicitContractCall).
+        Assert.Contains(
             index.Safety.MemberUses,
             use => use.Method.Name
                 == nameof(UnsafeEvidenceFixtures.CallsUnsafeAs));

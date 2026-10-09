@@ -1,7 +1,6 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
-using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.Research;
 
@@ -76,8 +75,8 @@ internal static class MethodBodyComparisonOperations
                 participant));
         BrowserMethodBodySelection[] inventory =
             MethodBodyOperations.Inventory(surface);
-        CallGraphMemberResolution before = Resolve(request.Before);
-        CallGraphMemberResolution after = Resolve(request.After);
+        AssemblyContextMemberBody before = Resolve(request.Before);
+        AssemblyContextMemberBody after = Resolve(request.After);
         ProjectedMethodAddress beforeDesignation =
             MethodBodyOperations.RequireDesignation(
                 group,
@@ -121,7 +120,7 @@ internal static class MethodBodyComparisonOperations
             request,
             comparison);
 
-        CallGraphMemberResolution Resolve(
+        AssemblyContextMemberBody Resolve(
             BrowserMethodBodySelection selection)
         {
             if (!inventory.Any(method =>
@@ -135,7 +134,7 @@ internal static class MethodBodyComparisonOperations
                     + "MethodDef are not in this implementation "
                     + "inventory.");
             }
-            CallGraphMemberResolution resolved =
+            AssemblyContextMemberBody resolved =
                 MethodBodyOperations.Select(() =>
                     BrowserMemberResolution
                         .ResolveImplementationMember(

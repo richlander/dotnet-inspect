@@ -1473,6 +1473,100 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
+    public void CheckedInInspectWebMetadataRulesMatchCapabilityRatchet()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule projectRule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "inspect-web-metadata-facade-project-dependencies-"
+                    + "stay-within-capability-ratchet");
+        DependencyRule assemblyRule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "inspect-web-metadata-facade-assembly-dependencies-"
+                    + "stay-within-capability-ratchet");
+        string[] target = ["DotnetInspect.Web.Interop.Metadata"];
+        string[] projectPath =
+        [
+            "src/DotnetInspect.Web.Interop.Metadata/"
+                + "DotnetInspect.Web.Interop.Metadata.csproj",
+        ];
+
+        Assert.Equal([DependencyGraphKind.Project], projectRule.Graphs);
+        Assert.Equal(target, projectRule.Targets);
+        Assert.Equal(projectPath, projectRule.ProjectPaths);
+        Assert.Equal(
+            [
+                "DotnetInspect.Web.Core",
+                "DotnetInspector.LibraryMetadata",
+                "DotnetInspector.Presentation",
+                "DotnetInspector.Queries",
+                "DotnetInspector.ResearchQueries",
+                "DotnetInspector.ResearchSections",
+                "DotnetInspector.Sections",
+                "ILInspector.CSharp",
+                "ILInspector.Metadata",
+                "ILInspector.Research",
+                "QuerySpace",
+                "TsJsExport.Contracts",
+            ],
+            Assert.IsType<string[]>(projectRule.AllowOnly));
+        Assert.Null(projectRule.Deny);
+        Assert.Empty(projectRule.ExcludeTargets);
+        Assert.Empty(projectRule.ExcludeProjectPaths);
+        Assert.Empty(projectRule.Except);
+
+        Assert.Equal([DependencyGraphKind.Assembly], assemblyRule.Graphs);
+        Assert.Equal(target, assemblyRule.Targets);
+        Assert.Equal(projectPath, assemblyRule.ProjectPaths);
+        Assert.Equal(
+            [
+                "$platform",
+                "DotnetInspect.Web.Core",
+                "DotnetInspector.DocumentationHouse.Contracts",
+                "DotnetInspector.Libraries",
+                "DotnetInspector.LibraryMetadata",
+                "DotnetInspector.Packages",
+                "DotnetInspector.Presentation",
+                "DotnetInspector.Queries",
+                "DotnetInspector.ResearchQueries",
+                "DotnetInspector.ResearchSections",
+                "DotnetInspector.Sections",
+                "ILInspector.CSharp",
+                "ILInspector.Metadata",
+                "ILInspector.MetadataPrimitives",
+                "ILInspector.Research",
+                "InertText",
+                "Inspector.Findings",
+                "NuGet.Versioning",
+                "QuerySpace",
+                "QuerySpace.Primitives",
+                "TsJsExport.Contracts",
+            ],
+            Assert.IsType<string[]>(assemblyRule.AllowOnly));
+        Assert.Null(assemblyRule.Deny);
+        Assert.Empty(assemblyRule.ExcludeTargets);
+        Assert.Empty(assemblyRule.ExcludeProjectPaths);
+        Assert.Empty(assemblyRule.Except);
+
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            projectRule.Id,
+            target[0],
+            "ILInspector.Analysis",
+            DependencyGraphKind.Project,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            assemblyRule.Id,
+            target[0],
+            "ILInspector.Analysis",
+            DependencyGraphKind.Assembly,
+            projectPath[0]);
+    }
+
+    [Fact]
     public void CheckedInInspectWebSourceRulesMatchCapabilityRatchet()
     {
         string repository = FindRepositoryRoot();

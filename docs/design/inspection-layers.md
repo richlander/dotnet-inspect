@@ -165,9 +165,9 @@ each participant after inspection. `Integration Opportunities` consumes the
 typed Integrations result as a declared prerequisite and scans the same
 retained participant snapshot before release; direct `library` and package
 `--library` retain their existing controls.
-The `extensions`, `implements`, and `find` CLIs resolve their assembly sets in
-the host, then execute content-shaped L1 queries through an ephemeral
-workspace. Ordinary independent scans use sequential one-participant groups so
+The `extensions`, focused Type hierarchy, and `find` CLIs resolve their
+assembly sets in the host, then execute content-shaped L1 queries through an
+ephemeral workspace. Ordinary independent scans use sequential one-participant groups so
 the workspace does not retain the entire search set; this is gated by
 `RunPerAssembly_RetainsOnlyCurrentParticipant`. The explicit
 `extensions --reachable` traversal uses one binding-consistent group and lazily
