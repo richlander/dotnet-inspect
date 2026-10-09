@@ -963,6 +963,10 @@ public class ApiType
     public List<ApiJsExportJsonOutputDeclaration> JsExportJsonOutputDeclarations
         { get; set; } = [];
 
+    [JsonIgnore]
+    public ApiJsExportJsonSchemaDeclaration? JsExportJsonSchemaDeclaration
+        { get; set; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public JsonWireNamingPolicy? JsonPropertyNamingPolicy { get; set; }
 
@@ -1519,6 +1523,10 @@ public class ApiMember
 
     [JsonIgnore]
     public bool HasUnsupportedJsonWireAttributes { get; set; }
+
+    [JsonIgnore]
+    public ApiJsExportJsonSchemaSlotDeclaration?
+        JsExportJsonSchemaSlotDeclaration { get; set; }
 
     /// <summary>
     /// Compatibility projection of authentic valid <c>[JSExport]</c> evidence.
@@ -2119,6 +2127,23 @@ public sealed record ApiJsExportJsonOutputDeclaration(
     string? MethodName,
     ApiTypeShape? WireType,
     bool DeferParsing,
+    string? UnsupportedReason);
+
+public sealed record ApiJsExportJsonSchemaDeclaration(
+    ApiAssemblyIdentity? AttributeAssembly,
+    string? ContractIdentity,
+    string? Direction,
+    string? VocabularyCatalog,
+    string? VocabularySnapshotIdentity,
+    string? UnsupportedReason);
+
+public sealed record ApiJsExportJsonSchemaSlotDeclaration(
+    ApiAssemblyIdentity? AttributeAssembly,
+    int? Order,
+    string? NodeIdentity,
+    string? Vocabulary,
+    string? Term,
+    bool Displayable,
     string? UnsupportedReason);
 
 public sealed record ApiJsonSerializableRoot(

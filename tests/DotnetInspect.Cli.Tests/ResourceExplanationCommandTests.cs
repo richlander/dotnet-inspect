@@ -6,7 +6,9 @@ using System.Text;
 using System.Text.Json;
 using DotnetInspect.ProductVocabularyTesting;
 using DotnetInspect.Cli.Commands;
+using DotnetInspector.InspectionContracts;
 using DotnetInspector.Networking;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 
@@ -690,6 +692,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 "vocabularies/csharp.style-tiers",
                 "vocabularies/csharp.style-choices",
                 "vocabularies/csharp.body-kinds",
+                "vocabularies/package-query.durable-row",
             ],
             TargetPaths(members));
     }
@@ -833,6 +836,50 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             .Single(relationship =>
                 RelationshipKind(relationship) == "term-map-target");
         Assert.Equal(["vocabularies/csharp.style-tiers"], TargetPaths(tier));
+    }
+
+    [Fact]
+    public async Task PackageQueryVocabulary_ExplainsDurableRowFields()
+    {
+        var result = await RunAsync(
+            "explain",
+            "vocabularies/package-query.durable-row",
+            "--depth",
+            "1",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement.GetProperty("resources")[0];
+        Assert.Equal("value-vocabulary", ResourceType(root));
+        Assert.Equal(
+            PackageQueryDurableRowVocabulary.Label,
+            TextFact(root, "name"));
+        Assert.Equal(
+            [PackageQueryDurableRowContract.ContractIdentity],
+            TextFacts(root, "accepted-by"));
+        Assert.Equal(
+            [
+                PackageQueryDurableRowContract.PackageId,
+                PackageQueryDurableRowContract.Version,
+                PackageQueryDurableRowContract.Tier,
+                PackageQueryDurableRowContract.Answers,
+                PackageQueryDurableRowContract.Evidence,
+                PackageQueryDurableRowContract.TotalDownloads,
+                PackageQueryDurableRowContract.Verified,
+                PackageQueryDurableRowContract.Producer,
+                PackageQueryDurableRowContract.Description,
+                PackageQueryDurableRowContract.RootRequest,
+                PackageQueryDurableRowContract.Owners,
+                PackageQueryDurableRowContract.Manifest,
+                PackageQueryDurableRowContract.EcosystemAdmission,
+            ],
+            document.RootElement
+                .GetProperty("resources")
+                .EnumerateArray()
+                .Where(resource => ResourceType(resource) == "vocabulary-value")
+                .Select(resource => TextFact(resource, "identity")));
     }
 
     [Fact]

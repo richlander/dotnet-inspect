@@ -50,7 +50,8 @@
         "typescript/no-unsafe-call": "off",
         "typescript/no-unsafe-member-access": "off",
         "typescript/no-unsafe-return": "off",
-        "typescript/use-unknown-in-catch-callback-variable": "off"
+        "typescript/use-unknown-in-catch-callback-variable": "off",
+        "eslint/no-loss-of-precision": "off"
       }
     },
     {
@@ -74,7 +75,8 @@
         "typescript/no-unsafe-call": "off",
         "typescript/no-unsafe-member-access": "off",
         "typescript/no-unsafe-return": "off",
-        "typescript/no-unsafe-type-assertion": "off"
+        "typescript/no-unsafe-type-assertion": "off",
+        "eslint/no-loss-of-precision": "off"
       }
     },
     {

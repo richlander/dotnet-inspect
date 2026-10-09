@@ -9,11 +9,12 @@ import {
   decodeLibraryLiteralEditorValue,
   encodeLibraryLiteralEditorValue,
   packageQueryNeedsMoreMatches,
-  patchPackageQueryStream,
-  renderPackageQueryView,
+  patchPackageQueryStream as patchPackageQueryStreamCore,
+  renderPackageQueryView as renderPackageQueryViewCore,
   restorePackageQueryFocus,
   restorePackageQueryScroll,
   type PackageQueryBindingActions,
+  type RenderPackageQueryOptions,
 } from "../src/package-query-view.ts";
 import {
   createPackageQueryRenderScheduler,
@@ -37,6 +38,9 @@ import {
   type QueryTermDescriptor,
 } from "../src/package-query.ts";
 import { fakeDom } from "./fake-dom.ts";
+import {
+  packageQueryDurableRowLayoutFixture,
+} from "./package-query-durable-row-fixture.ts";
 
 const escapeHtml = (value: unknown) => String(value)
   .replace(/&/g, "&amp;")
@@ -46,6 +50,32 @@ const escapeHtml = (value: unknown) => String(value)
 const styles = readFileSync(
   new URL("../src/styles.css", import.meta.url),
   "utf8");
+
+function renderPackageQueryView(
+  options: Omit<RenderPackageQueryOptions, "durableRowLayout">,
+): string {
+  return renderPackageQueryViewCore({
+    ...options,
+    durableRowLayout: packageQueryDurableRowLayoutFixture,
+  });
+}
+
+function patchPackageQueryStream(
+  root: ParentNode,
+  options: Pick<
+    RenderPackageQueryOptions,
+    "state" | "escapeHtml" | "viewport"
+  >,
+  actions: PackageQueryBindingActions,
+): boolean {
+  return patchPackageQueryStreamCore(
+    root,
+    {
+      ...options,
+      durableRowLayout: packageQueryDurableRowLayoutFixture,
+    },
+    actions);
+}
 
 const NUSPEC_FACET: QueryPreset = {
   id: "readme:eq:true",
@@ -636,6 +666,57 @@ test("basic metadata rows show producer evidence and unavailable lifetime downlo
       assert.doesNotMatch(html, /Lifetime downloads unavailable/);
     }
   }
+});
+
+test("result presentation consumes durable-row Vocabulary labels", () => {
+  const labels = new Map([
+    ["tier", "Resolved Tier"],
+    ["answers", "Resolved Answers"],
+    ["evidence", "Resolved Evidence"],
+    ["total-downloads", "Resolved Downloads"],
+    ["producer", "Resolved Source"],
+  ]);
+  const durableRowLayout = {
+    ...packageQueryDurableRowLayoutFixture,
+    fields: packageQueryDurableRowLayoutFixture.fields.map(field => ({
+      ...field,
+      term: {
+        ...field.term,
+        displayLabel:
+          labels.get(field.term.identity.value)
+          ?? field.term.displayLabel,
+      },
+    })),
+  };
+  const html = renderPackageQueryViewCore({
+    state: {
+      request: createQueryRequest(""),
+      outcome: appendRows(emptyOutcome(), [{
+        ...row("Producer.Result"),
+        answers: [{ id: "license", value: "MIT" }],
+        evidence: [{
+          id: "downloads",
+          scope: "package",
+          summary: null,
+          properties: [],
+          number: 0,
+        }],
+        totalDownloads: null,
+        producer: "contoso.example/v3",
+      }]),
+    },
+    durableRowLayout,
+    availablePresets: [],
+    escapeHtml,
+  });
+
+  assert.match(html, /Resolved Tier/);
+  assert.match(html, /aria-label="Resolved Answers"/);
+  assert.match(html, /Resolved Evidence/);
+  assert.match(html, /Resolved downloads unavailable/);
+  assert.match(
+    html,
+    /aria-label="Resolved Source: contoso\.example\/v3"/);
 });
 
 test("a large outcome mounts only the scrolled row window while retaining total accounting", () => {

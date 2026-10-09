@@ -36,7 +36,24 @@ public static class JsonSchemaVocabularyDescriptorBuilder
                     + $"'{expectedVocabularySnapshotIdentity}' but received "
                     + $"'{vocabularySnapshot.Identity}'");
         }
+        return Build(
+            surface,
+            declarationPlan,
+            declaration,
+            VocabularySnapshotReference.FromSnapshot(
+                vocabularySnapshot));
+    }
 
+    public static JsonSchemaVocabularyDescriptor Build(
+        JsExportSurface surface,
+        JsonWireDeclarationPlan declarationPlan,
+        JsonSchemaContractDeclaration declaration,
+        VocabularySnapshotReference vocabularySnapshot)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        ArgumentNullException.ThrowIfNull(declarationPlan);
+        ArgumentNullException.ThrowIfNull(declaration);
+        ArgumentNullException.ThrowIfNull(vocabularySnapshot);
         var lowering = new SchemaLowering(
             surface,
             declarationPlan,
@@ -102,7 +119,7 @@ public static class JsonSchemaVocabularyDescriptorBuilder
 
     static ImmutableArray<JsonSchemaVocabularyBinding> BuildBindings(
         JsonSchemaContractDeclaration declaration,
-        VocabularySnapshot vocabularySnapshot,
+        VocabularySnapshotReference vocabularySnapshot,
         SchemaLowering lowering)
     {
         var bindings = new List<(
@@ -112,24 +129,20 @@ public static class JsonSchemaVocabularyDescriptorBuilder
         foreach (JsonSchemaBindingDeclaration binding
             in declaration.Bindings)
         {
-            VocabularyTerm term;
-            try
-            {
-                term = vocabularySnapshot.GetTerm(binding.Term);
-            }
-            catch (KeyNotFoundException exception)
+            if (!vocabularySnapshot.Contains(binding.Term))
             {
                 throw new JsonSchemaVocabularyException(
                     declaration.Identity.Value,
-                    exception.Message);
+                    $"Vocabulary snapshot '{vocabularySnapshot.Identity}' "
+                        + $"has no term '{binding.Term}'.");
             }
 
-            if (term.Identity.Vocabulary.Catalog
+            if (binding.Term.Vocabulary.Catalog
                 != vocabularySnapshot.Catalog)
             {
                 throw new JsonSchemaVocabularyException(
                     declaration.Identity.Value,
-                    $"term '{term.Identity}' belongs to another "
+                    $"term '{binding.Term}' belongs to another "
                         + "vocabulary catalog");
             }
 
@@ -155,8 +168,8 @@ public static class JsonSchemaVocabularyDescriptorBuilder
                     order,
                     new(
                         location,
-                        term.Identity.Vocabulary,
-                        term.Identity)));
+                        binding.Term.Vocabulary,
+                        binding.Term)));
             }
         }
 
@@ -197,7 +210,7 @@ public static class JsonSchemaVocabularyDescriptorBuilder
 
     static JsonObject DescriptorProjection(
         JsonSchemaContractDeclaration declaration,
-        VocabularySnapshot snapshot,
+        VocabularySnapshotReference snapshot,
         JsonSchemaIdentity schemaIdentity,
         JsonNode schema,
         ImmutableArray<JsonSchemaVocabularyBinding> bindings) =>

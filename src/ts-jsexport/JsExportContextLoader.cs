@@ -2,7 +2,9 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Runtime.CompilerServices;
 using System.Text;
+using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
 using ILInspector.TypeScriptGeneration;
 
@@ -728,7 +730,7 @@ internal static class JsExportContextGenerator
             string source;
             try
             {
-                source = TypeScriptFacadeEmitter.Emit(
+                source = GenerateSourceAndReleasePlan(
                     surface,
                     runtimeModule,
                     diagnostics);
@@ -754,5 +756,24 @@ internal static class JsExportContextGenerator
 
         facades = generated.ToImmutable();
         return true;
+    }
+
+    // Keep each root's declaration plan out of the multi-root caller frame.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static string GenerateSourceAndReleasePlan(
+        global::ILInspector.JsExportSurface.JsExportSurface surface,
+        string runtimeModule,
+        TypeScriptGenerationDiagnostics diagnostics)
+    {
+        IReadOnlyList<TypeScriptStaticJsonExport> staticJsonExports =
+            DeclaredJsonSchemaExports.Create(
+                surface,
+                out JsonWireDeclarationPlan declarationPlan);
+        return TypeScriptFacadeEmitter.Emit(
+            surface,
+            runtimeModule,
+            diagnostics,
+            staticJsonExports,
+            declarationPlan);
     }
 }

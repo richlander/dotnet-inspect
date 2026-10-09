@@ -43,6 +43,7 @@ public sealed class BrowserVocabularyCompositionTests
                 "csharp.style-tiers",
                 "csharp.style-choices",
                 "csharp.body-kinds",
+                "package-query.durable-row",
             ],
             inspection.Content.Vocabularies.Select(vocabulary => vocabulary.Identity.Value));
         var share = Assert.IsType<BrowserVocabularyNonProjectableShare>(inspection.Share);

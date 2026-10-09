@@ -5,7 +5,8 @@
 This document is the normative owner for **JSON Schema Vocabulary Bindings**,
 tracked by
 [#8594](https://github.com/richlander/dotnet-inspect/issues/8594).
-The pattern is designed but not yet implemented.
+The shared substrate and first Package Query production descriptor are
+implemented. Progressive JSONL transport remains planned.
 
 [Vocabulary Mappings](vocabulary-mappings.md) supplies stable vocabulary and
 term identities. [`ts-jsexport`](ts-jsexport.md) and
@@ -240,9 +241,18 @@ Equivalent input and output plans may reuse one schema identity, but each
 requested descriptor still states its direction. A one-way contract is
 available only in its authenticated direction.
 
-The schema is a JSON value inside the typed descriptor. Generated TypeScript
-represents that value with the existing recursive `JsonValue` contract rather
-than a handwritten TypeScript model of every JSON Schema keyword.
+The schema is a JSON value inside the typed descriptor. The generated
+TypeScript static projection preserves safe JSON numbers as `number` literals
+and integral JSON numbers outside the IEEE-754 safe range as `bigint`
+literals. The latter is an exact in-memory projection of the JSON integer, not
+a change to the canonical JSON artifact or schema semantics. Generated hosts
+must not round an unsafe integer through `number` or `JSON.parse`.
+
+Before a generated host uses a descriptor, it recomputes the schema and
+descriptor identities from the actual in-memory projection. Canonicalization
+writes `bigint` values as their JSON integer spelling. An identity mismatch,
+inconsistent schema `$id`, unavailable digest implementation, or unsupported
+runtime value fails startup visibly.
 
 ## Identity
 
@@ -489,12 +499,27 @@ contracts, one generation run emits:
 
 All three consume the same shared wire plan. TypeScript names remain a
 TypeScript projection and do not enter the descriptor identity.
+`ts-jsexport` consumes the durable-row owner's compact authenticated
+`VocabularySnapshotReference`: the exact catalog and snapshot identity plus
+the term identities this descriptor needs. It does not compose or retain the
+full product Vocabulary snapshot, whose labels, summaries, maps, and unrelated
+terms are not used by schema generation. The Queries owner retains the complete
+display Vocabulary declaration. CLI and Browser hosts continue to compose that
+declaration into the complete snapshot, and their composition test pins the
+compact reference to that exact identity and term set. Both hosts expose the
+same complete declaration through Product Vocabulary Resource Explanation, so
+its durable-row fields remain discoverable without schema generation.
 
 Inspect Web is the first Browser/Wasm host. It obtains the generated
 `package-query.durable-row` output descriptor, resolves every binding against
 the named Vocabulary Mappings snapshot, and uses those terms for column
 identity and display metadata. It does not define a handwritten row interface,
-schema, or display-column table.
+schema, or display-column table. The Worker verifies the full in-memory
+descriptor and schema before lowering only ordinal, schema location, and
+resolved Vocabulary terms into the JSON-serializable startup projection. The
+verified schema itself does not cross that JSON boundary: exact unsafe integer
+values are represented as `bigint` in TypeScript and cannot be serialized by
+`JSON.stringify`.
 
 The schema is descriptive. Neither host is required to run a general JSON
 Schema validator on every trusted product-produced value. Runtime probes and

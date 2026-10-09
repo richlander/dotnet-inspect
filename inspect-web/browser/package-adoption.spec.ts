@@ -1583,7 +1583,9 @@ test.describe("Package Query website over real Wasm", () => {
     const row = page.locator(".query-row");
     await expect(row).toHaveCount(1, { timeout: 30_000 });
     await expect(row.locator("h2")).toHaveText(tool.packageId);
-    await expect(row.locator(".query-tier")).toHaveText("package-content");
+    await expect(row.locator(".query-tier")).toHaveText(
+      "package-content (Acquisition Tier)",
+    );
     await expect(row.locator(".query-evidence")).toContainText(
       ".NET tool settings version: 2",
     );
