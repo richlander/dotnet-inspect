@@ -57,6 +57,8 @@ def term_record(term, vocabulary):
             expected = {"Text": "text", "Boolean": "boolean", "Integer": "integer"}[target["scalarKind"]]
             if value["kind"] != expected:
                 raise ValueError("value kind disagrees with its declaration")
+            if expected == "boolean" and not isinstance(value["value"], bool):
+                raise ValueError("missing or unavailable boolean cannot become negative membership")
             record[key] = value["value"]
         else:
             raise ValueError("unsupported value shape")
@@ -95,7 +97,18 @@ indexed = {**common, "choices": {c["id"]: c for c in choices},
            "tier_choices": {tier: [c["id"] for c in choices if c["tier"] == tier] for tier in tiers},
            "conflict_groups": {group: [c["id"] for c in choices if c["conflict_group"] == group]
                                for group in sorted({c["conflict_group"] for c in choices if c["conflict_group"] is not None})}}
-shapes = {"flat": flat, "shared": shared, "indexed": indexed}
+flags = ["byte_divergent", "oracle_endorsed", "corpus_endorsed"]
+sparse = {**common,
+          "choices": [{key: value for key, value in c.items() if key not in flags + ["conflict_group"]}
+                      for c in choices],
+          "tiers": {identity: {key: value for key, value in t.items() if key != "byte_divergent"}
+                    for identity, t in tiers.items()},
+          "choice_sets": {flag: [c["id"] for c in choices if c[flag]] for flag in flags},
+          "tier_sets": {"byte_divergent": [identity for identity, t in tiers.items() if t["byte_divergent"]]},
+          "conflict_groups": indexed["conflict_groups"]}
+# These complete sparse tables are the property observations, not redundant indexes.
+# Negative membership is meaningful only for records in the selected core population.
+shapes = {"flat": flat, "shared": shared, "indexed": indexed, "sparse": sparse}
 report = {"source_sha256": hashlib.sha256(source_bytes).hexdigest(),
           "source_bytes": len(source_bytes), "choices": len(choices), "tiers": len(tiers),
           "shapes": {}, "tasks": {}}
@@ -121,11 +134,19 @@ for name, shape in shapes.items():
         recovered = [{**c, "tier": c["tier"]["id"]} for c in shape["choices"]]
     elif name == "indexed":
         recovered = [shape["choices"][identity] for identity in shape["choice_order"]]
+    elif name == "sparse":
+        groups = {identity: group for group, identities in shape["conflict_groups"].items() for identity in identities}
+        recovered = [{**c, **{flag: c["id"] in shape["choice_sets"][flag] for flag in flags},
+                      "conflict_group": groups.get(c["id"])} for c in shape["choices"]]
     else:
         recovered = shape["choices"]
-    if recovered != choices or shape["tiers"] != tiers or shape["vocabularies"] != common["vocabularies"]:
+    recovered_tiers = shape["tiers"]
+    if name == "sparse":
+        recovered_tiers = {identity: {**t, "byte_divergent": identity in shape["tier_sets"]["byte_divergent"]}
+                           for identity, t in shape["tiers"].items()}
+    if recovered != choices or recovered_tiers != tiers or shape["vocabularies"] != common["vocabularies"]:
         raise ValueError("core data was lost in " + name)
-    for task in ["menu", "safe", "conflicts", "tier", "known-choice", "grouped-menu"]:
+    for task in ["menu", "safe", "conflicts", "tier", "known-choice", "grouped-menu", "endorsed"]:
         argv = ["jq", "-c", "--arg", "task", task, "--arg", "tier", "Synthesis",
                 "--arg", "id", "slot-local-names", "-f", str(queries / (name + ".jq"))]
         result = subprocess.run(argv, input=data, check=True, capture_output=True).stdout
@@ -139,15 +160,17 @@ empty = {"id": "Empty", "name": "Synthetic empty tier", "summary": "Boundary pro
          "order": 5, "byte_divergent": False}
 for name, shape in shapes.items():
     boundary = copy.deepcopy(shape)
-    boundary["tiers"]["Empty"] = empty
+    boundary["tiers"]["Empty"] = copy.deepcopy(empty)
     if name == "indexed":
         boundary["tier_choices"]["Empty"] = []
+    if name == "sparse":
+        del boundary["tiers"]["Empty"]["byte_divergent"]
     result = subprocess.run(["jq", "-c", "--arg", "task", "grouped-menu", "--arg", "tier", "Empty",
                              "--arg", "id", "slot-local-names", "-f", str(queries / (name + ".jq"))],
                             input=json.dumps(boundary).encode(), check=True, capture_output=True).stdout
     if json.loads(result)[-1] != {"tier": empty, "choices": []}:
         raise ValueError("empty tier disappeared in " + name)
-report["empty_tier_boundary"] = "all three candidates retain an empty tier in the grouped menu"
+report["empty_tier_boundary"] = "all four candidates retain an empty tier in the grouped menu"
 # Cross-check the original four tasks against the original browser jq adapter.
 original_queries = {"menu": "style-menu", "safe": "style-safe", "conflicts": "style-conflicts", "tier": "style-tier"}
 for task, filename in original_queries.items():

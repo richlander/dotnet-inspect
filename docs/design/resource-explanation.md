@@ -930,16 +930,19 @@ not that every neighboring resource or declaration closure is included.
 For style data, the core population is 17 choices, four tiers, and their
 declared properties. Critical queries list choices, select byte-preserving
 choices, identify conflicts, select a tier's option/value pairs, resolve a
-known choice, and build a menu with tier names and descriptions. This last
-query requires tier records that the draft depth-one expansion does not
+known choice, build a menu with tier names and descriptions, and list endorsed
+choices. The grouped-menu query requires tier records that the draft depth-one expansion does not
 contain. Other selections start with their own core: a query facet needs its
 issued operand/operator/constraint facts and required-context meaning; a
 resolved subject needs the facts selected about that subject. Tips and reusable
 references select their own smaller currencies under Contextual Resource
 Explanation, rather than inheriting the style dataset.
 
-The preferred measured style baseline is a discoverable choice array with
-direct named properties and a keyed table of shared tier records. Choice IDs
+The preferred measured style candidate is a discoverable choice array with
+direct stable facts, keyed shared tier records, and complete sparse property
+tables. True boolean observations are stored as ID membership sets; optional
+conflict observations are stored as group-to-member tables. These are the core
+property data, not indexes that duplicate flags retained on every record. Choice IDs
 are scoped to their declared vocabulary; tier references inherit the target
 vocabulary from the property declaration. Shared scope and interpretation
 appear once. Both populations, every property, descriptions, and presentation
@@ -947,8 +950,12 @@ order survive the lowering; complete OptionalOne absence remains distinct
 from unavailable or failed observations. Unobserved or incomplete domain data
 cannot be fabricated to make a document self-contained.
 
-The experiment answers all six questions from one 10,996-byte document.
-Repeating tier records uses 14,420 bytes. Keyed choices, explicit ordering,
+The experiment answers all seven questions from one 9,918-byte sparse document.
+Keeping flags and optional conflicts on every choice uses 10,996 bytes; 55 of
+68 such entries are false or absent. Sparse membership preserves those values
+for known records because the source observations and selected populations are
+complete. Unknown records and unavailable observations must not become false
+through negative membership. Repeating tier records uses 14,420 bytes. Keyed choices, explicit ordering,
 and reverse indexes use 12,972 bytes and simplify known-ID and group lookups,
 but complicate ordered discovery. Every answer agrees, and the experiment
 checks recovery of the selected core data. Current CLI retrieval for the menu

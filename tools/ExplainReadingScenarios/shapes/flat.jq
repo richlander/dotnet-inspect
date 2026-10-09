@@ -13,4 +13,8 @@ elif $task == "grouped-menu" then
   . as $doc | [.tiers[] | . as $tier
     | {tier: $tier, choices: [$doc.choices[] | select(.tier.id == $tier.id)
       | {id, name, summary}]}] | sort_by(.tier.order)
+elif $task == "endorsed" then
+  ([.choices[]]) as $choices
+  | {oracle: [$choices[] | select(.oracle_endorsed) | .id],
+     corpus: [$choices[] | select(.corpus_endorsed) | .id]}
 else error("unknown task") end
