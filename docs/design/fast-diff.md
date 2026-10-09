@@ -68,10 +68,11 @@ its facts as public on both, so a visibility change is an API fact only.
 
 ### Identity
 
-Tokens compare by symbolic name, resolved once per side and memoized. They
-never compare by token number or referenced assembly identity, so a
-referenced framework moving from one major version to the next is not a
-difference.
+Metadata tokens, in IL operands and in signatures, compare by symbolic name,
+resolved once per side and memoized. They never compare by token number or
+referenced assembly identity, so a renumbered or retargeted reference in an
+operand or signature is not a difference. Custom attribute and constant
+values are compared as raw blob bytes (see [Observability](#observability)).
 
 Compiler-generated nested Types (state machines, closures, local-function
 holders, and Types nested beneath them) belong to their nearest declared
@@ -81,15 +82,49 @@ beneath a top-level compiler-generated Type, such as
 `<PrivateImplementationDetails>`, are not reported; a body that references
 their content-named members still compares those names.
 
-### Known over-reports
+### Observability
 
-`Changed` may appear where the complete diff shows nothing:
+Fast Diff adopts [Diff observability](diff-observability.md). The API axis
+targets the semantic level of the Public API diff, and the Body axis targets
+the symbolic IL level of the body diff, so `Changed` should point to something
+a user can see. IL operand and signature keys never compare token numbers or
+referenced assembly identity, so a renumbered token there is not a change.
+
+`Changed` may still over-report. These compared facts are known divergences
+from that target:
+
+- **Encoded IL.** The Body axis walks IL in lockstep and compares opcode
+  encodings (`br.s` against `br`), branch and switch offsets, body size, stack
+  size, and exception region offsets. An encoding-only difference, such as a
+  re-encoded branch that canonical comparison treats as equal, reports
+  `Changed`.
+- **Type flags no view presents.** Type flags are compared raw, except
+  `beforefieldinit`. Sealed, abstract, static, visibility, and layout are
+  presented; flags such as `Serializable` and the string format are not, on
+  the API axis for public Types and on the Body axis otherwise.
+  `beforefieldinit` is a Body fact when the Type has a static constructor, and
+  no view presents it.
+- **Attribute blobs.** Custom attribute values are compared as raw blob
+  bytes. A Type-valued or enum-typed argument is stored as an
+  assembly-qualified name that includes the referenced assembly version, so a
+  framework major-version move reports `Changed` for a semantically identical
+  attribute, for example on System.Linq.Queryable from 10 to 11. Comparing
+  those arguments by symbolic name is
+  [#9802](https://github.com/richlander/dotnet-inspect/issues/9802).
+
+Two other reported differences are observable and remain by design:
 
 - a renumbered compiler-generated name, such as a closure or state machine
-  renumbered by a new member earlier in the Type;
-- reordered or re-encoded IL that canonical comparison treats as equal; and
+  renumbered by a new member earlier in the Type, which the IL view shows; and
 - non-IL implementation facts on the Body axis, such as an attribute added to
-  an internal member.
+  an internal member, which the complete views with every member show.
+
+Canonical IL comparison is read under rule 6 of Diff observability: it
+reports three System.Private.CoreLib 10 to 11 `calli` sites whose stand-alone
+signatures differ only in token numbers. Fast Diff decodes those signatures
+symbolically and correctly reports them `Unchanged`; IL diff canonicalization's
+adoption is
+[#9801](https://github.com/richlander/dotnet-inspect/issues/9801).
 
 ## Gates
 
@@ -108,9 +143,10 @@ their content-named members still compares those names.
 
 `eng/measure-fast-diff.cs` runs the same checks over a real image pair and
 reports NativeAOT timing and over-reporting. At introduction, over six real
-pairs, no Type was missed on either axis except three CoreLib `calli` sites
-that canonical IL comparison reports from raw signature bytes containing
-renumbered tokens. Medians cover both sides, every Type, API and bodies:
+pairs, no Type was missed on either axis, apart from the three encoding-only
+`calli` sites described under [Observability](#observability). Medians cover
+both sides, every Type, API and bodies, on one Apple silicon development
+machine:
 
 | Pair | NativeAOT | API changed (complete) | Body changed (canonical IL owners) |
 | --- | ---: | --- | --- |
@@ -120,6 +156,10 @@ renumbered tokens. Medians cover both sides, every Type, API and bodies:
 | Newtonsoft.Json 11.0.2 to 13.0.4 | 16 ms | 108 (83) | 213 (104) |
 | System.Private.Xml 10 to 11 | 68 ms | 3 (0) | 78 (74) |
 | System.Private.CoreLib 10 to 11 | 216 ms | 157 (133) | 641 (314) |
+
+In these measurements, Fast Diff compares both sides of most Libraries,
+every Type, API and bodies, in under 100 ms on NativeAOT; only the largest
+assemblies, such as System.Private.CoreLib, take longer.
 
 Canonical IL comparison could not decode some bodies (for example 5,454 in
 CoreLib), so Body soundness is shown only for the bodies it compared.
