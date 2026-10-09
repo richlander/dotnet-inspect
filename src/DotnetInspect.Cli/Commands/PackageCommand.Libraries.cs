@@ -1131,6 +1131,12 @@ public partial class PackageCommand
         else if (resolution.Status == TfmSelector.PackageLibraryResolutionStatus.NoMatchingTargetFramework)
             CommandError.Write($"No library found for TFM '{options.Tfm}' in package '{packageName}'.");
         else if (resolution.Status
+            == TfmSelector.PackageLibraryResolutionStatus.NamesakeNotFound)
+            CommandError.Write("No namesake library found");
+        else if (resolution.Status
+            == TfmSelector.PackageLibraryResolutionStatus.NamesakeAmbiguous)
+            CommandError.Write("Multiple namesake libraries found");
+        else if (resolution.Status
             == TfmSelector.PackageLibraryResolutionStatus
                 .NamesakeIdentityUnavailable)
         {
@@ -1152,7 +1158,10 @@ public partial class PackageCommand
             is not (
                 TfmSelector.PackageLibraryResolutionStatus.NoAssemblies
                 or TfmSelector.PackageLibraryResolutionStatus
-                    .NamesakeIdentityUnavailable))
+                    .NamesakeIdentityUnavailable
+                or TfmSelector.PackageLibraryResolutionStatus.NamesakeNotFound
+                or TfmSelector.PackageLibraryResolutionStatus
+                    .NamesakeAmbiguous))
             WritePackageLibraryCandidates(extractPath, packageName, version, resolution.Tfm ?? options.Tfm, resolution.CandidatePaths.ToList());
     }
 

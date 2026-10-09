@@ -29,6 +29,8 @@ public static class TfmSelector
         RequestedLibraryNotFound,
         Ambiguous,
         NamesakeIdentityUnavailable,
+        NamesakeNotFound,
+        NamesakeAmbiguous,
     }
 
     public sealed record PackageLibraryResolution(
@@ -598,17 +600,24 @@ public static class TfmSelector
                 identityFailures);
         }
 
-        return packageNameMatches.Count == 1
-            ? new PackageLibraryResolution(
+        return packageNameMatches.Count switch
+        {
+            1 => new PackageLibraryResolution(
                 [packageNameMatches[0]],
                 tfm,
                 PackageLibraryResolutionStatus.Selected,
-                candidates)
-            : new PackageLibraryResolution(
+                candidates),
+            0 => new PackageLibraryResolution(
                 [],
                 tfm,
-                PackageLibraryResolutionStatus.Ambiguous,
-                candidates);
+                PackageLibraryResolutionStatus.NamesakeNotFound,
+                candidates),
+            _ => new PackageLibraryResolution(
+                [],
+                tfm,
+                PackageLibraryResolutionStatus.NamesakeAmbiguous,
+                candidates),
+        };
     }
 
     /// <summary>

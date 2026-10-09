@@ -989,6 +989,55 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageCommand_NamesakeLibrary_FailsTerselyWithoutUniqueNamesake(
+        bool severalNamesakes)
+    {
+        // No Library is named for the package, or two are; either way the
+        // request fails with one line and no candidate list.
+        string packageId = severalNamesakes
+            ? typeof(CommandExecutionTests).Assembly.GetName().Name!
+            : "Contoso.Missing";
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "content");
+            string libDir = Path.Combine(packageRoot, "lib", "net10.0");
+            Directory.CreateDirectory(libDir);
+            File.Copy(TestAssemblyPath, Path.Combine(libDir, "First.dll"));
+            File.Copy(TestAssemblyPath, Path.Combine(libDir, "Second.dll"));
+            string packagePath = Path.Combine(
+                tempDir,
+                $"{packageId}.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+            foreach (string[] args in new[]
+            {
+                new[] { "package", packagePath, "--namesake-library" },
+                new[] { "library", "--package", packagePath, "--namesake-library" },
+            })
+            {
+                var result = await RunAppAsync(args);
+
+                Assert.Equal(1, result.Exit);
+                Assert.Empty(result.Output);
+                Assert.Equal(
+                    severalNamesakes
+                        ? "Error: Multiple namesake libraries found"
+                        : "Error: No namesake library found",
+                    result.Error.Trim());
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task PackageCommand_BarePackageRemainsPackageScoped()
     {

@@ -239,6 +239,51 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void SelectPackageLibrary_CandidateNamesake_NotFoundWhenNoNamesake()
+    {
+        string library = WriteAssembly(
+            "lib/net8.0/Library.dll",
+            typeof(TfmSelector).Assembly.Location);
+
+        var result = TfmSelector.SelectPackageLibrary(
+            [library],
+            _tempDir,
+            "Contoso.Missing",
+            requestedLibrary: "",
+            tfm: "net8.0");
+
+        Assert.False(result.IsSelected);
+        Assert.Equal(
+            TfmSelector.PackageLibraryResolutionStatus.NamesakeNotFound,
+            result.Status);
+    }
+
+    [Fact]
+    public void SelectPackageLibrary_CandidateNamesake_AmbiguousWhenSeveralNamesakes()
+    {
+        string first = WriteAssembly(
+            "lib/net8.0/First.dll",
+            typeof(TfmSelectorTests).Assembly.Location);
+        string second = WriteAssembly(
+            "lib/net8.0/Second.dll",
+            typeof(TfmSelectorTests).Assembly.Location);
+        string packageId =
+            typeof(TfmSelectorTests).Assembly.GetName().Name!;
+
+        var result = TfmSelector.SelectPackageLibrary(
+            [first, second],
+            _tempDir,
+            packageId,
+            requestedLibrary: "",
+            tfm: "net8.0");
+
+        Assert.False(result.IsSelected);
+        Assert.Equal(
+            TfmSelector.PackageLibraryResolutionStatus.NamesakeAmbiguous,
+            result.Status);
+    }
+
+    [Fact]
     public void SelectPackageLibrary_CandidateNamesake_ReportsUnreadableIdentity()
     {
         var unreadable = WriteDll("lib/net8.0/Unreadable.dll");
