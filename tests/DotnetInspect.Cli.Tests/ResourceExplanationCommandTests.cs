@@ -60,6 +60,27 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.DoesNotContain(exposed.EnumerateArray(), value => value.GetString() == "library-target");
     }
 
+    [Fact]
+    public async Task SelectedLiteralHal_RegistersOperandAndHostRulesWithoutAcquisition()
+    {
+        var result = await RunAsync("explain", "package-query/query/facets/library-literal", ".hal", "--json");
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement;
+        string[] operandRules = root.GetProperty("input_rules").EnumerateArray()
+            .Select(value => value.GetString()!).ToArray();
+        Assert.Contains(operandRules, rule => rule.Contains("not an allow list", StringComparison.Ordinal));
+        Assert.Contains(operandRules, rule => rule.Contains("1..1024 UTF-16", StringComparison.Ordinal));
+        Assert.Contains(operandRules, rule => rule.Contains("ordinal substring", StringComparison.Ordinal));
+        Assert.Contains(operandRules, rule => rule.Contains("distinct values are incompatible", StringComparison.Ordinal));
+        JsonElement binding = root.GetProperty("_embedded").GetProperty("bindings")[0];
+        Assert.Contains(binding.GetProperty("input_rules").EnumerateArray(),
+            rule => rule.GetString()!.Contains("--tfm TFM, not --where", StringComparison.Ordinal));
+        Assert.Contains(binding.GetProperty("input_rules").EnumerateArray(),
+            rule => rule.GetString()!.Contains("--json", StringComparison.Ordinal));
+        Assert.Equal("Complete", root.GetProperty("data_scope").GetProperty("completeness").GetString());
+    }
+
     [Theory]
     [InlineData("vocabularies/csharp.style-choices")]
     [InlineData("package-query/query")]

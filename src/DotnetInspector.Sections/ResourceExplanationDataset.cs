@@ -336,7 +336,7 @@ public sealed class ResourceExplanationDataset
                     links["describedby"] = new JsonObject
                     {
                         ["href"] = Bind(bindContractAddress, resource.Path!),
-                        ["title"] = "Schema and observation details", ["type"] = "application/json",
+                        ["title"] = "Explanation schema for client development", ["type"] = "application/json",
                     };
             }
             foreach (ResourceExplanationRelationship edge in _catalog.Relationships.Where(edge => edge.Source == resource.Key))

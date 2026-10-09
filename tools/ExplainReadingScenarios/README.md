@@ -142,9 +142,9 @@ execute a package query or acquire package content.
 
 | Selected reading dataset | Direct JSON | HAL | Reading tasks |
 | --- | ---: | ---: | ---: |
-| All 17 style choices and 4 tier descriptions | 17,578 B | 14,817 B | 7 |
-| All 19 package-query facets and the CLI binding | 14,559 B | 14,940 B | 5 |
-| Literal facet, required target context, and exposing binding | 2,897 B | 2,268 B | 2 |
+| All 17 style choices and 4 tier descriptions | 17,578 B | 14,828 B | 7 |
+| All 19 package-query facets and the CLI binding | 15,757 B | 16,149 B | 5 |
+| Literal facet, required target context, and exposing binding | 4,324 B | 3,188 B | 2 |
 
 Sizes are UTF-8 minified managed Release CLI output including its newline.
 Pretty examples are larger. These are content measurements, not NativeAOT
@@ -181,7 +181,8 @@ dotnet-inspect explain package-query/query .hal --json > facets-hal.json
 literal_href=$(jq -r '._embedded.facets[]
   | select(.summary | contains("string-literal")) | ._links.self.href' facets-hal.json)
 dotnet-inspect explain "$literal_href" --json > literal-hal.json
-jq '{key, value_kind, operators, values, examples, effects, requires}' literal-hal.json
+jq '{data_scope, key, value_kind, operators, values, examples, effects, input_rules, requires,
+  bindings: ._embedded.bindings | map({gesture, input_rules, exposed_facets})}' literal-hal.json
 ```
 
 The response is still HAL. Its `required-context` link names the required
@@ -205,12 +206,19 @@ contract_href=$(jq -r '._links.describedby.href' literal-hal.json)
 dotnet-inspect explain "$contract_href" --json
 ```
 
-The catalog still lacks literal length/cardinality constraints and the `--tfm`
-mapping. Agents must consult the [literal term contract](../../docs/design/package-query-library-literal.md#term-contract)
-before preparing execution. HAL cannot supply facts that have not been
-registered. The demonstration covers navigation without path instructions;
-it does not establish unfamiliar-agent recognition or eliminate interpretive
-cautions. An agent usability evaluation remains necessary for that claim.
+The literal owner now registers its UTF-16 length, preservation, substring
+matching, and repeated-value rules. The literal also registers its
+package-candidate bound. The CLI binding
+registers positional input, `--where`, exact `--tfm` context, paired-input
+requirements, and JSON output.
+These are included in both selected projections. Empty `input_rules` means
+unregistered rules; empty `values` does not establish an unrestricted domain.
+The focused selection provides invocation guidance in one request, with no
+need to fetch the full contract.
+
+The [agent usability trials](usability/README.md) test whether unfamiliar agents
+actually take that efficient path. They retain both successes and unnecessary
+requests rather than treating link resolution as usability evidence.
 
 `selected-style.jq` and `selected-facets.jq` expose the adaptations needed by each
 layout and verify equivalent reading answers. Merely removing `_links` is no

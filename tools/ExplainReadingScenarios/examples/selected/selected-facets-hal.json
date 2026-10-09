@@ -10,7 +10,7 @@
     },
     "describedby": {
       "href": "inspect-resource:/package-query/query?projection=contract",
-      "title": "Schema and observation details",
+      "title": "Explanation schema for client development",
       "type": "application/json"
     }
   },
@@ -43,6 +43,7 @@
         "effects": [
           "AcquisitionTier: search-metadata"
         ],
+        "input_rules": [],
         "values": [],
         "id": "package-query.term.package",
         "requires": []
@@ -69,6 +70,7 @@
         "effects": [
           "AcquisitionTier: search-metadata"
         ],
+        "input_rules": [],
         "values": [],
         "id": "package-query.term.prefix",
         "requires": []
@@ -95,6 +97,7 @@
         "effects": [
           "AcquisitionTier: search-metadata"
         ],
+        "input_rules": [],
         "values": [],
         "id": "package-query.term.ecosystem",
         "requires": []
@@ -121,6 +124,7 @@
         "effects": [
           "AcquisitionTier: search-metadata"
         ],
+        "input_rules": [],
         "values": [
           "stable",
           "include"
@@ -157,6 +161,7 @@
         "effects": [
           "AcquisitionTier: nuspec"
         ],
+        "input_rules": [],
         "values": [
           "none",
           "cross-prefix"
@@ -193,6 +198,7 @@
         "effects": [
           "AcquisitionTier: nuspec"
         ],
+        "input_rules": [],
         "values": [],
         "id": "package-query.term.dependency-target",
         "requires": []
@@ -227,6 +233,7 @@
         "effects": [
           "AcquisitionTier: nuspec"
         ],
+        "input_rules": [],
         "values": [],
         "id": "package-query.term.depends",
         "requires": []
@@ -260,6 +267,7 @@
         "effects": [
           "AcquisitionTier: nuspec"
         ],
+        "input_rules": [],
         "values": [],
         "id": "package-query.term.depends-ecosystem",
         "requires": []
@@ -293,6 +301,7 @@
         "effects": [
           "AcquisitionTier: nuspec"
         ],
+        "input_rules": [],
         "values": [],
         "id": "package-query.term.depends-transitive",
         "requires": []
@@ -326,6 +335,7 @@
         "effects": [
           "AcquisitionTier: nuspec"
         ],
+        "input_rules": [],
         "values": [
           "2",
           "3",
@@ -363,6 +373,7 @@
         "effects": [
           "AcquisitionTier: nuspec"
         ],
+        "input_rules": [],
         "values": [
           "any",
           "MIT",
@@ -400,6 +411,7 @@
         "effects": [
           "AcquisitionTier: search-metadata"
         ],
+        "input_rules": [],
         "values": [
           "10k",
           "100k",
@@ -437,6 +449,7 @@
         "effects": [
           "AcquisitionTier: nuspec"
         ],
+        "input_rules": [],
         "values": [
           "true"
         ],
@@ -472,6 +485,7 @@
         "effects": [
           "AcquisitionTier: nuspec"
         ],
+        "input_rules": [],
         "values": [
           "true"
         ],
@@ -508,6 +522,7 @@
           "AcquisitionTier: package-content",
           "Capability: package-content-provider"
         ],
+        "input_rules": [],
         "values": [
           "v1",
           "v2"
@@ -545,6 +560,7 @@
           "AcquisitionTier: package-content",
           "Capability: package-content-provider"
         ],
+        "input_rules": [],
         "values": [],
         "id": "package-query.term.references",
         "requires": []
@@ -579,6 +595,7 @@
           "AcquisitionTier: package-content",
           "Capability: package-content-provider"
         ],
+        "input_rules": [],
         "values": [
           "true"
         ],
@@ -622,6 +639,14 @@
           "AcquisitionTier: package-content",
           "Capability: package-content-provider"
         ],
+        "input_rules": [
+          "Any decoded UTF-16 text within these constraints is accepted; the empty values list is not an allow list.",
+          "Length: 1..1024 UTF-16 code units.",
+          "Preserve all operand text, including whitespace, newlines, and case; do not normalize.",
+          "Match an ordinal substring of each decoded string-literal use.",
+          "Single distinct operand: identical repeated values collapse; distinct values are incompatible.",
+          "Queries using this facet admit at most five package candidates; an exact package ID admits at most one."
+        ],
         "values": [],
         "id": "package-query.term.library-literal",
         "requires": [
@@ -651,6 +676,7 @@
           "AcquisitionTier: package-content",
           "Capability: package-content-provider"
         ],
+        "input_rules": [],
         "values": [],
         "id": "package-query.term.library-target",
         "requires": []
@@ -742,6 +768,13 @@
         },
         "consumer_kind": "Cli",
         "gesture": "package query",
+        "input_rules": [
+          "Supply a package ID or PREFIX* as the positional argument after package query.",
+          "Supply exposed inspection facets through --where key=value.",
+          "Use --json for structured query result output.",
+          "Supply library-target through --tfm TFM, not --where. Use one exact NuGet target framework.",
+          "library-literal and --tfm require each other; neither is valid alone."
+        ],
         "members": "14",
         "id": "dotnet-inspect.cli/package-query",
         "exposed_facets": [

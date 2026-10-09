@@ -10,7 +10,7 @@
     },
     "describedby": {
       "href": "inspect-resource:/vocabularies/csharp.style-choices?projection=contract",
-      "title": "Schema and observation details",
+      "title": "Explanation schema for client development",
       "type": "application/json"
     },
     "vocabularies": [

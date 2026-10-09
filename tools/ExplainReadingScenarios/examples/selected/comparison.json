@@ -2,7 +2,7 @@
   "style": {
     "bytes_including_newline": {
       "data": 17578,
-      "hal": 14817
+      "hal": 14828
     },
     "answer_bytes": {
       "menu": 4888,
@@ -17,8 +17,8 @@
   },
   "facets": {
     "bytes_including_newline": {
-      "data": 14559,
-      "hal": 14940
+      "data": 15757,
+      "hal": 16149
     },
     "answer_bytes": {
       "discover": 2384,
@@ -31,14 +31,24 @@
   },
   "facet": {
     "bytes_including_newline": {
-      "data": 2897,
-      "hal": 2268
+      "data": 4324,
+      "hal": 3188
     },
     "answer_bytes": {
       "inspect": 238,
       "context": 117
     },
     "tasks_equal_to_independent_specimen": 2
+  },
+  "registered_input_rules": {
+    "operand_rules": 6,
+    "host_rules": 5,
+    "equal_across_projections": true
+  },
+  "query_preparation": {
+    "equal_across_projections": true,
+    "scope_retained": true,
+    "answer_bytes_including_newline": 1430
   },
   "agent_navigation": {
     "authored_destination_paths": 0,

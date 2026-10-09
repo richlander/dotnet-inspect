@@ -74,6 +74,29 @@ for name, path, tasks, variables, prototype, reference_query in [
     report[name] = {"bytes_including_newline": sizes, "answer_bytes": answers,
                     "tasks_equal_to_independent_specimen": len(tasks)}
 
+# Newly registered rules must survive both projections independently of the older probes.
+direct = json.loads((args.output / "selected-facet-data.json").read_text())
+hal = json.loads((args.output / "selected-facet-hal.json").read_text())
+operand = direct["facets"]["library-literal"]["facts"]["input-rules"]
+host = direct["bindings"]["dotnet-inspect.cli/package-query"]["facts"]["input-rules"]
+assert operand == hal["input_rules"]
+assert host == hal["_embedded"]["bindings"][0]["input_rules"]
+assert any("not an allow list" in rule for rule in operand)
+assert any("1..1024 UTF-16" in rule for rule in operand)
+assert any("ordinal substring" in rule for rule in operand)
+assert any("--tfm TFM, not --where" in rule for rule in host)
+assert any("--json" in rule for rule in host)
+report["registered_input_rules"] = {"operand_rules": len(operand), "host_rules": len(host),
+                                    "equal_across_projections": True}
+prepared_direct = jq(direct, HERE / "query-preparation.jq", key="library-literal")
+prepared_hal = jq(hal, HERE / "query-preparation.jq", key="library-literal")
+assert prepared_direct == prepared_hal
+assert prepared_hal["data_scope"]["completeness"] == "Complete"
+(args.output / "query-preparation.json").write_text(json.dumps(prepared_hal, indent=2) + "\n")
+report["query_preparation"] = {"equal_across_projections": True, "scope_retained": True,
+    "answer_bytes_including_newline": len(json.dumps(prepared_hal, separators=(",", ":"), ensure_ascii=False).encode()) + 1}
+
+
 # A HAL-aware client can follow these without understanding our facet/vocabulary layout.
 # This verifies resolution, not a performance improvement or automatic query planning.
 for href in sorted(all_hrefs):

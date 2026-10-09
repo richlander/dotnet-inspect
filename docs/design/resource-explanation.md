@@ -1189,6 +1189,23 @@ remain required before their respective adoption claims are complete.
 
 #### Query meaning and evidence
 
+Owner registrations may carry ordered `input_rules` alongside the facet's
+operators, examples, and effects. Query Operation Infrastructure owns the
+resource-free operand declarations; the operation owner supplies their meaning.
+Consumer bindings separately carry their host-owned lowering rules. Explanation
+projects both without guessing from parser flags or rendered help. Empty rules
+mean that no rules are registered, rather than an unrestricted input domain.
+
+The first witness registers the literal operand's UTF-16 bound, preservation,
+ordinal substring matching, repeated-value behavior, accepted text domain, and
+package-candidate bound. Its CLI binding
+registers the positional package seed, `--where` lowering, exact `--tfm` context,
+paired-input requirement, and JSON output gesture. These rules are
+concise text for agents; they are not a machine validation language. Typed
+constraint records should replace prose only when a demonstrated reading or
+validation task benefits from that structure. Both `.data` and `.hal` retain
+these declarations; HAL's navigation does not supply operand semantics.
+
 A facet response preserves its issued key, operand kind, operators, values,
 examples, effects, and declared relationship targets. Vocabulary navigation
 does not mean the facet accepts all vocabulary terms. An empty values list

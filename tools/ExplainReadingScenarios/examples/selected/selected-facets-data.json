@@ -50,7 +50,8 @@
         ],
         "effects": [
           "AcquisitionTier: search-metadata"
-        ]
+        ],
+        "input-rules": []
       },
       "requires": []
     },
@@ -85,7 +86,8 @@
         ],
         "effects": [
           "AcquisitionTier: search-metadata"
-        ]
+        ],
+        "input-rules": []
       },
       "requires": []
     },
@@ -120,7 +122,8 @@
         ],
         "effects": [
           "AcquisitionTier: search-metadata"
-        ]
+        ],
+        "input-rules": []
       },
       "requires": []
     },
@@ -158,7 +161,8 @@
         ],
         "effects": [
           "AcquisitionTier: search-metadata"
-        ]
+        ],
+        "input-rules": []
       },
       "requires": []
     },
@@ -196,7 +200,8 @@
         ],
         "effects": [
           "AcquisitionTier: nuspec"
-        ]
+        ],
+        "input-rules": []
       },
       "requires": []
     },
@@ -231,7 +236,8 @@
         ],
         "effects": [
           "AcquisitionTier: nuspec"
-        ]
+        ],
+        "input-rules": []
       },
       "requires": []
     },
@@ -267,7 +273,8 @@
         ],
         "effects": [
           "AcquisitionTier: nuspec"
-        ]
+        ],
+        "input-rules": []
       },
       "requires": []
     },
@@ -302,7 +309,8 @@
         ],
         "effects": [
           "AcquisitionTier: nuspec"
-        ]
+        ],
+        "input-rules": []
       },
       "requires": []
     },
@@ -337,7 +345,8 @@
         ],
         "effects": [
           "AcquisitionTier: nuspec"
-        ]
+        ],
+        "input-rules": []
       },
       "requires": []
     },
@@ -376,7 +385,8 @@
         ],
         "effects": [
           "AcquisitionTier: nuspec"
-        ]
+        ],
+        "input-rules": []
       },
       "requires": []
     },
@@ -415,7 +425,8 @@
         ],
         "effects": [
           "AcquisitionTier: nuspec"
-        ]
+        ],
+        "input-rules": []
       },
       "requires": []
     },
@@ -454,7 +465,8 @@
         ],
         "effects": [
           "AcquisitionTier: search-metadata"
-        ]
+        ],
+        "input-rules": []
       },
       "requires": []
     },
@@ -491,7 +503,8 @@
         ],
         "effects": [
           "AcquisitionTier: nuspec"
-        ]
+        ],
+        "input-rules": []
       },
       "requires": []
     },
@@ -528,7 +541,8 @@
         ],
         "effects": [
           "AcquisitionTier: nuspec"
-        ]
+        ],
+        "input-rules": []
       },
       "requires": []
     },
@@ -567,7 +581,8 @@
         "effects": [
           "AcquisitionTier: package-content",
           "Capability: package-content-provider"
-        ]
+        ],
+        "input-rules": []
       },
       "requires": []
     },
@@ -603,7 +618,8 @@
         "effects": [
           "AcquisitionTier: package-content",
           "Capability: package-content-provider"
-        ]
+        ],
+        "input-rules": []
       },
       "requires": []
     },
@@ -641,7 +657,8 @@
         "effects": [
           "AcquisitionTier: package-content",
           "Capability: package-content-provider"
-        ]
+        ],
+        "input-rules": []
       },
       "requires": []
     },
@@ -677,6 +694,14 @@
         "effects": [
           "AcquisitionTier: package-content",
           "Capability: package-content-provider"
+        ],
+        "input-rules": [
+          "Any decoded UTF-16 text within these constraints is accepted; the empty values list is not an allow list.",
+          "Length: 1..1024 UTF-16 code units.",
+          "Preserve all operand text, including whitespace, newlines, and case; do not normalize.",
+          "Match an ordinal substring of each decoded string-literal use.",
+          "Single distinct operand: identical repeated values collapse; distinct values are incompatible.",
+          "Queries using this facet admit at most five package candidates; an exact package ID admits at most one."
         ]
       },
       "requires": [
@@ -715,7 +740,8 @@
         "effects": [
           "AcquisitionTier: package-content",
           "Capability: package-content-provider"
-        ]
+        ],
+        "input-rules": []
       },
       "requires": []
     }
@@ -764,6 +790,13 @@
         "summary": "A production Cli binding for 'Package Query'.",
         "consumer-kind": "Cli",
         "gesture": "package query",
+        "input-rules": [
+          "Supply a package ID or PREFIX* as the positional argument after package query.",
+          "Supply exposed inspection facets through --where key=value.",
+          "Use --json for structured query result output.",
+          "Supply library-target through --tfm TFM, not --where. Use one exact NuGet target framework.",
+          "library-literal and --tfm require each other; neither is valid alone."
+        ],
         "members": "14"
       },
       "exposed_facets": [
