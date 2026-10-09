@@ -121,6 +121,11 @@ foreach (string name in bodyChanged.Where(n => byName.TryGetValue(n, out var s) 
     foreach (IlDiffRow row in example.Diff.Rows.Take(3))
         Console.WriteLine($"    {row.Kind} {row.Message}");
 }
+if (Environment.GetEnvironmentVariable("LIST") == "1")
+{
+    foreach (FastDiffTypeState state in result.Types.Where(s => s.Api != FastDiffState.Unchanged || s.Body != FastDiffState.Unchanged))
+        Console.WriteLine($"  changed\t{state.FullName}\tapi={state.Api}\tbody={state.Body}");
+}
 if (Environment.GetEnvironmentVariable("EXPLAIN") == "1")
 {
     using var explainBefore = new PEReader(new MemoryStream(beforeBytes, writable: false));
