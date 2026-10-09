@@ -1,0 +1,346 @@
+{
+  "format_version": 1,
+  "catalog": "dotnet-inspect.product",
+  "source_snapshot": "sha256:3c526189fbe5ae5f1bb7da3e2578c82c2980d0cd02fc3c040ee591fa1ef6e82d",
+  "vocabularies": {
+    "choices": {
+      "id": "csharp.style-choices",
+      "name": "C# Style Choices",
+      "summary": "Selectable product-owned C# rendering choices.",
+      "properties": [
+        {
+          "identity": {
+            "value": "option"
+          },
+          "displayLabel": "Option",
+          "summary": "Owning style option identity.",
+          "target": {
+            "kind": "scalar",
+            "scalarKind": "Text"
+          },
+          "cardinality": "ExactlyOne",
+          "coverage": "Complete"
+        },
+        {
+          "identity": {
+            "value": "value"
+          },
+          "displayLabel": "Value",
+          "summary": "Selected value token on the owning option axis.",
+          "target": {
+            "kind": "scalar",
+            "scalarKind": "Text"
+          },
+          "cardinality": "ExactlyOne",
+          "coverage": "Complete"
+        },
+        {
+          "identity": {
+            "value": "tier"
+          },
+          "displayLabel": "Tier",
+          "summary": "Owning fidelity/presentation tier.",
+          "target": {
+            "kind": "terms",
+            "reference": {
+              "kind": "local",
+              "vocabulary": {
+                "value": "csharp.style-tiers"
+              }
+            }
+          },
+          "cardinality": "ExactlyOne",
+          "coverage": "Complete"
+        },
+        {
+          "identity": {
+            "value": "byte_divergent"
+          },
+          "displayLabel": "Byte Divergent",
+          "summary": "Whether this choice may change emitted IL bytes.",
+          "target": {
+            "kind": "scalar",
+            "scalarKind": "Boolean"
+          },
+          "cardinality": "ExactlyOne",
+          "coverage": "Complete"
+        },
+        {
+          "identity": {
+            "value": "oracle_endorsed"
+          },
+          "displayLabel": "Oracle Endorsed",
+          "summary": "Whether the declared runtime style oracle endorses this choice.",
+          "target": {
+            "kind": "scalar",
+            "scalarKind": "Boolean"
+          },
+          "cardinality": "ExactlyOne",
+          "coverage": "Complete"
+        },
+        {
+          "identity": {
+            "value": "corpus_endorsed"
+          },
+          "displayLabel": "Corpus Endorsed",
+          "summary": "Whether the runtime source corpus endorses this choice.",
+          "target": {
+            "kind": "scalar",
+            "scalarKind": "Boolean"
+          },
+          "cardinality": "ExactlyOne",
+          "coverage": "Complete"
+        },
+        {
+          "identity": {
+            "value": "conflict_group"
+          },
+          "displayLabel": "Conflict Group",
+          "summary": "Product-owned mutually-exclusive selection group.",
+          "target": {
+            "kind": "scalar",
+            "scalarKind": "Text"
+          },
+          "cardinality": "OptionalOne",
+          "coverage": "Complete"
+        }
+      ]
+    },
+    "tiers": {
+      "id": "csharp.style-tiers",
+      "name": "C# Style Tiers",
+      "summary": "Fidelity and presentation tiers used to group C# style choices.",
+      "properties": [
+        {
+          "identity": {
+            "value": "order"
+          },
+          "displayLabel": "Order",
+          "summary": "Product-owned presentation order.",
+          "target": {
+            "kind": "scalar",
+            "scalarKind": "Integer"
+          },
+          "cardinality": "ExactlyOne",
+          "coverage": "Complete"
+        },
+        {
+          "identity": {
+            "value": "byte_divergent"
+          },
+          "displayLabel": "Byte Divergent",
+          "summary": "Whether every choice in the tier may change emitted IL bytes.",
+          "target": {
+            "kind": "scalar",
+            "scalarKind": "Boolean"
+          },
+          "cardinality": "ExactlyOne",
+          "coverage": "Complete"
+        }
+      ]
+    }
+  },
+  "selection": {
+    "populations": [
+      "choices",
+      "tiers"
+    ],
+    "completeness": "Complete"
+  },
+  "choices": [
+    {
+      "id": "slot-local-names",
+      "name": "Use IL slot local names",
+      "summary": "Keep V_index for a local that has no PDB source name instead of synthesizing a readable name.",
+      "option": "slot-local-names",
+      "value": "true",
+      "tier": "Synthesis"
+    },
+    {
+      "id": "approximate-pdb-local-names",
+      "name": "Prefer approximate PDB local names",
+      "summary": "When exact scoped identity cannot be represented, use a deterministic collision-resolved name associated with the physical PDB slot; fidelity remains Partial.",
+      "option": "approximate-pdb-local-names",
+      "value": "true",
+      "tier": "Synthesis"
+    },
+    {
+      "id": "wrap-splittable-expressions",
+      "name": "Wrap long boolean chains",
+      "summary": "Break a long short-circuit &&/|| chain across lines instead of one very wide line (whitespace only).",
+      "option": "wrap-splittable-expressions",
+      "value": "true",
+      "tier": "Formatting"
+    },
+    {
+      "id": "disable-one-liner-wrapping",
+      "name": "Keep one-liners on one line",
+      "summary": "Suppress the always-on width wrappers (long fluent chains and long member signatures) so a wide construct stays on a single physical line instead of wrapping (whitespace only).",
+      "option": "disable-one-liner-wrapping",
+      "value": "true",
+      "tier": "Formatting"
+    },
+    {
+      "id": "wrap-expression-body-arrow",
+      "name": "Wrap expression-body arrow",
+      "summary": "Wrap the => of an expression-bodied member or accessor onto the next line instead of keeping it on the declaration line (whitespace only).",
+      "option": "wrap-expression-body-arrow",
+      "value": "true",
+      "tier": "Formatting"
+    },
+    {
+      "id": "qualify-field-access",
+      "name": "Qualify field access with this.",
+      "summary": "Render this. on an instance field even where the bare name is unambiguous (IL-identical).",
+      "option": "qualify-field-access",
+      "value": "true",
+      "tier": "Spelling"
+    },
+    {
+      "id": "qualify-property-access",
+      "name": "Qualify property access with this.",
+      "summary": "Render this. on an instance property even where the bare name is unambiguous (IL-identical).",
+      "option": "qualify-property-access",
+      "value": "true",
+      "tier": "Spelling"
+    },
+    {
+      "id": "qualify-method-access",
+      "name": "Qualify method access with this.",
+      "summary": "Render this. on an instance method call even where the bare name is unambiguous (IL-identical).",
+      "option": "qualify-method-access",
+      "value": "true",
+      "tier": "Spelling"
+    },
+    {
+      "id": "qualify-event-access",
+      "name": "Qualify event access with this.",
+      "summary": "Render this. on an instance event even where the bare name is unambiguous (IL-identical).",
+      "option": "qualify-event-access",
+      "value": "true",
+      "tier": "Spelling"
+    },
+    {
+      "id": "guarded-boolean-return-style:conditional-expression",
+      "name": "Guarded boolean return style · Conditional expression (ternary)",
+      "summary": "How to render a declined guarded boolean return: the byte-faithful flat if/return (default), the oracle-preferred ternary return c ? A : B; (byte-divergent), or the compact short-circuit \"bool hack\" (byte-divergent, not oracle-endorsed).",
+      "option": "guarded-boolean-return-style",
+      "value": "conditional-expression",
+      "tier": "Lens"
+    },
+    {
+      "id": "guarded-boolean-return-style:branchless",
+      "name": "Guarded boolean return style · Branchless \"bool hack\"",
+      "summary": "How to render a declined guarded boolean return: the byte-faithful flat if/return (default), the oracle-preferred ternary return c ? A : B; (byte-divergent), or the compact short-circuit \"bool hack\" (byte-divergent, not oracle-endorsed).",
+      "option": "guarded-boolean-return-style",
+      "value": "branchless",
+      "tier": "Lens"
+    },
+    {
+      "id": "var-spelling-style:var-for-built-in-types",
+      "name": "var vs. explicit type · var for built-in types",
+      "summary": "When to spell a local declaration with var instead of its explicit type: never (explicit, the default), for built-in types, when the type is apparent from the initializer, and/or elsewhere. Byte-neutral; the three var categories are independent, matching the csharp_style_var_* editorconfig keys.",
+      "option": "var-spelling-style",
+      "value": "var-for-built-in-types",
+      "tier": "Spelling"
+    },
+    {
+      "id": "var-spelling-style:var-when-type-apparent",
+      "name": "var vs. explicit type · var when the type is apparent",
+      "summary": "When to spell a local declaration with var instead of its explicit type: never (explicit, the default), for built-in types, when the type is apparent from the initializer, and/or elsewhere. Byte-neutral; the three var categories are independent, matching the csharp_style_var_* editorconfig keys.",
+      "option": "var-spelling-style",
+      "value": "var-when-type-apparent",
+      "tier": "Spelling"
+    },
+    {
+      "id": "var-spelling-style:var-elsewhere",
+      "name": "var vs. explicit type · var elsewhere",
+      "summary": "When to spell a local declaration with var instead of its explicit type: never (explicit, the default), for built-in types, when the type is apparent from the initializer, and/or elsewhere. Byte-neutral; the three var categories are independent, matching the csharp_style_var_* editorconfig keys.",
+      "option": "var-spelling-style",
+      "value": "var-elsewhere",
+      "tier": "Spelling"
+    },
+    {
+      "id": "explicit-object-creation",
+      "name": "Use explicit object creation",
+      "summary": "Keep the constructed type in new T(...) instead of shortening to target-typed new(...) where the assignment target already supplies it.",
+      "option": "object-creation-style",
+      "value": "explicit",
+      "tier": "Spelling"
+    },
+    {
+      "id": "enum-case-label-order",
+      "name": "Shared enum case-label order",
+      "summary": "Order named enum labels that share one switch body alphabetically (default) or by recovered numeric value. Byte-neutral; mixed or unnamed labels keep value order.",
+      "option": "enum-case-label-order",
+      "value": "value",
+      "tier": "Spelling"
+    },
+    {
+      "id": "explicit-long-literal-cast",
+      "name": "Use explicit long literal casts",
+      "summary": "Render compiler-shaped long constants as explicit (long)N casts instead of the default terse spelling: NL when a marker is required, or bare N when a binary sibling fixes long promotion. Genuine ldc.i8 sources keep their current spelling.",
+      "option": "prefer-long-literal-suffix",
+      "value": "false",
+      "tier": "Spelling"
+    }
+  ],
+  "tiers": {
+    "Formatting": {
+      "id": "Formatting",
+      "name": "Formatting",
+      "summary": "Layout only — whitespace and line breaks. The code itself is unchanged, and compiles to identical IL.",
+      "order": 1
+    },
+    "Spelling": {
+      "id": "Spelling",
+      "name": "Spelling",
+      "summary": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "order": 2
+    },
+    "Synthesis": {
+      "id": "Synthesis",
+      "name": "Local naming",
+      "summary": "Readable or approximate display names for locals. Compiles to identical IL, but the selected names may not represent exact source identity.",
+      "order": 3
+    },
+    "Lens": {
+      "id": "Lens",
+      "name": "Style lenses",
+      "summary": "Keeps what the code does, but not the exact bytes: this rendering recompiles to different IL than the shipped output, so it is excluded from byte-level fidelity checking.",
+      "order": 4
+    }
+  },
+  "choice_sets": {
+    "byte_divergent": [
+      "guarded-boolean-return-style:conditional-expression",
+      "guarded-boolean-return-style:branchless"
+    ],
+    "oracle_endorsed": [
+      "qualify-field-access",
+      "qualify-property-access",
+      "qualify-method-access",
+      "qualify-event-access",
+      "guarded-boolean-return-style:conditional-expression"
+    ],
+    "corpus_endorsed": [
+      "wrap-splittable-expressions"
+    ]
+  },
+  "tier_sets": {
+    "byte_divergent": [
+      "Lens"
+    ]
+  },
+  "conflict_groups": {
+    "guarded-boolean-return-style": [
+      "guarded-boolean-return-style:conditional-expression",
+      "guarded-boolean-return-style:branchless"
+    ],
+    "var-spelling-style": [
+      "var-spelling-style:var-for-built-in-types",
+      "var-spelling-style:var-when-type-apparent",
+      "var-spelling-style:var-elsewhere"
+    ]
+  }
+}

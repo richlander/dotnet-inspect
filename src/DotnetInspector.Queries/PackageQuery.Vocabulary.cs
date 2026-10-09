@@ -43,6 +43,8 @@ public sealed record PackageQueryTermDescriptor(
     PackageQueryTermRole Role,
     PackageQueryTermControlKind ControlKind)
 {
+    public ImmutableArray<string> InputRules { get; init; } = [];
+
     public ImmutableArray<PackageQueryTermOptionDescriptor> Options { get; init; } = [];
     public string? SelectionGroupId { get; init; }
     public bool CombinesWithinSelectionGroup { get; init; }
