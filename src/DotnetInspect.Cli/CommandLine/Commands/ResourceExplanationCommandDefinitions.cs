@@ -23,14 +23,14 @@ public static class ResourceExplanationCommandDefinitions
         };
         var projectionArgument = new Argument<string?>("projection")
         {
-            Description = ".contract selects the complete self-contained explanation contract",
+            Description = ".data selects a self-contained reading dataset; .hal adds HAL navigation; .contract selects declarations",
             Arity = ArgumentArity.ZeroOrOne,
         };
         projectionArgument.Validators.Add(result =>
         {
             string? projection = result.GetValue(projectionArgument);
-            if (projection is not null && projection != ".contract")
-                result.AddError("The supported exact explanation projection is .contract.");
+            if (projection is not null && projection is not (".contract" or ".data" or ".hal"))
+                result.AddError("Supported exact explanation projections are .contract, .data, and .hal.");
         });
         var depthOption = new Option<int>("--depth")
         {
@@ -68,7 +68,9 @@ public static class ResourceExplanationCommandDefinitions
                 parseResult.GetValue(opts.Envelope),
                 parseResult.GetValue(opts.NoHeaders),
                 parseResult.GetValue(outputPathOption),
-                parseResult.GetValue(projectionArgument) == ".contract"));
+                parseResult.GetValue(projectionArgument) == ".contract",
+                parseResult.GetValue(projectionArgument) is ".data" or ".hal"
+                    ? parseResult.GetValue(projectionArgument) : null));
         return command;
     }
 }

@@ -1,0 +1,143 @@
+{
+  "format_version": 1,
+  "selection": {
+    "kind": "query-facets",
+    "completeness": "Complete"
+  },
+  "identity": {
+    "owner": "query-space",
+    "schema": "installed",
+    "type": "query-facet",
+    "value": "10:QueryFacet34:package-query.term.library-literal28:package-query/query-space/v1"
+  },
+  "path": "package-query/query/facets/library-literal",
+  "facts": {
+    "identity": "package-query.term.library-literal",
+    "key": "library-literal",
+    "name": "library literal",
+    "summary": "Downloads the package and matches decoded string-literal uses across the selected implementation libraries.",
+    "operators": [
+      "eq"
+    ],
+    "value-kind": "decoded UTF-16 text",
+    "values": [],
+    "examples": [
+      "https://"
+    ],
+    "effects": [
+      "AcquisitionTier: package-content",
+      "Capability: package-content-provider"
+    ]
+  },
+  "fact_states": {},
+  "facets": {
+    "library-literal": {
+      "identity": {
+        "owner": "query-space",
+        "schema": "installed",
+        "type": "query-facet",
+        "value": "10:QueryFacet34:package-query.term.library-literal28:package-query/query-space/v1"
+      },
+      "addresses": [
+        {
+          "owner": "resource-explanation",
+          "schema": "installed",
+          "kind": "resource-path",
+          "value": "package-query/query/facets/library-literal"
+        }
+      ],
+      "fact_states": {},
+      "facts": {
+        "identity": "package-query.term.library-literal",
+        "key": "library-literal",
+        "name": "library literal",
+        "summary": "Downloads the package and matches decoded string-literal uses across the selected implementation libraries.",
+        "operators": [
+          "eq"
+        ],
+        "value-kind": "decoded UTF-16 text",
+        "values": [],
+        "examples": [
+          "https://"
+        ],
+        "effects": [
+          "AcquisitionTier: package-content",
+          "Capability: package-content-provider"
+        ]
+      },
+      "requires": [
+        "library-target"
+      ]
+    },
+    "library-target": {
+      "identity": {
+        "owner": "query-space",
+        "schema": "installed",
+        "type": "query-facet",
+        "value": "10:QueryFacet33:package-query.term.library-target28:package-query/query-space/v1"
+      },
+      "addresses": [
+        {
+          "owner": "resource-explanation",
+          "schema": "installed",
+          "kind": "resource-path",
+          "value": "package-query/query/facets/library-target"
+        }
+      ],
+      "fact_states": {},
+      "facts": {
+        "identity": "package-query.term.library-target",
+        "key": "library-target",
+        "name": "library target",
+        "summary": "Records the exact target framework used to select the implementation libraries.",
+        "operators": [
+          "eq"
+        ],
+        "value-kind": "NuGet target framework",
+        "values": [],
+        "examples": [
+          "net10.0"
+        ],
+        "effects": [
+          "AcquisitionTier: package-content",
+          "Capability: package-content-provider"
+        ]
+      },
+      "requires": []
+    }
+  },
+  "facet_order": [
+    "library-literal",
+    "library-target"
+  ],
+  "bindings": {
+    "dotnet-inspect.cli/package-query": {
+      "identity": {
+        "owner": "consumer",
+        "schema": "installed",
+        "type": "consumer-binding",
+        "value": "15:ConsumerBinding32:dotnet-inspect.cli/package-query-1:"
+      },
+      "addresses": [
+        {
+          "owner": "resource-explanation",
+          "schema": "installed",
+          "kind": "resource-path",
+          "value": "package-query/bindings/cli"
+        }
+      ],
+      "fact_states": {},
+      "facts": {
+        "identity": "dotnet-inspect.cli/package-query",
+        "name": "dotnet-inspect CLI",
+        "summary": "A production Cli binding for 'Package Query'.",
+        "consumer-kind": "Cli",
+        "gesture": "package query",
+        "members": "14"
+      },
+      "exposed_facets": [
+        "library-literal"
+      ]
+    }
+  }
+}

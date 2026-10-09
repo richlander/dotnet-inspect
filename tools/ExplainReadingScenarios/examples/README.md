@@ -2,7 +2,8 @@
 
 These checked-in JSON examples are pretty-printed so the data model can be
 read directly. They are proposed shapes derived from actual product data,
-not JSON emitted by an implemented selection. The byte comparisons in the
+not JSON emitted by an implemented selection. The [selected/](selected/)
+subdirectory separately contains actual `.data` and `.hal` CLI output. The byte comparisons in the
 parent documents use minified JSON; these files intentionally use indentation.
 
 | Example | What to inspect |

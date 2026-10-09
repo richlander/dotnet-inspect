@@ -2706,3 +2706,24 @@ with its schema declarations. It requires an exact resource and `--json`.
 HAL links use `inspect-resource:/<resource-path>` addresses; pass a returned
 `href` unchanged to `explain` to follow it. These addresses resolve locally,
 without HTTP access. Human explanation and capability search are unchanged.
+
+For vocabulary, query-space, and query-facet roots, `.data --json` selects a
+self-contained reading dataset rather than a graph depth. Vocabulary data
+includes referenced vocabularies, direct value properties, complete positive
+boolean sets, and optional-text membership groups. Facet data includes required
+context and exposing bindings; `exposed_facets` is the binding's intersection
+with the selected facets, not its entire term population.
+
+```bash
+dotnet-inspect explain vocabularies/csharp.style-choices .data --json
+dotnet-inspect explain package-query/query .data --json
+dotnet-inspect explain package-query/query/facets/library-literal .hal --json
+```
+
+`.hal` adds qualified relationship links to the same reading dataset. Both
+selections require `--json` and reject `--depth` and search operands. Selection
+closure is bounded to 256 resources and 4,096 observed targets; excess or
+incomplete selected observations fail visibly instead of producing sparse tables
+with ambiguous negatives. Neither selection supplies validation rules or host
+flag mappings that the catalog has not registered. The [worked reading comparison](../tools/ExplainReadingScenarios/README.md#actual-selected-data-comparison)
+includes runnable jq exploration and actual JSON examples.

@@ -11,7 +11,8 @@ style shapes and read the complete facet document without running the tools.
 Normative owner: [Resource Explanation](../../docs/design/resource-explanation.md#query-meaning-and-evidence).
 Claim: representative reading tasks must expose traversal complexity, answer
 size, total retrieved bytes, and extra requests before a lowering earns its
-agent-readability claim. These probes propose no new product selection gesture.
+agent-readability claim. The original probes retain their comparison gestures; the selected-data
+comparison below exercises explicit `.data` and `.hal` selections.
 
 ## Run
 
@@ -118,3 +119,88 @@ candidate: bare `--explain`, `.tips`, and `.reference`. All currently fail with
 query yet. Do not replace this gap with invented successful examples or use it
 as evidence that tips or references are small. Admission and bounded gestures
 remain owned by [Contextual Resource Explanation](../../docs/design/contextual-resource-explanation.md).
+
+## Actual selected-data comparison
+
+The shared assembler now emits the selected data directly from the validated
+catalog. These [actual CLI specimens](examples/selected/) are separate from the
+smaller design prototypes. Typed identities, source addresses, observation
+states, and full property declarations explain the remaining size difference.
+The assembler uses declared maps; it does not hardcode style flags or tiers.
+
+```bash
+python3 tools/ExplainReadingScenarios/compare-selected.py \
+  --cli artifacts/bin/dotnet-inspect/release/dotnet-inspect \
+  --output /tmp/explain-selected-comparison
+```
+
+For managed apphosts, set `DOTNET_ROOT` to the repository SDK directory. The
+comparison captures fresh production-shaped output, checks all 14 reading tasks
+in both formats against the independent specimens, strips HAL links to prove
+state equality, and follows every unique HAL link through the CLI. It does not
+execute a package query or acquire package content.
+
+| Selected reading dataset | Direct JSON | HAL | Reading tasks |
+| --- | ---: | ---: | ---: |
+| All 17 style choices and 4 tier descriptions | 17,578 B | 27,360 B | 7 |
+| All 19 package-query facets and the CLI binding | 14,559 B | 20,730 B | 5 |
+| Literal facet, required target context, and exposing binding | 2,897 B | 3,962 B | 2 |
+
+Sizes are UTF-8 bytes of minified managed Release CLI output, including its final
+newline. Pretty checked-in examples are larger. These are content measurements,
+not NativeAOT timing evidence. The prototype's 9,918 B style model omits typed
+resource metadata that this first implementation preserves. Further reduction
+should justify sharing that metadata rather than quietly dropping its meaning.
+
+All reading answers are identical. HAL adds 9,782 B to the style dataset and
+6,171 B to the complete facet dataset. Its demonstrated benefit is navigation:
+a HAL-aware client recognizes `self` and relation links without knowing where
+our vocabulary or facet records live. All 44 unique links resolve unchanged.
+That benefit does not simplify the data-reading jq queries or make the document
+smaller. This evidence supports direct JSON independently; it does not establish
+HAL as the preferred default.
+
+### Worked facet exploration
+
+An agent can discover the 14 terms the CLI actually exposes from a single local
+dataset. Five other catalog facets are not automatically CLI query terms.
+
+```bash
+dotnet-inspect explain package-query/query .data --json > facets.json
+jq --arg task discover --arg key library-literal \
+  -f tools/ExplainReadingScenarios/selected-facets.jq facets.json
+jq --arg task find-literal --arg key library-literal \
+  -f tools/ExplainReadingScenarios/selected-facets.jq facets.json
+```
+
+After identifying `library-literal`, an agent can retrieve just that facet,
+its required context, and the binding that exposes it:
+
+```bash
+dotnet-inspect explain package-query/query/facets/library-literal \
+  .data --json > literal.json
+jq --arg task inspect --arg key library-literal \
+  -f tools/ExplainReadingScenarios/selected-facets.jq literal.json
+jq --arg task context --arg key library-literal \
+  -f tools/ExplainReadingScenarios/selected-facets.jq literal.json
+```
+
+The context answer names `library-target` and reports
+`exposed_as_query_term: false`. It therefore does not suggest placing
+`library-target` in `--where`. The current catalog still does not issue the
+literal length/cardinality constraints or the `--tfm` mapping. An agent must
+consult the [literal term contract](../../docs/design/package-query-library-literal.md#term-contract)
+before constructing that invocation; neither representation fills that gap.
+
+To use HAL, substitute `.hal`. The same jq filters work. A HAL client can also
+read links without knowing the document's application layout:
+
+```bash
+jq '[.. | objects | ._links? // empty | to_entries[]
+  | {relation: .key, links: .value}]' literal-hal.json
+```
+
+Custom relation names are absolute URNs carrying schema owner, schema, resource
+type, and relationship identity. Links point to the existing resource
+explanation address; following one requests resource details. They do not imply
+that query execution, validation constraints, or a selected dataset is present.

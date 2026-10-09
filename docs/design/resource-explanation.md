@@ -988,6 +988,27 @@ retain selected observation outcomes and completeness, and demonstrate the
 same data-first reasoning for the other adopted resource families. Only then
 should host selection and HAL binding determine the final wire presentation.
 
+#### Selected-data implementation
+
+Exact vocabulary roots and query-space or query-facet roots admit explicit
+`.data --json` and `.hal --json` selections. They assemble a bounded local
+dataset from the validated catalog rather than using graph depth as a data
+selection. Vocabulary datasets include their values and declared target
+vocabularies. Facet datasets include required-context closure and the host
+bindings that expose selected facets. Sparse tables are used only for complete,
+available observations; unsupported or incomplete selected data fails visibly.
+Identity, source addresses, property declarations, and order remain available.
+Closure admits at most 256 resources and 4,096 observed targets. Binding
+exposure lists contain only selected facets; their original total member count
+remains in binding facts.
+These selections do not claim that unregistered validation rules are present.
+
+The HAL representation uses the same selected content and adds host-bound links
+under qualified owner-issued relationship names. It does not duplicate that
+content in a second embedded inventory. Compare identical data-reading tasks
+and the added navigation task; HAL's extra structure must earn its cost.
+Existing default output and explicit `.contract` remain the comparison surfaces.
+
 ### Compact resource projection contract
 
 Status: **proposed; not implemented**. This is slice 2 of

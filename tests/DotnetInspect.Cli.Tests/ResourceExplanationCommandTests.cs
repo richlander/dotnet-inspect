@@ -23,6 +23,88 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task SelectedStyleData_ClosesTierReferencesAndUsesCompleteMembershipTables()
+    {
+        var result = await RunAsync("explain", "vocabularies/csharp.style-choices", ".data", "--json");
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement vocabularies = document.RootElement.GetProperty("vocabularies");
+        JsonElement choices = vocabularies.GetProperty("csharp.style-choices");
+        Assert.Equal(17, choices.GetProperty("values").GetArrayLength());
+        Assert.Equal(4, vocabularies.GetProperty("csharp.style-tiers").GetProperty("values").GetArrayLength());
+        JsonElement sets = choices.GetProperty("property_sets");
+        Assert.Equal(2, sets.GetProperty("byte_divergent").GetArrayLength());
+        Assert.Equal(5, sets.GetProperty("oracle_endorsed").GetArrayLength());
+        Assert.Single(sets.GetProperty("corpus_endorsed").EnumerateArray());
+        Assert.Equal(2, choices.GetProperty("property_groups").GetProperty("conflict_group").EnumerateObject().Count());
+        foreach (JsonElement choice in choices.GetProperty("values").EnumerateArray())
+        {
+            Assert.False(choice.TryGetProperty("byte_divergent", out _));
+            Assert.False(choice.TryGetProperty("conflict_group", out _));
+        }
+    }
+
+    [Fact]
+    public async Task SelectedFacetData_DistinguishesRequiredContextFromExposedTerms()
+    {
+        var result = await RunAsync("explain", "package-query/query/facets/library-literal", ".data", "--json");
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement;
+        Assert.Equal(2, root.GetProperty("facets").EnumerateObject().Count());
+        Assert.Equal("library-target", root.GetProperty("facets").GetProperty("library-literal")
+            .GetProperty("requires")[0].GetString());
+        JsonElement exposed = root.GetProperty("bindings").GetProperty("dotnet-inspect.cli/package-query")
+            .GetProperty("exposed_facets");
+        Assert.Equal(["library-literal"], exposed.EnumerateArray().Select(value => value.GetString()).ToArray());
+        Assert.DoesNotContain(exposed.EnumerateArray(), value => value.GetString() == "library-target");
+    }
+
+    [Theory]
+    [InlineData("vocabularies/csharp.style-choices")]
+    [InlineData("package-query/query")]
+    public async Task SelectedHal_PreservesDirectDataAndAddsFollowableQualifiedRelations(string path)
+    {
+        var direct = await RunAsync("explain", path, ".data", "--json");
+        var hal = await RunAsync("explain", path, ".hal", "--json");
+        Assert.Equal(0, direct.ExitCode);
+        Assert.Equal(0, hal.ExitCode);
+        var plain = System.Text.Json.Nodes.JsonNode.Parse(direct.Output)!;
+        var linked = System.Text.Json.Nodes.JsonNode.Parse(hal.Output)!;
+        var links = linked["_links"]!.AsObject();
+        Assert.Contains(links, pair => pair.Key.StartsWith("urn:dotnet-inspect:relation:", StringComparison.Ordinal));
+        string href = links["self"]!["href"]!.GetValue<string>();
+        Assert.Equal(0, (await RunAsync("explain", href, "--json")).ExitCode);
+        RemoveLinks(linked);
+        Assert.True(System.Text.Json.Nodes.JsonNode.DeepEquals(plain, linked));
+
+        static void RemoveLinks(System.Text.Json.Nodes.JsonNode node)
+        {
+            if (node is System.Text.Json.Nodes.JsonObject obj)
+            {
+                obj.Remove("_links");
+                foreach (var child in obj.Select(pair => pair.Value).OfType<System.Text.Json.Nodes.JsonNode>())
+                    RemoveLinks(child);
+            }
+            else if (node is System.Text.Json.Nodes.JsonArray array)
+                foreach (var child in array.OfType<System.Text.Json.Nodes.JsonNode>())
+                    RemoveLinks(child);
+        }
+    }
+
+    [Theory]
+    [InlineData("explain", "vocabularies/csharp.style-choices", ".data", "--depth", "1", "--json")]
+    [InlineData("explain", "library", ".data", "--json")]
+    [InlineData("explain", "literal", ".hal", "--json")]
+    [InlineData("explain", "package-query/query", ".data")]
+    public async Task SelectedData_RejectsUnsupportedSelections(params string[] arguments)
+    {
+        var result = await RunAsync(arguments);
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.False(string.IsNullOrWhiteSpace(result.Error));
+    }
+
+    [Fact]
     public async Task Explain_PackageSection_ReportsDeclaredShapeAndCardinality()
     {
         // Package structural sections are explainable with the shape and

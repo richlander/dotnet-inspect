@@ -1,0 +1,46 @@
+{
+  "style": {
+    "bytes_including_newline": {
+      "data": 17578,
+      "hal": 27360
+    },
+    "answer_bytes": {
+      "menu": 4888,
+      "safe": 1536,
+      "conflicts": 316,
+      "tier": 385,
+      "known-choice": 207,
+      "grouped-menu": 5541,
+      "endorsed": 203
+    },
+    "tasks_equal_to_independent_specimen": 7
+  },
+  "facets": {
+    "bytes_including_newline": {
+      "data": 14559,
+      "hal": 20730
+    },
+    "answer_bytes": {
+      "discover": 2384,
+      "find-literal": 233,
+      "inspect": 238,
+      "context": 117,
+      "closed-values": 109
+    },
+    "tasks_equal_to_independent_specimen": 5
+  },
+  "facet": {
+    "bytes_including_newline": {
+      "data": 2897,
+      "hal": 3962
+    },
+    "answer_bytes": {
+      "inspect": 238,
+      "context": 117
+    },
+    "tasks_equal_to_independent_specimen": 2
+  },
+  "navigation": {
+    "unique_hal_links_followed": 44
+  }
+}

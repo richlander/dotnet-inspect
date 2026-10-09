@@ -21,11 +21,17 @@ public static class ResourceExplanationCommand
         bool envelopeOutput,
         bool noHeaders,
         string? outputPath,
-        bool contract = false)
+        bool contract = false,
+        string? selection = null)
     {
-        if (contract && format != OutputFormat.Json)
+        if ((contract || selection is not null) && format != OutputFormat.Json)
         {
-            CommandError.Write(".contract requires --json.");
+            CommandError.Write(contract ? ".contract requires --json." : "Explanation data selections require --json.");
+            return 1;
+        }
+        if (selection is not null && depthExplicitlySet)
+        {
+            CommandError.Write("Selected data closes over its reading dataset; --depth does not apply.");
             return 1;
         }
         const string resourcePrefix = "inspect-resource:/";
@@ -74,7 +80,7 @@ public static class ResourceExplanationCommand
                     format,
                     envelopeOutput,
                     outputPath,
-                    contract);
+                    contract, selection);
             }
 
             if (rootCatalog is not null)
@@ -87,7 +93,7 @@ public static class ResourceExplanationCommand
                     format,
                     envelopeOutput,
                     outputPath,
-                    contract);
+                    contract, selection);
             }
 
             ResourceExplanationCatalog? exactCatalog = root switch
@@ -111,7 +117,7 @@ public static class ResourceExplanationCommand
                     format,
                     envelopeOutput,
                     outputPath,
-                    contract);
+                    contract, selection);
             }
 
             if (canonicalPath.Value.Contains('/'))
@@ -123,9 +129,9 @@ public static class ResourceExplanationCommand
         if (resourceAddress)
             return WriteCompleteResolutionFailure(normalizedOperand);
 
-        if (contract)
+        if (contract || selection is not null)
         {
-            CommandError.Write(".contract applies only to exact Resource Explanation paths.");
+            CommandError.Write("Data and contract selections apply only to exact Resource Explanation paths.");
             return 1;
         }
 
@@ -316,7 +322,8 @@ public static class ResourceExplanationCommand
         OutputFormat format,
         bool envelopeOutput,
         string? outputPath,
-        bool contract)
+        bool contract,
+        string? selection)
     {
         if (!catalog.TryResolveExact(
                 path,
@@ -339,7 +346,7 @@ public static class ResourceExplanationCommand
             format,
             envelopeOutput,
             outputPath,
-            contract);
+            contract, selection);
     }
 
     private static int WriteCompleteResolutionFailure(string path)
@@ -367,7 +374,8 @@ public static class ResourceExplanationCommand
         OutputFormat format,
         bool envelopeOutput,
         string? outputPath,
-        bool contract)
+        bool contract,
+        string? selection)
     {
         if (envelopeOutput
             || format is not (
@@ -381,6 +389,23 @@ public static class ResourceExplanationCommand
             return 1;
         }
 
+        if (selection is not null)
+        {
+            try
+            {
+                ResourceExplanationDataset dataset = ResourceExplanationDataset.Create(catalog, resolution);
+                JsonElement data = dataset.ToJson(static path => "inspect-resource:/" + path.Value,
+                    hal: selection == ".hal");
+                OutputDestination.Write(outputPath, rowWindow: null,
+                    output => output.WriteLine(data.GetRawText()));
+                return 0;
+            }
+            catch (InvalidOperationException exception)
+            {
+                CommandError.Write(exception.Message);
+                return 1;
+            }
+        }
         InspectionEnvelope<ResourceExplanationDocument> explanation =
             catalog.Explain(
                 resolution,

@@ -21,27 +21,49 @@ public static class ResourceExplanationDataProjection
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
         {
-            var projection = new Projection(document, bindAddress, writer);
+            var projection = new Projection(document.Schemas, document.Relationships,
+                document, bindAddress, writer);
             projection.WriteResource(document.Resources[0]);
         }
         using JsonDocument result = JsonDocument.Parse(stream.ToArray());
         return result.RootElement.Clone();
     }
 
+    internal static ImmutableArray<JsonElement> CreateResources(
+        ResourceExplanationCatalog catalog,
+        IEnumerable<ResourceExplanationResource> resources,
+        Func<ResourcePath, string> bindAddress)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            var projection = new Projection(catalog.Schemas, catalog.Relationships,
+                null, bindAddress, writer);
+            writer.WriteStartArray();
+            foreach (ResourceExplanationResource resource in resources)
+                projection.WriteResource(resource);
+            writer.WriteEndArray();
+        }
+        using JsonDocument result = JsonDocument.Parse(stream.ToArray());
+        return [.. result.RootElement.EnumerateArray().Select(value => value.Clone())];
+    }
+
     private sealed class Projection(
-        ResourceExplanationDocument document,
+        ImmutableArray<ExplanationSchema> schemas,
+        ImmutableArray<ResourceExplanationRelationship> relationships,
+        ResourceExplanationDocument? document,
         Func<ResourcePath, string> bindAddress,
         Utf8JsonWriter writer)
     {
         private readonly Dictionary<ExplanationFactIdentity, ExplanationFactDeclaration> _facts =
-            document.Schemas.SelectMany(schema => schema.ResourceTypes)
+            schemas.SelectMany(schema => schema.ResourceTypes)
                 .SelectMany(type => type.Facts).ToDictionary(fact => fact.Identity);
         private readonly Dictionary<ExplanationFieldIdentity, ExplanationRecordFieldDeclaration> _fields =
-            document.Schemas.SelectMany(schema => schema.DataShapes)
+            schemas.SelectMany(schema => schema.DataShapes)
                 .OfType<ExplanationDataShapeDeclaration.Record>()
                 .SelectMany(shape => shape.Fields).ToDictionary(field => field.Identity);
         private readonly ILookup<ExplanationResourceKey, ResourceExplanationRelationship> _relationships =
-            document.Relationships.ToLookup(relationship => relationship.Source);
+            relationships.ToLookup(relationship => relationship.Source);
 
         public void WriteResource(ResourceExplanationResource resource)
         {
@@ -120,7 +142,7 @@ public static class ResourceExplanationDataProjection
             }
             writer.WriteEndObject();
             WriteAddresses(resource.Addresses);
-            if (resource.Key == document.Root)
+            if (document is not null && resource.Key == document.Root)
             {
                 writer.WritePropertyName("traversal");
                 // The existing receipt is small and preserves all traversal bounds.
