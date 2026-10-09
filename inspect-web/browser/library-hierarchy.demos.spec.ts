@@ -630,9 +630,9 @@ test("Package navigation retains the shared System.Text.Json packet and Workspac
   };
   await installFacades(page, jsonSurface);
   await page.goto(`/?package=System.Text.Json&version=${platformVersion}&framework=netstandard2.0`);
-  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
-  await chooseSubject(page, "library", "Library");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".library-overview-surface h1"))
+    .toHaveText(assembly.name);
   await page.waitForFunction(() => new URL(location.href).searchParams.has("w"));
   const sharedLibraryUrl = page.url();
   await page.reload();
@@ -653,7 +653,7 @@ test("Package navigation retains the shared System.Text.Json packet and Workspac
   await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator('[data-package-framework="netstandard2.0"]'))
     .toHaveAttribute("aria-current", "page");
-  await openProductDestination(page, "workspace");
+  await openProductDestination(page, "workspace", { waitForCommit: true });
   await expect(page.getByRole("heading", { name: "Workspace", exact: true }))
     .toBeVisible();
   await expect(page.locator("[data-workspace-activate]")).toContainText("System.Text.Json");
