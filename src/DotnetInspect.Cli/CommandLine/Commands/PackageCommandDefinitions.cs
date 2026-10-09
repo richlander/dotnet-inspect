@@ -69,7 +69,7 @@ public static class PackageCommandDefinitions
         var tfmsOption = new Option<bool>("--tfms")
         {
             Description =
-                "List target frameworks in the package; use -n N to select N TFM rows"
+                "Select the Target Frameworks section; use -n N to select N TFM rows"
         };
         var libOption = new Option<bool>("--lib") { Description = "Select Files beneath the lib/ root" };
         var toolsOption = new Option<bool>("--tools") { Description = "Select Files beneath the tools/ root" };

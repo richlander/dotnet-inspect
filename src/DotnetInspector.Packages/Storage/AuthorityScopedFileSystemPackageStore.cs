@@ -6,6 +6,8 @@ namespace DotnetInspector.Packages;
 /// <summary>
 /// A desktop payload store owned by one configured authority. Producer keys
 /// remain provenance; legacy source-key arguments cannot select another slot.
+/// The explicit legacy-compatibility factory can additionally read the exact
+/// credential-free authority's former application-cache slot.
 /// The caller owns the temporary root and must retain it through content use.
 /// </summary>
 public sealed class AuthorityScopedFileSystemPackageStore :
@@ -16,12 +18,26 @@ public sealed class AuthorityScopedFileSystemPackageStore :
     private readonly ConfiguredPackageAuthority _authority;
     private readonly PackageProducerIdentity _producer;
     private readonly Func<string> _getTemporaryRoot;
+    private readonly bool _readLegacySourceCache;
     private readonly Lazy<string> _temporaryCacheRoot;
 
     public AuthorityScopedFileSystemPackageStore(
         ConfiguredPackageAuthority authority,
         PackageProducerIdentity producer,
         Func<string> getTemporaryRoot)
+        : this(
+            authority,
+            producer,
+            getTemporaryRoot,
+            readLegacySourceCache: false)
+    {
+    }
+
+    private AuthorityScopedFileSystemPackageStore(
+        ConfiguredPackageAuthority authority,
+        PackageProducerIdentity producer,
+        Func<string> getTemporaryRoot,
+        bool readLegacySourceCache)
     {
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(producer);
@@ -29,9 +45,21 @@ public sealed class AuthorityScopedFileSystemPackageStore :
         _authority = authority;
         _producer = producer;
         _getTemporaryRoot = getTemporaryRoot;
+        _readLegacySourceCache = readLegacySourceCache;
         _temporaryCacheRoot = new(() => Path.Combine(
             getTemporaryRoot(), $"package-authority-{Guid.NewGuid():N}"));
     }
+
+    public static AuthorityScopedFileSystemPackageStore
+        CreateWithLegacyApplicationCache(
+            ConfiguredPackageAuthority authority,
+            PackageProducerIdentity producer,
+            Func<string> getTemporaryRoot) =>
+        new(
+            authority,
+            producer,
+            getTemporaryRoot,
+            readLegacySourceCache: true);
 
     public IPackageContent? TryGetCached(
         string packageName,
@@ -55,6 +83,7 @@ public sealed class AuthorityScopedFileSystemPackageStore :
         string normalizedVersion = version.ToLowerInvariant();
         string cacheKey = $"{normalizedName}@{normalizedVersion}";
         bool any = false;
+        bool legacyCacheObserved = false;
 
         string? slot = GetSlotPath(normalizedName, normalizedVersion, create: false);
         if (slot is not null
@@ -64,6 +93,26 @@ public sealed class AuthorityScopedFileSystemPackageStore :
             any = true;
             RecordHit("packages");
             yield return OpenContent(slot, requiresArchiveTreeMatch: true);
+        }
+
+        if (_readLegacySourceCache
+            && _authority.PersistentCacheKey is not null)
+        {
+            legacyCacheObserved = true;
+            string legacySourceKey =
+                NuGetCache.GetSourceKey(_authority.Source.Url);
+            foreach (CachedPackage cached
+                in NuGetCache.EnumerateCachedPackageContent(
+                    normalizedName,
+                    normalizedVersion,
+                    [legacySourceKey],
+                    globalPackagesPaths: []))
+            {
+                any = true;
+                yield return OpenContent(
+                    cached.ExtractPath,
+                    cached.RequiresArchiveTreeMatch);
+            }
         }
 
         // Only a local authority can match a NuGet global-packages replica's
@@ -92,7 +141,7 @@ public sealed class AuthorityScopedFileSystemPackageStore :
             }
         }
 
-        if (!any)
+        if (!any && !legacyCacheObserved)
         {
             CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Miss);
         }
