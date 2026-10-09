@@ -270,7 +270,7 @@ test("internal-only Library navigation selects one exact accessibility bucket", 
   )).toHaveCount(0);
 });
 
-test("exact Library inspectors auto-select the alphabetical fallback only on navigation", async ({ page }) => {
+test("Library inspectors preserve the default exact selection and resolve aggregate navigation", async ({ page }) => {
   await installFacades(page);
   await page.goto(root.replace("#pkg", "#library"));
 
@@ -280,7 +280,9 @@ test("exact Library inspectors auto-select the alphabetical fallback only on nav
     elements.map(element => element.getAttribute("data-library-subject"))))
     .toEqual(["all", core.id, empty.id, other.id]);
   const allLibraries = rows.first();
-  await expect(allLibraries).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(
+    `.library-subject-list [data-library-subject="${core.id}"]`))
+    .toHaveAttribute("aria-selected", "true");
 
   await chooseInspector(page, "data-library-lens", "references", "References");
   await expect(page.locator(
@@ -1521,16 +1523,15 @@ test("browser history restores each retained Workspace Library", async ({ page }
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
-  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
-  await chooseSubject(page, "library", "Library");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
+  await expect(page.locator(".library-overview-surface h1")).toHaveText(core.name);
   await page.goBack();
   await expect(page.locator(".inspected-target")).toContainText("Example.Package");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Core");
   await page.goForward();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".library-overview-surface h1")).toHaveText(core.name);
   await selectLibrary(page, other.id);
   await chooseSubject(page, "type", "Type");
   await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
@@ -1591,9 +1592,8 @@ test("browser history restores the incoming retained Library ancestry", async ({
   await selectLibrary(page, core.id);
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
-  await expect(page.locator("#inspector-panel h1")).toHaveText("Second.Package");
-  await chooseSubject(page, "library", "Library");
-  await expect(page.locator("#inspector-panel h1")).toHaveText("All libraries");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel h1")).toHaveText(secondLibrary.name);
 
   await page.goBack();
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
@@ -1603,15 +1603,16 @@ test("browser history restores the incoming retained Library ancestry", async ({
 
   await page.goForward();
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel h1")).toHaveText(secondLibrary.name);
   await chooseSubject(page, "package", "Package");
   await chooseSubject(page, "library", "Library");
-  await expect(page.locator("#inspector-panel h1")).toHaveText("All libraries");
+  await expect(page.locator("#inspector-panel h1")).toHaveText(secondLibrary.name);
   await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
   await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
-  await expect(page.locator("#inspector-panel h1")).toHaveText("All libraries");
+  await expect(page.locator("#inspector-panel h1")).toHaveText(secondLibrary.name);
   await page.reload();
-  await expect(page.locator("#inspector-panel h1")).toHaveText("All libraries");
+  await expect(page.locator("#inspector-panel h1")).toHaveText(secondLibrary.name);
 });
 
 test("browser history from before reload reuses the active Workspace", async ({ page }) => {
