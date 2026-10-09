@@ -75,7 +75,15 @@ public sealed class FastDiffMetadataSafetyTests
     {
         using var before = new PEReader(new MemoryStream(image, writable: false));
         using var after = new PEReader(new MemoryStream(image, writable: false));
-        return FastDiff.Compare(before, after);
+        FastDiffResult whole = FastDiff.Compare(before, after);
+
+        // Resuming at every row and Type boundary reaches the same result.
+        var stepped = new FastDiffComparison();
+        while (!stepped.Step(before, after, TimeSpan.Zero))
+        {
+        }
+        Assert.Equal(whole.Types, stepped.Result!.Types);
+        return whole;
     }
 
     static void RunWorker(string workerMethod)

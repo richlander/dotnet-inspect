@@ -62,9 +62,21 @@ not, as `--all` would:
 - the metadata of non-public members; and
 - `beforefieldinit`, when the Type has a static constructor.
 
-Neither axis is configurable. A public member present on one side only is an
+Neither axis's facts are configurable. A caller can ask for the API axis
+alone; every Body state is then `NotCompared` and no IL is read. A public member present on one side only is an
 API fact; its body is not compared. A Type public on either side partitions
 its facts as public on both, so a visibility change is an API fact only.
+
+### Steps
+
+`FastDiffComparison` advances one comparison in bounded steps for a
+single-threaded host. Each step takes readers over the same two images, makes
+progress on at least one Type row or compared Type, and stops at the first
+such boundary after its budget elapses. The retained state holds handles and
+strings, never a reader, so a host re-enters its own image callbacks for each
+step; a reader over a different image is rejected by module version ID.
+Stepping reaches exactly the result of one uninterrupted `FastDiff.Compare`.
+Cancellation is observed at the same boundaries.
 
 ### Identity
 
@@ -141,8 +153,15 @@ adoption is
 - Body soundness: every declared owner of a body that canonical IL comparison
   reports changed is not Body `Unchanged`, over the same fixture pairs.
 
+Stepping and the API axis are gated by outcome: a comparison stepped at
+every row and Type boundary, with fresh readers per step, equals the whole
+comparison over the fixture pair and every malformed image in
+`FastDiffMetadataSafetyTests`; a reader over a different image is rejected;
+and API-only states equal the API states of the full comparison with no body
+compared.
+
 `eng/measure-fast-diff.cs` runs the same checks over a real image pair and
-reports NativeAOT timing and over-reporting. At introduction, over six real
+reports NativeAOT timing, API-only and stepped timing, and over-reporting. At introduction, over six real
 pairs, no Type was missed on either axis, apart from the three encoding-only
 `calli` sites described under [Observability](#observability). Medians cover
 both sides, every Type, API and bodies, on one Apple silicon development
@@ -180,58 +199,62 @@ Type names outside the string heap in a child process.
 ## Browser export
 
 `MetadataExports.QueryLibraryFastDiff` (Worker operation
-`queryLibraryFastDiff`) runs `AssemblyContextFastDiffQuery` over the
-implementation assemblies of one exact compile asset in two package versions.
-It accepts the Library API Diff endpoint coordinates and returns only Types
-whose API or Body state is not `Unchanged`, plus the compared Type count;
-absence means `Unchanged` on both axes. Each Type carries `identifier`, the
-escaped definition name (`Outer+Inner`) that Library navigation joins on, and
-`fullName` for display. Malformed rows that have no decodable name receive a
-row-token identifier and never join a navigation entry.
+`queryLibraryFastDiff`, request schema 2) runs `AssemblyContextFastDiffQuery`
+over the implementation assemblies of one exact compile asset in two package
+versions. It accepts the Library API Diff endpoint coordinates and `axes`,
+`ApiAndBody` or `Api`. It returns only Types with an axis that is `Changed` or
+`Indeterminate`, plus the compared Type count; absence means every requested
+axis is `Unchanged`. Each Type carries `identifier`, the escaped definition
+name (`Outer+Inner`) that Library navigation joins on, and `fullName` for
+display. Malformed rows that have no decodable name receive a row-token
+identifier and never join a navigation entry.
+
+The Worker is single-threaded, so the operation runs the comparison in
+[steps](#steps) of at most 8 ms and yields to the Worker event loop between
+them. Foreground operations and cancellation run between steps; one Fast Diff
+never holds the Worker for its whole duration.
 
 Firefox, published Release site, warm calls through the production Worker
-(interpreted Wasm), against the NativeAOT producer numbers:
+(interpreted Wasm). Foreground is a cheap Worker call issued every 25 ms while
+one `ApiAndBody` comparison runs; it takes 1 ms when the Worker is idle:
 
-| Pair | Types | Changed | Wasm | NativeAOT |
+| Pair | Types | API and Body | API only | Foreground median (max) |
 | --- | ---: | ---: | ---: | ---: |
-| Aspire.Hosting 13.6.0 → 13.6.1 | 1,144 | 2 | 1,490 ms | 98 ms |
-| System.Text.Json 9.0.0 → 10.0.0 | 320 | 117 | 288 ms | 17 ms |
-| Newtonsoft.Json 13.0.3 → 13.0.4 | 300 | 92 | 339 ms | 19 ms |
+| Aspire.Hosting 13.6.0 → 13.6.1 | 1,144 | 1,561 ms | 225 ms | 40 ms (69 ms) |
+| System.Text.Json 9.0.0 → 10.0.0 | 320 | 303 ms | 91 ms | 40 ms (54 ms) |
+| Newtonsoft.Json 13.0.3 → 13.0.4 | 300 | 348 ms | 104 ms | 39 ms (45 ms) |
 
-The Wasm rows use the `net8.0` or `net6.0` asset; the System.Text.Json
-NativeAOT row uses `net9.0`.
-`FastDiff.Compare` accounts for more than 99% of each warm call; scope,
-participant, and serialization overhead is negligible. The interpreter costs
-roughly 15–20x relative to NativeAOT, so Browser cost is a producer
-optimization and caching question, not an export one. The API axis is not
-returned separately: one lockstep pass decides both axes, and no profile yet
-shows that a split would shorten time to first result.
+Before stepping, one Aspire.Hosting comparison held the Worker for 1,490 ms.
+The comparison itself accounts for more than 99% of each call; the interpreter
+costs roughly 15x relative to NativeAOT.
 
 ## Adoption
 
-1. **Producer** (this slice): `FastDiff.Compare`, its gates, and the
-   measurement tool.
-2. **QuerySpace and Browser export:** expose per-Type states through a Worker
-   export, with Browser/Wasm numbers, and the API axis returned before the
-   Body axis when that shortens time to first result.
-3. **Library Compare:** replace the content selector's Public API and Member
+1. **Producer** (#9798): `FastDiff.Compare`, its gates, and the measurement
+   tool.
+2. **Browser export** (#9805): per-Type states through a Worker export, with
+   Browser/Wasm numbers.
+3. **Steps and API axis** (this slice): bounded steps that yield the Worker
+   between them, and the API axis alone for the major-version baseline.
+4. **Background analysis:** a page-owned queue that runs the default
+   baselines after a Library page loads and drives the navigation cues.
+5. **Library Compare:** replace the content selector's Public API and Member
    Body choices with **Any Diff** (default), **API Diff**, and **Body Diff**
-   lists from Fast Diff, keep **String literals**, and drive the navigation
-   cues from Fast Diff states. A Type or Member click still opens its
-   complete diff.
-4. **Caching:** retain results per exact endpoint pair in the Worker and in
+   lists from Fast Diff, keep **String literals**, and link each Type to its
+   complete signature-only or body-level diff.
+6. **Caching:** retain results per exact endpoint pair in the Worker and in
    persistent storage keyed by the build commit, per
    [#9793](https://github.com/richlander/dotnet-inspect/issues/9793).
-5. **Member states:** per-Member states for an opened Type.
-6. **CLI:** expose the same producer through `diff`.
+7. **Member states:** per-Member states for an opened Type.
+8. **CLI:** expose the same producer through `diff`.
 
-Fast Diff is computed asynchronously after a Library page first loads, against
-the version Library Compare would select, so its states are ready before the
-user opens Compare. That background run acquires the comparison package
-without a user action, which is this design's approved exception to explicit
-network work. It must not delay foreground Worker operations: a foreground
-request cancels or preempts it, so `FastDiff.Compare` must observe cancellation
-between Types before step 3 adopts the background trigger.
+By default, each Library page computes Fast Diff in the background after it
+first loads, against two baselines: `ApiAndBody` against the last patch
+version and `Api` against the last major version. An explicit Library Compare
+targets the one version the user selects. The background run acquires the
+baseline packages without a user action, which is this design's approved
+exception to explicit network work. Scheduling, ordering, and baseline
+selection belong to the background analysis design that adopts this export.
 
 ## Non-claims
 
