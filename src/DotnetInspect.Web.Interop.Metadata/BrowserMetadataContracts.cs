@@ -582,6 +582,9 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserLibraryApiDiffRequest))]
 [JsonSerializable(typeof(BrowserLibraryApiDiffResult))]
 [JsonSerializable(typeof(BrowserLibraryApiDiffCancellation))]
+[JsonSerializable(typeof(BrowserLibraryFastDiffRequest))]
+[JsonSerializable(typeof(BrowserLibraryFastDiffResult))]
+[JsonSerializable(typeof(BrowserLibraryFastDiffCancellation))]
 internal sealed partial class BrowserMetadataJsonContext : JsonSerializerContext;
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]

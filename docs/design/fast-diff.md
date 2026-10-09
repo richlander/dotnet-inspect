@@ -177,6 +177,36 @@ terminates the process. `FastDiffMetadataSafetyTests` gates cyclic and
 Type specification, a 100,000-deep signature blob, and top-level and nested
 Type names outside the string heap in a child process.
 
+## Browser export
+
+`MetadataExports.QueryLibraryFastDiff` (Worker operation
+`queryLibraryFastDiff`) runs `AssemblyContextFastDiffQuery` over the
+implementation assemblies of one exact compile asset in two package versions.
+It accepts the Library API Diff endpoint coordinates and returns only Types
+whose API or Body state is not `Unchanged`, plus the compared Type count;
+absence means `Unchanged` on both axes. Each Type carries `identifier`, the
+escaped definition name (`Outer+Inner`) that Library navigation joins on, and
+`fullName` for display. Malformed rows that have no decodable name receive a
+row-token identifier and never join a navigation entry.
+
+Firefox, published Release site, warm calls through the production Worker
+(interpreted Wasm), against the NativeAOT producer numbers:
+
+| Pair | Types | Changed | Wasm | NativeAOT |
+| --- | ---: | ---: | ---: | ---: |
+| Aspire.Hosting 13.6.0 → 13.6.1 | 1,144 | 2 | 1,490 ms | 98 ms |
+| System.Text.Json 9.0.0 → 10.0.0 | 320 | 117 | 288 ms | 17 ms |
+| Newtonsoft.Json 13.0.3 → 13.0.4 | 300 | 92 | 339 ms | 19 ms |
+
+The Wasm rows use the `net8.0` or `net6.0` asset; the System.Text.Json
+NativeAOT row uses `net9.0`.
+`FastDiff.Compare` accounts for more than 99% of each warm call; scope,
+participant, and serialization overhead is negligible. The interpreter costs
+roughly 15–20x relative to NativeAOT, so Browser cost is a producer
+optimization and caching question, not an export one. The API axis is not
+returned separately: one lockstep pass decides both axes, and no profile yet
+shows that a split would shorten time to first result.
+
 ## Adoption
 
 1. **Producer** (this slice): `FastDiff.Compare`, its gates, and the
@@ -195,8 +225,13 @@ Type names outside the string heap in a child process.
 5. **Member states:** per-Member states for an opened Type.
 6. **CLI:** expose the same producer through `diff`.
 
-Fast Diff runs only when the user is in Library Compare Diff; automatic
-background generation is a later decision.
+Fast Diff is computed asynchronously after a Library page first loads, against
+the version Library Compare would select, so its states are ready before the
+user opens Compare. That background run acquires the comparison package
+without a user action, which is this design's approved exception to explicit
+network work. It must not delay foreground Worker operations: a foreground
+request cancels or preempts it, so `FastDiff.Compare` must observe cancellation
+between Types before step 3 adopts the background trigger.
 
 ## Non-claims
 
@@ -208,4 +243,5 @@ background generation is a later decision.
 - It reports Type definitions only. Type forwarders and assembly-level
   attributes are outside the per-Type contract.
 - `FullName` is a display name. A namespace and a nested Type can spell the
-  same name (`A.B.C`); such Types remain distinct results with equal names.
+  same name (`A.B.C`); such Types remain distinct results with equal names and
+  distinct `Identifier` values.

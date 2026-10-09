@@ -47,6 +47,21 @@ public sealed class FastDiffTests
         Assert.Equal((api, body), (state.Api, state.Body));
     }
 
+    [Theory]
+    [InlineData("FastDiffFixture.Outer.Inner", "FastDiffFixture.Outer+Inner")]
+    [InlineData("FastDiffFixture.Generic`1", "FastDiffFixture.Generic`1")]
+    [InlineData("FastDiffFixture.Added", "FastDiffFixture.Added")]
+    public void TypeStates_CarryTheEscapedDefinitionIdentifier(
+        string fullName,
+        string identifier)
+    {
+        FastDiffTypeState state = Assert.Single(
+            Compare(FixtureCatalog.MetadataFastDiffPair).Types,
+            type => type.FullName == fullName);
+
+        Assert.Equal(identifier, state.Identifier);
+    }
+
     [Fact]
     public void GeneratedTypes_FoldIntoTheirDeclaredOwner()
     {
