@@ -1106,6 +1106,33 @@ Each slice is independently coherent and reaches an existing production
 consumer or the next named host-neutral consumer. No unused generic execution
 substrate lands ahead of adoption.
 
+### Fusion-payoff admission for profile migration
+
+The implementation-profile migration does not count producer declarations,
+request-set planning, or a neutral single-lane command as proof that the
+substrate earns its cost. Before a profile consumer moves, the proposed
+multi-lane request set must name the legacy body traversals it removes and
+pass both of these gates:
+
+1. **Physical work.** Exact result identities match independent execution, and
+   owner-issued source receipts show at least one complete instruction
+   traversal removed for every successfully analyzed managed body in scope.
+2. **Production effect.** Exact-base/head NativeAOT evidence preserves output,
+   improves the body-dense CoreLib `Library Metrics` median by at least 5%, and
+   keeps the exact-family `StringBuilder.AppendFormat` `Member Metrics` median
+   and median RSS within 2% of base. The report includes p95 and binary size.
+
+The contributor harness mode
+`--method-fusion <System.Private.CoreLib.dll> --iterations 20 --json` is the
+structural precondition. It executes the production direct-invocation and
+Calls-row count producers both in one QuerySpace request set and independently.
+The command fails unless shared execution records positive physical work,
+results are identical, the shared execution forms one physical group, and
+physical no-retention source openings and instruction visits are exactly half
+the independent totals. Its elapsed and allocation figures are diagnostic
+until the exact NativeAOT product commands above run; the harness alone is not
+a production speedup claim or a profile adoption.
+
 ## Producer Planning adoption
 
 This owner is the first adopter of [Producer Planning](producer-planning.md),

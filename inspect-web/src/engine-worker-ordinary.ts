@@ -74,8 +74,10 @@ type LibraryOperationName = "inspectLibrary" | "openUploadedLibrary";
 
 type MetadataOperationName =
   | "cancelLibraryApiDiff"
+  | "cancelLibraryFastDiff"
   | "findTypes"
   | "queryLibraryApiDiff"
+  | "queryLibraryFastDiff"
   | "queryTypeProjection"
   | "queryMemberDeclaration"
   | "queryMemberDocument"
@@ -1285,6 +1287,22 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<MetadataFacade["queryLibraryApiDiff"]>
       ) => facades.metadata.queryLibraryApiDiff(...args),
     ),
+    cancelLibraryFastDiff: valueOperation(
+      "ordinary-metadata-cancel-library-fast-diff",
+      2,
+      (
+        facades,
+        ...args: Parameters<MetadataFacade["cancelLibraryFastDiff"]>
+      ) => facades.metadata.cancelLibraryFastDiff(...args),
+    ),
+    queryLibraryFastDiff: valueOperation(
+      "ordinary-metadata-query-library-fast-diff",
+      2,
+      (
+        facades,
+        ...args: Parameters<MetadataFacade["queryLibraryFastDiff"]>
+      ) => facades.metadata.queryLibraryFastDiff(...args),
+    ),
     queryMemberDeclaration: valueOperation(
       "ordinary-metadata-query-member-declaration",
       9,
@@ -2433,6 +2451,12 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryLibraryApiDiff: bind(
         engineWorkerOrdinaryOperations.metadata.queryLibraryApiDiff,
+      ),
+      cancelLibraryFastDiff: bind(
+        engineWorkerOrdinaryOperations.metadata.cancelLibraryFastDiff,
+      ),
+      queryLibraryFastDiff: bind(
+        engineWorkerOrdinaryOperations.metadata.queryLibraryFastDiff,
       ),
       queryMemberDeclaration: bind(
         engineWorkerOrdinaryOperations.metadata.queryMemberDeclaration,

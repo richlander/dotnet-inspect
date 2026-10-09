@@ -2710,7 +2710,9 @@ text escaping.
 - `Cmd/Ctrl+P` opens Spotlight in the All scope.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
 - Arrow keys select a Spotlight result, `Tab` cycles scopes, and `Enter`
-  completes or runs a command.
+  completes or runs a command. At the final All-scope result, Down Arrow
+  reveals the next already-known result batch without fetching more remote
+  matches.
 - Arrow keys or `j`/`k` navigate the type index.
 - Number keys switch the active scope's lenses when an input is not focused.
 - `share` copies the package, version, framework, library, type, and lens
