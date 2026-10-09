@@ -51,6 +51,12 @@ shapes](section-shapes.md#hierarchy) owns its selected rows and parent
 relationships; shared presentation owns the native Tree and explicit Mermaid
 lowerings without a CLI-built Markout tree.
 
+MemberGroup Tree presentation is the fourth adopter. [Type and Member
+inspection
+documents](type-member-inspection-documents.md#memberoverviewdocument) own the
+complete, ordered exact-Member Rows and their display signatures; shared
+presentation owns native Tree lowering without a CLI-built Markout tree.
+
 ## Owner and exact claim
 
 Host-neutral hierarchy projection owns this exact claim:

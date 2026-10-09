@@ -3,8 +3,8 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.DocumentationHouse;
+using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
-using ILInspector.CSharp;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using Markout;
@@ -170,68 +170,47 @@ internal static class MemberGroupDocumentOutput
             return 1;
         }
 
-        string displayType =
-            CSharpIdentifier.ContainRenderedText(type.FullName);
-        string displayMember =
-            CSharpIdentifier.ContainRenderedText(document.Subject.Name);
-        string suffix = count.Value == 1 ? "overload" : "overloads";
+        if (document.ReturnedRowDocumentation.IsEmpty)
+        {
+            MemberGroupPresentation.WriteTree(
+                document,
+                type.FullName,
+                Console.Out);
+            return 0;
+        }
+
         Console.WriteLine(
-            $"method {displayType}.{displayMember} "
-                + $"({count.Value} {suffix})");
+            MemberGroupPresentation.FormatTitle(
+                document.Subject,
+                type.FullName,
+                count.Value));
         var writer = new MarkoutWriter(
             Console.Out,
             new MarkdownFormatter());
-        if (document.ReturnedRowDocumentation.IsEmpty)
-        {
-            writer.WriteTree(
+        IReadOnlyDictionary<int, MemberDocumentationAttachment>
+            attachmentsByOrdinal =
+                document.ReturnedRowDocumentation.ToDictionary(
+                    static attachment =>
+                        attachment.Subject.BaselineOrdinal);
+        writer.WriteTable(
+            ["Signature", "Description"],
+            ["signature", "description"],
             [
                 .. rows.Items.Select(row =>
-                    new TreeNode(
-                        CSharpIdentifier.ContainRenderedText(
-                            $"{row.Accessibility} "
-                                + ReceiverPrefix(row.Receiver)
-                                + row.DisplaySignature))),
+                    new string[]
+                    {
+                        MarkoutInline.Code(
+                            MemberGroupPresentation.FormatOverload(
+                                row)),
+                        MemberDocumentOutput
+                            .DescribeDocumentation(
+                                attachmentsByOrdinal[
+                                    row.BaselineOrdinal]
+                                    .Outcome),
+                    }),
             ]);
-        }
-        else
-        {
-            IReadOnlyDictionary<int, MemberDocumentationAttachment>
-                attachmentsByOrdinal =
-                    document.ReturnedRowDocumentation.ToDictionary(
-                        static attachment =>
-                            attachment.Subject.BaselineOrdinal);
-            writer.WriteTable(
-                ["Signature", "Description"],
-                ["signature", "description"],
-                [
-                    .. rows.Items.Select(row =>
-                        new string[]
-                        {
-                            MarkoutInline.Code(
-                                CSharpIdentifier.ContainRenderedText(
-                                    $"{row.Accessibility} "
-                                        + ReceiverPrefix(row.Receiver)
-                                        + row.DisplaySignature)),
-                            MemberDocumentOutput
-                                .DescribeDocumentation(
-                                    attachmentsByOrdinal[
-                                        row.BaselineOrdinal]
-                                        .Outcome),
-                        }),
-                ]);
-        }
         return 0;
     }
-
-    private static string ReceiverPrefix(MemberReceiver receiver) =>
-        receiver switch
-        {
-            MemberReceiver.This => string.Empty,
-            MemberReceiver.Static => "static ",
-            MemberReceiver.Extension => "extension ",
-            _ => throw new InvalidOperationException(
-                $"Unknown member receiver '{receiver}'."),
-        };
 
     internal static string? ResolveCanonicalMethodName(
         ApiType type,

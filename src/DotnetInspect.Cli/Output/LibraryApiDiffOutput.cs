@@ -206,9 +206,10 @@ internal static class LibraryApiDiffOutput
                     subject,
                     subject.Comparison.CompatibilityChanges)),
         ];
-        if (types.Count == 0
-            && document.Comparison.Subjects.Length > 0
-            && options.TypeFilter.Count > 0)
+        // A Type-filtered comparison extracts only the selected Types, so it
+        // cannot tell whether other Types changed; the note reports only that
+        // the filter selected no changed Type.
+        if (types.Count == 0 && options.TypeFilter.Count > 0)
         {
             CommandError.WriteNote(
                 $"type filter matched no changed types: {string.Join(", ", options.TypeFilter)}.");

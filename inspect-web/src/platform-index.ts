@@ -36,6 +36,40 @@ export interface PlatformCatalogTarget {
   readonly supplies: readonly PlatformPackageSupply[] | null;
 }
 
+export interface PlatformRuntimePruningInventory {
+  readonly tfm: string;
+  readonly version: string | null;
+  readonly supplies: readonly {
+    readonly package: string;
+    readonly version: string;
+  }[] | null;
+}
+
+export function platformRuntimePruningInventory(
+  target: PlatformCatalogTarget | null,
+  traversalTfm: string,
+): PlatformRuntimePruningInventory {
+  if (target === null
+    || target.tfm.toLowerCase() !== traversalTfm.toLowerCase()) {
+    return {
+      tfm: traversalTfm,
+      version: null,
+      supplies: null,
+    };
+  }
+  return {
+    tfm: target.tfm,
+    version: target.version,
+    supplies: target.supplies
+      ?.filter(supply =>
+        supply.family === "Microsoft.NETCore.App")
+      .map(supply => ({
+        package: supply.package,
+        version: supply.version,
+      })) ?? null,
+  };
+}
+
 export interface PlatformIndex {
   readonly rows: readonly PlatformAssemblyRow[];
   readonly defaultFramework: string;

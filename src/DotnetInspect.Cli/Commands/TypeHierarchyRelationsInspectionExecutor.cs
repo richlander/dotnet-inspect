@@ -37,7 +37,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                 maximumMetadataRows: int.MaxValue,
                 maximumRetainedTextCharacters: int.MaxValue);
 
-    private static readonly MetadataOperationPolicy OperationPolicy =
+    internal static readonly MetadataOperationPolicy OperationPolicy =
         new(
             maxMetadataRows: MaxMetadataRows,
             maxMethodImplementationRows: MaxMetadataRows,
@@ -59,7 +59,8 @@ internal static class TypeHierarchyRelationsInspectionExecutor
         TypeOptions options,
         ApiSourceResult source,
         Func<TypeHierarchyExactTypeInspection, Task<int>> consume,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        AssemblySet? precollectedAssemblySet = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(source);
@@ -84,7 +85,8 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                         workspace,
                         options,
                         source,
-                        cancellationToken)
+                        cancellationToken,
+                        precollectedAssemblySet)
                     .ConfigureAwait(false);
             if (inspection is not null)
             {
@@ -149,7 +151,9 @@ internal static class TypeHierarchyRelationsInspectionExecutor
         IReadOnlyDictionary<
             object,
             TypeHierarchyRelationCandidateSource> candidateSources,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ImmutableArray<InspectionDiagnostic> diagnostics = default,
+        bool additionalEvidenceComplete = true)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(population);
@@ -181,7 +185,11 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                     candidateSources,
                     cancellationToken)
                 : null;
-        return new(implementers, derivedTypes);
+        return new(
+            implementers,
+            derivedTypes,
+            diagnostics,
+            additionalEvidenceComplete);
     }
 
     private static async Task<(
@@ -190,32 +198,30 @@ internal static class TypeHierarchyRelationsInspectionExecutor
         InspectionWorkspace workspace,
         TypeOptions options,
         ApiSourceResult source,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        AssemblySet? precollectedAssemblySet)
     {
         AssemblySet assemblySet =
-            await AssemblySetResolver.CollectAsync(
-                    source.Context.HttpClient,
-                    BuildAssemblySetRequest(
-                        options,
-                        source,
-                        exactPlatformFocusPath: null,
-                        cancellationToken),
-                    source.Context.Logger.Log)
-                .ConfigureAwait(false);
-        if (assemblySet.Diagnostics.Count > 0)
-        {
-            assemblySet.Dispose();
-            return (
-                null,
-                string.Join(
-                    Environment.NewLine,
-                    assemblySet.Diagnostics.Select(
-                        static diagnostic => diagnostic.Message)));
-        }
+            precollectedAssemblySet
+            ?? await AssemblySetResolver.CollectAsync(
+                        source.Context.HttpClient,
+                        BuildAssemblySetRequest(
+                            options,
+                            source,
+                            exactPlatformFocusPath: null,
+                            cancellationToken),
+                        source.Context.Logger.Log)
+                    .ConfigureAwait(false);
         if (assemblySet.Assemblies.Count == 0)
         {
+            string error = assemblySet.Diagnostics.Count > 0
+                ? string.Join(
+                    Environment.NewLine,
+                    assemblySet.Diagnostics.Select(
+                        static diagnostic => diagnostic.Message))
+                : "The selected source contains no managed libraries.";
             assemblySet.Dispose();
-            return (null, "The selected source contains no managed libraries.");
+            return (null, error);
         }
 
         var contexts =
@@ -255,15 +261,16 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                             cancellationToken),
                         source.Context.Logger.Log)
                     .ConfigureAwait(false);
-            if (assemblySet.Diagnostics.Count > 0)
+            if (assemblySet.Assemblies.Count == 0)
             {
-                assemblySet.Dispose();
-                return (
-                    null,
-                    string.Join(
+                string error = assemblySet.Diagnostics.Count > 0
+                    ? string.Join(
                         Environment.NewLine,
                         assemblySet.Diagnostics.Select(
-                            static diagnostic => diagnostic.Message)));
+                            static diagnostic => diagnostic.Message))
+                    : "The selected source contains no managed libraries.";
+                assemblySet.Dispose();
+                return (null, error);
             }
 
             (preferredIndex, preferredError) =
@@ -665,14 +672,42 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                         + "owner-issued hierarchy focus occurrence.");
             }
 
+            WorkspaceDeclarationPopulation relationPopulation =
+                captured.Population;
+            if (IsPlatformSource(options, source)
+                && !ReferenceEquals(
+                    relationFocus.Observation.Occurrence,
+                    focus.Observation.Occurrence))
+            {
+                WorkspaceDeclarationPopulationCapture relationCapture =
+                    workspace.CaptureDeclarationPopulation(
+                        selectedContexts.Where(context =>
+                            !ReferenceEquals(context, focusContext))
+                        .ToImmutableArray());
+                if (relationCapture
+                    is not WorkspaceDeclarationPopulationCapture.Captured
+                        capturedRelations)
+                {
+                    return (
+                        null,
+                        "The Platform hierarchy relation population could "
+                            + "not exclude the duplicate implementation "
+                            + "focus occurrence.");
+                }
+                relationPopulation = capturedRelations.Population;
+            }
+
             TypeHierarchyRelationsInspection relations =
                 Execute(
                     options,
-                    captured.Population,
+                    relationPopulation,
                     relationFocus.Observation.Occurrence,
                     relationFocus.Name,
                     candidateSources,
-                    cancellationToken);
+                    cancellationToken,
+                    CreateAssemblySetDiagnostics(assemblySet.Diagnostics),
+                    additionalEvidenceComplete:
+                        assemblySet.Diagnostics.Count == 0);
             transferredFocusGroup = true;
             return (
                 new(
@@ -735,7 +770,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
             ]);
     }
 
-    private static TypeHierarchyRelationCandidate Project(
+    internal static TypeHierarchyRelationCandidate Project(
         WorkspaceTypeHierarchyCandidate candidate,
         IReadOnlyDictionary<
             object,
@@ -1364,6 +1399,27 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                 "metadata projection failed",
             _ => result.GetType().Name,
         };
+
+    private static ImmutableArray<InspectionDiagnostic>
+        CreateAssemblySetDiagnostics(
+            IReadOnlyList<AssemblySetDiagnostic> diagnostics) =>
+        [
+            .. diagnostics.Select(static diagnostic =>
+                new InspectionDiagnostic(
+                    "type-hierarchy.assembly-set",
+                    diagnostic.Severity switch
+                    {
+                        AssemblySetDiagnosticSeverity.Warning =>
+                            InspectionDiagnosticSeverity.Warning,
+                        AssemblySetDiagnosticSeverity.Error =>
+                            InspectionDiagnosticSeverity.Error,
+                        _ => throw new ArgumentOutOfRangeException(
+                            nameof(diagnostics),
+                            diagnostic.Severity,
+                            "Unknown assembly-set diagnostic severity."),
+                    },
+                    diagnostic.Message)),
+        ];
 }
 
 internal sealed record TypeHierarchyExactTypeInspection(

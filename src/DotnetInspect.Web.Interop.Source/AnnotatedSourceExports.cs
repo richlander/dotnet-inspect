@@ -222,7 +222,7 @@ public static partial class SourceExports
                 metadataToken);
         BrowserInspectionScope scope = resolved.Scope;
         BrowserWorkspaceParticipant participant = resolved.ImplementationParticipant;
-        Analysis.CallGraphMemberResolution resolution = resolved.Member;
+        AssemblyContextMemberBody resolution = resolved.Member;
         return ProjectResolvedMember(
             () => scope.UseImplementationParticipant(
                 participant,
@@ -325,7 +325,7 @@ public static partial class SourceExports
 
     static MemberSourceProjection ProjectResolvedMember(
         Func<AssemblyContextEntry<AssemblyMemberProjection>> project,
-        Analysis.CallGraphMemberResolution resolution,
+        AssemblyContextMemberBody resolution,
         string typeQueryId,
         string memberName,
         ILInspector.Metadata.AssemblyReferenceIdentity participantIdentity,
@@ -617,7 +617,7 @@ public static partial class SourceExports
     }
 
     static InertString MemberDeclaration(
-        Analysis.CallGraphMemberResolution resolution)
+        AssemblyContextMemberBody resolution)
     {
         CSharpMemberDeclarationOutcome outcome =
             new CSharpFormatter(new CSharpFormatOptions

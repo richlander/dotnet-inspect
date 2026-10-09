@@ -418,7 +418,10 @@ windows, projections, and scalar Count use its complete child population.
 Every emitted child row carries the exact gesture that reaches the same
 Library occurrence or RID Package. Inspect Web transports the same document,
 uses its declaration Counts, and retains exact compile asset IDs for Library
-navigation. Explicit sections remain the opt-in sectioned Package views.
+navigation. Explicit sections remain the opt-in sectioned Package views. The
+View Facet Registry identifies this Content as `package.libraries`, which
+Navigation prefers for a Package subject
+([#9746](https://github.com/richlander/dotnet-inspect/issues/9746)).
 
 Library step 3 has adopted its compact native Tree for one resolved Library.
 Bare CLI `library L`, `--tree`, and `-v:m` render the Library owner's default

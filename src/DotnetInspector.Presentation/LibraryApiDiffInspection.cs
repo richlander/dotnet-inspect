@@ -13,7 +13,8 @@ public static class LibraryApiDiffInspection
         AssemblyContextGroup afterGroup,
         AssemblyContextParticipant after,
         ApiSurfaceScope scope,
-        ApiSurfaceProjectionLimits perEndpointLimits)
+        ApiSurfaceProjectionLimits perEndpointLimits,
+        ApiTypeSelection? typeSelection = null)
     {
         AssemblyContextApiComparisonResult comparison =
             AssemblyContextApiComparisonQuery.Execute(
@@ -22,7 +23,8 @@ public static class LibraryApiDiffInspection
                 afterGroup,
                 after,
                 scope,
-                perEndpointLimits);
+                perEndpointLimits,
+                typeSelection);
 
         return new(
             LibraryApiDiffPresentationAdapter.Create(comparison),

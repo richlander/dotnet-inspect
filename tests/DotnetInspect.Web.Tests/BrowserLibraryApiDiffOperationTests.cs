@@ -390,6 +390,174 @@ public sealed class BrowserLibraryApiDiffOperationTests
             content.GetProperty("changes").GetProperty("types").EnumerateArray());
     }
 
+    [Theory]
+    [InlineData("Ns.Outer.Inner", "Ns.Outer+Inner")]
+    [InlineData("Ns.Gen`1", "Ns.Gen<T>")]
+    public async Task MemberSelectionMatchesNestedAndGenericTypesByFullName(
+        string fullName,
+        string anchorSpelling)
+    {
+        // The producer matches Member-surface Types by ApiType.FullName. The
+        // Member anchor spelling names the same Type differently for nested
+        // and generic Types, so it selects no API rows.
+        await using Fixture fixture = await Fixture.Open(
+            NestedAndGenericImage(addedMember: false),
+            NestedAndGenericImage(addedMember: true));
+        BrowserLibraryApiDiffSucceeded library =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(
+                (await fixture.Query(fixture.Request())).Value);
+        BrowserLibraryApiDiffType changedType = Assert.Single(
+            library.Types,
+            type => type.Display == fullName);
+        BrowserLibraryApiDiffMemberIdentity added = Assert.Single(
+            changedType.Members,
+            member => member.Role == BrowserLibraryApiDiffMemberRelationRole.After)
+            .After!;
+
+        JsonElement byFullName = await MemberChanges(fixture, fullName, added.StableSelector);
+        JsonElement byAnchor = await MemberChanges(fixture, anchorSpelling, added.StableSelector);
+
+        Assert.NotEmpty(byFullName.EnumerateArray());
+        Assert.Empty(byAnchor.EnumerateArray());
+    }
+
+    static async Task<JsonElement> MemberChanges(
+        Fixture fixture,
+        string typeName,
+        string stableSelector)
+    {
+        BrowserLibraryApiDiffResult result = await fixture.Query(
+            fixture.Request() with
+            {
+                Surface = BrowserDiffAnalysisSurface.Member,
+                Analyses = ["api"],
+                Views = BrowserDiffAnalysisViews.Changes,
+                TypeNames = [typeName],
+                MemberTargetIdentities = [stableSelector],
+            });
+        Assert.Equal(BrowserLibraryApiDiffResultKind.Succeeded, result.Kind);
+        return Assert.IsType<InspectionEnvelope<JsonElement>>(result.Inspection)
+            .Content.GetProperty("changes").GetProperty("types").Clone();
+    }
+
+    /// <summary>
+    /// Builds a Library with a nested Type <c>Ns.Outer.Inner</c> and a generic
+    /// Type <c>Ns.Gen`1</c>, each optionally gaining a public method.
+    /// </summary>
+    static byte[] NestedAndGenericImage(bool addedMember)
+    {
+        var metadata = new System.Reflection.Metadata.Ecma335.MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("LibraryApiDiffFixture.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("LibraryApiDiffFixture"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            0,
+            System.Reflection.AssemblyHashAlgorithm.Sha1);
+        var runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(
+                new byte[] { 0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a }),
+            default,
+            default);
+        var objectType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        var signature = new System.Reflection.Metadata.BlobBuilder();
+        new System.Reflection.Metadata.Ecma335.BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(0, returnType => returnType.Void(), _ => { });
+        var voidMethod = metadata.GetOrAddBlob(signature);
+        const System.Reflection.MethodAttributes Abstract =
+            System.Reflection.MethodAttributes.Public
+            | System.Reflection.MethodAttributes.HideBySig
+            | System.Reflection.MethodAttributes.Abstract
+            | System.Reflection.MethodAttributes.Virtual
+            | System.Reflection.MethodAttributes.NewSlot;
+        const System.Reflection.TypeAttributes AbstractClass =
+            System.Reflection.TypeAttributes.Abstract
+            | System.Reflection.TypeAttributes.Class;
+
+        System.Reflection.Metadata.MethodDefinitionHandle Methods()
+        {
+            var first = metadata.AddMethodDefinition(
+                Abstract,
+                System.Reflection.MethodImplAttributes.IL,
+                metadata.GetOrAddString("Kept"),
+                voidMethod,
+                -1,
+                default);
+            if (addedMember)
+            {
+                metadata.AddMethodDefinition(
+                    Abstract,
+                    System.Reflection.MethodImplAttributes.IL,
+                    metadata.GetOrAddString("Added"),
+                    voidMethod,
+                    -1,
+                    default);
+            }
+            return first;
+        }
+
+        var fields = System.Reflection.Metadata.Ecma335.MetadataTokens.FieldDefinitionHandle(1);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            fields,
+            System.Reflection.Metadata.Ecma335.MetadataTokens.MethodDefinitionHandle(1));
+        var innerMethods = Methods();
+        var outer = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.Public | AbstractClass,
+            metadata.GetOrAddString("Ns"),
+            metadata.GetOrAddString("Outer"),
+            objectType,
+            fields,
+            innerMethods);
+        var inner = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.NestedPublic | AbstractClass,
+            default,
+            metadata.GetOrAddString("Inner"),
+            objectType,
+            fields,
+            innerMethods);
+        var generic = metadata.AddTypeDefinition(
+            System.Reflection.TypeAttributes.Public | AbstractClass,
+            metadata.GetOrAddString("Ns"),
+            metadata.GetOrAddString("Gen`1"),
+            objectType,
+            fields,
+            Methods());
+        metadata.AddNestedType(inner, outer);
+        metadata.AddGenericParameter(
+            generic,
+            System.Reflection.GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            0);
+
+        var image = new System.Reflection.Metadata.BlobBuilder();
+        new System.Reflection.PortableExecutable.ManagedPEBuilder(
+                new System.Reflection.PortableExecutable.PEHeaderBuilder(
+                    imageCharacteristics:
+                        System.Reflection.PortableExecutable.Characteristics.Dll
+                        | System.Reflection.PortableExecutable.Characteristics.ExecutableImage),
+                new System.Reflection.Metadata.Ecma335.MetadataRootBuilder(metadata),
+                new System.Reflection.Metadata.BlobBuilder())
+            .Serialize(image);
+        return image.ToArray();
+    }
+
     [Fact]
     public async Task TypeUiSelectionExecutesApiAndApiAttributeInBrowser()
     {
@@ -1947,18 +2115,17 @@ public sealed class BrowserLibraryApiDiffOperationTests
         internal string PackageId { get; }
         internal string CompileAssetId { get; }
 
-        internal static async Task<Fixture> Open()
+        internal static Task<Fixture> Open()
+            => Open(
+                File.ReadAllBytes(FixtureCatalog.LibraryApiDiffV1.AssemblyPath()),
+                File.ReadAllBytes(FixtureCatalog.LibraryApiDiffV2.AssemblyPath()));
+
+        internal static async Task<Fixture> Open(byte[] targetAssembly, byte[] currentAssembly)
         {
             string packageId =
                 "Library.Api.Diff." + Guid.NewGuid().ToString("N");
-            await Register(
-                packageId,
-                TargetVersion,
-                FixtureCatalog.LibraryApiDiffV1.AssemblyPath());
-            await Register(
-                packageId,
-                CurrentVersion,
-                FixtureCatalog.LibraryApiDiffV2.AssemblyPath());
+            await Register(packageId, TargetVersion, targetAssembly);
+            await Register(packageId, CurrentVersion, currentAssembly);
 
             BrowserInspectionScope targetScope;
             await using (BrowserScopeLease<BrowserInspectionScope> lease =
@@ -2040,15 +2207,12 @@ public sealed class BrowserLibraryApiDiffOperationTests
         static async Task Register(
             string packageId,
             string version,
-            string assemblyPath) =>
+            byte[] assembly) =>
             await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
                 new BrowserPackage(
                     packageId,
                     version,
-                    Archive(
-                        packageId,
-                        version,
-                        File.ReadAllBytes(assemblyPath)),
+                    Archive(packageId, version, assembly),
                     fromCache: false));
 
         static byte[] Archive(

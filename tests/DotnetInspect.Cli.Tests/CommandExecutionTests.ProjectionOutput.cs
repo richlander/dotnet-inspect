@@ -487,7 +487,7 @@ public partial class CommandExecutionTests
                 "find",
                 "graph cluster",
                 "graph libraries",
-                "implements",
+                "graph packages",
                 "library",
                 "library address",
                 "library query",
@@ -541,7 +541,6 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("library")]
-    [InlineData("implements")]
     [InlineData("extensions")]
     public async Task ProjectedJsonRoutingAudit_UnadoptedTypedDocumentFailsClosed(string command)
     {
@@ -549,8 +548,6 @@ public partial class CommandExecutionTests
         {
             "library" =>
                 [command, TestAssemblyPath, "-S", "Library Info", "--fields", "Assembly Version", "--json"],
-            "implements" =>
-                [command, "IDisposable", "--library", TestAssemblyPath, "--columns", "Type", "--json"],
             "extensions" =>
                 [command, "String", "--library", TestAssemblyPath, "--columns", "Method", "--json"],
             _ => throw new ArgumentOutOfRangeException(nameof(command)),

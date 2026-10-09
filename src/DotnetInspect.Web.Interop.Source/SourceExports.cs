@@ -728,7 +728,7 @@ public static partial class SourceExports
                 operation.CancellationToken);
         BrowserInspectionScope scope = resolved.Scope;
         BrowserWorkspaceParticipant participant = resolved.ImplementationParticipant;
-        CallGraphMemberResolution resolution = resolved.Member;
+        AssemblyContextMemberBody resolution = resolved.Member;
         operation.CancellationToken.ThrowIfCancellationRequested();
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             BrowserPackageWorkspace.LeaseScope(scope);
@@ -1055,7 +1055,7 @@ public static partial class SourceExports
     }
 
     static AssemblyMemberSourceRequest MemberSourceRequest(
-        CallGraphMemberResolution resolution,
+        AssemblyContextMemberBody resolution,
         string typeIdentity,
         string memberName,
         string styleOptionsJson,

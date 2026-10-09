@@ -1388,7 +1388,7 @@ The preferred semantic roles are:
 | --- | --- |
 | Workspace | Workspace overview |
 | Ecosystem | Ecosystem overview |
-| Package | Package overview |
+| Package | Package libraries |
 | Type | Type API |
 | Member | Member overview |
 | `All libraries` | Library references |

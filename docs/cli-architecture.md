@@ -250,8 +250,8 @@ neighboring commandless syntax and defaults.
 
 The first production adoption in
 [#6170](https://github.com/richlander/dotnet-inspect/issues/6170) routes the
-existing `find`, member-find, `implements`, `extensions`, and reachable
-extension implementations, plus type-mode `depends`, through one
+existing `find`, member-find, focused Type hierarchy, `extensions`, and
+reachable extension implementations, plus type-mode `depends`, through one
 invocation-owned asynchronous
 `InspectionWorkspace` for a deliberately bounded source shape:
 
@@ -589,7 +589,7 @@ architectural subsystem:
 | ------ | -------- | --------- |
 | Unary subject inspection | `package`, `project`, `library`, `type`, `member`, `ecosystem` | Resolve one subject and choose inspection lenses; ecosystem focus reads the product-owned static catalog without acquisition. |
 | Comparison and correlation | `diff`, `match` | Resolve ordered or paired subjects and choose comparison, History correlation, or correspondence producers. |
-| Search and relationships | `find`, `depends`, `extensions`, `implements`, `graph` | Resolve a bounded search/workspace scope and project typed relationships. |
+| Search and relationships | `find`, `depends`, `extensions`, focused `type` sections, `graph` | Resolve a bounded search/workspace scope and project typed relationships. |
 | Product metadata and utilities | `explain`, `cache`, `skill`, `demo` | Explain product resources such as product vocabularies, or expose CLI runtime state, embedded guidance, or closed demonstrations. |
 
 Noun-first and operation-first commands share independent source, focus, lens,

@@ -29,23 +29,3 @@ public record class ExtensionMethodResult
 
     public string? ReachableFromType { get; set; }
 }
-
-/// <summary>
-/// Result of implementer search.
-/// </summary>
-public record class ImplementerResult
-{
-    public string TypeName { get; set; } = "";
-
-    public string? Namespace { get; set; }
-
-    public string Kind { get; set; } = "";
-
-    public string Relationship { get; set; } = "";
-
-    public string? Assembly { get; set; }
-
-    public string? Source { get; set; }
-
-    public string? SourceVersion { get; set; }
-}

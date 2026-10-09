@@ -7,7 +7,7 @@ using ILInspector.Decompiler.Pipeline;
 namespace ILInspector.Decompiler.Tests;
 
 [Trait("Area", "Pass")]
-public class ValueTypeReceiverAliasPassTests
+public class ReceiverAliasPassTests
 {
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
@@ -35,7 +35,7 @@ public class ValueTypeReceiverAliasPassTests
             new Constant(1, Int32)));
         block.Add(new Return(null));
 
-        new ValueTypeReceiverAliasPass().Run(function, PassContext.None);
+        new ReceiverAliasPass().Run(function, PassContext.None);
 
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
@@ -56,7 +56,7 @@ public class ValueTypeReceiverAliasPassTests
         block.Add(new StoreStackSlot(1, new LoadStackSlot(0, Owner)));
         block.Add(new Return(new LoadStackSlot(1, Owner)));
 
-        new ValueTypeReceiverAliasPass().Run(function, PassContext.None);
+        new ReceiverAliasPass().Run(function, PassContext.None);
 
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
@@ -76,7 +76,7 @@ public class ValueTypeReceiverAliasPassTests
         block.Add(new StoreStackSlot(0, new DefaultValue(Owner)));
         block.Add(new Return(new LoadStackSlot(0, Owner)));
 
-        new ValueTypeReceiverAliasPass().Run(function, PassContext.None);
+        new ReceiverAliasPass().Run(function, PassContext.None);
 
         Assert.Equal(2, function.Descendants.OfType<StoreStackSlot>().Count());
         Assert.Single(function.Descendants.OfType<LoadStackSlot>());
@@ -116,14 +116,14 @@ public class ValueTypeReceiverAliasPassTests
         });
         block.Add(new Return(new LoadStackSlot(0, Owner)));
 
-        new ValueTypeReceiverAliasPass().Run(function, PassContext.None);
+        new ReceiverAliasPass().Run(function, PassContext.None);
 
         Assert.Single(function.Descendants.OfType<StoreStackSlot>());
         Assert.Single(function.Descendants.OfType<LoadStackSlot>());
     }
 
     [Fact]
-    public void ReferenceTypeReceiverDeclinesAliasForwarding()
+    public void NonGenericReferenceTypeReceiverKeepsOrdinaryStoragePlanning()
     {
         var function = Function(Object);
         var block = Assert.Single(function.Body.Blocks);
@@ -132,7 +132,49 @@ public class ValueTypeReceiverAliasPassTests
             new LoadArgument(0, function.ReceiverParameter!)));
         block.Add(new Return(new LoadStackSlot(0, Owner)));
 
-        new ValueTypeReceiverAliasPass().Run(function, PassContext.None);
+        new ReceiverAliasPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Single(function.Descendants.OfType<LoadStackSlot>());
+    }
+
+    [Fact]
+    public void SpellableGenericReferenceReceiverKeepsOrdinaryStoragePlanning()
+    {
+        var definition = TypeRef.Definition(
+            "Synthetic",
+            "Samples",
+            "Receiver`1");
+        var receiverType = TypeRef.GenericInstance(
+            definition,
+            [TypeRef.GenericParameter(0, "T")]);
+        var body = new BlockContainer();
+        var block = new Block(0);
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            receiverType,
+            new MethodSignature(
+                Void,
+                [],
+                HasThis: true,
+                GenericParameterCount: 0),
+            [],
+            body)
+        {
+            BaseType = Object,
+            DeclaringTypeGenericParameterNames = ["T"],
+            TypeShapes = new Dictionary<TypeRef, TypeShape>
+            {
+                [definition] = TypeShape.Reference,
+            },
+        };
+        block.Add(new StoreStackSlot(
+            0,
+            new LoadArgument(0, function.ReceiverParameter!)));
+        block.Add(new Return(new LoadStackSlot(0, receiverType)));
+
+        new ReceiverAliasPass().Run(function, PassContext.None);
 
         Assert.Single(function.Descendants.OfType<StoreStackSlot>());
         Assert.Single(function.Descendants.OfType<LoadStackSlot>());
@@ -148,7 +190,7 @@ public class ValueTypeReceiverAliasPassTests
             new LoadArgument(0, "this", Owner)));
         block.Add(new Return(new LoadStackSlot(0, Owner)));
 
-        new ValueTypeReceiverAliasPass().Run(function, PassContext.None);
+        new ReceiverAliasPass().Run(function, PassContext.None);
 
         Assert.Single(function.Descendants.OfType<StoreStackSlot>());
         Assert.Single(function.Descendants.OfType<LoadStackSlot>());
@@ -181,7 +223,7 @@ public class ValueTypeReceiverAliasPassTests
             nestedBody)));
         block.Add(new Return(null));
 
-        new ValueTypeReceiverAliasPass().Run(function, PassContext.None);
+        new ReceiverAliasPass().Run(function, PassContext.None);
 
         Assert.Single(CoercionSinks.ScopeNodes(function.Body).OfType<LoadArgument>(),
             load => ReferenceEquals(load.Parameter, function.ReceiverParameter));
@@ -238,6 +280,35 @@ public class ValueTypeReceiverAliasPassTests
         Assert.NotNull(result.Output);
         Assert.DoesNotContain("FileLinePositionSpan S_", result.Output);
         Assert.Contains("this.Path =", result.Output);
+    }
+
+    [Fact]
+    public void RoslynGenericReferenceConstructorUsesTheReceiverDirectly()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "PrimitiveJoin",
+            "Microsoft.CodeAnalysis.dll");
+        Assert.Equal(
+            "10F489DB67B8AC7489E58D392166C928302BA5698506DD652311DA5D89F0A0F8",
+            System.Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))));
+        using var metadata = CorpusMetadata.Create([path]);
+        using var source = MetadataSource.Open(path, context: metadata);
+        var function = IrImporter.Import(
+            source,
+            "Microsoft.CodeAnalysis.Collections.Internal.ICollectionDebugView`1",
+            ".ctor");
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(
+            function!,
+            method => IrImporter.Import(source, method));
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.NotNull(result.Output);
+        Assert.DoesNotContain("ICollectionDebugView S_", result.Output);
+        Assert.Contains("_collection =", result.Output);
     }
 
     static IrFunction Function(TypeRef baseType)

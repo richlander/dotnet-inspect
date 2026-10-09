@@ -706,8 +706,12 @@ test("application generic Diff selection uses producer-owned identities", () => 
   );
   assert.match(
     selectionSource,
-    /case "member":[\s\S]*?typeNames: \[overload\.anchorTypeFullName\],[\s\S]*?memberTargetIdentities: \[overload\.stableSelector\]/,
+    /case "member":[\s\S]*?typeNames: \[typeQueryIdentifierOf\(subject\.type\)\],[\s\S]*?memberTargetIdentities: \[overload\.stableSelector\]/,
   );
+  assert.doesNotMatch(
+    selectionSource,
+    /typeNames: \[[^\]]*anchorTypeFullName/,
+    "Member Diff names its Type by ApiType.FullName, not anchor spelling");
   assert.doesNotMatch(
     selectionSource,
     /memberTargetIdentities: \[[^\]]*anchorDigest/,

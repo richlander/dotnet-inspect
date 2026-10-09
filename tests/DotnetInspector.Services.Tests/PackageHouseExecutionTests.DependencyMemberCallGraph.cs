@@ -1462,19 +1462,17 @@ public sealed partial class PackageHouseExecutionTests
                         .ProductDefaultTargetFramework,
                     NuGetVersion.Parse("11.0.0")),
                 [$"{CallGraphTargetPackage}|{RouteVersion}"]);
-        PackageDependencyEdgeRealizationExecution execution =
-            PackageDependencyEdgeRealizationQuery.Execute(
-                new PackageDependencyEdgeRealizationRequest(
-                    traversal,
-                    rootOccurrenceIndex: 0,
-                    edgeIndex: 0,
-                    PackageHouseOperation.Create(
-                        PackageHouseOperationProfile.Realize),
-                    PackageHouseTargetContext.Exact(
-                        TraversalTargetFrameworkPolicy
-                            .ProductDefaultTargetFramework,
-                        platformTarget: platformTarget),
-                    inventory));
+        Assert.True(
+            PackageDependencyMemberCallGraphPlatformPruning
+                .TryCreateDotNetRuntime(
+                    inventory,
+                    out PackageDependencyMemberCallGraphPlatformPruning?
+                        createdPruning));
+        PackageDependencyMemberCallGraphPlatformPruning platformPruning =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphPlatformPruning>(
+                createdPruning);
+        Assert.Equal(platformTarget, platformPruning.Target);
 
         var platformEcosystem =
             new WorkspaceEcosystemRegistrationDeclaration(
@@ -1483,6 +1481,10 @@ public sealed partial class PackageHouseExecutionTests
                 [],
                 [],
                 [
+                    new WorkspaceEcosystemPopulationDeclaration
+                        .Platform(
+                            new PlatformLibraryPopulationDeclaration(
+                                PlatformFamily.DotNetRuntime)),
                     new WorkspaceEcosystemPopulationDeclaration
                         .PackagePrefix(
                             new PackagePrefixDeclaration(
@@ -1503,6 +1505,57 @@ public sealed partial class PackageHouseExecutionTests
                     [rootBinding],
                     DateTimeOffset.UtcNow.AddMinutes(1),
                     TestContext.Current.CancellationToken)).Snapshot;
+        PackageHouseOperation realizationOperation =
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize);
+        var inspectionRequest =
+            new PackageDependencyMemberCallGraphInspectionRequest(
+                rootBinding,
+                new PackageDependencyMemberCallGraphInspectionFocus(
+                    ModuleVersionId(CallGraphCallerPath),
+                    MethodToken(
+                        CallGraphCallerPath,
+                        "Entry",
+                        "RunAcrossBoundary")),
+                TraversalTargetFrameworkPolicy.ProductDefault,
+                new(
+                    maxDepth: 2,
+                    maxNodes: 10),
+                realizationOperation,
+                DateTimeOffset.UtcNow.AddMinutes(1),
+                supplyChainBaseline:
+                    PackageSupplyChainBaseline
+                        .SelfAndRegisteredEcosystems,
+                platformPruning:
+                    platformPruning);
+        PackageDependencyEdgeRealizationExecution execution =
+            Assert.Single(
+                PackageDependencyMemberCallGraphInspection
+                    .PrepareExecutions(
+                        inspectionRequest,
+                        traversal,
+                        MemberCallGraphFocalScopeReceipt.CaptureEverything(
+                            rooted,
+                            CurrentRegistrations(workspace))));
+        Assert.True(execution.DelegatesToPlatform);
+        await using (var packageOnlyWorkspace =
+            new InspectionWorkspace())
+        {
+            WorkspaceScopeSnapshot packageOnlyScope =
+                await CurrentScopeAsync(packageOnlyWorkspace);
+            PackageDependencyEdgeRealizationExecution packageExecution =
+                Assert.Single(
+                    PackageDependencyMemberCallGraphInspection
+                        .PrepareExecutions(
+                            inspectionRequest,
+                            traversal,
+                            MemberCallGraphFocalScopeReceipt
+                                .CaptureEverything(
+                                    packageOnlyScope,
+                                    CurrentRegistrations(
+                                        packageOnlyWorkspace))));
+            Assert.False(packageExecution.DelegatesToPlatform);
+        }
         var request = new PackageDependencyMemberCallGraphRequest(
             workspace,
             rooted,

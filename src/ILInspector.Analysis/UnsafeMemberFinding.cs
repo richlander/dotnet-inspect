@@ -15,13 +15,15 @@ public enum UnsafeMemberExposure
 }
 
 /// <summary>
-/// One positive unsafe-member role and the physical body that produced it.
+/// One positive unsafe-member role and the physical body that produced it,
+/// with the callee contract's source for an explicit-contract call.
 /// </summary>
 public sealed record UnsafeMemberFindingEvidence(
     UnsafeMemberUseKind Kind,
     MethodIdentity Body,
     int? ILOffset,
-    string Detail);
+    string Detail,
+    UnsafeContractSource? ContractSource = null);
 
 /// <summary>Why an unsafe member census or finding is not complete.</summary>
 public enum UnsafeMemberLimitationReason

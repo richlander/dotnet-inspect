@@ -1,6 +1,6 @@
 # Platform caller-unsafe contracts
 
-Status: Proposed. Lands the inventory's named successor for cross-assembly
+Status: Implemented. Lands the inventory's named successor for cross-assembly
 explicit-contract consumption, scoped to .NET platform members, for
 [#5254](https://github.com/richlander/dotnet-inspect/issues/5254).
 
@@ -75,11 +75,12 @@ A call matches an entry when both hold:
   from a constructed declaring type to its definition, has the entry's
   identifier; and
 - the callee's declaring type is defined in the primary image or referenced
-  through an `AssemblyRef`, and that assembly's public key token is a .NET
-  platform token: `7cec85d7bea7798e` (`System.Private.*`), `b03f5f7f11d50a3a`
-  (`System.Runtime` and most platform assemblies), `cc7b13ffcd2ddd51`
-  (`netstandard`, `System.Memory`, and other .NET Standard-era assemblies), or
-  `b77a5c561934e089` (`mscorlib` and `System`).
+  through an `AssemblyRef`, and that assembly's public key token is one that
+  Analysis's existing `FrameworkAssemblyKeys` recognizes: `7cec85d7bea7798e`
+  (`System.Private.*`), `b03f5f7f11d50a3a` (`System.Runtime` and most platform
+  assemblies), `cc7b13ffcd2ddd51` (`netstandard`, `System.Memory`, and other
+  .NET Standard-era assemblies), `b77a5c561934e089` (`mscorlib` and `System`),
+  `31bf3856ad364e35`, or `adb9793829ddae60`.
 
 The match is by type and member identity, not by assembly name, because one
 platform type is referenced through different assemblies: compiled against the
@@ -93,6 +94,26 @@ shared with some non-platform Microsoft packages, but a match still requires
 the exact identifier of a platform-defined member, so such a package matches
 only where it carries that platform type itself, as the
 `System.Runtime.CompilerServices.Unsafe` package does.
+
+Roslyn's lowering of safe source constructs into calls to projected members is
+not a source call, and admits nothing:
+
+- a `Span<T>(void*, int)` constructor that wraps a recognized `stackalloc`: the
+  [span stackalloc recognition](method-body-inspection.md#updated-semantics-unsafe-member-uses)
+  that decides the allocation's own role also excludes that constructor call;
+- a `ReadOnlySpan<T>(void*, int)` constructor, as `newobj` or as an in-place
+  `call` on a local's address, whose pointer operand, on the shared typed
+  stack, is `ldsflda` of a primary-image field with an RVA: the lowering of
+  `"..."u8` literals and constant span data; and
+- any projected call inside a top-level `<PrivateImplementationDetails>` body,
+  such as the `InlineArrayAsSpan` helpers that lower collection expressions and
+  inline arrays.
+
+An explicit source call to the same constructor still matches. The two
+constructor exclusions drop the lowered call whatever its contract source,
+because it is never a source call; the `<PrivateImplementationDetails>`
+exclusion applies only to projected contracts, so a same-image marker there
+keeps its role.
 
 ## Contract source
 
@@ -187,7 +208,7 @@ platform images that do not.
 
 ## Gates
 
-Focused Release gates in `ILInspector.Analysis.Tests`:
+Focused Release gates in `ILInspector.Analysis.Tests.LibraryBodyIndexTests`:
 
 | Property | Gate |
 | --- | --- |
@@ -199,6 +220,8 @@ Focused Release gates in `ILInspector.Analysis.Tests`:
 | An unprojected platform member admits nothing | `UnprojectedPlatformMemberAdmitsNothing` |
 | An image declaring `MemorySafetyRulesAttribute` is authoritative for its own unmarked members | `UpdatedRulesImageIsAuthoritativeForItsMembers` |
 | A projected contract adds no declaration role | `ProjectionAddsNoDeclarationRole` |
+| The constructor wrapping a recognized span `stackalloc` admits nothing | `UnsafeMemberUses_ApplyUpdatedSemanticsToUpdatedAssembly` and `UnsafeMemberUses_ApplyUpdatedSemanticsToLegacyAssembly` |
+| Constant-data spans, `u8` literals, and `<PrivateImplementationDetails>` helpers admit nothing, while an explicit source call to the constructor does | `CompilerLoweredConstantSpansAndHelpersAdmitNothing` |
 | The committed projection matches its recorded digest and count | `ProjectionMatchesItsHeader` |
 | The recorded pack version is the pinned SDK's reference-pack version | `ProjectionTracksPinnedSdk` |
 | An unreadable pack assembly fails generation | `GenerationFailsOnUnreadableAssembly` |

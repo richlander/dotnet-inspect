@@ -2516,6 +2516,7 @@ internal static class BrowserPlatformWorkspace
             PayloadLimits = BrowserPackageWorkspace.PackageLimits,
             MaxRetainedImageBytes =
                 BrowserInspectionScope.MaxRetainedImageBytes,
+            IncludePrerelease = true,
             UseVersionCache = false,
         };
 
