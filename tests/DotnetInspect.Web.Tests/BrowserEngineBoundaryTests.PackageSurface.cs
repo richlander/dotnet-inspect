@@ -38,6 +38,12 @@ using BrowserMemberGroupDocumentInspection =
     DotnetInspect.Web.Interop.Metadata.BrowserMemberGroupDocumentInspection;
 using BrowserMemberGroupDocumentRow =
     DotnetInspect.Web.Interop.Metadata.BrowserMemberGroupDocumentRow;
+using BrowserTypeMemberPopulation =
+    DotnetInspect.Web.Interop.Metadata.BrowserTypeMemberPopulation;
+using BrowserTypeMemberPopulationInspection =
+    DotnetInspect.Web.Interop.Metadata.BrowserTypeMemberPopulationInspection;
+using BrowserTypeMemberPopulationOutcome =
+    DotnetInspect.Web.Interop.Metadata.BrowserTypeMemberPopulationOutcome;
 using AttachedDocumentationQueryOutcome =
     DotnetInspect.Web.Interop.Metadata.Wire.DocumentationQueryOutcome;
 using MetadataExports =
@@ -3506,5 +3512,89 @@ public sealed partial class BrowserEngineBoundaryTests
             $"{typeof(BrowserEngineBoundaryTests).FullName}+"
                 + nameof(PerformanceNestedProbe),
             nested.GetProperty("typeId").GetString());
+    }
+
+    [Fact]
+    public async Task
+        PackagePerformance_PrivateHiddenMemberPopulationUsesImplementation()
+    {
+        const string PackageId = "Browser.Performance.Private.Pair";
+        const string AssemblyFileName = "DotnetInspect.Web.Tests.dll";
+        byte[] implementation = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] surface = BuildSurfaceImageWithType(
+            typeof(BrowserEngineBoundaryTests).Assembly.GetName(),
+            typeof(BrowserEngineBoundaryTests).FullName!);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(surface, implementation, AssemblyFileName),
+                fromCache: false));
+
+        BrowserPackagePerformance performance =
+            Assert.IsType<BrowserPackagePerformance>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPackagePerformance(
+                            PackageId,
+                            "1.0.0",
+                            "net11.0",
+                            AssemblyFileName),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackagePerformance));
+        BrowserPerformanceMember ranked = Assert.Single(
+            performance.Members,
+            member =>
+                member.MemberName
+                == nameof(PerformancePrivateBoxingProbe));
+
+        BrowserTypeMemberPopulationInspection ordinary =
+            Assert.IsType<BrowserTypeMemberPopulationInspection>(
+                JsonSerializer.Deserialize(
+                    await MetadataExports.QueryTypeMemberPopulation(
+                        PackageId,
+                        "1.0.0",
+                        "net11.0",
+                        AssemblyFileName,
+                        typeof(BrowserEngineBoundaryTests).FullName!,
+                        "csharp",
+                        "all"),
+                    BrowserMetadataJsonContext.Default
+                        .BrowserTypeMemberPopulationInspection));
+        Assert.Equal(
+            BrowserTypeMemberPopulationOutcome.Available,
+            ordinary.Outcome);
+        Assert.DoesNotContain(
+            Assert.IsType<BrowserTypeMemberPopulation>(
+                    ordinary.Population)
+                .Groups
+                .SelectMany(group => group.Members),
+            member => member.StableSelector == ranked.StableSelector);
+
+        BrowserTypeMemberPopulationInspection performancePopulation =
+            Assert.IsType<BrowserTypeMemberPopulationInspection>(
+                JsonSerializer.Deserialize(
+                    await MetadataExports.QueryPerformanceTypeMemberPopulation(
+                        PackageId,
+                        "1.0.0",
+                        "net11.0",
+                        AssemblyFileName,
+                        typeof(BrowserEngineBoundaryTests).FullName!,
+                        "csharp",
+                        "all"),
+                    BrowserMetadataJsonContext.Default
+                        .BrowserTypeMemberPopulationInspection));
+        Assert.Equal(
+            BrowserTypeMemberPopulationOutcome.Available,
+            performancePopulation.Outcome);
+        Assert.Contains(
+            Assert.IsType<BrowserTypeMemberPopulation>(
+                    performancePopulation.Population)
+                .Groups
+                .SelectMany(group => group.Members),
+            member =>
+                member.Name == nameof(PerformancePrivateBoxingProbe)
+                && member.StableSelector == ranked.StableSelector);
     }
 }

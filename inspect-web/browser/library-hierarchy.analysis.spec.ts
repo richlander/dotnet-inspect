@@ -282,7 +282,7 @@ for (const width of [1440, 390]) {
       await openAnalysis(page);
       const frame = page.locator(".library-analysis-surface");
       if (scenario === "partial") {
-        await expect(frame.locator(".perf-row")).toHaveCount(2);
+        await expect(frame.locator(".perf-row")).toHaveCount(3);
         await expect(frame.locator("header")).toContainText("partial");
       } else {
         await expect(frame.locator("h2")).toHaveText(scenario === "empty"
@@ -305,7 +305,7 @@ for (const width of [1440, 390]) {
     await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
     await selectPerformanceAnalysis(page);
     const frame = page.locator(".library-analysis-surface");
-    await expect(frame.locator(".perf-row")).toHaveCount(2);
+    await expect(frame.locator(".perf-row")).toHaveCount(3);
     const picker = frame.locator(".library-analysis-controls select");
     await expect(picker).toBeVisible();
     await expect(picker).toHaveValue("System.Text.Json");
@@ -358,6 +358,7 @@ test("production Analysis opens a private ranked member through all accessibilit
       memberName: "PrivateWork",
       selectorKey: "PrivateWork",
     }],
+    isHidden: true,
   };
   await installFacades(page, {
     ...surface,
@@ -384,6 +385,22 @@ test("production Analysis opens a private ranked member through all accessibilit
     .toHaveText("PrivateWork");
   await expect(inspectorTab(page, "data-member-section", "facts"))
     .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("html"))
+    .toHaveAttribute(
+      "data-performance-type-member-population-request",
+      JSON.stringify([
+        "Example.Package",
+        "1.0.0",
+        "net10.0",
+        "Example.Core.dll",
+        "Example.Widget",
+        "csharp",
+        "all",
+      ]),
+    );
+  expect(await page.locator("html").getAttribute(
+    "data-type-member-population-request",
+  )).toBeNull();
 });
 
 test("ranked Analysis members replace sticky private intent with all accessibility", async ({
@@ -434,7 +451,7 @@ test("ranked Analysis activation does not outlive newer metadata spelling", asyn
 
   await page.locator(".library-analysis-surface .perf-row").first().click();
   await expect(page.locator("html")).toHaveAttribute(
-    "data-type-member-population-request",
+    "data-performance-type-member-population-request",
     /"csharp","all"\]$/,
   );
   await page.locator("#member-filter-summary").click();
@@ -485,7 +502,7 @@ test("ranked Analysis activation does not outlive A to B to A Type navigation", 
 
   await page.locator(".library-analysis-surface .perf-row").first().click();
   await expect(page.locator("html")).toHaveAttribute(
-    "data-type-member-population-request",
+    "data-performance-type-member-population-request",
     /"Example.Neighbor","csharp","all"\]$/,
   );
   await expect(subjectTab(page, "type"))
@@ -627,7 +644,7 @@ test("production Analysis keeps deferred Library results out of the incoming ana
   await expect(page.locator(".library-analysis-surface")).toContainText("Analyzing allocations");
   await expect(page.locator("#inspector-panel > section > footer")).toHaveCount(0);
   await releaseFacade(page, "fixture-analysis-ready:asset:core");
-  await expect(page.locator(".library-analysis-scroll .perf-row")).toHaveCount(2);
+  await expect(page.locator(".library-analysis-scroll .perf-row")).toHaveCount(3);
   await chooseSubject(page, "package", "Package");
   await selectLibrary(page, other.id);
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");

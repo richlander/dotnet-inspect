@@ -922,16 +922,22 @@ let inspectMemberDeclaration:
   EngineClient["metadata"]["queryMemberDeclaration"];
 let inspectMemberGroupDocument:
   EngineClient["metadata"]["queryMemberGroupDocument"];
+let inspectPerformanceTypeMemberPopulation:
+  EngineClient["metadata"]["queryPerformanceTypeMemberPopulation"];
 let inspectTypeMemberPopulation:
   EngineClient["metadata"]["queryTypeMemberPopulation"];
 let inspectPlatformMemberDeclaration:
   EngineClient["metadata"]["queryPlatformMemberDeclaration"];
 let inspectPlatformMemberGroupDocument:
   EngineClient["metadata"]["queryPlatformMemberGroupDocument"];
+let inspectPlatformPerformanceTypeMemberPopulation:
+  EngineClient["metadata"]["queryPlatformPerformanceTypeMemberPopulation"];
 let inspectPlatformTypeMemberPopulation:
   EngineClient["metadata"]["queryPlatformTypeMemberPopulation"];
 let inspectUploadedLibraryMemberGroupDocument:
   EngineClient["metadata"]["queryUploadedLibraryMemberGroupDocument"];
+let inspectUploadedLibraryPerformanceTypeMemberPopulation:
+  EngineClient["metadata"]["queryUploadedLibraryPerformanceTypeMemberPopulation"];
 let inspectUploadedLibraryTypeMemberPopulation:
   EngineClient["metadata"]["queryUploadedLibraryTypeMemberPopulation"];
 let inspectPackageHeapEntries:
@@ -1144,14 +1150,20 @@ async function loadEngineModule() {
       queryGraphMemberSurface: inspectGraphMemberSurface,
       queryMemberDeclaration: inspectMemberDeclaration,
       queryMemberGroupDocument: inspectMemberGroupDocument,
+      queryPerformanceTypeMemberPopulation:
+        inspectPerformanceTypeMemberPopulation,
       queryTypeMemberPopulation: inspectTypeMemberPopulation,
       queryPlatformMemberDeclaration: inspectPlatformMemberDeclaration,
       queryPlatformMemberGroupDocument:
         inspectPlatformMemberGroupDocument,
+      queryPlatformPerformanceTypeMemberPopulation:
+        inspectPlatformPerformanceTypeMemberPopulation,
       queryPlatformTypeMemberPopulation:
         inspectPlatformTypeMemberPopulation,
       queryUploadedLibraryMemberGroupDocument:
         inspectUploadedLibraryMemberGroupDocument,
+      queryUploadedLibraryPerformanceTypeMemberPopulation:
+        inspectUploadedLibraryPerformanceTypeMemberPopulation,
       queryUploadedLibraryTypeMemberPopulation:
         inspectUploadedLibraryTypeMemberPopulation,
       queryPackageHeapEntries: inspectPackageHeapEntries,
@@ -12009,7 +12021,7 @@ async function selectPerformanceMember(
   expectedPopulationIntent: number,
   resourceMethodToken?: number,
 ) {
-  const populationReceipt = await loadSelectedTypeMemberPopulation();
+  const populationReceipt = await loadSelectedTypeMemberPopulation(true);
   if (viewSignature() !== expectedView) return;
   const type = selectedType();
   if (!type
@@ -21439,7 +21451,9 @@ let typeMemberPopulationReceipt: TypeMemberPopulationReceipt | null = null;
 let typeMemberPopulationGeneration = 0;
 let typeMemberPopulationIntentGeneration = 0;
 
-function loadSelectedTypeMemberPopulation():
+function loadSelectedTypeMemberPopulation(
+  performance = false,
+):
   Promise<TypeMemberPopulationReceipt | null> {
   const type = selectedType();
   if (!type) {
@@ -21486,7 +21500,9 @@ function loadSelectedTypeMemberPopulation():
   load.promise = (async () => {
     try {
       const result = state.rootKind === "library"
-        ? inspectUploadedLibraryTypeMemberPopulation(
+        ? (performance
+          ? inspectUploadedLibraryPerformanceTypeMemberPopulation
+          : inspectUploadedLibraryTypeMemberPopulation)(
             type.assemblyId,
             type.definitionId ?? type.id,
             state.memberSpelling,
@@ -21494,7 +21510,9 @@ function loadSelectedTypeMemberPopulation():
         : pkg.isRuntimePack
         ? (() => {
             const row = platformLibraryForRequest(pkg, type.assemblyId);
-            return inspectPlatformTypeMemberPopulation(
+            return (performance
+              ? inspectPlatformPerformanceTypeMemberPopulation
+              : inspectPlatformTypeMemberPopulation)(
               pkg.activeFramework,
               pkg.version,
               platformAssemblyRequest(row),
@@ -21503,7 +21521,9 @@ function loadSelectedTypeMemberPopulation():
               state.memberSpelling,
               state.memberAccessibilityFilter);
           })()
-        : inspectTypeMemberPopulation(
+        : (performance
+          ? inspectPerformanceTypeMemberPopulation
+          : inspectTypeMemberPopulation)(
             pkg.id,
             pkg.version,
             pkg.activeFramework,

@@ -1667,6 +1667,20 @@ async function installFacades(
           spelling,
           accessibility);
       }
+      export async function queryPerformanceTypeMemberPopulation(
+        id, version, framework, assembly, typeIdentity, spelling, accessibility) {
+        document.documentElement.dataset.performanceTypeMemberPopulationRequest =
+          JSON.stringify([
+            id, version, framework, assembly, typeIdentity, spelling,
+            accessibility,
+          ]);
+        await waitForTypeMemberPopulationGate();
+        return typeMemberPopulation(
+          surfaceFor(id, version, framework),
+          typeIdentity,
+          spelling,
+          accessibility);
+      }
       export async function queryPlatformTypeMemberPopulation(
         framework, version, assembly, pack, typeIdentity, spelling, accessibility) {
         document.documentElement.dataset.platformTypeMemberPopulationRequest =
@@ -1681,6 +1695,21 @@ async function installFacades(
           spelling,
           accessibility);
       }
+      export async function queryPlatformPerformanceTypeMemberPopulation(
+        framework, version, assembly, pack, typeIdentity, spelling, accessibility) {
+        document.documentElement.dataset
+          .platformPerformanceTypeMemberPopulationRequest =
+            JSON.stringify([
+              framework, version, assembly, pack, typeIdentity, spelling,
+              accessibility,
+            ]);
+        await waitForTypeMemberPopulationGate();
+        return typeMemberPopulation(
+          surfaceFor("Microsoft.NETCore.App", version, framework),
+          typeIdentity,
+          spelling,
+          accessibility);
+      }
       export async function queryUploadedLibraryTypeMemberPopulation(
         declaredName, content, typeIdentity, spelling, accessibility) {
         document.documentElement.dataset.uploadedTypeMemberPopulationRequest =
@@ -1688,6 +1717,21 @@ async function installFacades(
             declaredName, content.length, typeIdentity, spelling,
             accessibility,
           ]);
+        await waitForTypeMemberPopulationGate();
+        return typeMemberPopulation(
+          surfaces[0],
+          typeIdentity,
+          spelling,
+          accessibility);
+      }
+      export async function queryUploadedLibraryPerformanceTypeMemberPopulation(
+        declaredName, content, typeIdentity, spelling, accessibility) {
+        document.documentElement.dataset
+          .uploadedPerformanceTypeMemberPopulationRequest =
+            JSON.stringify([
+              declaredName, content.length, typeIdentity, spelling,
+              accessibility,
+            ]);
         await waitForTypeMemberPopulationGate();
         return typeMemberPopulation(
           surfaces[0],
