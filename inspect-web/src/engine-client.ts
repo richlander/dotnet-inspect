@@ -65,8 +65,10 @@ type LibraryOperations = "inspectLibrary" | "openUploadedLibrary";
 
 type MetadataOperations =
   | "cancelLibraryApiDiff"
+  | "cancelLibraryFastDiff"
   | "findTypes"
   | "queryLibraryApiDiff"
+  | "queryLibraryFastDiff"
   | "queryMemberDeclaration"
   | "queryMemberDocument"
   | "queryMemberGroupDocument"
