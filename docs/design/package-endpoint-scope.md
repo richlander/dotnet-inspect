@@ -249,12 +249,20 @@ never retain a participant after the scope is disposed.
    [package-backed platform realization](package-backed-platform-realization.md#production-adoption-and-retirement).
 7. **Exact package Type inspection.** The cold shared exact-Type operation
    opens a `Surface` endpoint scope and executes the existing Metadata query
-   against its admitted Root. CLI `type` supplies desktop House policy.
+   against its admitted Root. CLI `type` supplies desktop House policy. Its
+   complete authority store explicitly admits the exact configured source's
+   legacy application-cache slot when that authority has a durable,
+   credential-free identity; the strict authority store remains the default,
+   and credentialed authorities never reinterpret a legacy slot.
    Inspect Web executes the same operation over its already-retained
    House-backed Root and assembly-role realization rather than reacquiring the
-   package. The detached `InspectionEnvelope<ExactTypeInspectionResult>`
-   remains unchanged; raw `WorkspaceContextLoadOptions` are no longer an input
-   to the completed operation.
+   package. When that realization contains other Roots, its retained adapter
+   opens snapshot-backed references in a short-lived query group containing
+   only the selected Root's surface participants, so unrelated Workspace
+   package failures cannot alter the exact-Type projection. The detached
+   `InspectionEnvelope<ExactTypeInspectionResult>` remains unchanged; raw
+   `WorkspaceContextLoadOptions` are no longer an input to the completed
+   operation.
 
 `diff --library` compares local files and needs no scope.
 

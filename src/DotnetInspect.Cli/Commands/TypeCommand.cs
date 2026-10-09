@@ -1387,7 +1387,7 @@ public static partial class TypeCommand
         using var stores = new SearchPackageStores("inspect-type");
         PackageHouse house = composition.CreateRealizationHouse(
             new PackagePayloadAcquisitionPlan(
-                stores.GetStore,
+                stores.GetLegacyCompatibleStore,
                 PackagePayloadLimits.Default,
                 log: options.Verbose ? logger.Log : null),
             options.SourceOptions,

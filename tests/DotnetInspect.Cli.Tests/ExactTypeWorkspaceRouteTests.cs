@@ -79,6 +79,66 @@ public sealed class ExactTypeWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task EligiblePinnedPackageRouteUsesLegacyApplicationCacheOffline()
+    {
+        using var cache = new IsolatedOfflineCache();
+        byte[] package = Archive(
+            ($"lib/{Framework}/ILInspector.Metadata.dll",
+                await File.ReadAllBytesAsync(
+                    typeof(ApiType).Assembly.Location,
+                    TestContext.Current.CancellationToken)));
+        using (var stream = new MemoryStream(package))
+        {
+            IPackageContent legacy =
+                await new FileSystemPackageStore().CommitAsync(
+                    PackageId,
+                    Version,
+                    NuGetCache.GetSourceKey(SourceUrl),
+                    stream,
+                    TestContext.Current.CancellationToken);
+            Assert.NotEqual(
+                FixtureProducerKeys()[1],
+                legacy.ProducerKey);
+        }
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(ApiType).FullName,
+            CompanionOutput = CompanionOutput.None,
+            EnvelopeOutput = true,
+            CompactJson = true,
+            SourceOptions = new NuGetSourceOptions
+            {
+                Sources = [SourceUrl],
+            },
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options)));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(
+            "exact-type",
+            document.RootElement
+                .GetProperty("result_kind")
+                .GetString());
+        Assert.Equal(
+            typeof(ApiType).FullName,
+            document.RootElement
+                .GetProperty("content")
+                .GetProperty("type")
+                .GetProperty("fullName")
+                .GetString());
+    }
+
+    [Fact]
     public async Task WorkspaceRouteUsesSelectedContextAndEmitsDerivedShare()
     {
         const string otherPackageId = "unrelated.package";
@@ -2135,6 +2195,40 @@ public sealed class ExactTypeWorkspaceRouteTests
             throw new InvalidOperationException(
                 $"The eligible route bypassed injected Workspace capabilities: "
                 + request.RequestUri);
+    }
+
+    sealed class IsolatedOfflineCache : IDisposable
+    {
+        readonly string _root = Path.Combine(
+            Directory.GetCurrentDirectory(),
+            "artifacts",
+            $"exact-type-legacy-cache-{Guid.NewGuid():N}");
+
+        public IsolatedOfflineCache()
+        {
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions
+                {
+                    Offline = true,
+                });
+            DotnetInspector.Networking.HttpClientFactory
+                .ResetSharedForTesting();
+            NuGetCache.Initialize(
+                "dotnet-inspect-test",
+                _root,
+                skipNuGetCache: true);
+        }
+
+        public void Dispose()
+        {
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions());
+            DotnetInspector.Networking.HttpClientFactory
+                .ResetSharedForTesting();
+            NuGetCache.Initialize("dotnet-inspect-test");
+            if (Directory.Exists(_root))
+                Directory.Delete(_root, recursive: true);
+        }
     }
 
     sealed class NotFoundHandler : HttpMessageHandler

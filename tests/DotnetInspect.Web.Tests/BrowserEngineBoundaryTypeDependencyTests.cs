@@ -87,14 +87,15 @@ public sealed partial class BrowserEngineBoundaryTests
             "Browser.TypeDependencies.Workspace.Consumer";
         Type dependency = typeof(IPackagePayloadReservation);
 
-        BrowserPackageCoordinate rootCoordinate = await Coordinate(
+        BrowserPackageCoordinate rootCoordinate = await ArtifactCoordinate(
             rootPackageId,
             Package(
                 BuildTypeDependencyImage(
                     rootAssemblyName,
                     typeName,
                     dependency),
-                $"lib/net11.0/{rootAssemblyName}.dll"));
+                $"lib/net11.0/{rootAssemblyName}.dll"),
+            TestContext.Current.CancellationToken);
         _ = await Coordinate(
             dependencyPackageId,
             Package(
@@ -162,10 +163,10 @@ public sealed partial class BrowserEngineBoundaryTests
                 [rootCoordinate],
                 TestContext.Current.CancellationToken);
         InspectionEnvelope<ExactTypeInspectionResult> direct =
-            directScope.UsePackageAssemblyRoles(
+            await directScope.UsePackageAssemblyRoles(
                 rootCoordinate,
                 (inspectionWorkspace, package, realization) =>
-                    ExactTypeInspectionOperation.Execute(
+                    ExactTypeInspectionOperation.ExecuteAsync(
                         inspectionWorkspace,
                         package,
                         realization,
@@ -205,7 +206,7 @@ public sealed partial class BrowserEngineBoundaryTests
         const string packageId = "Browser.ExactType.Bounds";
         const string selectedType = "Browser.Bounds.Selected";
         const string omittedType = "Browser.Bounds.Omitted";
-        BrowserPackageCoordinate coordinate = await Coordinate(
+        BrowserPackageCoordinate coordinate = await ArtifactCoordinate(
             packageId,
             PackageEntries(
                 ("lib/net11.0/First.dll",
@@ -217,7 +218,8 @@ public sealed partial class BrowserEngineBoundaryTests
                     BuildTypeDependencyImage(
                         "Browser.Bounds.Second",
                         omittedType,
-                        typeof(IAsyncDisposable)))));
+                        typeof(IAsyncDisposable)))),
+            TestContext.Current.CancellationToken);
         var limits = new ApiSurfaceProjectionLimits(
             maxParticipants: 2,
             maxTypes: 1,
@@ -230,10 +232,10 @@ public sealed partial class BrowserEngineBoundaryTests
                 [coordinate],
                 TestContext.Current.CancellationToken);
         InspectionEnvelope<ExactTypeInspectionResult> selected =
-            scope.UsePackageAssemblyRoles(
+            await scope.UsePackageAssemblyRoles(
                 coordinate,
                 (workspace, package, realization) =>
-                    ExactTypeInspectionOperation.Execute(
+                    ExactTypeInspectionOperation.ExecuteAsync(
                         workspace,
                         package,
                         realization,
@@ -244,10 +246,10 @@ public sealed partial class BrowserEngineBoundaryTests
                             selectedType),
                         limits));
         InspectionEnvelope<ExactTypeInspectionResult> unavailable =
-            scope.UsePackageAssemblyRoles(
+            await scope.UsePackageAssemblyRoles(
                 coordinate,
                 (workspace, package, realization) =>
-                    ExactTypeInspectionOperation.Execute(
+                    ExactTypeInspectionOperation.ExecuteAsync(
                         workspace,
                         package,
                         realization,

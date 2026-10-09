@@ -98,14 +98,15 @@ public static class ExactTypeInspectionOperation
         ArtifactRootResult<
             InspectionEnvelope<ExactTypeInspectionResult>> execution =
             await scope.UsePackageAssemblyRolesAsync(
-                    (workspace, package, realization, _) =>
-                        ValueTask.FromResult(
-                            ExecuteCore(
+                    async (workspace, package, realization, token) =>
+                        await ExecuteRetainedCoreAsync(
                                 workspace,
                                 package,
                                 realization,
                                 request,
-                                projectionLimits)),
+                                projectionLimits,
+                                token)
+                            .ConfigureAwait(false),
                     cancellationToken)
                 .ConfigureAwait(false);
         return execution switch
@@ -132,36 +133,42 @@ public static class ExactTypeInspectionOperation
     /// Executes against one already admitted package Root and its matching
     /// assembly-role realization.
     /// </summary>
-    public static InspectionEnvelope<ExactTypeInspectionResult> Execute(
+    public static Task<InspectionEnvelope<ExactTypeInspectionResult>>
+        ExecuteAsync(
         InspectionWorkspace workspace,
         PackageRootBinding package,
         PackageAssemblyContextRealization realization,
-        ExactTypeInspectionRequest request) =>
-        ExecuteCore(
+        ExactTypeInspectionRequest request,
+        CancellationToken cancellationToken = default) =>
+        ExecuteRetainedCoreAsync(
             workspace,
             package,
             realization,
             request,
-            projectionLimits: null);
+            projectionLimits: null,
+            cancellationToken);
 
     /// <summary>
     /// Executes against one already admitted package Root under caller-supplied
     /// API-surface projection limits.
     /// </summary>
-    public static InspectionEnvelope<ExactTypeInspectionResult> Execute(
+    public static Task<InspectionEnvelope<ExactTypeInspectionResult>>
+        ExecuteAsync(
         InspectionWorkspace workspace,
         PackageRootBinding package,
         PackageAssemblyContextRealization realization,
         ExactTypeInspectionRequest request,
-        ApiSurfaceProjectionLimits projectionLimits)
+        ApiSurfaceProjectionLimits projectionLimits,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(projectionLimits);
-        return ExecuteCore(
+        return ExecuteRetainedCoreAsync(
             workspace,
             package,
             realization,
             request,
-            projectionLimits);
+            projectionLimits,
+            cancellationToken);
     }
 
     /// <summary>
@@ -218,17 +225,20 @@ public static class ExactTypeInspectionOperation
                 projectionLimits),
             request);
 
-    static InspectionEnvelope<ExactTypeInspectionResult> ExecuteCore(
+    static async Task<InspectionEnvelope<ExactTypeInspectionResult>>
+        ExecuteRetainedCoreAsync(
         InspectionWorkspace workspace,
         PackageRootBinding package,
         PackageAssemblyContextRealization realization,
         ExactTypeInspectionRequest request,
-        ApiSurfaceProjectionLimits? projectionLimits)
+        ApiSurfaceProjectionLimits? projectionLimits,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(realization);
         ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
 
         ImmutableArray<PackageAssemblyRoleParticipant> participants =
         [
@@ -246,31 +256,109 @@ public static class ExactTypeInspectionOperation
                 request);
         }
 
+        var selected = new HashSet<AssemblyContextParticipant>(
+            participants.Select(static participant =>
+                participant.Participant),
+            ReferenceEqualityComparer.Instance);
+        if (realization.SurfaceGroup.Participants.Length == selected.Count
+            && realization.SurfaceGroup.Participants.All(selected.Contains))
+        {
+            return ExecuteCore(
+                workspace,
+                Loaded(
+                    workspace.Identity,
+                    realization.SurfaceGroup,
+                    selected,
+                    package,
+                    request),
+                request,
+                projectionLimits);
+        }
+
+        var retained =
+            ImmutableArray.CreateBuilder<AssemblyContextParticipant>(
+                participants.Length);
+        foreach (PackageAssemblyRoleParticipant participant
+            in participants)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            AssemblyImageAccessResult<ResolvedAssemblyReference> access =
+                realization.SurfaceGroup.RetainAssemblyReference(
+                    participant.Participant.Assembly);
+            if (access
+                is AssemblyImageAccessResult<ResolvedAssemblyReference>
+                    .Rejected rejected)
+            {
+                return Envelope(
+                    new ExactTypeInspectionResult(
+                        ExactTypeInspectionOutcome.Unavailable,
+                        request.Type,
+                        MatchedType: null,
+                        Type: null,
+                        RequestedAssembly: null,
+                        SupplierAssembly: null,
+                        ForwardingHops: [],
+                        Suggestions: [],
+                        InspectionFailures: [],
+                        Failures:
+                        [
+                            new ExactTypeInspectionFailure(
+                                ExactTypeInspectionFailureKind
+                                    .ParticipantRejected,
+                                rejected.Failure.Detail,
+                                participant.Participant.Assembly.Identity),
+                        ]),
+                    request);
+            }
+            retained.Add(
+                new AssemblyContextParticipant(
+                    ((AssemblyImageAccessResult<ResolvedAssemblyReference>
+                        .Available)access).Value,
+                    participant.Participant.BindingPolicy));
+        }
+
+        await using var selectedWorkspace = new InspectionWorkspace();
+        using AssemblyContextGroup selectedGroup =
+            selectedWorkspace.CreateAssemblyContextGroup(retained);
+        return ExecuteCore(
+            selectedWorkspace,
+            Loaded(
+                selectedWorkspace.Identity,
+                selectedGroup,
+                retained,
+                package,
+                request),
+            request,
+            projectionLimits);
+    }
+
+    static WorkspaceContextLoadOutcome.Loaded Loaded(
+        InspectionWorkspaceIdentity workspace,
+        AssemblyContextGroup group,
+        IEnumerable<AssemblyContextParticipant> participants,
+        PackageRootBinding package,
+        ExactTypeInspectionRequest request)
+    {
         WorkspaceMemberCoordinate declared =
             WorkspaceMemberCoordinate.Package(
                 request.PackageId,
                 request.Version,
                 request.TargetFramework,
                 package.Coordinate.RuntimeIdentifier);
-        var loaded = new WorkspaceContextLoadOutcome.Loaded(
-            workspace.Identity,
-            realization.SurfaceGroup,
+        return new(
+            workspace,
+            group,
             [
                 .. participants.Select(participant =>
                     new WorkspaceContextMember(
                         declared,
                         package.Coordinate,
-                        participant.Participant)),
+                        participant)),
             ],
             [package],
             [],
             package.Coordinate.Framework,
             package.Coordinate.RuntimeIdentifier);
-        return ExecuteCore(
-            workspace,
-            loaded,
-            request,
-            projectionLimits);
     }
 
     static InspectionEnvelope<ExactTypeInspectionResult> Envelope(

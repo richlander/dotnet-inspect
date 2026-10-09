@@ -94,22 +94,28 @@ public static partial class MetadataExports
                     participant,
                     typeDefinitionId)
                 : null;
-        InspectionEnvelope<ExactTypeInspectionResult> exactTypeInspection =
-            hierarchyInspection is null
-                ? scope.UsePackageAssemblyRoles(
+        InspectionEnvelope<ExactTypeInspectionResult> exactTypeInspection;
+        if (hierarchyInspection is null)
+        {
+            exactTypeInspection =
+                await scope.UsePackageAssemblyRoles(
                     root,
                     (workspace, package, realization) =>
-                        ExactTypeInspectionOperation.Execute(
+                        ExactTypeInspectionOperation.ExecuteAsync(
                             workspace,
                             package,
                             realization,
                             exactTypeRequest,
-                            BrowserApiSurfacePolicy.Limits))
-                : new(
-                    hierarchyInspection.ExactTypeInspection.Content
-                        .Inspection,
-                    hierarchyInspection.ExactTypeInspection.Share,
-                    hierarchyInspection.ExactTypeInspection.Diagnostics);
+                            BrowserApiSurfacePolicy.Limits));
+        }
+        else
+        {
+            exactTypeInspection = new(
+                hierarchyInspection.ExactTypeInspection.Content
+                    .Inspection,
+                hierarchyInspection.ExactTypeInspection.Share,
+                hierarchyInspection.ExactTypeInspection.Diagnostics);
+        }
         BrowserTypeHierarchyMetadata? hierarchy =
             hierarchyInspection is null
                 ? ProjectUnavailableHierarchy(exactTypeInspection)
