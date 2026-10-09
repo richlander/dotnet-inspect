@@ -351,6 +351,33 @@ Release gates are `CompileInventoryDemandIsDeclaredBeforeAcquisition`,
 `PackageSummary_PreservesProductDefaultAlongsideCompleteLibraryInventory`. This slice consumes existing selection, measurement,
 Root, and QuerySpace child-row contracts rather than changing them.
 
+## Exact compile Library realization
+
+The website Summary-to-Library flow declares an exact compile Library selector
+before acquisition. PackageHouse resolves that selector against the same
+owner-issued compile selection used by inventory. Surface demand materializes
+only the selected compile entry; implementation demand also materializes its
+corresponding implementation in archive-aligned chunks. Missing or ambiguous
+selectors preserve their typed outcomes and never authorize sibling Library
+content. The full directory and compile receipt remain authoritative for
+identity, compatible targets, and owner-default targets.
+
+Workspace realization consumes that same selector and prepares only its
+surface and requested implementation participants. It preserves reference API
+semantics and implementation-preferred Library documents. Hosts do not infer
+correspondence or choose range versus complete access. Complete acquisition
+below the shared size cut preserves the same selected participants.
+
+`Avalonia@12.1.3` and `Microsoft.CodeAnalysis.CSharp@5.9.0` motivate this boundary:
+on 2026-10-09 the inventory-only candidate made Summary faster but its separate
+broad Library realization regressed the complete cold sequence from 394.6 to
+500.4 ms and 390.3 to 497.9 ms respectively. The production browser API and
+Library enablements exports must adopt the exact shared demand before this
+candidate is ready. The CLI exact-Library caller is the subsequent shared
+adoption boundary under #9754. Before/after evidence uses the existing
+`eng/measure-inspect-web-library-open.cs` sequence and complete result parity;
+synthetic multi-Library fixtures enforce that sibling bodies stay unread.
+
 ## House-owned acquisition planning
 
 PackageHouse chooses one execution plan from the semantic query and

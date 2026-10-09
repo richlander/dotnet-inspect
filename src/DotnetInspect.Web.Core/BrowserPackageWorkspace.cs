@@ -757,7 +757,9 @@ internal static class BrowserPackageWorkspace
         string? targetFramework,
         IPackageSourceClient source,
         BrowserPackageOperationDeadline deadline,
-        bool inventoryOnly = false)
+        bool inventoryOnly = false,
+        PackageLibrarySelector? librarySelector = null,
+        PackageAssetDemand assetDemand = PackageAssetDemand.SurfaceAndImplementation)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(source);
@@ -773,7 +775,8 @@ internal static class BrowserPackageWorkspace
             RealizationRequestKey(
                 packageId,
                 requestedVersion,
-                targetFramework) + (inventoryOnly ? ":inventory" : ""),
+                targetFramework) + (inventoryOnly ? ":inventory" : "")
+                    + (librarySelector is null ? "" : CompositeKey("library", librarySelector.Kind.ToString(), librarySelector.Value, assetDemand.ToString())),
             source);
         BrowserSharedOperation<BrowserPackageRealizationResult> pending;
         bool created = false;
@@ -796,7 +799,7 @@ internal static class BrowserPackageWorkspace
                             targetFramework,
                             source,
                             sharedDeadline,
-                            inventoryOnly),
+                            inventoryOnly, librarySelector, assetDemand),
                         remaining),
                     BrowserManagedEpochWorkRegistration.Current.SourceForAcquisition,
                     "Package realization");
@@ -817,7 +820,9 @@ internal static class BrowserPackageWorkspace
         string? targetFramework,
         IPackageSourceClient source,
         BrowserPackageOperationDeadline deadline,
-        bool inventoryOnly)
+        bool inventoryOnly,
+        PackageLibrarySelector? librarySelector,
+        PackageAssetDemand assetDemand)
     {
         var coordinateRequest = new PackageCoordinate(
             normalizedPackageId,
@@ -851,6 +856,10 @@ internal static class BrowserPackageWorkspace
             ? PackageHouseRequest.CompileInventory(
                 new PackageHouseDemand.Exact(settled.Result.Coordinate),
                 operation, targetContext)
+            : librarySelector is not null
+                ? PackageHouseRequest.CompileLibrary(
+                    new PackageHouseDemand.Exact(settled.Result.Coordinate),
+                    operation, targetContext, librarySelector, assetDemand)
             : new PackageHouseRequest(
                 new PackageHouseDemand.Exact(settled.Result.Coordinate),
                 operation,
@@ -859,7 +868,8 @@ internal static class BrowserPackageWorkspace
                 PackageHouseLibraryHandoffMode.SelectedLibraries,
                 evidenceDemand: PackageHouseEvidenceDemand.FrameworkReferences);
         string selectionRequest = (inventoryOnly ? "inventory:" : "")
-            + SelectionRequestToken(targetFramework);
+            + SelectionRequestToken(targetFramework)
+            + (librarySelector is null ? "" : CompositeKey("library", librarySelector.Kind.ToString(), librarySelector.Value, assetDemand.ToString()));
         BrowserSessionPackageStore store = StoreFor(source);
         BrowserSessionPackageStore rangedStore = store.ForRealization(selectionRequest);
         string packageKey = rangedStore.PackageKey(
@@ -900,7 +910,7 @@ internal static class BrowserPackageWorkspace
                     "The package realization requested another configured source.");
         var transferPolicy = new BrowserPackageRealizationTransferPolicy(
             store, deadline, rangedStore);
-        PackagePayloadAcquisitionPlan acquisitionPlan = inventoryOnly
+        PackagePayloadAcquisitionPlan acquisitionPlan = inventoryOnly || librarySelector is not null
             ? PackagePayloadAcquisitionPlan.ForContentQueries(
                 getStore, PayloadLimits, transferPolicy)
             : new PackagePayloadAcquisitionPlan(
@@ -2718,6 +2728,26 @@ internal static class BrowserPackageWorkspace
                     Cache[packageKey] = Cache[packageKey] with { Realization = narrowed, LastAccess = NextClock() };
                 return narrowed;
             }, operationTimeout, cancellationToken).ConfigureAwait(false);
+        return await OpenScopeAsync(realization, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
+        string packageId, string version, string targetFramework, string library,
+        PackageAssetDemand assetDemand, CancellationToken cancellationToken = default) =>
+        OpenLibraryScopeAsync(packageId, version, targetFramework, library, assetDemand,
+            Gallery, PackageOperationTimeout, cancellationToken);
+
+    internal static async Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
+        string packageId, string version, string targetFramework, string library,
+        PackageAssetDemand assetDemand, IPackageSourceClient source,
+        TimeSpan operationTimeout, CancellationToken cancellationToken)
+    {
+        var selector = new PackageLibrarySelector(library, PackageLibrarySelectionKind.AssetId);
+        BrowserPackageRealization realization = await RunPackageOperationAsync(
+            async deadline => RequireRealization(await RealizeCoreAsync(packageId, version,
+                targetFramework, source, deadline, librarySelector: selector,
+                assetDemand: assetDemand).ConfigureAwait(false), deadline),
+            operationTimeout, cancellationToken).ConfigureAwait(false);
         return await OpenScopeAsync(realization, cancellationToken).ConfigureAwait(false);
     }
 

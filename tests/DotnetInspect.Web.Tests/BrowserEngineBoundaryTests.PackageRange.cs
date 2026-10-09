@@ -10,6 +10,53 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserEngineBoundaryTests
 {
+    // PR-fast: real managed fixture images, no broad analysis.
+    [Theory]
+    [InlineData("net11.0", PackageAssetDemand.Surface)]
+    [InlineData("", PackageAssetDemand.Surface)]
+    [InlineData("net99.0", PackageAssetDemand.SurfaceAndImplementation)]
+    public async Task ExactLibraryDemand_NarrowsTransferAndWorkspace(string target, PackageAssetDemand demand)
+    {
+        string id = $"library.exact.{Guid.NewGuid():N}";
+        byte[] assembly = File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        byte[] other = File.ReadAllBytes(typeof(PackageExports).Assembly.Location);
+        var handler = new GalleryPackageHandler(id, "1.0.0", PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(Nuspec(id, "1.0.0"))),
+            ("ref/net11.0/AAA.dll", other),
+            ($"ref/net11.0/{id}.dll", assembly),
+            ("content/padding.bin", new byte[2 * 1024 * 1024]),
+            ($"lib/net11.0/{id}.dll", assembly),
+            ("lib/net11.0/AAA.dll", other)));
+        using IPackageSourceClient source = Gallery(handler);
+        await BrowserPackageWorkspace.InventoryWithSettlementAsync(id, "1.0.0", target,
+            source, TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        await using var lease = await BrowserPackageWorkspace.OpenLibraryScopeAsync(id, "1.0.0", target,
+            $"compile:ref/net11.0/{id}.dll", demand, source,
+            TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = lease.Scope;
+        Assert.Single(scope.SurfaceParticipants);
+        Assert.Equal($"ref/net11.0/{id}.dll", scope.SurfaceParticipants[0].Asset.Path);
+        RangedPackageContent content = Assert.IsType<RangedPackageContent>(scope.Coordinates[0].Package.Content);
+        Assert.False(content.IsMaterialized("ref/net11.0/AAA.dll"));
+        Assert.Equal(2, scope.Coordinates[0].Selection.Assets.Count);
+        if (demand == PackageAssetDemand.Surface)
+        {
+            Assert.Empty(scope.ImplementationParticipants);
+            Assert.False(content.IsMaterialized($"lib/net11.0/{id}.dll"));
+        }
+        else
+        {
+            Assert.Single(scope.ImplementationParticipants);
+            Assert.Equal($"lib/net11.0/{id}.dll", scope.ImplementationParticipants[0].Asset.Path);
+        }
+        int requests = handler.Requested.Count;
+        await using var repeated = await BrowserPackageWorkspace.OpenLibraryScopeAsync(id, "1.0.0", target,
+            $"compile:ref/net11.0/{id}.dll", demand, source,
+            TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        Assert.Equal(requests, handler.Requested.Count);
+        Assert.Same(scope, repeated.Scope);
+    }
+
     // PR-fast: no binary decoding; exercises empty and no-match settlements.
     [Theory]
     [InlineData("content/empty.txt", "net11.0", PackageInfoMeasurementStatus.NoCompileSlices)]

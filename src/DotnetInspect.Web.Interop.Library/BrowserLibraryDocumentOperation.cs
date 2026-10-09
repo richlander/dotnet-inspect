@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 
 using DotnetInspector.Libraries;
+using DotnetInspector.Packages;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -70,11 +71,11 @@ internal static class BrowserLibraryDocumentOperation
             case { Kind: BrowserLibrarySelectorKind.Package, Package: { } package }:
             {
                 await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-                    await BrowserPackageWorkspace.OpenRealizedScopeAsync(
+                    await BrowserPackageWorkspace.OpenLibraryScopeAsync(
                         package.PackageId,
                         package.Version,
-                        package.TargetFramework,
-                        cancellationToken).ConfigureAwait(false);
+                        package.TargetFramework, package.AssemblyId,
+                        PackageAssetDemand.SurfaceAndImplementation, cancellationToken).ConfigureAwait(false);
                 return await InspectPackageAsync(
                         scopeLease.Scope,
                         package.AssemblyId,

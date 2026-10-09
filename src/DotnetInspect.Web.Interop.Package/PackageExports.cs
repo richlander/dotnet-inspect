@@ -444,10 +444,10 @@ public static partial class PackageExports
         string assemblyId)
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-            await BrowserPackageWorkspace.OpenRealizedScopeAsync(
+            await BrowserPackageWorkspace.OpenLibraryScopeAsync(
                 packageId,
                 version,
-                targetFramework);
+                targetFramework, assemblyId, PackageAssetDemand.Surface);
         BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         ExactLibraryApiInspectionRequest request =

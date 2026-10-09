@@ -49,6 +49,45 @@ public sealed partial class PackageRangedRealizationTests
         Assert.Equal(complete ? 0 : 1, server.RangedRequests);
     }
 
+    // PR-fast: pinned real multi-Library archive; both host-neutral acquisition paths.
+    [Theory]
+    [InlineData(false, "PCLStorage")]
+    [InlineData(true, "PCLStorage")]
+    [InlineData(false, "Missing")]
+    public async Task ExactCompileLibrary_PreservesInventoryAndNarrowsParticipants(bool complete, string name)
+    {
+        byte[] archive = ReadPclStorage();
+        var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        var request = PackageHouseRequest.CompileLibrary(
+            new PackageHouseDemand.Exact(PackageSourceCoordinate.Create(PclStorage, PclStorageVersion)),
+            PackageHouseOperation.Create(PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.Exact("net45"), new PackageLibrarySelector(name),
+            PackageAssetDemand.Surface);
+        var store = new InMemoryPackageStore();
+        var house = new PackageHouse(environment.Authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries((_, _) => store,
+                rangedSizeCut: complete ? archive.Length : 0));
+        using var operation = environment.Root.IssueOperationLease(TestContext.Current.CancellationToken,
+            request.Operation.RequestTimeout, request.Operation.OperationTimeout);
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(await house.ExecuteAsync(request, operation));
+        var contribution = Assert.IsType<DotnetInspector.PackageQueries.PackageHouseRootContributionOutcome.Contributed>(
+            DotnetInspector.PackageQueries.PackageHouseRootContributionAdapter.Create(acquired));
+        Assert.Equal(2, contribution.Contribution.Binding.Root.AssetSelection.Assets.Count);
+        await using var workspace = new DotnetInspector.Queries.InspectionWorkspace();
+        using var roles = workspace.RealizePackageAssemblyContextRoles([contribution.Contribution.Binding.Root],
+            cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(name == "Missing" ? 0 : 1, roles.SurfaceParticipants.Length);
+        Assert.Empty(roles.ImplementationParticipants);
+        if (!complete)
+        {
+            var content = Assert.IsType<RangedPackageContent>(acquired.Payload.Content);
+            Assert.Equal(name != "Missing", content.IsMaterialized("lib/net45/PCLStorage.dll"));
+            Assert.False(content.IsMaterialized("lib/net45/PCLStorage.Abstractions.dll"));
+            Assert.False(content.IsMaterialized("lib/net45/PCLStorage.xml"));
+        }
+    }
+
     // PR-fast: pinned small archive, directory and receipt assertions only.
     [Theory]
     [InlineData(false)]

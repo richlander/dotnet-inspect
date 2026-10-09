@@ -52,6 +52,22 @@ public abstract class PackageHouseContentTerminal
     {
     }
 
+    /// <summary>One exact compile Library and the declared assembly roles it needs.</summary>
+    public sealed class CompileLibrary : PackageHouseContentTerminal
+    {
+        public CompileLibrary(PackageLibrarySelector selector, PackageAssetDemand assetDemand)
+        {
+            ArgumentNullException.ThrowIfNull(selector);
+            if (!Enum.IsDefined(assetDemand))
+                throw new ArgumentOutOfRangeException(nameof(assetDemand));
+            Selector = selector;
+            AssetDemand = assetDemand;
+        }
+
+        public PackageLibrarySelector Selector { get; }
+        public PackageAssetDemand AssetDemand { get; }
+    }
+
     /// <summary>
     /// The complete validated content of one or more exact package entries.
     /// </summary>
@@ -285,6 +301,7 @@ public sealed class PackageHouseContentQuery
         Terminals = Array.AsReadOnly(values);
         RetainedFileList = retainedFileList;
         RetainedLibraryInventory = retainedLibraryInventory;
+        CompileLibraryTerminal = values.OfType<PackageHouseContentTerminal.CompileLibrary>().SingleOrDefault();
         FilesTerminal = values
             .OfType<PackageHouseContentTerminal.Files>()
             .SingleOrDefault();
@@ -340,6 +357,8 @@ public sealed class PackageHouseContentQuery
     internal PackageHouseContentTerminal.FileList? FileListTerminal { get; }
 
     internal PackageHouseFileList? RetainedFileList { get; }
+
+    internal PackageHouseContentTerminal.CompileLibrary? CompileLibraryTerminal { get; }
 
     internal PackageHouseContentTerminal.LibraryAndInventoryForTarget?
         LibraryAndInventoryTerminal { get; }

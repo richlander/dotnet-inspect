@@ -162,10 +162,14 @@ public static class PackageHouseRootContributionAdapter
         // request yields a surface-only Root, which prepares no
         // implementation role and so never opens an implementation entry a
         // ranged read did not fetch (docs/design/package-read-demand.md#asset-demand).
+        binding = binding.WithAssetDemand(result.Request.AssetDemand);
+        if (result.Request.ContentQuery?.Terminals.OfType<PackageHouseContentTerminal.CompileLibrary>()
+            .SingleOrDefault() is { } library)
+            binding = binding.WithLibrarySelection(library.Selector);
         return new PackageHouseRootContributionOutcome.Contributed(
             new PackageHouseRootContribution(
                 result,
                 realization,
-                binding.WithAssetDemand(result.Request.AssetDemand)));
+                binding));
     }
 }

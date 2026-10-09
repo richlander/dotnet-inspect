@@ -814,7 +814,7 @@ public sealed partial class PackageHouse
                 IReadOnlyList<string> unmatchedLegacyFiles =
                     request.FileDemand?.Unmatched(acquiredEntryPaths)
                     ?? [];
-                if (request.ContentQuery is not null && !request.IsCompileInventory)
+                if (request.ContentQuery is not null && !request.IsCompileInventory && !request.IsCompileLibrary)
                 {
                     IReadOnlyList<string> selectedSemanticEntries =
                         contentFiles?.SelectedEntries ?? [];
@@ -1873,6 +1873,31 @@ public sealed partial class PackageHouse
                 packageId,
                 directory,
                 [.. directory.EnumerateEntries()]);
+            if (contentQuery.CompileLibraryTerminal is { } library)
+            {
+                PackageCompileAssetSelection selection = PackageCompileAssetSelector.Evaluate(
+                    directory, packageId, CompilePolicy(request),
+                    request.TargetContext?.RequestedFramework,
+                    request.TargetContext?.RuntimeIdentifier).Selection;
+                IReadOnlyList<PackageCompileAsset> matches = library.Selector.Select(selection);
+                if (matches.Count != 1)
+                {
+                    if (selection.IsSelected)
+                        return new PackageRangedSelection([]);
+                    PackageToolSliceSelection tools = PackageToolSliceMeasurementProjection.SelectEntries(
+                        directory.EnumerateEntries(), request.TargetContext?.RequestedFramework);
+                    return AddRootManifest(new PackageRangedSelection([
+                        .. directory.EnumerateEntries().Where(PackageEntryPath.IsToolSettingsPath),
+                        .. tools.SelectedEntries.Where(path => path.Equals(library.Selector.Value, StringComparison.Ordinal)),
+                    ]), directory);
+                }
+                PackageCompileAsset surface = matches[0];
+                PackageCompileAsset? implementation = library.AssetDemand == PackageAssetDemand.Surface
+                    ? null : selection.FindImplementationAsset(surface);
+                return new PackageRangedSelection([surface.Path],
+                    implementation is null || implementation.Path == surface.Path
+                        ? [] : Anchors([implementation.Path], directory));
+            }
             if (request.IsCompileInventory)
             {
                 // Package children require manifest and tool settings, while
@@ -1982,6 +2007,10 @@ public sealed partial class PackageHouse
         return request.ContentQuery is
             {
                 FilesTerminal: not null
+            }
+            or
+            {
+                CompileLibraryTerminal: not null
             }
             or
             {
