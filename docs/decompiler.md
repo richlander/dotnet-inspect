@@ -92,6 +92,30 @@ Key properties:
 - **Cross-assembly facts resolve through one seam.** The importer is single-assembly, so a bare token (a `newobj` target) carries no value-type byte for a type defined elsewhere. `CrossAssemblyTypeResolver` recovers such facts on demand through `TypeResolutionContext`, using the injected binding policy to follow forwarders and read the defining type's metadata, then stamps the answer onto the `TypeRef` at import so every consumer reads it for free. The defining assembly is opened once and indexed through a shared `MetadataContext`, so resolving many tokens from the same assembly costs a single open. The product injects a platform/package-aware policy. A reference whose public-key token is a platform key (`PlatformKeys`) is asserted `AssemblyResolutionScope.Platform` and resolved only from platform/framework sources — both a confusion guard (a planted local copy cannot impersonate a platform type) and a fast path. Enum member names, underlying types, and authenticated `[Flags]` state form one definition fact and come from the same resolved type and image. Exact eligible declared values render by name. An otherwise unnamed flags value renders as a deterministic low-bit-to-high-bit `|` expression only when eligible declared single-bit members cover its underlying-width bit pattern completely; zero requires an exact zero member, and residual bits, non-flags enums, unspellable or error-obsolete members, and unresolved definitions remain explicit casts. This deliberately narrower rule avoids guessing among overlapping composite masks while recovering conventional flags source. Resolution is precision-preserving: unreachable types stay unknown, never guessed. `CrossAssemblyMethodFactsTests`, `CrossAssemblyEnumIntegerTests`, and `TypeRefDecoderCanonicalReferencedTests` gate the product seam and its platform-confusion boundary. `ReturnToSenderPrototypeTests.CompileBackTargets_RoundTripsForwardedExternalExplicitInterfaceMethod` gates the compile-back harness consumer. ReturnToSender snapshots one budgeted dependency closure per assembly batch and supplies that same acquisition generation to Roslyn, structured interface planning, cluster/all comparison, and authored replay; `CreateCompilationClosure_FreezesResolverAndRoslynToSameDependencyImage`, `CompileBackPropertyGetters_SharesOneCompilationClosure`, `Acquire_SnapshotBudgetExhaustionIsTyped`, and `AuthoredBody_ReusesFrozenRtsCompilationClosure` gate its lifetime and path-replacement boundaries. `ResolveExternalTypeDefinition_AcceptsByteIdenticalPlatformSibling`, `ResolveExternalTypeDefinition_DeclinesWhenSiblingSpoofsDurableAddress`, and `ResolveExternalTypeDefinition_DeclinesWhenPlatformSelectionDiffersFromCompilationClosure` gate its candidate boundary: the structured engine replays the complete walk through Roslyn's sibling-first closure and requires the same assembly identity, defining-image SHA-256 digest, and durable TypeDef address.
 - **State machines are pass-layer work.** Both Roslyn (dedicated rewriters) and ILSpy (dedicated early transforms) treat async/iterators as transforms, and they land here as dedicated raising passes. The focused classic (`runtime-async=off`) inverse core is specified in [classic-async-reconstruction.md](design/classic-async-reconstruction.md): it consumes one authenticated request and owns the proof-carrying reconstruction decision. The [stage-application owner](design/classic-async-stage-application.md) admits only that authenticated declared-kickoff request to inverse-driven mutation and preserves every other imported body by default. Request attachment, nested embedding, declaration disposition, and result projection remain separate owners. PDB state-machine information may enrich classic naming and lexical scope after identity is established, but it is never classic relationship authority or fallback reconstruction. Runtime-async and iterator reconstruction owners are unchanged; the classic pass has no mutation authority over their implementation hosts.
 
+### Skipped-body fidelity details
+
+A below-Full body-shape search failure retains the fidelity level and exact
+search requirement, and summarizes the producer-owned typed cause census.
+Show at most three distinct `(Code, Discriminator, Reason)` groups in producer
+order, retaining the first location of each group. Each formatted detail is
+limited to 240 characters; truncation or additional groups points to the full
+member `Fidelity Causes` census. Repeated sites of one cause do not fill the
+summary. Ordinary diagnostics remain visible alongside the typed summary and provide
+the original fallback when no typed cause exists.
+This changes disclosure only: skip decisions, matches, identity, and fidelity
+are unchanged. CLI and Browser/Wasm callers receive the same shared failure
+reason; hosts retain their existing warning and completed-result policies.
+
+The real witness is System.Text.Json 11.0.0-rc.1.26425.128, especially
+`Utf8JsonWriter.DisposeAsync` and `FlushAsync`: their unreconstructed classic
+state-machine names lower fidelity without ordinary diagnostics. Source is
+pinned to dotnet/runtime
+[`ab19415702aa8139d5369e47c73edb47343c34ad`, Utf8JsonWriter.cs](https://github.com/dotnet/runtime/blob/ab19415702aa8139d5369e47c73edb47343c34ad/src/libraries/System.Text.Json/src/System/Text/Json/Writer/Utf8JsonWriter.cs).
+`BodyShapeSearchTests.Search_ReportsUnreconstructedStateMachineBodies` gates
+real compiler-produced failure details. `BodyShapeFidelitySummaryTests` gates
+multiple-site deduplication, producer order, and bounded truncation. This is
+the disclosure slice of #9625; exit policy remains separate work in #9622.
+
 ## What we deliberately do differently
 
 Two divergences from ILSpy are intentional and argued in [decompiler-taste.md](decompiler-taste.md):

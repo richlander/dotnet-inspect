@@ -29,11 +29,25 @@ public sealed record DiffAnalysisLibraryInspectionRequest(
     StringLiteralComparisonQueryPlan? StringLiteralQuery = null);
 
 /// <summary>
+/// The whole-Library API comparison of one endpoint pair and its portable
+/// presentation. Both are independent of the requested Diff surface, Types,
+/// and Members.
+/// </summary>
+public sealed record LibraryApiComparison(
+    AssemblyContextApiComparisonResult Comparison,
+    LibraryApiDiffOutcome LibraryApi);
+
+/// <summary>
 /// Completes one selected-Library comparison once, retaining both generic Diff
 /// evidence and the exact portable Library API presentation.
 /// </summary>
 public static class DiffAnalysisLibraryInspection
 {
+    /// <param name="reuse">
+    /// Lets a host return a previously completed comparison of the same
+    /// endpoint pair, scope, and limits instead of running the supplied
+    /// computation.
+    /// </param>
     public static InspectionEnvelope<DiffAnalysisDocument> Execute(
         AssemblyContextGroup beforeGroup,
         AssemblyContextParticipant before,
@@ -41,20 +55,26 @@ public static class DiffAnalysisLibraryInspection
         AssemblyContextParticipant after,
         ApiSurfaceScope scope,
         ApiSurfaceProjectionLimits perEndpointLimits,
-        DiffAnalysisLibraryInspectionRequest request)
+        DiffAnalysisLibraryInspectionRequest request,
+        Func<Func<LibraryApiComparison>, LibraryApiComparison>? reuse = null)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        AssemblyContextApiComparisonResult comparison =
-            AssemblyContextApiComparisonQuery.Execute(
-                beforeGroup,
-                before,
-                afterGroup,
-                after,
-                scope,
-                perEndpointLimits);
-        LibraryApiDiffOutcome libraryApi =
-            LibraryApiDiffPresentationAdapter.Create(comparison);
+        LibraryApiComparison Compute()
+        {
+            AssemblyContextApiComparisonResult result =
+                AssemblyContextApiComparisonQuery.Execute(
+                    beforeGroup,
+                    before,
+                    afterGroup,
+                    after,
+                    scope,
+                    perEndpointLimits);
+            return new(result, LibraryApiDiffPresentationAdapter.Create(result));
+        }
+
+        (AssemblyContextApiComparisonResult comparison, LibraryApiDiffOutcome libraryApi) =
+            reuse is null ? Compute() : reuse(Compute);
         DiffAnalysisInput input = CreateInput(
             beforeGroup,
             before,
