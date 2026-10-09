@@ -4,6 +4,7 @@
 // Measures FastDiff over one Library image pair and checks it against the
 // complete API comparison and canonical IL comparison.
 // Usage: measure-fast-diff <before.dll> <after.dll> [iterations]
+// Also reports the API axis alone and bounded steps over retained readers.
 
 using System.Diagnostics;
 using System.Reflection.PortableExecutable;
@@ -41,6 +42,51 @@ for (int i = 0; i < iterations; i++)
     samples.Add(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
 }
 samples.Sort();
+
+// The API axis alone, and the whole comparison advanced in bounded steps over
+// retained readers, as a single-threaded host runs it.
+double Median(Func<double> sample)
+{
+    sample();
+    var values = Enumerable.Range(0, iterations).Select(_ => sample()).Order().ToList();
+    return values[values.Count / 2];
+}
+double Timed(Action action)
+{
+    long start = Stopwatch.GetTimestamp();
+    action();
+    return Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+}
+using (var before = new PEReader(new MemoryStream(beforeBytes, writable: false)))
+using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
+{
+    double apiOnly = Median(() => Timed(() => FastDiff.Compare(before, after, FastDiffAxes.Api)));
+    Console.WriteLine($"api-only\tmedian={apiOnly:F2}");
+    foreach (double budgetMs in new[] { 0.5, 1.0 })
+    {
+        int steps = 0;
+        double maxStep = 0;
+        double stepped = Median(() =>
+        {
+            var comparison = new FastDiffComparison();
+            steps = 0;
+            maxStep = 0;
+            double total = 0;
+            bool complete = false;
+            while (!complete)
+            {
+                double elapsed = Timed(() => complete = comparison.Step(
+                    before, after, TimeSpan.FromMilliseconds(budgetMs)));
+                total += elapsed;
+                maxStep = Math.Max(maxStep, elapsed);
+                steps++;
+            }
+            return total;
+        });
+        Console.WriteLine(
+            $"stepped\tbudget={budgetMs:F1}ms\tsteps={steps}\tmedian={stepped:F2}\tmaxStep={maxStep:F2}");
+    }
+}
 
 // Complete Public API comparison, signatures and attributes.
 const ApiSurfaceExtractionScope surfaceScope = ApiSurfaceExtractionScope.Public;

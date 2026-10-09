@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -17,6 +18,19 @@ public enum FastDiffState
 
     /// <summary>The axis could not be decided, for example because a row could not be decoded.</summary>
     Indeterminate,
+
+    /// <summary>The comparison was asked not to decide this axis.</summary>
+    NotCompared,
+}
+
+/// <summary>The axes one comparison decides.</summary>
+public enum FastDiffAxes
+{
+    /// <summary>Both the API and the Body axis.</summary>
+    ApiAndBody,
+
+    /// <summary>The API axis only; every Body state is <see cref="FastDiffState.NotCompared"/>.</summary>
+    Api,
 }
 
 /// <summary>
@@ -77,38 +91,15 @@ public sealed record FastDiffResult(
 /// </remarks>
 public static class FastDiff
 {
-    public static FastDiffResult Compare(PEReader before, PEReader after)
+    public static FastDiffResult Compare(
+        PEReader before,
+        PEReader after,
+        FastDiffAxes axes = FastDiffAxes.ApiAndBody,
+        CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(before);
-        ArgumentNullException.ThrowIfNull(after);
-
-        var a = new Side(before);
-        var b = new Side(after);
-        Dictionary<string, Unit> unitsA = a.Units();
-        Dictionary<string, Unit> unitsB = b.Units();
-
-        var states = ImmutableArray.CreateBuilder<FastDiffTypeState>(
-            unitsA.Count + unitsB.Count);
-        var work = new Work();
-        foreach ((string key, Unit unitA) in unitsA)
-        {
-            if (!unitsB.TryGetValue(key, out Unit? unitB))
-            {
-                states.Add(OneSided(a, unitA));
-                continue;
-            }
-            states.Add(CompareUnit(a, unitA, b, unitB, work));
-        }
-        foreach ((string key, Unit unitB) in unitsB)
-        {
-            if (!unitsA.ContainsKey(key))
-                states.Add(OneSided(b, unitB));
-        }
-
-        states.Sort((x, y) => string.CompareOrdinal(x.FullName, y.FullName));
-        return new FastDiffResult(
-            states.ToImmutable(),
-            new FastDiffReceipt(states.Count, work.Bodies, work.IlBytes));
+        var comparison = new FastDiffComparison(axes);
+        comparison.Step(before, after, Timeout.InfiniteTimeSpan, cancellationToken);
+        return comparison.Result!;
     }
 
     /// <summary>
@@ -173,10 +164,19 @@ public static class FastDiff
             : $"- {onlyBefore}\n+ {onlyAfter}";
     }
 
-    static FastDiffTypeState OneSided(Side side, Unit unit)
+    internal static FastDiffTypeState OneSided(Side side, Unit unit, FastDiffAxes axes)
     {
+        FastDiffState presence = axes is FastDiffAxes.Api
+            ? FastDiffState.NotCompared
+            : FastDiffState.Changed;
         if (unit.Malformed)
-            return new FastDiffTypeState(unit.FullName, FastDiffState.Indeterminate, FastDiffState.Indeterminate, unit.Identifier);
+        {
+            return new FastDiffTypeState(
+                unit.FullName,
+                FastDiffState.Indeterminate,
+                axes is FastDiffAxes.Api ? FastDiffState.NotCompared : FastDiffState.Indeterminate,
+                unit.Identifier);
+        }
         FastDiffState api;
         try
         {
@@ -186,13 +186,21 @@ public static class FastDiff
         {
             api = FastDiffState.Indeterminate;
         }
-        return new FastDiffTypeState(unit.FullName, api, FastDiffState.Changed, unit.Identifier);
+        return new FastDiffTypeState(unit.FullName, api, presence, unit.Identifier);
     }
 
-    static FastDiffTypeState CompareUnit(Side a, Unit unitA, Side b, Unit unitB, Work work)
+    internal static FastDiffTypeState CompareUnit(
+        Side a,
+        Unit unitA,
+        Side b,
+        Unit unitB,
+        FastDiffAxes axes,
+        Work work)
     {
         FastDiffState api = FastDiffState.Indeterminate;
-        FastDiffState body = FastDiffState.Indeterminate;
+        FastDiffState body = axes is FastDiffAxes.Api
+            ? FastDiffState.NotCompared
+            : FastDiffState.Indeterminate;
         if (unitA.Malformed || unitB.Malformed)
             return new FastDiffTypeState(unitA.FullName, api, body, unitA.Identifier);
         try
@@ -200,6 +208,8 @@ public static class FastDiff
             api = a.ApiCensus(unitA).SequenceEqual(b.ApiCensus(unitB), StringComparer.Ordinal)
                 ? FastDiffState.Unchanged
                 : FastDiffState.Changed;
+            if (axes is FastDiffAxes.Api)
+                return new FastDiffTypeState(unitA.FullName, api, body, unitA.Identifier);
             body = BodiesEqual(a, unitA, b, unitB, work)
                 ? FastDiffState.Unchanged
                 : FastDiffState.Changed;
@@ -403,7 +413,18 @@ public static class FastDiff
             or ArgumentException
             or IndexOutOfRangeException;
 
-    sealed class Work
+    /// <summary>The Type units of one side, read row by row.</summary>
+    internal sealed class UnitTable
+    {
+        public OrderedDictionary<string, Unit> Units { get; } = new(StringComparer.Ordinal);
+
+        public List<(TypeDefinitionHandle Type, TypeDefinitionHandle Owner)> Generated { get; } = [];
+
+        // Row 1 is the <Module> pseudo-Type.
+        public int NextRow { get; set; } = 2;
+    }
+
+    internal sealed class Work
     {
         public int Bodies;
         public long IlBytes;
@@ -413,15 +434,16 @@ public static class FastDiff
     /// The Type's declaring chain could not be read, so neither axis can be
     /// decided.
     /// </param>
-    sealed record Unit(
+    internal sealed record Unit(
         string FullName,
         string Identifier,
         TypeDefinitionHandle Owner,
         List<TypeDefinitionHandle> Generated,
         bool Malformed = false);
 
-    sealed class Side
+    internal sealed class Side
     {
+        readonly Guid _mvid;
         readonly Dictionary<int, string> _keys = [];
         readonly Dictionary<int, string> _displayNames = [];
         readonly SignatureKeys _signatures;
@@ -431,7 +453,24 @@ public static class FastDiff
         {
             Pe = pe;
             Md = MetadataFormatAdmission.GetMetadataReader(pe);
+            _mvid = Md.GetGuid(Md.GetModuleDefinition().Mvid);
             _signatures = new SignatureKeys(this);
+        }
+
+        /// <summary>
+        /// Rebinds this side to a reader over the same image. Every retained
+        /// fact is a handle or a string, so it stays valid for any reader of
+        /// that image.
+        /// </summary>
+        public void Bind(PEReader pe)
+        {
+            if (ReferenceEquals(pe, Pe))
+                return;
+            MetadataReader md = MetadataFormatAdmission.GetMetadataReader(pe);
+            if (md.GetGuid(md.GetModuleDefinition().Mvid) != _mvid)
+                throw new InvalidOperationException("A Fast Diff comparison continues over the same images.");
+            Pe = pe;
+            Md = md;
         }
 
         /// <summary>
@@ -455,20 +494,34 @@ public static class FastDiff
             return methods;
         }
 
-        public PEReader Pe { get; }
+        public PEReader Pe { get; private set; }
 
-        public MetadataReader Md { get; }
+        public MetadataReader Md { get; private set; }
 
-        public Dictionary<string, Unit> Units()
+        public OrderedDictionary<string, Unit> Units()
         {
-            var units = new Dictionary<string, Unit>(StringComparer.Ordinal);
-            var generated = new List<(TypeDefinitionHandle Type, TypeDefinitionHandle Owner)>();
+            var table = new UnitTable();
+            ReadUnits(table, static () => false);
+            return table.Units;
+        }
+
+        /// <summary>
+        /// Reads Type rows into <paramref name="table"/> until the table is
+        /// complete or <paramref name="overBudget"/> reports true at a row
+        /// boundary. Returns true when the table is complete.
+        /// </summary>
+        public bool ReadUnits(UnitTable table, Func<bool> overBudget)
+        {
+            OrderedDictionary<string, Unit> units = table.Units;
+            List<(TypeDefinitionHandle Type, TypeDefinitionHandle Owner)> generated = table.Generated;
             Span<TypeDefinitionHandle> chain =
                 stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
-            foreach (TypeDefinitionHandle handle in Md.TypeDefinitions)
+            int rows = Md.TypeDefinitions.Count;
+            for (; table.NextRow <= rows; table.NextRow++)
             {
-                if (MetadataTokens.GetRowNumber(handle) == 1)
-                    continue;
+                if (overBudget())
+                    return false;
+                TypeDefinitionHandle handle = MetadataTokens.TypeDefinitionHandle(table.NextRow);
 
                 try
                 {
@@ -517,10 +570,11 @@ public static class FastDiff
                     // The owner's own row is malformed and already reported.
                 }
             }
-            return units;
+            generated.Clear();
+            return true;
         }
 
-        void AddMalformed(Dictionary<string, Unit> units, TypeDefinitionHandle handle)
+        void AddMalformed(OrderedDictionary<string, Unit> units, TypeDefinitionHandle handle)
         {
             string row = $"!{MetadataTokens.GetToken(handle):X8}";
             units[row] = new Unit(SafeName(handle), row, handle, [], Malformed: true);
@@ -1008,5 +1062,113 @@ public static class FastDiff
         public string GetTypeFromSpecification(
             MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
             => side.Key(handle);
+    }
+}
+
+/// <summary>
+/// One Fast Diff over an image pair, advanced in bounded steps so a
+/// single-threaded host can return to its event loop between them.
+/// </summary>
+/// <remarks>
+/// Each step takes readers over the same two images and stops at the first
+/// Type row or compared Type after its budget elapses, having made progress
+/// on at least one. The retained state holds handles and strings, never a
+/// reader, so a host can re-enter its image callbacks for every step.
+/// Cancellation is observed at the same boundaries and leaves the comparison
+/// resumable; any other exception leaves it unusable.
+/// </remarks>
+public sealed class FastDiffComparison(FastDiffAxes axes = FastDiffAxes.ApiAndBody)
+{
+    readonly FastDiff.UnitTable _unitsA = new();
+    readonly FastDiff.UnitTable _unitsB = new();
+    readonly ImmutableArray<FastDiffTypeState>.Builder _states =
+        ImmutableArray.CreateBuilder<FastDiffTypeState>();
+    readonly FastDiff.Work _work = new();
+    FastDiff.Side? _a;
+    FastDiff.Side? _b;
+    bool _readA;
+    bool _readB;
+    List<FastDiff.Unit>? _onlyB;
+    int _next;
+
+    public FastDiffAxes Axes { get; } = axes;
+
+    /// <summary>The complete result, once a step has finished the comparison.</summary>
+    public FastDiffResult? Result { get; private set; }
+
+    /// <summary>
+    /// Advances the comparison for about <paramref name="budget"/>, or to
+    /// completion for <see cref="Timeout.InfiniteTimeSpan"/>. Returns true when
+    /// <see cref="Result"/> is available.
+    /// </summary>
+    public bool Step(
+        PEReader before,
+        PEReader after,
+        TimeSpan budget,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(before);
+        ArgumentNullException.ThrowIfNull(after);
+        if (budget < TimeSpan.Zero && budget != Timeout.InfiniteTimeSpan)
+            throw new ArgumentOutOfRangeException(nameof(budget));
+        if (Result is not null)
+            return true;
+
+        if (_a is null || _b is null)
+        {
+            _a = new FastDiff.Side(before);
+            _b = new FastDiff.Side(after);
+        }
+        else
+        {
+            _a.Bind(before);
+            _b.Bind(after);
+        }
+
+        long started = Stopwatch.GetTimestamp();
+        bool progressed = false;
+        bool OverBudget()
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!progressed)
+            {
+                progressed = true;
+                return false;
+            }
+            return budget != Timeout.InfiniteTimeSpan
+                && Stopwatch.GetElapsedTime(started) >= budget;
+        }
+
+        if (!_readA && !(_readA = _a.ReadUnits(_unitsA, OverBudget)))
+            return false;
+        if (!_readB && !(_readB = _b.ReadUnits(_unitsB, OverBudget)))
+            return false;
+
+        OrderedDictionary<string, FastDiff.Unit> unitsA = _unitsA.Units;
+        OrderedDictionary<string, FastDiff.Unit> unitsB = _unitsB.Units;
+        _onlyB ??= [.. unitsB.Where(pair => !unitsA.ContainsKey(pair.Key)).Select(pair => pair.Value)];
+        int total = unitsA.Count + _onlyB.Count;
+        for (; _next < total; _next++)
+        {
+            if (OverBudget())
+                return false;
+            if (_next < unitsA.Count)
+            {
+                (string key, FastDiff.Unit unitA) = unitsA.GetAt(_next);
+                _states.Add(unitsB.TryGetValue(key, out FastDiff.Unit? unitB)
+                    ? FastDiff.CompareUnit(_a, unitA, _b, unitB, Axes, _work)
+                    : FastDiff.OneSided(_a, unitA, Axes));
+            }
+            else
+            {
+                _states.Add(FastDiff.OneSided(_b, _onlyB[_next - unitsA.Count], Axes));
+            }
+        }
+
+        _states.Sort((x, y) => string.CompareOrdinal(x.FullName, y.FullName));
+        Result = new FastDiffResult(
+            _states.ToImmutable(),
+            new FastDiffReceipt(_states.Count, _work.Bodies, _work.IlBytes));
+        return true;
     }
 }
