@@ -478,7 +478,7 @@ public static class DiffHistoryInspection
                 assessments,
             RowSelectionIntent<string> selection)
         {
-            int? requiredPrefix = RequiredPrefix(selection);
+            int? requiredPrefix = selection.RequiredPrefix();
             if (assessments.Count == 0)
             {
                 return Failed(
@@ -540,79 +540,5 @@ public static class DiffHistoryInspection
                             firstUnestablishedAssessment.Predecessor,
                             firstUnestablishedAssessment.Destination,
                             firstUnestablishedAssessment.State)));
-
-        static int? RequiredPrefix(
-            RowSelectionIntent<string> selection)
-        {
-            long offset = 0;
-            long? maximumLength = null;
-            long required = 0;
-            foreach (RowSelectionIntentOperation<string> operation
-                in selection.Operations)
-            {
-                switch (operation.Kind)
-                {
-                    case RowSelectionStageKind.Head:
-                        maximumLength = Math.Min(
-                            maximumLength ?? operation.Count,
-                            operation.Count);
-                        break;
-                    case RowSelectionStageKind.Tail:
-                        if (maximumLength is not long boundedTail)
-                            return null;
-                        required = Math.Max(
-                            required,
-                            offset + boundedTail);
-                        long retainedTail = Math.Min(
-                            boundedTail,
-                            operation.Count);
-                        offset += boundedTail - retainedTail;
-                        maximumLength = retainedTail;
-                        break;
-                    case RowSelectionStageKind.Window:
-                        int start = operation.Start ?? 1;
-                        if (operation.End is int end)
-                        {
-                            if (maximumLength is long maximum
-                                && maximum < end)
-                            {
-                                return AsPrefix(
-                                    Math.Max(required, offset + maximum));
-                            }
-                            required = Math.Max(required, offset + end);
-                            maximumLength = end - start + 1;
-                            offset = 0;
-                            break;
-                        }
-                        if (operation.Start is null)
-                            break;
-                        if (maximumLength is long bounded
-                            && bounded < start)
-                        {
-                            return AsPrefix(
-                                Math.Max(required, offset + bounded));
-                        }
-                        offset += start - 1;
-                        if (maximumLength is long length)
-                            maximumLength = length - start + 1;
-                        required = Math.Max(required, offset + 1);
-                        break;
-                    case RowSelectionStageKind.Top:
-                        return null;
-                    default:
-                        throw new InvalidOperationException(
-                            "Unknown row-selection stage kind.");
-                }
-            }
-
-            return maximumLength is long maximumPrefix
-                ? AsPrefix(Math.Max(required, offset + maximumPrefix))
-                : null;
-        }
-
-        static int? AsPrefix(long value) =>
-            value <= int.MaxValue
-                ? (int)value
-                : null;
     }
 }

@@ -1123,11 +1123,14 @@ An exact lone `Body Shapes` or `Body Shape Summary` section on `library`,
 including the delegated `library --package <package> <library>` route, `type`,
 or `member` declares one semantic row per rendered-syntax occurrence or per
 summary group. The same declaration applies when `--where "Kind=..."` infers
-`Body Shapes`. The body-shape search and, for the summary, grouping finish
-before Head/Tail or strict Window stages select from that vector in search
-order, so a selected group keeps its complete occurrence Count. A selected
-member without a body contributes an empty vector, so Head selects nothing and
-a strict Window fails.
+`Body Shapes`. Head/Tail or strict Window stages select from the search's
+vector in search order. For occurrences, the search stops after the plan's
+[required prefix](semantic-row-selection.md#required-prefix), so `-n 3`
+decompiles bodies only until the third match. Tail needs the complete search.
+Summary groups form from the complete search before selection, so a selected
+group keeps its complete occurrence Count. A selected member without a body
+contributes an empty vector, so Head selects nothing and a strict Window
+fails.
 
 ```console
 $ dotnet-inspect library System.Text.Json \
@@ -1548,6 +1551,7 @@ The Body Shapes adoption is enforced by:
 
 | Gate | Property |
 | --- | --- |
+| `BodyShapeSearchTests.Search_LimitReturnsThePrefixOfTheCompleteSearch` and `BodyShapesSectionTests.SearchLimit_BoundsOnlyOccurrencePrefixes` | The search stops after the required prefix of occurrences and returns exactly the complete search's prefix while inspecting fewer bodies; Tail and the summary search everything. |
 | `BodyShapesSectionTests.LibraryKindPredicate_RowSelectionSelectsOccurrencesInEveryFormat`, `TypeKindPredicate_HeadAndTailSelectOccurrences`, `MemberKindPredicate_RowSelectionSelectsScopedOccurrences`, `PackageLibraryRoutes_ObserveSemanticSelection`, and `BodyShapeSummaryApiTests.SummaryRowWindow_SelectsGroupsWithoutTruncatingCounts` | Head, Tail, and Window select the same occurrences before Markdown, TSV, JSONL, Library JSON, or Count lowering on Library, delegated and aggregate package Library, Type, and Member hosts; summary selection keeps each group's complete Count. |
 | `BodyShapesSectionTests.LibraryKindPredicate_UnavailableWindowWithholdsOutput`, `MemberKindPredicate_BodylessMemberConsumesSemanticSelection`, `LibraryKindPredicate_RejectsNumericRows`, `LibraryKindPredicate_LinesKeepRenderedLineSelection`, `LibraryBothViews_RetainRenderedLineFallback`, and `TfmAll_StaysOutsideTheDeclaration` | One unavailable strict Window emits no partial payload, including for a member without a body; numeric legacy `--rows` is rejected; explicit Lines clip rendered text; and selecting both views or `--tfm all` keeps the existing row contracts. |
 

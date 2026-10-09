@@ -2902,6 +2902,9 @@ public static class ApiOutputFormatter
                 kind,
                 methodTokens,
                 includeAll: options.IncludeAll,
+                limit: BodyShapeRowSelection.SearchLimit(
+                    options.BodyShapeRowSelection,
+                    options.IncludeSections),
                 printerOptions: options.RenderOptions);
         view.BodyShapeRows =
         [

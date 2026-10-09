@@ -745,6 +745,13 @@ public class LibraryInspection
     [JsonIgnore]
     internal BodyShapeRowSelection? BodyShapeRowSelection { get; set; }
 
+    /// <summary>
+    /// Match count after which the Body Shapes search may stop, because the
+    /// semantic row selection retains no later row; null searches everything.
+    /// </summary>
+    [JsonIgnore]
+    internal int? BodyShapeSearchLimit { get; set; }
+
     [JsonIgnore]
     public BodyKindQueryOptions BodyKindQueryOptions { get; set; } = BodyKindQueryOptions.Default;
 
