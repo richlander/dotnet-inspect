@@ -213,4 +213,84 @@ public sealed class RowSelectionIntent<TOrderOperand>
         copy[^1] = operation;
         return new(QuerySpaceSnapshot.Own(copy));
     }
+
+    /// <summary>
+    /// The finite row prefix of the producer's order that this plan can
+    /// retain: a producer that stops after that many rows yields the same
+    /// selected rows as one that produced the complete population. Null when
+    /// the plan needs the complete population, as an unbounded Tail, an
+    /// open Window, a Top, or an empty plan does.
+    /// </summary>
+    public int? RequiredPrefix()
+    {
+        long offset = 0;
+        long? maximumLength = null;
+        long required = 0;
+        foreach (RowSelectionIntentOperation<TOrderOperand> operation
+            in Operations)
+        {
+            switch (operation.Kind)
+            {
+                case RowSelectionStageKind.Head:
+                    maximumLength = Math.Min(
+                        maximumLength ?? operation.Count,
+                        operation.Count);
+                    break;
+                case RowSelectionStageKind.Tail:
+                    if (maximumLength is not long boundedTail)
+                        return null;
+                    required = Math.Max(
+                        required,
+                        offset + boundedTail);
+                    long retainedTail = Math.Min(
+                        boundedTail,
+                        operation.Count);
+                    offset += boundedTail - retainedTail;
+                    maximumLength = retainedTail;
+                    break;
+                case RowSelectionStageKind.Window:
+                    int start = operation.Start ?? 1;
+                    if (operation.End is int end)
+                    {
+                        if (maximumLength is long maximum
+                            && maximum < end)
+                        {
+                            return AsPrefix(
+                                Math.Max(required, offset + maximum));
+                        }
+                        required = Math.Max(required, offset + end);
+                        maximumLength = end - start + 1;
+                        offset = 0;
+                        break;
+                    }
+                    if (operation.Start is null)
+                        break;
+                    if (maximumLength is long bounded
+                        && bounded < start)
+                    {
+                        return AsPrefix(
+                            Math.Max(required, offset + bounded));
+                    }
+                    offset += start - 1;
+                    if (maximumLength is long length)
+                        maximumLength = length - start + 1;
+                    required = Math.Max(required, offset + 1);
+                    break;
+                case RowSelectionStageKind.Top:
+                    return null;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown row-selection stage kind.");
+            }
+        }
+
+        return maximumLength is long maximumPrefix
+            ? AsPrefix(Math.Max(required, offset + maximumPrefix))
+            : null;
+    }
+
+    private static int? AsPrefix(long value) =>
+        value <= int.MaxValue
+            ? (int)value
+            : null;
 }
