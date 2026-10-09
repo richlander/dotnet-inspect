@@ -413,7 +413,7 @@ public sealed class PackageHouseRequest
             && !compileInventory && !compileLibrary)
         {
             throw new ArgumentException(
-                "A semantic content query requires Acquire or a package-only compile inventory realization.",
+                "A semantic content query requires Acquire or a package-only compile inventory or exact Library realization.",
                 nameof(contentQuery));
         }
         if (contentQuery is not null && fileDemand is not null)

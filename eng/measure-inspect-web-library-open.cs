@@ -20,7 +20,7 @@ if (args.Length is not (4 or 5) || args[3] is not ("legacy" or "overview"))
 }
 
 #pragma warning disable CA1416 // Deliberate native-host measurement of Browser exports.
-Console.WriteLine("package\tversion\tframework\tmode\tcache\ttotalMs\tsummaryMs\tbroadMs\tapiMs\tenablementsMs\tsummaryBytes\tbroadBytes\tapiBytes\tenablementsBytes\tapiSha256\tresidentBytes");
+Console.WriteLine("package\tversion\tframework\tmode\tcache\ttotalMs\tsummaryMs\tbroadMs\tapiMs\tenablementsMs\tsummaryBytes\tbroadBytes\tapiBytes\tenablementsBytes\tapiSha256\tenablementsSha256\tresidentBytes");
 for (int i = 0; i < 2; i++)
 {
     Stopwatch total = Stopwatch.StartNew();
@@ -59,6 +59,7 @@ for (int i = 0; i < 2; i++)
         Directory.CreateDirectory(output);
         File.WriteAllText(Path.Combine(output, $"{args[0]}-{i}-summary.json"), summary);
         File.WriteAllText(Path.Combine(output, $"{args[0]}-{i}-api.json"), api.text);
+        File.WriteAllText(Path.Combine(output, $"{args[0]}-{i}-enablements.json"), enablements.text);
     }
     using JsonDocument stats = JsonDocument.Parse(PackageExports.PackageCacheStats());
     Console.WriteLine(string.Join('\t', args[0], args[1], args[2], args[3],
@@ -67,6 +68,7 @@ for (int i = 0; i < 2; i++)
         Encoding.UTF8.GetByteCount(summary), Encoding.UTF8.GetByteCount(broad.text),
         Encoding.UTF8.GetByteCount(api.text), Encoding.UTF8.GetByteCount(enablements.text),
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(api.text))),
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(enablements.text))),
         stats.RootElement.GetProperty("residentBytes").GetInt64()));
 }
 return 0;

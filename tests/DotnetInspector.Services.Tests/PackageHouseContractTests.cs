@@ -12,6 +12,28 @@ public sealed class PackageHouseContractTests
     private static readonly PackageSourceCoordinate Coordinate =
         PackageSourceCoordinate.Create("contoso.json", "4.0.0");
 
+    // PR-fast: exact demand admission; disallows broad handoffs and mismatched roles.
+    [Fact]
+    public void ExactCompileLibraryDemand_RequiresDeclaredRolesAndPackageOnlyHandoff()
+    {
+        var target = PackageHouseTargetContext.OwnerDefault();
+        var selector = new PackageLibrarySelector("compile:ref/net11.0/Library.dll", PackageLibrarySelectionKind.AssetId);
+        var request = PackageHouseRequest.CompileLibrary(new PackageHouseDemand.Exact(Coordinate),
+            PackageHouseOperation.Create(PackageHouseOperationProfile.Realize), target,
+            selector, PackageAssetDemand.Surface);
+        Assert.True(request.IsCompileLibrary);
+        Assert.False(request.IsCompileInventory);
+        var terminal = Assert.IsType<PackageHouseContentTerminal.CompileLibrary>(Assert.Single(request.ContentQuery!.Terminals));
+        Assert.Same(selector, terminal.Selector);
+        Assert.Throws<ArgumentException>(() => new PackageHouseRequest(new PackageHouseDemand.Exact(Coordinate),
+            request.Operation, target, PackageHouseAssetSelectionKind.Compile,
+            assetDemand: PackageAssetDemand.SurfaceAndImplementation, contentQuery: request.ContentQuery));
+        Assert.Throws<ArgumentException>(() => new PackageHouseRequest(new PackageHouseDemand.Exact(Coordinate),
+            request.Operation, target, PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.SelectedLibraries, assetDemand: PackageAssetDemand.Surface,
+            contentQuery: request.ContentQuery));
+    }
+
     // PR-fast: request construction only.
     [Fact]
     public void CompileInventoryDemandIsDeclaredBeforeAcquisition()

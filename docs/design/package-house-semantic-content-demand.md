@@ -377,6 +377,10 @@ candidate is ready. The CLI exact-Library caller is the subsequent shared
 adoption boundary under #9754. Before/after evidence uses the existing
 `eng/measure-inspect-web-library-open.cs` sequence and complete result parity;
 synthetic multi-Library fixtures enforce that sibling bodies stay unread.
+The gates are `ExactCompileLibraryDemand_RequiresDeclaredRolesAndPackageOnlyHandoff`,
+`ExactCompileLibrary_PreservesInventoryAndNarrowsParticipants`, and
+`ExactLibraryDemand_NarrowsTransferAndWorkspace`, plus existing tool-package
+API and Library document gates.
 
 ## House-owned acquisition planning
 
