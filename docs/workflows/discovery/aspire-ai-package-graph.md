@@ -1,7 +1,7 @@
 ---
 id: ichatclient-dual-lens-graph
 description: Locked demo — IChatClient type↔package dual lens with integration arcs
-commands: [type, library, member, extensions, implements, find]
+commands: [type, library, member, extensions, find]
 areas: [call-graph, packages, integrations, ai, demos]
 status: locked-demo
 ---
@@ -27,7 +27,7 @@ status: locked-demo
 | Arc richness | AI integration, `AsIChatClient`, package boundary |
 | Real ecosystems | OpenAI, Bedrock, Azure opportunity — not one vendor |
 | Honest substrate | Members/adapters underneath; no fake edges from Aspire hosting |
-| Tool flex | `type`, `implements`, `library -S Integration`, `member` CG, later one graph |
+| Tool flex | `type` hierarchy sections, `library -S Integration`, `member` CG, later one graph |
 
 Aspire AppHost `AddOpenAI` is a **sibling** story (provisioning plane), not this
 lock. See [Related demos](#related-demos-not-locked).

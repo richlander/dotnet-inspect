@@ -21,13 +21,15 @@ public static partial class ApiSurfaceExtractor
             MethodDefinition method,
             byte typeNullableContext,
             Action<string>? beforeRetainText = null,
-            Action<int>? beforeDecodeWork = null)
+            Action<int>? beforeDecodeWork = null,
+            bool captureExtensionReceiver = false)
         => GetMethodSignature(
             reader,
             typeContext,
             methodHandle,
             method,
             typeNullableContext,
+            captureExtensionReceiver,
             beforeRetainText: beforeRetainText,
             beforeDecodeWork: beforeDecodeWork,
             beforeAttributeMaterialize: beforeDecodeWork);

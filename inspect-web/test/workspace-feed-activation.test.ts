@@ -1324,7 +1324,7 @@ test("source-free deep views remain available to the compatibility path", async 
       kind: "UnsupportedDefinition",
       path: "packet.view.active",
       message:
-        "Source-free complete Workspace link activation currently supports only Workspace or Package Overview selections.",
+        "Source-free complete Workspace link activation currently supports only Workspace or default Package selections.",
     },
   });
   client.prepareRetainedWorkspaceDefinition = async () => {

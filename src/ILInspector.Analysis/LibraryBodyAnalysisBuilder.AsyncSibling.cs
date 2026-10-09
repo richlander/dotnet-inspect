@@ -13,47 +13,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder
     {
         var opportunities =
             ImmutableArray.CreateBuilder<OptimizationOpportunity>();
-        DirectCall[] candidateCalls = calls
-            .Where(call => call.Kind is
-                CallKind.Call or CallKind.CallVirtual)
-            .ToArray();
-        var calledMethods =
-            new Dictionary<string, List<MemberRef>>(
-                StringComparer.Ordinal);
-        foreach (DirectCall call in candidateCalls)
+        foreach ((DirectCall call, MemberRef sibling)
+            in _asyncSiblingAnalyzer.FindMatches(calls, asyncSource))
         {
-            if (!calledMethods.TryGetValue(
-                    call.Callee.Name,
-                    out List<MemberRef>? named))
-            {
-                named = [];
-                calledMethods.Add(
-                    call.Callee.Name,
-                    named);
-            }
-            named.Add(call.Callee);
-        }
-        foreach (DirectCall call in candidateCalls)
-        {
-            MemberRef? sibling =
-                _asyncSiblingCandidateResolver.FindAsyncSibling(
-                    call,
-                    asyncSource);
-            if (sibling is null
-                || LibraryBodyAsyncSiblingSignatureMatcher.AsyncSiblingMethodMatchesSource(
-                    sibling,
-                    asyncSource)
-                || calledMethods.TryGetValue(
-                    sibling.Name,
-                    out List<MemberRef>? named)
-                    && named.Any(called =>
-                        LibraryBodyAsyncSiblingSignatureMatcher.AsyncSiblingMethodsMatch(
-                            called,
-                            sibling)))
-            {
-                continue;
-            }
-
             opportunities.Add(new OptimizationOpportunity(
                 asyncSource,
                 "sync-call-in-async",

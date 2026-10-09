@@ -78,8 +78,8 @@ provenance. Exact method analysis reads signals,
 allocations, direct calls, unsafe evidence, exception regions, opportunities,
 and diagnostics from one physical MethodDef body without exposing the snapshot
 or Analysis index to its consumer. Analysis index execution remains sequential,
-preserving the Browser/Wasm baseline. The `extensions`,
-`implements`, and `find` commands also execute typed queries through ephemeral
+preserving the Browser/Wasm baseline. The `extensions`, focused Type
+hierarchy, and `find` commands also execute typed queries through ephemeral
 workspaces. Unscoped `find` realizes the platform Workspace through
 PlatformHouse and retains its Runtime and ASP.NET Core Focus participants in
 one invocation-owned group shared by Type and Member queries. Other ordinary

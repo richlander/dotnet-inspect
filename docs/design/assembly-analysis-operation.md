@@ -213,6 +213,49 @@ traversal, early stop, executor equivalence, and exact source-work receipts.
 Type and Member sources remain with their respective owners and may use
 different row vocabularies or terminals.
 
+### Reference binding access
+
+Some producers answer a question about an assembly by consulting metadata of
+the assemblies it references; async-sibling analysis resolves a synchronous
+callee's declaring type, and a `FooAsync` candidate on it, in another
+assembly. Reference binding is therefore an owner-issued capability of the
+operation access, in the same role as the subject's image. It is not an
+ambient resolver, a path probe, or acquisition performed by a producer.
+
+`AssemblyInspectionOperationAccess` may carry one
+`AssemblyReferenceBindingAccess`: the subject's own
+`ResolvedAssemblyReference` and the `IAssemblyBindingPolicy` the issuing owner
+selected for that subject. The issuer is the
+[Workspace-backed universe provider](analysis-universe-realization.md) or an
+equivalent owner. Selection follows
+[Structured type-forwarding resolution](type-forwarding-resolution.md), and
+any acquisition happens before execution under the
+[Assembly Reference Resolution Ladder](assembly-reference-resolution-ladder.md)
+that produced the Workspace generation. The binding is read-only for one
+synchronous invocation; a producer never acquires, replaces a generation, or
+mutates a policy.
+
+A producer declares that it needs the capability through the
+`ReferenceBinding` layer of Producer Planning (see
+[Method Query Source](method-query-source.md#reference-binding)). When any
+planned producer declares it and the access carries none, the service rejects
+the operation with `ReferenceBindingUnavailable` before a producer runs. A
+producer never silently degrades to same-assembly evidence, because absence of
+a finding would then be indistinguishable from an unresolved reference.
+
+Within an invocation, a reference that the policy cannot select, selects
+ambiguously, or cannot read is a typed, per-body producer diagnostic. It never
+becomes a negative finding. A policy snapshot that changes during the
+invocation fails the execution, as it does for the existing binding-policy
+resolver.
+
+Request-set operations carry no binding, so a request-set plan that declares
+the `ReferenceBinding` layer is rejected with `ReferenceBindingUnavailable`
+before a producer runs.
+
+The detached execution retains no binding access, policy, resolved
+assembly, or referenced reader.
+
 ## Planning and execution boundaries
 
 Operation construction succeeds only after Producer Planning closes and
@@ -290,7 +333,7 @@ lands. It supplies this exact claim:
 | Fact | The current per-method `LibraryMethodAnalysisResult`, produced by the existing per-method runner from the source's method packet. |
 | Accumulator | The current `LibraryBodyAnalysisAccumulator`, fed in source order. |
 | Completion | `accumulator.Build`, scope-expansion diagnostics, declared-source publication, and resource occurrence, ownership, and lifecycle publication, exactly as `Build` ends today. |
-| Layers | Declaration, Body, and declared module lookup. It declares no deeper layer than the runner reads. |
+| Layers | Declaration, Body, declared module lookup, and `ReferenceBinding`. It declares no deeper layer than the runner reads. |
 | Result | The legacy `LibraryBodyAnalysisResult`, from which `LibraryBodyAnalysisExecution` still derives its focused results for unmigrated consumers. |
 
 **Mapping from the legacy plan.**
@@ -303,12 +346,18 @@ lands. It supplies this exact claim:
 | `Features` and `ImplementationMetrics` | Remainder parameters. They select what the runner computes, never what the source enumerates. |
 | The source-generated type flag computed in `Build` | Computed by the remainder from the unit's declaring TypeDef. |
 
-**Support.** The builder splits. Its infrastructure (generic scope, reference
-resolution, async-source and declared-source resolvers, exception-type
-classifier) remains the remainder's execution-scoped support, constructed from
-the exact owner-issued access when the source first needs it and receipted as
-declared shared lookup support. Its traversal (`Build`, the work-item list,
-and the `Parallel.For` branch) is deleted in this slice for scoped requests.
+**Support.** The builder splits. Its same-image infrastructure (generic
+scope, async-source and declared-source resolvers, exception-type classifier)
+remains the remainder's execution-scoped support, constructed when the source
+first needs it and receipted as declared shared lookup support. Its
+cross-assembly reference resolution no longer comes from a resolver the
+builder obtains on its own: the remainder declares the `ReferenceBinding`
+layer and reads the operation access's
+[reference binding](#reference-binding-access). A scoped request whose access
+carries no binding is rejected with `ReferenceBindingUnavailable`; it never
+degrades to same-assembly evidence. Its traversal (`Build`, the work-item
+list, and the `Parallel.For` branch) is deleted in this slice for scoped
+requests.
 
 **Body acquisition.** The runner receives the method body from the source's
 packet. It does not call `GetMethodBody` itself, so each physical method's
@@ -336,15 +385,22 @@ receipt and Producer Planning `WorkReceipt` describe its work. Any consumer
 that requires the legacy stage receipt (CLI `--trace`) remains on the old
 boundary until it moves to the source receipt.
 
-**First adopter.** IL-offset projection (`ILOffsetQuery`) is the first
-consumer. It requests an exact method-token scope, is already sequential, and
-consumes `Allocations`, `Safety`, and `CallGraph` results that the remainder's
-aggregate still derives. It holds a prefetched image owned by `PdbContext`, so
-it obtains operation access by opening an `AssemblyInspectionSession` over
-that existing image through the session's snapshot or prefetched-stream
-opener. It does not reopen by path or reread the file. If no opener can wrap
-the image the projection already holds, the slice stops rather than reopening
-the assembly or wrapping `Build`.
+**First adopter.** `AssemblyContextMethodAnalysisQuery` is the first
+consumer. It is a Workspace-backed, exact-method-token query that already
+receives its resolver from the universe provider
+(`AssemblyContextAnalysisSource.Resolver`), so the issuing owner named by
+[reference binding access](#reference-binding-access) exists and the
+remainder's reference needs map onto a binding it can issue. It consumes the
+`CallGraph` result the remainder's aggregate still derives. Issuing the
+`AssemblyReferenceBindingAccess` from that provider is part of this slice.
+
+`ILOffsetQuery` follows as the second adopter. It requests an exact
+method-token scope and consumes `Allocations`, `Safety`, and `CallGraph`, but
+holds only a prefetched image owned by `PdbContext` and has no universe
+provider to issue a binding. It adopts the remainder only after an owner can
+issue operation access and reference binding over that existing image, without
+reopening by path or rereading the file. Until then it stays on the old
+boundary; the slice never wraps `Build` to cover it.
 
 The runner today reads bodies itself (`PEReader.GetMethodBody`) in its per-
 method and implementation-metric paths. Adopting the source packet's
@@ -441,6 +497,13 @@ The first implementation adoption supplies these Release gates:
 - `AssemblyAnalysisService_SequentialReferenceMatchesInterimExecutor`
 - `AssemblyAnalysisOperation_PreservesOwnerIssuedSourceKinds`
 
+The reference-binding capability is verified only by these Release gates,
+which are **unverified** until its first adopter lands:
+
+- `AssemblyAnalysisService_RejectsMissingReferenceBinding`
+- `AssemblyAnalysisService_PassesReferenceBindingToDeclaringProducers`
+- `AssemblyAnalysisExecution_ContainsNoReferenceBindingAuthority`
+
 Those gates now run with the unsafe-evidence production adoption. The operator
 selected partial behavioral coverage for
 `AssemblyAnalysisExecution_ContainsNoLiveSubjectAuthority`: it disposes the
@@ -497,6 +560,8 @@ method-source work so one cost cannot hide the other.
 - No `AnalysisHouse`, universal service interface, service locator, or
   dependency-injection requirement.
 - No new acquisition, cache, session, realization, or persistent-state owner.
+- No acquisition, binding-policy mutation, or generation replacement during
+  producer execution; reference binding is consumed, never driven.
 - No universal assembly, Type, Member, or Method source vocabulary.
 - No Analysis-owned request collapse, source optimizer, or scheduler.
 - No broad producer result, metric bundle, or type-keyed result bag.

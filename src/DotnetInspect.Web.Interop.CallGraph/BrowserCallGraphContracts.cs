@@ -151,7 +151,17 @@ public sealed record BrowserDirectUseDiagnostic(
     string Summary,
     string? Correspondence);
 
+public sealed record BrowserCallGraphPruningSupply(
+    string Package,
+    string Version);
+
+public sealed record BrowserCallGraphPruningInventory(
+    string Tfm,
+    string? Version,
+    BrowserCallGraphPruningSupply[]? Supplies);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserCallGraph))]
 [JsonSerializable(typeof(BrowserDirectUseClusterInspection))]
+[JsonSerializable(typeof(BrowserCallGraphPruningInventory))]
 internal sealed partial class BrowserCallGraphJsonContext : JsonSerializerContext;

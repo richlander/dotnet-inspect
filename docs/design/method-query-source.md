@@ -342,6 +342,20 @@ migration:
 No migration is complete while a producer declares a deeper layer than it
 reads solely because the transitional bit is coarse.
 
+### Reference binding
+
+`ReferenceBinding` is a declared layer, beside `ModuleLookup`, for producers
+that resolve declarations in assemblies the subject references. It implies
+`ModuleLookup`. The source hands the lookup the owner-issued reference-binding
+access defined by
+[Assembly Analysis Operation](assembly-analysis-operation.md#reference-binding-access).
+The source does not choose a policy, acquire an assembly, or fall back to
+same-assembly resolution. A plan whose producer declares the layer is rejected
+by the operation when the access lacks it. Unresolved, ambiguous, or unreadable
+references are per-body producer diagnostics, never negative findings.
+Referenced-body traversal remains outside this layer; it resolves declarations
+only.
+
 ## Planning
 
 Planning is resource-free. It validates:
@@ -552,10 +566,15 @@ Migration is incremental:
    requests. Method Classification implements the first mixed-terminal CLI
    operation, and exact-member Calls Count implements a direct body-producer
    CLI operation. Grouped body-producer and Browser/Wasm operations remain.
-9. Serve scoped legacy body work through the
-   [legacy-remainder declaration](assembly-analysis-operation.md#legacy-remainder-declaration),
-   which consumes this source's method packets and body acquisition.
-10. Move remaining producers and delete each superseded legacy scan and index
+9. Add the `ReferenceBinding` layer with its first producer, async-sibling
+   opportunities. The Method source hands the operation's reference-binding
+   access to the lookup and charges no work for it beyond the producer's own
+   declared lookups. This slice is **unverified**; legacy callers stay until
+   their consumers move.
+10. Serve scoped legacy body work through the
+    [legacy-remainder declaration](assembly-analysis-operation.md#legacy-remainder-declaration),
+    which consumes this source's method packets and body acquisition.
+11. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 
 Wrapping `LibraryBodyAnalysisBuilder.Build`, constructing every legacy result

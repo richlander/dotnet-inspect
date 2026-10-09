@@ -739,6 +739,245 @@ public sealed class MemberFindSemanticEvaluationTests
                 .ToMetadataFullName());
     }
 
+    [Fact]
+    public async Task Evaluation_AcceptedWindowMatchesCompleteSemanticOrder()
+    {
+        string path =
+            typeof(WorkspaceQueryImplementation).Assembly.Location;
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [
+                    Participant(path, "first"),
+                    Participant(path, "second"),
+                ]);
+        MemberFindQuestion completeQuestion =
+            MemberFindQuestion.Create(
+                [
+                    "WorkspaceQueryMember",
+                    "WorkspaceQueryExtension",
+                ],
+                FindVisibility.Public);
+        MemberFindBlock complete =
+            FindSemanticReducer.ReduceMember(
+                completeQuestion,
+                EvaluateLocal(completeQuestion, group));
+        MemberFindQuestion windowQuestion =
+            MemberFindQuestion.Create(
+                [
+                    "WorkspaceQueryMember",
+                    "WorkspaceQueryExtension",
+                ],
+                FindVisibility.Public,
+                maximumMatches: 4,
+                acceptedRows: new(
+                    start: 2,
+                    end: 4,
+                    materializeRows: true));
+
+        MemberFindBlock window =
+            FindSemanticReducer.ReduceMember(
+                windowQuestion,
+                EvaluateLocal(windowQuestion, group));
+
+        Assert.Equal(4, window.AcceptedCount);
+        Assert.Equal(
+            complete.Matches.Skip(1).Take(3),
+            window.Matches);
+        Assert.Equal(
+            FindMatchCompletion.MatchLimitReached,
+            window.MatchCompletion);
+    }
+
+    [Fact]
+    public async Task Evaluation_CountRetainsAcceptedEvidenceWithoutRows()
+    {
+        string path =
+            typeof(WorkspaceQueryImplementation).Assembly.Location;
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            CreateGroup(workspace, path);
+        MemberFindQuestion question =
+            MemberFindQuestion.Create(
+                ["WorkspaceQueryMember"],
+                FindVisibility.Public,
+                acceptedRows: new(
+                    start: 1,
+                    end: null,
+                    materializeRows: false));
+
+        MemberFindBlock block =
+            FindSemanticReducer.ReduceMember(
+                question,
+                EvaluateLocal(question, group));
+
+        Assert.Empty(block.Matches);
+        Assert.Equal(1, block.AcceptedCount);
+        Assert.Equal(
+            FindPatternSettlementKind.Matched,
+            Assert.Single(block.Settlements).Kind);
+        Assert.Equal(
+            FindMatchCompletion.Exhausted,
+            block.MatchCompletion);
+        Assert.True(block.IsSourceCoverageComplete);
+    }
+
+    [Fact]
+    public async Task Evaluation_WindowSettlesMatchesBeforeItsStart()
+    {
+        string path =
+            typeof(WorkspaceQueryImplementation).Assembly.Location;
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            CreateGroup(workspace, path);
+        MemberFindQuestion question =
+            MemberFindQuestion.Create(
+                [
+                    "WorkspaceQueryMember",
+                    "WorkspaceQueryExtension",
+                    "NoSuchLaterPattern",
+                ],
+                FindVisibility.Public,
+                maximumMatches: 2,
+                acceptedRows: new(
+                    start: 2,
+                    end: 2,
+                    materializeRows: true));
+
+        MemberFindBlock block =
+            FindSemanticReducer.ReduceMember(
+                question,
+                EvaluateLocal(question, group));
+
+        Assert.Single(block.Matches);
+        Assert.Equal(
+            "WorkspaceQueryExtension",
+            block.Matches[0].MemberName);
+        Assert.Equal(
+            [
+                FindPatternSettlementKind.Matched,
+                FindPatternSettlementKind.Matched,
+                FindPatternSettlementKind.NotEvaluated,
+            ],
+            block.Settlements.Select(
+                static settlement => settlement.Kind));
+    }
+
+    [Fact]
+    public async Task Evaluation_WindowDoesNotOpenLaterParticipantAfterEnd()
+    {
+        string path =
+            typeof(WorkspaceQueryImplementation).Assembly.Location;
+        byte[] bytes = File.ReadAllBytes(path);
+        AssemblyReferenceIdentity identity =
+            ResolvedAssemblyReference.CreateFromPath(
+                    path,
+                    AssemblyResolutionProvenance.Local("identity"))
+                .Identity;
+        int laterOpens = 0;
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [
+                    new(
+                        ResolvedAssemblyReference.Create(
+                            identity,
+                            path: null,
+                            () => new MemoryStream(
+                                bytes,
+                                writable: false),
+                            AssemblyResolutionProvenance.Local(
+                                "first")),
+                        NoResolverAssemblyBindingPolicy.Instance),
+                    new(
+                        ResolvedAssemblyReference.Create(
+                            identity,
+                            path: null,
+                            () =>
+                            {
+                                laterOpens++;
+                                return new MemoryStream(
+                                    bytes,
+                                    writable: false);
+                            },
+                            AssemblyResolutionProvenance.Local(
+                                "later")),
+                        NoResolverAssemblyBindingPolicy.Instance),
+                ]);
+        MemberFindQuestion question =
+            MemberFindQuestion.Create(
+                ["WorkspaceQueryMember"],
+                FindVisibility.Public,
+                maximumMatches: 1,
+                acceptedRows: new(
+                    start: 1,
+                    end: 1,
+                    materializeRows: true));
+
+        MemberFindBlock block =
+            FindSemanticReducer.ReduceMember(
+                question,
+                EvaluateLocal(question, group));
+
+        Assert.Single(block.Matches);
+        Assert.Equal(0, laterOpens);
+        Assert.Single(block.SourceCoverage);
+        Assert.Single(block.PopulationGaps);
+    }
+
+    [Fact]
+    public async Task Evaluation_FailureBeforeWindowEndRemainsIncomplete()
+    {
+        string path =
+            typeof(WorkspaceQueryImplementation).Assembly.Location;
+        byte[] bytes = File.ReadAllBytes(path);
+        AssemblyReferenceIdentity identity =
+            ResolvedAssemblyReference.CreateFromPath(
+                    path,
+                    AssemblyResolutionProvenance.Local("identity"))
+                .Identity;
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [
+                    new(
+                        ResolvedAssemblyReference.Create(
+                            identity with { Name = "WrongIdentity" },
+                            path: null,
+                            () => new MemoryStream(
+                                bytes,
+                                writable: false),
+                            AssemblyResolutionProvenance.Local(
+                                "rejected")),
+                        NoResolverAssemblyBindingPolicy.Instance),
+                    Participant(path, "available"),
+                ]);
+        MemberFindQuestion question =
+            MemberFindQuestion.Create(
+                ["WorkspaceQueryMember"],
+                FindVisibility.Public,
+                maximumMatches: 1,
+                acceptedRows: new(
+                    start: 1,
+                    end: 1,
+                    materializeRows: true));
+
+        MemberFindSemanticPopulation population =
+            EvaluateLocal(question, group);
+        MemberFindBlock block =
+            FindSemanticReducer.ReduceMember(
+                question,
+                population);
+
+        Assert.IsType<MemberFindSourceEvaluation.Rejected>(
+            population.Sources[0]);
+        Assert.IsType<MemberFindSourceEvaluation.Available>(
+            population.Sources[1]);
+        Assert.Single(block.Matches);
+        Assert.Equal(1, block.AcceptedCount);
+        Assert.False(block.IsSourceCoverageComplete);
+    }
+
     private static MemberFindSemanticPopulation EvaluateLocal(
         MemberFindQuestion question,
         AssemblyContextGroup group) =>
@@ -755,16 +994,23 @@ public sealed class MemberFindSemanticEvaluationTests
                     memberOrder,
                     subject.Identity));
 
+    private static AssemblyContextParticipant Participant(
+        string path,
+        string provenance) =>
+        new(
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    provenance)),
+            NoResolverAssemblyBindingPolicy.Instance);
+
     private static AssemblyContextGroup CreateGroup(
         InspectionWorkspace workspace,
         string path) =>
         workspace.CreateAssemblyContextGroup(
             [
-                new AssemblyContextParticipant(
-                    ResolvedAssemblyReference.CreateFromPath(
-                        path,
-                        AssemblyResolutionProvenance.Local(
-                            "Member semantic tests")),
-                    NoResolverAssemblyBindingPolicy.Instance),
+                Participant(
+                    path,
+                    "Member semantic tests"),
             ]);
 }

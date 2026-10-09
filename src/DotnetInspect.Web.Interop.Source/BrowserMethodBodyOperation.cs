@@ -55,9 +55,13 @@ public static partial class SourceExports
                 {
                     ApiSurface surface = MethodBodyOperations.Select(() =>
                         BrowserMemberResolution.ImplementationSurface(group, participant));
-                    CallGraphMemberResolution before = MethodBodyOperations.Select(() =>
+                    AssemblyContextMemberBody before = MethodBodyOperations.Select(() =>
                         BrowserMemberResolution.ResolveImplementationMember(
-                            surface, typeIdentity, memberName, selectorKey, metadataToken));
+                            surface,
+                            typeIdentity,
+                            memberName,
+                            selectorKey,
+                            metadataToken));
                     ProjectedMethodAddress designation =
                         MethodBodyOperations.RequireDesignation(
                             group,
@@ -120,7 +124,7 @@ public static partial class SourceExports
                         BrowserMemberResolution.ImplementationSurface(
                             group,
                             participant));
-                    CallGraphMemberResolution before =
+                    AssemblyContextMemberBody before =
                         MethodBodyOperations.Select(() =>
                             BrowserMemberResolution
                                 .ResolveImplementationMember(

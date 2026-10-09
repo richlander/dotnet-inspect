@@ -199,6 +199,43 @@ internal sealed class
         return true;
     }
 
+    internal static PackageDependencyMemberCallGraphPlatformPruning?
+        CreateCurrentRuntimePruning(
+            string targetFramework,
+            string targetVersion,
+            IEnumerable<string> packageOverrides)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetVersion);
+        ArgumentNullException.ThrowIfNull(packageOverrides);
+
+        PlatformPruneInventory inventory =
+            PlatformPruneInventory.FromExactFamily(
+                "Microsoft.NETCore.App",
+                targetFramework,
+                targetVersion,
+                packageOverrides);
+        if (!PackageDependencyMemberCallGraphPlatformPruning
+                .TryCreateDotNetRuntime(
+                    inventory,
+                    out PackageDependencyMemberCallGraphPlatformPruning?
+                        pruning)
+            || !TryCreateCurrentRuntimeTarget(
+                PlatformFamily.DotNetRuntime,
+                targetFramework,
+                typeof(object).Assembly
+                    .GetCustomAttribute<
+                        AssemblyInformationalVersionAttribute>()
+                    ?.InformationalVersion,
+                out PlatformFamilyTarget? currentRuntime)
+            || currentRuntime.Version != pruning.Target.Version)
+        {
+            return null;
+        }
+
+        return pruning;
+    }
+
     protected override PlatformSourcePlan CreateSourcePlan(
         PlatformFamily family,
         bool includeReference,

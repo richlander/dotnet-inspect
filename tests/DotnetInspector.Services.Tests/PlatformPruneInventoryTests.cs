@@ -54,6 +54,11 @@ public class PlatformPruneInventoryTests
         Assert.Equal(Net11Pack, family.TargetPackVersion);
         Assert.Equal(Net11Pack, family.SourcePackVersion);
         Assert.True(family.DescribesTarget);
+        Assert.True(
+            inventory.TryGetExactFamilyTargetVersion(
+                NetCoreApp,
+                out string targetVersion));
+        Assert.Equal(Net11Pack.ToNormalizedString(), targetVersion);
     }
 
     [Fact]
@@ -170,6 +175,10 @@ public class PlatformPruneInventoryTests
         Assert.Equal(selected, family.TargetPackVersion);
         Assert.Equal(source, family.SourcePackVersion);
         Assert.False(family.DescribesTarget);
+        Assert.False(
+            projected.TryGetExactFamilyTargetVersion(
+                AspNetCoreApp,
+                out _));
     }
 
     [Fact]

@@ -346,6 +346,12 @@ public sealed class PackageHouseContentQuery
             new PackageHouseContentNarrowing.PackageWide(),
             [new PackageHouseContentTerminal.Files(entries)]);
 
+    /// <summary>Creates a package-wide physical File List query.</summary>
+    public static PackageHouseContentQuery PackageFileList() =>
+        new(
+            new PackageHouseContentNarrowing.PackageWide(),
+            [new PackageHouseContentTerminal.FileList()]);
+
     /// <summary>
     /// Creates one package-wide query for exact Files content and the complete
     /// physical File List over the same directory snapshot.

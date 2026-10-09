@@ -218,13 +218,29 @@ public static class MemberCommand
                 return directCallCountExitCode;
             }
 
+            var singleTypeSelector =
+                loadedSurface is null && !options.RouterDeferredTypeOrMember
+                    ? SingleTypeSurfaceSelector(typeName, options)
+                    : null;
             var loaded = loadedSurface
                 ?? (options.RouterDeferredTypeOrMember
                     ? ApiServices.LoadTypeApi(source, options)
                     : ApiServices.LoadFullApi(
                         searchPath, runtimeAssemblyPath, options.PackagePath,
                         packageName, apiSource, source.ApiVersion, selectedTfm,
-                        logger, options, source.PackageExtractPath));
+                        logger, options, source.PackageExtractPath,
+                        selectDeclaredType: singleTypeSelector));
+            // A Type the scope excludes, such as a hidden or obsolete Type
+            // without --all, leaves the single-Type surface empty. The
+            // complete surface owns the not-found report and its suggestions.
+            if (singleTypeSelector is not null
+                && loaded is { Api.Types.Count: 0 })
+            {
+                loaded = ApiServices.LoadFullApi(
+                    searchPath, runtimeAssemblyPath, options.PackagePath,
+                    packageName, apiSource, source.ApiVersion, selectedTfm,
+                    logger, options, source.PackageExtractPath);
+            }
             if (loaded == null)
             {
                 CommandError.Write("Could not extract API from library.");
@@ -2196,6 +2212,67 @@ public static class MemberCommand
     private static bool NeedsMemberPipelinePdbPath(
         IReadOnlySet<string> sections)
         => sections.Overlaps(MemberPipelinePdbPathSectionNames);
+
+    // Sections that read only the selected member's own declaration, body,
+    // attributes, and source mapping. A request limited to these sections
+    // needs only the selected Type's declarations, not the assembly's API
+    // surface.
+    static readonly HashSet<string> SingleTypeSurfaceSections =
+    [
+        SectionNames.Signature,
+        SectionNames.IL,
+        SectionNames.CustomAttributes,
+        SectionNames.ExceptionRegions,
+        SectionNames.SourceLocations,
+        SectionNames.FidelityCauses,
+    ];
+
+    // Returns a selector that limits API extraction to the requested Type, or
+    // null when the request needs the complete surface. A same-image
+    // extension method with the member's name would be projected onto its
+    // receiver Type only by the complete surface, so it keeps that route; so
+    // does a Type the metadata owner cannot find by full name.
+    static Func<string, Func<TypeDefinitionHandle, bool>?>?
+        SingleTypeSurfaceSelector(
+            string? typeName,
+            MemberOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(typeName)
+            || options.RouterDeferredTypeOrMember
+            || options.EffectiveDiscovery
+            || options.HasCallerScope
+            || options.MemberFilter.Count != 1
+            || options.IncludeSections is not { Count: > 0 } sections
+            || !sections.All(SingleTypeSurfaceSections.Contains))
+        {
+            return null;
+        }
+
+        string memberName = options.MemberFilter.First();
+        if (memberName.AsSpan().IndexOfAny('*', '?') >= 0)
+            return null;
+
+        return assemblyPath =>
+        {
+            // Malformed metadata keeps the complete route, which owns its
+            // failure report.
+            try
+            {
+                using AssemblyInspectionSession session =
+                    AssemblyInspectionSession.Open(assemblyPath);
+                if (session.MethodBodies.FindUniqueLookupTypeToken(typeName) is not { } token
+                    || session.MethodBodies.DeclaresExtensionMethod(memberName))
+                {
+                    return null;
+                }
+                return handle => MetadataTokens.GetToken(handle) == token;
+            }
+            catch (BadImageFormatException)
+            {
+                return null;
+            }
+        };
+    }
 
     private static List<ApiMember> GetCandidateMembers(
         ApiType apiType,

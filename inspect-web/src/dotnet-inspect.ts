@@ -570,7 +570,7 @@ import {
 } from "./brand.ts";
 import {
   loadPlatformIndex, parsePlatformCatalogTarget,
-  platformCatalogFramework,
+  platformCatalogFramework, platformRuntimePruningInventory,
   type PlatformAssemblyRow, type PlatformIndex, type PlatformCatalogTarget,
 } from "./platform-index.ts";
 import {
@@ -3988,18 +3988,26 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
 });
 const callGraphInspection = createCallGraphInspectionCoordinator({
   state,
-  queryPackage: request => inspectMemberCallGraph(
-    request.packageId,
-    request.version,
-    request.framework,
-    request.assembly,
-    request.typeIdentity,
-    request.type,
-    request.member,
-    request.memberSignature,
-    request.selectorKey,
-    request.metadataToken,
-    request.traversalFramework),
+  queryPackage: async request => {
+    state.platformIndex ??= await loadPlatformIndex();
+    const target = state.platformIndex?.target(
+      platformCatalogFramework(request.traversalFramework)) ?? null;
+    return inspectMemberCallGraph(
+      request.packageId,
+      request.version,
+      request.framework,
+      request.assembly,
+      request.typeIdentity,
+      request.type,
+      request.member,
+      request.memberSignature,
+      request.selectorKey,
+      request.metadataToken,
+      request.traversalFramework,
+      platformRuntimePruningInventory(
+        target,
+        request.traversalFramework));
+  },
   queryPlatform: request =>
     queryPlatformCallGraph(inspectExpandPlatformCallGraph, request),
   describeError: errorMessage,
@@ -7555,7 +7563,11 @@ function currentLibraryApiDiffSelection(): LibraryApiDiffSelection | null {
               "il",
             ],
             views: "Changes, Summary, Transitions",
-            typeNames: [overload.anchorTypeFullName],
+            // The producer matches Types by ApiType.FullName (`.` nesting,
+            // backtick arity). The Member anchor names the same Type in
+            // anchor spelling (`+`, `<T>`), which matches no nested or
+            // generic Type.
+            typeNames: [typeQueryIdentifierOf(subject.type)],
             memberTargetIdentities: [overload.stableSelector],
           };
         }

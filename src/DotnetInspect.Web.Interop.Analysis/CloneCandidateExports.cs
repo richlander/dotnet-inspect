@@ -140,7 +140,7 @@ public static partial class AnalysisExports
                     BrowserMemberResolution.ImplementationSurface(
                         group,
                         participant);
-                CallGraphMemberResolution? selected = body is null
+                AssemblyContextMemberBody? selected = body is null
                     ? null
                     : BrowserMemberResolution
                         .ResolveImplementationMember(
