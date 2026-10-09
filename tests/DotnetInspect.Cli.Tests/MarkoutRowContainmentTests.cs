@@ -315,12 +315,6 @@ public class MarkoutRowContainmentTests
         "TypeInfoSection.Version",
         "TypeParameterRow.Constraints",
         "TypeParameterRow.Parameter",
-        "TypeShapeView.Assembly",
-        "TypeShapeView.FullName",
-        "TypeShapeView.Kind",
-        "TypeShapeView.Modifiers",
-        "TypeShapeView.Package",
-        "TypeShapeView.Version",
         "TypeSummaryRow.Description",
         "TypeView.Assembly",
         "TypeView.BaseType",
@@ -348,11 +342,11 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt226MembersAcross44Types()
+    public void ResidualCensus_IsPinnedAt220MembersAcross43Types()
     {
-        Assert.Equal(226, NotSelfContaining.Length);
+        Assert.Equal(220, NotSelfContaining.Length);
         Assert.Equal(
-            44,
+            43,
             NotSelfContaining
                 .Select(entry => entry[..entry.IndexOf('.')])
                 .Distinct(StringComparer.Ordinal)

@@ -1145,34 +1145,6 @@ public class ConstructorOverloadView
 public record ConstructorParameterRow(string Parameter, string Type, string Notes);
 
 /// <summary>
-/// View model for type tree output.
-/// </summary>
-[MarkoutSerializable(TitleProperty = nameof(FullName))]
-public class TypeShapeView
-{
-    [MarkoutIgnore]
-    public string FullName { get; set; } = "";
-
-    public string Kind { get; set; } = "";
-
-    [MarkoutSkipNull]
-    public string? Modifiers { get; set; }
-
-    [MarkoutSkipNull]
-    [MarkoutPropertyName("Library")]
-    public string? Assembly { get; set; }
-
-    [MarkoutSkipNull]
-    public string? Package { get; set; }
-
-    [MarkoutSkipNull]
-    public string? Version { get; set; }
-
-    [MarkoutIgnoreInTable]
-    public List<TreeNode> Members { get; set; } = [];
-}
-
-/// <summary>
 /// View model for tabular single-type output: one unified table of all members.
 /// </summary>
 [MarkoutSerializable]
@@ -1474,11 +1446,6 @@ public sealed class EmptyMemberCallsView
             "return_address",
         ],
         []);
-}
-
-[MarkoutContext(typeof(TypeShapeView))]
-public partial class TypeViewContext : MarkoutSerializerContext
-{
 }
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
