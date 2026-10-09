@@ -96,18 +96,22 @@ const emptyLibraryApiDiffPresence: LibraryApiDiffPresence = {
   memberFingerprints: new Set(),
 };
 
-export function libraryApiDiffPresence(
-  state: LibraryApiDiffState,
-): LibraryApiDiffPresence {
-  if (state.status !== "ready"
-    || state.result.kind !== "Succeeded"
-    || state.result.value === null) {
-    return emptyLibraryApiDiffPresence;
-  }
+const presenceByResult = new WeakMap<
+  BrowserLibraryApiDiffResult,
+  LibraryApiDiffPresence
+>();
 
+function presenceOf(
+  result: BrowserLibraryApiDiffResult,
+): LibraryApiDiffPresence {
+  if (result.kind !== "Succeeded" || result.value === null)
+    return emptyLibraryApiDiffPresence;
+  const cached = presenceByResult.get(result);
+  if (cached !== undefined)
+    return cached;
   const typeIdentifiers = new Set<string>();
   const memberFingerprints = new Set<string>();
-  for (const type of state.result.value.types) {
+  for (const type of result.value.types) {
     if (type.after !== null)
       typeIdentifiers.add(type.after.identifier);
     for (const member of type.members) {
@@ -115,11 +119,49 @@ export function libraryApiDiffPresence(
         memberFingerprints.add(member.after.fingerprint);
     }
   }
-  return { typeIdentifiers, memberFingerprints };
+  const presence = { typeIdentifiers, memberFingerprints };
+  presenceByResult.set(result, presence);
+  return presence;
+}
+
+function sameEndpointPair(
+  left: LibraryApiDiffOperationInput,
+  right: LibraryApiDiffOperationInput,
+): boolean {
+  return left.packageModel === right.packageModel
+    && left.packageId === right.packageId
+    && left.currentVersion === right.currentVersion
+    && left.targetVersion === right.targetVersion
+    && left.targetFramework === right.targetFramework
+    && left.compileAssetId === right.compileAssetId;
+}
+
+/**
+ * Every successful result carries the whole-Library changed-Type inventory,
+ * whatever its surface. While a Type or Member request for the same endpoint
+ * pair is pending, the cue keeps the last successful result for that pair.
+ */
+export function libraryApiDiffPresence(
+  host: LibraryApiDiffStateHost,
+): LibraryApiDiffPresence {
+  const state = host.libraryApiDiff;
+  if (state.status === "ready")
+    return presenceOf(state.result);
+  const retained = host.libraryApiDiffRetained;
+  return state.status === "loading"
+    && retained !== undefined
+    && sameEndpointPair(retained.input, state.input)
+      ? presenceOf(retained.result)
+      : emptyLibraryApiDiffPresence;
 }
 
 export interface LibraryApiDiffStateHost {
   libraryApiDiff: LibraryApiDiffState;
+  /** The last successful result, retained for the navigation cue. */
+  libraryApiDiffRetained?: {
+    readonly input: LibraryApiDiffOperationInput;
+    readonly result: BrowserLibraryApiDiffResult;
+  };
 }
 
 export interface LibraryApiDiffDependencies {
@@ -1183,6 +1225,13 @@ export function createLibraryApiDiffCoordinator(
         break;
       case "terminal": {
         const input = inputFor(event.operationId);
+        if (event.outcome.kind === "succeeded"
+          && event.outcome.value.kind === "Succeeded") {
+          dependencies.state.libraryApiDiffRetained = {
+            input,
+            result: event.outcome.value,
+          };
+        }
         dependencies.state.libraryApiDiff =
           event.outcome.kind === "succeeded"
             ? {

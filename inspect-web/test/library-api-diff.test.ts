@@ -1069,7 +1069,7 @@ function withMembers(): BrowserLibraryApiDiffResult {
 }
 
 test("Diff presence indexes only exact current-side Type and Member identities", () => {
-  const ready = libraryApiDiffPresence(readyState(withMembers()));
+  const ready = libraryApiDiffPresence({ libraryApiDiff: readyState(withMembers()) });
   assert.deepEqual([...ready.typeIdentifiers], ["after-widget"]);
   assert.deepEqual(
     [...ready.memberFingerprints],
@@ -1078,9 +1078,74 @@ test("Diff presence indexes only exact current-side Type and Member identities",
   assert.equal(ready.typeIdentifiers.has("before-options"), false);
   assert.equal(ready.memberFingerprints.has("digest-gone"), false);
 
-  const idle = libraryApiDiffPresence({ status: "idle" });
+  const idle = libraryApiDiffPresence({ libraryApiDiff: { status: "idle" } });
   assert.equal(idle.typeIdentifiers.size, 0);
   assert.equal(idle.memberFingerprints.size, 0);
+});
+
+test("Diff presence keeps the last successful result while the same pair is pending", () => {
+  const settled = readyState(withMembers());
+  if (settled.status !== "ready")
+    throw new Error("expected a ready state");
+  const retained = { input: settled.input, result: settled.result };
+  const samePair = libraryApiDiffPresence({
+    libraryApiDiff: {
+      status: "loading",
+      input: {
+        ...settled.input,
+        query: {
+          surface: "Type",
+          analyses: ["api", "api-attribute"],
+          views: "Changes, Summary, Transitions",
+          typeNames: ["Example.Widget"],
+          memberTargetIdentities: [],
+        },
+      },
+    },
+    libraryApiDiffRetained: retained,
+  });
+  assert.deepEqual([...samePair.typeIdentifiers], ["after-widget"]);
+
+  const otherPair = libraryApiDiffPresence({
+    libraryApiDiff: {
+      status: "loading",
+      input: { ...settled.input, targetVersion: "0.9.0" },
+    },
+    libraryApiDiffRetained: retained,
+  });
+  assert.equal(otherPair.typeIdentifiers.size, 0);
+
+  const leftCompare = libraryApiDiffPresence({
+    libraryApiDiff: { status: "idle" },
+    libraryApiDiffRetained: retained,
+  });
+  assert.equal(leftCompare.typeIdentifiers.size, 0);
+});
+
+test("a successful result is retained for the navigation cue", async () => {
+  const state: LibraryApiDiffStateHost = {
+    libraryApiDiff: { status: "idle" },
+  };
+  const coordinator = createLibraryApiDiffCoordinator({
+    state,
+    operationAuthority: createOperationAuthorityPage(),
+    query: (_operationId, request) => Promise.resolve({
+      ...withMembers(),
+      request,
+    }),
+    cancel: () => undefined,
+    describeError: error => error instanceof Error ? error.message : String(error),
+    reportOperationDiagnostic: () => undefined,
+    render: () => undefined,
+  });
+
+  coordinator.reconcile(selection({}));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(state.libraryApiDiff.status, "ready");
+  assert.ok(state.libraryApiDiffRetained);
+  assert.equal(state.libraryApiDiffRetained.input.targetVersion, "1.0.0");
 });
 
 test("Type Diff lists Type-level changes first and classifies each Member row from producer changes", () => {

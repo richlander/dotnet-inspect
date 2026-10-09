@@ -190,8 +190,13 @@ identifier. A single Member or nested overload is marked from its current
 fingerprint, and an overload-family row is marked when any current overload in
 that represented family population is present.
 
-The cue is absent while Diff is pending or unsuccessful, in Clone mode, and for
-removed Before-only subjects that have no current Navigation identity. It
+Every successful result carries the whole-Library changed-Type inventory,
+whatever its surface, so the cue reads the last successful result. While a
+Type or Member request for the same endpoint pair is pending, the cue keeps
+that result instead of disappearing. The cue is absent when no successful
+result exists for the current pair, when the current result is unsuccessful,
+outside Compare Diff, in Clone mode, and for removed Before-only subjects that
+have no current Navigation identity. It
 coexists with structural-salience, Top Leverage, and implementation-hub cues;
 Type rows reserve two ordered slots: API differences, then structural
 salience. Member rows retain their existing three-slot achievement rail. The

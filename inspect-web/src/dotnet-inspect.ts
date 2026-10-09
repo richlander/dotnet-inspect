@@ -642,6 +642,7 @@ import {
   type LibraryApiDiffRenderOptions,
   type LibraryApiDiffSelection,
   type LibraryApiDiffState,
+  type LibraryApiDiffStateHost,
   type LibraryApiDiffSubject,
 } from "./library-api-diff.ts";
 import { createMemberBodyDiff, type MemberBodyDiffContext } from "./member-body-diff.ts";
@@ -1710,6 +1711,7 @@ interface StateOverrides {
   packageLens: PackageLens;
   libraryLens: LibraryLens;
   libraryApiDiff: LibraryApiDiffState;
+  libraryApiDiffRetained?: LibraryApiDiffStateHost["libraryApiDiffRetained"];
   compareClone: CompareCloneState;
   compareCloneSelectedRank: number | null;
   platformRecent: PlatformRecent[];
@@ -10300,7 +10302,7 @@ function renderTypeNavPane(
   visible: readonly TypeInventoryRow[],
 ) {
   const definingLibraries = aggregateTypeLibraryLabels();
-  const diffPresence = libraryApiDiffPresence(state.libraryApiDiff);
+  const diffPresence = libraryApiDiffPresence(state);
   const { definitions, forwarders } =
     accessibilityScopedTypeSelectorDefinitions();
   return renderTypeNav({
@@ -10371,7 +10373,7 @@ function renderTypeNavPane(
 function renderMemberNavPane(type: AppTypeSurface) {
   const visibleGroups = visibleMemberGroups(type);
   const groups = selectedMemberGroups(type);
-  const diffPresence = libraryApiDiffPresence(state.libraryApiDiff);
+  const diffPresence = libraryApiDiffPresence(state);
   return renderMemberNav({
     type,
     entries: memberNavEntries(type),
