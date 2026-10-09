@@ -168,4 +168,48 @@ public sealed class RowSelectionIntentContractTests
                 () => list[0] = values[0]);
         }
     }
+
+    public static TheoryData<RowSelectionIntentOperation<string>[], int?>
+        RequiredPrefixCases => new()
+    {
+        { [], null },
+        { [RowSelectionIntentOperation<string>.Head(3)], 3 },
+        { [RowSelectionIntentOperation<string>.Tail(3)], null },
+        { [RowSelectionIntentOperation<string>.Window(2, 5)], 5 },
+        { [RowSelectionIntentOperation<string>.Window(3, null)], null },
+        { [RowSelectionIntentOperation<string>.Window(null, null)], null },
+        { [RowSelectionIntentOperation<string>.Top(2)], null },
+        {
+            [
+                RowSelectionIntentOperation<string>.Head(10),
+                RowSelectionIntentOperation<string>.Tail(2),
+            ],
+            10
+        },
+        {
+            [
+                RowSelectionIntentOperation<string>.Head(10),
+                RowSelectionIntentOperation<string>.Window(2, 3),
+            ],
+            3
+        },
+        {
+            [
+                RowSelectionIntentOperation<string>.Window(3, null),
+                RowSelectionIntentOperation<string>.Head(2),
+            ],
+            4
+        },
+    };
+
+    [Theory]
+    [MemberData(nameof(RequiredPrefixCases))]
+    public void RequiredPrefixIsTheFiniteProducerPrefixThePlanRetains(
+        RowSelectionIntentOperation<string>[] operations,
+        int? expected)
+    {
+        Assert.Equal(
+            expected,
+            RowSelectionIntent<string>.Create(operations).RequiredPrefix());
+    }
 }
