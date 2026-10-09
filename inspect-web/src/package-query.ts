@@ -50,7 +50,7 @@ export interface QueryTermDescriptor {
 
 export type DependencyReach = "direct" | "2" | "3" | "4";
 
-interface QueryTermEditor {
+export interface QueryTermEditor {
   operator: string;
   value: string;
   dependencyReach?: DependencyReach;
@@ -400,6 +400,26 @@ export function withoutDependencyTerm(
     presets,
     terms: retainedTerms,
     requestedLimit: queryCandidateLimit(presets, retainedTerms),
+  });
+}
+
+export function synchronizeDependencyTermEdits(
+  previous: QueryRequest,
+  next: QueryRequest,
+  edits: readonly (QueryTermEditor | null)[],
+): readonly (QueryTermEditor | null)[] {
+  const reach = dependencyReach(next);
+  const target = dependencyTarget(next);
+  return next.terms.map(term => {
+    const previousIndex = previous.terms.indexOf(term);
+    if (previousIndex < 0) return null;
+    const edit = edits[previousIndex] ?? null;
+    if (!edit || term.descriptor.key !== "depends") return edit;
+    return {
+      ...edit,
+      dependencyReach: reach,
+      dependencyTarget: target,
+    };
   });
 }
 

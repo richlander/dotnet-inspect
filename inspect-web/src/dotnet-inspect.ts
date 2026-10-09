@@ -692,6 +692,7 @@ import {
   ECOSYSTEM_PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
   initialQueryState,
   shouldExecuteQuery,
+  synchronizeDependencyTermEdits,
   togglePreset,
   replaceTerm,
   withTerm,
@@ -20841,12 +20842,10 @@ function applyPackageQueryTerm(
       : replaceTerm(current, index, operator, value);
   }
   if (descriptor.key === "depends") {
-    state.packageQueryState.termEdits = request.terms.map(term => {
-      const priorIndex = current.terms.indexOf(term);
-      return priorIndex < 0
-        ? null
-        : state.packageQueryState.termEdits?.[priorIndex] ?? null;
-    });
+    state.packageQueryState.termEdits = synchronizeDependencyTermEdits(
+      current,
+      request,
+      state.packageQueryState.termEdits ?? []);
   }
   if (index === null) {
     state.packageQueryState.termDraft = null;
@@ -20865,12 +20864,10 @@ function removePackageQueryTerm(index: number, text: string) {
     ? withoutDependencyTerm(current, index)
     : withoutTerm(current, index);
   state.packageQueryState.termEdits = dependency
-    ? request.terms.map(term => {
-        const priorIndex = current.terms.indexOf(term);
-        return priorIndex < 0
-          ? null
-          : state.packageQueryState.termEdits?.[priorIndex] ?? null;
-      })
+    ? synchronizeDependencyTermEdits(
+        current,
+        request,
+        state.packageQueryState.termEdits ?? [])
     : (state.packageQueryState.termEdits ?? []).filter(
         (_edit, termIndex) => termIndex !== index);
   submitPackageQueryRequest(request);

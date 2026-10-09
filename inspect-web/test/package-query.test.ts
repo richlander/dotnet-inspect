@@ -15,6 +15,7 @@ import {
   initialQueryState,
   isLibraryLiteralQuery,
   shouldExecuteQuery,
+  synchronizeDependencyTermEdits,
   togglePreset,
   replaceTerm,
   withCompletion,
@@ -156,6 +157,13 @@ const DEPTH_2_FACET: QueryPreset = {
   label: "Depth 2",
   tier: "nuspec",
   executionClass: "nuspec-expensive",
+};
+
+const DEPTH_3_FACET: QueryPreset = {
+  ...DEPTH_2_FACET,
+  id: "dependency-depth:eq:3",
+  value: "3",
+  label: "Depth 3",
 };
 
 const CONTENT_TERM: QueryTermDescriptor = {
@@ -415,6 +423,64 @@ test("dependency reach is query-wide across repeated exact terms", () => {
       direct.terms.filter(
         term => term.descriptor.key === "depends").map(term => term.value),
       ["Contoso.First", "Contoso.Second"]);
+});
+
+test("pending dependency edits follow applied shared reach and target", () => {
+    const first = withDependencyTerm(
+      createQueryRequest("Contoso.*"),
+      DEPENDS_TERM,
+      null,
+      "eq",
+      "Contoso.First",
+      "2",
+      "net10.0",
+      DEPTH_2_FACET,
+      DEPENDENCY_TARGET_TERM);
+    const previous = withDependencyTerm(
+      first,
+      DEPENDS_TERM,
+      null,
+      "eq",
+      "Contoso.Second",
+      "2",
+      "net10.0",
+      DEPTH_2_FACET,
+      DEPENDENCY_TARGET_TERM);
+    const secondIndex = previous.terms.findIndex(
+      term => term.descriptor.key === "depends"
+        && term.value === "Contoso.Second");
+    const edits = previous.terms.map((_term, index) => index === secondIndex
+      ? {
+          operator: "eq",
+          value: "Contoso.Second.Edited",
+          dependencyReach: "2" as const,
+          dependencyTarget: "net10.0",
+        }
+      : null);
+    const next = withDependencyTerm(
+      previous,
+      DEPENDS_TERM,
+      0,
+      "eq",
+      "Contoso.First",
+      "3",
+      "net9.0",
+      DEPTH_3_FACET,
+      DEPENDENCY_TARGET_TERM);
+    const synchronized = synchronizeDependencyTermEdits(
+      previous,
+      next,
+      edits);
+    const retained = synchronized[next.terms.findIndex(
+      term => term.descriptor.key === "depends"
+        && term.value === "Contoso.Second")];
+
+    assert.deepEqual(retained, {
+      operator: "eq",
+      value: "Contoso.Second.Edited",
+      dependencyReach: "3",
+      dependencyTarget: "net9.0",
+    });
 });
 
 test("Ecosystem requests preserve curated identity with 24 initial and 96 maximum matches", () => {
