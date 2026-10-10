@@ -24,7 +24,9 @@ export type BrowserDiffAnalysisSurface = "Member" | "Type" | "Library" | number;
 
 export type BrowserDiffAnalysisViews = string | number;
 
-export type BrowserFastDiffState = "Unchanged" | "Changed" | "Indeterminate" | number;
+export type BrowserFastDiffAxes = "ApiAndBody" | "Api" | number;
+
+export type BrowserFastDiffState = "Unchanged" | "Changed" | "Indeterminate" | "NotCompared" | number;
 
 export type BrowserLibraryApiDiffCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 
@@ -402,6 +404,7 @@ export interface BrowserLibraryFastDiffRequest {
   readonly targetVersion: string;
   readonly targetFramework: string;
   readonly compileAssetId: string;
+  readonly axes: BrowserFastDiffAxes;
 }
 
 export interface BrowserLibraryFastDiffResult {

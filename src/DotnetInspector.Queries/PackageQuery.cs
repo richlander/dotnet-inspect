@@ -1195,7 +1195,18 @@ public static partial class PackageQuery
             "decoded UTF-16 text",
             "https://",
             PackageQueryTermRole.Inspection,
-            PackageQueryTermControlKind.MultilineInput),
+            PackageQueryTermControlKind.MultilineInput)
+        {
+            InputRules =
+            [
+                "Any decoded UTF-16 text within these constraints is accepted; the empty values list is not an allow list.",
+                $"Length: 1..{StringLiteralUsePredicate.MaximumLength} UTF-16 code units.",
+                "Preserve all operand text, including whitespace, newlines, and case; do not normalize.",
+                "Match an ordinal substring of each decoded string-literal use.",
+                "Single distinct operand: identical repeated values collapse; distinct values are incompatible.",
+                "Queries using this facet admit at most five package candidates; an exact package ID admits at most one.",
+            ],
+        },
         new(
             LibraryTargetTermKey,
             "library target",

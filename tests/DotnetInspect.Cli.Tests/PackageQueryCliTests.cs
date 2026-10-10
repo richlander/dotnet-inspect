@@ -2248,8 +2248,7 @@ public class PackageQueryCliTests
         Assert.Equal(
             PackageQuery.LibraryLiteralTermKey,
             explanationDocument.RootElement
-                .GetProperty("resources")[0]
-                .GetProperty("details")
+                .GetProperty("facts")
                 .GetProperty("key")
                 .GetString());
 
