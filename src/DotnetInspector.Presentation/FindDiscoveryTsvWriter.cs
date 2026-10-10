@@ -3,7 +3,7 @@ using Markout;
 namespace DotnetInspector.Presentation;
 
 /// <summary>
-/// Lowers settled discovery rows to one append-only TSV table.
+/// Lowers settled discovery rows to one append-only TSV or JSONL table.
 /// </summary>
 public sealed class FindDiscoveryTsvWriter : IDisposable
 {
@@ -25,12 +25,15 @@ public sealed class FindDiscoveryTsvWriter : IDisposable
     public FindDiscoveryTsvWriter(
         TextWriter output,
         bool showHeader = true,
-        MarkoutProjection? projection = null)
+        MarkoutProjection? projection = null,
+        bool jsonl = false)
     {
         _output = output;
         _options = new MarkoutWriterOptions
         {
-            TableMode = MarkoutTableMode.Tsv,
+            TableMode = jsonl
+                ? MarkoutTableMode.Jsonl
+                : MarkoutTableMode.Tsv,
             Projection = projection,
         };
         _table = new(output, new TableFormatter(showHeader), _options);
@@ -40,8 +43,13 @@ public sealed class FindDiscoveryTsvWriter : IDisposable
         TextWriter output,
         bool showHeader,
         string[]? columns,
-        string[]? fields)
-        : this(output, showHeader, CreateProjection(columns, fields))
+        string[]? fields,
+        bool jsonl = false)
+        : this(
+            output,
+            showHeader,
+            CreateProjection(columns, fields),
+            jsonl)
     {
     }
 

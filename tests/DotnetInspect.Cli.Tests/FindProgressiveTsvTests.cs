@@ -1,10 +1,13 @@
 using System.Text.Json;
 using DotnetInspect.Cli.CommandLine;
+using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Presentation;
+using DotnetInspector.Queries;
 using InertText;
 
 namespace DotnetInspect.Cli.Tests;
@@ -57,6 +60,25 @@ public class FindProgressiveTsvTests
         string[] rows = lines.Skip(1).ToArray();
         Assert.NotEmpty(rows);
         Assert.Equal(rows.Length, rows.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
+    public async Task JsonlPublishesBroadenedMemberFindings()
+    {
+        var result = await Run(
+            "find", ".Serialize", "--library", JsonLibrary, "--jsonl");
+
+        Assert.Equal(0, result.ExitCode);
+        var rows = new List<JsonElement>();
+        foreach (string line in result.Output.TrimEnd('\n').Split('\n'))
+        {
+            using JsonDocument document = JsonDocument.Parse(line);
+            rows.Add(document.RootElement.Clone());
+        }
+        Assert.Contains(
+            rows,
+            row => row.GetProperty("kind").GetString() == "member");
+        Assert.DoesNotContain("appear only", result.Error);
     }
 
     [Fact]
@@ -165,6 +187,79 @@ public class FindProgressiveTsvTests
         Assert.Single(lines, line =>
             line.StartsWith("coordinate\t", StringComparison.Ordinal));
         Assert.Equal("System.String.Member64", lines[^1].Split('\t')[0]);
+    }
+
+    [Fact]
+    public void JsonlWriterPublishesEachSettledRowWithoutAHeader()
+    {
+        using var output = new StringWriter();
+        using var writer = new FindDiscoveryTsvWriter(
+            output,
+            showHeader: true,
+            projection: null,
+            jsonl: true);
+
+        writer.Write(Row("System.String"));
+        string first = output.ToString();
+        Assert.Single(first.TrimEnd('\n').Split('\n'));
+        using (JsonDocument document = JsonDocument.Parse(first))
+        {
+            Assert.Equal(
+                "System.String",
+                document.RootElement.GetProperty("coordinate").GetString());
+        }
+
+        writer.Write(Row("System.String.Concat"));
+        writer.Flush();
+        string[] lines = output.ToString().TrimEnd('\n').Split('\n');
+        Assert.Equal(2, lines.Length);
+        Assert.All(lines, line => JsonDocument.Parse(line).Dispose());
+    }
+
+    [Fact]
+    public void EcosystemPrefixDemandsFollowEveryBoundedLineageLayer()
+    {
+        var layers = FindCommand.GetNamedLayers(
+            [EcosystemPackIds.Aspire]);
+
+        var demands = FindCommand.CreateEcosystemRequest(
+            new FindOptions(),
+            ["AddProject"],
+            layers,
+            demandPrefixes: true).Prefixes;
+
+        Assert.Equal(
+            [
+                "Aspire.",
+                "Microsoft.AspNetCore.",
+                "Microsoft.Extensions.",
+                "System.",
+            ],
+            demands.Select(demand => demand.Prefix));
+        var blocking = FindCommand.CreateEcosystemRequest(
+            new FindOptions(), ["AddProject"], layers, demandPrefixes: false);
+        Assert.Empty(blocking.PrefixDemand);
+        Assert.Empty(blocking.Prefixes);
+    }
+
+    [Fact]
+    public void EcosystemRequestKeepsQuestionAndBoundAcrossHostDemandPolicy()
+    {
+        var layers = FindCommand.GetNamedLayers([EcosystemPackIds.Aspire]);
+        var options = new FindOptions { Limit = 50, Members = true };
+        var streaming = FindCommand.CreateEcosystemRequest(
+            options, [".Add*"], layers, demandPrefixes: true);
+        var blocking = FindCommand.CreateEcosystemRequest(
+            options, [".Add*"], layers, demandPrefixes: false);
+
+        Assert.Equal(50, streaming.MaximumRows);
+        Assert.Equal(500, streaming.MaximumPrefixPackages);
+        Assert.NotEmpty(streaming.Prefixes);
+        Assert.Empty(blocking.Prefixes);
+        Assert.Equal("Add*",
+            Assert.Single(Assert.IsType<MemberFindQuestion>(
+                streaming.Question).Patterns).Text);
+        Assert.NotEqual(streaming.Identity, blocking.Identity);
     }
 
     [Fact]

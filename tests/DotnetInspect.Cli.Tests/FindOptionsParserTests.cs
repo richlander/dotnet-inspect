@@ -107,19 +107,19 @@ public class FindOptionsParserTests
     }
 
     [Fact]
-    public void Ecosystem_EmptyNamedPopulationFailsBeforeAcquisition()
+    public void Ecosystem_PrefixOnlyPopulationIsAccepted()
     {
         var id = EcosystemPackIds.MicrosoftExtensions;
-        var known = Assert.IsType<
-            EcosystemWorkspaceRegistrationSelectionResult.Known>(
-                EcosystemPackCatalog.SelectWorkspaceRegistration(id));
-        InvalidOperationException error = Assert.Throws<
-            InvalidOperationException>(() =>
-                FindCommand.EnsureNamedPopulations(
-                    [id], [(id, known.Declaration, false)]));
-        Assert.Contains("ecosystem.microsoft-extensions", error.Message);
+
+        var layers = FindCommand.GetNamedLayers([id]);
+
         Assert.Contains(
-            "--package-prefix Microsoft.Extensions.", error.Message);
+            layers,
+            layer => layer.Id == id
+                && layer.Declaration.Populations.Any(population =>
+                    population is
+                        WorkspaceEcosystemPopulationDeclaration
+                            .PackagePrefix));
     }
 
     [Fact]
