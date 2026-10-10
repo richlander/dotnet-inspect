@@ -546,6 +546,33 @@ public sealed class ApiQualifiedAnchorTests
     }
 
     [Fact]
+    public void NilLocation_DoesNotProjectAssemblyFamily()
+    {
+        (byte[] image, MetadataDeclarationLocation valid) =
+            BuildAssemblyKeyImage(keyBytes: 32);
+        MetadataDeclarationLocation invalid = valid with
+        {
+            MetadataToken = 0x02000000,
+        };
+        var policy = new MetadataOperationPolicy(
+            long.MaxValue,
+            maxRetainedText: 0);
+
+        ApiQualifiedAnchorResult result =
+            IssueResult(image, invalid, policy);
+
+        ApiQualifiedAnchorResult.Failed failed =
+            Assert.IsType<ApiQualifiedAnchorResult.Failed>(result);
+        Assert.Equal(
+            ApiQualifiedAnchorStage.AddressValidation,
+            failed.Failure.Stage);
+        Assert.Equal(
+            ApiQualifiedAnchorFailureReason.InvalidAddress,
+            failed.Failure.Reason);
+        Assert.Equal(0, result.Counters.RetainedText);
+    }
+
+    [Fact]
     public void OversizedAssemblyFamily_FailsBeforeMaterialization()
     {
         int keyBytes =
@@ -587,6 +614,26 @@ public sealed class ApiQualifiedAnchorTests
         Assert.Equal(
             ApiQualifiedAnchorFailureReason.WorkLimitExceeded,
             failed.Failure.Reason);
+    }
+
+    [Fact]
+    public void SignatureAssemblyReferenceKey_ConsumesCallerRetainedTextBudget()
+    {
+        (byte[] image, MetadataDeclarationLocation location) =
+            BuildAssemblyReferenceMethodImage(keyBytes: 200_000);
+        var policy = new MetadataOperationPolicy(
+            long.MaxValue,
+            maxRetainedText: 100);
+
+        ApiQualifiedAnchorResult result =
+            IssueResult(image, location, policy);
+
+        ApiQualifiedAnchorResult.Failed failed =
+            Assert.IsType<ApiQualifiedAnchorResult.Failed>(result);
+        Assert.Equal(
+            ApiQualifiedAnchorFailureReason.WorkLimitExceeded,
+            failed.Failure.Reason);
+        Assert.InRange(result.Counters.RetainedText, 1, 100);
     }
 
     [Fact]
@@ -908,6 +955,69 @@ public sealed class ApiQualifiedAnchorTests
                 mvid,
                 ApiDeclarationMetadataTable.TypeDefinition,
                 MetadataTokens.GetToken(first)));
+    }
+
+    static (
+        byte[] Image,
+        MetadataDeclarationLocation Location)
+        BuildAssemblyReferenceMethodImage(int keyBytes)
+    {
+        MetadataBuilder metadata = NewMetadata(
+            "AssemblyReferenceAnchor",
+            out Guid mvid,
+            out _);
+        var publicKey = new BlobBuilder(keyBytes);
+        publicKey.WriteBytes(new byte[keyBytes]);
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("External"),
+                new Version(1, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(publicKey),
+                AssemblyFlags.PublicKey,
+                default);
+        TypeReferenceHandle referenced =
+            metadata.AddTypeReference(
+                assembly,
+                metadata.GetOrAddString("Samples"),
+                metadata.GetOrAddString("Referenced"));
+        int codedType =
+            (MetadataTokens.GetRowNumber(referenced) << 2) | 1;
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger(codedType);
+        MethodDefinitionHandle method =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Owner"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+
+        return (
+            Serialize(metadata),
+            new(
+                mvid,
+                ApiDeclarationMetadataTable.MethodDefinition,
+                MetadataTokens.GetToken(method)));
     }
 
     static (

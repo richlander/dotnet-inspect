@@ -261,6 +261,7 @@ internal sealed class ApiQualifiedAnchorIssuer
         };
 
         if (expected == default ||
+            handle.IsNil ||
             handle.Kind != expected ||
             MetadataTokens.GetRowNumber(handle)
                 > GetTableRowCount(location.Table))
