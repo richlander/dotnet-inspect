@@ -1,0 +1,124 @@
+{
+  "task": "Registered C# style choices with identical IL and oracle or corpus endorsement",
+  "scope": {
+    "resource": "vocabularies/csharp.style-choices",
+    "resource_scope": "Installed",
+    "data_scope": "Complete",
+    "registered_member_count": 17,
+    "embedded_member_count": 17,
+    "boolean_map_coverage": {
+      "byte_divergent": "complete",
+      "oracle_endorsed": "complete",
+      "corpus_endorsed": "complete"
+    },
+    "state_evidence": "The contract response reports the installed vocabulary resource's facts, including maps, as Available; the HAL response reports data_scope.completeness=Complete. These states apply to this resource and its declared maps."
+  },
+  "qualifying_choices": [
+    {
+      "id": "wrap-splittable-expressions",
+      "option": "wrap-splittable-expressions",
+      "value": "true",
+      "tier": "Formatting",
+      "tier_name": "Formatting",
+      "tier_description": "Layout only — whitespace and line breaks. The code itself is unchanged, and compiles to identical IL.",
+      "endorsement": "corpus"
+    },
+    {
+      "id": "qualify-field-access",
+      "option": "qualify-field-access",
+      "value": "true",
+      "tier": "Spelling",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "endorsement": "oracle"
+    },
+    {
+      "id": "qualify-property-access",
+      "option": "qualify-property-access",
+      "value": "true",
+      "tier": "Spelling",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "endorsement": "oracle"
+    },
+    {
+      "id": "qualify-method-access",
+      "option": "qualify-method-access",
+      "value": "true",
+      "tier": "Spelling",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "endorsement": "oracle"
+    },
+    {
+      "id": "qualify-event-access",
+      "option": "qualify-event-access",
+      "value": "true",
+      "tier": "Spelling",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "endorsement": "oracle"
+    }
+  ],
+  "declared_conflict_groups": {
+    "guarded-boolean-return-style": [
+      "guarded-boolean-return-style:conditional-expression",
+      "guarded-boolean-return-style:branchless"
+    ],
+    "var-spelling-style": [
+      "var-spelling-style:var-for-built-in-types",
+      "var-spelling-style:var-when-type-apparent",
+      "var-spelling-style:var-elsewhere"
+    ]
+  },
+  "conflict_group_limit": "These are product-owned relationships among the listed choice IDs in this installed vocabulary. They do not establish conflict rules, mapping, precedence, or command behavior for arbitrary configuration keys. The var-choice summaries explicitly describe the three var categories as independent, so the group alone must not be converted into an exclusivity claim about csharp_style_var_* keys.",
+  "omitted_boolean_interpretation": {
+    "known_choice_complete_data": "For a registered member of this complete data scope, omission from a declared complete Boolean property set means false for that property. For example, wrap-splittable-expressions is absent from byte_divergent and thus is byte-neutral; guarded-boolean-return-style:conditional-expression is absent from corpus_endorsed and thus is not corpus-endorsed here.",
+    "unknown_id": "An ID outside the registered members is unknown to this vocabulary; omission does not assign it false or establish behavior in another scope.",
+    "incomplete_data": "If the member set or relevant map coverage were incomplete, omission would be unknown rather than false.",
+    "unavailable_property": "If the property/fact state were Unavailable, its value would be unknown rather than false even for a known ID. No such unavailable state was observed for these maps."
+  },
+  "fetch_assessment": {
+    "tier_description_fetch_needed": false,
+    "additional_fetch_for_answer_needed": false,
+    "reason": "The HAL choices response embeds all 17 choices, all four tier records and their descriptions, complete Boolean map declarations and true-member sets, and both conflict groups. A separate tier request is unnecessary. A contract response was fetched to inspect map and state semantics, but it supplied no additional choice or tier fact needed for the join."
+  },
+  "provenance": [
+    {
+      "response": "response-03.out",
+      "paths": [
+        "$.relationships['collection-vocabulary'].targets",
+        "$._links['collection-vocabulary']"
+      ],
+      "use": "Discovery of the installed style-choice and style-tier vocabulary resource paths"
+    },
+    {
+      "response": "response-04.out",
+      "paths": [
+        "$.data_scope",
+        "$.members",
+        "$.maps",
+        "$.property_sets",
+        "$.property_groups.conflict_group",
+        "$._embedded.values",
+        "$._embedded.vocabularies[0]._embedded.values"
+      ],
+      "use": "All choice selections, Boolean map coverage and true sets, conflict groups, embedded tier names and descriptions, and completeness"
+    },
+    {
+      "response": "response-05.out",
+      "paths": [
+        "$.resources[0].scope",
+        "$.resources[0].facts[*].state",
+        "$.schemas[2].data_shapes[0].fields"
+      ],
+      "use": "Installed scope, Available fact states, and map declaration vocabulary"
+    }
+  ],
+  "unrun_command_argv": [],
+  "uncertainties": [
+    "No command invocation behavior, arbitrary configuration-key mapping, or enforcement rule can be inferred from these vocabulary records.",
+    "The unknown-ID, incomplete-data, and unavailable-property cases are interpretation limits, not states observed in the complete installed style-choice response."
+  ],
+  "schema_navigation_friction": "Two free-text discovery searches returned no matches; the vocabularies collection exposed the resource path. HAL embedded tier records avoided a tier fetch. The contract response was large and required filtered views. One jq view filter used an undefined root variable, then was corrected. No tool rendering was truncated."
+}

@@ -30,8 +30,13 @@ assert digest((root / 'dispatch.json').read_bytes()) == manifest['dispatch_sha25
 dispatch = json.loads((root / 'dispatch.json').read_text())
 for name, expected in dispatch['inputs'].items():
     assert digest((root / name).read_bytes()) == expected, (name, 'dispatch input')
-for key in ('source_commit', 'cli_version', 'sdk', 'model', 'reasoning', 'binary_sha256', 'trials'):
-    assert manifest[key] == dispatch[key], key
+assert digest((root / 'dispatch-strong.json').read_bytes()) == manifest['dispatch_strong_sha256']
+strong = json.loads((root / 'dispatch-strong.json').read_text())
+for name, expected in strong['inputs'].items():
+    assert digest((root / name).read_bytes()) == expected, (name, 'strong dispatch input')
+for key in ('source_commit', 'cli_version', 'sdk', 'model', 'reasoning', 'binary_sha256'):
+    assert manifest[key] == dispatch[key] == strong[key], key
+assert manifest['trials'] == dispatch['trials'] + strong['trials']
 for name, expected in manifest['inputs'].items():
     assert digest((root / name).read_bytes()) == expected, name
 for condition, entry in manifest['guides'].items():
@@ -39,6 +44,7 @@ for condition, entry in manifest['guides'].items():
     assert len(data) == entry['bytes'] and digest(data) == entry['sha256'], condition
 assert (root / 'guide-baseline.txt').read_bytes() == (root.parent / 'minimal/guide-hal.txt').read_bytes()
 assert (root / 'guide-stop.txt').read_bytes() == (root / 'guide-baseline.txt').read_bytes() + b'\n' + (root / 'stopping-rule.txt').read_bytes()
+assert (root / 'guide-strong.txt').read_bytes() == (root / 'guide-stop.txt').read_bytes() + b'\n' + (root / 'verification-policy.txt').read_bytes()
 for name in ('participant.txt', 'query-task.txt', 'style-task.txt', 'assessment-criteria.txt'):
     assert (root / name).read_bytes() == (root.parent / 'minimal' / name).read_bytes(), name
 question = (root / 'post-task-question.txt').read_text().strip()

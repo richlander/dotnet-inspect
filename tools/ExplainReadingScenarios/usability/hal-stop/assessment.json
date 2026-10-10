@@ -130,6 +130,128 @@
       ],
       "assessment": "Starting literal closure lacks dependency depth and target rules. The agent follows the emitted CLI-binding href and its advertised facet hrefs, obtains the preferred exact dependency/depth/target command, rejects 1/all, and preserves unexecuted-result uncertainty. All later requests use previously returned hrefs verbatim, with no search or constructed path.",
       "trace": "The binding advertises ordinary application/json resource links without projection=hal. Subsequent facet responses are compact ordinary explain resources, not explicit schema contracts, although the participant calls them full contracts. This boundary demonstrates necessary navigation across the advertised graph; it does not demonstrate remaining in HAL throughout."
+    },
+    "query-strong-1": {
+      "outcome": "satisfied",
+      "obligations": {
+        "commands": "satisfied",
+        "literal_rules": "satisfied",
+        "depth_and_target": "satisfied",
+        "dependency_semantics": "satisfied",
+        "candidate_vs_rows": "satisfied",
+        "qualifications": "satisfied"
+      },
+      "evidence": [
+        "response-03.out",
+        "response-05.out",
+        "response-06.out",
+        "response-08.out",
+        "view-10.txt",
+        "response-12.out"
+      ],
+      "assessment": "Both unrun commands and the bounded prefix example match registered gestures. Literal preservation, ordinal matching, repetition and UTF-16/astral limits, closed depth/target restrictions, preferred/legacy declaration semantics and candidate/row limits are correct. Missing normalization, unavailable data and unexecuted matches remain qualified.",
+      "reading_policy": {
+        "assessment": "partial",
+        "evidence": "query-strong-1: response-12.out re-fetches library-target after response-08/view-10 already exposed it; removing navigation/scope metadata yields identical core fields. Its claimed missing target detail is not established by these records. query-strong-2: response-11/12 repeat literal/depends facts rendered from the query-space in view-12; the retrospective explicitly calls them confirmation. Neither requests an explicit schema contract, which alone does not establish adherence."
+      },
+      "trace": "Discovery and genuine missing-normalization searches are separate from the overlapping domain reads. Some requests are parallel; counts are receipts, not latency."
+    },
+    "query-strong-2": {
+      "outcome": "satisfied",
+      "obligations": {
+        "commands": "satisfied",
+        "literal_rules": "satisfied",
+        "depth_and_target": "satisfied",
+        "dependency_semantics": "satisfied",
+        "candidate_vs_rows": "satisfied",
+        "qualifications": "satisfied"
+      },
+      "evidence": [
+        "response-05.out",
+        "response-06.out",
+        "view-12.txt",
+        "response-08.out",
+        "response-11.out",
+        "response-12.out"
+      ],
+      "assessment": "Both unrun commands and the bounded prefix example match registered gestures. Literal preservation, ordinal matching, repetition and UTF-16/astral limits, closed depth/target restrictions, preferred/legacy declaration semantics and candidate/row limits are correct. Missing normalization, unavailable data and unexecuted matches remain qualified.",
+      "reading_policy": {
+        "assessment": "partial",
+        "evidence": "query-strong-1: response-12.out re-fetches library-target after response-08/view-10 already exposed it; removing navigation/scope metadata yields identical core fields. Its claimed missing target detail is not established by these records. query-strong-2: response-11/12 repeat literal/depends facts rendered from the query-space in view-12; the retrospective explicitly calls them confirmation. Neither requests an explicit schema contract, which alone does not establish adherence."
+      },
+      "trace": "Discovery and genuine missing-normalization searches are separate from the overlapping domain reads. Some requests are parallel; counts are receipts, not latency."
+    },
+    "style-strong-1": {
+      "outcome": "satisfied",
+      "obligations": {
+        "membership_join_groups": "satisfied",
+        "configuration_limits": "satisfied",
+        "omission_rules": "satisfied",
+        "qualifications_and_fetch": "satisfied"
+      },
+      "evidence": [
+        "response-04.out",
+        "response-05.out",
+        "view-14.txt"
+      ],
+      "assessment": "The exact five eligible choices, option true, local tier names/descriptions, both groups and all members are correct. Sparse-negative interpretation preserves complete known available membership versus unknown/incomplete/unavailable cases. Final filtered evidence retains applicable scope/maps. Unknown arbitrary-key and invocation behavior is not invented. Both answers recognize locally embedded tiers and say no further fetch is required.",
+      "reading_policy": {
+        "assessment": "not_established",
+        "evidence": "The schema is requested after complete maps/sets and embedded tiers were rendered in view-05/06. The retrospective describes clarifying map coverage and state semantics. It added scope/state metadata but no missing choice/tier facts. This could reflect semantic uncertainty; do not infer a verification-only motivation merely from the schema request category."
+      },
+      "fetch_falsifier": {
+        "source": "response-04.out",
+        "path": "_embedded.vocabularies[0]._embedded.values",
+        "complete_tiers": 4
+      },
+      "trace": "Both fetch the 95,618-byte schema. Style 1 avoids the standalone tier; Style 2 fetches it eagerly. jq errors are preserved (1 and 4)."
+    },
+    "style-strong-2": {
+      "outcome": "satisfied",
+      "obligations": {
+        "membership_join_groups": "satisfied",
+        "configuration_limits": "satisfied",
+        "omission_rules": "satisfied",
+        "qualifications_and_fetch": "satisfied"
+      },
+      "evidence": [
+        "response-04.out",
+        "response-06.out",
+        "view-21.txt"
+      ],
+      "assessment": "The exact five eligible choices, option true, local tier names/descriptions, both groups and all members are correct. Sparse-negative interpretation preserves complete known available membership versus unknown/incomplete/unavailable cases. Final filtered evidence retains applicable scope/maps. Unknown arbitrary-key and invocation behavior is not invented. Both answers recognize locally embedded tiers and say no further fetch is required.",
+      "reading_policy": {
+        "assessment": "not_followed",
+        "evidence": "Standalone tier response-05 is requested before reading the choices closure, which embeds the tiers. Contract response-06 follows views showing complete maps/sets and all local tiers. The frozen answer and retrospective explicitly say both additional reads were unnecessary and the contract supplied no needed final-answer fact."
+      },
+      "fetch_falsifier": {
+        "source": "response-04.out",
+        "path": "_embedded.vocabularies[0]._embedded.values",
+        "complete_tiers": 4
+      },
+      "trace": "Both fetch the 95,618-byte schema. Style 1 avoids the standalone tier; Style 2 fetches it eagerly. jq errors are preserved (1 and 4)."
+    },
+    "navigation-strong-1": {
+      "outcome": "satisfied",
+      "obligations": {
+        "command": "satisfied",
+        "depth_and_target": "satisfied",
+        "gestures_and_limits": "satisfied",
+        "href_only_navigation": "satisfied"
+      },
+      "evidence": [
+        "response-01.out",
+        "response-02.out",
+        "response-03.out",
+        "response-04.out",
+        "response-06.out"
+      ],
+      "assessment": "Starting literal closure lacks dependency rules. Returned binding and facet hrefs supply the preferred exact dependency/depth/target command, allowed depths, invalid 1/all neighbors and required gestures. All later hrefs existed in earlier responses, and the answer preserves unexecuted package uncertainty.",
+      "reading_policy": {
+        "assessment": "necessary_navigation_preserved",
+        "evidence": "The agent follows the binding to obtain missing dependency facts, then requests four relevant facets in parallel. Success establishes that the restriction did not prevent this boundary task; it does not establish that every request was minimal. The legacy facet is extra context for this narrower task."
+      },
+      "trace": "Advertised binding links lead to ordinary compact JSON resources, not explicit schemas; five href requests, no discovery after the specified start."
     }
   }
 }

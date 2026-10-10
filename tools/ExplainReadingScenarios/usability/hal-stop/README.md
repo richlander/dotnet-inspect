@@ -1,12 +1,13 @@
 # HAL stopping-rule reading trials
 
-One added reading instruction produced a mixed result. Four fresh participants
-answered the unchanged Query/Style tasks correctly, including recognizing local
-tier descriptions. Query retrieval was lower than in the earlier HAL sample;
-Style retrieval barely changed because both participants still fetched the
-schema contract. Two separate boundary participants followed links for facts
-missing from their starting resource. Post-task reflections identify
-verification as a reason for extra reads, without changing the completed trials.
+Two guide variants test answering from local data before navigating. The first
+local-data-first instruction produced mixed results. A stronger version adds
+the user's explicit low-latency preference and prohibition on verification-only
+requests. All answers remain correct, but both strong-guide Style readers still
+fetch the schema; one explicitly acknowledges it supplied no needed fact.
+The stronger wording does not establish reliable adherence. Neutral questions
+asked only after freezing each trial help distinguish confirmation from
+semantic uncertainty without changing its completed results.
 
 Normative owner: [Resource Explanation — Skill](../../../../docs/design/resource-explanation.md#skill).
 Focused issue: [#9896](https://github.com/richlander/dotnet-inspect/issues/9896).
@@ -93,14 +94,87 @@ explain resources. Participants call them full contracts, but these are not
 explicit `.contract` or `projection=contract` requests. The boundary preserves
 necessary navigation; it does not establish uninterrupted HAL mode.
 
-All new CLI requests succeeded; there were no jq errors or identical repeated
-payloads. Different resources still overlap. [measurements.json](measurements.json)
+All initial six CLI trials succeeded; they had no jq errors or identical
+repeated payloads. Different resources still overlap. [measurements.json](measurements.json)
 retains request/view counts, hrefs, discovery splits, and guide emissions;
 [assessment.json](assessment.json) retains manual obligation-level assessment
 with trace provenance. Every primary answer preserves unavailable/incomplete
 qualifications and unexecuted-result uncertainty. Product views were reported
 untruncated; three optional local answer-validation displays were reported
 truncated. Rendering receipts alone do not prove UI delivery.
+
+## Explicit value-judgement follow-up
+
+The operator observed that an agent can recognize a read is unnecessary and
+still perform it for verification. The [strong guide](guide-strong.txt) adds
+only this [policy](verification-policy.txt) to the prior stopping-rule guide:
+
+> The user values low-latency operations and only permits following link
+> relations if they are necessary to answer a question. Verification-only
+> requests harm latency and are not permitted.
+
+The guide is 1,028 B. Four more fresh GPT-6 Sol/high participants receive the
+unchanged Query/Style protocol and tasks, plus one fresh participant with the
+same necessary-navigation boundary task. [dispatch-strong.json](dispatch-strong.json)
+pins these inputs before dispatch. The [additional criteria](strong-assessment-criteria.txt)
+separate domain correctness from policy adherence: zero schema requests do not
+prove compliance, and a genuinely missing schema meaning can justify a read.
+The exact source, SDK, apphost and DLL hashes match the earlier cohort, and
+remained unchanged afterward. All original six trials, reflections and fixed
+inputs are retained unchanged; only the verifier extends to the new cohort.
+These are independent, nonrandomized participants, not repeated runs or a
+causal test. The policy states a user preference, not a measured latency claim.
+
+| Strong-guide task / participant | Requests | Retrieved B | Product rendered B | jq errors | Schemas | Domain assessment |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Query / 1 | 13 | 56,543 | 28,696 | 0 | 0 | Satisfied |
+| Query / 2 | 13 | 64,787 | 49,730 | 0 | 0 | Satisfied |
+| Style / 1 | 5 | 113,382 | 33,813 | 1 | 1 | Satisfied |
+| Style / 2 | 6 | 116,625 | 41,980 | 4 | 1 | Satisfied |
+| Navigation boundary | 6 | 22,568 | 21,016 | 0 | 0 | Satisfied |
+
+Compared with the prior stopping-rule cohort, Query requests fall from 38 to
+26 and retrieval from 139,431 B to 121,330 B (13.0%); rendered totals fall
+from 103,861 B to 78,426 B (24.5%). Style requests fall from 16 to 11, but
+retrieval falls only from 233,835 B to 230,007 B (1.6%), with both 95,618 B
+schemas still fetched. Style rendering falls from 89,928 B to 75,793 B (15.7%).
+All five trials' CLI requests succeed with no identical repeated payload. Their
+five jq errors and corrected filters remain in the evidence. Query 1 reports
+one unquoted-href shell failure before the recorder ran; it is not a CLI
+receipt or product retrieval. No strong-cohort tool rendering was reported
+truncated. The boundary still obtains the required facts through advertised
+hrefs; fewer requests do not establish that each was minimal.
+
+Policy adherence is weaker than domain correctness:
+
+- Query 1 re-fetches library-target after its query-space view already exposes
+  that context. It says the embedded target lacked detail, but excluding
+  navigation/scope metadata leaves identical core fields in the two records.
+- Query 2 re-fetches literal and depends after rendering their rules from the
+  query-space. Its retrospective calls these confirmation. Neither Query
+  reader requests an explicit schema; both still repeat local data.
+- Style 1 avoids a standalone tier fetch, but asks for the schema after complete
+  maps/sets and embedded tiers were rendered. It describes clarifying map
+  coverage and state semantics. That can represent semantic uncertainty,
+  rather than a proven verification-only motive; adherence is not established.
+- Style 2 requests choices and tiers before inspecting either, then reads the
+  schema after viewing complete maps and embedded tiers. Its frozen answer and
+  retrospective explicitly say the extra reads were unnecessary, and the
+  schema supplied no needed fact. The explicit restriction was not followed.
+
+Thus the value judgement does not reliably eliminate the observed behavior.
+It is useful to retain the cost objective, but the traces do not justify
+shipping this wording as a solved stopping policy. A next experiment can ask
+for a concrete missing-fact statement before each request and check whether
+that fact is already local. This would be an additional intervention, not a
+retrospective question or a claimed result of this study.
+
+Strong-cohort answers and separate reflections:
+[Query 1](query-strong-1/answer.json), [reflection](query-strong-1/post-task.json);
+[Query 2](query-strong-2/answer.json), [reflection](query-strong-2/post-task.json);
+[Style 1](style-strong-1/answer.json), [reflection](style-strong-1/post-task.json);
+[Style 2](style-strong-2/answer.json), [reflection](style-strong-2/post-task.json);
+[boundary](navigation-strong-1/answer.json), [reflection](navigation-strong-1/post-task.json).
 
 ## Ask after completion
 
@@ -113,7 +187,7 @@ asking the [same question](post-task-question.txt):
 
 Participants answered from their existing conversation only. They were told
 not to make further product reads, read new files/responses, revise answers, or
-change logs. The question was not announced beforehand. New trials retain
+change logs. The question was not announced beforehand. All eleven new trials retain
 `frozen.json` and a separate `post-task.json`; all original files remained
 unchanged. The four earlier HAL participants answered the same question later,
 with the committed parent manifest supplying their pre-question identities.
@@ -128,12 +202,16 @@ The question helped distinguish three motivations:
 - Earlier Query HAL 2 describes looking for missing normalization and
   unavailable-data rules. Those are task-specific uncertainties, not simply
   automatic traversal of every link.
-- Both new Style participants say their local choice resource supplied the
+- Both initial stopping-rule Style participants say their local choice resource supplied the
   needed facts and that tier/contract reads corroborated them. The logs still
   show those reads, including contract requests after embedded tiers were
   rendered. Their recognition is useful; it is not evidence of stopping early.
 - Both boundary participants describe following the binding to find the
   missing dependency rules. Their traces show those advertised hrefs and facts.
+
+The same question was used for the strong-guide cohort after each completed
+answer and trace was frozen, with no product requests, views or corrections
+allowed during the feedback phase. All five originals remained unchanged.
 
 These are brief self-reports about observable choices, not hidden reasoning or
 proof of motivation. For example, Style 1 describes opening the tier resource

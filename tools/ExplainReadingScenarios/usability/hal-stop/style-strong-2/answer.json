@@ -1,0 +1,95 @@
+{
+  "answer": {
+    "qualifying_choices": [
+      {
+        "id": "wrap-splittable-expressions",
+        "option": "wrap-splittable-expressions",
+        "value": "true",
+        "tier_name": "Formatting",
+        "tier_description": "Layout only — whitespace and line breaks. The code itself is unchanged, and compiles to identical IL.",
+        "endorsement": [
+          "corpus"
+        ]
+      },
+      {
+        "id": "qualify-field-access",
+        "option": "qualify-field-access",
+        "value": "true",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "endorsement": [
+          "oracle"
+        ]
+      },
+      {
+        "id": "qualify-property-access",
+        "option": "qualify-property-access",
+        "value": "true",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "endorsement": [
+          "oracle"
+        ]
+      },
+      {
+        "id": "qualify-method-access",
+        "option": "qualify-method-access",
+        "value": "true",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "endorsement": [
+          "oracle"
+        ]
+      },
+      {
+        "id": "qualify-event-access",
+        "option": "qualify-event-access",
+        "value": "true",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "endorsement": [
+          "oracle"
+        ]
+      }
+    ],
+    "selection_rule": "Registered choice ID, absent from complete byte_divergent Boolean set, and present in either complete oracle_endorsed or corpus_endorsed Boolean set.",
+    "conflict_groups": [
+      {
+        "group": "guarded-boolean-return-style",
+        "member_ids": [
+          "guarded-boolean-return-style:conditional-expression",
+          "guarded-boolean-return-style:branchless"
+        ]
+      },
+      {
+        "group": "var-spelling-style",
+        "member_ids": [
+          "var-spelling-style:var-for-built-in-types",
+          "var-spelling-style:var-when-type-apparent",
+          "var-spelling-style:var-elsewhere"
+        ]
+      }
+    ],
+    "conflict_group_limit": "These are declarations about registered style-choice IDs. They do not provide a general rule for arbitrary configuration keys or a key-to-choice mapping. The embedded descriptions specifically say the three var categories are independent and match separate csharp_style_var_* EditorConfig keys; do not infer that those keys are mutually exclusive or invent runtime invocation/enforcement behavior.",
+    "omitted_boolean_interpretation": {
+      "known_choice_complete_data": "For a registered choice in this complete vocabulary, omission from a Boolean property set means false when that map has complete coverage and exactly-one cardinality.",
+      "unknown_id": "An ID absent from the complete registered membership is an unknown/unregistered choice, not a registered choice with a false property value.",
+      "incomplete_data": "If vocabulary data or map coverage is incomplete, omission alone is unknown; it cannot establish false.",
+      "unavailable_property": "If the property itself is unavailable, its value is unavailable/unknown; omission cannot establish false."
+    },
+    "fetch_requirement": "Response-04 already embeds every registered choice, the tier vocabulary with names and descriptions, complete Boolean property sets, and the declared conflict groups. No further resource fetch or schema/contract fetch is required to answer this task; the tier descriptions require no separate tier fetch. The additional tier and contract reads performed here were not necessary for the final answer.",
+    "unrun_command_argv": [],
+    "invocation_behavior": "The data names consumers in accepted_by, but does not specify a CLI style-setting invocation. No invocation command is inferred."
+  },
+  "provenance": {
+    "primary": "response-04.out: HAL vocabulary csharp.style-choices; data_scope.completeness=Complete; all seven map declarations have coverage=complete; embedded values and embedded csharp.style-tiers; property_sets and property_groups.",
+    "tier_cross_check": "response-05.out: HAL csharp.style-tiers; data_scope.completeness=Complete and the same tier names/descriptions. This separate fetch was unnecessary because response-04 embedded them.",
+    "schema_cross_check": "response-06.out: choices describedby contract; map-declaration fields include value-kind, cardinality and coverage, and the value vocabulary declares its membership and map schema. This contract fetch was unnecessary for the task.",
+    "filtered_evidence_scope_and_states": "The response-04 filtered view retained data_scope.completeness=Complete, each Boolean map coverage=complete and cardinality=exactly-one, the property sets, declared groups, qualifying embedded values, and embedded tier names/descriptions. HAL showed no separate property-state field for these available maps; absence is interpreted only within the shown complete scope and coverage."
+  },
+  "uncertainties": [
+    "No invocation/configuration-key application behavior is supplied by these vocabulary resources. The var group declaration and the independent var-category summary should not be generalized into a rule for EditorConfig keys."
+  ],
+  "schema_navigation_friction": "HAL placed Boolean truths in sparse property_sets while completeness/coverage appeared elsewhere, so interpreting absence required retaining scope and map declarations. Tier descriptions were nested in an embedded vocabulary. A generic envelope-shaped jq filter failed because HAL has a different shape; a later filter initially lost root scope and yielded no matches, then was corrected. The standalone tier and contract reads added no facts needed for the final answer.",
+  "truncated_tool_rendering": false
+}
