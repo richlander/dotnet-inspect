@@ -1,9 +1,7 @@
 using System.Runtime.Versioning;
 
-using DotnetInspector.Queries;
+using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
-using ILInspector.Analysis;
-using ILInspector.Metadata;
 
 namespace DotnetInspect.Web;
 
@@ -67,113 +65,63 @@ internal static class BrowserDirectUseClusterProjection
         int? selectedCluster)
     {
         ArgumentNullException.ThrowIfNull(inspection);
-        if (selectedCluster is < 1)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(selectedCluster),
-                "A selected Direct-Use Cluster ordinal must be positive.");
-        }
 
         BrowserDirectUseDiagnosticInfo[] diagnostics =
         [
             .. inspection.Diagnostics.Select(Project),
         ];
-        if (inspection.Content
-            is AssemblyPairDirectUseClusterInspectionOutcome.Rejected rejected)
-        {
-            return new(
-                "rejected",
-                IsComplete: false,
-                [],
-                selectedCluster,
-                [],
-                diagnostics,
-                rejected.Pair.Detail);
-        }
-
-        var available =
-            (AssemblyPairDirectUseClusterInspectionOutcome.Available)
-                inspection.Content;
-        AssemblyPairDirectUseClusterProjection projection =
-            available.Projection;
-        AssemblyPairDirectUseClusterProjection? scoped =
-            selectedCluster is int ordinal
-                ? projection.ScopeToObservedCluster(ordinal)
-                : null;
-        if (selectedCluster is not null && scoped is null)
-        {
-            return new(
-                "cluster-not-found",
-                projection.IsComplete,
-                [.. projection.Clusters.Select(Project)],
-                selectedCluster,
-                [],
-                diagnostics,
-                projection.Clusters.IsEmpty
-                    ? "No Direct-Use Clusters were observed for this Library pair."
-                    : "The selected Direct-Use Cluster ordinal was not observed.");
-        }
+        DirectUseClusterPresentationResult presentation =
+            AssemblyPairDirectUseClusterPresentation.Project(
+                inspection,
+                selectedCluster);
 
         return new(
-            "available",
-            projection.IsComplete,
-            [.. projection.Clusters.Select(Project)],
-            selectedCluster,
-            scoped is null
-                ? []
-                : [.. scoped.Pair.Occurrences.Select(Project)],
+            Outcome(presentation.Status),
+            presentation.IsComplete,
+            [.. presentation.Clusters.Select(Project)],
+            presentation.SelectedCluster,
+            [.. presentation.CallSites.Select(Project)],
             diagnostics,
-            Failure: null);
+            presentation.Failure);
     }
 
     static BrowserDirectUseClusterInfo Project(
-        AssemblyPairDirectUseCluster cluster) =>
+        DirectUseClusterPresentation cluster) =>
         new(
             cluster.Ordinal,
-            Project(
-                cluster.Identity.Source,
-                cluster.Identity.SourceModuleVersionId),
-            Project(
-                cluster.Identity.Target,
-                cluster.Identity.TargetModuleVersionId),
-            cluster.Identity.AnchorSourceMethodToken,
-            cluster.Identity.AnchorTargetMethodToken,
-            cluster.SourceMethods.Length,
-            cluster.TargetTypes.Length,
-            cluster.TargetMethods.Length,
-            cluster.ExtensionMethodCount,
-            cluster.CallSiteCount);
+            Project(cluster.Source),
+            Project(cluster.Target),
+            cluster.AnchorSourceToken,
+            cluster.AnchorTargetToken,
+            cluster.SourceMembers,
+            cluster.ProviderTypes,
+            cluster.TargetMembers,
+            cluster.ExtensionMethods,
+            cluster.CallSites);
 
     static BrowserDirectUseCallSiteInfo Project(
-        AssemblyPairCallUseOccurrence occurrence) =>
+        DirectUseCallSitePresentation occurrence) =>
         new(
-            Project(occurrence.Source, occurrence.SourceModuleVersionId),
-            FormatMethod(occurrence.SourceMethod),
-            occurrence.SourceMethod.MetadataToken,
-            Project(occurrence.Target, occurrence.TargetModuleVersionId),
-            FormatMethod(occurrence.TargetMethod),
-            occurrence.TargetMethod.MetadataToken,
-            occurrence.Call.Kind switch
-            {
-                CallKind.Call => "call",
-                CallKind.CallVirtual => "callvirt",
-                CallKind.NewObject => "newobj",
-                _ => occurrence.Call.Kind.ToString(),
-            },
-            FormatMethod(occurrence.Call.EvidenceMethod),
-            occurrence.Call.EvidenceMethod.ModuleVersionId.ToString("D"),
-            occurrence.Call.EvidenceMethod.MetadataToken,
-            occurrence.Call.ILOffset);
+            Project(occurrence.Source),
+            occurrence.SourceMember,
+            occurrence.SourceToken,
+            Project(occurrence.Target),
+            occurrence.TargetMember,
+            occurrence.TargetToken,
+            occurrence.CallKind,
+            occurrence.EvidenceMethod,
+            occurrence.EvidenceModuleVersionId.ToString("D"),
+            occurrence.EvidenceToken,
+            occurrence.IlOffset);
 
     static BrowserDirectUseLibraryInfo Project(
-        AssemblyContextSubject subject,
-        Guid moduleVersionId) =>
+        DirectUseLibraryPresentation library) =>
         new(
-            subject.Identity.Name,
-            subject.Identity.Version?.ToString(),
-            subject.Identity.Culture,
-            subject.Identity.PublicKeyToken,
-            moduleVersionId.ToString("D"));
+            library.Name,
+            library.Version,
+            library.Culture,
+            library.PublicKeyToken,
+            library.ModuleVersionId.ToString("D"));
 
     static BrowserDirectUseDiagnosticInfo Project(
         InspectionDiagnostic diagnostic) =>
@@ -183,8 +131,13 @@ internal static class BrowserDirectUseClusterProjection
             diagnostic.Summary.ToString(),
             diagnostic.Correspondence?.ToString());
 
-    static string FormatMethod(MethodIdentity method) =>
-        $"{method.DeclaringType.ToQualifiedDisplayString()}.{method.Name}("
-            + $"{string.Join(", ", method.ParameterTypes.Select(
-                parameter => parameter.ToQualifiedDisplayString()))})";
+    static string Outcome(DirectUseClusterPresentationStatus status) =>
+        status switch
+        {
+            DirectUseClusterPresentationStatus.Available => "available",
+            DirectUseClusterPresentationStatus.ClusterNotFound =>
+                "cluster-not-found",
+            DirectUseClusterPresentationStatus.Rejected => "rejected",
+            _ => throw new ArgumentOutOfRangeException(nameof(status)),
+        };
 }
