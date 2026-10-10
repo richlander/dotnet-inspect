@@ -20801,6 +20801,17 @@ function synchronizePackageQueryDependencyDraft(request: QueryRequest) {
   };
 }
 
+function synchronizePackageQueryDependencyEditors(
+  previous: QueryRequest,
+  next: QueryRequest,
+) {
+  state.packageQueryState.termEdits = synchronizeDependencyTermEdits(
+    previous,
+    next,
+    state.packageQueryState.termEdits ?? []);
+  synchronizePackageQueryDependencyDraft(next);
+}
+
 function applyPackageQueryTerm(
   index: number | null,
   operator: string,
@@ -20851,12 +20862,10 @@ function applyPackageQueryTerm(
       ? withTerm(current, descriptor, operator, value)
       : replaceTerm(current, index, operator, value);
   }
-  if (descriptor.key === "depends") {
-    state.packageQueryState.termEdits = synchronizeDependencyTermEdits(
-      current,
-      request,
-      state.packageQueryState.termEdits ?? []);
-    synchronizePackageQueryDependencyDraft(request);
+  const changesDependencyContext = descriptor.key === "depends"
+    || descriptor.key === "dependency-target";
+  if (changesDependencyContext) {
+    synchronizePackageQueryDependencyEditors(current, request);
   }
   if (index === null) {
     state.packageQueryState.termDraft = null;
@@ -20870,18 +20879,20 @@ function applyPackageQueryTerm(
 
 function removePackageQueryTerm(index: number, text: string) {
   const current = preparePackageQueryControlRequest(text);
-  const dependency = current.terms[index]?.descriptor.key === "depends";
+  const termKey = current.terms[index]?.descriptor.key;
+  const dependency = termKey === "depends";
+  const changesDependencyContext = dependency
+    || termKey === "dependency-target";
   const request = dependency
     ? withoutDependencyTerm(current, index)
     : withoutTerm(current, index);
-  state.packageQueryState.termEdits = dependency
-    ? synchronizeDependencyTermEdits(
-        current,
-        request,
-        state.packageQueryState.termEdits ?? [])
-    : (state.packageQueryState.termEdits ?? []).filter(
+  if (changesDependencyContext) {
+    synchronizePackageQueryDependencyEditors(current, request);
+  } else {
+    state.packageQueryState.termEdits =
+      (state.packageQueryState.termEdits ?? []).filter(
         (_edit, termIndex) => termIndex !== index);
-  if (dependency) synchronizePackageQueryDependencyDraft(request);
+  }
   submitPackageQueryRequest(request);
 }
 

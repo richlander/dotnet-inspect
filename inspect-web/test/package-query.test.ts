@@ -497,6 +497,76 @@ test("pending dependency editors follow applied shared reach and target", () => 
       });
 });
 
+test("standalone target changes synchronize pending dependency editors", () => {
+  const previous = withTerm(
+    withTerm(
+      createQueryRequest("Contoso.*"),
+      DEPENDS_TERM,
+      "eq",
+      "Contoso.Applied"),
+    DEPENDENCY_TARGET_TERM,
+    "eq",
+    "net10.0");
+  const dependencyIndex = previous.terms.findIndex(
+    term => term.descriptor.key === "depends");
+  const targetIndex = previous.terms.findIndex(
+    term => term.descriptor.key === "dependency-target");
+  const edits = previous.terms.map((_term, index) =>
+    index === dependencyIndex
+      ? {
+          operator: "eq",
+          value: "Contoso.Applied.Edited",
+          dependencyReach: "direct" as const,
+          dependencyTarget: "net10.0",
+        }
+      : null);
+  const draft = {
+    operator: "eq",
+    value: "Contoso.Pending",
+    dependencyReach: "direct" as const,
+    dependencyTarget: "net10.0",
+  };
+  const changed = replaceTerm(previous, targetIndex, "eq", "net9.0");
+  const changedEdits = synchronizeDependencyTermEdits(
+    previous,
+    changed,
+    edits);
+  const changedEdit = changedEdits[dependencyIndex];
+
+  assert.deepEqual(changedEdit, {
+    operator: "eq",
+    value: "Contoso.Applied.Edited",
+    dependencyReach: "direct",
+    dependencyTarget: "net9.0",
+  });
+  assert.deepEqual(
+    synchronizeDependencyTermEditor(changed, draft),
+    {
+      ...draft,
+      dependencyTarget: "net9.0",
+    });
+
+  const changedTargetIndex = changed.terms.findIndex(
+    term => term.descriptor.key === "dependency-target");
+  const removed = withoutTerm(changed, changedTargetIndex);
+  const removedEdit = synchronizeDependencyTermEdits(
+    changed,
+    removed,
+    changedEdits,
+  )[removed.terms.findIndex(
+    term => term.descriptor.key === "depends")];
+
+  assert.deepEqual(removedEdit, {
+    operator: "eq",
+    value: "Contoso.Applied.Edited",
+    dependencyReach: "direct",
+    dependencyTarget: "net10.0",
+  });
+  assert.deepEqual(
+    synchronizeDependencyTermEditor(removed, draft),
+    draft);
+});
+
 test("Ecosystem requests preserve curated identity with 24 initial and 96 maximum matches", () => {
   const request = createEcosystemQueryRequest("ecosystem.aspire");
 

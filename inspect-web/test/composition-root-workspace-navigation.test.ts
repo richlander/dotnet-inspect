@@ -1394,10 +1394,10 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /function editPackageQueryTerm\([\s\S]*state\.packageQueryState\.termDraft = \{[\s\S]*operator,[\s\S]*value,[\s\S]*state\.packageQueryState\.termEdits = edits/);
   assert.match(
     appSource,
-    /function removePackageQueryTerm\([\s\S]*current\.terms\[index\]\?\.descriptor\.key === "depends"[\s\S]*withoutDependencyTerm\(current, index\)[\s\S]*withoutTerm\(current, index\)/);
+    /function removePackageQueryTerm\([\s\S]*const termKey = current\.terms\[index\]\?\.descriptor\.key;[\s\S]*const dependency = termKey === "depends";[\s\S]*withoutDependencyTerm\(current, index\)[\s\S]*withoutTerm\(current, index\)/);
   assert.match(
     appSource,
-    /function synchronizePackageQueryDependencyDraft\([\s\S]*synchronizeDependencyTermEditor\(request, draft\)[\s\S]*function applyPackageQueryTerm\([\s\S]*synchronizePackageQueryDependencyDraft\(request\)[\s\S]*function removePackageQueryTerm\([\s\S]*synchronizePackageQueryDependencyDraft\(request\)/);
+    /function synchronizePackageQueryDependencyDraft\([\s\S]*synchronizeDependencyTermEditor\(request, draft\)[\s\S]*function synchronizePackageQueryDependencyEditors\([\s\S]*synchronizeDependencyTermEdits\([\s\S]*synchronizePackageQueryDependencyDraft\(next\)[\s\S]*function applyPackageQueryTerm\([\s\S]*descriptor\.key === "dependency-target"[\s\S]*synchronizePackageQueryDependencyEditors\(current, request\)[\s\S]*function removePackageQueryTerm\([\s\S]*termKey === "dependency-target"[\s\S]*synchronizePackageQueryDependencyEditors\(current, request\)/);
   assert.doesNotMatch(
     appSource,
     /state\.packageQuerySourceCatalog/);
