@@ -520,10 +520,14 @@ source, semantic answers, and structured evidence. `-n` and `--rows` select thos
 rows before projection and Count. `--count` composes with `-n`: finding N
 ordered matches can witness exact `Head(N) -> Count` while candidate-bound
 incompleteness remains visible. Fewer than N matches at a reached candidate
-bound is not exact, and without `-n`, Count requires completion evidence for
-the candidate population. Partial failures block successful Count, empty
-exhausted success remains zero, and cancellation remains a failed operation
-rather than empty success.
+bound is not exact, and without `-n`, Count is exact only with completion
+evidence for the candidate population. Otherwise Count reports the observed
+matches with the same candidate-bound disclosure and exit status as the rows,
+under the section-row owner's
+[incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation).
+Partial failures that leave matches usable are incomplete in the same way;
+empty exhausted success remains exact zero, and cancellation remains a failed
+operation rather than empty success.
 
 The low-compatibility migration removes `--candidates` and `--matches`; they do
 not remain aliases or retirement shims. The shared query engine may retain its
@@ -1035,7 +1039,7 @@ contract.
 The command-wide implementation adds Release gates for direct-row Head
 pushdown, filtered match-stop behavior, all matches returned when `-n` is
 absent, sparse matches at the candidate bound, independent `--take`/`-n`
-variation, Count witness and Count-insufficient cases, mode-neutral
+variation, Count witness and observed incomplete Count cases, mode-neutral
 `--take`/`-n`, package-content's 20-candidate boundary, and output-format
 parity.
 `NoMatchBudget_AllCandidatesMatchingPreservesTerminalCompletion` must exercise

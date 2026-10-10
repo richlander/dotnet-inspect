@@ -64,7 +64,11 @@ facts for every participating set. Rows execute residual shaping only for
 usable sets and preserve source-only companions. Count consumes accepted exact
 cardinalities without Rows, executes residual shaping only for sufficient row
 handoffs, and returns every source outcome without entering a residual cohort
-when any set is insufficient. Exact zero remains a first-class result.
+when any set is insufficient. Exact zero remains a first-class result. That
+path predates the section-row owner's
+[incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation): it
+still refuses Count for an incomplete Rows-usable set instead of reporting its
+observed cardinality.
 
 The immutable request-set reference planner now validates the complete set
 before acquisition, retains caller association and owner resource identities,
@@ -831,10 +835,12 @@ snapshot and uses the reference interpreter; it cannot consume a
 cardinality-only declaration.
 
 Count publication is all-or-failure across the participating sets. A failed,
-`Absent`, or Count-insufficient source outcome prevents every Count entry,
+`Absent`, or Rows-unavailable source outcome prevents every Count entry,
 preserves every participating set's disposition and completion evidence in one
 typed source failure, carries no row values or Count payload, and invokes no
-residual row-query or semantic execution. If residual execution begins, a
+residual row-query or semantic execution. An incomplete Rows-usable set enters
+residual execution and contributes its observed cardinality with its
+incompleteness evidence, as Rows would render it. If residual execution begins, a
 later row-query or semantic failure likewise publishes no partial Count.
 Already-reached owner-defined observations remain governed by the section-row
 failure-precedence contract.
@@ -1062,10 +1068,14 @@ The eventual implementation and adopter gates must preserve these cases:
 - Two participating row sets contain three and five selected rows. Count
   returns ordered entries `(first, 3)` and `(second, 5)` rather than an invented
   total of eight.
-- Two participating row sets are requested for Count, but one is
-  Count-insufficient. The result preserves both source dispositions and
-  completion evidence, executes no residual shaping, and publishes no Count
-  entries for either set.
+- Two participating row sets are requested for Count, but one source failed.
+  The result preserves both source dispositions and completion evidence,
+  executes no residual shaping, and publishes no Count entries for either set.
+- Two participating row sets are requested for Count. The first is complete
+  with three selected rows; the second stopped at a work bound after four
+  usable rows. Count returns `(first, 3)` as exact and `(second, 4)` as
+  observed, with the second set's incompleteness evidence, matching the rows
+  Rows would render.
 - A route declares no row sets. It may expose its operation capabilities but
   cannot form a terminal query space or advertise Rows or Count.
 - A Rows request receives one incomplete-but-usable set and one failed set. It
@@ -1144,7 +1154,7 @@ slices:
 | `QuerySpaceRequestLowersToExplicitRowAssociations` | One operation intent and zero or more ordered row-intent associations lower deterministically; the operation intent rejects order and semantic stages, row intents reject execution bounds, every participating set is assigned exactly once, one shared association targets only compatible sets, heterogeneous or independently shaped sets remain separate, ambiguous unqualified order or selection fails before execution, and selection executes exactly once after row predicates. |
 | `EffectiveQuerySpaceIdentitiesRemainScoped` | Handwritten and generated registration reject duplicate canonical term keys across the query space; each portable intent resolves inside one operation or row query vocabulary; same-named owner-local families and predicates remain isolated across scopes, while distinct keys within one scope preserve their shared combining, exclusive, required-family, and duplicate-binding behavior. |
 | `OperationAndRowFacetStagesRemainDistinct` | An operation facet may authorize work; a row facet cannot, and identical display spelling never changes the bound stage. |
-| `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `SelectedRowSetListIsNonEmpty`, `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, `RowsPreserveIndependentSourceOutcomes`, `IncompleteRowsRemainVisibleWithoutBecomingCount`, `CrossCohortRowsAreAtomicOnExecutionFailure`, `CountObservesPrecedingSemanticStages`, `CountPreservesDeclaredRowSetScope`, `CountFailurePrecedenceIsDeterministic`, and `CountSourceFailureBindingPreservesOutcomes`; terminal resolution requires a participating row set, Rows preserves independent source evidence but publishes no partial execution result, and Count preserves its owner-issued success and all-or-failure branches. `CountCapturesCardinalityWhileRowsCaptureValues` verifies the terminal-specific snapshot boundary and caller-mutation isolation for the Graph Libraries adopter. |
+| `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `SelectedRowSetListIsNonEmpty`, `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, `RowsPreserveIndependentSourceOutcomes`, `IncompleteRowsAndCountReportOneObservation`, `CrossCohortRowsAreAtomicOnExecutionFailure`, `CountObservesPrecedingSemanticStages`, `CountPreservesDeclaredRowSetScope`, `CountFailurePrecedenceIsDeterministic`, and `CountSourceFailureBindingPreservesOutcomes`; terminal resolution requires a participating row set, Rows preserves independent source evidence but publishes no partial execution result, and Count preserves its owner-issued success and all-or-failure branches. `CountCapturesCardinalityWhileRowsCaptureValues` verifies the terminal-specific snapshot boundary and caller-mutation isolation for the Graph Libraries adopter. |
 | `QuerySpacePreservesExistsClosing` | The unsafe-evidence descriptor advertises only Exists, its owner-issued request retains the method-definition row set and result contract, and request resolution lowers that closing to the Producer Planning Exists terminal before image acquisition. The production borrowed-context gate verifies successful early-stop execution publishes the corresponding producer receipt without prefetched image access; the incomplete-before-evidence gate verifies a failed execution preserves its typed producer outcome and receipt while pre-execution failures remain distinct. |
 | `RequestSetRejectsInvalidAssociationsWithoutWork` | Duplicate association identities, absent resource identities, unresolved requests, source bindings inconsistent with their resource associations, and result-contract mismatches reject the complete set before acquisition. |
 | `CollapsePreservesIndependentReferenceResults` | Source-native, shared-read, singleton, and deliberately unshared plans publish the same per-request values, outcomes, failure units, completion, and evidence as independent reference executions. |

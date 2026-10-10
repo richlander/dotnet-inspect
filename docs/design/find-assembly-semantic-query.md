@@ -568,8 +568,9 @@ The implementation must name Release gates for:
 - distinct match, semantic miss, not-applicable, acquisition failure,
   evaluation failure, and cleanup failure outcomes;
 - occurrence ordering and `-n` selection after complete candidate evaluation;
-- Count success for a complete bounded population and refusal for incomplete
-  source or candidate evaluation;
+- exact Count for a complete bounded population, and observed Count with the
+  same incompleteness disclosure as the rows for incomplete source or
+  candidate evaluation;
 - cancellation before acquisition, between bounded evaluations, and after
   producer completion and candidate cleanup without normal completion;
 - resource-free public result closure;
