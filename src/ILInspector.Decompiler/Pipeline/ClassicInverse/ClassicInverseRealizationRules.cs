@@ -396,6 +396,9 @@ internal static class ClassicInverseRealizationRules
                     context.Shell.Machine):
                 return MatchMachineRead(load.Field, output, context, out failure);
 
+            case LoadLocal receiver when context.Shell.ReceiverAliases.TryField(receiver, out FieldRef field):
+                return MatchMachineRead(field, output, context, out failure);
+
             case LoadLocal local:
             {
                 if (context.Candidate.LocalValueRealizations.TryGetValue(

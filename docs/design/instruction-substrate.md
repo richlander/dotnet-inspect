@@ -96,6 +96,15 @@ dependency direction and the assembly owner.
   callback; extending the frontier or resolving new detail checks that owner
   before touching the retained image. Already retained shallow values remain
   usable without the image.
+  A resolved-detail sequence is a separately selected physical mode for a
+  `SelectiveOperands` execution group. Advancing its shared frontier decodes
+  and caches each full instruction once while exposing the same shallow
+  `InstructionEntry` currency to cursors. Its explicit `Materialize` operation
+  is the only completion boundary: it scans and validates the unreached suffix,
+  correlates the retained IL byte-for-byte with Metadata-issued
+  `MethodBodyData`, and constructs canonical `MethodInstructions` without
+  replaying instruction decode. Ordinary shallow sequences retain no full
+  detail and gain no count or implicit completion behavior.
 - **Layer 1 — interpretation (per-consumer, opt-in, not shared).** Reaching-defs
   (Analysis), ownership-flow summaries over reaching-defs (Analysis),
   allocation/loop facts (Analysis), the decompiler's symbolic IR stack, and the
