@@ -551,7 +551,7 @@ test("the narrow return control integrates with Metadata and Source frames", asy
   await expect(page.locator(".detail-pane"))
     .toHaveClass(/content-navigation-integrated/);
   await expect(page.locator(".package-dependencies-surface-head h1"))
-    .toHaveText("Dependencies");
+    .toHaveText("References");
   await expect(page.locator(
     ".package-dependencies-controls #package-version")).toHaveCount(0);
   await expect(page.locator(
@@ -590,7 +590,7 @@ test("the narrow return control integrates with Metadata and Source frames", asy
   await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
 });
 
-test("Package Dependencies reveals a direct dependency row at ordinary desktop height", async ({
+test("Package References reveals a direct dependency row at ordinary desktop height", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 768 });
