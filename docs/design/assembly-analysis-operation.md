@@ -342,10 +342,10 @@ naked token is never a cross-module identity.
 
 | Producer | Fact and result | Support |
 | --- | --- | --- |
-| Exact-target declaration | For an admitted MethodDef, its identity, signature, and body presence. Combined with source admission, it distinguishes an invalid token from a bodiless method and replaces the `callGraph.DeclaredMethods` read. | Declaration layer only. |
+| Exact-target declaration | For an admitted MethodDef, its detached identity, signature, and body presence. Combined with source admission, it distinguishes an invalid token from a bodiless method and replaces the `callGraph.DeclaredMethods` read. | Declaration and Identity layers. Identity is charged through the source gate's bounded identity decoder. |
 | Selected-method safety | Declaration, local, and instruction safety for the selected method: its non-call `UnsafeEvidence` and `UnsafetyOccurrence` values. Bodiless methods retain declaration evidence and have no body evidence. | Declaration, Instructions, and Calls layers for the selected method only. |
 | Direct calls | The method's call sites with the #8945 identity tiers (Count; exact declaring Type; exact Type.Member.Overload; full signature), consuming the one physical `EvidenceMethod`. | Calls layer, plus `ReferenceBinding` when a tier needs cross-assembly identity. |
-| Call safety | The unsafe mode of each same-image target the selected method calls, plus the normalized unsafe-call evidence. Cross-assembly callees keep the legacy outcome, an unset unsafe mode; resolving external contracts is a later, separately gated behavior change. | Direct MethodDef targets use exact declaration lookup. A same-image `MemberRef` alias uses `SameImageCallTargetLookup`, below. No target body is acquired. |
+| Call safety | The unsafe mode of each same-image target the selected method calls, plus the normalized unsafe-call evidence. Cross-assembly callees keep the legacy outcome, an unset unsafe mode; resolving external contracts is a later, separately gated behavior change. | `SameImageCallTargetLookup`, below. No target body is acquired. |
 
 The declarations publish one host-neutral focused result containing the token
 outcome, method identity, direct calls, unsafety occurrences, unsafe evidence,
@@ -354,15 +354,29 @@ its declared dependency, replaces only unsafe-call evidence, and combines that
 with the selected-method producer's non-call evidence. It never reconstructs a
 whole-assembly call-resolution map.
 
-`SameImageCallTargetLookup` is execution-scoped Method-source support. A direct
-MethodDef operand needs no index. When a canonical same-image `MemberRef`
-names a module or assembly alias instead, the lookup lazily builds one bounded
-type-name correspondence index over the TypeDef table, then examines only the
-matched TypeDef's method range for signature correspondence. Construction is
-shared across named targets and charges every TypeDef row, candidate MethodDef
-row, and decoded correspondence byte to the source receipt. Ambiguous,
-malformed, or budget-exhausted correspondence retains the existing visible
-failure; it never becomes an unset mode or successful empty result.
+`SameImageCallTargetLookup` is execution-scoped Method-source support. It
+preserves every current-module operand shape admitted by the existing
+resolver:
+
+- a MethodSpec first peels to its underlying MethodDef or `MemberRef`, then
+  follows the matching path below;
+- a MethodDef operand reads that exact declaration;
+- a `MemberRef` parented by a MethodDef reads that exact declaration, preserving
+  its vararg call-site signature;
+- a `MemberRef` parented by a TypeDef starts from that exact type and examines
+  its method range;
+- a `MemberRef` parented by a constructed TypeSpec decodes the generic
+  definition, verifies constructed arity, and resolves the target method; and
+- a local TypeRef, including a module or assembly alias authenticated as the
+  current image, uses type-name correspondence.
+
+Only the final two paths lazily build the bounded type-name index over the
+TypeDef table; all type-based paths examine only the matched TypeDef's method
+range for signature correspondence. Construction is shared across named
+targets and charges every TypeDef row, candidate MethodDef row, and decoded
+correspondence byte to the source receipt. Ambiguous, malformed, or
+budget-exhausted correspondence retains the existing visible failure; it never
+becomes an unset mode or successful empty result.
 
 **Body acquisition.** Producers read the body from the source's packet; none
 calls `GetMethodBody`, `RequireMethodBody`, or `MethodBodySource.Read`. A
@@ -520,14 +534,18 @@ these gates:
 
 - `ExactMember_DeclarationDistinguishesInvalidFromBodilessToken` asserts the
   typed outcome for a valid body, a bodiless method, and an invalid token, and
-  proves that invalid-target admission examines no MethodDef row;
+  proves that invalid-target admission examines no MethodDef row. For valid
+  targets it compares the published detached identity with legacy and asserts
+  Identity-layer participation and bounded identity work;
 - `ExactMember_SelectedMethodSafetyMatchesLegacy` covers declaration evidence,
   pointer and pinned locals, indirect operations, and non-call unsafe evidence,
   and proves that only the selected body is acquired;
 - `ExactMember_CallSafetyResolvesOnlyNamedCallees` asserts that a selected
-  caller with an unsafe callee outside the selection reports the legacy
-  safety result for direct MethodDef, module-alias, and assembly-alias targets.
-  The receipt shows the lazy TypeDef-index construction, only the matched
+  caller with an unsafe callee outside the selection reports the legacy safety
+  result for a MethodDef/MethodSpec target and `MemberRef` parents of MethodDef,
+  TypeDef, constructed TypeSpec, local TypeRef, module-alias TypeRef, and
+  assembly-alias TypeRef. The receipt shows which paths avoid the TypeDef
+  index, lazy index construction for correspondence paths, only the matched
   TypeDef's MethodDef range, zero target-body acquisitions, and an unset mode
   for a cross-assembly callee exactly as legacy does;
 - `ExactMember_AccountsForSelectedAndCorrespondenceWork` counts every
