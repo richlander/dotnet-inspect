@@ -510,8 +510,12 @@ evaluation before its match status is known. The manifest-only default remains
 200 candidates and an explicit value may raise it to 1,000. Package-content
 queries default to and reject values above 20; a `metadata-expensive`
 `library-literal` query instead defaults to and rejects values above five.
-Reaching either default or explicit candidate bound remains visible bounded
-incompleteness; the integer is not a matched-row count.
+Reaching a default candidate bound is visible bounded incompleteness. An
+explicit `--take` instead fixes the requested candidate population: when every
+candidate in it was evaluated without failure, its matches are the complete
+answer for that population, and the result names the bound as its scope rather
+than warning that the package-ID scope was not exhausted. Neither integer is a
+matched-row count.
 
 `-n` is semantic Head over final matched-package rows. When no explicit
 `--take` is present and the row plan is one Head operation, the CLI pushes that
@@ -550,12 +554,13 @@ as aliases; `find PATTERN --package-prefix PREFIX` remains API search.
 One semantic result row is one matched package, carrying its exact version,
 source, semantic answers, and structured evidence. `-n` and `--rows` select those
 rows before projection and Count. `--count` composes with `-n`: finding N
-ordered matches can witness exact `Head(N) -> Count` while candidate-bound
-incompleteness remains visible. Fewer than N matches at a reached candidate
-bound is not exact, and without `-n`, Count is exact only with completion
-evidence for the candidate population. Otherwise Count reports the observed
-matches with the same candidate-bound disclosure and exit status as the rows,
-under the section-row owner's
+ordered matches can witness exact `Head(N) -> Count`. Otherwise Count is exact
+only with completion evidence for the requested candidate population: an
+exhausted search, or an explicit `--take` population whose every candidate was
+evaluated without failure. Fewer matches at a default candidate bound, a page
+limit, or a failure are not exact; Count then reports the observed matches
+with the same disclosure and exit status as the rows, under the section-row
+owner's
 [incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation).
 Partial failures that leave matches usable are incomplete in the same way;
 empty exhausted success remains exact zero, and cancellation remains a failed
@@ -1040,9 +1045,10 @@ order:
 - **Nuspec-tier `--where`** evaluates every candidate admitted by `--take` or
   the default candidate ceiling, then `-n` selects matched-package rows. For
   example, `--take 500 -n 20` means "inspect at most 500 candidates, then keep
-  the first 20 matches," not "inspect 20 candidates." If only seven match
-  before the candidate bound is reached, the command returns seven and
-  preserves bounded incompleteness.
+  the first 20 matches," not "inspect 20 candidates." If only seven of those
+  500 candidates match, the command returns seven as the complete answer for
+  that population; at a default candidate ceiling, the seven remain an
+  observed result with bounded incompleteness.
 - **`library-literal` with ordinary terms** admits at most five candidates,
   evaluates ordinary terms first, and runs selected-library semantic work only
   for those prequalified matches. Semantic `-n` then selects final package

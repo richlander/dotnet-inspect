@@ -61,6 +61,13 @@ The 2026-09-16 decision in #7229 makes Type/Member History Count answer
 cohort and its evidence requirements. Package version-population counts and
 future Package History version-row counts remain distinct.
 
+The 2026-10-10 decision in
+[#9892](https://github.com/richlander/dotnet-inspect/issues/9892) makes sparse
+History uncountable: Changed Versions compares each version with its immediate
+predecessor, which only a full-population evaluation can answer.
+[Subject-specific History Count](#subject-specific-history-count) owns the
+admission rule.
+
 The subsequent decision in
 [#7315](https://github.com/richlander/dotnet-inspect/issues/7315) locks the
 exact-Member Analysis source receipt consumed by bounded cell-pair execution.
@@ -165,7 +172,8 @@ before acquisition.
 Count reduces the selected operation's declared cohort. Endpoint Diff counts
 its comparison rows; Type/Member History uses
 [changed-version rows](#subject-specific-history-count), not arbitrary
-evaluation or Finding rows. A range in `--rows` filters the admitted cohort
+evaluation or Finding rows, and admits Count only under a full-population
+evaluation policy. A range in `--rows` filters the admitted cohort
 and needs no additional consumer. A source range outside an admitted command
 or mode still has no consumer; projection options cannot supply one.
 
@@ -613,8 +621,8 @@ The terminal outcome distinguishes:
 These outcomes summarize established knowledge without replacing native
 evaluations, correlations, transitions, failures, or coverage. Budget
 exhaustion is not successful full History. Equal adaptive endpoints answer the
-ordinary migration question but are not whole-population unchanged evidence
-and cannot satisfy exact changed-version Count.
+ordinary migration question but are not whole-population unchanged evidence;
+adaptive History does not admit changed-version Count.
 
 When adaptive bisection reaches adjacent changed pairs, optional next actions
 are typed pairwise Diff requests in caller-directed population order. Each
@@ -724,7 +732,9 @@ Changed Versions cohort incomplete. Count then reports the changed versions
 that Changed Versions rows would render from the same evidence, as an observed
 count with that incompleteness evidence. History with fewer than two evaluated
 versions does not establish an unchanged History; its Count is an observed
-zero, not exact zero.
+zero, not exact zero. Because a sparse selection cannot answer the counted unit
+by design, Count is admitted only when every version is selected for
+evaluation; see below.
 
 Admitted row selection applies to the Changed Versions cohort before Count.
 Exactness remains relative to that logical request under the existing Count
@@ -736,25 +746,32 @@ carries the observed cardinality with its completion evidence, never an exact
 scalar or count table, and discloses it as Changed Versions rows would. The
 CLI writes the observed count with a `diff-history.count-incomplete` warning
 and takes the same exit status as the Changed Versions rows: nonzero when a
-requested evaluation failed, and zero for deliberately sparse History.
+requested evaluation failed.
 Preserve independently available History transitions and coverage in the
 sibling Document; requested evaluation failures retain their existing nonzero
 behavior.
 
-`--history --count` uses History's default full evaluation unless `--at`
-restricts it or `--max-probes` selects adaptive evaluation. Count never
-broadens an explicit checkpoint selection; an insufficient sample fails rather
-than inspecting more versions. Equal first and last endpoints are insufficient:
-a change followed by a reversion contributes two changed destination versions.
-Inferred bounds preserve this same count meaning; supplying three checkpoints
-does not turn a longer population into a three-version population.
+`--history --count` is admitted only when the evaluation policy selects every
+version in the population: the default full evaluation, `--at all`, or
+`--sample-percent 100`. Explicit checkpoints, a survey below 100 percent,
+`--major-versions`, and `--max-probes` sample the population, so they cannot
+establish which destination versions changed from their immediate
+predecessors. Combining any of them with `--count` is rejected before
+population discovery or acquisition, and the rejection names the
+full-population alternatives. This is request admission under the section-row
+owner's [incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation),
+not a refusal over incomplete evidence. A sparse History still returns its
+rows and Document without Count.
 
-`--history --max-probes N --count` similarly retains adaptive evaluation and
-does not spend additional probes merely to establish Count. Its Count is
-exact only when the resulting evidence independently establishes every
-changed-version membership required by the selected Count rows; otherwise the
-Count component reports the observed cardinality with its incompleteness
-evidence beside the usable investigation Document.
+This follows `git bisect`, which reports a changed boundary or the range that
+could contain it and never a count of changed commits, while `git log A..B`
+counts exactly because every commit is available. Adaptive bisection and
+checkpoint selection likewise answer where changes occur; their transitions,
+adjacent boundaries, and typed investigation outcome remain that answer.
+
+Count never broadens an evaluation. Equal first and last endpoints do not
+establish an unchanged History: a change followed by a reversion contributes
+two changed destination versions.
 
 These illustrative sequences describe the contract, not measured package data:
 
@@ -762,7 +779,7 @@ These illustrative sequences describe the contract, not measured package data:
 | --- | --- |
 | `A -> A -> A`, every adjacent comparison established | `0` |
 | `A -> B -> A`, every adjacent comparison established | `2`, even when the middle version has many changed detail rows |
-| Only first and last evaluated in `A -> ? -> A` | Observed `0`, incomplete; the gap may contain a change and reversion |
+| Only first and last selected in `A -> ? -> A` | Count rejected before evaluation; sparse History is not countable |
 | `A -> failed -> B` | Observed count of the established changes, incomplete; preserve the usable evaluations and failure |
 | Only one version evaluated | Observed `0`, incomplete; no established transition evidence |
 
@@ -781,8 +798,9 @@ evaluations retain their evidence beside usable points. Unselected points are
 not failures. The CLI returns nonzero for a failed requested evaluation,
 unfulfilled work bound, or invalid/unavailable request, while preserving any
 usable document output; deliberate sparse work may succeed.
-Such a History result does not imply an exact change count: a Count request
-over it reports an observed count under the incompleteness rule above.
+Such a History result does not imply a change count: sparse policies do not
+admit Count, and a Count request over a full evaluation with failures reports
+an observed count under the incompleteness rule above.
 
 The existing [inspection envelope](inspection-envelope.md) owns Share and
 diagnostics. Until its Share owner can faithfully represent this range,
@@ -1070,9 +1088,13 @@ The implementation slices must supply Release gates for:
 - Type/Member changed-version counts for unchanged adjacent versions, several
   changed details in one version, multiple changed versions, and a change
   followed by reversion;
-- incomplete single-evaluation, sparse-gap, and failed evaluation cases
-  reporting an observed Count with their incompleteness evidence, retaining
-  useful independent History evidence;
+- incomplete single-evaluation and failed evaluation cases reporting an
+  observed Count with their incompleteness evidence, retaining useful
+  independent History evidence;
+- `--count` with explicit checkpoints other than `--at all`, a survey below
+  100 percent, `--major-versions`, or `--max-probes` rejected before
+  population discovery or acquisition, naming the full-population
+  alternatives, while `--at all` and `--sample-percent 100` admit Count;
 - Changed Versions section/default binding, incompatible Count cohort
   rejection before acquisition, and row shaping without predecessor rebasing
   or silently skipping unknown earlier membership;
@@ -1097,7 +1119,7 @@ The implementation slices must supply Release gates for:
   with no Timeline-specific semantic Document, category, compatibility alias,
   or Browser route.
 - `diff --history --sample-percent`, including absolute-cap composition,
-  complete envelope transport, and sparse Count insufficiency without a
+  complete envelope transport, and sparse Count rejection without a
   survey-specific result model.
 
 These new gates are **unverified** in this design-only slice. Deterministic

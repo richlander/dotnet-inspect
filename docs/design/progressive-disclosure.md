@@ -620,9 +620,12 @@ dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 11..20
   request; a provider, work, page, time, or memory cap is not semantic
   selection and never becomes a corpus total. Under incomplete evidence, Rows
   and Count both report what was observed, with the same disclosure and exit
-  status. `package query`'s candidate `--take` remains non-semantic, so a
-  reached candidate bound yields an observed match count, not the work
-  ceiling; an explicit `-n 20` is semantic `Head(20)`. Without explicit
+  status. `package query`'s candidate `--take` remains non-semantic: it fixes
+  the requested candidate population rather than selecting rows. A reached
+  explicit `--take` yields the matches within that population, exact when
+  every candidate in it completed and never a total for the wider scope; a
+  reached default ceiling yields an observed match count. Neither is the work
+  ceiling. An explicit `-n 20` is semantic `Head(20)`. Without explicit
   `--take`, Package Query may push a lone Head into direct candidate or
   filtered match execution; reaching that derived Head is complete for the
   selected rows rather than a candidate truncation.

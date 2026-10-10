@@ -75,12 +75,15 @@ The initial CLI admits exactly one source, so this is an ordinal path order.
 `--take` authorizes Metadata evaluation for at most that many candidates. The
 default is 256 and the maximum is 4,096. The complete population size remains
 known after assembly-set formation, so reaching the bound is reported
-explicitly.
+explicitly. An explicit `--take` fixes the requested candidate population, so
+reaching it is the scope of the answer; reaching the default leaves the
+population incomplete.
 
 `-n`, `--head`, `--tail`, and `--rows` run only after matching Library rows
 have been produced. They do not shorten candidate evaluation. Count is exact
-only when candidate evaluation is complete or the selected closed row window
-is already satisfied by observed rows.
+only when candidate evaluation is complete for the request, including an
+explicit `--take` population whose every candidate was evaluated, or the
+selected closed row window is already satisfied by observed rows.
 
 ## Result and evidence
 
@@ -107,7 +110,7 @@ Count follow the existing output-shape rules.
 
 Completion records independent incomplete reasons:
 
-- the candidate bound omitted known population members;
+- the default candidate bound omitted known population members;
 - population formation produced diagnostics; or
 - one or more admitted candidates could not be evaluated authoritatively.
 
@@ -123,8 +126,9 @@ reads remain visible failures. They never become nonmatches.
 - when no reference predicate was requested, incomplete reference rows do not
   invalidate the Library inventory result.
 
-An explicit candidate bound may produce successful partial output and a
-completion warning. Population or evaluation failures produce a nonzero exit.
+A default candidate bound may produce successful partial output and a
+completion warning; a reached explicit `--take` is the requested scope, not a
+partial result. Population or evaluation failures produce a nonzero exit.
 `--count` counts the rows Rows would render from the same evaluation, with the
 same completion warning and exit status, under the section-row owner's
 [incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation).

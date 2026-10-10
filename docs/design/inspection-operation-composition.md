@@ -43,7 +43,7 @@ rather than another producer of the same semantic plan.
 | Typed producer definitions, costs, execution, and results | [Inspection Space](../inspection-space.md) and each focused query | Supplies L1 query plans and resource-free outcomes |
 | Section identity, applicability, declared rows, and shaping | [Section Model](section-model.md), [Section Pipeline](section-pipeline.md), and [Section-row shaping](section-row-shaping.md) | Supplies L2 plans and results |
 | Head, Tail, Window, and Top meaning | [Semantic row selection](semantic-row-selection.md) | Supplies the renderer-independent row language |
-| Explicit incomplete-work authorization | Each operation owner, with CLI lowering from [CLI execution bounds](cli-execution-bounds.md) | Supplies work-bound plans and completion evidence |
+| Explicit work bounds | Each operation owner, with CLI lowering from [CLI execution bounds](cli-execution-bounds.md) | Supplies work-bound plans and completion evidence |
 | Content purpose and required share projection | [Inspection Plan Projections](inspection-plan-projections.md) | Supplies the closed content-purpose model and share companion |
 | Portable scenario records | [Workspace Definitions](workspace-definitions.md) | Supplies share projection and restoration |
 | CLI parsing and output | [CLI Host Architecture](../cli-architecture.md) | Supplies argv lowering, ephemeral lifetime policy, diagnostics, and rendering |
