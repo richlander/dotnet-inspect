@@ -1723,6 +1723,16 @@ uses current discovery and teaches local joins and completeness-aware filtering.
 These diagnostic trials do not establish that every query owner's registration
 is complete or authorize removal of the remaining domain guidance.
 
+The subsequent [landed reading trials](../../tools/ExplainReadingScenarios/usability/landed/README.md)
+use fresh participants with the same tasks and assigned direct/HAL formats,
+first with the current shipped skills and then with a 2,851-byte experimental
+reading guide. Both formats supplied correct query preparation; sparse style
+sets supported local tier joins. Repeated embedded-resource fetches and
+discovery friction remained. Retained requests, replayable jq views, and
+byte/hash receipts distinguish retrieval from rendered content. This
+diagnostic sample supports a focused reading-guide/discovery experiment, not
+a general format ranking or retirement of the broader skill.
+
 ## Demo scenario
 
 `System.Text.Json@10.0.0` motivates the complete production flow:

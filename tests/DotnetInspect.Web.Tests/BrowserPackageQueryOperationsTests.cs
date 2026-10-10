@@ -511,7 +511,12 @@ public sealed class BrowserPackageQueryOperationsTests
         var expectedPresets = PackageQuery.RegisteredTerms
             .Where(term =>
                 term.Descriptor.Role
-                    == PackageQueryTermRole.Inspection)
+                    == PackageQueryTermRole.Inspection
+                && term.Descriptor.ControlKind
+                    is PackageQueryTermControlKind.Toggle
+                        or PackageQueryTermControlKind.Choice
+                && term.Descriptor.Key
+                    != PackageQuery.ToolFormatTermKey)
             .SelectMany(term =>
                 term.Descriptor.Options.Select(option =>
                     (term, option)))
@@ -539,6 +544,9 @@ public sealed class BrowserPackageQueryOperationsTests
             Assert.Equal(term.ReplacementGroupId, actual.ReplacementGroupId);
             Assert.Equal(term.DisplayGroupId, actual.DisplayGroupId);
             Assert.Equal(term.DisplayGroupLabel, actual.DisplayGroupLabel);
+            Assert.False(string.IsNullOrWhiteSpace(actual.CategoryId));
+            Assert.False(string.IsNullOrWhiteSpace(actual.CategoryLabel));
+            Assert.True(actual.CategoryOrder > 0);
             Assert.Equal(
                 BrowserTier(term.Tier),
                 actual.Tier);
@@ -552,9 +560,11 @@ public sealed class BrowserPackageQueryOperationsTests
             .. PackageQuery.RegisteredTerms.Where(term =>
                 term.Descriptor.Role
                     == PackageQueryTermRole.Inspection
-                && term.Descriptor.ControlKind
-                    is PackageQueryTermControlKind.Input
-                        or PackageQueryTermControlKind.MultilineInput),
+                && (term.Descriptor.ControlKind
+                        is PackageQueryTermControlKind.Input
+                            or PackageQueryTermControlKind.MultilineInput
+                    || term.Descriptor.Key
+                        == PackageQuery.ToolFormatTermKey)),
         ];
         Assert.Equal(expectedTerms.Length, catalog.Terms.Length);
         for (int index = 0; index < expectedTerms.Length; index++)
@@ -581,7 +591,47 @@ public sealed class BrowserPackageQueryOperationsTests
                 expected.ControlKind
                     == PackageQueryTermControlKind.MultilineInput,
                 actual.Multiline);
+            Assert.Equal(
+                expected.ReplacementGroupId,
+                actual.ReplacementGroupId);
+            Assert.Equal(
+                (expected.ControlKind
+                    is PackageQueryTermControlKind.Input
+                        or PackageQueryTermControlKind.MultilineInput)
+                    && expected.Key != PackageQuery.DependsEcosystemTermKey,
+                actual.AllowsCustomValue);
+            if (expected.Key == PackageQuery.ToolFormatTermKey)
+            {
+                Assert.Equal(
+                    ["v1", "v2"],
+                    actual.Options.Select(option => option.Value));
+            }
         }
+    }
+
+    [Fact]
+    public void Catalog_SeparatesToolFactFromDotnetCliToolValueQuery()
+    {
+        BrowserPackageQueryCatalog catalog =
+            BrowserPackageQueryOperations.Catalog();
+
+        Assert.Contains(
+            catalog.Presets,
+            preset => preset.Key == PackageQuery.ToolTermKey
+                && preset.Label == ".NET Tool");
+        Assert.DoesNotContain(
+            catalog.Presets,
+            preset => preset.Key == PackageQuery.ToolFormatTermKey);
+
+        BrowserPackageQueryTermDescriptor term = Assert.Single(
+            catalog.Terms,
+            term => term.Key == PackageQuery.ToolFormatTermKey);
+        Assert.Equal("DotnetCliTool", term.Label);
+        Assert.False(term.AllowsCustomValue);
+        Assert.Equal(
+            PackageQuery.ToolReplacementGroupId,
+            term.ReplacementGroupId);
+        Assert.Equal(["v1", "v2"], term.Options.Select(option => option.Value));
     }
 
     [Fact]

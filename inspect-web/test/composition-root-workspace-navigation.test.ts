@@ -1397,13 +1397,13 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /function removePackageQueryTerm\([\s\S]*const termKey = current\.terms\[index\]\?\.descriptor\.key;[\s\S]*const dependency = termKey === "depends";[\s\S]*withoutDependencyTerm\(current, index\)[\s\S]*withoutTerm\(current, index\)/);
   assert.match(
     appSource,
-    /function synchronizePackageQueryDependencyDraft\([\s\S]*synchronizeDependencyTermEditor\(request, draft\)[\s\S]*function synchronizePackageQueryDependencyEditors\([\s\S]*synchronizeDependencyTermEdits\([\s\S]*synchronizePackageQueryDependencyDraft\(next\)[\s\S]*function applyPackageQueryTerm\([\s\S]*descriptor\.key === "dependency-target"[\s\S]*synchronizePackageQueryDependencyEditors\(current, request\)[\s\S]*function removePackageQueryTerm\([\s\S]*termKey === "dependency-target"[\s\S]*synchronizePackageQueryDependencyEditors\(current, request\)/);
+    /function synchronizePackageQueryDependencyDraft\(\s*previous: QueryRequest,\s*next: QueryRequest,[\s\S]*synchronizeDependencyTermEditor\(previous, next, draft\)[\s\S]*function synchronizePackageQueryTermEditors\([\s\S]*synchronizeTermEdits\([\s\S]*synchronizePackageQueryDependencyDraft\(previous, next\)[\s\S]*function applyPackageQueryTerm\([\s\S]*descriptor\.key === "dependency-target"[\s\S]*synchronizePackageQueryTermEditors\(current, request\)[\s\S]*function removePackageQueryTerm\([\s\S]*termKey === "dependency-target"[\s\S]*synchronizePackageQueryTermEditors\(current, request\)/);
   assert.match(
     appSource,
-    /function togglePackageQueryPreset\([\s\S]*preset\.key === "dependencies"[\s\S]*preset\.key === "dependency-depth"[\s\S]*synchronizePackageQueryDependencyEditors\(current, request\)/);
+    /function togglePackageQueryPreset\([\s\S]*const request = togglePreset\(current, preset\);\s*synchronizePackageQueryTermEditors\(current, request\)/);
   assert.match(
     appSource,
-    /function removePackageQueryTerm\([\s\S]*termKey === "depends-transitive"[\s\S]*termKey === "depends-ecosystem"[\s\S]*synchronizePackageQueryDependencyEditors\(current, request\)/);
+    /function removePackageQueryTerm\([\s\S]*termKey === "depends-transitive"[\s\S]*termKey === "depends-ecosystem"[\s\S]*synchronizePackageQueryTermEditors\(current, request\)/);
   assert.doesNotMatch(
     appSource,
     /state\.packageQuerySourceCatalog/);

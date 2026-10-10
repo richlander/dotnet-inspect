@@ -293,9 +293,9 @@ public class ArgumentSinkTestimonyTests
     [Fact]
     public void TwoReferenceCoalesceAtANarrowerCarrierStaysUndecided()
     {
-        // The same coalesce read as a `string` argument: object is not the
-        // carrier type, so no witness is issued and the coalesce keeps no
-        // assignment type; the web still fails visibly rather than guessing.
+        // The same coalesce read as a `string` argument without importer-issued
+        // widening: no witness is issued and the coalesce keeps no assignment
+        // type; the web still fails visibly rather than guessing.
         var consume = new MethodRef(Holder, "Consume", Void, [String], HasThis: false);
         var block = new Block(0);
         block.Add(new StoreStackSlot(0, new Coalesce(new LoadArgument(0, "alpha", Alpha), new LoadArgument(1, "beta", Beta))));
@@ -308,6 +308,164 @@ public class ArgumentSinkTestimonyTests
         Assert.IsType<LoadArgument>(coalesce.Left);
         Assert.Null(coalesce.AssignmentType);
         Assert.Throws<InvalidOperationException>(() => RunTail(function, slotTargetBindingDone: true));
+    }
+
+    [Fact]
+    public void ImporterProvenReferenceCoalesceAtNamedCarrierReceivesTheLeftWitness()
+    {
+        var consume = new MethodRef(
+            Holder,
+            "Consume",
+            Void,
+            [BaseReference],
+            HasThis: false);
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(
+            0,
+            new Coalesce(
+                new LoadArgument(0, "alpha", Alpha),
+                new LoadArgument(1, "beta", Beta))));
+        block.Add(new ExpressionStatement(new Call(
+            consume,
+            isVirtual: false,
+            [new LoadStackSlot(0, type: null)])));
+        block.Add(new Return(null));
+        var function = Function(
+            Void,
+            block,
+            [
+                new Parameter("alpha", Alpha),
+                new Parameter("beta", Beta),
+            ]);
+        AddSelfWideningReferenceFacts(function);
+
+        var before = Assert.Single(SlotMaterializationPass.Analyze(function));
+        Assert.Equal(
+            SlotMaterializationVeto.OutsideCoercionDomain
+                | SlotMaterializationVeto.UnrenderableStoreType,
+            before.Vetoes);
+
+        new ReferenceSlotTargetBindingPass().Run(
+            function,
+            PassContext.None);
+
+        var coalesce = Assert.Single(
+            function.Descendants.OfType<Coalesce>());
+        var witness = Assert.IsType<Coerce>(coalesce.Left);
+        Assert.Equal(CoercionKind.ReferenceWitness, witness.Kind);
+        Assert.Equal(BaseReference, witness.Target);
+        Assert.Equal(BaseReference, coalesce.AssignmentType);
+        Assert.True(
+            Assert.Single(SlotMaterializationPass.Analyze(function))
+                .WillMaterialize);
+
+        string output = RunTail(
+            function,
+            slotTargetBindingDone: true);
+        Assert.Empty(function.ResidualSlotBindings);
+        Assert.Contains(
+            "BaseReference S_0 = ((BaseReference)alpha) ?? beta;",
+            output);
+        Assert.Contains("Consume(S_0);", output);
+    }
+
+    [Fact]
+    public void NamedCarrierCoalesceRequiresEveryImporterWidening()
+    {
+        var consume = new MethodRef(
+            Holder,
+            "Consume",
+            Void,
+            [BaseReference],
+            HasThis: false);
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(
+            0,
+            new Coalesce(
+                new LoadArgument(0, "alpha", Alpha),
+                new LoadArgument(1, "beta", Beta))));
+        block.Add(new ExpressionStatement(new Call(
+            consume,
+            isVirtual: false,
+            [new LoadStackSlot(0, type: null)])));
+        block.Add(new Return(null));
+        var function = Function(
+            Void,
+            block,
+            [
+                new Parameter("alpha", Alpha),
+                new Parameter("beta", Beta),
+            ]);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape>
+        {
+            [Alpha] = TypeShape.Reference,
+            [Beta] = TypeShape.Reference,
+            [BaseReference] = TypeShape.Reference,
+        };
+        function.ProvenReferenceWidenings =
+            new HashSet<ReferenceWidening>
+            {
+                new(Alpha, BaseReference),
+            };
+
+        new ReferenceSlotTargetBindingPass().Run(
+            function,
+            PassContext.None);
+
+        var coalesce = Assert.Single(
+            function.Descendants.OfType<Coalesce>());
+        Assert.IsType<LoadArgument>(coalesce.Left);
+        Assert.Null(coalesce.AssignmentType);
+        var decision = Assert.Single(
+            SlotMaterializationPass.Analyze(function));
+        Assert.Equal(
+            SlotMaterializationVeto.OutsideCoercionDomain
+                | SlotMaterializationVeto.UnrenderableStoreType,
+            decision.Vetoes);
+    }
+
+    [Fact]
+    public void AlreadyMaterializableNamedCoalesceReceivesNoWitness()
+    {
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(
+            0,
+            new Coalesce(
+                new LoadArgument(0, "current", BaseReference),
+                new LoadArgument(1, "fallback", Beta))));
+        block.Add(new Return(new LoadStackSlot(0, BaseReference)));
+        var function = Function(
+            BaseReference,
+            block,
+            [
+                new Parameter("current", BaseReference),
+                new Parameter("fallback", Beta),
+            ]);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape>
+        {
+            [Beta] = TypeShape.Reference,
+            [BaseReference] = TypeShape.Reference,
+        };
+        function.ProvenReferenceWidenings =
+            new HashSet<ReferenceWidening>
+            {
+                new(Beta, BaseReference),
+            };
+        Assert.True(
+            Assert.Single(SlotMaterializationPass.Analyze(function))
+                .WillMaterialize);
+
+        new ReferenceSlotTargetBindingPass().Run(
+            function,
+            PassContext.None);
+
+        var coalesce = Assert.Single(
+            function.Descendants.OfType<Coalesce>());
+        Assert.IsType<LoadArgument>(coalesce.Left);
+        Assert.DoesNotContain(
+            function.Descendants.OfType<Coerce>(),
+            static coerce =>
+                coerce.Kind == CoercionKind.ReferenceWitness);
     }
 
     [Fact]
@@ -540,6 +698,84 @@ public class ArgumentSinkTestimonyTests
         Assert.Contains("object S_1", result.Output);
         Assert.DoesNotContain("var S_1", result.Output);
         Assert.DoesNotContain(function.ResidualSlotBindings.Values, static binding => binding.Slot == 1);
+    }
+
+    [Fact]
+    public void RealNewtonsoftNamedReferenceCoalesceMaterializes()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "ReferenceConditional",
+            "Newtonsoft.Json.dll");
+        using var source = MetadataSource.Open(path);
+        var function = IrImporter.Import(
+            source,
+            "Newtonsoft.Json.JsonSerializer",
+            "PopulateInternal");
+        Assert.NotNull(function);
+
+        IrPasses.Run(
+            function,
+            IrPasses.Default,
+            PassContext.ForImport(
+                reference => IrImporter.Import(source, reference),
+                source.AreProvablyDisjoint));
+        var result = DecidedPrint.Print(function);
+
+        Assert.DoesNotContain(
+            function.ResidualSlotBindings.Values,
+            static binding => binding.Slot == 2);
+        Assert.Contains(
+            "JsonReader S_2 = ((JsonReader)V_6) ?? reader;",
+            result.Output);
+        Assert.Contains("S_1.Populate(S_2, target);", result.Output);
+        Assert.DoesNotContain("S_2_1", result.Output);
+    }
+
+    [Fact]
+    public void RealRoslynNamedReferenceCoalesceMaterializes()
+    {
+        string assets = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets");
+        string commonPath = Path.Combine(
+            assets,
+            "PrimitiveJoin",
+            "Microsoft.CodeAnalysis.dll");
+        string csharpPath = Path.Combine(
+            assets,
+            "ReferenceCoalesceLiveRange",
+            "Microsoft.CodeAnalysis.CSharp.dll");
+        using var metadata = CorpusMetadata.Create(
+            [commonPath, csharpPath]);
+        using var source = MetadataSource.Open(
+            csharpPath,
+            context: metadata);
+        var function = IrImporter.Import(
+            source,
+            "Microsoft.CodeAnalysis.Operations.CSharpOperationFactory",
+            "CreateVariableDeclarator");
+        Assert.NotNull(function);
+
+        IrPasses.Run(
+            function,
+            IrPasses.Default,
+            PassContext.ForImport(
+                reference => IrImporter.Import(source, reference),
+                source.AreProvablyDisjoint));
+        var result = DecidedPrint.Print(function);
+
+        Assert.DoesNotContain(
+            function.ResidualSlotBindings.Values,
+            static binding => binding.Slot == 4);
+        Assert.Contains(
+            "S_4 = ((SyntaxNode)(S_256 is null ? null : S_2.Variables[0])) ?? declarationSyntax;",
+            result.Output);
+        Assert.Contains(
+            "CreateVariableDeclaratorInternal(",
+            result.Output);
+        Assert.DoesNotContain("S_4_1", result.Output);
     }
 
     [Theory]

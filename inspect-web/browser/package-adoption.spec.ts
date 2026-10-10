@@ -1567,11 +1567,21 @@ test.describe("Package Query website over real Wasm", () => {
     await page.goto("/query");
     const input = page.locator("#package-query-prefix");
     await expect(input).toBeVisible({ timeout: 120_000 });
-    const toolFormatPreset = page.locator(
-      '[data-query-preset="tool-format:eq:v2"]',
+    const toolFact = page.locator('[data-query-preset="tool:eq:true"]');
+    await toolFact.click();
+    await expect(toolFact).toHaveAttribute("aria-pressed", "true");
+    await page.locator('[data-query-term-add="tool-format"]').click();
+    const toolFormat = page.locator(
+      '[data-query-term-form="draft"] [data-query-term-value]',
     );
-    await toolFormatPreset.click();
-    await expect(toolFormatPreset).toHaveAttribute("aria-pressed", "true");
+    await toolFormat.selectOption("v2");
+    await page.locator(
+      '[data-query-term-form="draft"] button[type="submit"]',
+    ).click();
+    await expect(page.locator(
+      '[data-query-term-form="0"] [data-query-term-value]',
+    )).toHaveValue("v2");
+    await expect(toolFact).toHaveAttribute("aria-pressed", "false");
     await expect(page.locator(".query-preset-disclosure", {
       hasText: "Candidate bound K:",
     }))
@@ -1589,6 +1599,24 @@ test.describe("Package Query website over real Wasm", () => {
     );
     expect(registry.downloadCount(tool)).toBe(1);
     expect(registry.downloadCount(library)).toBe(0);
+
+    await page.locator('[data-query-term-add="references"]').click();
+    const referenceDraft = page.locator(
+      '[data-query-term-form="draft"] [data-query-term-value]',
+    );
+    await referenceDraft.fill("Missing.Assembly");
+    await page.locator(
+      '[data-query-term-form="draft"] button[type="submit"]',
+    ).click();
+    const referenceEdit = page.locator(
+      '[data-query-term-form="1"] [data-query-term-value]',
+    );
+    await referenceEdit.fill("System.Runtime");
+    await toolFact.click();
+    await expect(toolFact).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(
+      '[data-query-term-form="0"] [data-query-term-value]',
+    )).toHaveValue("System.Runtime");
   });
 
   test("applies, edits, repeats, and removes product-issued dependency terms", async ({
@@ -1668,6 +1696,20 @@ test.describe("Package Query website over real Wasm", () => {
 
     const firstValue =
       page.locator('[data-query-term-form="0"] [data-query-term-value]');
+    const dependencyReach =
+      page.locator('[data-query-term-form="0"] [data-query-dependency-reach]');
+    const dependencyTarget =
+      page.locator('[data-query-term-form="0"] [data-query-dependency-target]');
+    await dependencyReach.selectOption("2");
+    await dependencyTarget.fill("net9.0");
+    await page.locator('[data-query-preset="readme:eq:true"]').click();
+    await expect(dependencyReach).toHaveValue("2");
+    await expect(dependencyTarget).toHaveValue("net9.0");
+    await page.locator('[data-query-preset="readme:eq:true"]').click();
+    await expect(dependencyReach).toHaveValue("2");
+    await expect(dependencyTarget).toHaveValue("net9.0");
+    await dependencyReach.selectOption("direct");
+
     await firstValue.fill("Microsoft.Extensions.DependencyInjection");
     await firstValue.evaluate(element => {
       if (!(element instanceof HTMLInputElement)) {

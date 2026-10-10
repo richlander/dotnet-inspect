@@ -17,7 +17,7 @@ import {
   isLibraryLiteralQuery,
   shouldExecuteQuery,
   synchronizeDependencyTermEditor,
-  synchronizeDependencyTermEdits,
+  synchronizeTermEdits,
   togglePreset,
   replaceTerm,
   withCompletion,
@@ -116,6 +116,25 @@ const TOOL_V2_FACET: QueryPreset = {
   selectionGroupId: "tool-format",
   combinesWithinSelectionGroup: true,
   replacementGroupId: "dotnet-tool",
+};
+
+const TOOL_FORMAT_TERM: QueryTermDescriptor = {
+  key: "tool-format",
+  label: "DotnetCliTool",
+  summary: "Matches the DotnetCliTool format version.",
+  weight: 510,
+  tier: "package-content",
+  executionClass: "package-content",
+  operators: ["eq"],
+  valueKind: "closed value",
+  example: "v2",
+  multiline: false,
+  allowsCustomValue: false,
+  replacementGroupId: "dotnet-tool",
+  options: [
+    { value: "v1", label: "v1", summary: "Portable format." },
+    { value: "v2", label: "v2", summary: "RID-specific format." },
+  ],
 };
 
 const DEPENDS_TERM: QueryTermDescriptor = {
@@ -556,7 +575,7 @@ test("pending dependency editors follow applied shared reach and target", () => 
       "net9.0",
       DEPTH_3_FACET,
       DEPENDENCY_TARGET_TERM);
-    const synchronized = synchronizeDependencyTermEdits(
+    const synchronized = synchronizeTermEdits(
       previous,
       next,
       edits);
@@ -571,7 +590,7 @@ test("pending dependency editors follow applied shared reach and target", () => 
       dependencyTarget: "net9.0",
     });
     assert.deepEqual(
-      synchronizeDependencyTermEditor(next, {
+      synchronizeDependencyTermEditor(previous, next, {
         operator: "eq",
         value: "Contoso.Pending",
         dependencyReach: "2",
@@ -583,6 +602,34 @@ test("pending dependency editors follow applied shared reach and target", () => 
         dependencyReach: "3",
         dependencyTarget: "net9.0",
       });
+});
+
+test("unrelated preset toggles preserve pending dependency reach and target", () => {
+  const previous = withDependencyTerm(
+    createQueryRequest("Contoso.*"),
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Contoso.Dependency",
+    "direct",
+    "net10.0",
+    null,
+    null);
+  const pending = [{
+    operator: "eq",
+    value: "Contoso.Dependency.Edited",
+    dependencyReach: "2" as const,
+    dependencyTarget: "net9.0",
+  }];
+  const next = togglePreset(previous, TFM_FACET);
+
+  assert.equal(next.terms[0], previous.terms[0]);
+  assert.equal(
+    synchronizeDependencyTermEditor(previous, next, pending[0]!),
+    pending[0]);
+  assert.deepEqual(
+    synchronizeTermEdits(previous, next, pending),
+    pending);
 });
 
 test("standalone target changes synchronize pending dependency editors", () => {
@@ -615,7 +662,7 @@ test("standalone target changes synchronize pending dependency editors", () => {
     dependencyTarget: "net10.0",
   };
   const changed = replaceTerm(previous, targetIndex, "eq", "net9.0");
-  const changedEdits = synchronizeDependencyTermEdits(
+  const changedEdits = synchronizeTermEdits(
     previous,
     changed,
     edits);
@@ -628,7 +675,7 @@ test("standalone target changes synchronize pending dependency editors", () => {
     dependencyTarget: "net9.0",
   });
   assert.deepEqual(
-    synchronizeDependencyTermEditor(changed, draft),
+    synchronizeDependencyTermEditor(previous, changed, draft),
     {
       ...draft,
       dependencyTarget: "net9.0",
@@ -637,7 +684,7 @@ test("standalone target changes synchronize pending dependency editors", () => {
   const changedTargetIndex = changed.terms.findIndex(
     term => term.descriptor.key === "dependency-target");
   const removed = withoutTerm(changed, changedTargetIndex);
-  const removedEdit = synchronizeDependencyTermEdits(
+  const removedEdit = synchronizeTermEdits(
     changed,
     removed,
     changedEdits,
@@ -651,7 +698,7 @@ test("standalone target changes synchronize pending dependency editors", () => {
     dependencyTarget: "net10.0",
   });
   assert.deepEqual(
-    synchronizeDependencyTermEditor(removed, draft),
+    synchronizeDependencyTermEditor(changed, removed, draft),
     draft);
 });
 
@@ -924,6 +971,58 @@ test("togglePreset applies product-owned tool replacement and union groups", () 
     backToV2.presets.map(preset => preset.id),
     [TOOL_V2_FACET.id]);
   assert.equal(backToV2.requestedLimit, 20);
+});
+
+test("tool facts and DotnetCliTool value queries replace across control families", () => {
+  const withAny = togglePreset(
+    createQueryRequest("Microsoft."),
+    ANY_TOOL_FACET);
+  const withV1 = withTerm(
+    withAny,
+    TOOL_FORMAT_TERM,
+    "eq",
+    "v1");
+  const withBoth = withTerm(
+    withV1,
+    TOOL_FORMAT_TERM,
+    "eq",
+    "v2");
+  const backToAny = togglePreset(withBoth, ANY_TOOL_FACET);
+
+  assert.deepEqual(withV1.presets, []);
+  assert.deepEqual(
+    withBoth.terms.map(term => term.value),
+    ["v1", "v2"]);
+  assert.equal(withBoth.requestedLimit, 20);
+  assert.deepEqual(
+    backToAny.presets.map(preset => preset.id),
+    [ANY_TOOL_FACET.id]);
+  assert.deepEqual(backToAny.terms, []);
+  assert.equal(backToAny.requestedLimit, 200);
+});
+
+test("term edits follow surviving terms across cross-family replacement", () => {
+  const previous = withTerm(
+    withTerm(
+      createQueryRequest("Microsoft."),
+      TOOL_FORMAT_TERM,
+      "eq",
+      "v1"),
+    LIBRARY_LITERAL_TERM,
+    "eq",
+    "applied");
+  const next = togglePreset(previous, ANY_TOOL_FACET);
+  const edits = synchronizeTermEdits(previous, next, [
+    null,
+    { operator: "eq", value: "pending" },
+  ]);
+
+  assert.deepEqual(
+    next.terms.map(term => term.value),
+    ["applied"]);
+  assert.deepEqual(edits, [
+    { operator: "eq", value: "pending" },
+  ]);
 });
 
 test("appendRows and appendFailure accumulate without mutating prior outcome", () => {

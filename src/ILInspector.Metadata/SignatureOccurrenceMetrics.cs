@@ -122,6 +122,10 @@ internal sealed class SignatureOccurrenceWorkBudget(
                     or SignatureOccurrenceMetric.AssemblyReferenceNameBytes
                     or SignatureOccurrenceMetric
                         .AssemblyReferenceCultureBytes
+                    or SignatureOccurrenceMetric
+                        .AssemblyReferenceTokenBytes
+                    or SignatureOccurrenceMetric
+                        .AssemblyReferenceFullKeyBytes
                     or SignatureOccurrenceMetric.ModuleReferenceNameBytes =>
                     MetadataOperationDimension.RetainedText,
                 SignatureOccurrenceMetric.TypeSpecificationBytes =>
