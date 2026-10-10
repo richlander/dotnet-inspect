@@ -670,6 +670,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Find_NonEcosystemJsonlDoesNotSelectOmittedMemberRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "TryGetProperty",
+            "--library", typeof(JsonElement).Assembly.Location,
+            "--jsonl", "--rows", "1..1");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "requires type row 1, but only 0 type rows are available",
+            error);
+    }
+
+    [Fact]
     public async Task Find_MemberSearch_RowWindowUnderProjectedJson_MatchesTheTableFormats()
     {
         // The member search reaches the lowered view through a separate call site; a fix applied to

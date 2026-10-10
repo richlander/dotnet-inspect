@@ -208,7 +208,7 @@ public partial class FindCommand
                 && !options.JsonOutput
                 && (!options.Tabular
                     || options.Tsv
-                    || options.Jsonl);
+                    || options.Jsonl && layered is not null);
             if (options.Count
                 && (members.Count > 0
                     || memberTier?.HasFailures is true
