@@ -13389,13 +13389,18 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     state.memberDocumentationError);
   const documentationLoading = documentationState.loading;
   const documentationError = documentationState.error;
+  const declarationKey = memberDeclarationRequestSignature(
+    type,
+    overload,
+    selectedMemberUsesImplementationDeclaration(type, overload),
+  );
   const declarationState = scopedRequestState(
     state.memberDeclarationKey,
-    documentationKey,
+    declarationKey,
     state.memberDeclarationLoading,
     state.memberDeclarationError);
   const selectedDeclaration =
-    state.memberDeclarationKey === documentationKey
+    state.memberDeclarationKey === declarationKey
       ? state.memberDeclaration
       : null;
   const declaration = state.rootKind === "library"
@@ -14059,7 +14064,11 @@ function bindTypePanelEvents() {
       const member = selectedMember(type);
       const overload = selectedMemberOverload(type, member);
       const signature = type && overload
-        ? memberRequestSignature(type, overload)
+        ? memberDeclarationRequestSignature(
+            type,
+            overload,
+            selectedMemberUsesImplementationDeclaration(type, overload),
+          )
         : "";
       if (type
         && overload
@@ -21901,6 +21910,13 @@ async function loadSelectedMemberDocumentation() {
     return;
   }
   const signature = memberRequestSignature(type, overload);
+  const implementationMember =
+    selectedMemberUsesImplementationDeclaration(type, overload);
+  const declarationSignature = memberDeclarationRequestSignature(
+    type,
+    overload,
+    implementationMember,
+  );
   const pkg = currentPackage();
   const platformCoordinates = pkg.isRuntimePack
     ? (() => {
@@ -21926,7 +21942,7 @@ async function loadSelectedMemberDocumentation() {
       isCurrent: () => memberRequestIsCurrent(signature),
     }),
     memberDetailInspection.loadDeclaration({
-      signature,
+      signature: declarationSignature,
       packageId: pkg.id,
       version: pkg.version,
       framework: pkg.activeFramework,
@@ -21938,9 +21954,9 @@ async function loadSelectedMemberDocumentation() {
       selectorKey: overload.graphSelectorKey,
       metadataToken:
         overload.declarationMetadataToken ?? overload.metadataToken ?? 0,
-      implementationMember:
-        selectedMemberUsesImplementationDeclaration(type, overload),
-      isCurrent: () => memberRequestIsCurrent(signature),
+      implementationMember,
+      isCurrent: () =>
+        memberDeclarationRequestIsCurrent(declarationSignature),
     }),
   ]);
 }
@@ -22369,6 +22385,30 @@ function memberRequestIsCurrent(
   return overload != null
     && memberRequestSignature(type, overload, includeBody, includeTaste)
       === signature;
+}
+
+function memberDeclarationRequestSignature(
+  type: AppTypeSurface,
+  overload: AppMemberSurface,
+  implementationMember: boolean,
+) {
+  return memberRequestKey([
+    memberRequestSignature(type, overload),
+    implementationMember ? "implementation" : "ordinary",
+  ]);
+}
+
+function memberDeclarationRequestIsCurrent(signature: string) {
+  const type = selectedType();
+  if (!type) return false;
+  const member = selectedMember(type);
+  const overload = selectedMemberOverload(type, member);
+  return overload != null
+    && memberDeclarationRequestSignature(
+      type,
+      overload,
+      selectedMemberUsesImplementationDeclaration(type, overload),
+    ) === signature;
 }
 
 async function loadSelectedTypeSource() {
