@@ -1,0 +1,116 @@
+{
+  "results": {
+    "scope": {
+      "vocabulary": "csharp.style-choices",
+      "data_scope": {"completeness": "Complete"},
+      "members": 17,
+      "relevant_property_coverage": {
+        "byte_divergent": "complete",
+        "oracle_endorsed": "complete",
+        "corpus_endorsed": "complete",
+        "tier": "complete"
+      },
+      "data_states": "No data_states field was emitted on the root or selected members."
+    },
+    "choices": [
+      {
+        "id": "wrap-splittable-expressions",
+        "option": "wrap-splittable-expressions",
+        "value": "true",
+        "tier_id": "Formatting",
+        "tier_name": "Formatting",
+        "tier_description": "Layout only — whitespace and line breaks. The code itself is unchanged, and compiles to identical IL.",
+        "byte_divergent": false,
+        "oracle_endorsed": false,
+        "corpus_endorsed": true
+      },
+      {
+        "id": "qualify-field-access",
+        "option": "qualify-field-access",
+        "value": "true",
+        "tier_id": "Spelling",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "byte_divergent": false,
+        "oracle_endorsed": true,
+        "corpus_endorsed": false
+      },
+      {
+        "id": "qualify-property-access",
+        "option": "qualify-property-access",
+        "value": "true",
+        "tier_id": "Spelling",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "byte_divergent": false,
+        "oracle_endorsed": true,
+        "corpus_endorsed": false
+      },
+      {
+        "id": "qualify-method-access",
+        "option": "qualify-method-access",
+        "value": "true",
+        "tier_id": "Spelling",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "byte_divergent": false,
+        "oracle_endorsed": true,
+        "corpus_endorsed": false
+      },
+      {
+        "id": "qualify-event-access",
+        "option": "qualify-event-access",
+        "value": "true",
+        "tier_id": "Spelling",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "byte_divergent": false,
+        "oracle_endorsed": true,
+        "corpus_endorsed": false
+      }
+    ],
+    "conflict_groups": {
+      "guarded-boolean-return-style": [
+        "guarded-boolean-return-style:conditional-expression",
+        "guarded-boolean-return-style:branchless"
+      ],
+      "var-spelling-style": [
+        "var-spelling-style:var-for-built-in-types",
+        "var-spelling-style:var-when-type-apparent",
+        "var-spelling-style:var-elsewhere"
+      ]
+    },
+    "conflict_group_applicability": "These are product-owned mutually exclusive groups of the listed registered choice IDs. Their names and membership alone do not establish conflicts, acceptance, or invocation behavior for arbitrary configuration keys.",
+    "omitted_boolean_interpretation": {
+      "known_choice_complete_dataset_available_property": "False, because property_sets lists true IDs and the property has complete coverage for every known member in this complete dataset.",
+      "unknown_id": "Unknown; membership has not been established, so omission cannot establish false.",
+      "incomplete_dataset": "Unknown; the member or a true property entry may be missing.",
+      "unavailable_property": "Unknown; omission cannot establish false when the property is unavailable."
+    },
+    "additional_fetch_needed": false,
+    "additional_fetch_reason": "The selected choices response embeds all local values and the referenced csharp.style-tiers vocabulary with each tier's name and description. Its inline maps, property sets, property groups, and complete data scope suffice for this reading task. The describedby contract is for client schema development, which this task does not require."
+  },
+  "evidence": [
+    {
+      "response_id": 2,
+      "path": "vocabularies",
+      "use": "Discovered emitted resource paths for csharp.style-choices and csharp.style-tiers."
+    },
+    {
+      "response_id": 4,
+      "path": "explain vocabularies/csharp.style-choices --help",
+      "use": "Established .hal as the projection argument."
+    },
+    {
+      "response_id": 5,
+      "path": "vocabularies/csharp.style-choices",
+      "projection": ".hal --json",
+      "use": "Complete root scope, map coverage, property sets and groups, all choice values, and embedded tier names and descriptions."
+    }
+  ],
+  "uncertainties": [
+    "The vocabulary data does not supply invocation rules for arbitrary configuration keys; no invocation behavior is inferred.",
+    "The root and selected members emit no data_states field, so no additional state is asserted."
+  ],
+  "qualitative_friction": "The first long natural-language search returned no matches despite the relevant vocabularies being installed. The vocabularies collection provided a clear path. HAL placed choice data at the root while tiers were embedded, requiring an explicit local join. A first jq filter accidentally tested root property sets in member context and was corrected."
+}

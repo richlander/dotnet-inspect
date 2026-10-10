@@ -1,0 +1,18 @@
+{"id": 1, "argv": ["explain", "implementation-library decoded literal contains https:// net8.0 exact package Microsoft.Azure.SignalR dependency Newtonsoft.Json max depth 3", "--json", "-n", "5"], "exit": 1, "stdout_bytes": 0, "stderr_bytes": 94, "stdout_file": "response-01.out", "stderr_file": "response-01.err"}
+{"id": 2, "argv": ["explain", "query packages by decoded literal and dependency", "--json", "-n", "5"], "exit": 0, "stdout_bytes": 187, "stderr_bytes": 0, "stdout_file": "response-02.out", "stderr_file": "response-02.err"}
+{"id": 3, "argv": ["explain", "decoded string literal", "--json", "-n", "5"], "exit": 0, "stdout_bytes": 161, "stderr_bytes": 0, "stdout_file": "response-03.out", "stderr_file": "response-03.err"}
+{"id": 4, "argv": ["explain", "package dependency query", "--json", "-n", "5"], "exit": 0, "stdout_bytes": 163, "stderr_bytes": 0, "stdout_file": "response-04.out", "stderr_file": "response-04.err"}
+{"id": 5, "argv": ["explain", "query spaces", "--json", "-n", "5"], "exit": 0, "stdout_bytes": 151, "stderr_bytes": 0, "stdout_file": "response-05.out", "stderr_file": "response-05.err"}
+{"id": 6, "argv": ["explain", "literals", "--json", "-n", "5"], "exit": 0, "stdout_bytes": 864, "stderr_bytes": 0, "stdout_file": "response-06.out", "stderr_file": "response-06.err"}
+{"id": 7, "argv": ["explain", "dependencies", "--json", "-n", "5"], "exit": 0, "stdout_bytes": 3729, "stderr_bytes": 0, "stdout_file": "response-07.out", "stderr_file": "response-07.err"}
+{"id": 8, "argv": ["explain", "packages", "--json", "-n", "5"], "exit": 0, "stdout_bytes": 3727, "stderr_bytes": 0, "stdout_file": "response-08.out", "stderr_file": "response-08.err"}
+{"id": 9, "argv": ["explain", "search", "--json", "-n", "5"], "exit": 0, "stdout_bytes": 145, "stderr_bytes": 0, "stdout_file": "response-09.out", "stderr_file": "response-09.err"}
+{"id": 10, "argv": ["explain", "query", "--json", "-n", "15"], "exit": 0, "stdout_bytes": 10574, "stderr_bytes": 0, "stdout_file": "response-10.out", "stderr_file": "response-10.err"}
+{"id": 11, "argv": ["explain", "package-query/query", ".data", "--json"], "exit": 0, "stdout_bytes": 17761, "stderr_bytes": 0, "stdout_file": "response-11.out", "stderr_file": "response-11.err"}
+{"id": 12, "argv": ["explain", "vocabularies", "--json"], "exit": 0, "stdout_bytes": 2637, "stderr_bytes": 0, "stdout_file": "response-12.out", "stderr_file": "response-12.err"}
+{"id": 13, "argv": ["explain", "package-query", "--json"], "exit": 0, "stdout_bytes": 1474, "stderr_bytes": 0, "stdout_file": "response-13.out", "stderr_file": "response-13.err"}
+{"id": 14, "argv": ["explain", "package-query/routes/default", "--json"], "exit": 0, "stdout_bytes": 2431, "stderr_bytes": 0, "stdout_file": "response-14.out", "stderr_file": "response-14.err"}
+{"id": 15, "argv": ["explain", "package-query/bindings/cli", "--json"], "exit": 0, "stdout_bytes": 7356, "stderr_bytes": 0, "stdout_file": "response-15.out", "stderr_file": "response-15.err"}
+{"id": 16, "argv": ["explain", "normalization", "--json", "-n", "10"], "exit": 0, "stdout_bytes": 152, "stderr_bytes": 0, "stdout_file": "response-16.out", "stderr_file": "response-16.err"}
+{"id": 17, "argv": ["explain", "NuGet package ID", "--json", "-n", "10"], "exit": 0, "stdout_bytes": 155, "stderr_bytes": 0, "stdout_file": "response-17.out", "stderr_file": "response-17.err"}
+{"id": 18, "argv": ["explain", "target framework", "--json", "-n", "10"], "exit": 0, "stdout_bytes": 155, "stderr_bytes": 0, "stdout_file": "response-18.out", "stderr_file": "response-18.err"}
