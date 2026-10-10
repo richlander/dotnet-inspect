@@ -168,6 +168,13 @@ internal interface IPackageArchiveEntryManifest
     bool TryGetArchiveEntries(
         [NotNullWhen(true)]
         out IReadOnlyList<PackageContentEntry>? entries);
+
+    bool TryGetArchiveDirectories(
+        [NotNullWhen(true)] out IReadOnlyList<string>? directories)
+    {
+        directories = null;
+        return false;
+    }
 }
 
 /// <summary>One package entry's path and declared expanded length.</summary>

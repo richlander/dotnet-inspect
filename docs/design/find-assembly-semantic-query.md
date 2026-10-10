@@ -393,7 +393,7 @@ package-grain CLI adoption is:
 | `package query ID --where "library-literal=TEXT" --tfm TFM` | The latest eligible listed exact package candidate. |
 | `package query 'PREFIX*' --where "library-literal=TEXT" --tfm TFM --take N` | At most the first `N` source-selected exact package candidates, where `N` is 1-5. |
 | `-n N` | Semantic Head over matched package Results after the admitted population is evaluated. |
-| `--count` | Count of the selected package Result set, available only when population formation and semantic evaluation are complete. |
+| `--count` | Count of the selected package Result set. It is exact only when population formation and semantic evaluation are complete; otherwise it is the observed count, with the same incompleteness disclosure as the rows. |
 
 The `--take` and `-n` spellings and their adoption by literal mode remain owned
 by [CLI execution bounds](cli-execution-bounds.md),
@@ -568,8 +568,9 @@ The implementation must name Release gates for:
 - distinct match, semantic miss, not-applicable, acquisition failure,
   evaluation failure, and cleanup failure outcomes;
 - occurrence ordering and `-n` selection after complete candidate evaluation;
-- Count success for a complete bounded population and refusal for incomplete
-  source or candidate evaluation;
+- exact Count for a complete bounded population, and observed Count with the
+  same incompleteness disclosure as the rows for incomplete source or
+  candidate evaluation;
 - cancellation before acquisition, between bounded evaluations, and after
   producer completion and candidate cleanup without normal completion;
 - resource-free public result closure;

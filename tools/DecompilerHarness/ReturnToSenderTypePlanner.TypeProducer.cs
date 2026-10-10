@@ -100,9 +100,11 @@ public static partial class CompileBackSourceComposer
         {
             var field = reader.GetFieldDefinition(fieldHandle);
             string fieldType;
+            IReadOnlyList<ApiTypeReferenceIdentity> fieldTypeReferences;
             try
             {
                 fieldType = GuardedSignatureText.FieldText(reader, field, GenericContext.ForType(reader, typeDef));
+                fieldTypeReferences = ApiSurfaceExtractor.FieldTypeReferences(reader, typeDef, field);
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -124,7 +126,7 @@ public static partial class CompileBackSourceComposer
                 CompileBackMemberKind.Field,
                 field.Attributes.HasFlag(FieldAttributes.Static),
                 [],
-                CompileBackTypeSignature.Display(fieldType),
+                CompileBackTypeSignature.Display(fieldType, fieldTypeReferences),
                 [],
                 TryFormatConstantField(reader, field, out var constant)
                     ? CompileBackStubBodyKind.TargetBody
@@ -1052,9 +1054,11 @@ public static partial class CompileBackSourceComposer
                     continue;
 
                 string fieldType;
+                IReadOnlyList<ApiTypeReferenceIdentity> fieldTypeReferences;
                 try
                 {
                     fieldType = GuardedSignatureText.FieldText(reader, field, typeContext);
+                    fieldTypeReferences = ApiSurfaceExtractor.FieldTypeReferences(reader, typeDef, field);
                 }
                 catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
                 {
@@ -1071,7 +1075,7 @@ public static partial class CompileBackSourceComposer
                     CompileBackMemberKind.Field,
                     IsStatic: field.Attributes.HasFlag(FieldAttributes.Static),
                     Parameters: [],
-                    ReturnType: CompileBackTypeSignature.Display(fieldType),
+                    ReturnType: CompileBackTypeSignature.Display(fieldType, fieldTypeReferences),
                     TypeParameters: [],
                     StubBody: TryFormatConstantField(reader, field, out var constant)
                         ? CompileBackStubBodyKind.TargetBody

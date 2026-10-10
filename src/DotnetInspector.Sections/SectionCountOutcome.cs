@@ -1,25 +1,41 @@
 namespace DotnetInspector.Sections;
 
-/// <summary>One exact cardinality for a declared semantic row set.</summary>
+/// <summary>
+/// One cardinality for a declared semantic row set: exact when the set's
+/// evidence is complete for the logical request, and otherwise the observed
+/// cardinality of the rows Rows would select from that evidence.
+/// </summary>
 public sealed class SectionCountEntry<TIdentity>
     where TIdentity : notnull
 {
     public SectionCountEntry(TIdentity identity, int value)
+        : this(identity, value, isExact: true)
+    {
+    }
+
+    public SectionCountEntry(TIdentity identity, int value, bool isExact)
     {
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentOutOfRangeException.ThrowIfNegative(value);
         Identity = identity;
         Value = value;
+        IsExact = isExact;
     }
 
     public TIdentity Identity { get; }
 
     public int Value { get; }
+
+    /// <summary>
+    /// False when the value is observed over incomplete evidence; it must
+    /// then be disclosed like the incomplete Rows it counts, never as exact.
+    /// </summary>
+    public bool IsExact { get; }
 }
 
 /// <summary>
-/// Owner-issued evidence explaining why one row set cannot supply an exact
-/// Count.
+/// Owner-issued evidence for one row set: why it cannot supply a Count, or
+/// the completion evidence that accompanies its Count entry.
 /// </summary>
 public sealed class SectionCountSourceEvidence<TIdentity, TEvidence>
     where TIdentity : notnull
@@ -56,8 +72,24 @@ public abstract record SectionCountOutcome<TIdentity, TEvidence>
     {
         public Completed(
             IReadOnlyList<SectionCountEntry<TIdentity>> counts)
+            : this(
+                counts,
+                SectionContractSnapshot.Empty<
+                    SectionCountSourceEvidence<TIdentity, TEvidence>>())
+        {
+        }
+
+        /// <param name="sources">
+        /// Either empty, or one owner-issued evidence entry per Count entry
+        /// in the same row-set order.
+        /// </param>
+        public Completed(
+            IReadOnlyList<SectionCountEntry<TIdentity>> counts,
+            IReadOnlyList<
+                SectionCountSourceEvidence<TIdentity, TEvidence>> sources)
         {
             ArgumentNullException.ThrowIfNull(counts);
+            ArgumentNullException.ThrowIfNull(sources);
             if (counts.Count == 0)
             {
                 throw new ArgumentException(
@@ -80,10 +112,50 @@ public abstract record SectionCountOutcome<TIdentity, TEvidence>
                 }
             }
 
+            if (sources.Count != 0)
+            {
+                if (sources.Count != counts.Count)
+                {
+                    throw new ArgumentException(
+                        "Completed Count evidence requires one entry per "
+                        + "row-set count.",
+                        nameof(sources));
+                }
+
+                for (int index = 0; index < sources.Count; index++)
+                {
+                    SectionCountSourceEvidence<TIdentity, TEvidence> source =
+                        sources[index]
+                        ?? throw new ArgumentNullException(
+                            nameof(sources),
+                            $"Source entry {index + 1} is null.");
+                    if (!EqualityComparer<TIdentity>.Default.Equals(
+                            source.Identity,
+                            counts[index].Identity))
+                    {
+                        throw new ArgumentException(
+                            $"Source entry {index + 1} does not match its "
+                            + "row-set count.",
+                            nameof(sources));
+                    }
+                }
+            }
+
             Counts = SectionContractSnapshot.Copy(counts);
+            Sources = SectionContractSnapshot.Copy(sources);
         }
 
         public IReadOnlyList<SectionCountEntry<TIdentity>> Counts { get; }
+
+        /// <summary>
+        /// Owner-issued evidence for each entry in <see cref="Counts"/>, or
+        /// empty when the producer supplied none.
+        /// </summary>
+        public IReadOnlyList<
+            SectionCountSourceEvidence<TIdentity, TEvidence>> Sources
+        {
+            get;
+        }
     }
 
     public sealed record SourceForCount :

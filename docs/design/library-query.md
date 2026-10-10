@@ -125,8 +125,11 @@ reads remain visible failures. They never become nonmatches.
 
 An explicit candidate bound may produce successful partial output and a
 completion warning. Population or evaluation failures produce a nonzero exit.
-`--count` rejects incomplete evaluation unless its selected closed row window
-already proves the requested count.
+`--count` counts the rows Rows would render from the same evaluation, with the
+same completion warning and exit status, under the section-row owner's
+[incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation).
+It is exact only when the evaluation, or the selected closed row window, is
+complete for the request.
 
 ## Discovery and acquisition boundary
 

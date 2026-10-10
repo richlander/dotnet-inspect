@@ -92,8 +92,7 @@ This design does not own:
 - source paging, filtering, ordering, deduplication, retry, timeout, caching,
   traversal, or early-exit algorithms;
 - default operational ceilings or provider hard limits;
-- whether a source result is complete, equivalent, Count-sufficient, or
-  Rows-usable;
+- whether a source result is complete, equivalent, or Rows-usable;
 - semantic row-set identity, predicates, ordering, Rows, Count, or rendering;
 - Browser or Wasm controls; or
 - adoption by a command not named in [Adoption](#adoption).
@@ -424,8 +423,9 @@ questions.
 An execution bound neither selects Count's input nor proves its exactness.
 `--count` may compose syntactically with an execution bound, but
 [Section-row shaping](section-row-shaping.md#count-semantics) and the adopting
-source owner decide whether the returned completion evidence is
-Count-sufficient.
+source owner decide whether the returned completion evidence is complete for
+the request. An incomplete Count reports the observed rows' cardinality with
+the same disclosure as Rows.
 
 In particular, reaching `--take 10` does not make `10` an exact corpus count.
 If the owner cannot produce the exact Count contract, it preserves the bounded
@@ -625,7 +625,7 @@ This design does not:
 - define default values or maximums for any adopting command;
 - promise that requesting more work produces more semantic rows;
 - authorize unbounded network, source-content, exhaustive, or graph work;
-- make a bounded result complete, Count-sufficient, or failure-free;
+- make a bounded result complete or failure-free;
 - define package-search ordering, Package Query budgets, `find` row sets, or
   graph traversal; or
 - preserve obsolete flags solely for compatibility.
