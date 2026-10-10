@@ -410,7 +410,7 @@ The counted PackageHouse stack has seven slices:
    acquisition, and migrate one current PDB consumer. Retire direct companion
    delivery only for that adopted route.
 5. Adopt `GetLibraryAndInventoryForTarget` in Inspect Web Package Query and
-   the website Library list. Assembly-semantic candidate realization already
+   the website Library list. Assembly-semantic candidate acquisition already
    enters PackageHouse through #9815; semantic content narrowing remains in
    this step.
 6. Adopt the same demands in `find` and shared Workspace/declaration loading,

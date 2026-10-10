@@ -52,8 +52,8 @@ Given:
 - one product-issued assembly-semantic request;
 - the same transferred `PackageSourceOperationLease` whose issuer authorized
   those candidates, as the population-ownership and total-deadline anchor;
-- one caller-supplied, payload-bounded `PackageHouse` execution capability plus
-  a same-generation source-operation issuer; and
+- one caller-supplied, payload-bounded `PackageHouse` acquisition capability
+  plus a same-generation source-operation issuer; and
 - finite candidate, acquisition, retained-image, semantic-work, and deadline
   bounds;
 
@@ -102,7 +102,7 @@ ordinary type search or moving package classification into Find.
 | [Typed source intent](search-scope-domain.md) | Validated exact package and bounded literal package-prefix declarations. |
 | [Package Query input selection](package-query-input-selection.md) | Behavioral precedent for exact-ID versus prefix selection, ordering, version eligibility, and completion; its package-row events are not this query's candidate handoff. |
 | [Package source model](package-source-model.md) | Authority-bearing `PackageAcquisitionCandidate`, same-issuer `PackageSourceOperationLease`, ownership validation, deadlines, and typed source failures. |
-| [PackageHouse](package-house.md) | Exact candidate demand, host-owned acquisition capability, compile realization, typed failures, and Root-contribution evidence. |
+| [PackageHouse](package-house.md) | Exact candidate demand, host-owned bounded payload acquisition, typed failures, and transfer evidence. |
 | [CLI search scope resolution](search-scope-resolution.md) | Existing CLI source declaration and prefix behavior that a separate literal-mode adoption must update without changing this L1 contract. |
 | [Package Query assembly-pattern evaluation](package-query-assembly-evaluation.md) | One-candidate selected-assembly evaluation, typed semantic outcomes, resource-free evidence, reopening request, bounds, and cleanup. |
 | [Metadata assembly inspection](assembly-inspection-query.md) | Managed-image admission and callback-scoped query authority. |
@@ -186,9 +186,9 @@ owned source adapter completes candidate discovery and selection first,
 freezes the population, and transfers the same still-live
 `PackageSourceOperationLease` into query execution as its population-ownership
 and total-deadline anchor. The host also supplies one payload-bounded
-`PackageHouse` execution capability and a same-generation operation issuer. No
-later discovery or version-selection event can change the population;
-candidate realization remains House work inside the query.
+`PackageHouse` acquisition capability and a same-generation operation issuer.
+No later discovery or version-selection event can change the population;
+candidate acquisition remains House work inside the query.
 
 The first contract admits package candidates only. Local libraries, binary
 directories, restored projects, Platform libraries, package groups, and mixed
@@ -284,14 +284,16 @@ Execution is serial in candidate order. For each candidate, the query:
 
 1. issues one source operation from the same settlement generation, bounded by
    the transferred operation's total deadline;
-2. asks `PackageHouse` to Realize the exact source-issued candidate at the
-   requested target with compile and surface-plus-implementation demand;
-3. consumes the House-issued Root contribution without repeating payload
-   acquisition or asset selection;
-4. invokes the one-candidate evaluator;
-5. detaches the typed outcome and occurrence evidence;
-6. completes candidate-scoped cleanup; and
-7. reports the terminal candidate outcome through the optional nonterminal
+2. asks `PackageHouse` to Acquire the exact source-issued candidate under the
+   request's payload limits;
+3. projects the House settlement into the retained configured-payload evidence
+   shape;
+4. constructs the existing exact-target package Root without compatible TFM
+   fallback;
+5. invokes the one-candidate evaluator;
+6. detaches the typed outcome and occurrence evidence;
+7. completes candidate-scoped cleanup; and
+8. reports the terminal candidate outcome through the optional nonterminal
    sink before advancing.
 
 Serial execution preserves the measured five-candidate memory boundary and

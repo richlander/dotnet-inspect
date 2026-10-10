@@ -303,6 +303,45 @@ public sealed class PackageAssemblySemanticFindQueryTests
     }
 
     [Fact]
+    public async Task HouseAcquisitionPreservesExactTargetSelection()
+    {
+        const string packageId = "Contoso.Compatible.Only";
+        await using var fixture = new SemanticFindSourceFixture();
+        await fixture.CacheAsync(
+            packageId,
+            ($"lib/net8.0/{packageId}.dll", MatchImage));
+        PackageSourceOperationLease operation =
+            fixture.IssueOperation(
+                TestContext.Current.CancellationToken);
+        PackageAcquisitionPopulation population =
+            await fixture.ResolvePopulationAsync(
+                operation,
+                [packageId]);
+        var request = new PackageAssemblySemanticFindRequest(
+            population,
+            PackageHouseTargetContext.Exact("net10.0"),
+            PackageAssemblyPatterns.CreateRequest(
+                PackageAssemblyPatterns.StringLiteralContains,
+                Marker));
+
+        PackageAssemblySemanticQueryDocument document =
+            (await PackageAssemblySemanticQueryInspection.ExecuteAsync(
+                request,
+                operation,
+                fixture.Execution,
+                cancellationToken:
+                    TestContext.Current.CancellationToken)).Content;
+
+        var outcome = Assert.IsType<
+            PackageAssemblySemanticQueryCandidateOutcome.NotApplicable>(
+            Assert.Single(document.CandidateOutcomes));
+        Assert.Equal(
+            PackageAssemblyNotApplicableReason.NoMatchingTargetFramework,
+            outcome.Evaluation.Reason);
+        Assert.Empty(document.Results);
+    }
+
+    [Fact]
     public async Task AggregateLiteralNoMatchRequiresEveryImplementationLibrary()
     {
         const string packageId = "Contoso.Aggregate.Miss";

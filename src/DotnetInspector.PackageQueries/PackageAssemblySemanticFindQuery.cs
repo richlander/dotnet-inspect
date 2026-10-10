@@ -609,9 +609,8 @@ internal static class PackageAssemblySemanticFindQuery
                         request.Population.Candidates[index];
                     ConfiguredPackagePayloadResult acquired =
                         PackageHousePayloadResultAdapter.Create(
-                            await RealizeCandidateAsync(
+                            await AcquireCandidateAsync(
                                 candidate,
-                                request.Target,
                                 execution,
                                 operationCancellation)
                             .ConfigureAwait(false));
@@ -734,9 +733,8 @@ internal static class PackageAssemblySemanticFindQuery
         sourceOperation.ValidatePopulationOwnership(request.Population);
     }
 
-    private static Task<PackageHouseSettlement> RealizeCandidateAsync(
+    private static Task<PackageHouseSettlement> AcquireCandidateAsync(
         PackageAcquisitionCandidate candidate,
-        PackageHouseTargetContext target,
         PackageAssemblySemanticFindExecution execution,
         CancellationToken cancellationToken)
     {
@@ -747,13 +745,9 @@ internal static class PackageAssemblySemanticFindQuery
             var request = new PackageHouseRequest(
                 new PackageHouseDemand.Candidate(candidate),
                 PackageHouseOperation.Create(
-                    PackageHouseOperationProfile.Realize,
+                    PackageHouseOperationProfile.Acquire,
                     sourceOperation.RequestTimeout,
-                    sourceOperation.OperationTimeout),
-                target,
-                PackageHouseAssetSelectionKind.Compile,
-                assetDemand:
-                    PackageAssetDemand.SurfaceAndImplementation);
+                    sourceOperation.OperationTimeout));
             Task<PackageHouseSettlement> pending =
                 execution.House.ExecuteAsync(
                     request,
@@ -831,21 +825,10 @@ internal static class PackageAssemblySemanticFindQuery
                 []);
         }
 
-        PackageHouseSettlement settlement = acquired.HouseSettlement
-            ?? throw new InvalidOperationException(
-                "Assembly-semantic acquisition did not retain its PackageHouse settlement.");
-        PackageHouseRootContributionOutcome contributionOutcome =
-            PackageHouseRootContributionAdapter.Create(settlement);
-        if (contributionOutcome
-            is not PackageHouseRootContributionOutcome.Contributed contributed)
-        {
-            var unavailable =
-                (PackageHouseRootContributionOutcome.NoContribution)
-                    contributionOutcome;
-            throw new InvalidOperationException(
-                $"PackageHouse could not issue an assembly-semantic Root contribution ({unavailable.Reason}).");
-        }
-        PackageRootBinding binding = contributed.Contribution.Binding;
+        PackageRootBinding binding = PackageRootBinding.CreateFromSource(
+            acquired.Payload,
+            request.Target.RequestedFramework,
+            request.Target.RuntimeIdentifier);
         if (request.Pattern.Pattern.LibraryScope
             == PackageAssemblyPatternLibraryScope.AggregateRole)
         {
