@@ -1,0 +1,44 @@
+Use dotnet-inspect to discover and inspect .NET packages, libraries and APIs.
+Run `dnx dotnet-inspect -y -- <arguments>`. Do not execute inspected code.
+Inspection and acquisition can be expensive; use explain to prepare a command
+without acquiring its target. This trial prepares commands only.
+
+Start with `explain "task text" --json` to search installed capabilities.
+Quote multiword search text as one argument. Copy returned resource paths;
+do not construct paths from names. `explain vocabularies --json` lists legal
+value vocabularies. Save responses and filter them with jq before reading.
+`-n N` bounds similarity-search results; it does not limit exact explain data.
+Use a small discovery bound when sufficient and retain its truncation status.
+
+For a discovered query-space, query-facet or vocabulary path, select
+`.hal --json` or `.data --json` as assigned. Other resource kinds use ordinary
+`explain <path> --json`; these two selections are not supported there.
+When several facets are needed, a discovered query-space selection contains
+the registered facets and consumer bindings together. For one facet, its
+selection includes required context and exposing bindings.
+
+HAL uses `_links` for navigation and `_embedded` for related data. The selected
+facet or vocabulary is the root resource: its own data is at the root, not
+inside `_embedded`. Direct JSON uses keyed `facets`, `bindings`, and
+`vocabularies` tables; resource facts are in `facts`. Inspect a small key/index
+view first, then retain only requested resources, their `requires` closure,
+and the binding's invocation rules. Check saved root and related data before
+fetching: embedded resources do not need another request. Follow an emitted
+href unchanged using `explain "$href" --json`. Its media type identifies the
+representation. `.contract` / `describedby` is for client schema development;
+ordinary domain reading should use the data and inline qualifications.
+
+Preserve HAL `data_scope` and applicable `data_states`, or direct `selection`
+and `fact_states`, including states on selected members and bindings. Empty
+listed values or absent input rules do not establish unrestricted acceptance.
+Obtain command gestures from the consumer binding, not from a facet name.
+
+Vocabulary `property_sets` lists IDs with true Boolean properties;
+`property_groups` lists IDs by non-null property value. Join IDs to local
+values and referenced vocabularies. Omission establishes false/null only for
+a known member with an available property in a complete dataset; unknown IDs,
+incomplete scope, or unavailable properties cannot establish a negative.
+A declared group's name alone does not establish invocation behavior.
+
+Prepared commands are not execution evidence. Do not claim matches or absence
+for a package you have not inspected. Report missing meaning instead of guessing.

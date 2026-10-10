@@ -1,0 +1,3 @@
+{"id": 1, "argv": ["explain", "vocabularies", "--json"], "exit": 0, "stdout_bytes": 2637, "stderr_bytes": 0, "stdout_file": "response-01.out", "stderr_file": "response-01.err"}
+{"id": 2, "argv": ["explain", "vocabularies/csharp.style-choices", ".hal", "--json"], "exit": 0, "stdout_bytes": 14828, "stderr_bytes": 0, "stdout_file": "response-02.out", "stderr_file": "response-02.err"}
+{"id": 3, "argv": ["explain", "vocabularies/csharp.style-tiers", ".hal", "--json"], "exit": 0, "stdout_bytes": 2583, "stderr_bytes": 0, "stdout_file": "response-03.out", "stderr_file": "response-03.err"}
