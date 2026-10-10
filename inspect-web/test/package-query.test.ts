@@ -17,7 +17,7 @@ import {
   isLibraryLiteralQuery,
   shouldExecuteQuery,
   synchronizeDependencyTermEditor,
-  synchronizeDependencyTermEdits,
+  synchronizeTermEdits,
   togglePreset,
   replaceTerm,
   withCompletion,
@@ -575,7 +575,7 @@ test("pending dependency editors follow applied shared reach and target", () => 
       "net9.0",
       DEPTH_3_FACET,
       DEPENDENCY_TARGET_TERM);
-    const synchronized = synchronizeDependencyTermEdits(
+    const synchronized = synchronizeTermEdits(
       previous,
       next,
       edits);
@@ -634,7 +634,7 @@ test("standalone target changes synchronize pending dependency editors", () => {
     dependencyTarget: "net10.0",
   };
   const changed = replaceTerm(previous, targetIndex, "eq", "net9.0");
-  const changedEdits = synchronizeDependencyTermEdits(
+  const changedEdits = synchronizeTermEdits(
     previous,
     changed,
     edits);
@@ -656,7 +656,7 @@ test("standalone target changes synchronize pending dependency editors", () => {
   const changedTargetIndex = changed.terms.findIndex(
     term => term.descriptor.key === "dependency-target");
   const removed = withoutTerm(changed, changedTargetIndex);
-  const removedEdit = synchronizeDependencyTermEdits(
+  const removedEdit = synchronizeTermEdits(
     changed,
     removed,
     changedEdits,
@@ -971,6 +971,30 @@ test("tool facts and DotnetCliTool value queries replace across control families
     [ANY_TOOL_FACET.id]);
   assert.deepEqual(backToAny.terms, []);
   assert.equal(backToAny.requestedLimit, 200);
+});
+
+test("term edits follow surviving terms across cross-family replacement", () => {
+  const previous = withTerm(
+    withTerm(
+      createQueryRequest("Microsoft."),
+      TOOL_FORMAT_TERM,
+      "eq",
+      "v1"),
+    LIBRARY_LITERAL_TERM,
+    "eq",
+    "applied");
+  const next = togglePreset(previous, ANY_TOOL_FACET);
+  const edits = synchronizeTermEdits(previous, next, [
+    null,
+    { operator: "eq", value: "pending" },
+  ]);
+
+  assert.deepEqual(
+    next.terms.map(term => term.value),
+    ["applied"]);
+  assert.deepEqual(edits, [
+    { operator: "eq", value: "pending" },
+  ]);
 });
 
 test("appendRows and appendFailure accumulate without mutating prior outcome", () => {

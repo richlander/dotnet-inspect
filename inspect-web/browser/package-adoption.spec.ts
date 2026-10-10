@@ -1599,6 +1599,24 @@ test.describe("Package Query website over real Wasm", () => {
     );
     expect(registry.downloadCount(tool)).toBe(1);
     expect(registry.downloadCount(library)).toBe(0);
+
+    await page.locator('[data-query-term-add="references"]').click();
+    const referenceDraft = page.locator(
+      '[data-query-term-form="draft"] [data-query-term-value]',
+    );
+    await referenceDraft.fill("Missing.Assembly");
+    await page.locator(
+      '[data-query-term-form="draft"] button[type="submit"]',
+    ).click();
+    const referenceEdit = page.locator(
+      '[data-query-term-form="1"] [data-query-term-value]',
+    );
+    await referenceEdit.fill("System.Runtime");
+    await toolFact.click();
+    await expect(toolFact).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(
+      '[data-query-term-form="0"] [data-query-term-value]',
+    )).toHaveValue("System.Runtime");
   });
 
   test("applies, edits, repeats, and removes product-issued dependency terms", async ({

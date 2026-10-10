@@ -27,6 +27,8 @@ import {
   createQueryRequest,
   emptyOutcome,
   initialQueryState,
+  synchronizeTermEdits,
+  togglePreset,
   withCompletion,
   withDependencyTerm,
   withPreset,
@@ -80,6 +82,7 @@ const TOOL_FACET: QueryPreset = {
   label: ".NET Tool",
   tier: "nuspec",
   executionClass: "nuspec",
+  replacementGroupId: "package.query.replacement.dotnet-tool",
   categoryId: "package-metadata",
   categoryLabel: "Package metadata",
   categoryOrder: 100,
@@ -673,6 +676,40 @@ test("pending term edits survive full view rerenders", () => {
   assert.match(
     html,
     /data-query-term-form="draft"[\s\S]*value="Microsoft\.Extensions\.Logging"/);
+});
+
+test("cross-family replacement preserves unrelated pending term edits", () => {
+  const previous = withTerm(
+    withTerm(
+      createQueryRequest("Microsoft.*"),
+      TOOL_FORMAT_TERM,
+      "eq",
+      "v1"),
+    LIBRARY_LITERAL_TERM,
+    "eq",
+    "applied");
+  const request = togglePreset(previous, TOOL_FACET);
+  const termEdits = synchronizeTermEdits(previous, request, [
+    null,
+    { operator: "eq", value: "pending" },
+  ]);
+  const html = renderPackageQueryView({
+    state: {
+      request,
+      outcome: emptyOutcome(),
+      termEdits,
+    },
+    availablePresets: FACETS,
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /data-query-term-form="0"[\s\S]*>pending<\/textarea>/);
+  assert.doesNotMatch(
+    html,
+    /data-query-term-form="0"[\s\S]*>applied<\/textarea>/);
 });
 test("candidate and local match bounds are independently disclosed before and during inspection", () => {
   for (const request of [

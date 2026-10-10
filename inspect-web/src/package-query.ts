@@ -459,7 +459,7 @@ export function withoutDependencyTerm(
   }));
 }
 
-export function synchronizeDependencyTermEdits(
+export function synchronizeTermEdits(
   previous: QueryRequest,
   next: QueryRequest,
   edits: readonly (QueryTermEditor | null)[],

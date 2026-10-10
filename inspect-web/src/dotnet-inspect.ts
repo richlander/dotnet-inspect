@@ -711,7 +711,7 @@ import {
   isTraversalDependencyTarget,
   shouldExecuteQuery,
   synchronizeDependencyTermEditor,
-  synchronizeDependencyTermEdits,
+  synchronizeTermEdits,
   togglePreset,
   replaceTerm,
   withTerm,
@@ -21017,10 +21017,7 @@ function togglePackageQueryPreset(presetId: string, text: string) {
 
   const current = preparePackageQueryControlRequest(text);
   const request = togglePreset(current, preset);
-  if (preset.key === "dependencies"
-    || preset.key === "dependency-depth") {
-    synchronizePackageQueryDependencyEditors(current, request);
-  }
+  synchronizePackageQueryTermEditors(current, request);
   submitPackageQueryRequest(request);
 }
 
@@ -21065,11 +21062,11 @@ function synchronizePackageQueryDependencyDraft(request: QueryRequest) {
   };
 }
 
-function synchronizePackageQueryDependencyEditors(
+function synchronizePackageQueryTermEditors(
   previous: QueryRequest,
   next: QueryRequest,
 ) {
-  state.packageQueryState.termEdits = synchronizeDependencyTermEdits(
+  state.packageQueryState.termEdits = synchronizeTermEdits(
     previous,
     next,
     state.packageQueryState.termEdits ?? []);
@@ -21136,7 +21133,7 @@ function applyPackageQueryTerm(
   const changesDependencyContext = descriptor.key === "depends"
     || descriptor.key === "dependency-target";
   if (changesDependencyContext) {
-    synchronizePackageQueryDependencyEditors(current, request);
+    synchronizePackageQueryTermEditors(current, request);
   }
   if (index === null) {
     state.packageQueryState.termDraft = null;
@@ -21160,7 +21157,7 @@ function removePackageQueryTerm(index: number, text: string) {
     ? withoutDependencyTerm(current, index)
     : withoutTerm(current, index);
   if (changesDependencyContext) {
-    synchronizePackageQueryDependencyEditors(current, request);
+    synchronizePackageQueryTermEditors(current, request);
   } else {
     state.packageQueryState.termEdits =
       (state.packageQueryState.termEdits ?? []).filter(
