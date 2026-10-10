@@ -1,0 +1,62 @@
+{
+  "data_scope": {
+    "completeness": "Complete"
+  },
+  "facet": {
+    "key": "dependency-depth",
+    "summary": "Extends exact depends terms through the selected maximum declaration-edge depth.",
+    "value_kind": "closed value",
+    "operators": [
+      "eq"
+    ],
+    "values": [
+      "2",
+      "3",
+      "4"
+    ],
+    "input_rules": [
+      "Requires an explicit dependency-target=<tfm> and at least one exact depends (eq) or legacy depends-transitive term. A starts-with predicate alone cannot satisfy this requirement; all is not accepted as the target.",
+      "Selects the maximum declaration-edge depth, not the result row limit. Prefer exact depends plus depth for new queries; depends-transitive remains the depth-2-or-greater legacy spelling.",
+      "Admits at most 5 package candidates; an exact package input admits one. Set the candidate bound explicitly for a prefix or ecosystem population."
+    ],
+    "requires": [
+      "dependency-target"
+    ]
+  },
+  "context": [
+    {
+      "key": "dependency-target",
+      "summary": "Scopes dependency terms to all manifest groups or one TFM-selected group.",
+      "value_kind": "all or NuGet target framework",
+      "operators": [
+        "eq"
+      ],
+      "values": [],
+      "examples": [
+        "net8.0"
+      ],
+      "input_rules": [
+        "Requires at least one depends, depends-transitive, depends-ecosystem, or dependencies term; applies to all dependency predicates in the query.",
+        "Dependency traversal requires an explicit dependency-target=<tfm>; all is not accepted with dependency-depth or depends-transitive."
+      ],
+      "requires": []
+    }
+  ],
+  "bindings": [
+    {
+      "gesture": "package query",
+      "input_rules": [
+        "Supply a package ID or PREFIX* as the positional argument after package query.",
+        "Supply exposed inspection facets through --where key=value.",
+        "Set the package-candidate work bound through --take N; -n N selects final result rows and does not replace that bound for inspection predicates.",
+        "Use --json for structured query result output.",
+        "Supply library-target through --tfm TFM, not --where. Use one exact NuGet target framework.",
+        "library-literal and --tfm require each other; neither is valid alone."
+      ],
+      "exposed_facets": [
+        "dependency-target",
+        "dependency-depth"
+      ]
+    }
+  ]
+}
