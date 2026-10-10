@@ -85,8 +85,8 @@ The probe runs only inside that population. It never searches a second
 population, never merges roles, target slices, or RIDs, and never enumerates
 archive paths; members that the issuing owner already qualifies by RID, such as
 nested assets of a tool-Library population, remain ordinary members. When the
-role owner cannot issue one population, the request fails with that owner's
-reason before any probe runs. A probe's non-success names the population it
+role owner cannot issue one population, the request returns that owner's typed
+non-success before any probe runs. A probe's non-success names the population it
 searched, for example `No namesake library found in lib/net10.0/`, in addition
 to the ordered candidates and participant evidence that Navigation requires.
 
@@ -342,16 +342,18 @@ probes. When compile selection returns `NoCompileAssets`, the CLI searches the
 extracted archive instead. Without `--tfm`, it takes `tools/` DLLs, otherwise
 `ref/`, otherwise `lib/`, otherwise every DLL in the package, and then keeps
 the highest framework named by a `lib/`, `ref/`, or `tools/` folder; with
-`--tfm`, it takes every such folder that names that framework. Analyzer, build,
-and native DLLs therefore enter only when no DLL has a framework folder, and
-RID folders merge at the chosen framework. A runtime pack consequently yields
+`--tfm`, it takes every such folder that names that framework. DLLs under
+`analyzers/`, `build/`, `tasks/`, or `runtimes/<rid>/native/` therefore enter
+only when no DLL has a framework folder, and RID folders merge at the chosen
+framework. A runtime pack consequently yields
 its implementation assemblies, an analyzer package its analyzers, and a
-framework-less root `lib/` package its root assemblies. `--tfm all` also
-bypasses compile selection and merges every framework. An explicit empty
-compile slice does not reach the search; it fails and reports the empty
-group's own folder spelling, such as `netstandard`. #9833 retires the search
-after the root `lib/` and RID-implementation decisions above, and Browser
-adoption of Library probes is not yet recorded.
+framework-less root `lib/` package its root assemblies. `--tfm all` bypasses
+compile selection and takes every DLL in the package, merging frameworks,
+RIDs, and roles, including analyzer, build, and native DLLs. A selected
+explicit empty compile group does not reach either path; it fails and reports
+the group's own folder spelling, such as `netstandard`. #9833 decides both
+paths after the root `lib/` and RID-implementation decisions above, and
+Browser adoption of Library probes is not yet recorded.
 
 Later SourceLink and relationship adoptions remain separately scoped. Existing
 aggregate behavior is evidence, not an automatic conformance claim.
