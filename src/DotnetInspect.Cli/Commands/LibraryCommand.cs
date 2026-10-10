@@ -3795,9 +3795,7 @@ public partial class LibraryCommand
         && !options.HasRanking
         && options.Shapes is { Length: > 0 }
         && options.Shapes.Any(static shape =>
-            shape.Equals(
-                "sync-call-in-async",
-                StringComparison.OrdinalIgnoreCase));
+            PerformanceKinds.IsSyncCallsInAsyncShape(shape));
 
     private static bool ValidateMultiTfmOutput(LibraryOptions options)
     {

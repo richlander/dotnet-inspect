@@ -794,13 +794,30 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PerformanceSyncCallsInAsync_ImplicitShapeUsesDedicatedSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--triage-shape",
+            "sync-call-in-async",
+            "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith(
+            "caller\tcallee\talternative\tpair_kind\n",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains("CallsSyncSiblingFromAsync", output);
+    }
+
+    [Fact]
     public async Task PerformanceGroup_MixedShapeSelectionRetainsSyncCalls()
     {
         var (exit, output, error) = await RunAppAsync(
             "library",
             TestAssemblyPath,
-            "-S",
-            "Performance:*",
             "--triage-shape",
             "box-value-type,sync-call-in-async",
             "--tsv");

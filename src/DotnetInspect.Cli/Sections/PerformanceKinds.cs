@@ -11,6 +11,8 @@ using ILInspector.Analysis;
 /// </summary>
 public static class PerformanceKinds
 {
+    public const string SyncCallsInAsyncShape = "sync-call-in-async";
+
     /// <summary>The kind-scoped performance sections, in curated display order.</summary>
     public static readonly string[] Sections =
     [
@@ -38,6 +40,17 @@ public static class PerformanceKinds
     public static string SectionForShape(string? shape) =>
         SectionForKind(
             OptimizationOpportunityRowSpace.KindForShape(shape));
+
+    public static string SectionForRequestedShape(string? shape) =>
+        IsSyncCallsInAsyncShape(shape)
+            ? SectionNames.PerformanceSyncCallsInAsync
+            : SectionForShape(shape);
+
+    public static bool IsSyncCallsInAsyncShape(string? shape) =>
+        string.Equals(
+            shape,
+            SyncCallsInAsyncShape,
+            StringComparison.OrdinalIgnoreCase);
 
     public static OptimizationOpportunityCuratedQuery QueryForSection(
         string section) =>
@@ -78,7 +91,7 @@ public static class PerformanceKinds
                     opportunities)
                 .Where(opportunity =>
                     section != SectionNames.PerformanceAsync
-                    || opportunity.Shape != "sync-call-in-async"),
+                    || !IsSyncCallsInAsyncShape(opportunity.Shape)),
         ];
 
     public static bool Any(
@@ -89,7 +102,7 @@ public static class PerformanceKinds
                     QueryForSection(section),
                     opportunities)
                 .Any(static opportunity =>
-                    opportunity.Shape != "sync-call-in-async")
+                        !IsSyncCallsInAsyncShape(opportunity.Shape))
             : OptimizationOpportunityRowSpace.Any(
                 QueryForSection(section),
                 opportunities);

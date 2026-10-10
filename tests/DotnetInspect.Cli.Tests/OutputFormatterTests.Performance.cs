@@ -634,6 +634,51 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
+    public void PerformanceGroupRows_ExcludesMigratedLegacySyncCallRows()
+    {
+        var view = new LibraryInspectionView(new LibraryInspection
+        {
+            PerformanceTriageOpportunities =
+            [
+                Opp(
+                    "StateMachine",
+                    inLoop: false,
+                    confidence: "high",
+                    rootReach: 1,
+                    shape: "async-state-machine"),
+                Opp(
+                    "LegacySyncCall",
+                    inLoop: false,
+                    confidence: "medium",
+                    rootReach: 1,
+                    shape: PerformanceKinds.SyncCallsInAsyncShape),
+            ],
+            SyncCallsInAsyncSummaries =
+            [
+                new SyncCallInAsyncSummary
+                {
+                    Caller = "Caller",
+                    Callee = "Callee",
+                    Alternative = "Alternative",
+                    PairKind = "Operation",
+                },
+            ],
+        });
+
+        var rows = view.PerformanceGroupRows(
+            PerformanceKinds.TabularSections);
+
+        Assert.Equal(
+            ["Async", "Sync Calls in Async"],
+            rows.Select(row => row.Kind));
+        Assert.DoesNotContain(
+            rows,
+            row => row.Member
+                == MarkoutInline.Code(
+                    "Ns.Type.LegacySyncCall()"));
+    }
+
+    [Fact]
     public void PerformanceTriageRowQuery_AppliesPaydirtPredicatesAfterRanking()
     {
         var opportunities = new[]
