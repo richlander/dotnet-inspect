@@ -34,7 +34,8 @@ public static class FixedBufferMetadata
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
         int maxAttributeRows,
-        Action<int>? beforeMaterialize)
+        Action<int>? beforeMaterialize,
+        Action? beforeRow = null)
     {
         if (attributes.Count > maxAttributeRows)
         {
@@ -47,6 +48,7 @@ public static class FixedBufferMetadata
         bool malformed = false;
         foreach (var handle in attributes)
         {
+            beforeRow?.Invoke();
             try
             {
                 var attribute = reader.GetCustomAttribute(handle);

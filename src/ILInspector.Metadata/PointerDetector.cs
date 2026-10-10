@@ -28,42 +28,57 @@ internal sealed class PointerDetector : ISignatureTypeProvider<PointerDetection,
         }
     }
 
+    /// <param name="work">
+    /// Receives the member signature and every TypeSpec blob decoded from it,
+    /// when the caller receipts signature work.
+    /// </param>
     internal static MemorySafetyPointerEvidence DecodeMember(
         MetadataReader reader,
-        EntityHandle member)
+        EntityHandle member,
+        MemorySafetyMetadataWorkRecorder? work = null)
     {
         PointerDetection detection;
         bool degraded = false;
         switch (member.Kind)
         {
             case HandleKind.MethodDefinition:
+                MethodDefinition methodDefinition =
+                    reader.GetMethodDefinition((MethodDefinitionHandle)member);
+                ObserveBlob(reader, methodDefinition.Signature, work);
                 var method = GuardedProviderDecode.MethodResult(
                     reader,
-                    reader.GetMethodDefinition((MethodDefinitionHandle)member),
+                    methodDefinition,
                     Instance,
-                    (object?)null,
+                    work,
                     PointerDetection.Degraded);
                 detection = PointerDetection.Combine(
                     method.Value.ReturnType, method.Value.ParameterTypes);
                 degraded = method.IsDegraded;
                 break;
             case HandleKind.PropertyDefinition:
+                PropertyDefinition propertyDefinition =
+                    reader.GetPropertyDefinition(
+                        (PropertyDefinitionHandle)member);
+                ObserveBlob(reader, propertyDefinition.Signature, work);
                 var property = GuardedProviderDecode.PropertyResult(
                     reader,
-                    reader.GetPropertyDefinition((PropertyDefinitionHandle)member),
+                    propertyDefinition,
                     Instance,
-                    (object?)null,
+                    work,
                     PointerDetection.Degraded);
                 detection = PointerDetection.Combine(
                     property.Value.ReturnType, property.Value.ParameterTypes);
                 degraded = property.IsDegraded;
                 break;
             case HandleKind.FieldDefinition:
+                FieldDefinition fieldDefinition =
+                    reader.GetFieldDefinition((FieldDefinitionHandle)member);
+                ObserveBlob(reader, fieldDefinition.Signature, work);
                 var field = GuardedProviderDecode.FieldResult(
                     reader,
-                    reader.GetFieldDefinition((FieldDefinitionHandle)member),
+                    fieldDefinition,
                     Instance,
-                    (object?)null,
+                    work,
                     PointerDetection.Degraded);
                 detection = field.Value;
                 degraded = field.IsDegraded;
@@ -76,12 +91,10 @@ internal sealed class PointerDetector : ISignatureTypeProvider<PointerDetection,
                     HandleKind.TypeDefinition or HandleKind.TypeReference =>
                         default,
                     HandleKind.TypeSpecification =>
-                        GuardedProviderDecode.TypeSpec(
+                        DecodeEventTypeSpec(
                             reader,
                             (TypeSpecificationHandle)eventType,
-                            Instance,
-                            (object?)null,
-                            PointerDetection.Degraded),
+                            work),
                     _ => PointerDetection.Degraded,
                 };
                 break;
@@ -106,7 +119,48 @@ internal sealed class PointerDetector : ISignatureTypeProvider<PointerDetection,
             return PointerDetection.Degraded;
         using (scope)
         {
-            return reader.GetTypeSpecification(handle).DecodeSignature(this, context);
+            TypeSpecification specification =
+                reader.GetTypeSpecification(handle);
+            ObserveBlob(
+                reader,
+                specification.Signature,
+                context as MemorySafetyMetadataWorkRecorder);
+            return specification.DecodeSignature(this, context);
+        }
+    }
+
+    static PointerDetection DecodeEventTypeSpec(
+        MetadataReader reader,
+        TypeSpecificationHandle handle,
+        MemorySafetyMetadataWorkRecorder? work)
+    {
+        if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+            return PointerDetection.Degraded;
+        using (scope)
+        {
+            TypeSpecification specification =
+                reader.GetTypeSpecification(handle);
+            ObserveBlob(reader, specification.Signature, work);
+            return specification.DecodeSignature(Instance, work);
+        }
+    }
+
+    static void ObserveBlob(
+        MetadataReader reader,
+        BlobHandle blob,
+        MemorySafetyMetadataWorkRecorder? work)
+    {
+        if (work is null)
+            return;
+
+        // An unreadable blob is left to the guarded decode, so receipting
+        // never changes the evidence the decode reports.
+        try
+        {
+            work.ObserveSignatureBytes(reader.GetBlobReader(blob).Length);
+        }
+        catch (BadImageFormatException)
+        {
         }
     }
 
