@@ -268,13 +268,15 @@ state or the residual on the same axis.
 
 - **Member API** holds the Member's own Public API facts, compared
   completely rather than to a first difference: signature, flags,
-  parameters, constants, and custom attributes. A non-public Member, and
-  every Member of a non-public Type, has no API facts.
+  parameters, constants, and custom attributes. Public means visible as the
+  census decides it, which includes explicit interface implementations. A
+  non-public Member, and every Member of a non-public Type, has no API facts.
 - **Member Body** holds the Member's non-API facts and stops at the first
   difference: its IL; for a non-public Member, its metadata (flags,
   implementation flags, parameters, constants, imports, and attributes);
   and the IL and metadata of the generated code it owns. Accessors belong to
-  their property or event.
+  their property or event, so a public property's non-public accessor
+  metadata is that property's Body.
 - **Residual** holds every Type fact on its axis's side of the visibility
   partition. For a public Type, the API residual is the Type's declaration:
   flags except `beforefieldinit`, base Type, interfaces and their
@@ -284,8 +286,9 @@ state or the residual on the same axis.
   holds `beforefieldinit` and generated code, IL and metadata, with no
   single owner.
 
-A Member declared on one side only is `Changed` on every axis where it has
-facts: API and Body for a public Member, Body alone for a non-public one.
+A Member declared on one side only follows the census. A public one is API
+`Changed`; its own body is not compared, so its Body reflects only the
+generated code it owns. A non-public one is Body `Changed`.
 
 Generated code (lambdas, local functions, iterators, and async state machines)
 belongs to a Member only when the shared lifted-owner resolution in
@@ -293,7 +296,9 @@ belongs to a Member only when the shared lifted-owner resolution in
 walk ([#9745](https://github.com/richlander/dotnet-inspect/pull/9745)). A
 change in generated code shared by several Members, or whose owner is
 ambiguous, is a residual Body change. It is never assigned to a guessed
-Member. That resolver is internal to `ILInspector.Analysis` today; step 7
+Member. A generated Type's own row facts, such as its flags and fields,
+belong to the one Member that owns all of its methods, and otherwise to the
+residual. That resolver is internal to `ILInspector.Analysis` today; step 7
 adds a public entry point that resolves the owners of one Type's generated
 methods.
 
@@ -315,8 +320,8 @@ generated-code owner resolution comes from `ILInspector.Analysis`; anchors and
 partition itself stays in `FastDiff`.
 
 Gates: for the fixture pairs, the Type-level states agree with the Library
-level per the partition claim, including an attribute added to an internal
-method, a base Type change on an internal Type, and a nested Type whose
+level per the partition claim, including an added public method, an
+attribute added to an internal method, a base Type change on an internal Type, and a nested Type whose
 inherited nullable context changed; every Member the complete Public API diff
 reports changed is not API `Unchanged`; and every owner of a body that
 canonical IL comparison reports changed is Body `Changed` or `Indeterminate`,
