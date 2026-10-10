@@ -69,6 +69,7 @@ import {
 import {
   MEMBER_TRAITS,
   memberKindCount,
+  memberMatchesTrait,
 } from "../src/member-filtering.ts";
 const engineCallGraphTarget = (
   fixture: CallGraphTarget & { typeFullName?: string },
@@ -1163,6 +1164,160 @@ test("member navigation excludes graph-only projections from ordinary filters", 
   assert.match(
     pane,
     /memberCount: groups\.reduce\([\s\S]*group\.overloads\.length/);
+});
+
+test("compact Type groups retain resident contextual extensions", () => {
+  const groupMembers =
+    appSource.match(/function groupMembers\([\s\S]*?(?=\nfunction typeMemberPopulationKey)/)?.[0]
+    ?? "";
+  const populationGroups =
+    appSource.match(/function currentTypeMemberPopulation\([\s\S]*?(?=\nfunction memberFilterState)/)?.[0]
+    ?? "";
+  const selectorCounts =
+    appSource.match(/function memberKinds\([\s\S]*?(?=\nfunction uploadedLibraryIsActive)/)?.[0]
+    ?? "";
+  assert.notEqual(groupMembers, "");
+  assert.notEqual(populationGroups, "");
+  assert.notEqual(selectorCounts, "");
+
+  const type = {
+    id: "Receiver",
+    definitionId: "T:Receiver",
+    api: [
+      {
+        name: "Declared",
+        kind: "method",
+        graphOnly: false,
+        isExtension: false,
+        isStatic: false,
+        declaringTypeDefinitionId: "T:Receiver",
+      },
+      {
+        name: "Examine",
+        kind: "extension-method",
+        graphOnly: false,
+        isExtension: true,
+        isStatic: true,
+        declaringTypeDefinitionId: "T:Extensions",
+      },
+      {
+        name: "GraphOnlyExtension",
+        kind: "extension-method",
+        graphOnly: true,
+        isExtension: true,
+        isStatic: true,
+        declaringTypeDefinitionId: "T:Extensions",
+      },
+    ],
+  };
+  const state = {
+    memberSpelling: "csharp",
+    memberAccessibilityFilter: "public",
+    memberKindFilter: "all",
+    typeMemberPopulationKey: "type-key",
+    typeMemberPopulation: {
+      outcome: "Available",
+      document: {
+        population: {
+          groups: [{
+            key: "method:Declared",
+            name: "Declared",
+            displayName: "Declared",
+            kind: "method",
+            completeCount: 1,
+            receivers: ["this"],
+            traits: {
+              all: 1,
+              static: 0,
+              instance: 1,
+              virtual: 0,
+              interface: 0,
+              extensions: 0,
+            },
+          }],
+          selectorCounts: {
+            kinds: [{ value: "method", count: 1 }],
+            traits: {
+              all: 1,
+              static: 0,
+              instance: 1,
+              virtual: 0,
+              interface: 0,
+              extensions: 0,
+            },
+          },
+        },
+      },
+    },
+    richMemberFallbackKey: "",
+    richMemberFallback: null,
+  };
+  const result: unknown = runInNewContext(
+    stripTypeScriptTypes(`${groupMembers}
+      ${populationGroups}
+      ${selectorCounts}
+      ({
+        groups: declaredMemberGroups(type),
+        kinds: memberKinds(type),
+        extensionKindCount:
+          selectedMemberKindCount(type, "extension-method"),
+        allCount: selectedMemberTraitCount(type, ""),
+        extensionTraitCount: selectedMemberTraitCount(type, "extensions"),
+        staticTraitCount: selectedMemberTraitCount(type, "static"),
+      });
+    `),
+    {
+      state,
+      type,
+      typeMemberPopulationKey: () => "type-key",
+      uploadedLibraryIsActive: () => true,
+      partitionGraphMembers: (members: unknown[]) => ({
+        publicMembers: members,
+        graphMembers: [],
+      }),
+      searchableMemberGroups: (groups: unknown[]) => groups,
+      createAppMemberSurface: (member: unknown) => member,
+      memberKindCount,
+      memberMatchesTrait,
+    });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    groups: [
+      {
+        key: "method:Declared",
+        name: "Declared",
+        displayName: "Declared",
+        kind: "method",
+        completeCount: 1,
+        completeCountStatus: "available",
+        overloads: [],
+        sourceOverloadCount: 1,
+        receivers: ["this"],
+        traitCounts: {
+          all: 1,
+          static: 0,
+          instance: 1,
+          virtual: 0,
+          interface: 0,
+          extensions: 0,
+        },
+        detailsPending: true,
+      },
+      {
+        key: "extension-method:Examine",
+        name: "Examine",
+        kind: "extension-method",
+        overloads: [type.api[1]],
+        completeCount: 1,
+        completeCountStatus: "pending",
+      },
+    ],
+    kinds: ["method", "extension-method"],
+    extensionKindCount: 1,
+    allCount: 2,
+    extensionTraitCount: 1,
+    staticTraitCount: 0,
+  });
 });
 
 test("unavailable exact Member populations omit selector counts", () => {

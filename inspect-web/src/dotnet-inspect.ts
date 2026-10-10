@@ -100,6 +100,7 @@ import {
   invalidateSourceDestinationWork,
   memberGroupUsesFamilySurface,
   MEMBER_TRAITS,
+  memberMatchesTrait,
   memberNavTargetIndex,
   memberOverloadSourceIndex,
   memberOverloadVisibleIndex,
@@ -7013,6 +7014,15 @@ function loadedMemberDeclarationsApplyToSelection() {
     && state.memberAccessibilityFilter === "public";
 }
 
+function contextualExtensionGroups(type: AppTypeSurface): AppMemberGroup[] {
+  if (!loadedMemberDeclarationsApplyToSelection()) return [];
+  return searchableMemberGroups(groupMembers(type.api.filter(member =>
+    !member.graphOnly
+    && member.isExtension
+    && member.declaringTypeDefinitionId != null
+    && member.declaringTypeDefinitionId !== type.definitionId)));
+}
+
 function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
   const population = currentTypeMemberPopulation(type);
   if (population) {
@@ -7021,7 +7031,7 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
       && state.richMemberFallback?.outcome === "Available"
       ? state.richMemberFallback.population
       : null;
-    return population.groups.map(group => {
+    const declared = population.groups.map(group => {
       const rich = fallback?.groups.find(candidate =>
         candidate.key === group.key);
       const resident = loadedMemberDeclarationsApplyToSelection()
@@ -7047,6 +7057,7 @@ function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
         detailsPending: overloads.length !== group.completeCount,
       };
     });
+    return [...declared, ...contextualExtensionGroups(type)];
   }
   if (!loadedMemberDeclarationsApplyToSelection()) {
     return [];
@@ -7166,6 +7177,9 @@ function memberKinds(type: AppTypeSurface) {
   const counts = currentTypeMemberPopulation(type)?.selectorCounts.kinds;
   const kinds = new Set(counts?.map(count => count.value)
     ?? selectedMemberGroups(type).map(group => group.kind));
+  for (const group of contextualExtensionGroups(type)) {
+    kinds.add(group.kind);
+  }
   if (state.memberKindFilter !== "all") {
     kinds.add(state.memberKindFilter);
   }
@@ -7193,8 +7207,13 @@ function availableMemberTraits(type: AppTypeSurface) {
 function selectedMemberKindCount(type: AppTypeSurface, kind: string) {
   const selectorCounts = currentTypeMemberPopulation(type)?.selectorCounts;
   if (selectorCounts) {
-    return selectorCounts.kinds.find(count => count.value === kind)?.count
-      ?? (kind === state.memberKindFilter ? 0 : null);
+    const declared =
+      selectorCounts.kinds.find(count => count.value === kind)?.count;
+    const contextual =
+      memberKindCount(contextualExtensionGroups(type), kind);
+    return declared !== undefined || contextual > 0
+      ? (declared ?? 0) + contextual
+      : kind === state.memberKindFilter ? 0 : null;
   }
   if (!loadedMemberDeclarationsApplyToSelection()) return null;
   return memberKindCount(selectedMemberGroups(type), kind);
@@ -7203,15 +7222,23 @@ function selectedMemberKindCount(type: AppTypeSurface, kind: string) {
 function selectedMemberTraitCount(type: AppTypeSurface, trait: string) {
   const traits = currentTypeMemberPopulation(type)?.selectorCounts.traits;
   if (!traits) return null;
-  switch (trait) {
-    case "": return traits.all;
-    case "static": return traits.static;
-    case "instance": return traits.instance;
-    case "virtual": return traits.virtual;
-    case "interface": return traits.interface;
-    case "extensions": return traits.extensions;
-    default: return null;
-  }
+  const declared = (() => {
+    switch (trait) {
+      case "": return traits.all;
+      case "static": return traits.static;
+      case "instance": return traits.instance;
+      case "virtual": return traits.virtual;
+      case "interface": return traits.interface;
+      case "extensions": return traits.extensions;
+      default: return null;
+    }
+  })();
+  if (declared === null) return null;
+  const contextual = contextualExtensionGroups(type)
+    .flatMap(group => group.overloads)
+    .filter(member => memberMatchesTrait(member, trait))
+    .length;
+  return declared + contextual;
 }
 
 function uploadedLibraryIsActive() {
@@ -7241,6 +7268,8 @@ function renderMemberFilterControls(type: AppTypeSurface) {
   const population = currentTypeMemberPopulation(type);
   const composition = population?.composition;
   const selectorCounts = population?.selectorCounts;
+  const contextualCount = contextualExtensionGroups(type)
+    .reduce((count, group) => count + group.overloads.length, 0);
   const accessibilityCount = (accessibility: MemberAccessibility) => {
     if (!composition) return null;
     return accessibility === "all"
@@ -7248,7 +7277,9 @@ function renderMemberFilterControls(type: AppTypeSurface) {
         + composition.protected
         + composition.internal
         + composition.private
-      : composition[accessibility];
+        + contextualCount
+      : composition[accessibility]
+        + (accessibility === "public" ? contextualCount : 0);
   };
   const activeTrait = traits.find(
     ([value]) => value === state.memberTraitFilter)?.[1];
@@ -7286,7 +7317,7 @@ function renderMemberFilterControls(type: AppTypeSurface) {
         <label class="member-filter-select">
           <span>Kind</span>
           <select class="scope-select" data-member-kind-filter aria-label="Member kind">
-            <option value="all" ${state.memberKindFilter === "all" ? "selected" : ""}>all kinds${selectorCounts ? ` · ${selectorCounts.traits.all}` : ""}</option>
+            <option value="all" ${state.memberKindFilter === "all" ? "selected" : ""}>all kinds${selectorCounts ? ` · ${selectedMemberTraitCount(type, "")}` : ""}</option>
             ${kinds.map(kind => {
               const count = selectedMemberKindCount(type, kind);
               return `<option value="${escapeHtml(kind)}" ${state.memberKindFilter === kind ? "selected" : ""}>${escapeHtml(kind.replaceAll("-", " "))}${count === null ? "" : ` · ${count}`}</option>`;
@@ -7371,13 +7402,16 @@ function renderMemberComposition(type: AppTypeSurface) {
       kind))
     .join("");
   const composition = currentTypeMemberPopulation(type)?.composition;
+  const contextualCount = contextualExtensionGroups(type)
+    .reduce((count, group) => count + group.overloads.length, 0);
   const counts = composition
     ? {
         all: composition.public
           + composition.protected
           + composition.internal
-          + composition.private,
-        public: composition.public,
+          + composition.private
+          + contextualCount,
+        public: composition.public + contextualCount,
         protected: composition.protected,
         internal: composition.internal,
         private: composition.private,
