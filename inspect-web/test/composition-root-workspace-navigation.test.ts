@@ -1397,7 +1397,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /function removePackageQueryTerm\([\s\S]*const termKey = current\.terms\[index\]\?\.descriptor\.key;[\s\S]*const dependency = termKey === "depends";[\s\S]*withoutDependencyTerm\(current, index\)[\s\S]*withoutTerm\(current, index\)/);
   assert.match(
     appSource,
-    /function synchronizePackageQueryDependencyDraft\([\s\S]*synchronizeDependencyTermEditor\(request, draft\)[\s\S]*function synchronizePackageQueryTermEditors\([\s\S]*synchronizeTermEdits\([\s\S]*synchronizePackageQueryDependencyDraft\(next\)[\s\S]*function applyPackageQueryTerm\([\s\S]*descriptor\.key === "dependency-target"[\s\S]*synchronizePackageQueryTermEditors\(current, request\)[\s\S]*function removePackageQueryTerm\([\s\S]*termKey === "dependency-target"[\s\S]*synchronizePackageQueryTermEditors\(current, request\)/);
+    /function synchronizePackageQueryDependencyDraft\(\s*previous: QueryRequest,\s*next: QueryRequest,[\s\S]*synchronizeDependencyTermEditor\(previous, next, draft\)[\s\S]*function synchronizePackageQueryTermEditors\([\s\S]*synchronizeTermEdits\([\s\S]*synchronizePackageQueryDependencyDraft\(previous, next\)[\s\S]*function applyPackageQueryTerm\([\s\S]*descriptor\.key === "dependency-target"[\s\S]*synchronizePackageQueryTermEditors\(current, request\)[\s\S]*function removePackageQueryTerm\([\s\S]*termKey === "dependency-target"[\s\S]*synchronizePackageQueryTermEditors\(current, request\)/);
   assert.match(
     appSource,
     /function togglePackageQueryPreset\([\s\S]*const request = togglePreset\(current, preset\);\s*synchronizePackageQueryTermEditors\(current, request\)/);

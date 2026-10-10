@@ -590,7 +590,7 @@ test("pending dependency editors follow applied shared reach and target", () => 
       dependencyTarget: "net9.0",
     });
     assert.deepEqual(
-      synchronizeDependencyTermEditor(next, {
+      synchronizeDependencyTermEditor(previous, next, {
         operator: "eq",
         value: "Contoso.Pending",
         dependencyReach: "2",
@@ -602,6 +602,34 @@ test("pending dependency editors follow applied shared reach and target", () => 
         dependencyReach: "3",
         dependencyTarget: "net9.0",
       });
+});
+
+test("unrelated preset toggles preserve pending dependency reach and target", () => {
+  const previous = withDependencyTerm(
+    createQueryRequest("Contoso.*"),
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Contoso.Dependency",
+    "direct",
+    "net10.0",
+    null,
+    null);
+  const pending = [{
+    operator: "eq",
+    value: "Contoso.Dependency.Edited",
+    dependencyReach: "2" as const,
+    dependencyTarget: "net9.0",
+  }];
+  const next = togglePreset(previous, TFM_FACET);
+
+  assert.equal(next.terms[0], previous.terms[0]);
+  assert.equal(
+    synchronizeDependencyTermEditor(previous, next, pending[0]!),
+    pending[0]);
+  assert.deepEqual(
+    synchronizeTermEdits(previous, next, pending),
+    pending);
 });
 
 test("standalone target changes synchronize pending dependency editors", () => {
@@ -647,7 +675,7 @@ test("standalone target changes synchronize pending dependency editors", () => {
     dependencyTarget: "net9.0",
   });
   assert.deepEqual(
-    synchronizeDependencyTermEditor(changed, draft),
+    synchronizeDependencyTermEditor(previous, changed, draft),
     {
       ...draft,
       dependencyTarget: "net9.0",
@@ -670,7 +698,7 @@ test("standalone target changes synchronize pending dependency editors", () => {
     dependencyTarget: "net10.0",
   });
   assert.deepEqual(
-    synchronizeDependencyTermEditor(removed, draft),
+    synchronizeDependencyTermEditor(changed, removed, draft),
     draft);
 });
 

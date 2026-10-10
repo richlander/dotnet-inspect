@@ -1696,6 +1696,20 @@ test.describe("Package Query website over real Wasm", () => {
 
     const firstValue =
       page.locator('[data-query-term-form="0"] [data-query-term-value]');
+    const dependencyReach =
+      page.locator('[data-query-term-form="0"] [data-query-dependency-reach]');
+    const dependencyTarget =
+      page.locator('[data-query-term-form="0"] [data-query-dependency-target]');
+    await dependencyReach.selectOption("2");
+    await dependencyTarget.fill("net9.0");
+    await page.locator('[data-query-preset="readme:eq:true"]').click();
+    await expect(dependencyReach).toHaveValue("2");
+    await expect(dependencyTarget).toHaveValue("net9.0");
+    await page.locator('[data-query-preset="readme:eq:true"]').click();
+    await expect(dependencyReach).toHaveValue("2");
+    await expect(dependencyTarget).toHaveValue("net9.0");
+    await dependencyReach.selectOption("direct");
+
     await firstValue.fill("Microsoft.Extensions.DependencyInjection");
     await firstValue.evaluate(element => {
       if (!(element instanceof HTMLInputElement)) {

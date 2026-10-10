@@ -327,19 +327,29 @@ export function dependencyTarget(request: QueryRequest): string {
     ?? request.targetFramework;
 }
 
+function dependencyContextChanged(
+  previous: QueryRequest,
+  next: QueryRequest,
+): boolean {
+  return dependencyReach(previous) !== dependencyReach(next)
+    || dependencyTarget(previous) !== dependencyTarget(next);
+}
+
 export function isTraversalDependencyTarget(value: string): boolean {
   const candidate = value.trim();
   return candidate.length > 0 && candidate.toLowerCase() !== "all";
 }
 
 export function synchronizeDependencyTermEditor(
-  request: QueryRequest,
+  previous: QueryRequest,
+  next: QueryRequest,
   editor: QueryTermEditor,
 ): QueryTermEditor {
+  if (!dependencyContextChanged(previous, next)) return editor;
   return {
     ...editor,
-    dependencyReach: dependencyReach(request),
-    dependencyTarget: dependencyTarget(request),
+    dependencyReach: dependencyReach(next),
+    dependencyTarget: dependencyTarget(next),
   };
 }
 
@@ -469,7 +479,7 @@ export function synchronizeTermEdits(
     if (previousIndex < 0) return null;
     const edit = edits[previousIndex] ?? null;
     if (!edit || term.descriptor.key !== "depends") return edit;
-    return synchronizeDependencyTermEditor(next, edit);
+    return synchronizeDependencyTermEditor(previous, next, edit);
   });
 }
 

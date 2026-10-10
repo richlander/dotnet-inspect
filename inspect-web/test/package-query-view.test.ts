@@ -711,6 +711,43 @@ test("cross-family replacement preserves unrelated pending term edits", () => {
     html,
     /data-query-term-form="0"[\s\S]*>applied<\/textarea>/);
 });
+
+test("unrelated fact toggles preserve pending dependency controls", () => {
+  const previous = withDependencyTerm(
+    createQueryRequest("Microsoft.*"),
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Microsoft.Extensions.Hosting",
+    "direct",
+    "net10.0",
+    null,
+    null);
+  const request = togglePreset(previous, NUSPEC_FACET);
+  const termEdits = synchronizeTermEdits(previous, request, [{
+    operator: "eq",
+    value: "Microsoft.Extensions.DependencyInjection",
+    dependencyReach: "2",
+    dependencyTarget: "net9.0",
+  }]);
+  const html = renderPackageQueryView({
+    state: {
+      request,
+      outcome: emptyOutcome(),
+      termEdits,
+    },
+    availablePresets: [...FACETS, DEPTH_2_FACET],
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /data-query-term-form="0"[\s\S]*value="Microsoft\.Extensions\.DependencyInjection"/);
+  assert.match(html, /value="2" selected/);
+  assert.match(html, /data-query-dependency-target[^>]* value="net9\.0"/);
+});
+
 test("candidate and local match bounds are independently disclosed before and during inspection", () => {
   for (const request of [
     null,

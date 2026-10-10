@@ -21053,12 +21053,15 @@ function addPackageQueryTerm(termKey: string, initialValue = "") {
       ?.focus());
 }
 
-function synchronizePackageQueryDependencyDraft(request: QueryRequest) {
+function synchronizePackageQueryDependencyDraft(
+  previous: QueryRequest,
+  next: QueryRequest,
+) {
   const draft = state.packageQueryState.termDraft;
   if (draft?.descriptor.key !== "depends") return;
   state.packageQueryState.termDraft = {
     ...draft,
-    ...synchronizeDependencyTermEditor(request, draft),
+    ...synchronizeDependencyTermEditor(previous, next, draft),
   };
 }
 
@@ -21070,7 +21073,7 @@ function synchronizePackageQueryTermEditors(
     previous,
     next,
     state.packageQueryState.termEdits ?? []);
-  synchronizePackageQueryDependencyDraft(next);
+  synchronizePackageQueryDependencyDraft(previous, next);
 }
 
 function applyPackageQueryTerm(
