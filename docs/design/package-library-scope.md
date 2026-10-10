@@ -70,51 +70,49 @@ implementation-only participants.
 
 ### Library probes
 
-A Library probe selects one Library occurrence for an exact-scope operation.
-It covers an exact asset-path request, the Namesake Library request, the
+A Library probe is how an exact-scope operation obtains its one Library
+occurrence: an exact asset-path request, the Namesake Library or
 [First Library](inspection-subject-navigation.md#initial-aggregate-and-package)
-request, and the bare rule that a population with one Library selects it.
+request, or the bare rule that a population with one Library selects it.
+Navigation owns the namesake and First Library matching rules; this owner
+fixes only the population they run over.
 
-Directory selection precedes every probe. The request first resolves exactly
-one owner-issued role population. That population is one of:
+The operation declares one asset role, and that role's owner issues exactly
+one role population before any probe runs, for example the selected compile
+projection issued by
+[compile selection](package-asset-selection-correspondence.md#authority-and-exact-claim).
+The probe runs only inside that population. It never searches a second
+population, never merges roles, target slices, or RIDs, and never enumerates
+archive paths; members that the issuing owner already qualifies by RID, such as
+nested assets of a tool-Library population, remain ordinary members. When the
+role owner cannot issue one population, the request fails with that owner's
+reason before any probe runs. A probe's non-success names the population it
+searched, for example `No namesake library found in lib/net10.0/`, in addition
+to the ordered candidates and participant evidence that Navigation requires.
 
-- the selected compile slice: `ref/<tfm>` when it has reference assets,
-  otherwise `lib/<tfm>`, including nested candidates, as issued by
-  [compile selection](package-asset-selection-correspondence.md#authority-and-exact-claim);
-- the implementation universe for one target and one RID, issued by
-  `PackageAssetSelector`; or
-- the tool-Library population of a tool package, issued by Package Info tool
-  measurements.
+Which roles a probe may declare beyond the compile projection, how a package
+with no compile Library but RID-specific implementation assets selects its
+role, target, and RID, and whether framework-less `lib/` assets form a compile
+slice belong to Navigation, `PackageAssetSelector`, and compile selection.
+[#9833](https://github.com/richlander/dotnet-inspect/issues/9833) carries
+those decisions.
 
-The probe then runs only inside that population. It never searches a second
-population, never merges RIDs, target slices, or roles, and never enumerates
-archive paths. DLLs under `analyzers/`, `build/`, or native folders are never
-Library candidates. When directory selection cannot resolve one population,
-the request fails with that reason before any probe runs. A probe's
-non-success names the population it searched, for example
-`No namesake library found in lib/net10.0/`.
+A survey of the 500 most downloaded nuget.org packages at their latest stable
+versions, under #9833, informs them:
 
-A package whose selected compile slice is empty or absent may still carry
-implementation assets under `runtimes/<rid>/lib/<tfm>`: runtime packs such as
-`Microsoft.NETCore.App.Runtime.<rid>` and legacy `runtime.<rid>.*` packages
-with an explicit `ref/netstandard/_._`. Such a package has no compile Library.
-A probe over its Libraries requests the implementation role for one RID. A host
-may supply that RID only when the package carries exactly one; otherwise the
-request fails and asks for a RID.
-
-These rules follow a survey of the 500 most downloaded nuget.org packages at
-their latest stable versions, under
-[#9833](https://github.com/richlander/dotnet-inspect/issues/9833):
-
-- 341 carry only `lib/` Libraries, 6 carry `ref/` plus `lib/`, and 3
-  targeting packs carry only `ref/`.
-- 15 also carry `runtimes/<rid>/lib/`. Every such RID asset has a
-  same-framework, same-file `lib/` counterpart, so the compile slice never
-  needs `runtimes/`.
+- 341 carry `lib/` Libraries without `ref/` or `runtimes/<rid>/lib/`, 6 carry
+  `ref/` plus `lib/`, and 3 targeting packs carry only `ref/`.
+- 15 also carry `runtimes/<rid>/lib/`. Every RID framework also has a
+  same-framework `lib/` slice, and every RID asset except the
+  implementation-only `System.Diagnostics.EventLog.Messages.dll` has a
+  same-file `lib/` counterpart.
 - 4, all runtime packs, carry managed Libraries only under one
   `runtimes/<rid>/lib/`.
-- The rest carry no compile Library: 108 have no assemblies, 10 only native
-  assets, 8 only tool payloads, and 5 only analyzers.
+- 3 carry only framework-less root `lib/*.dll`: WebGrease, Antlr, and
+  EO.WebBrowser.
+- The rest carry no Library assembly: 53 no DLLs, 48 only satellite resource
+  assemblies, 10 only native assets, 8 only tool payloads, 5 only analyzers,
+  and 4 only `build/` or `tasks/` DLLs.
 
 Several namesakes in one population can therefore arise only from distinct
 assets in that population that carry the same assembly simple name, such as
@@ -340,13 +338,20 @@ strategy and identity-row provision; hosts do not infer one provision from
 another.
 
 CLI `library --package` and its namesake request do not yet adopt Library
-probes. When compile selection issues no assets, the CLI searches the archive
-instead: `tools/`, then `ref/`, then `lib/`, then every DLL in the package. It
-merges every RID, analyzer, and build DLL into one candidate set, so a runtime
-pack yields its implementation assemblies and an analyzer package yields its
-analyzers as Libraries. A selected empty compile slice reports its framework
-as `netstandard`. #9833 retires that search and adopts the population rule
-above.
+probes. When compile selection returns `NoCompileAssets`, the CLI searches the
+extracted archive instead. Without `--tfm`, it takes `tools/` DLLs, otherwise
+`ref/`, otherwise `lib/`, otherwise every DLL in the package, and then keeps
+the highest framework named by a `lib/`, `ref/`, or `tools/` folder; with
+`--tfm`, it takes every such folder that names that framework. Analyzer, build,
+and native DLLs therefore enter only when no DLL has a framework folder, and
+RID folders merge at the chosen framework. A runtime pack consequently yields
+its implementation assemblies, an analyzer package its analyzers, and a
+framework-less root `lib/` package its root assemblies. `--tfm all` also
+bypasses compile selection and merges every framework. An explicit empty
+compile slice does not reach the search; it fails and reports the empty
+group's own folder spelling, such as `netstandard`. #9833 retires the search
+after the root `lib/` and RID-implementation decisions above, and Browser
+adoption of Library probes is not yet recorded.
 
 Later SourceLink and relationship adoptions remain separately scoped. Existing
 aggregate behavior is evidence, not an automatic conformance claim.
