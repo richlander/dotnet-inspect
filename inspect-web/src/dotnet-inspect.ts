@@ -323,6 +323,13 @@ import {
   type LibraryFastDiffBaseline,
 } from "./library-fast-diff.ts";
 import {
+  bindTypeChangeActions,
+  createTypeApiDiffCues,
+  renderTypeChangeStatus,
+  typeApiDiffCueKey,
+  type TypeApiDiffCueRequest,
+} from "./type-api-diff-cues.ts";
+import {
   createMetadataInspectionCoordinator,
   type AppExplorerState,
 } from "./metadata-inspection.ts";
@@ -5110,6 +5117,23 @@ const libraryFastDiff = createLibraryFastDiff({
   render,
 });
 
+const typeApiDiffCues = createTypeApiDiffCues({
+  queue: backgroundAnalysis,
+  operationAuthority,
+  query: (operationId, request) => inspectLibraryApiDiff(operationId, request),
+  cancel: (operationId, reason) => {
+    observeAsync(
+      cancelLibraryApiDiff(operationId, reason),
+      "Canceling member change cues");
+  },
+  describeError: errorMessage,
+  reportOperationDiagnostic: diagnostic => {
+    console.error("Member change cue operation authority failure.", diagnostic);
+    return undefined;
+  },
+  render,
+});
+
 const memberDiffExplorer = createMemberDiffExplorer({
   document,
   operationAuthority,
@@ -7040,6 +7064,7 @@ function memberApiDiffAchievements(
     }[];
   },
   index: number | null,
+  achievement: ItemAchievement = apiDiffAchievement,
 ): readonly ItemAchievement[] {
   const overloads = index === null
     ? group.overloads
@@ -7048,7 +7073,7 @@ function memberApiDiffAchievements(
     overload.anchorDigest !== null
     && overload.anchorDigest !== undefined
     && memberFingerprints.has(overload.anchorDigest))
-    ? [apiDiffAchievement]
+    ? [achievement]
     : [];
 }
 
@@ -8184,6 +8209,99 @@ function scheduleLibraryFastDiff() {
       baseline,
       () => libraryFastDiffBaselineIsCurrent(baseline));
   }
+  const request = currentTypeApiDiffCueRequest();
+  if (request) typeApiDiffCues.ensure(request, () => typeApiDiffCueIsCurrent(request));
+}
+
+function typeApiDiffCueIsCurrent(request: TypeApiDiffCueRequest) {
+  const current = currentTypeApiDiffCueRequest();
+  return current !== null
+    && typeApiDiffCueKey(current) === typeApiDiffCueKey(request);
+}
+
+// The last-patch Fast Diff state of the Type on screen, outside Library
+// Compare, when that Type has a change cue.
+function selectedTypeChangeCue() {
+  const source = libraryFastDiffCueSource();
+  const type = selectedType();
+  if (source?.entry?.status !== "ready" || !type || isForwardedType(type))
+    return null;
+  const fastDiff = source.entry.value.get(typeIdentifierOf(type));
+  const cue = libraryFastDiffAchievement(fastDiff, source.baseline.targetVersion);
+  return fastDiff && cue
+    ? { baseline: source.baseline, type, fastDiff, cue }
+    : null;
+}
+
+// The Type-surface API Diff that places member cues, for a selected Type
+// whose API axis is reported (inspect-web-background-analysis.md#navigation-cues).
+function currentTypeApiDiffCueRequest(): TypeApiDiffCueRequest | null {
+  const change = selectedTypeChangeCue();
+  if (!change || change.cue.kind !== "api-diff" || !state.package) return null;
+  return {
+    packageModel: state.package,
+    baseline: change.baseline,
+    typeQueryIdentifier: typeQueryIdentifierOf(change.type),
+  };
+}
+
+// Member cues come from the Compare result inside Library Compare and from
+// the selected Type's background API Diff outside it.
+function memberChangeAchievements(
+  group: Parameters<typeof memberApiDiffAchievements>[1],
+  index: number | null,
+): readonly ItemAchievement[] {
+  if (currentCompareSubject() !== null) {
+    return memberApiDiffAchievements(
+      libraryApiDiffPresence(state.libraryApiDiff).memberFingerprints,
+      group,
+      index);
+  }
+  const request = currentTypeApiDiffCueRequest();
+  const entry = request ? typeApiDiffCues.entry(request) : null;
+  return request && entry?.status === "ready"
+    ? memberApiDiffAchievements(entry.value, group, index, {
+        kind: "api-diff",
+        description: `API changed since ${request.baseline.targetVersion}`,
+      })
+    : [];
+}
+
+// Every Type change cue leads to a view: the Members header names the change
+// and opens the matching Compare content against the baseline.
+function selectedTypeChangeStatus(type: AppTypeSurface): string {
+  const change = selectedTypeChangeCue();
+  if (!change || change.type !== type) return "";
+  const request = currentTypeApiDiffCueRequest();
+  return renderTypeChangeStatus(
+    {
+      description: change.cue.description,
+      api: change.cue.kind === "api-diff",
+    },
+    request ? typeApiDiffCues.entry(request) : null,
+    escapeHtml);
+}
+
+function openTypeChangeCompare(content: "api" | "member-body") {
+  const pkg = state.package;
+  if (!pkg) return;
+  packageComparisonTargets.selectMode(pkg, "diff");
+  packageComparisonTargets.selectDiff(
+    pkg,
+    { kind: "previous" },
+    catalogRequests.packageVersions(pkg));
+  packageComparisonTargets.selectDiffContent(
+    pkg,
+    content === "api" ? { kind: "api" } : { kind: "member-body" });
+  state.lens = "compare";
+  render();
+}
+
+function retryTypeApiDiffCues() {
+  const request = currentTypeApiDiffCueRequest();
+  if (!request) return;
+  typeApiDiffCues.retry(request, () => typeApiDiffCueIsCurrent(request));
+  render();
 }
 
 function retryLibraryFastDiff() {
@@ -10407,7 +10525,7 @@ function renderTypeNavPane(
   const diffPresence = libraryApiDiffPresence(state.libraryApiDiff);
   const fastDiffCues = libraryFastDiffCueSource();
   const fastDiffTypes = fastDiffCues?.entry?.status === "ready"
-    ? fastDiffCues.entry.types
+    ? fastDiffCues.entry.value
     : null;
   const { definitions, forwarders } =
     accessibilityScopedTypeSelectorDefinitions();
@@ -10492,7 +10610,6 @@ function renderTypeNavPane(
 function renderMemberNavPane(type: AppTypeSurface) {
   const visibleGroups = visibleMemberGroups(type);
   const groups = selectedMemberGroups(type);
-  const diffPresence = libraryApiDiffPresence(state.libraryApiDiff);
   return renderMemberNav({
     type,
     entries: memberNavEntries(type),
@@ -10515,10 +10632,7 @@ function renderMemberNavPane(type: AppTypeSurface) {
     familyHeatCue: memberNavFamilyHeatCue,
     memberAchievements: (group, index) => [
       ...methodLeverageAchievements(group, index),
-      ...memberApiDiffAchievements(
-        diffPresence.memberFingerprints,
-        group,
-        index),
+      ...memberChangeAchievements(group, index),
     ],
     overloadSourceIndex: memberNavOverloadSourceIndex,
     emptyMessage: "No members match these filters.",
@@ -12904,7 +13018,8 @@ function renderApiLens(item: AppTypeSurface) {
     0);
   const populationSummary =
     memberPopulationSummary(item, visibleMemberCount, memberCount);
-  const populationStatus = renderTypeMemberPopulationStatus(item);
+  const populationStatus =
+    renderTypeMemberPopulationStatus(item) + selectedTypeChangeStatus(item);
   const definingLibrary = typeQualifiedLibraryLabel(item);
   const definingLibraryHtml = definingLibrary
     ? `<span data-type-library>· ${escapeHtml(definingLibrary)}</span>`
@@ -12946,9 +13061,14 @@ function renderApiLens(item: AppTypeSurface) {
           Boolean(state.memberTraitFilter));
         const sourceOverloadCount =
           group.sourceOverloadCount ?? group.overloads.length;
-        const achievements = methodLeverageAchievements(
-          group,
-          sourceOverloadCount === 1 ? 0 : null);
+        const achievements = [
+          ...methodLeverageAchievements(
+            group,
+            sourceOverloadCount === 1 ? 0 : null),
+          ...memberChangeAchievements(
+            group,
+            sourceOverloadCount === 1 ? 0 : null),
+        ];
         const achievementClasses =
           itemAchievementClassNames(achievements);
         return `
@@ -14706,6 +14826,10 @@ function bindWorkspaceSubjectEvents() {
 
 function bindLibraryFastDiffEvents() {
   bindLibraryFastDiffRetry(document, retryLibraryFastDiff);
+  bindTypeChangeActions(document, {
+    compare: openTypeChangeCompare,
+    retry: retryTypeApiDiffCues,
+  });
 }
 
 function bindPlatformForwarderEvents() {

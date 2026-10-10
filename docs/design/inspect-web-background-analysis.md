@@ -100,14 +100,29 @@ last-patch baseline reports with an axis `Changed` or `Indeterminate`:
 a lollipop, the provided-interface mark, for API, and `IL` for
 implementation. Library Compare's API cue uses the same lollipop glyph. The
 cue names the baseline version, and an `Indeterminate` axis is described as
-undecided rather than changed. Inside
-Library Compare, cues come from the Compare result for the user's target, as
-before.
+undecided rather than changed. Inside Library Compare, cues come from the
+Compare result for the user's target, as before.
 
 A cue appears on a Type only when the navigation lists it, so a change
 confined to internal Types is visible under the internal or all accessibility
 filter, not the default public one. A failed baseline is visible in the Type
 navigation status with a retry; a loading baseline shows nothing.
+
+### Member cues and the Type on screen
+
+Every Type cue leads to a view. When the selected Type has a cue, the Members
+header names the change and opens Library Compare against the same baseline:
+**Compare API** for an API cue and **Compare bodies**, Member Body Diff, for an
+implementation cue.
+
+For an API cue, the queue runs the Type-surface Library API Diff of that one
+Type against the baseline as visible-subject work, and the member list and
+member navigation mark each Member it reports changed with the API glyph. When
+that diff reports no changed Member, the header says the change is in the
+Type's declaration; when it fails, the header shows the failure with a retry.
+Implementation cues are not placed on Members until Fast Diff has per-Member
+states ([Fast Diff adoption](fast-diff.md#adoption) step 7); until then the
+Members header's Compare bodies action is their view.
 
 ## Gates
 
@@ -117,16 +132,20 @@ navigation status with a retry; a loading baseline shows nothing.
   axis state, and failure status.
 - `engine-worker-ordinary.test.ts`: a background binding does not count as
   Worker activity.
+- `type-api-diff-cues.test.ts`: the one-Type API Diff request, held member
+  presence, visible failure, and the Members header line for each cue state.
 
 ## Adoption
 
-1. **Queue and Fast Diff last-patch baseline** (this slice): the queue, the
+1. **Queue and Fast Diff last-patch baseline** (#9817): the queue, the
    background binding, and the navigation cues.
-2. **Library Compare lists and last-major baseline:** with
+2. **Member cues for the Type on screen** (this slice): the first
+   visible-subject task and the Members header's Compare actions.
+3. **Library Compare lists and last-major baseline:** with
    [Fast Diff adoption step 5](fast-diff.md#adoption).
-3. **Type heat and method leverage:** move their pumps onto the queue's
+4. **Type heat and method leverage:** move their pumps onto the queue's
    visible-subject class and retire their own pumps.
-4. **Library rankings:** structural salience and top leverage, after their
+5. **Library rankings:** structural salience and top leverage, after their
    caching in [#9793](https://github.com/richlander/dotnet-inspect/issues/9793).
 
 ## Non-claims
