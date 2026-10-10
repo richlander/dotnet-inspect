@@ -12455,7 +12455,7 @@ function currentLibraryApiInspection() {
 
 async function loadLibraryApi(
   pkg: AppPackage,
-  library: { id: string; name: string },
+  library: ReturnType<typeof packageLibraries>[number],
 ) {
   const key = libraryApiSignature(pkg, library);
   if (state.libraryApiInspections.has(key)
@@ -12468,6 +12468,8 @@ async function loadLibraryApi(
       pkg.version,
       pkg.activeFramework,
       library.id,
+      !state.libraryEnablements.has(key)
+        && libraryEnablementsRequest(pkg, library) !== null,
     );
     state.libraryApiInspections.set(key, inspection);
   } catch (error) {
