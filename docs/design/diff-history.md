@@ -730,11 +730,13 @@ destination version within that gap. Failed, missing, inapplicable, or
 unevaluated evidence cannot become unchanged or exact zero; it leaves the
 Changed Versions cohort incomplete. Count then reports the changed versions
 that Changed Versions rows would render from the same evidence, as an observed
-count with that incompleteness evidence. History with fewer than two evaluated
-versions does not establish an unchanged History; its Count is an observed
-zero, not exact zero. Because a sparse selection cannot answer the counted unit
-by design, Count is admitted only when every version is selected for
-evaluation; see below.
+count with that incompleteness evidence. A one-version population that was
+evaluated without failure has no adjacent transitions, so its Changed Versions
+cohort is exactly empty and its Count is exact zero; it still does not
+establish an unchanged History. When failures leave fewer than two evaluated
+versions in a larger population, Count is an observed zero, not exact zero.
+Because a sparse selection cannot answer the counted unit by design, Count is
+admitted only when every version is selected for evaluation; see below.
 
 Admitted row selection applies to the Changed Versions cohort before Count.
 Exactness remains relative to that logical request under the existing Count
@@ -781,7 +783,8 @@ These illustrative sequences describe the contract, not measured package data:
 | `A -> B -> A`, every adjacent comparison established | `2`, even when the middle version has many changed detail rows |
 | Only first and last selected in `A -> ? -> A` | Count rejected before evaluation; sparse History is not countable |
 | `A -> failed -> B` | Observed count of the established changes, incomplete; preserve the usable evaluations and failure |
-| Only one version evaluated | Observed `0`, incomplete; no established transition evidence |
+| One-version population, evaluated | Exact `0`; the population has no adjacent transitions |
+| Only one version evaluated because the others failed | Observed `0`, incomplete; no established transition evidence |
 
 This follows the existing Count convention of counting logical cohort rows,
 while endpoint Diff and identity-track/detail counts answer different
@@ -1088,9 +1091,10 @@ The implementation slices must supply Release gates for:
 - Type/Member changed-version counts for unchanged adjacent versions, several
   changed details in one version, multiple changed versions, and a change
   followed by reversion;
-- incomplete single-evaluation and failed evaluation cases reporting an
-  observed Count with their incompleteness evidence, retaining useful
-  independent History evidence;
+- failed evaluation cases, including failures that leave one evaluated
+  version, reporting an observed Count with their incompleteness evidence and
+  retaining useful independent History evidence, and a successfully evaluated
+  one-version population reporting exact zero;
 - `--count` with explicit checkpoints other than `--at all`, a survey below
   100 percent, `--major-versions`, or `--max-probes` rejected before
   population discovery or acquisition, naming the full-population

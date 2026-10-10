@@ -522,12 +522,15 @@ consumes three independent typed facts for each participating set:
   without a row handoff.
 
 A source result may be Rows-usable while carrying evidence that the underlying
-candidate set is incomplete. Candidate-bounded `package query` is the
-canonical case: its rows remain visible with their owner-issued incompleteness
-evidence, and Count reports their cardinality with the same evidence. `--take`
-does not become semantic `Head`, so that cardinality is never an exact count
-of the candidate population. A failed, `Absent`, or otherwise Rows-unavailable
-result carries no row values into residual shaping.
+candidate set is incomplete. `package query` stopped by its default candidate
+ceiling, a page limit, or a candidate failure is the canonical case: its rows
+remain visible with their owner-issued incompleteness evidence, and Count
+reports their cardinality with the same evidence. An explicit `--take` instead
+fixes the requested candidate population: when every candidate in it was
+evaluated without failure, the evidence is complete for the request and Count
+is exact for that population, never for the wider package-ID scope. `--take`
+does not become semantic `Head` in either case. A failed, `Absent`, or
+otherwise Rows-unavailable result carries no row values into residual shaping.
 
 The execution and failure precedence after successful resolution is:
 
