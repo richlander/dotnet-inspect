@@ -497,9 +497,9 @@ parity checking. Native apphost SHA-256 identities are:
 Raw measurements and full outputs are retained locally under
 `/tmp/web-overview-shared-native-perf` and
 `/tmp/web-overview-shared-native-base-perf`. Newtonsoft's cold operation
-median remains slower, while its complete-process median is unchanged. This
-candidate does not establish the intended Newtonsoft latency win and is not
-presented as merge-ready. Its later missing-entry acquisition still reads a
+median differs by 5.1 ms, within the observed network timing spread; that
+difference does not establish a regression. Its complete-process median is
+unchanged. These measurements do not establish a Newtonsoft latency win. Its later missing-entry acquisition still reads a
 fresh central directory before the DLL span; eliminating that round trip
 requires a separate source-owned representation/snapshot design under the
 range and cache owners, preserving operation deadlines and source authority.
@@ -570,6 +570,54 @@ directory evidence across operations, reopen with fresh operation context,
 and bind reuse to the exact authorized source and representation. It must not
 retain a reader with an expired deadline, trust a cache key alone, or bypass
 representation-change handling for mutable feeds.
+
+### Network receipt audit
+
+The 2026-10-09 follow-up checks the owner-issued `PackageTransferReceipt`
+carried by the retained House acquisition evidence, rather than inferring
+consumed bytes from browser request headers. The same production export
+sequence runs in a Release CoreCLR diagnostic probe with entry persistence
+configured identically on base and candidate. These are configuration-neutral
+receipts; the probe's timings are not performance evidence. The probe observes
+retained receipts after Summary and Overview and counts each receipt object
+once, so a cached operation cannot count its earlier acquisition again.
+
+[The retained receipt payloads](../evidence/web-library-overview-network-2026-10-09.json)
+record purpose, range, outcome, consumed body bytes, origin and authority.
+The website's baseline export responses do not deliver a Debug enriched
+evidence envelope; this diagnostic reads the House evidence already retained
+by the operation. Browser evidence delivery remains a separate adoption.
+
+| Scenario | Cold requests before / after | Cold consumed bytes before / after | Candidate Summary bytes | Candidate later Library bytes |
+| --- | --- | --- | --- | --- |
+| Avalonia default facade | 10 / 6 | 4,681,109 / 138,904 | 67,449 | 71,455 |
+| Avalonia.Base | 10 / 6 | 4,681,109 / 1,786,944 | 67,449 | 1,719,495 |
+| Roslyn | 5 / 5 | 4,674,023 / 2,914,735 | 67,557 | 2,847,178 |
+| Newtonsoft.Json | 4 / 5 | 395,672 / 408,803 | 67,375 | 341,428 |
+| Dapper | 1 / 1 | 437,579 / 437,579 | 437,579 | 0 |
+
+Activity matches the current acquisition and cache contracts:
+
+- For packages above the size cut, candidate Summary performs one abandoned
+  SizeProbe (zero consumed body bytes), one DirectoryTail and one manifest
+  EntrySpan. It acquires no Library bodies.
+- Later API and Enablements share one acquisition: one fresh DirectoryTail,
+  then one exact DLL EntrySpan for Roslyn/Newtonsoft or two corresponding
+  reference/implementation spans for Avalonia. There is no second size probe
+  and no second API-versus-Enablements transfer.
+- Dapper is below the size cut: one complete download, then Cache receipts
+  with zero requests. This is the intended size policy, not a range fallback.
+- Every ranged request completes; there is no RangedThenDownload fallback,
+  failed request, truncation or unexpected authority. The sole authority is
+  nuget.org. The warm browser trace independently confirms zero archive
+  requests for all scenarios.
+
+For Newtonsoft, exact DLL acquisition saves 52,426 entry-span bytes, but the
+extra 65,557-byte directory tail adds 13,131 bytes overall (3.3%) and one serial
+request. Initial Summary transfer falls by 83.0%. This is a measured
+acquisition tradeoff; the 5.1 ms NativeAOT difference alone is not a demonstrated
+latency regression. A source-owned reusable directory snapshot targets the
+known extra request, while preserving the existing cache validation contract.
 
 ### Acquisition performance investigation
 
