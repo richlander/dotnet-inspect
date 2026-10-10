@@ -2805,6 +2805,8 @@ internal static class LibraryMetadataService
                 if (available.Search.Failures.Count == 0)
                     break;
 
+                CommandError.WriteWarning(
+                    BodyShapeCompleteness.Warning(available.Search));
                 if (logger.Enabled)
                 {
                     foreach (var failure in available.Search.Failures)
@@ -2812,12 +2814,6 @@ internal static class LibraryMetadataService
                         logger.LogWarning(
                             $"Body Shapes skipped {failure.Subject}: {failure.Reason}");
                     }
-                }
-                else
-                {
-                    CommandError.WriteWarning(
-                        $"Body Shapes skipped {available.Search.Failures.Count} candidates; "
-                        + "rerun with --verbose for details.");
                 }
                 break;
 

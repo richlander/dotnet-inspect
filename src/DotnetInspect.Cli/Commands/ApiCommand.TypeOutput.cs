@@ -108,6 +108,10 @@ public partial class ApiCommand
         return 1;
     }
 
+    /// <summary>
+    /// Writes the type output, then reports an incomplete Body Shapes search
+    /// with a nonzero exit after its observed rows or Count are written.
+    /// </summary>
     internal static async Task<int> WriteTypeOutputAsync(
         ApiType type,
         string? foundIn,
@@ -120,6 +124,39 @@ public partial class ApiCommand
         ResolvedAssemblyReference? sourceAssembly = null,
         ResolvedAssemblyReference? memberCodeSourceAssembly = null,
         HttpClient? sourceClient = null)
+    {
+        TypeView? bodyShapeView = null;
+        int exitCode = await WriteTypeOutputCoreAsync(
+            type,
+            foundIn,
+            packageName,
+            packageVersion,
+            apiSource,
+            selectedTfm,
+            options,
+            output,
+            sourceAssembly,
+            memberCodeSourceAssembly,
+            sourceClient,
+            view => bodyShapeView = view);
+        return exitCode == 0 && bodyShapeView?.BodyShapeSearchIncomplete == true
+            ? 1
+            : exitCode;
+    }
+
+    private static async Task<int> WriteTypeOutputCoreAsync(
+        ApiType type,
+        string? foundIn,
+        string? packageName,
+        string? packageVersion,
+        string? apiSource,
+        string? selectedTfm,
+        ApiOptions options,
+        TextWriter? output,
+        ResolvedAssemblyReference? sourceAssembly,
+        ResolvedAssemblyReference? memberCodeSourceAssembly,
+        HttpClient? sourceClient,
+        Action<TypeView> observeView)
     {
         var sink = output ?? Console.Out;
 
@@ -427,6 +464,7 @@ public partial class ApiCommand
         }
 
         var view = ApiOutputFormatter.BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
+        observeView(view);
         EventsView? eventsView = null;
         MethodGroupsView? methodGroupsView = null;
         MethodsView? methodsView = null;

@@ -804,9 +804,20 @@ public class LibraryInspectionView
                 m.Token is null ? null : MarkoutInline.Code(m.Token)));
     }
 
+    /// <summary>
+    /// An incomplete search with no observed rows is not the explicit empty
+    /// state, so neither view renders "No matching body shapes found."; the
+    /// incompleteness is disclosed on stderr.
+    /// </summary>
+    [MarkoutIgnore]
+    public bool ShowBodyShapes =>
+        !BodyShapeCompleteness.IsIncomplete(_data.EffectiveBodyShapeSearchResult)
+        || _data.EffectiveBodyShapeSearchResult!.Matches.Count > 0;
+
     [MarkoutSection(
         Name = SectionNames.BodyShapes,
-        EmptyText = "No matching body shapes found.")]
+        EmptyText = "No matching body shapes found.",
+        ShowWhenProperty = nameof(ShowBodyShapes))]
     public List<BodyShapeRow>? BodyShapesSection =>
         (_data.BodyShapeRowSelection?.Matches
             ?? _data.EffectiveBodyShapeSearchResult?.Matches)?
@@ -815,7 +826,8 @@ public class LibraryInspectionView
 
     [MarkoutSection(
         Name = SectionNames.BodyShapeSummary,
-        EmptyText = "No matching body shapes found.")]
+        EmptyText = "No matching body shapes found.",
+        ShowWhenProperty = nameof(ShowBodyShapes))]
     public List<BodyShapeSummaryRow>? BodyShapeSummarySection =>
         _data.BodyShapeRowSelection?.Summary is { } selected
             ? BodyShapeSummaryRow.FromSummaries(selected)
