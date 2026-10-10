@@ -9,6 +9,7 @@ import {
   renderApplicationMenu,
   renderApplicationMenuButton,
   renderKeyboardHelpDialog,
+  renderLegendDialog,
   renderTitleNavigation,
   restoreApplicationMenuFocusIfOwned,
   workbenchShellHtml,
@@ -265,12 +266,12 @@ test("application menu renders exact conditional inventory", () => {
   assert.match(button, /aria-haspopup="menu"/);
   assert.match(
     withShare,
-    /data-application-action="share"[\s\S]*role="separator"[\s\S]*data-application-action="settings"[\s\S]*data-application-action="keyboard-help"/);
+    /data-application-action="share"[\s\S]*role="separator"[\s\S]*data-application-action="settings"[\s\S]*data-application-action="legend"[\s\S]*data-application-action="keyboard-help"/);
   assert.doesNotMatch(withShare, /data-application-action="open-library"/);
   assert.doesNotMatch(withoutShare, /data-application-action="share"/);
   assert.match(
     withoutShare,
-    /data-application-action="settings"[\s\S]*data-application-action="keyboard-help"/);
+    /data-application-action="settings"[\s\S]*data-application-action="legend"[\s\S]*data-application-action="keyboard-help"/);
   assert.doesNotMatch(withoutShare, /role="separator"/);
 });
 
@@ -281,12 +282,14 @@ test("application menu follows menu-button keyboard and dismissal behavior", () 
   menu.hidden = true;
   const share = root.element({ applicationAction: "share" });
   const settings = root.element({ applicationAction: "settings" });
+  const legend = root.element({ applicationAction: "legend" });
   const help = root.element({ applicationAction: "keyboard-help" });
   share.hidden = false;
   settings.hidden = false;
+  legend.hidden = false;
   help.hidden = false;
-  menu.addAll('[role="menuitem"]', share, settings, help);
-  menu.addAll("[data-application-action]", share, settings, help);
+  menu.addAll('[role="menuitem"]', share, settings, legend, help);
+  menu.addAll("[data-application-action]", share, settings, legend, help);
   root.addAll(
     'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
     button);
@@ -383,6 +386,31 @@ test("keyboard help is rendered from registered keybinding descriptions", () => 
   assert.match(html, /Ctrl\/Command\+P/);
   assert.match(html, /Zoom the current graph/);
   assert.match(html, /\+ \/ - \/ 0/);
+});
+
+test("legend explains every shared achievement glyph", () => {
+  const html = renderLegendDialog();
+
+  assert.match(html, /role="dialog"/);
+  assert.match(html, /aria-labelledby="legend-title"/);
+  assert.match(html, /Changed Type/);
+  assert.match(html, /API differences/);
+  assert.match(html, /Implementation differences/);
+  assert.match(html, /Sea level/);
+  assert.match(html, /Mountain peak/);
+  assert.match(html, /Top Leverage/);
+  assert.match(html, /Implementation Hub/);
+  for (const kind of [
+    "diff",
+    "api-diff",
+    "body-diff",
+    "surface-sea-level",
+    "surface-mountain-peak",
+    "top-leverage",
+    "implementation-hub",
+  ]) {
+    assert.match(html, new RegExp(`item-achievement-glyph ${kind}`));
+  }
 });
 
 test("workbench shell separates navigation and inspected target rows", () => {

@@ -124,12 +124,14 @@ async function chooseSubject(page: Page, subject: string, label: string) {
 
 async function openApplicationAction(
   page: Page,
-  action: "settings" | "keyboard-help",
+  action: "settings" | "legend" | "keyboard-help",
 ): Promise<void> {
   const button = page.locator("#application-menu-button");
   const item = page.locator(`[data-application-action="${action}"]`);
   const outcome = page.locator(
-    action === "settings" ? "#settings-dialog" : "#keyboard-help-dialog");
+    action === "settings" ? "#settings-dialog"
+      : action === "legend" ? "#legend-dialog"
+      : "#keyboard-help-dialog");
   await expect(async () => {
     if (!await item.isVisible()) await button.click();
     await item.evaluate(element => {
