@@ -1,10 +1,13 @@
 using System.Text.Json;
 using DotnetInspect.Cli.CommandLine;
+using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Presentation;
+using DotnetInspector.Queries;
 using InertText;
 
 namespace DotnetInspect.Cli.Tests;
@@ -60,6 +63,25 @@ public class FindProgressiveTsvTests
     }
 
     [Fact]
+    public async Task JsonlPublishesBroadenedMemberFindings()
+    {
+        var result = await Run(
+            "find", ".Serialize", "--library", JsonLibrary, "--jsonl");
+
+        Assert.Equal(0, result.ExitCode);
+        var rows = new List<JsonElement>();
+        foreach (string line in result.Output.TrimEnd('\n').Split('\n'))
+        {
+            using JsonDocument document = JsonDocument.Parse(line);
+            rows.Add(document.RootElement.Clone());
+        }
+        Assert.Contains(
+            rows,
+            row => row.GetProperty("kind").GetString() == "member");
+        Assert.DoesNotContain("appear only", result.Error);
+    }
+
+    [Fact]
     public async Task ProgressiveProjectionKeepsRequestedColumns()
     {
         var result = await Run(
@@ -99,6 +121,47 @@ public class FindProgressiveTsvTests
             Assert.Equal(2, row.Split('\t').Length);
             Assert.EndsWith("\tmember", row);
         });
+    }
+
+    [Theory]
+    [InlineData("--tsv", 2)]
+    [InlineData("--jsonl", 1)]
+    public async Task EcosystemSelectionPublishesOnlyTheSelectedWindow(
+        string format,
+        int expectedLines)
+    {
+        var result = await Run(
+            "find", "System.*",
+            "--ecosystem", "runtime",
+            "--rows", "2..2",
+            format);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(
+            expectedLines,
+            result.Output.TrimEnd('\n').Split('\n').Length);
+    }
+
+    [Theory]
+    [InlineData("-n", "2", 2)]
+    [InlineData("--rows", "2..2", 1)]
+    public async Task EcosystemMemberSelectionUsesBufferedJsonlRows(
+        string selection,
+        string value,
+        int expectedLines)
+    {
+        var result = await Run(
+            "find", ".ToString",
+            "--ecosystem", "runtime",
+            selection, value,
+            "--jsonl");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(
+            expectedLines,
+            result.Output.TrimEnd('\n').Split('\n').Length);
+        Assert.DoesNotContain("output format is blocking", result.Error);
+        Assert.DoesNotContain("Cannot select member rows", result.Error);
     }
 
     [Theory]
@@ -165,6 +228,133 @@ public class FindProgressiveTsvTests
         Assert.Single(lines, line =>
             line.StartsWith("coordinate\t", StringComparison.Ordinal));
         Assert.Equal("System.String.Member64", lines[^1].Split('\t')[0]);
+    }
+
+    [Fact]
+    public void JsonlWriterPublishesEachSettledRowWithoutAHeader()
+    {
+        using var output = new StringWriter();
+        using var writer = new FindDiscoveryTsvWriter(
+            output,
+            showHeader: true,
+            projection: null,
+            jsonl: true);
+
+        writer.Write(Row("System.String"));
+        string first = output.ToString();
+        Assert.Single(first.TrimEnd('\n').Split('\n'));
+        using (JsonDocument document = JsonDocument.Parse(first))
+        {
+            Assert.Equal(
+                "System.String",
+                document.RootElement.GetProperty("coordinate").GetString());
+        }
+
+        writer.Write(Row("System.String.Concat"));
+        writer.Flush();
+        string[] lines = output.ToString().TrimEnd('\n').Split('\n');
+        Assert.Equal(2, lines.Length);
+        Assert.All(lines, line => JsonDocument.Parse(line).Dispose());
+    }
+
+    [Fact]
+    public void EcosystemPrefixDemandsFollowEveryBoundedLineageLayer()
+    {
+        var layers = FindCommand.GetNamedLayers(
+            [EcosystemPackIds.Aspire]);
+
+        var demands = FindCommand.CreateEcosystemRequest(
+            new FindOptions(),
+            ["AddProject"],
+            layers,
+            demandPrefixes: true).Prefixes;
+
+        Assert.Equal(
+            [
+                "Aspire.",
+                "Microsoft.AspNetCore.",
+                "Microsoft.Extensions.",
+                "System.",
+            ],
+            demands.Select(demand => demand.Prefix));
+        var blocking = FindCommand.CreateEcosystemRequest(
+            new FindOptions(), ["AddProject"], layers, demandPrefixes: false);
+        Assert.Empty(blocking.PrefixDemand);
+        Assert.Empty(blocking.Prefixes);
+    }
+
+    [Fact]
+    public void EcosystemRequestKeepsQuestionAndBoundAcrossHostDemandPolicy()
+    {
+        var layers = FindCommand.GetNamedLayers([EcosystemPackIds.Aspire]);
+        var options = new FindOptions { Limit = 50, Members = true };
+        var streaming = FindCommand.CreateEcosystemRequest(
+            options, [".Add*"], layers, demandPrefixes: true);
+        var blocking = FindCommand.CreateEcosystemRequest(
+            options, [".Add*"], layers, demandPrefixes: false);
+
+        Assert.Equal(50, streaming.MaximumRows);
+        Assert.Equal(500, streaming.MaximumPrefixPackages);
+        Assert.NotEmpty(streaming.Prefixes);
+        Assert.Empty(blocking.Prefixes);
+        Assert.Equal("Add*",
+            Assert.Single(Assert.IsType<MemberFindQuestion>(
+                streaming.Question).Patterns).Text);
+        Assert.NotEqual(streaming.Identity, blocking.Identity);
+    }
+
+    [Fact]
+    public void PrefixTypeRowsExcludePackageLocalAndRelativeResults()
+    {
+        List<TypeFindResult> rows =
+        [
+            new()
+            {
+                FullName = "Contoso.Exact",
+                Pattern = "Contoso.Exact",
+                Match = TypeFindMatchKind.Exact,
+            },
+            new()
+            {
+                FullName = "Contoso.Similar",
+                Pattern = "Contoso.Exact",
+                Match = TypeFindMatchKind.Partial,
+            },
+            new()
+            {
+                Pattern = "Missing",
+                Match = TypeFindMatchKind.NotFound,
+            },
+        ];
+
+        List<TypeFindResult> durable =
+            FindCommand.DurablePrefixTypeRows(rows, []);
+
+        Assert.Equal(
+            ["Contoso.Exact"],
+            durable.Select(row => row.FullName));
+    }
+
+    [Fact]
+    public async Task ZeroRowPrefixFailureIsReportedFromTerminalSummary()
+    {
+        var capture = await ConsoleCapture.RunAsync(() =>
+        {
+            FindCommand.ReportEcosystemFailures(
+            [
+                new(
+                    "Prefix",
+                    "Contoso.Empty",
+                    "Package settlement failed."),
+            ]);
+            return Task.FromResult(0);
+        });
+
+        Assert.Equal(0, capture.ExitCode);
+        Assert.Contains(
+            "Prefix source \"Contoso.Empty\" failed: "
+                + "Package settlement failed.",
+            capture.Error);
     }
 
     [Fact]

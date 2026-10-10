@@ -1278,14 +1278,30 @@ dotnet-inspect find '.Add*' --ecosystem aspire -n 20
 ```
 
 This searches Aspire's core packages first and, when they fill the window,
-does not realize ASP.NET Core or Runtime. Only named populations are searched:
-registered package prefixes do not trigger package-prefix discovery. If the
-entire selection has no named populations, Find fails with a prefix hint.
-Explicit Markdown output retains Find's existing Members-before-Results
-sections; rows remain nearest-first within each kind. Unbounded default TSV
-instead publishes each layer's settled unified rows before the next layer.
-Selection-bearing requests keep the existing selection order until the
-separately owned row-selection work adopts the unified stream.
+does not realize ASP.NET Core or Runtime. TSV and JSONL search the named
+populations first, then progressively discover and search packages under each
+registered prefix in the same nearest-first Ecosystem order. Each settled
+finding is written immediately; package-prefix candidates are bounded to 500
+across the complete request. Blocking formats search only named populations
+and report that prefix populations were not searched. Explicit Markdown output
+retains Find's existing Members-before-Results sections; rows remain
+nearest-first within each kind.
+Core packages admitted by another selected Ecosystem's demanded prefix retain
+both memberships without a second package evaluation. If a prefix source
+stops at its requested result limit before 500 distinct packages are admitted,
+completion reports incomplete source coverage, not candidate-bound exhaustion.
+The host-neutral Ecosystem Find session owns the bounded-before-prefix barrier,
+shared core-package evaluation, the one-shot prefix continuation, the shared
+candidate bound, and completion.
+
+TSV and JSONL request prefix work and immediately resume that continuation;
+blocking output requests only bounded work. A finite row window stops before
+the next layer or package block, not midway through a started block, so that
+last block can exceed the requested row count; stderr identifies unsearched
+work rather than claiming prefix exhaustion.
+Unbounded default TSV instead publishes each layer's settled unified rows
+before the next layer. Selection-bearing requests keep the existing selection
+order until the separately owned row-selection work adopts the unified stream.
 
 ### Package Query over selected implementation libraries
 
