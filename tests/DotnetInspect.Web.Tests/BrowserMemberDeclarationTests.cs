@@ -33,6 +33,8 @@ public sealed class BrowserMemberDeclarationTests
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetySpellingFixture";
     const string ExtensionType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyReceiverExtensions";
+    const string GenericContractType =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.GenericCallerContractFixture`1";
     const string ReadonlyPropertyType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyReadonlyPropertyFixture";
     const string ReadonlySetterPropertyType =
@@ -608,6 +610,26 @@ public sealed class BrowserMemberDeclarationTests
         Assert.Equal(5, uploadedExamine.Traits.Extensions);
         Assert.NotEqual(Guid.Empty,
             uploadedOverview.Document.ModuleVersionId);
+        BrowserTypeOverviewInspection genericOverview =
+            TypeOverview(await MetadataExports
+                .QueryUploadedLibraryTypeOverviewDocument(
+                    AssemblyFileName, image, GenericContractType,
+                    "csharp", "public"));
+        BrowserTypeOverviewGroup mixedArity = Assert.Single(
+            Assert.IsType<BrowserTypeOverview>(
+                    genericOverview.Document).Population.Groups,
+            group => group.Name == "MixedGenericArity");
+        BrowserTypeOverviewGroup mixedNames = Assert.Single(
+            genericOverview.Document.Population.Groups,
+            group => group.Name == "MixedGenericNames");
+        BrowserTypeOverviewGroup uniform = Assert.Single(
+            genericOverview.Document.Population.Groups,
+            group => group.Name == "UniformGeneric");
+        Assert.Equal(BrowserTypeOverviewOutcome.Available,
+            genericOverview.Outcome);
+        Assert.Equal("MixedGenericArity", mixedArity.DisplayName);
+        Assert.Equal("MixedGenericNames", mixedNames.DisplayName);
+        Assert.Equal("UniformGeneric<TMarker>", uniform.DisplayName);
         BrowserTypeOverviewInspection missingUploadedOverview =
             TypeOverview(await MetadataExports
                 .QueryUploadedLibraryTypeOverviewDocument(
