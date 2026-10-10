@@ -240,7 +240,13 @@ test("settled API Diff evidence decorates exact Type and Member navigation rows"
   const typeNav = sourceText(functionDeclaration("renderTypeNavPane"));
   assert.match(
     typeNav,
-    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*typeLeverageAchievements\([\s\S]*diffPresence\.typeIdentifiers\.has\(item\.definitionId \?\? item\.id\)\s*\? apiDiffAchievement : null\)/,
+    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*const fastDiffCues = libraryFastDiffCueSource\(\)[\s\S]*const identifier = item\.definitionId \?\? item\.id;\s*const diff = fastDiffCues\s*\? libraryFastDiffAchievement\(\s*fastDiffTypes\?\.get\(identifier\),\s*fastDiffCues\.baseline\.targetVersion\)\s*: diffPresence\.typeIdentifiers\.has\(identifier\)\s*\? apiDiffAchievement\s*: null;\s*return typeLeverageAchievements\(/,
+  );
+  // Outside Library Compare, Type cues come from the last-patch Fast Diff
+  // baseline; inside it, from the Compare result.
+  assert.match(
+    sourceText(functionDeclaration("libraryFastDiffCueSource")),
+    /if \(currentCompareSubject\(\) !== null\) return null;/,
   );
 
   const memberNav = sourceText(functionDeclaration("renderMemberNavPane"));

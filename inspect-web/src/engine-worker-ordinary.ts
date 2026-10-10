@@ -2242,13 +2242,18 @@ export function bindEngineWorkerOrdinaryClient(
     idleWaiters = [];
     for (const resolve of waiters) resolve();
   };
+  // A background binding is not Worker activity: its producer yields the
+  // Worker under a structural bound, so idle-gated foreground work need not
+  // wait for it (inspect-web-background-analysis.md#foreground-first).
   const bind = <
     TArgs extends readonly unknown[],
     TResult,
   >(
     operation: EngineWorkerOrdinaryOperation<TArgs, TResult>,
+    activityClass: "foreground" | "background" = "foreground",
   ): (...args: TArgs) => Promise<TResult> => {
     const bound = operation.bindPage(host, page, epoch, reportDiagnostic);
+    if (activityClass === "background") return bound;
     return (...args: TArgs) => {
       outstanding += 1;
       let result: Promise<TResult>;
@@ -2392,6 +2397,7 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryLibraryFastDiff: bind(
         engineWorkerOrdinaryOperations.metadata.queryLibraryFastDiff,
+        "background",
       ),
       queryMemberDeclaration: bind(
         engineWorkerOrdinaryOperations.metadata.queryMemberDeclaration,

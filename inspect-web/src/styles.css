@@ -1252,7 +1252,8 @@ kbd {
   width: 34px;
 }
 .type-browser:not(.member-nav) .type-row > .item-achievement-rail > .item-achievement-glyph { grid-column: 2; }
-.type-browser:not(.member-nav) .type-row > .item-achievement-rail > .api-diff { grid-column: 1; }
+.type-browser:not(.member-nav) .type-row > .item-achievement-rail > .api-diff,
+.type-browser:not(.member-nav) .type-row > .item-achievement-rail > .body-diff { grid-column: 1; }
 .item-achievement-glyph.surface-sea-level,
 .item-achievement-glyph.implementation-sea-level {
   --item-achievement-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.5 6c1 0 1-.8 2-.8s1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8'/%3E%3Cpath d='M2 9c1 0 1-.8 2-.8s1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8 1 .8 2 .8'/%3E%3Cpath d='M3 12c1 0 1-.8 2-.8s1 .8 2 .8 1-.8 2-.8 1 .8 2 .8 1-.8 2-.8 1 .8 2 .8'/%3E%3C/svg%3E");
@@ -1271,10 +1272,12 @@ kbd {
   --item-achievement-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='2.5' cy='4' r='1'/%3E%3Ccircle cx='2.5' cy='8' r='1'/%3E%3Ccircle cx='2.5' cy='12' r='1'/%3E%3Cpath d='M3.5 4c2.7 0 4.2 1 5.6 2'/%3E%3Cpath d='M3.5 8h5'/%3E%3Cpath d='M3.5 12c2.7 0 4.2-1 5.6-2'/%3E%3Cpath d='m8.45 5.25.75.9.1-1.1'/%3E%3Cpath d='m8 7.35.95.65-.95.65'/%3E%3Cpath d='m8.45 10.75.75-.9.1 1.1'/%3E%3Cpath d='M11.2 5.4h1.6l.25.8.8.35.75-.4.8.8-.4.75.35.8.8.25v1.1l-.8.25-.35.8.4.75-.8.8-.75-.4-.8.35-.25.8h-1.6l-.25-.8-.8-.35-.75.4-.8-.8.4-.75-.35-.8-.8-.25v-1.1l.8-.25.35-.8-.4-.75.8-.8.75.4.8-.35z'/%3E%3Ccircle cx='12' cy='8.8' r='1.15'/%3E%3C/svg%3E");
   color: var(--hub-strip);
 }
-.item-achievement-glyph.api-diff {
+.item-achievement-glyph.api-diff,
+.item-achievement-glyph.body-diff {
   --item-achievement-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 5h10'/%3E%3Cpath d='m9.5 2.5 2.5 2.5-2.5 2.5'/%3E%3Cpath d='M14 11H4'/%3E%3Cpath d='m6.5 8.5-2.5 2.5 2.5 2.5'/%3E%3C/svg%3E");
   color: var(--purple);
 }
+.item-achievement-glyph.body-diff { color: var(--blue); }
 .nav-back-row {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr) auto;
