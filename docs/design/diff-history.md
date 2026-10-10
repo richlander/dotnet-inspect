@@ -734,8 +734,9 @@ be skipped to fill a requested prefix or strict window with later known changes.
 If the requested count is not established, the shared Count component
 carries the observed cardinality with its completion evidence, never an exact
 scalar or count table, and discloses it as Changed Versions rows would. The
-current implementation predates this rule and still returns typed non-success
-without a cardinality.
+CLI writes the observed count with a `diff-history.count-incomplete` warning
+and takes the same exit status as the Changed Versions rows: nonzero when a
+requested evaluation failed, and zero for deliberately sparse History.
 Preserve independently available History transitions and coverage in the
 sibling Document; requested evaluation failures retain their existing nonzero
 behavior.
