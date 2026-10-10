@@ -59,9 +59,209 @@ public partial class PackageQueryTests
         });
         Assert.Equal(PackageQueryEvidenceScope.Package, evidence.Scope);
         Assert.Single(source.ManifestRequests);
-        Assert.Single(content.Requests);
+        Assert.Single(content.InventoryRequests);
+        Assert.Empty(content.FileRequests);
+        Assert.Empty(content.RequestedFilePaths);
         Assert.Empty(archive.EntryRequests);
-        Assert.Same(PackageQueryContentDemand.Inventory, Assert.Single(content.Demands));
+    }
+
+    [Theory]
+    [InlineData(PackageQuery.ToolFormatTermKey, "v1")]
+    [InlineData(PackageQuery.ReferencesTermKey, "System.Runtime")]
+    public async Task ExecuteAsync_InventoryProvenBodyAbsenceSkipsFilesAcquisition(
+        string key,
+        string value)
+    {
+        var archive = new FakePackageContent(
+            ("docs/README.md", "No requested body entries."));
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Package"] = archive,
+            });
+        var source = SourceFor(
+            Manifest(
+                "Contoso.Package",
+                packageTypes: key == PackageQuery.ToolFormatTermKey
+                    ? """
+                      <packageTypes>
+                        <packageType name="DotnetTool" />
+                      </packageTypes>
+                      """
+                    : ""),
+            "Contoso.Package");
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "Contoso.*",
+                [Term(key, value)],
+                MaximumCandidates: 1,
+                MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        Assert.Empty(events.OfType<PackageQueryEvent.Failure>());
+        Assert.Single(content.InventoryRequests);
+        Assert.Empty(content.FileRequests);
+        Assert.Empty(content.RequestedFilePaths);
+        Assert.Empty(archive.EntryRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_InventoryProvenMixedNegativeSkipsFilesAcquisition()
+    {
+        var archive = FakePackageContent.FromBytes(
+            [
+                .. Enumerable.Range(
+                        0,
+                        PackageQuery.MaximumAssemblyReferenceAssets + 1)
+                    .Select(index => (
+                        $"lib/net8.0/Assembly{index:D3}.dll",
+                        "not metadata"u8.ToArray())),
+            ]);
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Package"] = archive,
+            });
+        var source = SourceFor(
+            Manifest("Contoso.Package"),
+            "Contoso.Package");
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "Contoso.*",
+                [
+                    Term(PackageQuery.SkillTermKey, "true"),
+                    Term(PackageQuery.ReferencesTermKey, "System.Runtime"),
+                ],
+                MaximumCandidates: 1,
+                MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        Assert.Empty(events.OfType<PackageQueryEvent.Failure>());
+        Assert.Single(content.InventoryRequests);
+        Assert.Empty(content.FileRequests);
+        Assert.Empty(content.RequestedFilePaths);
+        Assert.Empty(archive.EntryRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_MixedBodyPredicatesShareOneExactFilesRequest()
+    {
+        const string settingsPath =
+            "tools/net8.0/any/DotnetToolSettings.xml";
+        const string assemblyPath =
+            "lib/net8.0/Contoso.Package.dll";
+        var archive = FakePackageContent.FromBytes(
+            (
+                settingsPath,
+                "<DotNetCliTool><Commands /></DotNetCliTool>"u8.ToArray()),
+            (
+                assemblyPath,
+                ManagedAssemblyWithReferences(1)),
+            (
+                "content/unrelated.bin",
+                new byte[1024 * 1024]));
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Package"] = archive,
+            });
+        var source = SourceFor(
+            Manifest(
+                "Contoso.Package",
+                packageTypes:
+                """
+                <packageTypes>
+                  <packageType name="DotnetTool" />
+                </packageTypes>
+                """),
+            "Contoso.Package");
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "Contoso.*",
+                [
+                    Term(PackageQuery.ToolFormatTermKey, "v1"),
+                    Term(PackageQuery.ReferencesTermKey, "Reference00000"),
+                ],
+                MaximumCandidates: 1,
+                MaximumMatches: 1)));
+
+        PackageQueryMatch match = Assert.Single(
+            (await CollectAsync(
+                PackageQuery.ExecuteAsync(
+                    source,
+                    plan,
+                    content,
+                    TestContext.Current.CancellationToken)))
+                .OfType<PackageQueryEvent.Match>()).Value;
+
+        Assert.Equal(
+            ["v1", "Reference00000"],
+            match.Answers.Select(static answer => answer.Value));
+        Assert.Single(content.InventoryRequests);
+        Assert.Single(content.FileRequests);
+        Assert.Equal(
+            [[settingsPath, assemblyPath]],
+            content.RequestedFilePaths);
+        Assert.Equal(
+            [settingsPath, assemblyPath],
+            archive.EntryRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ToolSettingsByteLimitSkipsFilesAcquisition()
+    {
+        var archive = FakePackageContent.FromBytes(
+            (
+                "tools/net8.0/any/DotnetToolSettings.xml",
+                new byte[PackageQuery.MaximumToolSettingsBytes + 1]));
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Tool"] = archive,
+            });
+        var source = SourceFor(
+            Manifest(
+                "Contoso.Tool",
+                packageTypes:
+                """
+                <packageTypes>
+                  <packageType name="DotnetTool" />
+                </packageTypes>
+                """),
+            "Contoso.Tool");
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "Contoso.*",
+                [Term(PackageQuery.ToolFormatTermKey, "v1")],
+                MaximumCandidates: 1,
+                MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        Assert.Single(events.OfType<PackageQueryEvent.Failure>());
+        Assert.Single(content.InventoryRequests);
+        Assert.Empty(content.FileRequests);
+        Assert.Empty(archive.EntryRequests);
     }
 
     [Fact]
@@ -133,9 +333,10 @@ public partial class PackageQueryTests
             item => Assert.Equal(
                 PackageQueryAcquisitionTier.Nuspec,
                 item.Tier));
-        Assert.Empty(content.Requests);
+        Assert.Empty(content.InventoryRequests);
+        Assert.Empty(content.FileRequests);
 
-        content.Requests.Clear();
+        content.ClearRequests();
         PackageQueryPlan v1Plan = Accepted(
             PackageQuery.Plan(
                 new PackageQueryRequest(
@@ -158,9 +359,18 @@ public partial class PackageQueryTests
             v1.Evidence.Select(evidence => evidence.Id));
         Assert.Equal(
             ["Contoso.V1", "Contoso.V2"],
-            content.Requests);
+            content.InventoryRequests);
+        Assert.Equal(
+            ["Contoso.V1", "Contoso.V2"],
+            content.FileRequests);
+        Assert.Equal(
+            [
+                ["tools/net8.0/any/DotnetToolSettings.xml"],
+                ["tools/any/any/DotnetToolSettings.xml"],
+            ],
+            content.RequestedFilePaths);
 
-        content.Requests.Clear();
+        content.ClearRequests();
         PackageQueryPlan v2Plan = Accepted(
             PackageQuery.Plan(
                 new PackageQueryRequest(
@@ -180,9 +390,12 @@ public partial class PackageQueryTests
                 .Value.Package.PackageId);
         Assert.Equal(
             ["Contoso.V1", "Contoso.V2"],
-            content.Requests);
+            content.InventoryRequests);
+        Assert.Equal(
+            ["Contoso.V1", "Contoso.V2"],
+            content.FileRequests);
 
-        content.Requests.Clear();
+        content.ClearRequests();
         PackageQueryPlan bothVersionsPlan = Accepted(
             PackageQuery.Plan(
                 new PackageQueryRequest(
@@ -230,7 +443,10 @@ public partial class PackageQueryTests
                 "settings-version"));
         Assert.Equal(
             ["Contoso.V1", "Contoso.V2"],
-            content.Requests);
+            content.InventoryRequests);
+        Assert.Equal(
+            ["Contoso.V1", "Contoso.V2"],
+            content.FileRequests);
         Assert.Equal(
             [0, 1, 2],
             bothVersionEvents
@@ -239,7 +455,7 @@ public partial class PackageQueryTests
                     == PackageQueryProgressPhase.PackageContent)
                 .Select(item => item.Value.Completed));
 
-        content.Requests.Clear();
+        content.ClearRequests();
         PackageQueryPlan bothVersionsAndSkillPlan = Accepted(
             PackageQuery.Plan(
                 new PackageQueryRequest(
@@ -269,9 +485,12 @@ public partial class PackageQueryTests
             versionAndSkill.Evidence.Select(evidence => evidence.Id));
         Assert.Equal(
             ["Contoso.V1", "Contoso.V2"],
-            content.Requests);
+            content.InventoryRequests);
+        Assert.Equal(
+            ["Contoso.V1"],
+            content.FileRequests);
 
-        content.Requests.Clear();
+        content.ClearRequests();
         PackageQueryPlan skillPlan = Accepted(
             PackageQuery.Plan(
                 new PackageQueryRequest(
@@ -296,7 +515,8 @@ public partial class PackageQueryTests
                     item.Value.Evidence[^1].Summary!.Preview).ToString()));
         Assert.Equal(
             ["Contoso.V1", "Contoso.V2", "Contoso.Library"],
-            content.Requests);
+            content.InventoryRequests);
+        Assert.Empty(content.FileRequests);
     }
 
     [Theory]
@@ -343,7 +563,8 @@ public partial class PackageQueryTests
         Assert.Equal(
             "DotnetTool",
             EvidenceProperty(match.Evidence[^1], "package-type"));
-        Assert.Empty(content.Requests);
+        Assert.Empty(content.InventoryRequests);
+        Assert.Empty(content.FileRequests);
     }
 
     [Fact]

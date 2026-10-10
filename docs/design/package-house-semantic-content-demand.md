@@ -423,6 +423,13 @@ The counted PackageHouse stack has seven slices:
 7. Migrate remaining commands and hosts, then delete
    `PackagePayloadAccess` and caller-owned range/complete fallback logic.
 
+Package Query `skill` consumes package-wide File List evidence. Its
+`tool-format` and `references` predicates reuse that same inventory to issue
+one later exact Files request for only selected settings and managed-library
+entries. Package Query owns predicate breadth, limits, parsing, and matching;
+PackageHouse owns the shared snapshot, generation correspondence, exact-entry
+admission, physical acquisition, and receipts.
+
 Implementation slices target their predecessor and land bottom-up. A demand
 arm lands only with a production caller. The first implementation slice may
 lock with one adopter under the bounded first-adopter exception in
