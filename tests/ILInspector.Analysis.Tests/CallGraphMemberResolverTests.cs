@@ -77,6 +77,9 @@ public sealed class CallGraphMemberResolverTests
         Assert.Equal(referenceSelector.Key, identitySelector.Key);
         Assert.Equal(referenceSelector.ParameterTypes, identitySelector.ParameterTypes);
         Assert.Equal(referenceSelector.ReturnType, identitySelector.ReturnType);
+        Assert.Equal(
+            CallGraphMemberResolver.CreateNavigationIdentity(reference),
+            CallGraphMemberResolver.CreateNavigationIdentity(method));
     }
 
     [Fact]
@@ -1130,20 +1133,53 @@ public sealed class CallGraphMemberResolverTests
                 new TypeReferenceOrigin.CurrentAssembly(),
                 literalName));
 
-        Assert.Equal(
-            "Samples.Outer+Inner",
-            CallGraphMemberResolver.DefinitionIdentity(nestedType));
-        Assert.Equal(
-            @"Samples.Outer\+Inner",
-            CallGraphMemberResolver.DefinitionIdentity(literalType));
-        Assert.NotEqual(
-            CallGraphMemberResolver.DefinitionIdentity(nestedType),
-            CallGraphMemberResolver.DefinitionIdentity(literalType));
+        var nestedReference = new MemberRef(
+            TypeRef.GenericInstance(
+                nestedType,
+                [TypeRef.CoreLib("System", "Int32")]),
+            "M",
+            [TypeRef.CoreLib("System", "Int32")],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method)
+        {
+            HasThis = true,
+        };
+        var literalReference = new MemberRef(
+            literalType,
+            "M",
+            [TypeRef.CoreLib("System", "String")],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method)
+        {
+            HasThis = true,
+        };
+        CallGraphMemberNavigationIdentity nestedNavigation =
+            CallGraphMemberResolver.CreateNavigationIdentity(
+                nestedReference);
+        CallGraphMemberNavigationIdentity literalNavigation =
+            CallGraphMemberResolver.CreateNavigationIdentity(
+                literalReference);
 
         Assert.Equal(
             "Samples.Outer+Inner",
-            CallGraphMemberResolver.UnambiguousMetadataIdentity(nestedType));
-        Assert.Null(CallGraphMemberResolver.UnambiguousMetadataIdentity(literalType));
+            nestedNavigation.TypeDefinitionId);
+        Assert.Equal(
+            @"Samples.Outer\+Inner",
+            literalNavigation.TypeDefinitionId);
+        Assert.NotEqual(
+            nestedNavigation.TypeDefinitionId,
+            literalNavigation.TypeDefinitionId);
+
+        Assert.Equal(
+            "Samples.Outer+Inner",
+            nestedNavigation.TypeMetadataId);
+        Assert.Null(literalNavigation.TypeMetadataId);
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(nestedReference).Key,
+            nestedNavigation.SelectorKey);
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(literalReference).Key,
+            literalNavigation.SelectorKey);
 
         // A type whose namespace or segment carries the other delimiter is withheld too.
         Assert.Null(CallGraphMemberResolver.UnambiguousMetadataIdentity(
@@ -1198,7 +1234,7 @@ public sealed class CallGraphMemberResolverTests
                 surface,
                 CallGraphMemberResolver.DefinitionIdentity(nestedType)!,
                 nestedMember.Name,
-                CallGraphMemberResolver.CreateSelector(surface.Types[0], nestedMember).Key)!
+                nestedNavigation.SelectorKey)!
                 .Member);
         Assert.Same(
             literalMember,
@@ -1206,7 +1242,7 @@ public sealed class CallGraphMemberResolverTests
                 surface,
                 CallGraphMemberResolver.DefinitionIdentity(literalType)!,
                 literalMember.Name,
-                CallGraphMemberResolver.CreateSelector(surface.Types[1], literalMember).Key)!
+                literalNavigation.SelectorKey)!
                 .Member);
     }
 
