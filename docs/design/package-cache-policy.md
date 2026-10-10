@@ -259,9 +259,9 @@ to be detected by a fresh directory comparison. Invalid cached directory or
 entry bytes remain visible and retain the existing cache-bypass policy.
 
 The motivating asset is `Newtonsoft.Json@13.0.4`, `net6.0`: the website Summary
-already retains its directory. Reopening for its exact Library currently costs
+already retains its directory. Reopening for its exact Library previously cost
 another 65,557-byte tail before a 275,871-byte DLL span. Reuse removes that tail,
-so Summary plus Overview should cost four archive requests and 343,246 consumed
+so Summary plus Overview costs four archive requests and 343,246 consumed
 body bytes instead of five and 408,803. API and Enablements retain the shared
 acquisition introduced under semantic content demand. The production adopter
 is the common Package acquisition step, so Browser/Wasm and CLI entry-cache
@@ -274,6 +274,113 @@ Because the directory is cached, a later read knows which of the entries its
 demand needs are cached and which are missing without a request. Ranged reads
 fetch whole folders, as [package read demand](package-read-demand.md) owns,
 so a cached folder is complete.
+
+### Immutable-feed directory reuse evidence, 2026-10-09
+
+The comparison uses effective base `7105fb3680272fdea577dbd5c913cf14e0ba620f`
+and code head `79e9bbd497254b3a0c411acfa6048513dd99a08c`. The base already
+exposes reopening with retained directory evidence but does not adopt it.
+This isolates the common acquisition policy change from the earlier shared
+API/Enablements demand change. The decimal 1,000,000-byte complete-download
+cutoff is unchanged.
+
+Both hosts execute Package Summary followed by concurrent exact Library API
+and Enablements, with shared demand enabled on both sides. Each scenario has
+one discarded cold/warm pair followed by seven alternating before/after pairs.
+Every pair preserves full Summary, API and Enablements output. Each selects
+one Library; Roslyn preserves its existing explicit retained-text projection
+limit rather than claiming a complete API. Other APIs remain available and
+complete. Warm runs make no package requests.
+
+NativeAOT uses SDK `11.0.100-rc.1.26425.128`, Release, Linux x64, on an AMD
+Ryzen 9 9900X with Linux `7.0.0-38-generic`. Both apphosts are published with:
+
+```sh
+dotnet publish eng/measure-inspect-web-library-open.cs -c Release \
+  -p:IsPublishable=true \
+  -p:DefineConstants=WEB_PACKAGE_ENTRY_CACHE%3BWEB_LIBRARY_SHARED_DEMAND \
+  -o <before-or-after-directory>
+<apphost> <package> <version> <framework> overview [asset-id]
+```
+
+The before apphost SHA-256 is
+`7c277f87b534725fab96fa957828f594ae773d1ce2783bf1e85455c5d6fd91b0`;
+the after identity is
+`f9c3a253f01f3e8d6d793b84d12074a4b1603ac24c42fa9fd8fe1de98135893a`.
+The harness uses the production exports and a bounded in-memory entry-store
+adapter; it does not model Cache Storage I/O. Operation timing includes
+acquisition, inspection and serialized results. Process wall timing additionally
+includes startup and output consumption and is retained in the evidence.
+No builds or tests ran during measurement. CDN latency remains uncontrolled.
+
+| Pinned scenario | Cold median ms, before → after | Cold tail ms, before → after | Warm median ms, before → after | Warm tail ms, before → after |
+| --- | --- | --- | --- | --- |
+| Avalonia 12.1.3, net10.0, default facade | 232.5 → 187.7 | 299.5 → 244.6 | 0.6 → 0.6 | 0.7 → 0.6 |
+| Avalonia 12.1.3, net10.0, `compile:ref/net10.0/Avalonia.Base.dll` | 466.4 → 435.8 | 496.8 → 469.5 | 147.8 → 146.1 | 148.1 → 150.1 |
+| Microsoft.CodeAnalysis.CSharp 4.11.0, netstandard2.0 | 343.0 → 337.8 | 416.7 → 370.9 | 53.0 → 51.8 | 53.7 → 54.0 |
+| Newtonsoft.Json 13.0.4, net6.0 | 253.4 → 228.1 | 270.4 → 268.1 | 22.2 → 22.5 | 27.8 → 23.4 |
+| Dapper 2.1.72, net8.0 | 119.1 → 121.0 | 146.1 → 135.1 | 10.6 → 10.8 | 11.6 → 13.9 |
+
+Tail means the largest of seven samples, also nearest-rank p95 at this sample
+count. Small timing differences, especially Dapper's unchanged complete-fetch
+path and Roslyn, do not establish a performance change.
+
+The Release website comparison uses the production page-owned Worker and
+Cache Storage in headless Firefox. Both sites are published with
+`InspectWebIncludeFrontend=true`; Node 24.21.0 runs the server and probe:
+
+```sh
+node browser/benchmark-library-overview.ts <before-url> <after-url> \
+  <output-directory> 7 before-shared-demand
+```
+
+These are host corroboration timings, not substitutes for NativeAOT evidence.
+The initial page paint is outside this probe. Startup readiness and output
+consumption wall time are recorded separately.
+
+| Scenario | Cold median ms, before → after | Cold tail ms, before → after | Warm median ms, before → after | Warm tail ms, before → after | Cold package requests |
+| --- | --- | --- | --- | --- | --- |
+| Avalonia facade | 732 → 700 | 761 → 718 | 12 → 12 | 13 → 13 | 6 → 5 |
+| Avalonia.Base | 3174 → 3181 | 3275 → 3211 | 1944 → 1965 | 1973 → 1980 | 6 → 5 |
+| Roslyn | 1826 → 1797 | 1901 → 1863 | 685 → 678 | 696 → 687 | 5 → 4 |
+| Newtonsoft | 1282 → 1234 | 1324 → 1282 | 363 → 363 | 377 → 370 | 5 → 4 |
+| Dapper | 874 → 866 | 914 → 925 | 186 → 185 | 190 → 194 | 1 → 1 |
+
+The consistent result is removal of one directory transfer for each ranged
+package, not a universal latency improvement. Avalonia.Base's browser cold
+median is nearly flat and its warm median differs despite both paths doing
+zero network work. Resident images and output identities remain unchanged.
+
+Owner-issued typed transfer receipts independently confirm the consumed body
+bytes below. The Release browser trace supplies each actual URL, Range and
+status; its evidence envelope is not enriched with these receipts. A separate
+untrimmed diagnostic observer reads the retained acquisition receipts without
+counting one retained receipt twice. Its timings are excluded. The
+[retained evidence](../evidence/web-directory-reuse-2026-10-09.json) contains
+all NativeAOT samples, all 140 browser samples and request traces, and the
+typed receipts at Summary and Overview boundaries. Diagnostic output also
+matches between sides.
+
+| Scenario | Consumed bytes, before → after |
+| --- | --- |
+| Avalonia facade | 138,904 → 73,347 |
+| Avalonia.Base | 1,786,944 → 1,721,387 |
+| Roslyn | 2,723,574 → 2,658,017 |
+| Newtonsoft | 408,803 → 343,246 |
+| Dapper | 587,733 → 587,733 |
+
+Newtonsoft's remaining requests are the abandoned size probe (zero consumed
+body bytes), the initial directory tail (65,557), the nuspec span (1,818),
+and the exact net6.0 DLL span (275,871). The second directory tail is gone.
+That saves 65,557 consumed bytes, or 16.0%, and one of five requests. These
+counts exclude service discovery and runtime assets. The unchanged complete
+path for Dapper confirms that this policy change does not retune the cutoff.
+
+Validation: Release solution build; 19 archive-source tests, 105 common ranged
+acquisition tests, all 371 Browser engine boundary tests, frontend build and
+lint. The CLI configured-acquisition suite passes 237/244: seven existing API
+presentation assertions also fail on the parent, expecting package/version
+headings in rendered API text. No candidate-only CLI failures were found.
 
 A complete payload in the durable store answers before the entry cache, as
 the cache-first rule already orders them. Authorities without a persistent
