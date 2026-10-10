@@ -1,11 +1,10 @@
 using System.Collections.Immutable;
 using System.Runtime.Versioning;
-using CSharpText;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
-using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspect.Web;
 
@@ -363,48 +362,35 @@ internal static class BrowserSurfaceProjection
         textBudget?.EnsureCanProject(
             type,
             qualifyId ? assembly.Length + 1 : 0);
-        // C#-spelled name for display (List<T>, Dictionary<TKey, TValue>) using the real generic
-        // parameter names the surface carries. Identity stays the metadata form so deep links,
-        // search, and tab matching remain stable.
-        string displayName = MetadataTypeNameFormatter.FormatGenericTypeName(
-            type.Name,
-            type.TypeParameters);
-        ApiAccessibilityBucket bucket = ApiAccessibility.Classify(type.Accessibility);
-        string accessibility = string.IsNullOrWhiteSpace(type.Accessibility)
-            ? bucket.Label
-            : type.Accessibility;
-
-        var modifiers = new List<string> { accessibility };
-        modifiers.AddRange(ILInspector.Research.ResearchViews.TypeModifiers(type));
-        modifiers.Add(type.Kind);
-        modifiers.Add(displayName);
+        ApiTypeSurfacePresentation presentation =
+            ApiSurfacePresentation.Type(type);
 
         BrowserMemberSurfaceInfo[] members =
         [
             .. (selectedMembers ?? type.Members)
                 .Select(member => Member(type, member, textBudget)),
         ];
-        string metadataId = MetadataId(type);
-        string definitionId = type.DefinitionName?.ToEscapedFullName() ?? metadataId;
-        string id = qualifyId ? $"{assembly}:{definitionId}" : definitionId;
+        string id = qualifyId
+            ? $"{assembly}:{presentation.DefinitionId}"
+            : presentation.DefinitionId;
         var projected = new BrowserTypeSurfaceInfo(
             id,
-            definitionId,
-            type.FullName,
-            metadataId,
-            type.Name,
-            displayName,
-            type.Namespace ?? "",
-            string.Join(' ', modifiers.Skip(1).SkipLast(1)),
-            ApiInventoryQuery.TypeKindFacetId(type),
-            [.. ApiInventoryQuery.TypeTraitFacetIds(type)],
-            accessibility,
-            bucket.Id,
+            presentation.DefinitionId,
+            presentation.QueryId,
+            presentation.MetadataId,
+            presentation.Name,
+            presentation.DisplayName,
+            presentation.Namespace,
+            presentation.Kind,
+            presentation.KindFacetId,
+            [.. presentation.TraitFacetIds],
+            presentation.Accessibility,
+            presentation.AccessibilityId,
             assembly,
             assemblyId,
             assemblyName,
             members.Length,
-            string.Join(' ', modifiers),
+            presentation.Signature,
             members,
             platformPack);
         textBudget?.Retain(projected);
@@ -417,50 +403,48 @@ internal static class BrowserSurfaceProjection
         BrowserSurfaceTextBudget? textBudget = null)
     {
         textBudget?.EnsureCanProject(type, member);
-        MemberAnchor anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
+        ApiMemberSurfacePresentation presentation =
+            ApiSurfacePresentation.Member(type, member);
         var projected = new BrowserMemberSurfaceInfo(
-            member.Name,
-            member.Kind,
-            member.Signature ?? member.Name,
-            // The Metadata owner's effective accessibility: an explicit
-            // implementation takes its interface's bucket and a finalizer is
-            // protected (docs/design/api-population-scope.md#spelling-within-api-visibility-scope).
-            member.Accessibility ?? "public",
-            member.IsStatic,
-            member.IsUnsafe,
-            member.IsVirtual,
-            member.IsAbstract,
-            member.IsOverride,
-            member.IsExtension,
-            member.IsObsolete,
-            member.SignatureModel?.TypeParameters.Count ?? 0,
-            member.MetadataToken,
-            member.DeclarationMetadataToken,
-            member.SignatureModel?.ReturnType ?? member.ReturnType,
+            presentation.Name,
+            presentation.Kind,
+            presentation.Signature,
+            presentation.Accessibility,
+            presentation.IsStatic,
+            presentation.IsUnsafe,
+            presentation.IsVirtual,
+            presentation.IsAbstract,
+            presentation.IsOverride,
+            presentation.IsExtension,
+            presentation.IsObsolete,
+            presentation.GenericArity,
+            presentation.MetadataToken,
+            presentation.DeclarationMetadataToken,
+            presentation.ReturnType,
             [
-                .. (member.SignatureModel?.Parameters ?? []).Select(
+                .. presentation.Parameters.Select(
                     parameter => new BrowserParameterSurfaceInfo(
                         parameter.Name,
                         parameter.Type,
                         parameter.Modifier,
                         parameter.HasDefault,
-                        parameter.DefaultValueText,
+                        parameter.DefaultValue,
                         null)),
             ],
-            DocumentationId(type, member),
+            presentation.DocumentationId,
             null,
             null,
             [],
-            anchor.StableSelector,
-            anchor.Fingerprint,
-            anchor.CanonicalSignature,
-            anchor.TypeFullName,
-            member.DeclaringTypeDefinitionName?.ToEscapedFullName(),
-            Analysis.CallGraphMemberResolver.CreateSelector(type, member).Key,
+            presentation.StableSelector,
+            presentation.AnchorDigest,
+            presentation.CanonicalSignature,
+            presentation.AnchorTypeFullName,
+            presentation.DeclaringTypeDefinitionId,
+            presentation.GraphSelectorKey,
             [
-                .. Analysis.CallGraphMemberResolver.CreateBodySelectors(type, member)
+                .. presentation.BodySelectors
                     .Select(selector => new BrowserMemberBodySelectorInfo(
-                        selector.BodyToken,
+                        selector.Token,
                         selector.MemberName,
                         selector.SelectorKey)),
             ]);
@@ -647,24 +631,6 @@ internal static class BrowserSurfaceProjection
     internal sealed class BrowserSurfaceTextBoundExceededException()
         : Exception("The Browser API-surface transport exceeded its text budget.")
     {
-    }
-
-    /// <summary>
-    /// The exact metadata lookup name: nested types keep the <c>+</c> delimiter, which the
-    /// display <c>FullName</c> does not.
-    /// </summary>
-    internal static string MetadataId(ApiType type)
-    {
-        string name = type.MetadataName ?? type.Name;
-        return string.IsNullOrEmpty(type.Namespace) ? name : $"{type.Namespace}.{name}";
-    }
-
-    internal static string? DocumentationId(ApiType type, ApiMember member)
-    {
-        if (!ApiMemberIdentity.TryGetXmlDocMemberIdentity(type, member, out XmlDocMemberIdentity identity))
-            return null;
-
-        return identity.Value;
     }
 
     /// <summary>

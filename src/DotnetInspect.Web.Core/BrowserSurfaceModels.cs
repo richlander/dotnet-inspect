@@ -12,8 +12,9 @@ namespace DotnetInspect.Web;
 /// </para>
 /// <para>
 /// Their shapes intentionally mirror the browser transport so that mapping stays a rename rather
-/// than a re-derivation. The projection semantics — identity, ordering, accessibility bucketing,
-/// truncation, and failure text — belong to <see cref="BrowserSurfaceProjection"/>.
+/// than a re-derivation. <c>DotnetInspector.Presentation</c> owns detached declaration
+/// presentation; <see cref="BrowserSurfaceProjection"/> owns participant attribution, ordering,
+/// transport bounds, truncation, and failure text.
 /// </para>
 /// </remarks>
 internal sealed record BrowserAccessibilityInfo(
