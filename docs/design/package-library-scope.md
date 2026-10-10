@@ -68,6 +68,58 @@ selection and role realization retain ownership of correspondence, role
 preference, implementation overlays, reference-only participants, and
 implementation-only participants.
 
+### Library probes
+
+A Library probe selects one Library occurrence for an exact-scope operation.
+It covers an exact asset-path request, the Namesake Library request, the
+[First Library](inspection-subject-navigation.md#initial-aggregate-and-package)
+request, and the bare rule that a population with one Library selects it.
+
+Directory selection precedes every probe. The request first resolves exactly
+one owner-issued role population. That population is one of:
+
+- the selected compile slice: `ref/<tfm>` when it has reference assets,
+  otherwise `lib/<tfm>`, including nested candidates, as issued by
+  [compile selection](package-asset-selection-correspondence.md#authority-and-exact-claim);
+- the implementation universe for one target and one RID, issued by
+  `PackageAssetSelector`; or
+- the tool-Library population of a tool package, issued by Package Info tool
+  measurements.
+
+The probe then runs only inside that population. It never searches a second
+population, never merges RIDs, target slices, or roles, and never enumerates
+archive paths. DLLs under `analyzers/`, `build/`, or native folders are never
+Library candidates. When directory selection cannot resolve one population,
+the request fails with that reason before any probe runs. A probe's
+non-success names the population it searched, for example
+`No namesake library found in lib/net10.0/`.
+
+A package whose selected compile slice is empty or absent may still carry
+implementation assets under `runtimes/<rid>/lib/<tfm>`: runtime packs such as
+`Microsoft.NETCore.App.Runtime.<rid>` and legacy `runtime.<rid>.*` packages
+with an explicit `ref/netstandard/_._`. Such a package has no compile Library.
+A probe over its Libraries requests the implementation role for one RID. A host
+may supply that RID only when the package carries exactly one; otherwise the
+request fails and asks for a RID.
+
+These rules follow a survey of the 500 most downloaded nuget.org packages at
+their latest stable versions, under
+[#9833](https://github.com/richlander/dotnet-inspect/issues/9833):
+
+- 341 carry only `lib/` Libraries, 6 carry `ref/` plus `lib/`, and 3
+  targeting packs carry only `ref/`.
+- 15 also carry `runtimes/<rid>/lib/`. Every such RID asset has a
+  same-framework, same-file `lib/` counterpart, so the compile slice never
+  needs `runtimes/`.
+- 4, all runtime packs, carry managed Libraries only under one
+  `runtimes/<rid>/lib/`.
+- The rest carry no compile Library: 108 have no assemblies, 10 only native
+  assets, 8 only tool payloads, and 5 only analyzers.
+
+Several namesakes in one population can therefore arise only from distinct
+assets in that population that carry the same assembly simple name, such as
+nested or renamed copies.
+
 ## Scope classification
 
 ### Aggregate scope
@@ -286,6 +338,15 @@ may cover population Count, while a bounded row request retains a direct
 population Count. CLI and Browser/Wasm consume the same Package-owned planning
 strategy and identity-row provision; hosts do not infer one provision from
 another.
+
+CLI `library --package` and its namesake request do not yet adopt Library
+probes. When compile selection issues no assets, the CLI searches the archive
+instead: `tools/`, then `ref/`, then `lib/`, then every DLL in the package. It
+merges every RID, analyzer, and build DLL into one candidate set, so a runtime
+pack yields its implementation assemblies and an analyzer package yields its
+analyzers as Libraries. A selected empty compile slice reports its framework
+as `netstandard`. #9833 retires that search and adopts the population rule
+above.
 
 Later SourceLink and relationship adoptions remain separately scoped. Existing
 aggregate behavior is evidence, not an automatic conformance claim.
