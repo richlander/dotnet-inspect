@@ -480,7 +480,10 @@ public sealed class MethodDefinitionExecution
             var unit = new MethodDefinitionUnit(
                 reader,
                 peReader,
-                physicalCoverage);
+                physicalCoverage,
+                retainResolvedInstructionDetail:
+                    instructionPlan?.Demand.Detail
+                        == MethodBodyInstructionDetail.SelectiveOperands);
             bool[] laneInScope = new bool[lanes.Length];
             bool fuseInstructionShapes =
                 instructionPlan?.Source
@@ -970,7 +973,10 @@ public sealed class MethodDefinitionExecution
         var unit = new MethodDefinitionUnit(
             reader,
             peReader,
-            _sourceCoverage);
+            _sourceCoverage,
+            retainResolvedInstructionDetail:
+                _instructionPlan?.Demand.Detail
+                    == MethodBodyInstructionDetail.SelectiveOperands);
         int visited = 0;
         switch (_breadth.Kind)
         {
