@@ -77,6 +77,33 @@ public sealed record ProducerLayerParticipation(
     string Layer,
     int Acquired);
 
+/// <summary>Semantic MethodDef identity work performed by one source-gate execution.</summary>
+public sealed record MethodSemanticIdentityWorkReceipt(
+    bool BudgetArmed,
+    int IdentitiesDecoded,
+    int UnsupportedResults,
+    int MalformedResults,
+    long SignatureBytes,
+    long TypeWork,
+    long GenericParameterRows,
+    long StringBytes,
+    long AssociationRows,
+    MethodSemanticIdentityWorkLimitKind? ReachedLimit)
+{
+    public static MethodSemanticIdentityWorkReceipt Empty { get; } =
+        new(false, 0, 0, 0, 0, 0, 0, 0, 0, null);
+}
+
+/// <summary>A semantic-identity work dimension that reached its execution bound.</summary>
+public enum MethodSemanticIdentityWorkLimitKind
+{
+    SignatureBytes,
+    TypeWork,
+    GenericParameterRows,
+    StringBytes,
+    AssociationRows,
+}
+
 /// <summary>
 /// What actually happened for one producer, recorded by the executor where
 /// work started and ended.
@@ -105,6 +132,10 @@ public sealed record WorkReceipt(
 
     /// <summary>Signature-shape nodes the gate walked across the execution, memoized walks counted once.</summary>
     public long SignatureShapeNodesWalked { get; init; }
+
+    /// <summary>Bounded structural MethodDef identity work performed by the source gate.</summary>
+    public MethodSemanticIdentityWorkReceipt SemanticIdentityWork { get; init; } =
+        MethodSemanticIdentityWorkReceipt.Empty;
 
     public ProducerParticipation For(ProducerDeclaration producer)
     {

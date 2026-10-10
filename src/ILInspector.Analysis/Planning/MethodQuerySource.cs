@@ -906,6 +906,9 @@ public sealed record MethodDefinitionSourceCoverage(
 
     public MethodDefinitionInstructionWorkCoverage InstructionWork
     { get; init; } = MethodDefinitionInstructionWorkCoverage.Empty;
+
+    public MethodSemanticIdentityWorkReceipt SemanticIdentityWork
+    { get; init; } = MethodSemanticIdentityWorkReceipt.Empty;
 }
 
 /// <summary>Why one generated physical MethodDef entered source breadth.</summary>

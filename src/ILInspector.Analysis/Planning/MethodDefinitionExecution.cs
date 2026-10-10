@@ -152,9 +152,12 @@ public sealed class MethodDefinitionExecution
         }
 
         execution._gate = new MethodRowGate(
+            sourceName,
             peReader,
             reader,
-            (FieldsRead(description) & MethodDefinitionLayers.IdentityText) != 0);
+            (FieldsRead(description) & MethodDefinitionLayers.IdentityText) != 0,
+            (FieldsRead(description)
+                & MethodDefinitionLayers.SemanticIdentity) != 0);
 
         bool lookupDeclared = false;
         bool referenceBindingDeclared = false;
@@ -325,6 +328,18 @@ public sealed class MethodDefinitionExecution
         bool tracksSourceCoverage,
         MethodBodyAnalyzerPlan? instructionPlan)
     {
+        if ((FieldsRead(description)
+                & MethodDefinitionLayers.SemanticIdentity) != 0
+            && (breadth.Kind
+                    != MethodDefinitionSourceBreadthKind.ExactMethods
+                || breadth.Expansion
+                    != MethodDefinitionSourceExpansion.None))
+        {
+            throw new ProducerContractException(
+                "Semantic MethodDef identity requires direct exact-method "
+                    + "breadth with no expansion.");
+        }
+
         var execution = new MethodDefinitionExecution(
             description,
             breadth,
@@ -434,10 +449,13 @@ public sealed class MethodDefinitionExecution
                 MethodDefinitionExecution lane = lanes[laneIndex];
                 WorkDescription description = descriptions[laneIndex];
                 lane._gate = new MethodRowGate(
+                    sourceName,
                     peReader,
                     reader,
                     (FieldsRead(description)
-                        & MethodDefinitionLayers.IdentityText) != 0);
+                        & MethodDefinitionLayers.IdentityText) != 0,
+                    (FieldsRead(description)
+                        & MethodDefinitionLayers.SemanticIdentity) != 0);
 
                 bool lookupDeclared = false;
                 foreach (ProducerState state in lane._states)
@@ -1100,6 +1118,18 @@ public sealed class MethodDefinitionExecution
             if (!AnyActive(visiting))
                 return;
 
+            int methodRow = MetadataTokens.GetRowNumber(methodHandle);
+            if (methodRow > reader.GetTableRowCount(TableIndex.MethodDef))
+            {
+                FailActiveSource(
+                    MetadataTokens.GetToken(methodHandle),
+                    "(method source)",
+                    new BadImageFormatException(
+                        "The exact MethodDef handle is outside the admitted "
+                            + "MethodDef table."));
+                continue;
+            }
+
             MethodDefinition methodDefinition;
             try
             {
@@ -1693,7 +1723,12 @@ public sealed class MethodDefinitionExecution
 
     void PublishSourceCoverage()
     {
-        SourceCoverage = _sourceCoverage.Build();
+        SourceCoverage = _sourceCoverage.Build() with
+        {
+            SemanticIdentityWork =
+                _gate?.SemanticIdentityWorkReceipt
+                ?? MethodSemanticIdentityWorkReceipt.Empty,
+        };
     }
 
     /// <summary>How many times the execution's gate looked up a classifier's cache.</summary>
@@ -1706,7 +1741,7 @@ public sealed class MethodDefinitionExecution
             _states.Length);
         foreach (ProducerState state in _states)
         {
-            var layers = ImmutableArray.CreateBuilder<ProducerLayerParticipation>(2);
+            var layers = ImmutableArray.CreateBuilder<ProducerLayerParticipation>(3);
             if (state.HasBodyLayer)
             {
                 layers.Add(new ProducerLayerParticipation(
@@ -1721,6 +1756,13 @@ public sealed class MethodDefinitionExecution
                         ? nameof(MethodDefinitionLayers.ReferenceBinding)
                         : nameof(MethodDefinitionLayers.ModuleLookup),
                     state.LookupUses));
+            }
+
+            if (state.HasSemanticIdentityLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.SemanticIdentity),
+                    state.SemanticIdentityAcquisitions));
             }
 
             producers.Add(new ProducerParticipation(
@@ -1740,6 +1782,9 @@ public sealed class MethodDefinitionExecution
             IdentityBudgetArmed = gate?.IdentityBudgetArmed ?? false,
             IdentityWorkCharged = gate?.IdentityWorkCharged ?? 0,
             SignatureShapeNodesWalked = gate?.SignatureShapeNodesWalked ?? 0,
+            SemanticIdentityWork =
+                gate?.SemanticIdentityWorkReceipt
+                ?? MethodSemanticIdentityWorkReceipt.Empty,
         };
     }
 
@@ -1905,6 +1950,9 @@ public sealed class MethodDefinitionExecution
         public bool HasReferenceBindingLayer { get; } =
             (layers & MethodDefinitionLayers.ReferenceBinding) != 0;
 
+        public bool HasSemanticIdentityLayer { get; } =
+            (layers & MethodDefinitionLayers.SemanticIdentity) != 0;
+
         public bool IsActive { get; set; } = true;
 
         public ProducerOutcome? Outcome { get; set; }
@@ -1927,9 +1975,14 @@ public sealed class MethodDefinitionExecution
         /// <summary>Units in which the module lookup was used.</summary>
         public int LookupUses;
 
+        /// <summary>Units in which semantic MethodDef identity was requested.</summary>
+        public int SemanticIdentityAcquisitions;
+
         public int LastBodyUnit;
 
         public int LastLookupUnit;
+
+        public int LastSemanticIdentityUnit;
 
         /// <summary>Counts <paramref name="unitToken"/> once, however often a layer is read in it.</summary>
         public void CountUnit(ref int lastUnit, int unitToken, ref int count)

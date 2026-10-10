@@ -64,6 +64,11 @@ MethodDefs. The same source serves
 `System.Text.Json.JsonDocument.Parse`, whose seven-body scope provides a
 smaller real-package case.
 
+The pinned repository SDK's CoreLib is also the real-asset gate for semantic
+MethodDef identity: one exact `StringBuilder.AppendFormat` MethodDef must
+produce the same structural identity as the current `MethodIdentity`
+projection while examining one MethodDef and acquiring no body.
+
 The current legacy body service spends most of a scoped request on
 whole-assembly identity construction, generated-body discovery,
 state-machine mapping, and method-map construction. One body can therefore
@@ -271,8 +276,9 @@ Depth is expressed as source capabilities rather than one broad `Body` bit:
 
 | Layer | Source-owned acquisition | Does not define |
 | --- | --- | --- |
-| Declaration | MethodDef, declaring TypeDef, attributes, flags, name comparison, and bounded signature-shape access | Display identity or body content |
-| Identity | Detached inert method identity and anchor fields | Consumer ordering or presentation |
+| Declaration | MethodDef, declaring TypeDef, attributes, flags, name comparison, and bounded signature-shape access | Semantic or display identity, or body content |
+| Semantic identity | Detached structural identity for an admitted MethodDef | Caller-unsafe policy, display spelling, or body content |
+| Identity text | Detached inert method identity and anchor fields | Semantic identity, consumer ordering, or presentation |
 | Body | Managed body header, IL bytes, exception regions, and local-signature handle | Instruction meaning |
 | Instructions | One bounded instruction decode | Analysis of those instructions |
 | Control flow | The owner-issued CFG over the decoded instructions | Analysis-specific graph interpretation |
@@ -281,8 +287,50 @@ Depth is expressed as source capabilities rather than one broad `Body` bit:
 
 Each layer includes only its prerequisites. For example, `Calls` requires
 `Instructions` and the declared shared lookup support, but it does not require
-`Control flow` unless the request asks for both. `Identity` is projection work
-and remains absent from Count or Exists plans that do not need it.
+`Control flow` unless the request asks for both. Semantic identity and Identity
+text are independent projection layers. Either remains absent from Count or
+Exists plans that do not need it.
+
+### Semantic MethodDef identity
+
+`SemanticIdentity` is a distinct source-gate layer. For one admitted MethodDef
+it returns either a detached `MethodSemanticIdentity` or a typed unavailable
+result. The detached value contains:
+
+- assembly name and module MVID;
+- declaring `TypeRef`, method name, MethodDef token, and static and extension
+  facts;
+- parameter and return `TypeRef` values;
+- method generic arity and parameter names;
+- raw signature header and vararg required-parameter count; and
+- invalid-generic-declaration and virtual-dispatch-open facts.
+
+`MethodSemanticIdentity.ToMethodIdentity` requires the separately produced
+`CallerUnsafeMode`. Semantic identity neither computes nor defaults that
+contract. A producer publishing the current `MethodIdentity` therefore
+declares both prerequisites, and both remain visible in its plan and receipts.
+
+This focused layer is legal only with direct exact-MethodDef breadth and no
+expansion. All-definition, exact-TypeDef, predicate, and expanded plans are
+rejected rather than becoming whole-assembly identity materialization.
+
+The gate validates an exact MethodDef row number against the admitted MethodDef
+table before recording or reading a row. Invalid exact coordinates fail source
+admission with zero definitions examined. A valid bodiless MethodDef is an
+ordinary semantic-identity unit and never causes body acquisition.
+
+Signature bytes, type-decoder work, generic-parameter rows, string bytes, and
+attribute/relationship associations have independent execution-scoped bounds.
+The source receipt and `WorkReceipt` publish every counter and the first bound
+reached. Bound exhaustion aborts the execution through the source gate.
+Unsafe-to-decode shapes return typed unsupported identity; malformed metadata
+returns typed malformed identity. Both are ordinary producer facts and are
+counted in the semantic-identity receipt.
+
+Identity text remains the existing independently declared, independently
+budgeted projection to inert `MethodRowIdentity`. Semantic identity does not
+arm or charge that budget and never uses display text or an anchor as a join
+key.
 
 Instruction demand has two independent source-owned facets:
 
@@ -340,7 +388,8 @@ The current `MethodDefinitionLayers` maps into this vocabulary during
 migration:
 
 - its declaration facets remain Declaration demand;
-- `IdentityText` becomes Identity;
+- `SemanticIdentity` becomes Semantic identity;
+- `IdentityText` becomes Identity text;
 - `Body` becomes Body or Instructions according to the producer's actual read;
   and
 - `ModuleLookup` becomes declared shared lookup support.
