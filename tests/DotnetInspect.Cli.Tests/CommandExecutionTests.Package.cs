@@ -324,6 +324,14 @@ public partial class CommandExecutionTests
         Assert.Equal(section.Output, shortcut.Output);
         Assert.Equal(new[] { "net10.0", "net9.0", "net8.0", "netstandard2.0", "net462" },
             shortcut.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        var selected = await RunAppAsync("package", "System.Text.Json@10.0.12*",
+            "--tfms", "--no-headers");
+        Assert.True(selected.Exit == 0, selected.Error);
+        Assert.Equal(shortcut.Output, selected.Output);
+        var selectedCount = await RunAppAsync("package", "System.Text.Json@10.0.12*",
+            "--tfms", "--count", "--head", "2");
+        Assert.True(selectedCount.Exit == 0, selectedCount.Error);
+        Assert.Equal("2", selectedCount.Output.Trim());
         foreach (string[] entrance in new[] { new[] { "--tfms" }, new[] { "-S", "Target Frameworks" } })
         {
             var json = await RunAppAsync(["package", package, .. entrance, "--json"]);

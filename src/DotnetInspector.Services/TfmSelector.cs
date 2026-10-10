@@ -276,14 +276,22 @@ public static class TfmSelector
 
     /// <summary>Framework folders represented by the Package Target Frameworks section.</summary>
     public static List<string> GetPackageFrameworkFolders(string extractPath)
-        => OrderByTfmPriorityDescending(
+        => GetPackageFrameworkFolders(
             new[] { "lib", "tools" }
                 .Select(root => Path.Combine(extractPath, root))
                 .Where(Directory.Exists)
                 .SelectMany(Directory.GetDirectories)
-                .Where(path => !Path.GetFileName(Path.GetDirectoryName(path))!.Equals("tools", StringComparison.OrdinalIgnoreCase)
-                    || !Path.GetFileName(path).Equals("any", StringComparison.OrdinalIgnoreCase))
-                .Select(path => Path.GetFileName(path))
+                .Select(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/')));
+
+    /// <summary>Framework folders from owner-issued package-relative logical directories.</summary>
+    public static List<string> GetPackageFrameworkFolders(IEnumerable<string> directories)
+        => OrderByTfmPriorityDescending(
+            directories.Select(path => path.Split('/'))
+                .Where(parts => parts.Length == 2
+                    && (parts[0] == "lib" || parts[0] == "tools")
+                    && !(parts[0] == "tools"
+                        && parts[1].Equals("any", StringComparison.OrdinalIgnoreCase)))
+                .Select(parts => parts[1])
                 .Order(StringComparer.Ordinal)
                 .Distinct(StringComparer.OrdinalIgnoreCase), static tfm => tfm)
             .ToList();

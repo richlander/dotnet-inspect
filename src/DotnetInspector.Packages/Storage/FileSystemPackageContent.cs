@@ -261,6 +261,7 @@ public sealed class FileSystemPackageContent :
         ArgumentNullException.ThrowIfNull(archive);
         var manifest = new ArchiveManifest(
             archive.GetEntries(),
+            archive.GetDirectories(),
             archive.CreateEntryValidationIndex());
         Interlocked.CompareExchange(
             ref _archiveManifest,
@@ -276,6 +277,13 @@ public sealed class FileSystemPackageContent :
             Volatile.Read(ref _archiveManifest);
         entries = manifest?.Entries;
         return manifest is not null;
+    }
+
+    bool IPackageArchiveEntryManifest.TryGetArchiveDirectories(
+        [NotNullWhen(true)] out IReadOnlyList<string>? directories)
+    {
+        directories = Volatile.Read(ref _archiveManifest)?.Directories;
+        return directories is not null;
     }
 
     private bool TryReadArchiveEntry(
@@ -413,6 +421,7 @@ public sealed class FileSystemPackageContent :
 
     private sealed record ArchiveManifest(
         IReadOnlyList<PackageContentEntry> Entries,
+        IReadOnlyList<string> Directories,
         IReadOnlyDictionary<string, PackageArchiveEntryValidation>
             ValidationByPath);
 }
