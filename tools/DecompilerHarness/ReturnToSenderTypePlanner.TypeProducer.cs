@@ -92,7 +92,7 @@ public static partial class CompileBackSourceComposer
             return null;
         }
 
-        static CompileBackMemberRequirement? FieldRequirement(
+        internal static CompileBackMemberRequirement? FieldRequirement(
             MetadataReader reader,
             TypeDefinition typeDef,
             CompileBackTypeIdentity typeIdentity,
