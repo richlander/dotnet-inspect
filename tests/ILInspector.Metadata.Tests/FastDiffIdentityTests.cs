@@ -207,7 +207,7 @@ public sealed class FastDiffIdentityTests
     public void StoredNames_AreTheUtf8OfTheDecodedNames()
     {
         using var pe = new PEReader(File.OpenRead(typeof(object).Assembly.Location));
-        MetadataReader md = pe.GetMetadataReader();
+        MetadataReader md = pe.GetMetadataReader(MetadataReaderOptions.None);
         var names = new SymbolKey.Utf8Names(pe, md);
         IEnumerable<StringHandle> handles = md.TypeDefinitions
             .SelectMany(type => (StringHandle[])[md.GetTypeDefinition(type).Namespace, md.GetTypeDefinition(type).Name])
@@ -216,10 +216,9 @@ public sealed class FastDiffIdentityTests
         int compared = 0;
         foreach (StringHandle handle in handles)
         {
-            int length = names.Length(handle, out string? decoded);
-            Assert.Null(decoded);
+            int length = names.Length(handle);
             byte[] stored = new byte[length];
-            names.Copy(handle, decoded, stored, 0, length);
+            names.Copy(handle, stored, 0, length);
             Assert.Equal(System.Text.Encoding.UTF8.GetBytes(md.GetString(handle)), stored);
             compared++;
         }

@@ -475,10 +475,16 @@ public static class FastDiff
         readonly SignatureKeys _signatures;
         readonly Dictionary<TypeDefinitionHandle, HashSet<MethodDefinitionHandle>> _explicitImplementations = [];
 
+        /// <summary>
+        /// Metadata as stored, without Windows Runtime projection, so every
+        /// name is a <c>#Strings</c> heap entry.
+        /// </summary>
+        const MetadataReaderOptions StoredMetadata = MetadataReaderOptions.None;
+
         public Side(PEReader pe)
         {
             Pe = pe;
-            Md = MetadataFormatAdmission.GetMetadataReader(pe);
+            Md = MetadataFormatAdmission.GetMetadataReader(pe, StoredMetadata);
             _mvid = Md.GetGuid(Md.GetModuleDefinition().Mvid);
             Keys = new SymbolKey.Builder(new SymbolKey.Utf8Names(pe, Md));
             _signatures = new SignatureKeys(this);
@@ -496,7 +502,7 @@ public static class FastDiff
         {
             if (ReferenceEquals(pe, Pe))
                 return;
-            MetadataReader md = MetadataFormatAdmission.GetMetadataReader(pe);
+            MetadataReader md = MetadataFormatAdmission.GetMetadataReader(pe, StoredMetadata);
             if (md.GetGuid(md.GetModuleDefinition().Mvid) != _mvid)
                 throw new InvalidOperationException("A Fast Diff comparison continues over the same images.");
             Pe = pe;

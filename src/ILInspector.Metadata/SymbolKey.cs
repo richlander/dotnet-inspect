@@ -168,11 +168,11 @@ internal readonly struct SymbolKey : IEquatable<SymbolKey>, IComparable<SymbolKe
         /// <summary>Appends a <c>#Strings</c> name as its stored UTF-8.</summary>
         public Builder Name(StringHandle handle)
         {
-            int length = Names.Length(handle, out string? decoded);
+            int length = Names.Length(handle);
             Mark(SymbolPart.Name);
             WriteVarint((uint)length);
             Ensure(length);
-            Names.Copy(handle, decoded, _buffer, _length, length);
+            Names.Copy(handle, _buffer, _length, length);
             _length += length;
             return this;
         }
@@ -206,32 +206,24 @@ internal readonly struct SymbolKey : IEquatable<SymbolKey>, IComparable<SymbolKe
     }
 
     /// <summary>
-    /// Reads <c>#Strings</c> entries as their stored bytes. A handle with no
-    /// heap offset, such as a projected Windows Runtime name, is encoded from
-    /// the reader's decoded string instead.
+    /// Reads <c>#Strings</c> entries as their stored bytes, from a reader
+    /// that applies no Windows Runtime projection, so every name has a heap
+    /// offset.
     /// </summary>
     internal sealed class Utf8Names
     {
-        readonly MetadataReader _md;
         BlobReader _heap;
 
         public Utf8Names(PEReader pe, MetadataReader md)
-        {
-            _md = md;
-            _heap = pe.GetMetadata().GetReader(
+            => _heap = pe.GetMetadata().GetReader(
                 md.GetHeapMetadataOffset(HeapIndex.String),
                 md.GetHeapSize(HeapIndex.String));
-        }
 
-        public int Length(StringHandle handle, out string? decoded)
+        public int Length(StringHandle handle)
         {
             int offset = MetadataTokens.GetHeapOffset(handle);
             if (offset < 0 || offset >= _heap.Length)
-            {
-                decoded = _md.GetString(handle);
-                return Encoding.UTF8.GetByteCount(decoded);
-            }
-            decoded = null;
+                throw new BadImageFormatException("A name lies outside the #Strings heap.");
             _heap.Offset = offset;
             int length = _heap.IndexOf(0);
             return length >= 0
@@ -240,13 +232,8 @@ internal readonly struct SymbolKey : IEquatable<SymbolKey>, IComparable<SymbolKe
         }
 
         /// <summary>Copies the name <see cref="Length"/> measured.</summary>
-        public void Copy(StringHandle handle, string? decoded, byte[] buffer, int index, int length)
+        public void Copy(StringHandle handle, byte[] buffer, int index, int length)
         {
-            if (decoded is not null)
-            {
-                Encoding.UTF8.GetBytes(decoded, buffer.AsSpan(index, length));
-                return;
-            }
             _heap.Offset = MetadataTokens.GetHeapOffset(handle);
             _heap.ReadBytes(length, buffer, index);
         }

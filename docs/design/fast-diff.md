@@ -97,8 +97,8 @@ keys are therefore equal exactly when they were built from the same parts, and
 no name is scanned or escaped. A top-level Type named `A/B`, a Type `B` nested
 in `A`, a Type `A.B` in namespace `N`, and a Type `B` in namespace `N.A` never
 share a key, and neither do member names that contain any punctuation. A name
-is the metadata's own UTF-8, copied from the `#Strings` heap without decoding,
-so names whose bytes differ only in ill-formed sequences, which both decode to
+is the metadata's own UTF-8, copied from the `#Strings` heap without decoding
+or Windows Runtime projection, so names whose bytes differ only in ill-formed sequences, which both decode to
 U+FFFD, stay distinct. Each key shape has its own marker: a primitive Type and
 a global Type named `Int32` stay distinct, a signature's return Type is marked
 apart from its parameters so `delegate*<void*>` and `delegate*<void>*` are
