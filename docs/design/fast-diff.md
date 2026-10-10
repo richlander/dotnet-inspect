@@ -327,9 +327,9 @@ the window has Member rows only for the pairs that contain it on both sides
 
 The partition is defined by ownership of the Library level's own census
 facts, not by a separate list, so the two levels cannot disagree. Every fact
-carries the key of the row it describes as a nested
-[`SymbolKey`](#identity) part, so the row a fact describes is read from the
-fact's structure, never from its spelling:
+except the Type's visibility marker, which the residual owns, carries the key
+of the row it describes as a nested [`SymbolKey`](#identity) part, so the row a
+fact describes is read from the fact's structure, never from its spelling:
 
 1. **Every census fact has one owner.** A fact belongs to the Member whose
    declaration row it describes: the method, field, property, or event row,
@@ -370,6 +370,18 @@ Member API compares completely, so every changed public Member is marked;
 Member Body is an existence check. A Member declared on one side only is
 therefore `Changed` on each axis where it owns facts.
 
+An owner is never `Unchanged` by omission. A fact or body that cannot be
+decided, such as IL with an undefined opcode or a reference to a compiler-
+controlled method, makes the axis of the Member that owns it `Indeterminate`,
+where the owner is the row the census was describing, raised under rule 1; when
+that row has no single Member owner, the residual's axis is `Indeterminate`.
+When the census of the Type cannot be completed on an axis, every Member and the
+residual not already `Changed` on that axis are `Indeterminate`. A Type whose
+rows cannot be told apart, because two rows spell one name, and a Type
+identified by its row token have no Type-level rows; their view is the Library
+level's `Indeterminate` state. So a Library axis that is `Indeterminate` is
+never shown as `Unchanged` for every owner.
+
 Generated code belongs to a Member only when the shared lifted-owner
 resolution in `ILInspector.Analysis` names exactly one owner, as it does for
 the targeted walk
@@ -405,9 +417,11 @@ public property with a private setter, a public Type made internal, an enum
 underlying-type change, a
 `[field:]` attribute on a field-like event, an attribute added to an internal
 method, a base Type change on an internal Type, and a nested Type whose
-inherited nullable context changed; a Type present in one image only is
-reported whole by the Library level and has no Type-level rows; every Member
-the complete Public API diff
+inherited nullable context changed; an added and a removed public Type, one
+of them with no Members, are reported whole by the Library level and have no
+Type-level rows; an undefined opcode in one method makes that Member Body
+`Indeterminate` and no owner `Unchanged` by omission; two Type rows of one
+name have no Type-level rows; every Member the complete Public API diff
 reports changed is not API `Unchanged`; and every owner of a body that
 canonical IL comparison reports changed is Body `Changed` or `Indeterminate`,
 or the change is a residual Body change. `eng/measure-fast-diff.cs` reports
