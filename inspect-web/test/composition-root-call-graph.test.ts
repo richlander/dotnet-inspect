@@ -1318,6 +1318,70 @@ test("compact Type groups retain resident contextual extensions", () => {
     extensionTraitCount: 1,
     staticTraitCount: 0,
   });
+
+  state.memberAccessibilityFilter = "all";
+  state.typeMemberPopulationKey = "type-key";
+  const allResult: unknown = runInNewContext(
+    stripTypeScriptTypes(`${groupMembers}
+      ${populationGroups}
+      ${selectorCounts}
+      ({
+        groups: declaredMemberGroups(type),
+        extensionKindCount:
+          selectedMemberKindCount(type, "extension-method"),
+        allCount: selectedMemberTraitCount(type, ""),
+        extensionTraitCount: selectedMemberTraitCount(type, "extensions"),
+      });
+    `),
+    {
+      state,
+      type,
+      typeMemberPopulationKey: () => "type-key",
+      uploadedLibraryIsActive: () => true,
+      partitionGraphMembers: (members: unknown[]) => ({
+        publicMembers: members,
+        graphMembers: [],
+      }),
+      searchableMemberGroups: (groups: unknown[]) => groups,
+      createAppMemberSurface: (member: unknown) => member,
+      memberKindCount,
+      memberMatchesTrait,
+    });
+  assert.deepEqual(JSON.parse(JSON.stringify(allResult)), {
+    groups: [
+      {
+        key: "method:Declared",
+        name: "Declared",
+        displayName: "Declared",
+        kind: "method",
+        completeCount: 1,
+        completeCountStatus: "available",
+        overloads: [],
+        sourceOverloadCount: 1,
+        receivers: ["this"],
+        traitCounts: {
+          all: 1,
+          static: 0,
+          instance: 1,
+          virtual: 0,
+          interface: 0,
+          extensions: 0,
+        },
+        detailsPending: true,
+      },
+      {
+        key: "extension-method:Examine",
+        name: "Examine",
+        kind: "extension-method",
+        overloads: [type.api[1]],
+        completeCount: 1,
+        completeCountStatus: "pending",
+      },
+    ],
+    extensionKindCount: 1,
+    allCount: 2,
+    extensionTraitCount: 1,
+  });
 });
 
 test("unavailable exact Member populations omit selector counts", () => {

@@ -7015,8 +7015,14 @@ function loadedMemberDeclarationsApplyToSelection() {
     && state.memberAccessibilityFilter === "public";
 }
 
+function contextualExtensionsApplyToSelection() {
+  return state.memberSpelling === "csharp"
+    && (state.memberAccessibilityFilter === "public"
+      || state.memberAccessibilityFilter === "all");
+}
+
 function contextualExtensionGroups(type: AppTypeSurface): AppMemberGroup[] {
-  if (!loadedMemberDeclarationsApplyToSelection()) return [];
+  if (!contextualExtensionsApplyToSelection()) return [];
   return searchableMemberGroups(groupMembers(type.api.filter(member =>
     !member.graphOnly
     && member.isExtension
