@@ -598,7 +598,28 @@ public sealed record BrowserPerformanceMember(
     int InLoopCount,
     string[] Shapes,
     string Confidence,
+    BrowserPerformanceTypeSurface DeclaringType,
     BrowserPerformanceBodyTarget[]? BodyTargets = null);
+
+public sealed record BrowserPerformanceTypeSurface(
+    string Id,
+    string DefinitionId,
+    string QueryId,
+    string MetadataId,
+    string Name,
+    string DisplayName,
+    string Namespace,
+    string Kind,
+    string KindFacetId,
+    string[] TraitFacetIds,
+    string Accessibility,
+    string AccessibilityId,
+    string Assembly,
+    string AssemblyId,
+    string AssemblyName,
+    int Members,
+    string Signature,
+    string? PlatformPack);
 
 public sealed record BrowserPerformanceBodyTarget(
     string TypeId, string MemberName, string SelectorKey, int MethodToken,
