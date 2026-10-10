@@ -384,6 +384,26 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void FindAssembliesInPackage_ReturnsEveryNamedMatchOrTheExactPath()
+    {
+        string net8 = WriteDll("lib/net8.0/Lib.dll");
+        string net10 = WriteDll("lib/net10.0/Lib.dll");
+        string other = WriteDll("lib/net10.0/Other.dll");
+        string[] dlls = [net8, net10, other];
+
+        Assert.Equal(
+            [net8, net10],
+            TfmSelector.FindAssembliesInPackage(dlls, _tempDir, "Lib"));
+        Assert.Equal(
+            [net10],
+            TfmSelector.FindAssembliesInPackage(dlls, _tempDir, "lib/net10.0/Lib.dll"));
+        Assert.Empty(
+            TfmSelector.FindAssembliesInPackage(dlls, _tempDir, "Missing.dll"));
+        Assert.Empty(
+            TfmSelector.FindAssembliesInPackage(dlls, _tempDir, "lib/net9.0/Lib.dll"));
+    }
+
+    [Fact]
     public void SelectPackageLibrary_RequestedLibraryNotFound_ReturnsTfmCandidates()
     {
         var candidate = WriteDll("lib/net8.0/Actual.dll");

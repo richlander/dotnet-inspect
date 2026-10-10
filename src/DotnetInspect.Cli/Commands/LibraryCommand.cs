@@ -5223,7 +5223,7 @@ public partial class LibraryCommand
             }
         }
 
-        // --tfm all: return all assemblies from every TFM
+        // --tfm all: return the named Library from every TFM, or all assemblies
         if (string.Equals(tfm, "all", StringComparison.OrdinalIgnoreCase))
         {
             var (candidates, _) = TfmSelector.SelectHighestAssembliesFromPackage(extractPath, tfm);
@@ -5232,6 +5232,21 @@ public partial class LibraryCommand
                 CommandError.Write("No DLLs found in package.");
                 DeleteTempDir(tempDir);
                 return null;
+            }
+            if (!string.IsNullOrEmpty(assemblyName))
+            {
+                IReadOnlyList<string> named = TfmSelector.FindAssembliesInPackage(
+                    candidates,
+                    extractPath,
+                    assemblyName);
+                if (named.Count == 0)
+                {
+                    CommandError.Write($"Library '{assemblyName}' not found in package.");
+                    CommandError.WriteLine("Use 'dotnet-inspect package <name> --path \"lib/\"' to list available libraries.");
+                    DeleteTempDir(tempDir);
+                    return null;
+                }
+                candidates = [.. named];
             }
             return (candidates, extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
         }

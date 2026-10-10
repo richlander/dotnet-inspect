@@ -857,6 +857,43 @@ public static class TfmSelector
         return (selectedPath ?? matchingFiles[0], selectedTfm ?? tfm);
     }
 
+    /// <summary>
+    /// Every candidate that the exact Library request names, across all of
+    /// <paramref name="dlls"/>: the exact asset path when one matches, otherwise
+    /// every file whose name or bare name matches. A path-shaped request that
+    /// matches no exact asset yields no candidates.
+    /// </summary>
+    public static IReadOnlyList<string> FindAssembliesInPackage(
+        IReadOnlyList<string> dlls,
+        string extractPath,
+        string assemblyName)
+    {
+        var normalizedAssemblyName = assemblyName.Replace('\\', '/');
+        string? exactMatch = FindExactPackageAsset(
+            dlls,
+            extractPath,
+            normalizedAssemblyName);
+        if (exactMatch is not null)
+            return [exactMatch];
+
+        if (normalizedAssemblyName.Contains('/'))
+            return [];
+
+        var assemblyLeaf = Path.GetFileName(assemblyName);
+        var bareName = assemblyLeaf.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            ? Path.GetFileNameWithoutExtension(assemblyLeaf)
+            : assemblyLeaf;
+        var fileName = assemblyLeaf.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            ? assemblyLeaf
+            : $"{bareName}.dll";
+        return
+        [
+            .. dlls.Where(dll =>
+                Path.GetFileName(dll).Equals(fileName, StringComparison.OrdinalIgnoreCase)
+                || Path.GetFileNameWithoutExtension(dll).Equals(bareName, StringComparison.OrdinalIgnoreCase)),
+        ];
+    }
+
     internal static string? FindExactPackageAsset(
         IReadOnlyList<string> paths,
         string extractPath,
