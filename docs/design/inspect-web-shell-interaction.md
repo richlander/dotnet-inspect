@@ -3,7 +3,7 @@
 This document owns the persistent `dotnet-inspect` shell and the shared
 transient and routed surfaces it launches: the workspace title bar and shell
 actions, the Application menu, shared menu/modal semantics, Spotlight Search,
-Open, Settings entry, Keyboard help, the command palette, and the
+Open, Settings entry, Legend, Keyboard help, the command palette, and the
 routed-versus-modal classification that governs focus return and history
 interaction. It does not own which subject, target, or lens is active, the
 contents of coordinate selectors, or the consumer effect lifecycle that
@@ -19,14 +19,14 @@ Spotlight adoption is
 This owner defines:
 
 - the persistent shell's visible `Search` and `Open` actions, one stable
-  Application menu for `Share`, `Settings`, and `Keyboard help`, and the
-  `dotnet-inspect` product-navigation control;
+  Application menu for `Share`, `Settings`, `Legend`, and `Keyboard help`, and
+  the `dotnet-inspect` product-navigation control;
 - the identities, accessible behavior, and responsive visible states of the
   row-one Home, history, Search, and Application menu controls;
 - the generic modal-dialog contract (accessible name, initial focus, inert
   background, tab containment, Escape, one-modal-at-a-time, and
   ordinary-dismissal focus return) shared by Spotlight, Open, Settings,
-  Keyboard help, and the full-bleed Annotated Source viewer;
+  Legend, Keyboard help, and the full-bleed Annotated Source viewer;
 - the classification that Home, Workspace, Type Explorer, Package query,
   Package Activity, and Diagnostics are routed full-bleed surfaces rather than
   dialogs;
@@ -99,9 +99,9 @@ subject rather than permanent high-distraction chrome. Platform libraries are
 capabilities or content of the active Workspace.
 
 The Navigation Presentation-owned Subject and Inspector region shares row one
-with those shell controls. `Share`, `Settings`, `Keyboard help`, and contextual
-working-surface actions are not children of that region or items in either
-adaptive navigation group.
+with those shell controls. `Share`, `Settings`, `Legend`, `Keyboard help`, and
+contextual working-surface actions are not children of that region or items in
+either adaptive navigation group.
 
 The shell exposes one stable Application menu control separately from the
 Subject and Inspector region. [Inspect Web Surface
@@ -138,6 +138,7 @@ The separate Application menu exposes:
 Application
   Share
   Settings
+  Legend
   Keyboard help
 ```
 
@@ -197,10 +198,10 @@ The Application menu starts from three established patterns:
   [Lit keyed lists](https://lit.dev/docs/templates/lists/#the-repeat-directive)).
 
 The deliberate divergence is that the separate Application menu remains small
-and non-navigational. It contains only the shell-owned Share, Settings, and
-Keyboard help actions. Home, Query, Workspace, Activity, and Demos instead live
-in the brand-triggered product-navigation menu, where they remain prominent
-without competing horizontally with Subject and Inspector navigation.
+and non-navigational. It contains only the shell-owned Share, Settings, Legend,
+and Keyboard help actions. Home, Query, Workspace, Activity, and Demos instead
+live in the brand-triggered product-navigation menu, where they remain
+prominent without competing horizontally with Subject and Inspector navigation.
 Open Library follows those destinations as a separated product action rather
 than pretending to be a routed destination or an application utility. Search,
 browser history, subjects, inspectors, coordinates, and contextual
@@ -288,7 +289,9 @@ surface:
 2. A separator divides the current-workspace action from the application-wide
    actions.
 3. `Settings` opens Unified Settings.
-4. `Keyboard help` opens the shared keyboard-reference dialog.
+4. `Legend` opens the shared reference for the Type and Member achievement
+   glyphs.
+5. `Keyboard help` opens the shared keyboard-reference dialog.
 
 Changing viewport width does not move an action between direct and menu forms,
 reorder the inventory, or remove the Application menu button. Contextual
@@ -301,8 +304,8 @@ Action activation closes the menu before dispatch:
   canonical Share operation used by the command palette, and announces copy
   success without moving focus. A non-projectable outcome or clipboard failure
   is visibly surfaced and leaves focus on the button.
-- Settings and Keyboard help close the menu without an intermediate focus
-  return, then apply their modal initial-focus rules. Ordinary dismissal
+- Settings, Legend, and Keyboard help close the menu without an intermediate
+  focus return, then apply their modal initial-focus rules. Ordinary dismissal
   returns to the current Application menu button without reopening the menu.
 - A committed navigation action, browser-history transition, or route change
   that removes the inspection shell follows Navigation Consumer's destination
@@ -310,9 +313,9 @@ Action activation closes the menu before dispatch:
 
 If shell maintenance replaces the open menu without navigation, the menu
 closes and focus moves to the replacement Application menu button. If
-maintenance replaces the shell while Settings or Keyboard help is open, the
-modal remains focused and its eventual dismissal resolves the replacement
-button by logical identity.
+maintenance replaces the shell while Settings, Legend, or Keyboard help is
+open, the modal remains focused and its eventual dismissal resolves the
+replacement button by logical identity.
 
 ## Shared menu and modal semantics
 
@@ -321,8 +324,8 @@ invoker and the modal applies its initial-focus rule. The stable menu-button
 invoker, not the removed menu item, becomes the modal's ordinary-dismissal
 return target; dismissal does not reopen the menu.
 
-Spotlight, Open, Settings, Keyboard help, and the full-bleed Annotated Source
-viewer are modal dialogs:
+Spotlight, Open, Settings, Legend, Keyboard help, and the full-bleed Annotated
+Source viewer are modal dialogs:
 
 - each has a visible accessible name and close action;
 - opening moves focus to its primary input, current selection, or heading;
@@ -815,6 +818,19 @@ The Application menu's Settings action opens the one shared configuration
 experience. Separate persistent theme controls, a global Taste button, and
 duplicate settings popovers are removed.
 
+### Legend
+
+The Application menu's `Legend` action opens one dialog named `Legend`. It
+explains every distinct glyph in the shared Type and Member achievement rail:
+changed Type, API differences, implementation differences, sea level,
+mountain peak, Top Leverage, and Implementation Hub. Surface and implementation
+structural poles intentionally share the same sea-level or mountain-peak shape,
+so each shared shape has one entry that names both evidence modes.
+
+Initial focus moves to the dialog's visible heading. The dialog follows the
+shared modal containment, Escape, close, one-modal-at-a-time, and
+ordinary-dismissal focus-return rules.
+
 ### Keyboard help
 
 The Application menu's `Keyboard help` action opens one dialog named
@@ -912,18 +928,19 @@ Before implementation claims this application-control contract, it must add
 and pass these named Inspect Web tests:
 
 - `shell-controls.test.ts`:
-  `application menu owns Share Settings and Keyboard help` proves the exact
-  menu inventory and order, conditional Share omission, non-projectable Share
-  reason, ARIA relationships, menu-button keyboard behavior, outside-pointer
-  dismissal, and the absence of contextual or navigation actions.
+  `application menu owns Share Settings Legend and Keyboard help` proves the
+  exact menu inventory and order, conditional Share omission, non-projectable
+  Share reason, ARIA relationships, menu-button keyboard behavior,
+  outside-pointer dismissal, and the absence of contextual or navigation
+  actions.
 - `workspace-titlebar.spec.ts`:
   `application menu preserves action and focus continuity` proves Share
-  success and failure focus, Settings and Keyboard help initial focus and
-  dismissal return, shell replacement while the menu or a launched modal is
-  open, and stable action inventory across wide and narrow viewports.
+  success and failure focus, Settings, Legend, and Keyboard help initial focus
+  and dismissal return, shell replacement while the menu or a launched modal
+  is open, and stable action inventory across wide and narrow viewports.
 - `command-bar.test.ts`:
   `application actions share one dispatch path with the command palette`
-  proves Share, Settings, and Keyboard help parity without a second action
+  proves Share, Settings, Legend, and Keyboard help parity without a second action
   registry.
 
 These gates exercise the Shell Interaction-owned control in a focused harness.
@@ -1001,29 +1018,29 @@ outcomes.
    relationships, initial item, wrapped Arrow navigation, Home and End bounds,
    Escape return, Tab continuation, and outside-pointer dismissal.
 3. In a retained projectable workspace, confirm that the menu contains Share,
-   a separator, Settings, and Keyboard help in that order. On a surface with no
-   Share action, confirm that Share and the now-unnecessary separator are
-   absent. Supply a non-projectable workspace and confirm that Share remains
-   present and activation surfaces its owner-issued reason.
+   a separator, Settings, Legend, and Keyboard help in that order. On a surface
+   with no Share action, confirm that Share and the now-unnecessary separator
+   are absent. Supply a non-projectable workspace and confirm that Share
+   remains present and activation surfaces its owner-issued reason.
 4. Activate Share and confirm that the menu closes, focus returns to the
    Application menu button, the canonical link is copied once, and success is
    announced without moving focus. Reject clipboard access and confirm a
    visible failure with the same focus.
-5. Activate Settings and Keyboard help. Confirm that each closes the menu
-   without intermediate focus return, applies its modal initial-focus rule, and
-   returns to the current Application menu button on ordinary dismissal without
-   reopening the menu.
+5. Activate Settings, Legend, and Keyboard help. Confirm that each closes the
+   menu without intermediate focus return, applies its modal initial-focus
+   rule, and returns to the current Application menu button on ordinary
+   dismissal without reopening the menu.
 6. Replace the shell while the menu is open and confirm that it closes and
-   focus moves to the replacement button. Replace the shell while Settings or
-   Keyboard help is open and confirm that modal focus remains contained and
-   dismissal resolves the replacement button.
+   focus moves to the replacement button. Replace the shell while Settings,
+   Legend, or Keyboard help is open and confirm that modal focus remains
+   contained and dismissal resolves the replacement button.
 7. Resize repeatedly across the supported range and confirm that the button and
    applicable action inventory remain stable rather than changing between
    direct and overflow forms.
 8. Confirm that Search, history, subjects, inspectors, coordinates,
    Copy, Explore, graph actions, source actions, and `Open in workspace` do not
    enter the menu.
-9. Invoke Share, Settings, and Keyboard help through the command palette and
+9. Invoke Share, Settings, Legend, and Keyboard help through the command palette and
    confirm that each uses the same dispatch and outcome path as its menu item.
 
 ### Search input
@@ -1127,7 +1144,7 @@ outcomes.
 
 ### Modal and routed surfaces
 
-1. Open and close Spotlight, Open, Settings, and Keyboard help by pointer,
+1. Open and close Spotlight, Open, Settings, Legend, and Keyboard help by pointer,
    keyboard, and Escape.
 2. Confirm accessible naming, initial focus, modal containment, inert
    background content, and focus return for each.

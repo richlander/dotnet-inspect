@@ -110,6 +110,45 @@ materialization and visible budget failure. `AwaitContinuationCleanup_CompileBac
 gates Exact raised product whole-member compilation. These gates do not establish
 reconstruction of the motivating writer's early-return guard.
 
+## Single Boolean guard before a void await
+
+The single-void-await recipe may reproduce a Boolean guard as a single-arm
+`if` containing the await and its ordered continuation. This correspondence
+accepts only the compiler-produced seven-block shell: state dispatch, user
+guard, empty early-completion leave, await acquisition/completion test,
+suspension, resumption and continuation. The true guard edge enters the await;
+the false edge reaches the same successful completion as the continuation.
+Resumption bypasses the guard. Raw import and planning must agree on guard
+identity, both successors, all entries to the guarded region, and exactly two
+successful completion leaves. The condition retains its independent typed
+value, effect and import-origin correspondence; every await and continuation
+claim must remain inside the reproduced guard's arm.
+
+A surviving completion label may move from the field-store instruction to its
+block entry during structuring. That label move must retain the original
+instruction origin. Completion correspondence pairs the exact typed state
+field and completion callback, and requires the planning store to retain the
+raw store's instruction offset. Label equality cannot replace this proof.
+`ClassicInverseGuardCompletionRetainsImportedStoreOrigin` gates preservation;
+the `completion-origin` negative gates its loss.
+
+Roslyn Release `ContinuationFixtures.GuardedAwait`, `InvertedGuardedAwait` and
+`GuardedReceiverCleanup` gate the smallest shell, Boolean negation and ordered
+cleanup. `ClassicInversePreservesSingleAwaitGuard` gates Full raised output.
+`ClassicInverseAwaitGuardCannotBeHealedByPlanning` and
+`ClassicInverseRawAwaitGuardCannotBeHealed` gate changed predicate/edge,
+completion, external-entry, nested-control and extra-effect boundaries.
+`ClassicInverseAwaitGuardPlanIsDetachedAndBudgeted` gates immutable guarded
+materialization and visible budget failure. `SingleAwaitGuards_CompileBackExact`
+gates Exact product whole-member compilation.
+
+The motivating writer still has a two-condition reference guard and a default
+cancellation-token initialization. Those obligations remain separate; this
+slice does not claim Full fidelity for `Utf8JsonWriter.DisposeAsync`.
+`ClassicInverseDeclinesCompoundAwaitGuard` retains the compound-guard boundary.
+Splitting the Boolean prerequisite from the writer's compound guard makes
+twelve currently planned slices under #9625.
+
 ## Demo
 
 Consider a supported recipe whose result store is nested under a condition:

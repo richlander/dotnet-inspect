@@ -1397,10 +1397,12 @@ unchanged; if recovery after cutover also fails, Inspect Web enters a blocking
 retry state rather than exposing the failed tentative Workspace. Source
 declarations that do not require authentication activate without a prompt.
 
-Add `--make-package-dependencies-explicit` to acquire every direct Package
-member, resolve its exact direct dependencies for the member's effective
-target, and append those dependencies to the same context before emitting the
-derived packet:
+Add `--make-package-dependencies-explicit` to acquire the bounded manifest for
+every direct Package member, resolve its exact direct dependencies for the
+member's effective target, and append those dependencies to the same context
+before emitting the derived packet. PackageHouse uses a source-supplied
+manifest when available and otherwise acquires only the root nuspec from the
+package archive:
 
 ```bash
 dotnet-inspect workspace \
@@ -1413,7 +1415,7 @@ dotnet-inspect workspace \
 The transformation also accepts a canonical Base64URL packet string through
 `--packet`. Existing members retain their order; new members use owner-issued
 dependency order and are deduplicated only within each context. The command
-emits no packet unless every selected Package root completes and the complete
+emits no packet unless every selected Package manifest settles and the complete
 derived definition remains projectable. Unlike ordinary resource-free
 `--share`, this explicit transformation admits `--preview` and NuGet source
 policy because acquisition is part of the requested operation.

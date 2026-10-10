@@ -191,6 +191,18 @@ evidence that justifies the different acquisition tradeoff. Selecting fewer
 entries, or requesting only directory facts, does not itself justify overriding
 the cut. Fixture overrides may exercise both sides of the policy.
 
+The sole production exception is the CLI pairwise-diff endpoint admission
+check in `PackageEndpointDiffSession`. It uses a zero cut while deciding
+whether the modern endpoint scope can answer or must use the legacy selector.
+A complete download during that check is not available to the legacy fallback,
+which would download the same archive again. The exception avoids that duplicate
+complete transfer; it does not extend to ordinary endpoint realization.
+It retains a measured cost for small admitted archives, including the extra
+directory read documented in
+[endpoint-scope adoption step 2](package-endpoint-scope.md#adoption).
+It retires with the legacy selector in endpoint-scope adoption step 4. New
+consumers must not copy it.
+
 The search Root's coverage fallback is sequential: it takes the complete
 archive only after the ranged read returns, so the two transfers never
 overlap.
@@ -258,12 +270,15 @@ feed republishing is outside the immutable-feed contract and is not promised
 to be detected by a fresh directory comparison. Invalid cached directory or
 entry bytes remain visible and retain the existing cache-bypass policy.
 
-The motivating asset is `Newtonsoft.Json@13.0.4`, `net6.0`: the website Summary
-already retains its directory. Reopening for its exact Library previously cost
-another 65,557-byte tail before a 275,871-byte DLL span. Reuse removes that tail,
-so Summary plus Overview costs four archive requests and 343,246 consumed
-body bytes instead of five and 408,803. API and Enablements retain the shared
-acquisition introduced under semantic content demand. The production adopter
+The motivating asset is `Newtonsoft.Json@13.0.4`, `net6.0`. With the inventory-only
+Summary and joint exact-Library demand in successor #9834, Summary retains the
+directory before the Library body is requested. Reopening previously cost
+another 65,557-byte tail before a 275,871-byte DLL span. Directory reuse makes
+that successor flow cost four archive requests and 343,246 consumed body bytes
+instead of five and 408,803; its API and Enablements share acquisition under
+semantic content demand. Before #9834, the website's eager Summary already
+acquires the Library body, so Summary plus Overview uses four requests and
+395,672 bytes with or without directory reuse. The current production adopter
 is the common Package acquisition step, so Browser/Wasm and CLI entry-cache
 reads receive the same behavior. Focused gates cover a missing cached entry,
 invalid cached data, authority isolation, new operation cancellation, and

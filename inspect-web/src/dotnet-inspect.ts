@@ -222,6 +222,7 @@ import {
   focusWorkbenchSearch,
   renderApplicationMenu,
   renderKeyboardHelpDialog,
+  renderLegendDialog,
   renderTitleNavigation,
   restoreApplicationMenuFocusIfOwned,
   trapModalTab,
@@ -710,6 +711,8 @@ import {
   ECOSYSTEM_PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
   initialQueryState,
   isTraversalDependencyTarget,
+  packageQueryWorkspaceLens,
+  requiresTraversalDependencyTarget,
   shouldExecuteQuery,
   synchronizeDependencyTermEditor,
   synchronizeTermEdits,
@@ -1653,6 +1656,7 @@ const initialState = {
   taste: loadStoredTaste(),
   settings: false,
   settingsReturn: "home",
+  legend: false,
   keyboardHelp: false,
   typeCursor: 0,
   history: [],
@@ -2255,6 +2259,7 @@ function captureRetainedHostState() {
     taste: state.taste,
     settings: state.settings,
     settingsReturn: state.settingsReturn,
+    legend: state.legend,
     keyboardHelp: state.keyboardHelp,
     engineReady: state.engineReady,
     engineRuntimeReady: state.engineRuntimeReady,
@@ -2672,6 +2677,7 @@ async function installRetainedWorkspacePosting(
   posting: BrowserRetainedWorkspacePosting,
   locationIntent: LocationIntentDeclaration,
   browserRestoration?: "exact" | "changed",
+  initialPackageLens?: PackageLens,
 ): Promise<void> {
   const detailAuthority = retainedWorkspaceInitialDetailAuthority;
   if (detailAuthority?.realizationId !== posting.realizationId) {
@@ -2746,6 +2752,9 @@ async function installRetainedWorkspacePosting(
     state.workspaceSubjectOpen = state.package === null;
     state.atPackageRoot = true;
     state.atLibraryRoot = false;
+    if (initialPackageLens !== undefined && state.rootKind === "package") {
+      state.packageLens = initialPackageLens;
+    }
     if (detailFailure !== null) {
       if (packageInventory !== undefined) {
         const presentation = retainedWorkspacePresentation;
@@ -3249,6 +3258,14 @@ async function activateManagedRetainedWorkspace(
       && retainedWorkspaces.activeWorkspaceId !== null) {
       workspaceLocation.replace(location.href, history.state);
     }
+    const definition = controller.state.definitions.find(
+      candidate => candidate.id === retainedDefinitionId);
+    if (definition === undefined) {
+      throw new Error(
+        `Unknown retained Workspace definition '${retainedDefinitionId}'.`);
+    }
+    const initialPackageLens =
+      await retainedDefinitionPackageLens(definition);
     const locationIntent = retainedLocationIntents.admitNonBrowser(
       locationPolicy,
       installedRetainedLocation,
@@ -3260,7 +3277,11 @@ async function activateManagedRetainedWorkspace(
       const activation = controller.activate(
         retainedDefinitionId,
         () => retainedLocationIntents.currentIntentId === locationIntent.id,
-        posting => installRetainedWorkspacePosting(posting, locationIntent),
+        posting => installRetainedWorkspacePosting(
+          posting,
+          locationIntent,
+          undefined,
+          initialPackageLens),
         undefined,
         undefined,
         posting => retainedLocationPresentationCurrent(
@@ -3387,6 +3408,16 @@ function publishFreshEmptyWorkspaceFromHistory(
   return true;
 }
 
+async function retainedDefinitionPackageLens(
+  definition: RetainedWorkspaceActivationController[
+    "state"
+  ]["definitions"][number],
+): Promise<PackageLens | undefined> {
+  if (!("packageQuery" in definition)) return undefined;
+  return (await parseWorkspaceHref(definition.canonicalLocation)).packageLens
+    ?? undefined;
+}
+
 function deleteRetainedWorkspace(workspaceId: string): void {
   if (retainedWorkspaceActivation?.state.definitions.some(
     definition => definition.id === workspaceId)) {
@@ -3454,6 +3485,9 @@ async function deleteManagedRetainedWorkspace(
     ? undefined
     : controller.state.definitions[definitionIndex + 1]
       ?? controller.state.definitions[definitionIndex - 1];
+  const successorPackageLens = successor === undefined
+    ? undefined
+    : await retainedDefinitionPackageLens(successor);
   const compatibilitySuccessor =
     successor === undefined
       ? retainedWorkspaces.workspaces.at(-1)
@@ -3471,7 +3505,11 @@ async function deleteManagedRetainedWorkspace(
       acceptSuccessor: () =>
         retainedLocationIntents.currentIntentId === locationIntent.id,
       completeSuccessor: posting =>
-        installRetainedWorkspacePosting(posting, locationIntent),
+        installRetainedWorkspacePosting(
+          posting,
+          locationIntent,
+          undefined,
+          successorPackageLens),
       isSuccessorPresentationCurrent: posting =>
         retainedLocationPresentationCurrent(
           locationIntent,
@@ -5290,7 +5328,7 @@ function canRestoreWorkbenchFocus(
     && !state.spotlightOpen
     && !graphSourceIsOpen(state.graphSource)
     && !documentViewerIsOpen(state.docViewer)
-    && !state.settings && !state.keyboardHelp
+    && !state.settings && !state.legend && !state.keyboardHelp
     && !applicationMenuOwnsFocus(document) && !isTextEntry();
 }
 
@@ -9253,7 +9291,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   const graphExplorerWasOpen = graphExplorer.isOpen;
   graphExplorer.beforeRender(graphExplorerKey());
   if (graphExplorerWasOpen && !graphExplorer.isOpen) {
-    graphExplorerNavigationFocusPending = !state.settings && !state.keyboardHelp
+    graphExplorerNavigationFocusPending =
+      !state.settings && !state.legend && !state.keyboardHelp
       && !state.explorer?.open && !workbenchModalOwnsFocus();
   }
   if (graphExplorerNavigationFocusPending) {
@@ -9404,9 +9443,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     if (state.settings) {
       document.querySelector<HTMLElement>("#settings-title")
         ?.focus({ preventScroll: true });
-    } else if (state.keyboardHelp) {
-      document.querySelector<HTMLElement>("#keyboard-help-title")
-        ?.focus({ preventScroll: true });
+    } else if (state.legend || state.keyboardHelp) {
+      focusApplicationReferenceHeading();
     } else if (homeFocus) {
       restoreHomeFocus(homeFocus);
     } else if (levelOneHeadingHadFocus) {
@@ -9420,9 +9458,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     if (state.settings) {
       document.querySelector<HTMLElement>("#settings-title")
         ?.focus({ preventScroll: true });
-    } else if (state.keyboardHelp) {
-      document.querySelector<HTMLElement>("#keyboard-help-title")
-        ?.focus({ preventScroll: true });
+    } else if (state.legend || state.keyboardHelp) {
+      focusApplicationReferenceHeading();
     } else if (workspaceFocus) {
       restoreWorkspaceFocus(document, workspaceFocus);
     } else if (homeFocus) {
@@ -9440,7 +9477,9 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   }
   if (scope() === "platform") {
     renderPlatformView();
-    if (scopeBarFocus) restoreScopeBarFocus(document, scopeBarFocus);
+    if (state.legend || state.keyboardHelp) {
+      focusApplicationReferenceHeading();
+    } else if (scopeBarFocus) restoreScopeBarFocus(document, scopeBarFocus);
     else if (applicationMenuHadFocus) focusApplicationMenuButton(document);
     else if (workbenchSearchHadFocus) focusWorkbenchSearch(document);
     else if (levelOneHeadingHadFocus) focusLevelOneHeading();
@@ -9454,9 +9493,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
       renderWorkspaceCatalogView();
       if (state.settings) {
         focusSettingsEntry();
-      } else if (state.keyboardHelp) {
-        document.querySelector<HTMLElement>("#keyboard-help-title")
-          ?.focus({ preventScroll: true });
+      } else if (state.legend || state.keyboardHelp) {
+        focusApplicationReferenceHeading();
       } else if (applicationMenuHadFocus) {
         focusApplicationMenuButton(document);
       } else if (workspaceFocus) {
@@ -9640,8 +9678,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     app.tabIndex = -1;
     app.focus({ preventScroll: true });
   }
-  const applicationModalOpen =
-    state.settings || state.keyboardHelp || state.libraryOpen;
+  const applicationModalOpen = applicationModalIsOpen();
   replaceChildrenPreservingRenderedInteractions(app, `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
@@ -9742,9 +9779,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     </div>
     ${renderApplicationMenu(state.rootKind !== "library")}
     ${state.settings ? renderSettingsViewHtml() : ""}
-    ${state.keyboardHelp
-      ? renderKeyboardHelpDialog(keyboardHelpBindings)
-      : ""}
+    ${renderApplicationReferenceDialogs()}
     ${renderLibraryOpenDialog({
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
@@ -9764,9 +9799,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   }
   if (state.settings) {
     focusSettingsEntry();
-  } else if (state.keyboardHelp) {
-    document.querySelector<HTMLElement>("#keyboard-help-title")
-      ?.focus({ preventScroll: true });
+  } else if (state.legend || state.keyboardHelp) {
+    focusApplicationReferenceHeading();
   } else if (applicationMenuHadFocus) {
     focusApplicationMenuButton(document);
   } else if (workspaceFocus) {
@@ -9862,7 +9896,7 @@ function renderWorkspaceCatalogView() {
     copyable: false,
   }];
   replaceChildrenPreservingRenderedInteractions(app, `
-    <div class="workbench"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
+    <div class="workbench"${applicationModalIsOpen() ? " inert" : ""}>
       ${workbenchShellHtml({
         inspectedTargetHtml: `
           <div class="inspected-target" aria-label="Inspected target">
@@ -9894,9 +9928,7 @@ function renderWorkspaceCatalogView() {
     </div>
     ${renderApplicationMenu(false)}
     ${state.settings ? renderSettingsViewHtml() : ""}
-    ${state.keyboardHelp
-      ? renderKeyboardHelpDialog(keyboardHelpBindings)
-      : ""}
+    ${renderApplicationReferenceDialogs()}
     ${renderLibraryOpenDialog({
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
@@ -10238,7 +10270,7 @@ function renderRetainedEcosystemView(
     copyable: false,
   }];
   replaceChildrenPreservingRenderedInteractions(app, `
-    <div class="workbench"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
+    <div class="workbench"${applicationModalIsOpen() ? " inert" : ""}>
       ${workbenchShellHtml({
         inspectedTargetHtml: `
           <div class="inspected-target" aria-label="Inspected target">
@@ -10304,9 +10336,7 @@ function renderRetainedEcosystemView(
     </div>
     ${renderApplicationMenu(false)}
     ${state.settings ? renderSettingsViewHtml() : ""}
-    ${state.keyboardHelp
-      ? renderKeyboardHelpDialog(keyboardHelpBindings)
-      : ""}
+    ${renderApplicationReferenceDialogs()}
     ${renderLibraryOpenDialog({
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
@@ -15664,7 +15694,7 @@ function showPlatformRoot() {
 function renderPlatformView() {
   const target = selectedPlatformTarget();
   const idle = { loading: false, error: "" };
-  replaceChildrenPreservingRenderedInteractions(app, `<div class="workbench"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
+  replaceChildrenPreservingRenderedInteractions(app, `<div class="workbench"${applicationModalIsOpen() ? " inert" : ""}>
     ${workbenchShellHtml({
       inspectedTargetHtml: `<div class="inspected-target"><span class="subject-icon" aria-hidden="true">.NET</span><div class="subject-path">${renderInspectedSubjectPath(currentInspectedSubjectPath())}</div></div>`,
       subjectInspectorHtml: renderScopeBar(["platform"]),
@@ -15692,7 +15722,7 @@ function renderPlatformView() {
     ${state.spotlightOpen ? spotlight.modalHtml() : ""}
     </div>${renderApplicationMenu(true)}
     ${state.settings ? renderSettingsViewHtml() : ""}
-    ${state.keyboardHelp ? renderKeyboardHelpDialog(keyboardHelpBindings) : ""}
+    ${renderApplicationReferenceDialogs()}
     ${renderLibraryOpenDialog({
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
@@ -17332,6 +17362,8 @@ function executeCommand(
     dispatchApplicationAction("share");
   } else if (verb === "settings") {
     dispatchApplicationAction("settings");
+  } else if (verb === "legend") {
+    dispatchApplicationAction("legend");
   } else if (value === "keyboard help") {
     dispatchApplicationAction("keyboard-help");
   }
@@ -18628,7 +18660,7 @@ function openProductEcosystems(): void {
 function renderProductEcosystemsPage(): void {
   document.title = "Ecosystems — dotnet-inspect";
   replaceChildrenPreservingRenderedInteractions(app, `
-    <div class="home ecosystems-page"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
+    <div class="home ecosystems-page"${applicationModalIsOpen() ? " inert" : ""}>
       <header class="home-bar">
         ${renderBrand()}
         <div class="home-bar-actions">
@@ -18645,7 +18677,7 @@ function renderProductEcosystemsPage(): void {
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
     </div>
     ${state.settings ? renderSettingsViewHtml() : ""}
-    ${state.keyboardHelp ? renderKeyboardHelpDialog(keyboardHelpBindings) : ""}
+    ${renderApplicationReferenceDialogs()}
     ${renderLibraryOpenDialog({
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
@@ -18773,7 +18805,7 @@ async function openProductEcosystem(ecosystemId: string): Promise<void> {
 function renderProductDemosPage(): void {
   document.title = "Demos — dotnet-inspect";
   replaceChildrenPreservingRenderedInteractions(app, `
-    <div class="home demos-page"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
+    <div class="home demos-page"${applicationModalIsOpen() ? " inert" : ""}>
       <header class="home-bar">
         ${renderBrand()}
         <div class="home-bar-actions">
@@ -18790,7 +18822,7 @@ function renderProductDemosPage(): void {
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
     </div>
     ${state.settings ? renderSettingsViewHtml() : ""}
-    ${state.keyboardHelp ? renderKeyboardHelpDialog(keyboardHelpBindings) : ""}
+    ${renderApplicationReferenceDialogs()}
     ${renderLibraryOpenDialog({
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
@@ -21188,7 +21220,7 @@ function applyPackageQueryTerm(
   value: string,
   text: string,
   dependencyReach: DependencyReach = "direct",
-  dependencyTargetValue = "net10.0",
+  dependencyTargetValue = "",
 ) {
   const descriptor = index === null
     ? state.packageQueryState.termDraft?.descriptor
@@ -21210,17 +21242,22 @@ function applyPackageQueryTerm(
           && preset.value === dependencyReach) ?? null;
     const targetDescriptor = state.packageQueryTerms.find(
       term => term.key === "dependency-target") ?? null;
-    if (dependencyReach !== "direct"
-      && (!depthPreset || !targetDescriptor)) {
+    if ((dependencyReach !== "direct" && !depthPreset)
+      || (isTraversalDependencyTarget(dependencyTargetValue)
+        && !targetDescriptor)) {
       state.packageQueryNavigationError =
         "Dependency reach controls are unavailable.";
       render();
       return;
     }
-    if (dependencyReach !== "direct"
+    if (requiresTraversalDependencyTarget(
+      current,
+      index,
+      operator,
+      dependencyReach)
       && !isTraversalDependencyTarget(dependencyTargetValue)) {
       state.packageQueryNavigationError =
-        "Bounded dependency reach requires an exact target framework.";
+        "An exact target framework is required while bounded dependency reach is active.";
       render();
       return;
     }
@@ -21332,6 +21369,9 @@ async function openPackageQueryRow(
     packageQueryViewport =
       capturePackageQueryViewport(document) ?? packageQueryViewport;
   }
+  const initialPackageLens: PackageLens = origin === "query"
+    ? packageQueryWorkspaceLens(state.packageQueryState.request) ?? "overview"
+    : "overview";
   if (!canPublishRetainedWorkspace()) {
     if (origin === "query") {
       state.packageQueryNavigationError = retainedWorkspaceCapacityMessage();
@@ -21365,7 +21405,9 @@ async function openPackageQueryRow(
     `/packages/${encodeURIComponent(packageId)}/${encodeURIComponent(version)}`,
     location.origin,
   );
-  url.hash = "package";
+  url.hash = initialPackageLens === "overview"
+    ? "package"
+    : `pkg:${initialPackageLens}`;
   const destination = url.toString();
   const locationIntent = retainedLocationIntents.admitNonBrowser(
     "push",
@@ -21385,7 +21427,11 @@ async function openPackageQueryRow(
       () =>
         navigationSequence.isCurrent(navigationSeq)
         && retainedLocationIntents.currentIntentId === locationIntent.id,
-      posting => installRetainedWorkspacePosting(posting, locationIntent),
+      posting => installRetainedWorkspacePosting(
+        posting,
+        locationIntent,
+        undefined,
+        initialPackageLens),
       undefined,
       undefined,
       posting => retainedLocationPresentationCurrent(
@@ -21431,7 +21477,10 @@ async function openPackageQueryRow(
       navigationSeq,
     );
     clearWorkspaceFeedIdentity();
-    afterCurrentNavigationFrame(focusTypeList);
+    afterCurrentNavigationFrame(() => {
+      if (initialPackageLens === "overview") focusTypeList();
+      else focusLevelOneHeading();
+    });
     return;
   }
   if (!navigationSequence.isCurrent(navigationSeq)) return;
@@ -21716,7 +21765,10 @@ function replacePackageQueryPage() {
     escapeHtml,
     viewport,
   }));
-  bindPackageQueryView(document, packageQueryActions);
+  bindPackageQueryView(
+    document,
+    packageQueryActions,
+    state.packageQueryState.request);
   restorePackageQueryViewport(document, viewport);
   packageQueryViewport =
     capturePackageQueryViewport(document) ?? viewport;
@@ -22389,6 +22441,7 @@ async function loadSelectedTypeMetadata() {
       const currentType = selectedType();
       return !state.home
       && !state.settings
+      && !state.legend
       && !state.keyboardHelp
       && !state.explorer?.open
       && !state.loading
@@ -23490,7 +23543,8 @@ function typeGraphAvailable() {
 function graphExplorerKey(): string | null {
   if (state.home || state.loading || state.error || state.packageQueryOpen
     || state.packageActivityOpen
-    || state.credits || state.settings || state.keyboardHelp || state.explorer?.open
+    || state.credits || state.settings || state.legend || state.keyboardHelp
+    || state.explorer?.open
     || state.spotlightOpen
     || documentViewerIsOpen(state.docViewer)
     || graphSourceIsOpen(state.graphSource)
@@ -23589,7 +23643,8 @@ function openGraphExplorer() {
 
 function restoreGraphExplorerNavigationFocus() {
   if (!graphExplorerNavigationFocusPending) return;
-  if (state.settings || state.keyboardHelp || state.explorer?.open
+  if (state.settings || state.legend || state.keyboardHelp
+    || state.explorer?.open
     || workbenchModalOwnsFocus()) {
     graphExplorerNavigationFocusPending = false;
     return;
@@ -24602,6 +24657,10 @@ function dispatchApplicationAction(action: ApplicationAction) {
     case "settings":
       openSettings("workbench");
       return;
+    case "legend":
+      if (state.legend) closeLegend();
+      else openLegend();
+      return;
     case "keyboard-help":
       if (state.keyboardHelp) closeKeyboardHelp();
       else openKeyboardHelp();
@@ -24622,6 +24681,7 @@ function prepareLibraryOpen(returnTarget: LibraryOpenReturnTarget) {
   graphExplorerNavigationFocusPending = false;
   dismissAnnotatedSourceModal(false);
   state.settings = false;
+  state.legend = false;
   state.keyboardHelp = false;
   state.explorer = null;
   spotlight.reset();
@@ -24809,6 +24869,7 @@ function focusSettingsEntry() {
 // Open Settings, remembering the logical control that receives focus after dismissal.
 function openSettings(from: "home" | "workbench" | "source") {
   state.settingsReturn = from;
+  state.legend = false;
   state.keyboardHelp = false;
   state.settings = true;
   render();
@@ -24846,6 +24907,7 @@ function closeSettings() {
 
 function openKeyboardHelp() {
   state.settings = false;
+  state.legend = false;
   const graphViewport =
     document.querySelector<HTMLElement>(".graph-viewport");
   keyboardHelpBindings = [
@@ -24866,6 +24928,45 @@ function closeKeyboardHelp() {
       document.querySelector<HTMLElement>("#application-menu-button")
         ?.focus({ preventScroll: true }));
   });
+}
+
+function openLegend() {
+  state.settings = false;
+  state.keyboardHelp = false;
+  state.legend = true;
+  render();
+}
+
+function closeLegend() {
+  state.legend = false;
+  render();
+  requestAnimationFrame(() => {
+    restoreOrdinaryModalDismissFocus(() =>
+      document.querySelector<HTMLElement>("#application-menu-button")
+        ?.focus({ preventScroll: true }));
+  });
+}
+
+function applicationModalIsOpen() {
+  return state.settings || state.legend || state.keyboardHelp
+    || state.libraryOpen;
+}
+
+function renderApplicationReferenceDialogs() {
+  return `${state.legend ? renderLegendDialog() : ""}${
+    state.keyboardHelp
+      ? renderKeyboardHelpDialog(keyboardHelpBindings)
+      : ""}`;
+}
+
+function focusApplicationReferenceHeading() {
+  const selector = state.legend ? "#legend-title"
+    : state.keyboardHelp ? "#keyboard-help-title"
+    : null;
+  if (selector) {
+    document.querySelector<HTMLElement>(selector)
+      ?.focus({ preventScroll: true });
+  }
 }
 
 function renderSettingsViewHtml() {
@@ -27032,6 +27133,7 @@ function workspaceKeyboardContextIsActive(): boolean {
     && !graphExplorer.isOpen
     && !state.explorer?.open
     && !state.settings
+    && !state.legend
     && !state.keyboardHelp
     && !state.home
     && !state.packageQueryOpen
@@ -27120,6 +27222,22 @@ registerContainedShortcuts(
   "settings.contain-browser-shortcut",
   WORKBENCH_KEYBINDING_PRIORITY.settings,
   () => state.settings,
+);
+keybindings.register({
+  id: "legend.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.settings,
+  when: () => state.legend,
+  run: () => {
+    closeLegend();
+    return true;
+  },
+});
+registerContainedShortcuts(
+  "legend.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.settings,
+  () => state.legend,
 );
 keybindings.register({
   id: "keyboard-help.dismiss",
@@ -27480,6 +27598,7 @@ function dismissModalsForRoutedNavigation() {
   closeGraphExplorerForNavigation();
   const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal(false);
   state.settings = false;
+  state.legend = false;
   state.keyboardHelp = false;
   libraryOpenSequence++;
   state.libraryOpen = false;
@@ -27582,12 +27701,16 @@ window.addEventListener("popstate", () => {
   const sourceHistoryWorkspaceAvailable = historyWorkspaceId !== null
     && workspaceFeedActivation?.ownsRetainedDefinition(
       historyWorkspaceId) === true;
-  const managedHistoryWorkspaceAvailable = !sourceHistoryWorkspaceAvailable
+  const managedHistoryWorkspaceDefinition = !sourceHistoryWorkspaceAvailable
     && historyWorkspaceId !== null
-    && retainedWorkspaceActivation?.state.definitions.some(
-      definition => definition.id === historyWorkspaceId) === true;
+    ? retainedWorkspaceActivation?.state.definitions.find(
+      definition => definition.id === historyWorkspaceId)
+    : undefined;
+  const managedHistoryWorkspaceAvailable =
+    managedHistoryWorkspaceDefinition !== undefined;
   let restoredActiveManagedWorkspace = false;
-  if (managedHistoryWorkspaceAvailable && historyWorkspaceId !== null) {
+  if (managedHistoryWorkspaceDefinition !== undefined
+    && historyWorkspaceId !== null) {
     const locationIntent = retainedLocationIntents.selectBrowserEntry({
       url: location.href,
       historyState: history.state,
@@ -27595,6 +27718,8 @@ window.addEventListener("popstate", () => {
       incumbent: installedRetainedLocation,
     });
     try {
+      const initialPackageLens = await retainedDefinitionPackageLens(
+        managedHistoryWorkspaceDefinition);
       if (retainedWorkspaceActivation?.state.activeDefinitionId
           === historyWorkspaceId) {
         const effect = retainedLocationIntents.classify(locationIntent, {
@@ -27604,6 +27729,10 @@ window.addEventListener("popstate", () => {
           browserRestoration: "exact",
         });
         retainedLocationIntents.publish(effect, history);
+        if (initialPackageLens !== undefined
+          && state.rootKind === "package") {
+          state.packageLens = initialPackageLens;
+        }
         restoredActiveManagedWorkspace = true;
       } else {
         const result = await requireRetainedWorkspaceActivation().activate(
@@ -27613,6 +27742,7 @@ window.addEventListener("popstate", () => {
             posting,
             locationIntent,
             posting.canonicalLocation === location.href ? "exact" : "changed",
+            initialPackageLens,
           ),
           undefined,
           undefined,

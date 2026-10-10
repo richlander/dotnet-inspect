@@ -158,6 +158,13 @@ public abstract class PackageHouseContentTerminal
     }
 
     /// <summary>
+    /// The one bounded root nuspec for the exact retained package coordinate.
+    /// </summary>
+    public sealed class Nuspec : PackageHouseContentTerminal
+    {
+    }
+
+    /// <summary>
     /// One selected compile Library plus the complete logical Library
     /// inventory for one exact target.
     /// </summary>
@@ -308,9 +315,19 @@ public sealed class PackageHouseContentQuery
         FileListTerminal = values
             .OfType<PackageHouseContentTerminal.FileList>()
             .SingleOrDefault();
+        NuspecTerminal = values
+            .OfType<PackageHouseContentTerminal.Nuspec>()
+            .SingleOrDefault();
         if (FileListTerminal?.IncludeDirectories == true
             && narrowing is not PackageHouseContentNarrowing.PackageWide)
             throw new ArgumentException("Directory evidence requires package-wide narrowing.", nameof(narrowing));
+        if (NuspecTerminal is not null
+            && narrowing is not PackageHouseContentNarrowing.PackageWide)
+        {
+            throw new ArgumentException(
+                "Nuspec content requires package-wide narrowing.",
+                nameof(narrowing));
+        }
         LibraryAndInventoryTerminal = values
             .OfType<
                 PackageHouseContentTerminal
@@ -356,6 +373,8 @@ public sealed class PackageHouseContentQuery
 
     internal PackageHouseContentTerminal.FileList? FileListTerminal { get; }
 
+    internal PackageHouseContentTerminal.Nuspec? NuspecTerminal { get; }
+
     internal PackageHouseFileList? RetainedFileList { get; }
 
     internal PackageHouseContentTerminal.CompileLibrary? CompileLibraryTerminal { get; }
@@ -380,6 +399,12 @@ public sealed class PackageHouseContentQuery
         new(
             new PackageHouseContentNarrowing.PackageWide(),
             [new PackageHouseContentTerminal.FileList(includeDirectories)]);
+
+    /// <summary>Creates a package-wide bounded root-nuspec query.</summary>
+    public static PackageHouseContentQuery PackageNuspec() =>
+        new(
+            new PackageHouseContentNarrowing.PackageWide(),
+            [new PackageHouseContentTerminal.Nuspec()]);
 
     /// <summary>
     /// Creates one package-wide query for exact Files content and the complete

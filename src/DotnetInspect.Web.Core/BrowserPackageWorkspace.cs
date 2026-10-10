@@ -1514,8 +1514,7 @@ internal static class BrowserPackageWorkspace
                             new BrowserPackageOperationTransferPolicy(
                                 store,
                                 deadline),
-                            access: PackagePayloadAccess.Ranged,
-                            rangedSizeCut: 0)),
+                            access: PackagePayloadAccess.Ranged)),
                     "browser-call-graph-platform-package");
                 var continuationSource =
                     new BrowserPackageDependencyMemberCallGraphContinuationSource(
