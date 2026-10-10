@@ -265,27 +265,36 @@ first difference.
 The partition is defined by ownership of the Library level's own census
 facts, not by a separate list, so the two levels cannot disagree:
 
-1. **Every census fact has one owner, grouped as the API surface groups
-   Members.** A fact belongs to the Member whose declaration row it
-   describes: the method, field, property, or event row, and that row's
-   parameters, constants, imports, generic parameters, and attributes.
-   Accessors, an auto-property's backing field, and a field-like event's
-   backing field belong to their property or event. An enum's `value__`
-   field carries the underlying Type, a Type fact, so it belongs to the
-   residual. Any other row the API surface does not list as a Member, such
-   as a `<`-named method or field, belongs to its generated-code owner, as
-   below, or otherwise to the residual. Every other fact (the Type's own
-   row, base Type, interfaces, generic parameters, attributes, layout,
-   nullable context, MethodImpl rows, and `beforefieldinit`) belongs to the
-   residual.
+1. **Every census fact has one owner.** A fact belongs to the Member whose
+   declaration row it describes: the method, field, property, or event row,
+   and that row's parameters, constants, imports, generic parameters, and
+   attributes. Two kinds of row are not Members in their own right:
+   - **Un-raised rows** encode a source construct in metadata. They belong
+     to the construct the API surface raises them to: accessors, an
+     auto-property's backing field, and a field-like event's backing field
+     to their property or event, and an enum's `value__` field, which
+     carries the underlying Type, to the residual. A row the API surface
+     does not list as a Member and that is not generated code belongs to
+     the residual.
+   - **Generated code** is a lifted body (a lambda, local function,
+     iterator, or async state machine) with its methods, fields, and
+     nested Types. It belongs to its owner, as below.
+
+   Every other fact (the Type's own row and visibility, base Type,
+   interfaces, generic parameters, attributes, layout, nullable context,
+   MethodImpl rows, and `beforefieldinit`) belongs to the residual.
 2. **A fact keeps the axis the census gives it.** A Member's or the
    residual's state on an axis is `Changed` when any fact it owns on that
-   axis differs, including a fact present on one side only. So the own
-   facts of a public Member of a public Type are API facts, and those of a
-   non-public Member, or of any Member of a non-public Type, are Body facts; public means visible as the census decides it, which includes
-   explicit interface implementations. A public property with a non-public
-   setter therefore has API facts from the property row and getter and Body
-   facts from the setter.
+   axis differs, including a fact present on one side only. The census
+   decides visibility, which includes explicit interface implementations,
+   and partitions a Type public on either side as public on both. A public
+   Member of such a Type has API facts, and a non-public one has Body facts,
+   so a public property with a non-public setter has API facts from the
+   property row and getter and Body facts from the setter. Where the Type is
+   hidden on one side, the census records only its visibility there, so that
+   change makes the residual and every public Member API `Changed` and
+   leaves Body comparing as it would for a public Type. Every Member of a
+   Type hidden on both sides has Body facts only.
 3. **IL compares where the census compares it.** A Member's Body also covers
    the IL of its methods present on both sides and of the generated code it
    owns, to the first difference. The census does not compare the body of a
@@ -295,17 +304,17 @@ Member API compares completely, so every changed public Member is marked;
 Member Body is an existence check. A Member declared on one side only is
 therefore `Changed` on each axis where it owns facts.
 
-Generated code (lambdas, local functions, iterators, and async state machines)
-belongs to a Member only when the shared lifted-owner resolution in
-`ILInspector.Analysis` names exactly one owner, as it does for the targeted
-walk ([#9745](https://github.com/richlander/dotnet-inspect/pull/9745)). A
-change in generated code shared by several Members, or whose owner is
-ambiguous, is a residual Body change. It is never assigned to a guessed
-Member. A generated Type's own row facts, such as its flags and fields,
-belong to the one Member that owns all of its methods, and otherwise to the
-residual. That resolver is internal to `ILInspector.Analysis` today; step 7
-adds a public entry point that resolves the owners of one Type's generated
-methods.
+Generated code belongs to a Member only when the shared lifted-owner
+resolution in `ILInspector.Analysis` names exactly one owner, as it does for
+the targeted walk
+([#9745](https://github.com/richlander/dotnet-inspect/pull/9745)). A change
+in generated code shared by several Members, or whose owner is ambiguous, is
+a residual Body change. It is never assigned to a guessed Member. A
+generated Type follows its owner as a whole: its row, fields, properties and
+their accessors, interfaces, and MethodImpl rows belong to the one Member
+that owns all of its methods, and otherwise to the residual. That resolver
+is internal to `ILInspector.Analysis` today; step 7 adds a public entry
+point that resolves the owners of one Type's generated methods.
 
 Each Member is reported by the fingerprint of its After-side `MemberAnchor`,
 the identity the Members list already carries for every accessibility, and a
@@ -326,7 +335,8 @@ partition itself stays in `FastDiff`.
 
 Gates: for the fixture pairs, the Type-level states agree with the Library
 level per the partition claim, including an added public method, an added
-public property with a private setter, an enum underlying-type change, a
+public property with a private setter, a public Type made internal, an enum
+underlying-type change, a
 `[field:]` attribute on a field-like event, an attribute added to an internal
 method, a base Type change on an internal Type, and a nested Type whose
 inherited nullable context changed; every Member the complete Public API diff
