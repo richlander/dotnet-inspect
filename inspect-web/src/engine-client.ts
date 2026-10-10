@@ -203,7 +203,14 @@ export interface EngineClient {
       MetadataFacade["queryUploadedLibraryTypeMemberPopulation"]
     >>>;
   };
-  readonly analysis: AsyncFacade<AnalysisFacade, AnalysisOperations>;
+  readonly analysis: AsyncFacade<AnalysisFacade, AnalysisOperations> & {
+    queryPackagePerformanceStreaming(
+      ...args: Parameters<AnalysisFacade["queryPackagePerformanceStreaming"]>
+    ): ReturnType<AnalysisFacade["queryPackagePerformanceStreaming"]>;
+    cancelLibraryPerformanceAnalysis(
+      ...args: Parameters<AnalysisFacade["cancelLibraryPerformanceAnalysis"]>
+    ): void;
+  };
   readonly source: AsyncFacade<SourceFacade, SourceOperations> & {
     queryMemberSourceComparison(
       ...args: Parameters<SourceFacade["queryMemberSourceComparison"]>
