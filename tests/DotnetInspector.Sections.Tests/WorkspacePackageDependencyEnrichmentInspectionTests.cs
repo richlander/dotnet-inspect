@@ -41,9 +41,9 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                   </group>
                 </dependencies>
                 """);
-            using var client = new HttpClient(new FailingHandler());
             await using var composition =
                 new DesktopPackageSourceComposition(TimeSpan.FromSeconds(10));
+            var manifestProvider = new CachedManifestProvider(store);
 
             InspectionEnvelope<WorkspacePackageDependencyEnrichmentOutcome>
                 envelope =
@@ -51,7 +51,7 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                         .ExecuteAsync(
                             new WorkspacePackageDependencyEnrichmentRequest(
                                 Definitions(),
-                                LoadOptions(client, store),
+                                manifestProvider,
                                 new DesktopPackageDependencyCandidateSource(
                                     composition,
                                     new NuGetSourceOptions
@@ -74,6 +74,7 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                     envelope.Content;
             Assert.Equal(3, success.SelectedRootCount);
             Assert.Equal(3, success.AddedMemberCount);
+            Assert.Equal(2, manifestProvider.RequestCount);
             Assert.All(
                 success.Definitions.Records,
                 record => Assert.Equal(
@@ -165,9 +166,9 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                 TargetVersion,
                 dependencies: "",
                 frameworks: ["net8.0"]);
-            using var client = new HttpClient(new FailingHandler());
             await using var composition =
                 new DesktopPackageSourceComposition(TimeSpan.FromSeconds(10));
+            var manifestProvider = new CachedManifestProvider(store);
 
             var inheritedRoot =
                 new DefinitionMemberCoordinate.PackageCoordinate(
@@ -223,7 +224,7 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                         .ExecuteAsync(
                             new WorkspacePackageDependencyEnrichmentRequest(
                                 definitions,
-                                LoadOptions(client, store),
+                                manifestProvider,
                                 new DesktopPackageDependencyCandidateSource(
                                     composition,
                                     new NuGetSourceOptions
@@ -246,6 +247,7 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                     envelope.Content;
             Assert.Equal(3, success.SelectedRootCount);
             Assert.Equal(0, success.AddedMemberCount);
+            Assert.Equal(3, manifestProvider.RequestCount);
             Assert.Equal(
                 [
                     $"{RootPackageId}@{RootVersion}",
@@ -298,9 +300,9 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                   </group>
                 </dependencies>
                 """);
-            using var client = new HttpClient(new FailingHandler());
             await using var composition =
                 new DesktopPackageSourceComposition(TimeSpan.FromSeconds(10));
+            var manifestProvider = new CachedManifestProvider(store);
 
             InspectionEnvelope<WorkspacePackageDependencyEnrichmentOutcome>
                 envelope =
@@ -308,7 +310,7 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                         .ExecuteAsync(
                             new WorkspacePackageDependencyEnrichmentRequest(
                                 SingleContextDefinitions(),
-                                LoadOptions(client, store),
+                                manifestProvider,
                                 new DesktopPackageDependencyCandidateSource(
                                     composition,
                                     new NuGetSourceOptions
@@ -330,6 +332,7 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                 failed.Failure.Message,
                 StringComparison.Ordinal);
             Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+            Assert.Equal(1, manifestProvider.RequestCount);
         }
         finally
         {
@@ -344,9 +347,9 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
         try
         {
             var store = await CachedRootStoreAsync("", ["custom"]);
-            using var client = new HttpClient(new FailingHandler());
             await using var composition =
                 new DesktopPackageSourceComposition(TimeSpan.FromSeconds(10));
+            var manifestProvider = new CachedManifestProvider(store);
 
             InspectionEnvelope<WorkspacePackageDependencyEnrichmentOutcome>
                 envelope =
@@ -354,7 +357,7 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                         .ExecuteAsync(
                             new WorkspacePackageDependencyEnrichmentRequest(
                                 SingleContextDefinitions("custom"),
-                                LoadOptions(client, store),
+                                manifestProvider,
                                 new DesktopPackageDependencyCandidateSource(
                                     composition,
                                     new NuGetSourceOptions
@@ -376,6 +379,7 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                             .Contexts[0].Members[0])
                     .Framework);
             Assert.IsType<InspectionShare.Available>(envelope.Share);
+            Assert.Equal(1, manifestProvider.RequestCount);
         }
         finally
         {
@@ -504,17 +508,6 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
             .Select(member => $"{member.Id}@{member.Version}"),
     ];
 
-    private static WorkspaceContextLoadOptions LoadOptions(
-        HttpClient client,
-        IPackageStore store) =>
-        new()
-        {
-            HttpClient = client,
-            SourceAuthorization =
-                new UniformPackageSourceAuthorization([Source]),
-            PackageStore = store,
-        };
-
     private static async Task<IPackageStore> CachedRootStoreAsync(
         string dependencies,
         IReadOnlyList<string>? frameworks = null)
@@ -629,12 +622,52 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
         return path;
     }
 
-    private sealed class FailingHandler : HttpMessageHandler
+    private sealed class CachedManifestProvider(IPackageStore store) :
+        IWorkspacePackageDependencyManifestProvider
     {
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken) =>
-            throw new InvalidOperationException(
-                $"Unexpected request to {request.RequestUri}.");
+        public int RequestCount { get; private set; }
+
+        public Task<WorkspacePackageDependencyManifestResult> GetManifestAsync(
+            PackageSourceCoordinate coordinate,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            RequestCount++;
+            IPackageContent? content = store.TryGetCached(
+                coordinate.PackageId,
+                coordinate.Version,
+                [NuGetCache.GetSourceKey(SourceUrl)]);
+            if (content is null)
+            {
+                return Task.FromResult<
+                    WorkspacePackageDependencyManifestResult>(
+                    new WorkspacePackageDependencyManifestResult.Unavailable(
+                        "The package is not cached."));
+            }
+
+            string? manifestPath =
+                PackageManifestContent.FindRootManifest(content);
+            if (manifestPath is null
+                || !content.TryOpenEntry(
+                    manifestPath,
+                    PackageManifestFactsProjection.MaxManifestBytes,
+                    out Stream? stream))
+            {
+                return Task.FromResult<
+                    WorkspacePackageDependencyManifestResult>(
+                    new WorkspacePackageDependencyManifestResult.Unavailable(
+                        "The package nuspec is unavailable."));
+            }
+
+            using (stream)
+            {
+                using var buffer = new MemoryStream();
+                stream.CopyTo(buffer);
+                return Task.FromResult<
+                    WorkspacePackageDependencyManifestResult>(
+                    new WorkspacePackageDependencyManifestResult.Available(
+                        buffer.ToArray()));
+            }
+        }
     }
 }

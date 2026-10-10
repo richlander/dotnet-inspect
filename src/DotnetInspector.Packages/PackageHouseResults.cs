@@ -390,6 +390,134 @@ public sealed class PackageHouseAcquisitionReceipt
 }
 
 /// <summary>
+/// One immutable bounded root nuspec and its exact House settlement evidence.
+/// </summary>
+public sealed class PackageHouseNuspec
+{
+    private readonly byte[] _content;
+
+    internal PackageHouseNuspec(
+        PackageHouseDecisionReceipt decision,
+        ConfiguredPackageAuthority authority,
+        PackageSourceManifest manifest)
+    {
+        ArgumentNullException.ThrowIfNull(decision);
+        ArgumentNullException.ThrowIfNull(authority);
+        ArgumentNullException.ThrowIfNull(manifest);
+        ValidateDecision(decision, authority, manifest.Source);
+        if (manifest.Coordinate != decision.Coordinate)
+        {
+            throw new ArgumentException(
+                "The source manifest must retain the exact House coordinate.",
+                nameof(manifest));
+        }
+
+        Decision = decision;
+        Authority = authority;
+        Source = manifest.Source;
+        Origin = PackageHouseNuspecOrigin.SourceManifest;
+        EntryPath = null;
+        _content = manifest.Content.ToArray();
+        ValidateLength(_content);
+    }
+
+    internal PackageHouseNuspec(
+        PackageHouseAcquisitionReceipt acquisition,
+        string entryPath,
+        ReadOnlyMemory<byte> content)
+    {
+        ArgumentNullException.ThrowIfNull(acquisition);
+        ArgumentException.ThrowIfNullOrWhiteSpace(entryPath);
+        if (!PackageEntryPath.IsSafeRelativePath(entryPath))
+        {
+            throw new ArgumentException(
+                "The nuspec entry path must be a safe package-relative path.",
+                nameof(entryPath));
+        }
+
+        Decision = acquisition.Decision;
+        Acquisition = acquisition;
+        Authority = acquisition.Authority;
+        Source = acquisition.Source;
+        Origin = PackageHouseNuspecOrigin.PackageArchive;
+        EntryPath = entryPath;
+        _content = content.ToArray();
+        ValidateLength(_content);
+    }
+
+    public PackageHouseDecisionReceipt Decision { get; }
+
+    /// <summary>
+    /// The archive acquisition that supplied the nuspec, or <see langword="null"/>
+    /// when the configured source supplied it directly.
+    /// </summary>
+    public PackageHouseAcquisitionReceipt? Acquisition { get; }
+
+    public ConfiguredPackageAuthority Authority { get; }
+
+    public PackageSourceResultIdentity Source { get; }
+
+    public PackageHouseNuspecOrigin Origin { get; }
+
+    public string? EntryPath { get; }
+
+    public int Length => _content.Length;
+
+    public byte[] ToArray()
+    {
+        var copy = new byte[_content.Length];
+        _content.CopyTo(copy, 0);
+        return copy;
+    }
+
+    private static void ValidateDecision(
+        PackageHouseDecisionReceipt decision,
+        ConfiguredPackageAuthority authority,
+        PackageSourceResultIdentity source)
+    {
+        if (decision.Request.Operation.Profile
+                != PackageHouseOperationProfile.Acquire
+            || decision.Decision != PackageHouseDecision.RetainPackage
+            || decision.Candidate is not { } candidate
+            || decision.Coordinate != candidate.Coordinate)
+        {
+            throw new ArgumentException(
+                "Direct nuspec evidence requires an exact retained Acquire decision.",
+                nameof(decision));
+        }
+        if (!candidate.Authorities.Any(evidence =>
+                ReferenceEquals(evidence.Authority, authority)))
+        {
+            throw new ArgumentException(
+                "The manifest authority must belong to the retained candidate.",
+                nameof(authority));
+        }
+        if (!ReferenceEquals(source.Association, authority.Association))
+        {
+            throw new ArgumentException(
+                "The manifest source result must belong to the selected authority.",
+                nameof(source));
+        }
+    }
+
+    private static void ValidateLength(byte[] content)
+    {
+        if (content.Length > PackageManifestFactsProjection.MaxManifestBytes)
+        {
+            throw new ArgumentException(
+                "The nuspec content exceeds the configured manifest limit.",
+                nameof(content));
+        }
+    }
+}
+
+public enum PackageHouseNuspecOrigin
+{
+    SourceManifest,
+    PackageArchive,
+}
+
+/// <summary>
 /// Resource-free evidence binding one semantic content narrowing to its exact
 /// acquired package generation and any target-selection correspondence.
 /// </summary>
@@ -982,7 +1110,8 @@ public sealed class PackageHouseEvidence
         PackageHouseFileList? fileList = null,
         PackageHouseContentNarrowingReceipt? contentNarrowing = null,
         PackageHouseLibraryAndInventory? libraryAndInventory = null,
-        PackageHouseLibraryInventory? libraryInventory = null)
+        PackageHouseLibraryInventory? libraryInventory = null,
+        PackageHouseNuspec? nuspec = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (decision is not null
@@ -1073,6 +1202,15 @@ public sealed class PackageHouseEvidence
                 "Library inventory evidence requires its exact acquired inventory terminal.",
                 nameof(libraryInventory));
         }
+        if (nuspec is not null
+            && (request.ContentQuery?.NuspecTerminal is null
+                || !ReferenceEquals(nuspec.Decision, decision)
+                || !ReferenceEquals(nuspec.Acquisition, acquisition)))
+        {
+            throw new ArgumentException(
+                "Nuspec evidence requires the exact semantic terminal and matching settlement evidence.",
+                nameof(nuspec));
+        }
 
         Request = request;
         Decision = decision;
@@ -1082,6 +1220,7 @@ public sealed class PackageHouseEvidence
         FileList = fileList;
         LibraryAndInventory = libraryAndInventory;
         LibraryInventory = libraryInventory;
+        Nuspec = nuspec;
         Failures = failures is null
             ? []
             : [.. failures];
@@ -1128,6 +1267,9 @@ public sealed class PackageHouseEvidence
     /// inventory terminal.
     /// </summary>
     public PackageHouseLibraryInventory? LibraryInventory { get; }
+
+    /// <summary>The bounded root nuspec requested by the semantic terminal.</summary>
+    public PackageHouseNuspec? Nuspec { get; }
 
     public ImmutableArray<PackageHouseFailure> Failures { get; }
 
@@ -1214,7 +1356,11 @@ public abstract class PackageHouseResult
                     evidence.Acquisition is null
                     && evidence.Realization is null,
                 PackageHouseOperationProfile.Acquire =>
-                    evidence.Acquisition is not null
+                    (evidence.Acquisition is not null
+                        || evidence.Nuspec is
+                        {
+                            Acquisition: null,
+                        })
                     && evidence.Realization is null,
                 PackageHouseOperationProfile.Realize =>
                     evidence.Acquisition is not null
