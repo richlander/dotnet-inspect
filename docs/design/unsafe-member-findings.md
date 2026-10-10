@@ -288,8 +288,11 @@ admit. The census publishes the Method Query Source receipt beside its result,
 so a host can show the work it did.
 
 Publishing unauthenticated candidates and bound outcomes adds receipt and
-relation data only. Unsafe evidence presence keeps its
-breadth, answer, and visible failures unchanged.
+relation data only. Unsafe evidence presence keeps its answer semantics and
+visible failures. Its Type-scope breadth widens by the non-`MoveNext` methods
+of authenticated state-machine types, as
+[#9864](https://github.com/richlander/dotnet-inspect/issues/9864) states, so
+presence and the census agree on those bodies.
 
 The census moves only after every row of that table has landed. Until then the
 CLI section (step 3) does not ship, because it would land the census's first
