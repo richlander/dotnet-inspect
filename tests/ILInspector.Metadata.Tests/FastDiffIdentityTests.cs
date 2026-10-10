@@ -204,6 +204,35 @@ public sealed class FastDiffIdentityTests
     }
 
     [Fact]
+    public void IllFormedTypeNamesThatDecodeAlike_AreDistinctRows()
+    {
+        // Both Type names decode to N.U+FFFD U+FFFD X; their stored bytes differ.
+        byte[] image = Patch(
+            Patch(Image([new("N", "QQX", null, ReturnOne), new("N", "QQY", null, ReturnOne)]),
+                "QQX"u8, [0xFF, 0xFE, (byte)'X']),
+            "QQY"u8, [0xFE, 0xFF, (byte)'X']);
+        FastDiffResult result = CompareImages(image, image);
+
+        Assert.Equal(2, result.Types.Count(type => type.FullName == "N.\uFFFD\uFFFDX"));
+        Assert.Equal(result.Types.Length, result.Types.Select(type => type.Identifier).Distinct().Count());
+        Assert.All(
+            result.Types.Where(type => type.FullName == "N.\uFFFD\uFFFDX"),
+            type => Assert.Equal((FastDiffState.Indeterminate, FastDiffState.Indeterminate), (type.Api, type.Body)));
+    }
+
+    [Fact]
+    public void IllFormedTypeNameChangedBetweenVersions_IsOneIndeterminateRow()
+    {
+        TypeSpec[] types = [new("N", "QQX", null, ReturnOne)];
+        FastDiffResult result = CompareImages(
+            Patch(Image(types), "QQX"u8, [0xFF, 0xFE, (byte)'X']),
+            Patch(Image(types), "QQX"u8, [0xFE, 0xFF, (byte)'X']));
+
+        FastDiffTypeState type = Single(result, "N.\uFFFD\uFFFDX");
+        Assert.Equal((FastDiffState.Indeterminate, FastDiffState.Indeterminate), (type.Api, type.Body));
+    }
+
+    [Fact]
     public void StoredNames_AreTheUtf8OfTheDecodedNames()
     {
         using var pe = new PEReader(File.OpenRead(typeof(object).Assembly.Location));
