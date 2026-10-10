@@ -1014,7 +1014,7 @@ public sealed class PackageRootBinding
             Root.RequestedRuntimeIdentifier,
             Root.AssetSelection,
             demand,
-            implementationNames);
+            implementationNames, Root.LibrarySelector);
         return new PackageRootBinding(
             root,
             Coordinate,
@@ -1024,6 +1024,21 @@ public sealed class PackageRootBinding
             CompileTargetFramework,
             UsesCompatibleImplementationSelection,
             AllowsCompatibleTargetSelection);
+    }
+
+    /// <summary>
+    /// Keeps complete compile evidence while restricting materialization to one declared selector.
+    /// Missing and ambiguous selections prepare no participants.
+    /// </summary>
+    public PackageRootBinding WithLibrarySelection(PackageLibrarySelector selector)
+    {
+        ArgumentNullException.ThrowIfNull(selector);
+        var root = new PackageRootRealization(Root.Content, Root.PackageId, Root.PackageVersion,
+            Root.RequestedTargetFramework, Root.RequestedRuntimeIdentifier, Root.AssetSelection,
+            Root.AssetDemand, Root.ImplementationNames, selector);
+        return new PackageRootBinding(root, Coordinate, SourceProducer, ContentGenerationIdentity,
+            new PackageRootSelectionIdentity(), CompileTargetFramework,
+            UsesCompatibleImplementationSelection, AllowsCompatibleTargetSelection);
     }
 
     static bool SameNames(
@@ -1124,7 +1139,8 @@ public sealed class PackageRootRealization
         PackageCompileAssetSelection? assetSelection,
         PackageAssetDemand assetDemand =
             PackageAssetDemand.SurfaceAndImplementation,
-        PackageImplementationNames? implementationNames = null)
+        PackageImplementationNames? implementationNames = null,
+        PackageLibrarySelector? librarySelector = null)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
@@ -1138,6 +1154,7 @@ public sealed class PackageRootRealization
         }
 
         _content = content;
+        LibrarySelector = librarySelector;
         AssetDemand = assetDemand;
         ImplementationNames = implementationNames;
         PackageId = packageId;
@@ -1207,10 +1224,19 @@ public sealed class PackageRootRealization
     /// The selected implementation assets this Root realizes: none for a
     /// surface-only Root, the named ones for a named Root, else all.
     /// </summary>
+    public PackageLibrarySelector? LibrarySelector { get; }
+
+    /// <summary>The exact surface participants this demand authorizes materializing.</summary>
+    public IReadOnlyList<PackageCompileAsset> RealizedSurfaceAssets =>
+        LibrarySelector is null ? AssetSelection.Assets
+            : LibrarySelector.Select(AssetSelection) is { Count: 1 } selected ? selected : [];
+
     public IReadOnlyList<PackageCompileAsset> RealizedImplementationAssets =>
         !AssetSelection.IsSelected
         || AssetDemand == PackageAssetDemand.Surface
             ? []
+            : LibrarySelector is not null
+                ? [.. RealizedSurfaceAssets.Select(AssetSelection.FindImplementationAsset).OfType<PackageCompileAsset>()]
             : ImplementationNames is { } names
                 ? [
                     .. AssetSelection.ImplementationAssets.Where(
@@ -1513,7 +1539,7 @@ public sealed partial class InspectionWorkspace
             .. packageRoots.SelectMany(
                 (package, packageIndex) =>
                     package.AssetSelection.IsSelected
-                        ? package.AssetSelection.Assets.Select(asset =>
+                        ? package.RealizedSurfaceAssets.Select(asset =>
                             new RoleAsset(
                                 packageIndex,
                                 package,
