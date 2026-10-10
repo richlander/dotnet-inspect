@@ -2522,6 +2522,7 @@ public static partial class PackageQuery
                     []),
                 AcquisitionFailure: null);
         }
+        ValidatePackageContentSelection(selection);
 
         PackageQueryContentResult filesResult =
             await provider.GetFilesAsync(
@@ -2609,6 +2610,41 @@ public static partial class PackageQuery
                 "A non-content Package Query term reached inventory settlement."),
         };
 
+    static void ValidatePackageContentSelection(
+        PackageContentSelection selection)
+    {
+        if (selection.ToolSettings.Any(static entry =>
+                entry.Length > MaximumToolSettingsBytes))
+        {
+            throw new InvalidDataException(
+                "A selected tool settings entry exceeds the byte limit.");
+        }
+        if (selection.AssemblyAssets.Length
+            > MaximumAssemblyReferenceAssets)
+        {
+            throw new InvalidDataException(
+                "The package contains too many managed library candidates.");
+        }
+
+        long totalAssemblyBytes = 0;
+        foreach (PackageQueryAssemblyAsset asset
+            in selection.AssemblyAssets)
+        {
+            if (asset.Entry.Length > MaximumAssemblyReferenceEntryBytes)
+            {
+                throw new InvalidDataException(
+                    "A selected package library entry exceeds the byte limit.");
+            }
+            if (asset.Entry.Length
+                > MaximumAssemblyReferenceTotalBytes - totalAssemblyBytes)
+            {
+                throw new InvalidDataException(
+                    "The package library inventory exceeds its total-image budget.");
+            }
+            totalAssemblyBytes += asset.Entry.Length;
+        }
+    }
+
     static PackageContentSelection SelectPackageContent(
         PackageQueryContentInventory inventory,
         PackageQueryContentDemand demand)
@@ -2633,12 +2669,6 @@ public static partial class PackageQuery
                             StringComparer.OrdinalIgnoreCase),
                 ]
                 : [];
-        if (toolSettings.Any(static entry =>
-                entry.Length > MaximumToolSettingsBytes))
-        {
-            throw new InvalidDataException(
-                "A selected tool settings entry exceeds the byte limit.");
-        }
 
         ImmutableArray<PackageQueryAssemblyAsset> assemblyAssets =
             demand.RequiresAssemblyReferences
@@ -2655,27 +2685,6 @@ public static partial class PackageQuery
                             StringComparer.Ordinal),
                 ]
                 : [];
-        if (assemblyAssets.Length > MaximumAssemblyReferenceAssets)
-        {
-            throw new InvalidDataException(
-                "The package contains too many managed library candidates.");
-        }
-        long totalAssemblyBytes = 0;
-        foreach (PackageQueryAssemblyAsset asset in assemblyAssets)
-        {
-            if (asset.Entry.Length > MaximumAssemblyReferenceEntryBytes)
-            {
-                throw new InvalidDataException(
-                    "A selected package library entry exceeds the byte limit.");
-            }
-            if (asset.Entry.Length
-                > MaximumAssemblyReferenceTotalBytes - totalAssemblyBytes)
-            {
-                throw new InvalidDataException(
-                    "The package library inventory exceeds its total-image budget.");
-            }
-            totalAssemblyBytes += asset.Entry.Length;
-        }
 
         var requiredPaths = new HashSet<string>(
             toolSettings.Select(static entry => entry.Path),

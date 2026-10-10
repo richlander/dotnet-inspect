@@ -115,10 +115,15 @@ public partial class PackageQueryTests
     [Fact]
     public async Task ExecuteAsync_InventoryProvenMixedNegativeSkipsFilesAcquisition()
     {
-        const string assemblyPath =
-            "lib/net8.0/Contoso.Package.dll";
         var archive = FakePackageContent.FromBytes(
-            (assemblyPath, "not metadata"u8.ToArray()));
+            [
+                .. Enumerable.Range(
+                        0,
+                        PackageQuery.MaximumAssemblyReferenceAssets + 1)
+                    .Select(index => (
+                        $"lib/net8.0/Assembly{index:D3}.dll",
+                        "not metadata"u8.ToArray())),
+            ]);
         var content = new FakePackageQueryContentProvider(
             new Dictionary<string, IPackageContent>
             {

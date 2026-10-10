@@ -416,11 +416,15 @@ exact-entry plan:
 
 An inventory-proven absence settles without a Files request. Entry-count and
 declared-byte limits settle before body transfer when File List evidence is
-sufficient. Metadata row limits and content validity remain body-evaluation
-questions. The later Files request uses references issued by the exact retained
-File List, so generation correspondence, exact-entry admission, physical range
-planning, transfer receipts, and typed acquisition failures remain
-PackageHouse-owned. Manifest prequalification still precedes either stage.
+sufficient. A decisive inventory-proven mandatory-group absence settles before
+validating limits for body dimensions that no longer participate in the
+candidate result; those limits remain visible when their dimension is needed
+to settle the candidate. Metadata row limits and content validity remain
+body-evaluation questions. The later Files request uses references issued by
+the exact retained File List, so generation correspondence, exact-entry
+admission, physical range planning, transfer receipts, and typed acquisition
+failures remain PackageHouse-owned. Manifest prequalification still precedes
+either stage.
 
 This is the five-axis demand model tracked by #9257: package-wide directory
 breadth, selected-entry body depth, zero-body or complete-entry terminals,
