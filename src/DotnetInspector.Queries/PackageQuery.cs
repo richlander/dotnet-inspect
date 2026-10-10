@@ -2486,7 +2486,8 @@ public static partial class PackageQuery
                     "Package Query inventory acquisition did not return File List evidence.");
         PackageContentSelection selection =
             SelectPackageContent(inventory, demand);
-        if (selection.RequiredEntries.IsEmpty)
+        if (InventoryProvesPackageContentNonMatch(terms, selection)
+            || selection.RequiredEntries.IsEmpty)
         {
             return new(
                 new PackageContentFacts(
@@ -2530,6 +2531,57 @@ public static partial class PackageQuery
                 assemblyReferences),
             AcquisitionFailure: null);
     }
+
+    static bool InventoryProvesPackageContentNonMatch(
+        ImmutableArray<BoundPackageQueryTerm> terms,
+        PackageContentSelection selection)
+    {
+        var handledGroups = new HashSet<string>(StringComparer.Ordinal);
+        foreach (BoundPackageQueryTerm term in terms)
+        {
+            if (term.Descriptor.Tier
+                    != PackageQueryAcquisitionTier.PackageContent)
+            {
+                continue;
+            }
+
+            string? groupId = term.Descriptor.SelectionGroupId;
+            if (groupId is not null && !handledGroups.Add(groupId))
+                continue;
+
+            IEnumerable<BoundPackageQueryTerm> alternatives =
+                groupId is null
+                    ? [term]
+                    : terms.Where(candidate =>
+                        candidate.Descriptor.Tier
+                            == PackageQueryAcquisitionTier.PackageContent
+                        && candidate.Descriptor.SelectionGroupId == groupId);
+            if (alternatives.All(candidate =>
+                    InventoryProvesPackageContentTermAbsent(
+                        candidate,
+                        selection)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool InventoryProvesPackageContentTermAbsent(
+        BoundPackageQueryTerm term,
+        PackageContentSelection selection) =>
+        term.Predicate.Kind switch
+        {
+            PackageQueryPredicateKind.Skill =>
+                selection.SkillDocuments is not { Count: > 0 },
+            PackageQueryPredicateKind.ToolFormat =>
+                selection.ToolSettings.IsEmpty,
+            PackageQueryPredicateKind.AssemblyReference =>
+                selection.AssemblyAssets.IsEmpty,
+            _ => throw new InvalidOperationException(
+                "A non-content Package Query term reached inventory settlement."),
+        };
 
     static PackageContentSelection SelectPackageContent(
         PackageQueryContentInventory inventory,

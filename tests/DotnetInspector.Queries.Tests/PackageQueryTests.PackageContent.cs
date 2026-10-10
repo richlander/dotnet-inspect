@@ -113,6 +113,46 @@ public partial class PackageQueryTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_InventoryProvenMixedNegativeSkipsFilesAcquisition()
+    {
+        const string assemblyPath =
+            "lib/net8.0/Contoso.Package.dll";
+        var archive = FakePackageContent.FromBytes(
+            (assemblyPath, "not metadata"u8.ToArray()));
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Package"] = archive,
+            });
+        var source = SourceFor(
+            Manifest("Contoso.Package"),
+            "Contoso.Package");
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "Contoso.*",
+                [
+                    Term(PackageQuery.SkillTermKey, "true"),
+                    Term(PackageQuery.ReferencesTermKey, "System.Runtime"),
+                ],
+                MaximumCandidates: 1,
+                MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        Assert.Empty(events.OfType<PackageQueryEvent.Failure>());
+        Assert.Single(content.InventoryRequests);
+        Assert.Empty(content.FileRequests);
+        Assert.Empty(content.RequestedFilePaths);
+        Assert.Empty(archive.EntryRequests);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_MixedBodyPredicatesShareOneExactFilesRequest()
     {
         const string settingsPath =
@@ -442,7 +482,7 @@ public partial class PackageQueryTests
             ["Contoso.V1", "Contoso.V2"],
             content.InventoryRequests);
         Assert.Equal(
-            ["Contoso.V1", "Contoso.V2"],
+            ["Contoso.V1"],
             content.FileRequests);
 
         content.ClearRequests();
