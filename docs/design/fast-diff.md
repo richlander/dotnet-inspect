@@ -98,7 +98,9 @@ namespace `N.A` never share a key, and neither do member names that contain
 `#`, which every name escapes, so `int` and a global Type named `Int32` stay
 distinct. Every signature key closes its return Type, so a pointer, byref, or
 modifier suffix and a method instantiation's arguments cannot be read as part
-of it: `delegate*<void*>` and `delegate*<void>*` are distinct. Two Type rows, or two method rows of one Type and its generated
+of it: `delegate*<void*>` and `delegate*<void>*` are distinct. An event's key
+carries a reserved marker, so a field-like event and its backing field, which
+share a name and Type, never share a key. Two Type rows, or two method rows of one Type and its generated
 code, that still spell one key, which valid metadata does not allow, are
 `Indeterminate` rather than one replacing the other.
 
@@ -169,14 +171,14 @@ adoption is
 - Body soundness: every declared owner of a body that canonical IL comparison
   reports changed is not Body `Unchanged`, over the same fixture pairs.
 
-`FastDiffIdentityTests` gates identity and decoding by outcome, over
-generated image pairs compared whole and stepped: a nested Type's body
-change beside a top-level Type whose name spells the same path, a namespace
-and a dotted Type name that display alike, a caller switching between two
-callees whose unescaped keys collide, a primitive and a global Type of one
-name, a function pointer returning a pointer and a pointer to a function
-pointer, duplicate Type names and duplicate generated Type names, and undefined
-one-byte and two-byte opcodes.
+`FastDiffIdentityTests` gates identity and decoding by outcome, over generated
+image pairs compared whole and stepped: a nested Type's body change beside a
+top-level Type whose name spells the same path, a namespace and a dotted Type
+name that display alike, a caller switching between two callees whose
+unescaped keys collide, a primitive and a global Type of one name, a function
+pointer returning a pointer and a pointer to a function pointer, an attribute
+moved from a backing field to its event, duplicate Type names and duplicate
+generated Type names, and undefined one-byte and two-byte opcodes.
 
 Stepping and the API axis are gated by outcome: a comparison stepped at
 every row and Type boundary, with fresh readers per step, equals the whole

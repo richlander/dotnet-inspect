@@ -78,6 +78,19 @@ public sealed class FastDiffIdentityTests
     }
 
     [Fact]
+    public void AttributeMovedFromBackingFieldToEvent_IsChanged()
+    {
+        // A field-like event E and its backing field E share a name and Type;
+        // [field: A] becoming [A] on the event moves the attribute between
+        // two declarations of an internal Type.
+        FastDiffResult result = Compare(
+            [new("N", "C", null, ReturnOne, Public: false, FieldLikeEventAttribute: AttributeTarget.Field)],
+            [new("N", "C", null, ReturnOne, Public: false, FieldLikeEventAttribute: AttributeTarget.Event)]);
+
+        Assert.Equal(FastDiffState.Changed, Single(result, "N.C").Body);
+    }
+
+    [Fact]
     public void DuplicateGeneratedTypeNames_AreIndeterminate()
     {
         // Two nested <>c rows spell one key, so neither lambda body can be
@@ -129,6 +142,8 @@ public sealed class FastDiffIdentityTests
         Assert.Equal(FastDiffState.Indeterminate, Single(result, "N.C").Body);
     }
 
+    enum AttributeTarget { Field, Event }
+
     const int Int32Primitive = -1;
     const int FunctionPointerToVoidPointer = -2;
     const int PointerToFunctionPointer = -3;
@@ -148,7 +163,9 @@ public sealed class FastDiffIdentityTests
         int? DeclaringType,
         byte[] Body,
         string[]? Methods = null,
-        int? Parameter = null);
+        int? Parameter = null,
+        bool Public = true,
+        AttributeTarget? FieldLikeEventAttribute = null);
 
     static FastDiffResult Compare(TypeSpec[] before, TypeSpec[] after)
     {
@@ -202,19 +219,46 @@ public sealed class FastDiffIdentityTests
             .Parameters(0, returnType => returnType.Void(), _ => { });
         BlobHandle voidSignature = metadata.GetOrAddBlob(signature);
 
+        BlobHandle emptyAttribute = metadata.GetOrAddBlob(new byte[] { 0x01, 0x00, 0x00, 0x00 });
+
         var handles = new List<TypeDefinitionHandle>();
         int nextMethod = 1;
+        int nextField = 1;
         foreach (TypeSpec type in types)
         {
             string[] methods = type.Methods ?? ["M"];
-            handles.Add(metadata.AddTypeDefinition(
-                (type.DeclaringType is null ? TypeAttributes.Public : TypeAttributes.NestedPublic)
-                    | TypeAttributes.Class,
+            TypeAttributes visibility = type.DeclaringType is null
+                ? type.Public ? TypeAttributes.Public : TypeAttributes.NotPublic
+                : type.Public ? TypeAttributes.NestedPublic : TypeAttributes.NestedAssembly;
+            TypeDefinitionHandle typeHandle = metadata.AddTypeDefinition(
+                visibility | TypeAttributes.Class,
                 type.Namespace is null ? default : metadata.GetOrAddString(type.Namespace),
                 metadata.GetOrAddString(type.Name),
                 default,
-                MetadataTokens.FieldDefinitionHandle(1),
-                MetadataTokens.MethodDefinitionHandle(nextMethod)));
+                MetadataTokens.FieldDefinitionHandle(nextField),
+                MetadataTokens.MethodDefinitionHandle(nextMethod));
+            handles.Add(typeHandle);
+            if (type.FieldLikeEventAttribute is AttributeTarget target)
+            {
+                // As Roslyn emits a field-like event, the backing field has the
+                // event's name and Type: here the declaring Type itself. The
+                // attribute's constructor is the Type's first method; only the
+                // compared facts matter.
+                var fieldSignature = new BlobBuilder();
+                new BlobEncoder(fieldSignature).Field().Type().Type(typeHandle, isValueType: false);
+                FieldDefinitionHandle field = metadata.AddFieldDefinition(
+                    FieldAttributes.Private,
+                    metadata.GetOrAddString("E"),
+                    metadata.GetOrAddBlob(fieldSignature));
+                nextField++;
+                EventDefinitionHandle value = metadata.AddEvent(
+                    EventAttributes.None, metadata.GetOrAddString("E"), typeHandle);
+                metadata.AddEventMap(typeHandle, value);
+                metadata.AddCustomAttribute(
+                    target == AttributeTarget.Field ? field : value,
+                    MetadataTokens.MethodDefinitionHandle(nextMethod),
+                    emptyAttribute);
+            }
             BlobHandle methodSignature = voidSignature;
             if (type.Parameter is int parameter)
             {

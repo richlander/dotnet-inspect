@@ -852,7 +852,9 @@ public static class FastDiff
                 {
                     continue;
                 }
-                string key = $"{name}::{KeyName(value.Name)}:{Key(value.Type)}";
+                // An unescaped '!' cannot occur in an escaped name, so an event never
+                // spells the key of its backing field.
+                string key = $"{name}::{KeyName(value.Name)}!event:{Key(value.Type)}";
                 census.Add(
                     $"E {key} {(int)value.Attributes} {AccessorKey(accessors.Adder)} "
                         + $"{AccessorKey(accessors.Remover)} {AccessorKey(accessors.Raiser)}");
