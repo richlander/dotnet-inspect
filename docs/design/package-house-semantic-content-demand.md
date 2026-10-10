@@ -430,6 +430,16 @@ entries. Package Query owns predicate breadth, limits, parsing, and matching;
 PackageHouse owns the shared snapshot, generation correspondence, exact-entry
 admission, physical acquisition, and receipts.
 
+Workspace direct-Package dependency enrichment consumes the package-wide
+Nuspec terminal. PackageHouse first asks the authorized source for the exact
+bounded manifest and settles without package-payload acquisition when that
+capability succeeds. Otherwise it falls back through the validated archive
+directory, selects only the one root nuspec, and publishes the same immutable
+Nuspec value with ordinary acquisition and transfer evidence. The enrichment
+inspection owns dependency parsing, target-group selection, candidate
+resolution, context placement, deduplication, and all-or-nothing packet
+projection; it does not create a Package Root or inspect an assembly.
+
 Implementation slices target their predecessor and land bottom-up. A demand
 arm lands only with a production caller. The first implementation slice may
 lock with one adopter under the bounded first-adopter exception in
@@ -467,6 +477,9 @@ All implementation gates run in Release.
 | Case | Required outcome |
 | --- | --- |
 | Nuspec with direct manifest capability | No archive payload acquisition; the exact manifest and source receipt settle. |
+| Nuspec archive fallback | The validated directory selects and expands only the one root nuspec; the result retains ordinary acquisition and transfer evidence. |
+| Missing, duplicate, or oversized root nuspec | The terminal fails visibly without publishing Nuspec evidence. |
+| Repeated exact dependency coordinate | Workspace enrichment requests its Nuspec once and reuses the immutable result across contexts. |
 | Package-wide file list | Every admitted path appears once; no expanded entry content is opened. |
 | TFM-wide file list | Every path in the owner-issued target scope appears once; unrelated target paths do not appear. |
 | Ordered root preference | The first applicable family is selected from an arbitrary-length chain; a later family cannot contribute candidates or inventory. |

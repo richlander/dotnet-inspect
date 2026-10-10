@@ -644,6 +644,80 @@ public sealed partial class PackageHouse
                                 failures: failures)));
                 }
 
+                if (request.Operation.Profile
+                        == PackageHouseOperationProfile.Acquire
+                    && request.ContentQuery is
+                    {
+                        NuspecTerminal: not null,
+                        Terminals.Count: 1,
+                    })
+                {
+                    ConfiguredPackageManifestResult? manifestResult;
+                    try
+                    {
+                        manifestResult =
+                            await sourceOperation
+                                .AcquireCandidateManifestAsync(candidate)
+                                .ConfigureAwait(false);
+                    }
+                    catch (NotSupportedException)
+                    {
+                        manifestResult = null;
+                    }
+                    if (manifestResult is not null)
+                    {
+                        failures.AddRange(
+                            AdaptFailures(request, manifestResult.Failures));
+                    }
+                    if (manifestResult is
+                        {
+                            Authority: { } manifestAuthority,
+                            Manifest: { } manifest,
+                        })
+                    {
+                        if (manifest.Content.Length
+                            > PackageManifestFactsProjection.MaxManifestBytes)
+                        {
+                            InertString reason = Reason(
+                                "The package manifest exceeds the configured manifest byte limit.");
+                            failures.Add(
+                                new PackageHouseFailure.Stage(
+                                    PackageHouseFailureStage.Selection,
+                                    reason));
+                            return ResourceFree(
+                                new PackageHouseResult.Failed(
+                                    new PackageHouseEvidence(
+                                        request,
+                                        decision,
+                                        failures: failures),
+                                    reason));
+                        }
+
+                        PackageHouseNuspec directNuspec = new(
+                            decision,
+                            manifestAuthority,
+                            manifest);
+                        return ResourceFree(
+                            new PackageHouseResult.Settled(
+                                new PackageHouseEvidence(
+                                    request,
+                                    decision,
+                                    failures: failures,
+                                    nuspec: directNuspec)));
+                    }
+                    if (failures.Any(IsOperationTimeout))
+                    {
+                        return ResourceFree(
+                            new PackageHouseResult.Failed(
+                                new PackageHouseEvidence(
+                                    request,
+                                    decision,
+                                    failures: failures),
+                                Reason(
+                                    "The PackageHouse operation deadline expired.")));
+                    }
+                }
+
                 PackagePayloadAcquisitionPlan payloadAcquisition =
                     _payloadAcquisition
                     ?? throw new InvalidOperationException(
@@ -746,6 +820,8 @@ public sealed partial class PackageHouse
                 PackageHouseLibraryInventoryResolution?
                     libraryInventoryResolution = null;
                 bool semanticManifestUnavailable = false;
+                string? nuspecEntryPath = null;
+                InertString? nuspecSelectionFailure = null;
                 if (request.ContentQuery is not null)
                 {
                     if (payload.Content
@@ -793,6 +869,25 @@ public sealed partial class PackageHouse
                                         semanticEntries)
                                     : plannedLibraryInventory;
                         }
+                        if (request.ContentQuery.NuspecTerminal is not null)
+                        {
+                            try
+                            {
+                                nuspecEntryPath =
+                                    PackageManifestContent.FindRootManifest(
+                                        directory);
+                                if (nuspecEntryPath is null)
+                                {
+                                    nuspecSelectionFailure = Reason(
+                                        "The acquired package does not contain a root nuspec.");
+                                }
+                            }
+                            catch (InvalidDataException)
+                            {
+                                nuspecSelectionFailure = Reason(
+                                    "The acquired package does not contain one valid root nuspec.");
+                            }
+                        }
                     }
                     else
                     {
@@ -839,6 +934,19 @@ public sealed partial class PackageHouse
                                 .CompileEntry
                                 .Path,
                         ];
+                    }
+                    if (nuspecEntryPath is not null)
+                    {
+                        if (!selectedSemanticEntries.Contains(
+                                nuspecEntryPath,
+                                StringComparer.OrdinalIgnoreCase))
+                        {
+                            selectedSemanticEntries =
+                            [
+                                .. selectedSemanticEntries,
+                                nuspecEntryPath,
+                            ];
+                        }
                     }
                     payloadResult = ProjectSemanticContent(
                         payloadResult,
@@ -904,6 +1012,49 @@ public sealed partial class PackageHouse
                             contentNarrowing,
                             inventoryResolution)
                         : null);
+                PackageHouseNuspec? nuspec = null;
+                if (nuspecEntryPath is not null)
+                {
+                    try
+                    {
+                        if (!payload.Content.TryOpenEntry(
+                                nuspecEntryPath,
+                                PackageManifestFactsProjection.MaxManifestBytes,
+                                out Stream? nuspecStream))
+                        {
+                            nuspecSelectionFailure = Reason(
+                                "The selected package nuspec is not materialized.");
+                        }
+                        else
+                        {
+                            await using (nuspecStream.ConfigureAwait(false))
+                            {
+                                byte[] bytes =
+                                    await BoundedContentReader
+                                        .ReadAllBytesAsync(
+                                            nuspecStream,
+                                            PackageManifestFactsProjection
+                                                .MaxManifestBytes,
+                                            cancellationToken:
+                                                sourceOperation
+                                                    .OperationCancellationToken)
+                                        .ConfigureAwait(false);
+                                nuspec = new PackageHouseNuspec(
+                                    acquisition,
+                                    nuspecEntryPath,
+                                    bytes);
+                            }
+                        }
+                    }
+                    catch (Exception exception) when (
+                        exception is InvalidDataException
+                            or IOException
+                            or UnauthorizedAccessException)
+                    {
+                        nuspecSelectionFailure = Reason(
+                            "The selected package nuspec exceeds the configured manifest byte limit or is invalid.");
+                    }
+                }
                 if (semanticManifestUnavailable)
                 {
                     InertString reason = Reason(
@@ -921,6 +1072,25 @@ public sealed partial class PackageHouse
                         new PackageHouseResult.Failed(
                             evidence,
                             reason),
+                        payload,
+                        payloadResult,
+                        selectionUsesOriginalSources);
+                }
+                if (nuspecSelectionFailure is { } nuspecFailure)
+                {
+                    failures.Add(
+                        new PackageHouseFailure.Stage(
+                            PackageHouseFailureStage.Selection,
+                            nuspecFailure));
+                    PackageHouseEvidence evidence = new(
+                        request,
+                        decision,
+                        acquisition,
+                        failures: failures);
+                    return new PackageHouseSettlement.Acquired(
+                        new PackageHouseResult.Failed(
+                            evidence,
+                            nuspecFailure),
                         payload,
                         payloadResult,
                         selectionUsesOriginalSources);
@@ -1107,7 +1277,8 @@ public sealed partial class PackageHouse
                         fileList: fileList,
                         contentNarrowing: contentNarrowing,
                         libraryAndInventory: libraryAndInventory,
-                        libraryInventory: libraryInventory);
+                        libraryInventory: libraryInventory,
+                        nuspec: nuspec);
                     return new PackageHouseSettlement.Acquired(
                         new PackageHouseResult.Settled(
                             acquiredEvidence),
@@ -1877,7 +2048,7 @@ public sealed partial class PackageHouse
                 libraryInventory = ResolveLibraryInventory(
                     contentNarrowing,
                     SnapshotEntries(directory));
-                return new PackageRangedSelection(
+                PackageRangedSelection selectedLibraryEntries = new(
                     contentQuery.LibraryAndInventoryTerminal is not null
                     && libraryInventory.Completion
                         == PackageHouseContentNarrowingCompletion.Settled
@@ -1888,12 +2059,18 @@ public sealed partial class PackageHouse
                                 .Path,
                         ]
                         : []);
+                return contentQuery.NuspecTerminal is not null
+                    ? AddRootManifest(selectedLibraryEntries, directory)
+                    : selectedLibraryEntries;
             }
-            return new PackageRangedSelection(
+            PackageRangedSelection selectedFiles = new(
                 contentQuery.FilesTerminal?.Resolve(
                     contentNarrowing.EntryPaths)
                     .SelectedEntries
                     ?? []);
+            return contentQuery.NuspecTerminal is not null
+                ? AddRootManifest(selectedFiles, directory)
+                : selectedFiles;
         }
         if (request.FileDemand is { } legacyFiles)
         {
@@ -1984,6 +2161,10 @@ public sealed partial class PackageHouse
             or
             {
                 LibraryInventoryTerminal: not null
+            }
+            or
+            {
+                NuspecTerminal: not null
             }
             ? PackagePayloadAccess.Ranged
             : throw new NotSupportedException(

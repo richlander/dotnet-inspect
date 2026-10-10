@@ -107,6 +107,29 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public void NuspecQueryRequiresPackageWideNarrowing()
+    {
+        PackageHouseContentQuery query =
+            PackageHouseContentQuery.PackageNuspec();
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(Coordinate),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            contentQuery: query);
+
+        Assert.Same(query, request.ContentQuery);
+        Assert.IsType<PackageHouseContentNarrowing.PackageWide>(
+            query.Narrowing);
+        Assert.IsType<PackageHouseContentTerminal.Nuspec>(
+            Assert.Single(query.Terminals));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseContentQuery(
+                new PackageHouseContentNarrowing.TfmWide(
+                    PackageHouseTargetContext.Exact("net10.0")),
+                [new PackageHouseContentTerminal.Nuspec()]));
+    }
+
+    [Fact]
     public void TfmWideQueryRetainsOneExactTarget()
     {
         PackageHouseTargetContext target =
