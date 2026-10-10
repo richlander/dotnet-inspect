@@ -850,7 +850,13 @@ test("typed package view owns package navigation bindings", () => {
     /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId, target\.resourceMethodToken\)/);
   assert.match(
     appSource,
-    /function drillToPerfMember\([\s\S]*setTypeMemberPopulationIntent\("public", "csharp"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent, resourceMethodToken\)/);
+    /function drillToPerfMember\([\s\S]*setTypeMemberPopulationIntent\("all", "csharp", "performance"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent, resourceMethodToken\)/);
+  assert.match(
+    appSource,
+    /implementationMember:\s*selectedMemberUsesImplementationDeclaration\(type, overload\)/);
+  assert.match(
+    appSource,
+    /performanceMemberBrowseContext\.populationReceipt\.key\s*=== typeMemberPopulationKey\(type, "performance"\)/);
   const drillToPerfMember =
     appSource.match(/function drillToPerfMember\([\s\S]*?\n}/)?.[0] ?? "";
   const selectPerformanceMember =
@@ -858,7 +864,7 @@ test("typed package view owns package navigation bindings", () => {
     ?? "";
   assert.match(
     selectPerformanceMember,
-    /const populationReceipt = await loadSelectedTypeMemberPopulation\(\);[\s\S]*viewSignature\(\) !== expectedView[\s\S]*typeMemberPopulationReceipt !== populationReceipt[\s\S]*typeMemberPopulationIntentGeneration !== expectedPopulationIntent[\s\S]*typeMemberPopulationKey\(type\) !== expectedPopulationKey[\s\S]*state\.typeMemberPopulationKey !== expectedPopulationKey[\s\S]*overload\.stableSelector === stableSelector[\s\S]*state\.selectedMemberKey = group\.key[\s\S]*state\.memberSection = resourceMethodToken === undefined \? "facts" : "resource-triage"[\s\S]*await loadSelectedMemberAnalysisSurface\(\)/);
+    /const populationReceipt = await loadSelectedTypeMemberPopulation\(true\);[\s\S]*viewSignature\(\) !== expectedView[\s\S]*typeMemberPopulationReceipt !== populationReceipt[\s\S]*typeMemberPopulationIntentGeneration !== expectedPopulationIntent[\s\S]*typeMemberPopulationKey\(type\) !== expectedPopulationKey[\s\S]*state\.typeMemberPopulationKey !== expectedPopulationKey[\s\S]*overload\.stableSelector === stableSelector[\s\S]*state\.selectedMemberKey = group\.key[\s\S]*performanceMemberBrowseContext = \{[\s\S]*populationReceipt,[\s\S]*state\.memberSection = resourceMethodToken === undefined \? "facts" : "resource-triage"[\s\S]*await loadSelectedMemberAnalysisSurface\(\)/);
   assert.match(
     appSource,
     /const receipt: TypeMemberPopulationReceipt = \{[\s\S]*generation: \+\+typeMemberPopulationGeneration,[\s\S]*typeMemberPopulationReceipt = receipt;[\s\S]*return receipt;/);

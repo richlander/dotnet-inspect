@@ -1171,7 +1171,7 @@ test("compact Type groups retain resident contextual extensions", () => {
     appSource.match(/function groupMembers\([\s\S]*?(?=\nfunction typeMemberPopulationKey)/)?.[0]
     ?? "";
   const populationGroups =
-    appSource.match(/function currentTypeMemberPopulation\([\s\S]*?(?=\nfunction memberFilterState)/)?.[0]
+    appSource.match(/function currentTypeMemberPopulationInspection\([\s\S]*?(?=\nfunction memberFilterState)/)?.[0]
     ?? "";
   const selectorCounts =
     appSource.match(/function memberKinds\([\s\S]*?(?=\nfunction uploadedLibraryIsActive)/)?.[0]
@@ -1195,14 +1195,25 @@ test("compact Type groups retain resident contextual extensions", () => {
       {
         name: "Examine",
         kind: "extension-method",
+        accessibility: "public",
         graphOnly: false,
         isExtension: true,
         isStatic: true,
         declaringTypeDefinitionId: "T:Extensions",
       },
       {
+        name: "ExamineInternal",
+        kind: "extension-method",
+        accessibility: "internal",
+        graphOnly: false,
+        isExtension: true,
+        isStatic: true,
+        declaringTypeDefinitionId: "T:InternalExtensions",
+      },
+      {
         name: "GraphOnlyExtension",
         kind: "extension-method",
+        accessibility: "public",
         graphOnly: true,
         isExtension: true,
         isStatic: true,
@@ -1377,16 +1388,61 @@ test("compact Type groups retain resident contextual extensions", () => {
         completeCount: 1,
         completeCountStatus: "pending",
       },
+      {
+        key: "extension-method:ExamineInternal",
+        name: "ExamineInternal",
+        kind: "extension-method",
+        overloads: [type.api[2]],
+        completeCount: 1,
+        completeCountStatus: "pending",
+      },
     ],
+    extensionKindCount: 2,
+    allCount: 3,
+    extensionTraitCount: 2,
+  });
+
+  state.memberAccessibilityFilter = "internal";
+  const internalResult: unknown = runInNewContext(
+    stripTypeScriptTypes(`${groupMembers}
+      ${populationGroups}
+      ${selectorCounts}
+      ({
+        contextualGroups: contextualExtensionGroups(type),
+        extensionKindCount:
+          selectedMemberKindCount(type, "extension-method"),
+      });
+    `),
+    {
+      state,
+      type,
+      typeMemberPopulationKey: () => "type-key",
+      uploadedLibraryIsActive: () => true,
+      partitionGraphMembers: (members: unknown[]) => ({
+        publicMembers: members,
+        graphMembers: [],
+      }),
+      searchableMemberGroups: (groups: unknown[]) => groups,
+      createAppMemberSurface: (member: unknown) => member,
+      memberKindCount,
+      memberMatchesTrait,
+    });
+  assert.deepEqual(JSON.parse(JSON.stringify(internalResult)), {
+    contextualGroups: [{
+      key: "extension-method:ExamineInternal",
+      name: "ExamineInternal",
+      kind: "extension-method",
+      overloads: [type.api[2]],
+      completeCount: 1,
+      completeCountStatus: "pending",
+    }],
     extensionKindCount: 1,
-    allCount: 2,
-    extensionTraitCount: 1,
   });
 });
 
 test("unavailable exact Member populations omit selector counts", () => {
   const populationAndFilters =
-    appSource.match(/function currentTypeMemberPopulation\([\s\S]*?(?=\nfunction renderTypeMemberPopulationStatus)/)?.[0]
+    appSource.match(/function currentTypeMemberPopulationInspection\([\s\S]*?(?=\nfunction renderTypeMemberPopulationStatus)/)?.[0]
     ?? "";
   assert.notEqual(populationAndFilters, "");
   const compositionControls =
@@ -1582,10 +1638,20 @@ test("unavailable exact Member populations omit selector counts", () => {
   const contextualExtension = {
     name: "Examine",
     kind: "extension-method",
+    accessibility: "public",
     graphOnly: false,
     isExtension: true,
     isStatic: true,
     declaringTypeDefinitionId: "T:Extensions",
+  };
+  const internalContextualExtension = {
+    name: "ExamineInternal",
+    kind: "extension-method",
+    accessibility: "internal",
+    graphOnly: false,
+    isExtension: true,
+    isStatic: true,
+    declaringTypeDefinitionId: "T:InternalExtensions",
   };
   const privateRendered: unknown = runInNewContext(
     stripTypeScriptTypes(`${populationAndFilters}
@@ -1599,7 +1665,7 @@ test("unavailable exact Member populations omit selector counts", () => {
       state: privateState,
       type: {
         definitionId: "T:Receiver",
-        api: [contextualExtension],
+        api: [contextualExtension, internalContextualExtension],
       },
       MEMBER_TRAITS,
       memberKindCount,
@@ -1629,16 +1695,22 @@ test("unavailable exact Member populations omit selector counts", () => {
   }
   assert.match(
     privateRendered.filters,
-    /<option value="all"[^>]*>all · 3<\/option>/);
+    /<option value="all"[^>]*>all · 4<\/option>/);
   assert.match(
     privateRendered.filters,
     /<option value="public"[^>]*>public · 2<\/option>/);
   assert.match(
+    privateRendered.filters,
+    /<option value="internal"[^>]*>internal · 1<\/option>/);
+  assert.match(
     privateRendered.composition,
-    /data-member-jump-access="all"><strong>3<\/strong><span>all<\/span>/);
+    /data-member-jump-access="all"><strong>4<\/strong><span>all<\/span>/);
   assert.match(
     privateRendered.composition,
     /data-member-jump-access="public"><strong>2<\/strong><span>public<\/span>/);
+  assert.match(
+    privateRendered.composition,
+    /data-member-jump-access="internal"><strong>1<\/strong><span>internal<\/span>/);
 });
 
 test("type API reports the filtered member count once in its header", () => {

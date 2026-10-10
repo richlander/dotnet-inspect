@@ -45,6 +45,9 @@ public sealed class Container<T>
 
     public int BodyOnly(int renamed = 2) => renamed + 2;
 
+    internal int ErasedDeclarationDetails(int renamed = 2)
+        => renamed + 2;
+
     public TValue? NullableMethod<TValue>(
         string renamed,
         Container<T>? options)
@@ -104,4 +107,9 @@ public sealed class SpecialMethods : IExplicit
     int IExplicit.M() => 0;
 
     public int Normal() => 0;
+}
+
+public static class Extensions
+{
+    public static int Twice(this int renamed) => renamed + renamed;
 }

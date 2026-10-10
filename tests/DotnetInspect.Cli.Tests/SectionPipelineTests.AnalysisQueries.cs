@@ -458,8 +458,10 @@ public partial class SectionPipelineTests
             Logger = new Output.VerboseLogger(false),
             MetadataContext = service.Context,
             BodyAnalysisFeatures =
-                Analysis.LibraryBodyAnalysisFeatures
-                    .ImplementationProfiles,
+                Analysis.LibraryBodyAnalysisFeatures.None,
+            BodyAnalysisRequest =
+                Analysis.LibraryBodyAnalysisRequest
+                    .CreateLibraryStructuralReport(),
             Trace = trace,
         };
 
@@ -474,6 +476,9 @@ public partial class SectionPipelineTests
             trace.Resources,
             resource => resource.Resource == "body analysis");
         Assert.Contains(
+            "features: None",
+            analysis.Detail.ToString());
+        Assert.DoesNotContain(
             "ImplementationProfiles",
             analysis.Detail.ToString());
         Assert.DoesNotContain(

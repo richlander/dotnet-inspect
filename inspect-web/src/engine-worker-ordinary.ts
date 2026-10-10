@@ -82,11 +82,13 @@ type MetadataOperationName =
   | "queryMemberDeclaration"
   | "queryMemberDocument"
   | "queryMemberGroupDocument"
+  | "queryPerformanceTypeMemberPopulation"
   | "queryTypeOverviewDocument"
   | "queryTypeMemberPopulation"
   | "queryPlatformMemberDeclaration"
   | "queryPlatformMemberDocument"
   | "queryPlatformMemberGroupDocument"
+  | "queryPlatformPerformanceTypeMemberPopulation"
   | "queryPlatformTypeOverviewDocument"
   | "queryPlatformTypeMemberPopulation"
   | "queryPackageMetadataTable"
@@ -101,6 +103,7 @@ type MetadataFacadeOperationName =
   | MetadataOperationName
   | "queryUploadedLibraryMemberDocument"
   | "queryUploadedLibraryMemberGroupDocument"
+  | "queryUploadedLibraryPerformanceTypeMemberPopulation"
   | "queryUploadedLibraryTypeMemberPopulation"
   | "queryUploadedLibraryTypeOverviewDocument";
 
@@ -234,6 +237,14 @@ type MetadataWorkerClient =
       accessibility: string,
     ) => Promise<Awaited<ReturnType<
       MetadataFacade["queryUploadedLibraryTypeOverviewDocument"]
+    >>>;
+    readonly queryUploadedLibraryPerformanceTypeMemberPopulation: (
+      libraryIdentity: string,
+      typeIdentity: string,
+      spelling: string,
+      accessibility: string,
+    ) => Promise<Awaited<ReturnType<
+      MetadataFacade["queryUploadedLibraryPerformanceTypeMemberPopulation"]
     >>>;
   };
 
@@ -1352,6 +1363,16 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<MetadataFacade["queryTypeOverviewDocument"]>
       ) => facades.metadata.queryTypeOverviewDocument(...args),
     ),
+    queryPerformanceTypeMemberPopulation: valueOperation(
+      "ordinary-metadata-query-performance-type-member-population",
+      7,
+      (
+        facades,
+        ...args: Parameters<
+          MetadataFacade["queryPerformanceTypeMemberPopulation"]
+        >
+      ) => facades.metadata.queryPerformanceTypeMemberPopulation(...args),
+    ),
     queryPlatformMemberDeclaration: valueOperation(
       "ordinary-metadata-query-platform-member-declaration",
       8,
@@ -1433,6 +1454,18 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<MetadataFacade["queryPlatformTypeOverviewDocument"]>
       ) => facades.metadata.queryPlatformTypeOverviewDocument(...args),
     ),
+    queryPlatformPerformanceTypeMemberPopulation: valueOperation(
+      "ordinary-metadata-query-platform-performance-type-member-population",
+      7,
+      (
+        facades,
+        ...args: Parameters<
+          MetadataFacade["queryPlatformPerformanceTypeMemberPopulation"]
+        >
+      ) => facades.metadata.queryPlatformPerformanceTypeMemberPopulation(
+        ...args
+      ),
+    ),
     queryUploadedLibraryMemberGroupDocument: valueOperation(
       "ordinary-metadata-query-uploaded-library-member-group-document",
       6,
@@ -1510,9 +1543,16 @@ export const engineWorkerOrdinaryOperations = {
         accessibility: string,
       ) => {
         const retained = retainedUploadedLibraries.get(facades);
-        if (!retained || retained.identity !== libraryIdentity) {
+        if (!retained) {
           throw new Error(
-            "The requested uploaded Library is not retained in this Worker epoch.");
+            "No uploaded Library image is retained in this Worker epoch.",
+          );
+        }
+        if (retained.identity !== libraryIdentity) {
+          throw new Error(
+            "The requested uploaded Library is not the image retained "
+              + "in this Worker epoch.",
+          );
         }
         return facades.metadata.queryUploadedLibraryTypeOverviewDocument(
           retained.declaredName,
@@ -1521,6 +1561,38 @@ export const engineWorkerOrdinaryOperations = {
           spelling,
           accessibility,
         );
+      },
+    ),
+    queryUploadedLibraryPerformanceTypeMemberPopulation: valueOperation(
+      "ordinary-metadata-query-uploaded-library-performance-type-member-population",
+      4,
+      (
+        facades,
+        libraryIdentity: string,
+        typeIdentity: string,
+        spelling: string,
+        accessibility: string,
+      ) => {
+        const retained = retainedUploadedLibraries.get(facades);
+        if (!retained) {
+          throw new Error(
+            "No uploaded Library image is retained in this Worker epoch.",
+          );
+        }
+        if (retained.identity !== libraryIdentity) {
+          throw new Error(
+            "The requested uploaded Library is not the image retained "
+              + "in this Worker epoch.",
+          );
+        }
+        return facades.metadata
+          .queryUploadedLibraryPerformanceTypeMemberPopulation(
+            retained.declaredName,
+            retained.content,
+            typeIdentity,
+            spelling,
+            accessibility,
+          );
       },
     ),
     queryTypeProjection: valueOperation(
@@ -2474,6 +2546,10 @@ export function bindEngineWorkerOrdinaryClient(
       queryTypeOverviewDocument: bind(
         engineWorkerOrdinaryOperations.metadata.queryTypeOverviewDocument,
       ),
+      queryPerformanceTypeMemberPopulation: bind(
+        engineWorkerOrdinaryOperations.metadata
+          .queryPerformanceTypeMemberPopulation,
+      ),
       queryPlatformMemberDeclaration: bind(
         engineWorkerOrdinaryOperations.metadata
           .queryPlatformMemberDeclaration,
@@ -2498,6 +2574,10 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.metadata
           .queryPlatformTypeOverviewDocument,
       ),
+      queryPlatformPerformanceTypeMemberPopulation: bind(
+        engineWorkerOrdinaryOperations.metadata
+          .queryPlatformPerformanceTypeMemberPopulation,
+      ),
       queryUploadedLibraryMemberGroupDocument: bind(
         engineWorkerOrdinaryOperations.metadata
           .queryUploadedLibraryMemberGroupDocument,
@@ -2509,6 +2589,10 @@ export function bindEngineWorkerOrdinaryClient(
       queryUploadedLibraryTypeOverviewDocument: bind(
         engineWorkerOrdinaryOperations.metadata
           .queryUploadedLibraryTypeOverviewDocument,
+      ),
+      queryUploadedLibraryPerformanceTypeMemberPopulation: bind(
+        engineWorkerOrdinaryOperations.metadata
+          .queryUploadedLibraryPerformanceTypeMemberPopulation,
       ),
       queryTypeProjection: bind(
         engineWorkerOrdinaryOperations.metadata.queryTypeProjection,

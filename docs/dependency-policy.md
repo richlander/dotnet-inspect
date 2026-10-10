@@ -164,6 +164,15 @@ The checked-in rules provide full gate coverage for these dependency claims:
     Queries, and Research project logical-member and physical-MethodDef values
     before the facade boundary, so the assembly rule also rejects the retired
     `ILInspector.MetadataPrimitives` dependency.
+13. Inspect Web Core cannot expand beyond its current fifteen evaluated project
+    edges or its current twenty-seven repository and external assembly edges.
+    Core composes Browser acquisition, workspace lifetime, cancellation,
+    navigation policy, and typed host projection over owner-issued product
+    APIs. The separate graph rules reject retired direct `CSharpText` and
+    `ILInspector.Research` dependencies and any new project or emitted assembly
+    edge. Core retains the semantic banned-symbol gate because its intentional
+    Metadata, Analysis, and CallGraph dependencies must not become authority to
+    open images, run producers, or reconstruct product semantics in the host.
 
 Claims not represented by a JSON rule remain unverified by this gate. Changing
 an allowed set requires changing the rule's cited owner contract or showing
