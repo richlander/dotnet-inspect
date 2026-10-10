@@ -15,6 +15,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
     readonly MetadataReader _reader;
     readonly LibraryBodyPrimaryMetadataResolver _primaryMetadataResolver;
     readonly bool _includeMethodEvidence;
+    readonly bool _includeAllocationSignals;
     readonly bool _isScoped;
     readonly IReadOnlySet<string> _exceptionTypeNames;
 
@@ -27,6 +28,9 @@ internal sealed class LibraryBodyAnalysisAccumulator
         _primaryMetadataResolver = primaryMetadataResolver;
         _includeMethodEvidence = plan.Includes(
             LibraryBodyAnalysisFeatures.MethodEvidence);
+        _includeAllocationSignals =
+            plan.ImplementationMetrics
+                ?.IncludesAllocationCountMetric == true;
         _isScoped = plan.IsScoped;
         _exceptionTypeNames = _includeMethodEvidence
             ? ComputeExceptionTypeNames()
@@ -306,7 +310,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
             fieldLoads,
             typesWithCurrentInstanceMutations,
             _isScoped || !fieldAccessCensusComplete);
-        var nonHeapNewObjOperandTokens = _includeMethodEvidence
+        var nonHeapNewObjOperandTokens =
+            _includeMethodEvidence || _includeAllocationSignals
             ? ComputeNonHeapNewObjOperandTokens(directCalls)
             : new HashSet<int>();
         return new(
