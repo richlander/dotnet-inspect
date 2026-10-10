@@ -40,7 +40,7 @@ export interface LibraryApiDiffSelection {
   readonly query?: LibraryApiDiffQuerySelection;
 }
 
-interface LibraryApiDiffQuerySelection {
+export interface LibraryApiDiffQuerySelection {
   readonly surface: BrowserLibraryApiDiffRequest["surface"];
   readonly analyses: readonly string[];
   readonly views: BrowserLibraryApiDiffRequest["views"];
@@ -49,7 +49,7 @@ interface LibraryApiDiffQuerySelection {
   readonly predicate?: NonNullable<BrowserLibraryApiDiffRequest["predicate"]>;
 }
 
-interface LibraryApiDiffOperationInput {
+export interface LibraryApiDiffOperationInput {
   readonly packageModel: object;
   readonly packageId: string;
   readonly currentVersion: string;
@@ -99,15 +99,21 @@ const emptyLibraryApiDiffPresence: LibraryApiDiffPresence = {
 export function libraryApiDiffPresence(
   state: LibraryApiDiffState,
 ): LibraryApiDiffPresence {
-  if (state.status !== "ready"
-    || state.result.kind !== "Succeeded"
-    || state.result.value === null) {
+  return state.status === "ready"
+    ? libraryApiDiffResultPresence(state.result)
+    : emptyLibraryApiDiffPresence;
+}
+
+/** The changed Types and Members one settled Library API Diff result names. */
+export function libraryApiDiffResultPresence(
+  result: BrowserLibraryApiDiffResult,
+): LibraryApiDiffPresence {
+  if (result.kind !== "Succeeded" || result.value === null)
     return emptyLibraryApiDiffPresence;
-  }
 
   const typeIdentifiers = new Set<string>();
   const memberFingerprints = new Set<string>();
-  for (const type of state.result.value.types) {
+  for (const type of result.value.types) {
     if (type.after !== null)
       typeIdentifiers.add(type.after.identifier);
     for (const member of type.members) {
@@ -287,7 +293,7 @@ export function libraryApiDiffDataBarResult(
   };
 }
 
-function createRequest(
+export function createLibraryApiDiffRequest(
   input: LibraryApiDiffOperationInput,
 ): BrowserLibraryApiDiffRequest {
   const query = effectiveInputQuery(input);
@@ -960,7 +966,7 @@ function validateInspection(
   }
 }
 
-function validateResult(
+export function validateLibraryApiDiffResult(
   result: unknown,
   input: LibraryApiDiffOperationInput,
 ): asserts result is BrowserLibraryApiDiffResult {
@@ -1235,7 +1241,7 @@ export function createLibraryApiDiffCoordinator(
       };
       const finish = (result: unknown): undefined => {
         try {
-          validateResult(result, input);
+          validateLibraryApiDiffResult(result, input);
           sink.reportTerminal({ kind: "succeeded", value: result });
         } catch (error: unknown) {
           sink.reportUnexpectedTerminal(error, error);
@@ -1255,7 +1261,7 @@ export function createLibraryApiDiffCoordinator(
           activate: () => {
             let query: Promise<unknown>;
             try {
-              query = dependencies.query(identity.id, createRequest(input));
+              query = dependencies.query(identity.id, createLibraryApiDiffRequest(input));
             } catch (error: unknown) {
               return boundaryFailure(error);
             }

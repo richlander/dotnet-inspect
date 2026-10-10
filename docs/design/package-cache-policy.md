@@ -185,6 +185,12 @@ and none afterwards. An archive above it costs one abandoned request and the
 ranged read the first time; afterwards, only requests for entries not yet in
 the entry cache, and none when every selected entry is cached.
 
+Production consumers inherit this package-owned size cut rather than choosing
+their own. An exception requires a documented reason in this owning policy and
+evidence that justifies the different acquisition tradeoff. Selecting fewer
+entries, or requesting only directory facts, does not itself justify overriding
+the cut. Fixture overrides may exercise both sides of the policy.
+
 The search Root's coverage fallback is sequential: it takes the complete
 archive only after the ranged read returns, so the two transfers never
 overlap.

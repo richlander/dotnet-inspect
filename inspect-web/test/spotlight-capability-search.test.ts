@@ -127,6 +127,42 @@ test("Capability search publishes only the current All-scope query", async () =>
   assert.equal(state.spotlightCapabilitySearch.status, "idle");
 });
 
+test("Capability search hides legacy-only Package Query facets", () => {
+  const populated = inspection("dependency");
+  const [sample] = populated.content.results;
+  assert.ok(sample);
+  const exact = {
+    ...sample,
+    canonicalKeys: ["depends"],
+    resourcePath: "package-query/query/facets/depends",
+  };
+  const hidden = [
+    "depends-ecosystem",
+    "depends-transitive",
+    "dependency-depth",
+  ].map(key => ({
+    ...sample,
+    canonicalKeys: [key],
+    resourcePath: `package-query/query/facets/${key}`,
+  }));
+  const state = {
+    status: "ready" as const,
+    query: "dependency",
+    inspection: {
+      ...populated,
+      content: {
+        ...populated.content,
+        results: [exact, ...hidden],
+      },
+    },
+  };
+
+  assert.deepEqual(
+    visibleSpotlightCapabilityResults(state, "dependency")
+      .map(result => result.resourcePath),
+    ["package-query/query/facets/depends"]);
+});
+
 test("Capability search ignores superseded completion and exposes failures", async () => {
   const state: SpotlightCapabilitySearchState = {
     spotlightQuery: "literal",

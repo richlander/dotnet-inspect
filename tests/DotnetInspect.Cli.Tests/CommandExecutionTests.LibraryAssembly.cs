@@ -4900,6 +4900,51 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Tip:", error);
     }
 
+    [Fact]
+    public async Task LibraryCommand_TfmAll_SelectsOnlyTheNamedLibrary()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        try
+        {
+            string content = Path.Combine(tempDir, "content");
+            foreach (string tfm in new[] { "net8.0", "net10.0" })
+            {
+                string dir = Path.Combine(content, "lib", tfm);
+                Directory.CreateDirectory(dir);
+                File.Copy(TestAssemblyPath, Path.Combine(dir, "Lib.dll"));
+                File.Copy(TestAssemblyPath, Path.Combine(dir, "Other.dll"));
+            }
+            string packagePath = Path.Combine(tempDir, "Named.MultiTfm.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "-S", SectionNames.LibraryInfo, "--markdown");
+
+            Assert.True(exit == 0, error);
+            Assert.Contains("### Lib.dll (net8.0)", output, StringComparison.Ordinal);
+            Assert.Contains("### Lib.dll (net10.0)", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("Other.dll", output, StringComparison.Ordinal);
+
+            var (missingExit, missingOutput, missingError) = await RunAppAsync(
+                "library", "Nope.dll", "--package", packagePath, "--tfm", "all",
+                "-S", SectionNames.LibraryInfo, "--markdown");
+
+            Assert.Equal(1, missingExit);
+            Assert.Empty(missingOutput);
+            Assert.Contains(
+                "Library 'Nope.dll' not found in package.",
+                missingError,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("--tree")]
     [InlineData("--table")]

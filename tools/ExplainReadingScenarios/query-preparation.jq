@@ -16,5 +16,6 @@ end)
 | .facets[$key] as $facet
 | {data_scope,
    facet: ($facet | {key, summary, value_kind, operators, values, input_rules, requires}),
-   context: [$facet.requires[] | $doc.facets[.] | {key, summary, value_kind}],
+   context: [$facet.requires[] | $doc.facets[.]
+     | {key, summary, value_kind, operators, values, examples, input_rules, requires}],
    bindings: [.bindings[] | {gesture, input_rules, exposed_facets}]}

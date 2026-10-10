@@ -398,13 +398,64 @@ or place to move completion, failure, provenance, or other facts required to
 interpret baseline Content.
 
 Host-visible capture and complete evidence-envelope delivery are Debug-only.
-An agent may rely on evidence only when it is invoking a Debug build and the
-resolved operation explicitly advertises its evidence gesture. Do not expect
+An agent may rely on a host-delivered evidence envelope only when it is invoking
+a Debug build and the resolved operation explicitly advertises its evidence
+gesture. Do not expect
 the published or Release CLI to accept `--evidence-envelope`, and do not treat
 the absence of evidence in those builds as an inspection failure. The
 service-owned types, evidence-enabled entry point, and serializers remain
 configuration-neutral so their semantics can be gated in Release; the Debug
 host registration and delivery path do not.
+
+### Agent workflow for network-related commands
+
+When investigating a network-related command, use its evidence envelope before
+explaining downloads, attributing a performance difference, or proposing an
+acquisition optimization. Do not wait for the operator to request it. Timings
+show the outcome; the envelope distinguishes whether the intended demand,
+selected input and acquisition path actually ran. This workflow and its
+side-quest approval requirement apply only to network-related commands.
+
+1. Name the question and find the applicable evidence type and owning design.
+   For network acquisition, start with the
+   [package transfer receipts](design/package-transfer-receipt.md); for excess
+   work, inspect available query demand and execution evidence. Reuse existing
+   evidence before adding instrumentation.
+2. Invoke a Debug build and discover whether the resolved command advertises
+   its evidence gesture. Capture and inspect the envelope when supported.
+   Absence in a Release build does not establish missing command capability.
+   If the command lacks evidence-envelope support, ask the operator whether a
+   side quest to add it for better network diagnostics is approved. Describe
+   the missing diagnostics and proposed scope; do not start that side quest
+   without approval. Existing service receipts and browser request traces may
+   support independent investigation while awaiting the answer, but do not
+   substitute them for command evidence-envelope support or skip the question.
+3. Match evidence to the measured scenario before comparing it: code revision,
+   authorized source, exact package version, selected framework and Library,
+   requested sections or terminal, and cold/warm cache state. Check the actual
+   settled coordinates, not just the report's label. When assembling retained
+   evidence programmatically, assert coordinate agreement; mismatches must
+   fail assembly rather than silently combining different inputs.
+4. Explain each acquisition request by its owner-issued purpose and consumed
+   bytes. Separate request count from body bytes and latency. An abandoned size
+   probe still counts as a request even when it consumes zero body bytes;
+   advertised length is not consumed length. Identify repeated directory
+   reads, complete-fetch fallback, missing-entry spans and cache hits. Account
+   for coalesced spans that deliberately include neighboring files. Report
+   truncation or capture limits, and do not count a retained receipt again
+   merely because another inspection reuses it.
+5. Compare the observed work with the intended upstream query demand before
+   choosing a fix. Extra work may come from unnecessary demand, repeated
+   acquisition or fallback; request count alone does not identify legacy
+   infrastructure. State what the evidence proves and what remains unverified.
+
+Keep diagnostic capture separate from timing. Debug envelopes and untrimmed
+diagnostic harnesses explain execution; they do not establish performance.
+Use the exact NativeAOT before/after protocol above for timing, aligning its
+inputs and revisions with the diagnostic evidence. Retain both with their
+capture provenance so another agent can check the explanation.
+
+### Adding evidence fields
 
 Before adding an evidence field, name the question it answers:
 

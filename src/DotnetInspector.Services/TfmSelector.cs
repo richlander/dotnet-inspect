@@ -277,14 +277,22 @@ public static class TfmSelector
 
     /// <summary>Framework folders represented by the Package Target Frameworks section.</summary>
     public static List<string> GetPackageFrameworkFolders(string extractPath)
-        => OrderByTfmPriorityDescending(
+        => GetPackageFrameworkFolders(
             new[] { "lib", "tools" }
                 .Select(root => Path.Combine(extractPath, root))
                 .Where(Directory.Exists)
                 .SelectMany(Directory.GetDirectories)
-                .Where(path => !Path.GetFileName(Path.GetDirectoryName(path))!.Equals("tools", StringComparison.OrdinalIgnoreCase)
-                    || !Path.GetFileName(path).Equals("any", StringComparison.OrdinalIgnoreCase))
-                .Select(path => Path.GetFileName(path))
+                .Select(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/')));
+
+    /// <summary>Framework folders from owner-issued package-relative logical directories.</summary>
+    public static List<string> GetPackageFrameworkFolders(IEnumerable<string> directories)
+        => OrderByTfmPriorityDescending(
+            directories.Select(path => path.Split('/'))
+                .Where(parts => parts.Length == 2
+                    && (parts[0] == "lib" || parts[0] == "tools")
+                    && !(parts[0] == "tools"
+                        && parts[1].Equals("any", StringComparison.OrdinalIgnoreCase)))
+                .Select(parts => parts[1])
                 .Order(StringComparer.Ordinal)
                 .Distinct(StringComparer.OrdinalIgnoreCase), static tfm => tfm)
             .ToList();
@@ -819,19 +827,10 @@ public static class TfmSelector
         if (dlls.Count == 0)
             return (null, null);
 
-        var normalizedAssemblyName = assemblyName.Replace('\\', '/');
-        var assemblyLeaf = Path.GetFileName(assemblyName);
-        var bareName = assemblyLeaf.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            ? Path.GetFileNameWithoutExtension(assemblyLeaf)
-            : assemblyLeaf;
-        var fileName = assemblyLeaf.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            ? assemblyLeaf
-            : $"{bareName}.dll";
-
-        string? exactMatch = FindExactPackageAsset(
+        var (exactMatch, matchingFiles) = MatchPackageAssemblies(
             dlls,
             extractPath,
-            normalizedAssemblyName);
+            assemblyName);
         if (exactMatch is not null)
         {
             string? exactTfm = TfmResolver.ExtractTfmFromPath(
@@ -839,22 +838,64 @@ public static class TfmSelector
             return (exactMatch, exactTfm ?? tfm);
         }
 
-        if (normalizedAssemblyName.Contains('/'))
-            return (null, null);
-
-        var matchingFiles = dlls
-            .Where(dll =>
-            {
-                return Path.GetFileName(dll).Equals(fileName, StringComparison.OrdinalIgnoreCase)
-                    || Path.GetFileNameWithoutExtension(dll).Equals(bareName, StringComparison.OrdinalIgnoreCase);
-            })
-            .ToList();
-
         if (matchingFiles.Count == 0)
             return (null, null);
 
         var (selectedPath, selectedTfm) = SelectHighestTfmAssembly(matchingFiles, extractPath);
         return (selectedPath ?? matchingFiles[0], selectedTfm ?? tfm);
+    }
+
+    /// <summary>
+    /// Every candidate that the exact Library request names, across all of
+    /// <paramref name="dlls"/>: the exact asset path when one matches, otherwise
+    /// every file whose name or bare name matches. A path-shaped request that
+    /// matches no exact asset yields no candidates.
+    /// </summary>
+    public static IReadOnlyList<string> FindAssembliesInPackage(
+        IReadOnlyList<string> dlls,
+        string extractPath,
+        string assemblyName)
+    {
+        var (exactMatch, matchingFiles) = MatchPackageAssemblies(
+            dlls,
+            extractPath,
+            assemblyName);
+        return exactMatch is not null ? [exactMatch] : matchingFiles;
+    }
+
+    // The exact Library request rule shared by the single and all-candidate
+    // searches: an exact asset path wins; otherwise a path-shaped request
+    // matches nothing, and a name matches by file name or bare name.
+    private static (string? Exact, List<string> Named) MatchPackageAssemblies(
+        IReadOnlyList<string> dlls,
+        string extractPath,
+        string assemblyName)
+    {
+        var normalizedAssemblyName = assemblyName.Replace('\\', '/');
+        string? exactMatch = FindExactPackageAsset(
+            dlls,
+            extractPath,
+            normalizedAssemblyName);
+        if (exactMatch is not null)
+            return (exactMatch, []);
+
+        if (normalizedAssemblyName.Contains('/'))
+            return (null, []);
+
+        var assemblyLeaf = Path.GetFileName(assemblyName);
+        var bareName = assemblyLeaf.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            ? Path.GetFileNameWithoutExtension(assemblyLeaf)
+            : assemblyLeaf;
+        var fileName = assemblyLeaf.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            ? assemblyLeaf
+            : $"{bareName}.dll";
+        return (
+            null,
+            [
+                .. dlls.Where(dll =>
+                    Path.GetFileName(dll).Equals(fileName, StringComparison.OrdinalIgnoreCase)
+                    || Path.GetFileNameWithoutExtension(dll).Equals(bareName, StringComparison.OrdinalIgnoreCase)),
+            ]);
     }
 
     internal static string? FindExactPackageAsset(

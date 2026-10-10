@@ -429,6 +429,49 @@ export function inspectWebRuntimeObservation() {
       "catalog facade did not return the product vocabulary");
     operations.push("catalog.inspectVocabulary");
 
+    function explanation(path: string, depth = 0): Record<string, unknown> {
+      const result = operation(catalogFacade, "explainVocabularies")(path, depth);
+      assert.ok(isRecord(result) && result.outcome === "Explained"
+        && isRecord(result.explanation) && isRecord(result.explanation.content),
+      `catalog explanation failed: ${path}`);
+      assert.ok(isRecord(result.explanation.share));
+      assert.deepEqual(result.explanation.diagnostics, []);
+      return result.explanation.content;
+    }
+    const resource = "vocabularies/csharp.style-choices";
+    const compact = explanation(resource, 1);
+    assert.ok(isRecord(compact.facts) && isRecord(compact._links));
+    assert.equal(Reflect.has(compact, "schemas"), false);
+    const contract = explanation(`inspect-resource:/${resource}?projection=contract`, 1);
+    assert.ok(Array.isArray(contract.schemas) && Array.isArray(contract.resources));
+    assert.ok(JSON.stringify(compact).length < JSON.stringify(contract).length);
+    const data = explanation(`inspect-resource:/${resource}?projection=data`);
+    assert.ok(isRecord(data.vocabularies));
+    const choices = data.vocabularies["csharp.style-choices"];
+    assert.ok(isRecord(choices) && Array.isArray(choices.values)
+      && choices.values.length > 0 && isRecord(choices.property_sets));
+    const hal = explanation(`inspect-resource:/${resource}?projection=hal`);
+    assert.ok(isRecord(hal._embedded) && Array.isArray(hal._embedded.values));
+    assert.equal(hal._embedded.values.length, choices.values.length);
+    function hrefs(value: unknown): string[] {
+      if (Array.isArray(value)) return value.flatMap(hrefs);
+      if (!isRecord(value)) return [];
+      return Object.entries(value).flatMap(([name, child]) =>
+        name === "href" && typeof child === "string" ? [child] : hrefs(child));
+    }
+    const links = [...new Set(hrefs(hal))];
+    assert.ok(links.length > 10);
+    for (const href of links) {
+      const followed = explanation(href);
+      if (href.endsWith("?projection=hal")) assert.ok(isRecord(followed.data_scope));
+      if (href.endsWith("?projection=contract")) assert.ok(Array.isArray(followed.schemas));
+    }
+    const rejected = operation(catalogFacade, "explainVocabularies")(
+      `inspect-resource:/${resource}?projection=hal`, 1);
+    assert.ok(isRecord(rejected) && rejected.outcome === "InvalidSelection"
+      && rejected.explanation === null && isRecord(rejected.rejection));
+    operations.push("catalog.explainVocabularies.compactSelectedContractAndNavigation");
+
     assert.equal(await host.runEntryPoint(), 0);
     assert.deepEqual(
       observe(),

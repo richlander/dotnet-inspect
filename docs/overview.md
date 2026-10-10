@@ -88,7 +88,7 @@ producers that will extend that space.
   schemas or rendered fields.
   [Query Space Composition](design/query-space-composition.md) owns the target
   host-neutral composition of one operation route with explicit row spaces,
-  Rows or exact Count, structural plan descriptions, and preservation of an
+  Rows or Count, structural plan descriptions, and preservation of an
   adjacent source owner's continuation. It keeps semantic selection, work
   bounds, source batching, consumer paging, and rendering distinct while
   exposing one capability descriptor to CLI, Browser/Wasm, generated .NET

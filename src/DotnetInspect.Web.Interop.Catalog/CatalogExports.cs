@@ -42,8 +42,10 @@ public static partial class CatalogExports
 
     /// <summary>
     /// Explains one <c>vocabularies</c> resource path to <paramref name="depth"/>
-    /// with the same Document Content the CLI's <c>explain</c> produces. Every
-    /// other path, and a negative depth, is a typed rejection.
+    /// with the same compact Content the CLI's <c>explain --json</c> produces.
+    /// Accepts <c>inspect-resource:/</c> addresses unchanged, including explicit
+    /// <c>?projection=data</c>, <c>hal</c>, or <c>contract</c>. Data selections require depth zero.
+    /// Addresses are catalog operands, not HTTP endpoints.
     /// </summary>
     [JSExport]
     public static string ExplainVocabularies(string path, int depth) =>
@@ -54,9 +56,69 @@ public static partial class CatalogExports
 
     internal static BrowserVocabularyExplanationResult ExplainVocabulariesCore(
         string path,
-        int depth) =>
-        BrowserVocabulary.ToBrowserExplanation(
-            VocabularyExplainer.Value.Explain(path ?? "", depth));
+        int depth)
+    {
+        string requestedPath = path ?? "";
+        string resourcePath = requestedPath;
+        string? projection = null;
+        const string prefix = "inspect-resource:/";
+        if (resourcePath.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            resourcePath = resourcePath[prefix.Length..];
+            int query = resourcePath.IndexOf('?');
+            if (query >= 0)
+            {
+                projection = resourcePath[(query + 1)..] switch
+                {
+                    "projection=data" => "data",
+                    "projection=hal" => "hal",
+                    "projection=contract" => "contract",
+                    _ => "invalid",
+                };
+                resourcePath = resourcePath[..query];
+            }
+        }
+
+        VocabularyExplanation explainer = VocabularyExplainer.Value;
+        VocabularyExplanationResult result = explainer.Explain(resourcePath, depth);
+        if (result is not VocabularyExplanationResult.Explained explained)
+            return BrowserVocabulary.ToBrowserExplanation(result);
+        if (projection == "invalid" || projection is "data" or "hal" && depth != 0)
+            return RejectSelection(requestedPath,
+                "A projected resource address requires data, hal, or contract; data selections require depth zero.");
+
+        JsonElement content;
+        if (projection == "contract")
+        {
+            content = JsonSerializer.SerializeToElement(explained.Inspection.Content,
+                ResourceExplanationJsonContext.Default.ResourceExplanationDocument);
+        }
+        else if (projection is "data" or "hal")
+        {
+            try
+            {
+                content = explainer.SelectData(new ResourcePath(resourcePath)).ToJson(
+                    static path => "inspect-resource:/" + path.Value,
+                    hal: projection == "hal",
+                    bindHalAddress: static path => "inspect-resource:/" + path.Value + "?projection=hal",
+                    bindContractAddress: static path => "inspect-resource:/" + path.Value + "?projection=contract");
+            }
+            catch (InvalidOperationException exception)
+            {
+                return RejectSelection(requestedPath, exception.Message);
+            }
+        }
+        else
+        {
+            content = ResourceExplanationDataProjection.Create(explained.Inspection.Content,
+                static path => "inspect-resource:/" + path.Value);
+        }
+        return BrowserVocabulary.ToBrowserExplanation(result, content);
+    }
+
+    private static BrowserVocabularyExplanationResult RejectSelection(string path, string message) =>
+        new(BrowserVocabularyExplanationOutcome.InvalidSelection, null,
+            new BrowserVocabularyExplanationRejection(path, message, []));
 
     // Home demos are product-owned closed presets. Catalog listing is metadata-only; resolve
     // allocates one demo's definition graph. The browser builds share links / runners from the

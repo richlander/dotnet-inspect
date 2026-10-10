@@ -202,7 +202,7 @@
       "fact_identity": "package-query.term.depends",
       "key": "depends",
       "name": "depends on package",
-      "summary": "Matches a direct dependency by exact package ID or literal package-ID prefix.",
+      "summary": "Matches a direct dependency, or exact package reachability through dependency-depth.",
       "operators": [
         "eq",
         "starts-with"
@@ -243,7 +243,7 @@
       "fact_identity": "package-query.term.depends-transitive",
       "key": "depends-transitive",
       "name": "transitively depends on package",
-      "summary": "Matches a source-authorized declared dependency reached at depth 2 or greater.",
+      "summary": "Legacy spelling for source-authorized dependency reachability at depth 2 or greater.",
       "operators": [
         "eq"
       ],
@@ -257,13 +257,16 @@
       ],
       "identity": "10:QueryFacet37:package-query.term.depends-transitive28:package-query/query-space/v1",
       "href": "inspect-resource:/package-query/query/facets/depends-transitive",
-      "requires": []
+      "requires": [
+        "dependency-target",
+        "dependency-depth"
+      ]
     },
     "dependency-depth": {
       "fact_identity": "package-query.term.dependency-depth",
       "key": "dependency-depth",
       "name": "dependency depth",
-      "summary": "Bounds transitive dependency traversal to the selected maximum depth.",
+      "summary": "Extends exact depends terms through the selected maximum declaration-edge depth.",
       "operators": [
         "eq"
       ],
@@ -281,7 +284,9 @@
       ],
       "identity": "10:QueryFacet35:package-query.term.dependency-depth28:package-query/query-space/v1",
       "href": "inspect-resource:/package-query/query/facets/dependency-depth",
-      "requires": []
+      "requires": [
+        "dependency-target"
+      ]
     },
     "license": {
       "fact_identity": "package-query.term.license",

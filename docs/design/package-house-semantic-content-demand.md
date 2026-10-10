@@ -67,8 +67,13 @@ The result terminals are:
 - **Nuspec.** Return the exact package manifest without acquiring archive
   payload when the authorized source supplies it directly. This terminal
   requires package-wide narrowing.
-- **File list.** Return the complete validated archive entry inventory without
-  expanding entry content, projected to the base narrowed package space.
+- **File list.** Return the complete validated archive file-entry inventory
+  without expanding entry content, projected to the base narrowed package space.
+  Package-wide requests may opt into logical directory evidence, including
+  explicit empty directory entries, from the same validated generation.
+  Directory evidence is unavailable (null, not an empty population) when an
+  older retained content implementation cannot supply its admitted snapshot;
+  callers may use their established complete-inspection path.
 - **Files.** Return the complete validated content of one or more exact package
   entries within the base narrowed space.
 - **Libraries.** Return every compatible library in the base narrowed space.
@@ -409,8 +414,10 @@ The counted PackageHouse stack has seven slices:
    Library-inventory package-symbol consumption, compose later exact Files
    acquisition, and migrate one current PDB consumer. Retire direct companion
    delivery only for that adopted route.
-5. Adopt `GetLibraryAndInventoryForTarget` in Inspect Web Package Query,
-   beginning with assembly-semantic evaluation and the website Library list.
+5. Adopt `GetLibraryAndInventoryForTarget` in Inspect Web Package Query and
+   the website Library list. Assembly-semantic candidate acquisition already
+   enters PackageHouse through #9815; semantic content narrowing remains in
+   this step.
 6. Adopt the same demands in `find` and shared Workspace/declaration loading,
    removing their split acquisition behavior.
 7. Migrate remaining commands and hosts, then delete

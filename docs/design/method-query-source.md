@@ -295,11 +295,12 @@ A producer declares its minimum semantic demand, never a physical reader type.
 The request-set planner first partitions requirements by selected physical
 instruction-source kind. Within one execution group, the source joins Access
 and Detail independently across active producers. A no-retention stream
-currently satisfies `ForwardOnly + OpcodeAndExtent`; retained-prefix or
-selective-detail demand selects one lazy shallow retained sequence. A retained
-consumer therefore cannot promote a forward-only lane into the retained cost
-class. Adding a producer can only preserve or increase the demand within its
-compatible group, and producer order cannot change the selected source.
+currently satisfies `ForwardOnly + OpcodeAndExtent`; retained-prefix demand
+selects one lazy shallow retained sequence, while selective-detail demand
+selects its resolved-detail mode. A retained consumer therefore cannot promote
+a forward-only lane into the retained cost class. Adding a producer can only
+preserve or increase the demand within its compatible group, and producer
+order cannot change the selected source.
 
 The Method-body demand scorecard carries the reference implementation and real
 classifier gates for this rule. Production declarations and plans now use the
@@ -315,7 +316,12 @@ separates lanes whose plans select different physical source kinds, and forms a
 joined plan within each resulting group. Compatible
 `ForwardOnly + OpcodeAndExtent` requests use one fused no-retention stream.
 Compatible retained-prefix or selective-detail requests use one packet-local
-`InstructionSequence`; independent cursors share its scan frontier. Source
+`InstructionSequence`; independent cursors share its scan frontier. A joined
+`SelectiveOperands` group selects resolved-detail retention before any lane
+runs, so producer order cannot cause an earlier shallow lane to force a second
+decode. A producer with that declared demand may explicitly materialize the
+completed sequence as canonical `MethodInstructions`; no other retained lane
+implicitly completes the source. Source
 receipts distinguish no-retention sources, retained sources, and instruction
 participation. A request receipt records a retained source opening only for the
 lane that actually created that packet-local sequence; the physical group
@@ -575,8 +581,14 @@ Migration is incremental:
    lanes, and the producer closes Rows, Count, and Exists as independent
    QuerySpace requests through `SyncCallsInAsyncQuery`. This slice is
    **unverified**; legacy callers stay until their consumers move.
-10. Move remaining producers and delete each superseded legacy scan and index
-   when its final consumer moves.
+10. Add bounded semantic MethodDef identity (#9830) and receipted
+    memory-safety contract support (#9831) as independent source capabilities.
+11. Move the first exact-member consumer in #9832 through
+    [exact-member scoped producers](assembly-analysis-operation.md#exact-member-scoped-producers),
+    consuming #8700 and #8945 rather than defining another call resolver or
+    population.
+12. Move remaining producers and delete each superseded legacy scan and index
+    when its final consumer moves.
 
 Wrapping `LibraryBodyAnalysisBuilder.Build`, constructing every legacy result
 and filtering afterward, or scanning every MethodDef to realize an exact

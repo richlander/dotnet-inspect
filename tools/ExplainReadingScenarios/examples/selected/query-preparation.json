@@ -26,7 +26,16 @@
     {
       "key": "library-target",
       "summary": "Records the exact target framework used to select the implementation libraries.",
-      "value_kind": "NuGet target framework"
+      "value_kind": "NuGet target framework",
+      "operators": [
+        "eq"
+      ],
+      "values": [],
+      "examples": [
+        "net10.0"
+      ],
+      "input_rules": [],
+      "requires": []
     }
   ],
   "bindings": [
@@ -35,6 +44,7 @@
       "input_rules": [
         "Supply a package ID or PREFIX* as the positional argument after package query.",
         "Supply exposed inspection facets through --where key=value.",
+        "Set the package-candidate work bound through --take N; -n N selects final result rows and does not replace that bound for inspection predicates.",
         "Use --json for structured query result output.",
         "Supply library-target through --tfm TFM, not --where. Use one exact NuGet target framework.",
         "library-literal and --tfm require each other; neither is valid alone."

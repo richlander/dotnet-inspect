@@ -22,6 +22,46 @@ public sealed partial class DesktopPackageSourceComposition
         long rangedSizeCut = PackageRangedRead.DefaultSizeCut)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
+        return AcquireContentAsync(new PackageHouseDemand.Exact(coordinate),
+            coordinate.PackageId, query, createStore, sourceOptions, log,
+            cancellationToken, limits, transferPolicy, requiredProducerKey, rangedSizeCut);
+    }
+
+    /// <summary>Executes semantic content demand after ordinary version selection.</summary>
+    public Task<PackageHouseSettlement> AcquireSelectedContentAsync(
+        string packageId,
+        string? versionSelector,
+        PackageHouseContentQuery query,
+        PackageStoreProvider createStore,
+        NuGetSourceOptions? sourceOptions = null,
+        Action<string>? log = null,
+        bool includePrerelease = false,
+        CancellationToken cancellationToken = default,
+        PackagePayloadLimits? limits = null,
+        long rangedSizeCut = PackageRangedRead.DefaultSizeCut)
+    {
+        if (sourceOptions?.AuthorizedSourceKeys is not null
+            || sourceOptions?.ResolvedSources is not null)
+            throw new ArgumentException(
+                "Selected content acquisition requires configured sources, not legacy producer or resolved-source restrictions.",
+                nameof(sourceOptions));
+        if (!TryCreateSelectionRequest(packageId, versionSelector, includePrerelease,
+                rangeAddress: null, out PackageVersionSelectionRequest? selection,
+                out ConfiguredPackagePayloadResult? failure))
+            throw new ArgumentException(failure!.Failures.FirstOrDefault()?.Message
+                ?? "The package version selection is invalid.", nameof(versionSelector));
+        return AcquireContentAsync(new PackageHouseDemand.Selecting(selection!),
+            packageId, query, createStore, sourceOptions, log,
+            cancellationToken, limits, transferPolicy: null, requiredProducerKey: null, rangedSizeCut);
+    }
+
+    private Task<PackageHouseSettlement> AcquireContentAsync(
+        PackageHouseDemand demand, string packageId, PackageHouseContentQuery query,
+        PackageStoreProvider createStore, NuGetSourceOptions? sourceOptions,
+        Action<string>? log, CancellationToken cancellationToken,
+        PackagePayloadLimits? limits, IPackagePayloadTransferPolicy? transferPolicy,
+        string? requiredProducerKey, long rangedSizeCut)
+    {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(createStore);
         PackageHouseTargetContext? targetContext =
@@ -30,7 +70,7 @@ public sealed partial class DesktopPackageSourceComposition
                     ? tfmWide.Target
                     : null;
         var request = new PackageHouseRequest(
-            new PackageHouseDemand.Exact(coordinate),
+            demand,
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Acquire,
                 _options.RequestTimeout,
@@ -43,7 +83,7 @@ public sealed partial class DesktopPackageSourceComposition
         {
             IPackageSourceAuthorization authorization =
                 AuthorizeHouseSources(
-                    coordinate.PackageId,
+                    packageId,
                     sourceOptions,
                     requiredProducerKey);
             var house = new PackageHouse(

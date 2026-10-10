@@ -318,7 +318,7 @@ dnx dotnet-inspect -y -- package query 'Microsoft.Extensions.*' \
 dnx dotnet-inspect -y -- package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 dnx dotnet-inspect -y -- package query Microsoft.Extensions.Http \
-  --where "depends-transitive=Microsoft.Extensions.Primitives" \
+  --where "depends=Microsoft.Extensions.Primitives" \
   --where "dependency-target=net10.0" \
   --where "dependency-depth=2" --take 1
 ```
@@ -376,11 +376,12 @@ prefix.
 `depends-ecosystem=<ecosystem-id>` classifies direct dependencies against the
 registered exact packages and package prefixes for one canonical ecosystem;
 repeat it to require every named ecosystem.
-`depends-transitive=<package-id>` requires an exact
-`dependency-target=<TFM>` and `dependency-depth=2|3|4`. It matches only
-source-authorized declaration reachability at depth 2 or greater, not direct
-dependencies or a NuGet restore graph. The query admits at most five package
-candidates; incomplete traversal remains a visible failure.
+An exact `depends=<package-id>` with `dependency-depth=2|3|4` requires an exact
+`dependency-target=<TFM>`. It matches direct dependencies or source-authorized
+declaration reachability within the selected maximum, not a NuGet restore
+graph. The query admits at most five package candidates; incomplete traversal
+remains a visible failure. The legacy `depends-transitive` spelling remains
+available for depth-2-or-greater-only matching.
 `references=<simple-assembly-name>` scans the managed `ref/` and `lib/`
 assemblies from every target-framework group, matches `AssemblyRef` simple
 names case-insensitively, and reports framework/path evidence without resolving
@@ -392,9 +393,10 @@ filtered queries scan until N matches or their default candidate bound.
 Pushdown is capped at 1,000 candidates; larger semantic heads remain valid and
 are applied after bounded execution. Selecting a package-content term is
 itself approval for archive acquisition and permits at most 20 candidates; use
-`--nuspec-only` to reject such a query. `--count` observes selected rows and
-succeeds only when completion or a satisfied finite row selection proves that
-count exact. Reached candidate bounds and failures remain visible.
+`--nuspec-only` to reject such a query. `--count` counts the selected rows the
+same query would render, with the same warnings and exit status: a reached
+candidate bound or partial failure gives an observed count, disclosed on
+stderr, not the scope's total.
 Default non-count output shows `Packages` when at least one package matched and
 `Query Summary` otherwise. The summary separates candidate, match, and
 evaluation-failure counts; select a stable shape with `-S Packages` or

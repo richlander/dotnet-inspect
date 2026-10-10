@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -528,6 +529,37 @@ public class MemberCallsSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         Assert.Equal(expected, result.Output.Trim());
+    }
+
+    [Fact]
+    public async Task
+        CallsSection_ExactOverloadCountSettlesBeforeApiSurfaceLoad()
+    {
+        var options = new MemberOptions
+        {
+            TypeName = typeof(MemberCallsFixture).FullName!,
+            AssemblyPath =
+                typeof(MemberCallsFixture).Assembly.Location,
+            MemberFilter =
+                [nameof(MemberCallsFixture.Overloaded)],
+            OverloadIndex = 2,
+            IncludeSections = [SectionNames.Calls],
+            Count = true,
+            CompanionOutput = CompanionOutput.None,
+        };
+        var (source, error) =
+            await ApiSourceResolver.ResolveAsync(options);
+        Assert.Null(error);
+        using var output = new StringWriter();
+
+        int? exitCode = ApiCommand.TryWriteCallSiteCount(
+            source,
+            source.TypeName,
+            options,
+            output);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal("1", output.ToString().Trim());
     }
 
     [Theory]

@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace DotnetInspect.Web;
 
 /// <summary>
@@ -12,8 +14,9 @@ namespace DotnetInspect.Web;
 /// </para>
 /// <para>
 /// Their shapes intentionally mirror the browser transport so that mapping stays a rename rather
-/// than a re-derivation. The projection semantics — identity, ordering, accessibility bucketing,
-/// truncation, and failure text — belong to <see cref="BrowserSurfaceProjection"/>.
+/// than a re-derivation. <c>DotnetInspector.Presentation</c> owns detached declaration
+/// presentation; <see cref="BrowserSurfaceProjection"/> owns participant attribution, ordering,
+/// transport bounds, truncation, and failure text.
 /// </para>
 /// </remarks>
 internal sealed record BrowserAccessibilityInfo(
@@ -79,7 +82,7 @@ internal sealed record BrowserMemberSurfaceInfo(
     int? MetadataToken,
     int? DeclarationMetadataToken,
     string? ReturnType,
-    BrowserParameterSurfaceInfo[] Parameters,
+    ImmutableArray<BrowserParameterSurfaceInfo> Parameters,
     string? DocumentationId,
     string? Summary,
     string? Returns,
@@ -90,9 +93,9 @@ internal sealed record BrowserMemberSurfaceInfo(
     string AnchorTypeFullName,
     string? DeclaringTypeDefinitionId,
     string GraphSelectorKey,
-    BrowserMemberBodySelectorInfo[] BodySelectors);
+    ImmutableArray<BrowserMemberBodySelectorInfo> BodySelectors);
 
-internal sealed record BrowserParameterSurfaceInfo(
+internal readonly record struct BrowserParameterSurfaceInfo(
     string Name,
     string Type,
     string? Modifier,
@@ -104,7 +107,7 @@ internal sealed record BrowserExceptionSurfaceInfo(
     string Type,
     string Description);
 
-internal sealed record BrowserMemberBodySelectorInfo(
+internal readonly record struct BrowserMemberBodySelectorInfo(
     int Token,
     string MemberName,
     string SelectorKey);

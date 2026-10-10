@@ -1388,13 +1388,22 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /try \{\s*const \[catalogResult, durableRowLayout\] = await Promise\.all\(\[\s*engineClient\.package\.listPackageQueryCatalog\(\),\s*engineClient\.package\.packageQueryDurableRowLayout\(\),\s*\]\);\s*const catalog = packageQueryCatalog\(catalogResult\);\s*state\.packageQueryDurableRowLayout = durableRowLayout;\s*state\.packageQueryPresets = catalog\.presets;\s*state\.packageQueryTerms = catalog\.terms;\s*\} catch \(error\) \{\s*state\.packageQueryDurableRowLayout = null;\s*state\.packageQueryPresets = \[\];\s*state\.packageQueryTerms = \[\];\s*state\.packageQueryCatalogError =[\s\S]*\}/);
   assert.match(
     appSource,
-    /function applyPackageQueryTerm\([\s\S]*\? withTerm\(current, descriptor, operator, value\)\s*: replaceTerm\(current, index, operator, value\);[\s\S]*state\.packageQueryState\.termDraft = null;[\s\S]*state\.packageQueryState\.termEdits = edits;[\s\S]*submitPackageQueryRequest\(request\)/);
+    /function applyPackageQueryTerm\([\s\S]*descriptor\.key === "depends"[\s\S]*withDependencyTerm\([\s\S]*\? withTerm\(current, descriptor, operator, value\)\s*: replaceTerm\(current, index, operator, value\);[\s\S]*state\.packageQueryState\.termDraft = null;[\s\S]*state\.packageQueryState\.termEdits = edits;[\s\S]*submitPackageQueryRequest\(request\)/);
   assert.match(
     appSource,
     /function editPackageQueryTerm\([\s\S]*state\.packageQueryState\.termDraft = \{[\s\S]*operator,[\s\S]*value,[\s\S]*state\.packageQueryState\.termEdits = edits/);
   assert.match(
     appSource,
-    /function removePackageQueryTerm\([\s\S]*submitPackageQueryRequest\(withoutTerm\(current, index\)\)/);
+    /function removePackageQueryTerm\([\s\S]*const termKey = current\.terms\[index\]\?\.descriptor\.key;[\s\S]*const dependency = termKey === "depends";[\s\S]*withoutDependencyTerm\(current, index\)[\s\S]*withoutTerm\(current, index\)/);
+  assert.match(
+    appSource,
+    /function synchronizePackageQueryDependencyDraft\(\s*previous: QueryRequest,\s*next: QueryRequest,[\s\S]*synchronizeDependencyTermEditor\(previous, next, draft\)[\s\S]*function synchronizePackageQueryTermEditors\([\s\S]*synchronizeTermEdits\([\s\S]*synchronizePackageQueryDependencyDraft\(previous, next\)[\s\S]*function applyPackageQueryTerm\([\s\S]*descriptor\.key === "dependency-target"[\s\S]*synchronizePackageQueryTermEditors\(current, request\)[\s\S]*function removePackageQueryTerm\([\s\S]*termKey === "dependency-target"[\s\S]*synchronizePackageQueryTermEditors\(current, request\)/);
+  assert.match(
+    appSource,
+    /function togglePackageQueryPreset\([\s\S]*const request = togglePreset\(current, preset\);\s*synchronizePackageQueryTermEditors\(current, request\)/);
+  assert.match(
+    appSource,
+    /function removePackageQueryTerm\([\s\S]*termKey === "depends-transitive"[\s\S]*termKey === "depends-ecosystem"[\s\S]*synchronizePackageQueryTermEditors\(current, request\)/);
   assert.doesNotMatch(
     appSource,
     /state\.packageQuerySourceCatalog/);

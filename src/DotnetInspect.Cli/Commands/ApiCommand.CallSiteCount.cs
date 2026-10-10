@@ -48,6 +48,15 @@ public partial class ApiCommand
             int? selected = options.IncludeAll
                 ? ResolveMetadataOnlyMethod(session, typeName, memberName, options)
                 : null;
+            selected ??=
+                session.MethodBodies.ResolveApiMethodOverload(
+                    typeName,
+                    memberName,
+                    options.OverloadIndex is { } overloadIndex
+                        ? overloadIndex - 1
+                        : null,
+                    options.IncludeAll)
+                ?.MetadataToken;
             selected ??= ResolveDeclaredTypeMethod(
                 session,
                 typeName,

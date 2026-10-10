@@ -7,6 +7,7 @@ type ItemAchievementKind =
   | "implementation-mountain-peak"
   | "top-leverage"
   | "implementation-hub"
+  | "diff"
   | "api-diff"
   | "body-diff";
 

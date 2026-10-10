@@ -119,13 +119,17 @@ internal static class PackageQueryCommand
                 ? null
                 : new(
                     sourceAuthorization,
-                    token => semanticSettlement.IssueOperationLease(
-                        token,
-                        fetchOptions.RequestTimeout,
-                        semanticBudget!.MaximumDuration),
-                    new PackagePayloadAcquisitionPlan(
-                        semanticStores!.GetStore,
-                        log: context.Logger.Log),
+                    new PackageAssemblySemanticFindExecution(
+                        sourceAuthorization,
+                        new PackagePayloadAcquisitionPlan(
+                            semanticStores!.GetStore,
+                            semanticBudget!.Payload,
+                            log: context.Logger.Log),
+                        token => semanticSettlement.IssueOperationLease(
+                            token,
+                            fetchOptions.RequestTimeout,
+                            semanticBudget.MaximumDuration),
+                        context.Logger.Log),
                     semanticBudget!,
                     new AssemblySemanticQueryProgressSink(
                         context.Logger,
@@ -229,24 +233,21 @@ internal static class PackageQueryCommand
                 options.SemanticHeadPushedDown);
             return 1;
         }
-        int packageRowCount = document.Results.Length;
-        bool sourceComplete = summary.Completion is
-            PackageQueryCompletionKind.Exhausted
-            or PackageQueryCompletionKind.ExactPackageComplete;
+        // Count reports the rows Rows would render, with the same
+        // completion warnings and exit status (section-row-shaping.md#
+        // incomplete-evaluation). Only a search that failed before admitting
+        // any candidate observed nothing to count.
         if (options.Count
-            && (summary.Failures > 0
-                || !CliSemanticRowSelection.ProvidesExactCount(
-                    options.RowSelection,
-                    packageRowCount,
-                    sourceComplete)))
+            && summary.Completion == PackageQueryCompletionKind.Failed
+            && summary.Candidates == 0)
         {
             WriteDiagnostics(
                 document.Failures,
                 summary,
                 options.SemanticHeadPushedDown);
             CommandError.Write(
-                "Cannot count Package Query rows because candidate evaluation is incomplete; "
-                + "use -n or a closed --rows range that is satisfied by the observed rows.");
+                "Cannot count Package Query rows because the package search "
+                + "failed before any candidate was evaluated.");
             return 1;
         }
         HashSet<string> includeSections = options.IncludeSections

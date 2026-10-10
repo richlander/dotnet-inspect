@@ -116,6 +116,23 @@ internal sealed record ClassicInverseStoreLocalNode(
         $"stloc[{Index}:{TypeText(Type)}]({Value.Signature})";
 }
 
+internal sealed record ClassicInverseStoreFieldNode(
+    FieldRef Field,
+    bool IsVolatile,
+    ClassicInverseBodyNode? Instance,
+    ClassicInverseBodyNode Value)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize()
+        => new StoreField(Field, Instance is null ? null : Expr(Instance), Expr(Value))
+        {
+            IsVolatile = IsVolatile,
+        };
+
+    internal override string Signature =>
+        $"stfld[{FieldText(Field)}:{IsVolatile}]({Instance?.Signature ?? ""},{Value.Signature})";
+}
+
 internal sealed record ClassicInverseForeachNode(
     int LocalIndex,
     TypeRef LocalType,
@@ -768,6 +785,16 @@ internal sealed class ClassicInverseBodyCaptureSession(ClassicInverseTypeBinding
                         store.Index,
                         binding.Type(store.Type, budget),
                         value);
+            }
+
+            case StoreField store when store.UpdateKind is null:
+            {
+                var instance = store.Instance is null ? null : TryCapture(store.Instance, budget);
+                var value = TryCapture(store.Value, budget);
+                return value is null || store.Instance is not null && instance is null
+                    ? null
+                    : new ClassicInverseStoreFieldNode(
+                        binding.Field(store.Field, budget), store.IsVolatile, instance, value);
             }
 
             case ForeachStatement loop when !loop.IsAwait:

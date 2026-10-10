@@ -283,15 +283,6 @@ public static class DiffHistoryInspection
         CountSource<T> source = CountSource<T>.Create(
             assessments,
             request.RowSelection);
-        if (source.Failure is { } evidence)
-        {
-            return new SectionCountOutcome<
-                DiffHistoryCountCohort,
-                DiffHistoryChangedVersionCountEvidence>.SourceForCount(
-                [
-                    new(request.Cohort, evidence),
-                ]);
-        }
 
         RowsCohortResult<
             DiffHistoryCountCohort,
@@ -319,13 +310,27 @@ public static class DiffHistoryInspection
                     failure.Failure.AvailableCount);
         }
 
+        int count = selected.RowSets[0].Values.Count;
+        if (source.Incompleteness is not { } evidence)
+        {
+            return new SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.Completed(
+                [
+                    new(request.Cohort, count),
+                ]);
+        }
+
+        // Incomplete History still counts the Changed Versions rows it
+        // observed, under section-row-shaping.md#incomplete-evaluation.
         return new SectionCountOutcome<
             DiffHistoryCountCohort,
             DiffHistoryChangedVersionCountEvidence>.Completed(
             [
-                new(
-                    request.Cohort,
-                    selected.RowSets[0].Values.Count),
+                new(request.Cohort, count, isExact: false),
+            ],
+            [
+                new(request.Cohort, evidence),
             ]);
     }
 
@@ -377,15 +382,15 @@ public static class DiffHistoryInspection
         {
             case SectionCountOutcome<
                     DiffHistoryCountCohort,
-                    DiffHistoryChangedVersionCountEvidence>.SourceForCount
-                    source:
-                DiffHistoryChangedVersionCountEvidence evidence =
-                    source.Sources[0].Evidence;
+                    DiffHistoryChangedVersionCountEvidence>.Completed
+                    { Counts: [{ IsExact: false } observed] } completed:
+                DiffHistoryChangedVersionCountEvidence incompleteness =
+                    completed.Sources[0].Evidence;
                 yield return new(
-                    "diff-history.count-source-insufficient",
-                    InspectionDiagnosticSeverity.Error,
-                    "The selected History evaluations do not establish an exact Changed Versions count.",
-                    evidence.FirstUnestablishedAssessment?
+                    "diff-history.count-incomplete",
+                    InspectionDiagnosticSeverity.Warning,
+                    $"Diff History inspection incomplete: the selected evaluations do not establish every Changed Versions transition; {observed.Value} observed Changed Versions counted.",
+                    incompleteness.FirstUnestablishedAssessment?
                         .Destination.NormalizedVersion);
                 break;
             case SectionCountOutcome<
@@ -460,18 +465,29 @@ public static class DiffHistoryInspection
     {
         CountSource(
             IReadOnlyList<DiffHistoryChangedVersionAssessment<T>> rows,
-            DiffHistoryChangedVersionCountEvidence? failure)
+            DiffHistoryChangedVersionCountEvidence? incompleteness)
         {
             Rows = rows;
-            Failure = failure;
+            Incompleteness = incompleteness;
         }
 
+        /// <summary>
+        /// The Changed Versions rows observed, in population order, as the
+        /// Changed Versions section would render them.
+        /// </summary>
         public IReadOnlyList<DiffHistoryChangedVersionAssessment<T>> Rows
         {
             get;
         }
 
-        public DiffHistoryChangedVersionCountEvidence? Failure { get; }
+        /// <summary>
+        /// Null when the evidence establishes the requested count; otherwise
+        /// why the observed rows are not known to be every Changed Version.
+        /// </summary>
+        public DiffHistoryChangedVersionCountEvidence? Incompleteness
+        {
+            get;
+        }
 
         public static CountSource<T> Create(
             IReadOnlyList<DiffHistoryChangedVersionAssessment<T>>
@@ -479,18 +495,11 @@ public static class DiffHistoryInspection
             RowSelectionIntent<string> selection)
         {
             int? requiredPrefix = selection.RequiredPrefix();
-            if (assessments.Count == 0)
-            {
-                return Failed(
-                    assessments,
-                    establishedAssessmentCount: 0,
-                    requiredPrefix,
-                    firstUnestablishedAssessment: null);
-            }
-
             var rows =
                 new List<DiffHistoryChangedVersionAssessment<T>>();
             int established = 0;
+            DiffHistoryChangedVersionAssessment<T>? firstUnestablished =
+                null;
             foreach (DiffHistoryChangedVersionAssessment<T> assessment
                 in assessments)
             {
@@ -498,14 +507,14 @@ public static class DiffHistoryInspection
                     is not DiffHistoryChangedVersionState.Changed
                     and not DiffHistoryChangedVersionState.Unchanged)
                 {
-                    return Failed(
-                        assessments,
-                        established,
-                        requiredPrefix,
-                        assessment);
+                    firstUnestablished ??= assessment;
+                    continue;
                 }
 
-                established++;
+                if (firstUnestablished is null)
+                {
+                    established++;
+                }
                 if (assessment.State
                     == DiffHistoryChangedVersionState.Changed)
                 {
@@ -513,32 +522,30 @@ public static class DiffHistoryInspection
                     if (requiredPrefix is int required
                         && rows.Count == required)
                     {
-                        return new(rows, failure: null);
+                        // A proven prefix is complete for the request only
+                        // when no earlier transition is unknown.
+                        break;
                     }
                 }
             }
 
-            return new(rows, failure: null);
-        }
+            if (assessments.Count > 0 && firstUnestablished is null)
+            {
+                return new(rows, incompleteness: null);
+            }
 
-        static CountSource<T> Failed(
-            IReadOnlyList<DiffHistoryChangedVersionAssessment<T>>
-                assessments,
-            int establishedAssessmentCount,
-            int? requiredPrefix,
-            DiffHistoryChangedVersionAssessment<T>?
-                firstUnestablishedAssessment) =>
-            new(
-                [],
+            return new(
+                rows,
                 new(
                     assessments.Count,
-                    establishedAssessmentCount,
+                    established,
                     requiredPrefix,
-                    firstUnestablishedAssessment is null
+                    firstUnestablished is null
                         ? null
                         : new(
-                            firstUnestablishedAssessment.Predecessor,
-                            firstUnestablishedAssessment.Destination,
-                            firstUnestablishedAssessment.State)));
+                            firstUnestablished.Predecessor,
+                            firstUnestablished.Destination,
+                            firstUnestablished.State)));
+        }
     }
 }

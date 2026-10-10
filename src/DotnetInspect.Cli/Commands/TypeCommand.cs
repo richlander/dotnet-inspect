@@ -852,6 +852,7 @@ public static partial class TypeCommand
                         api,
                         apiType,
                         effectiveOptions.MemberFilter);
+                    var bodyShapeCompletion = new BodyShapeCompletion();
                     if (tabularProjection)
                     {
                         // Hold the rendered artifact until typed projection diagnostics confirm
@@ -860,7 +861,8 @@ public static partial class TypeCommand
                         var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
                             apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
                             acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sw, sourceAssembly,
-                            sourceClient: context.HttpClient);
+                            sourceClient: context.HttpClient,
+                            bodyShapeCompletion: bodyShapeCompletion);
                         if (writeExitCode != 0)
                             return writeExitCode;
                         var rendered = sw.ToString();
@@ -871,10 +873,12 @@ public static partial class TypeCommand
                         var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
                             apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
                             acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sourceAssembly: sourceAssembly,
-                            sourceClient: context.HttpClient);
+                            sourceClient: context.HttpClient,
+                            bodyShapeCompletion: bodyShapeCompletion);
                         if (writeExitCode != 0)
                             return writeExitCode;
                     }
+                    inspectionIncomplete |= bodyShapeCompletion.Incomplete;
 
                     // Notify when a requested section matched but has no data for this type.
                     // JSON and markdown both honor -S; explicit tabular output falls back to

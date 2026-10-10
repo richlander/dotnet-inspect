@@ -25,7 +25,7 @@ public static partial class PackageQuery
             new(true, termResults, null);
     }
 
-    private sealed record PackageQueryTransitiveDependencyMatch(
+    private sealed record PackageQueryTraversedDependencyMatch(
         int EdgeIndex,
         int Distance,
         string Path);
@@ -104,16 +104,21 @@ public static partial class PackageQuery
         var results = ImmutableArray.CreateBuilder<PackageQueryTermResult>();
         foreach (BoundPackageQueryTerm term in plan.BoundTerms
             .Where(term =>
-                term.Predicate.Kind
-                    == PackageQueryPredicateKind.DependsTransitive)
+                term.Predicate.Kind is PackageQueryPredicateKind.Depends
+                    or PackageQueryPredicateKind.DependsTransitive)
             .Reverse())
         {
-            ImmutableArray<PackageQueryTransitiveDependencyMatch> matches =
-                FindTransitiveDependencyMatches(
+            int minimumDepth = term.Predicate.Kind
+                == PackageQueryPredicateKind.Depends
+                    ? 1
+                    : 2;
+            ImmutableArray<PackageQueryTraversedDependencyMatch> matches =
+                FindTraversedDependencyMatches(
                     traversal,
                     term.Predicate.Text
                     ?? throw new InvalidOperationException(
-                        "A transitive dependency term requires a package ID."));
+                    "A traversed dependency term requires a package ID."),
+                    minimumDepth);
             if (matches.IsEmpty)
                 return PackageQueryDependencyTraversalEvaluation.NoMatch;
 
@@ -136,7 +141,9 @@ public static partial class PackageQuery
                     Summary = summary,
                     Properties =
                     [
-                        Property("minimum-depth", "2"),
+                        Property(
+                            "minimum-depth",
+                            minimumDepth.ToString(CultureInfo.InvariantCulture)),
                         Property(
                             "maximum-depth",
                             maximumDepth.ToString(CultureInfo.InvariantCulture)),
@@ -167,18 +174,19 @@ public static partial class PackageQuery
             results.ToImmutable());
     }
 
-    private static ImmutableArray<PackageQueryTransitiveDependencyMatch>
-        FindTransitiveDependencyMatches(
+    private static ImmutableArray<PackageQueryTraversedDependencyMatch>
+        FindTraversedDependencyMatches(
             PackageDependencyTraversalOutcome traversal,
-            string requestedPackageId)
+            string requestedPackageId,
+            int minimumDepth)
     {
         PackageDependencyTraversalReachability reachability =
             traversal.RootReachability[0];
         var matches =
-            ImmutableArray.CreateBuilder<PackageQueryTransitiveDependencyMatch>();
+            ImmutableArray.CreateBuilder<PackageQueryTraversedDependencyMatch>();
         foreach ((int edgeIndex, int distance) in reachability.EdgeDistances)
         {
-            if (distance < 2
+            if (distance < minimumDepth
                 || traversal.Edges[edgeIndex].Target
                     is not PackageDependencyTraversalEdgeTarget.Node target
                 || !traversal.Nodes[target.NodeIndex].Coordinate.PackageId.Equals(

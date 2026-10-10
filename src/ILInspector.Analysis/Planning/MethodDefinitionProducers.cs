@@ -691,6 +691,49 @@ public readonly ref struct MethodDefinitionView
         }
     }
 
+    /// <summary>
+    /// Completes the planned resolved-detail source and promotes its retained
+    /// decode into canonical Layer 0 instructions.
+    /// </summary>
+    internal MethodInstructions MaterializeInstructions(
+        out MethodBodyData bodyData)
+    {
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        MethodBodyAnalyzerPlan plan =
+            producer.Execution.InstructionPlan
+            ?? throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare a Method-body "
+                + "instruction analyzer.");
+        if (plan.Source
+                != MethodBodyInstructionSourceKind.LazyRetainedSequence
+            || plan.Demand.Detail
+                != MethodBodyInstructionDetail.SelectiveOperands)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare retained selective "
+                + "instruction detail.");
+        }
+
+        MethodBodyBlock body = GetBody();
+        InstructionSequence sequence =
+            _unit.GetInstructionSequence(
+                body,
+                out bool sourceOpened);
+        int retainedBefore = sequence.RetainedCount;
+        try
+        {
+            bodyData = _unit.GetBodyData();
+            return sequence.Materialize(bodyData);
+        }
+        finally
+        {
+            _unit.RecordRetainedInstructionWork(
+                sourceOpened,
+                sequence.RetainedCount - retainedBefore,
+                sequence.RetainedCount);
+        }
+    }
+
     /// <summary>The same-unit fact of a declared visit dependency.</summary>
     public TFact FactOf<TFact, TAccumulator, TResult>(
         MethodDefinitionProducer<TFact, TAccumulator, TResult> dependency)
@@ -742,17 +785,21 @@ public readonly ref struct MethodDefinitionCompletionView
 internal struct MethodDefinitionUnit(
     MetadataReader reader,
     PEReader peReader,
-    MethodDefinitionSourceCoverageBuilder physicalSourceCoverage)
+    MethodDefinitionSourceCoverageBuilder physicalSourceCoverage,
+    bool retainResolvedInstructionDetail = false)
 {
     readonly MetadataReader _reader = reader;
     readonly PEReader _peReader = peReader;
     readonly MethodDefinitionSourceCoverageBuilder _physicalSourceCoverage =
         physicalSourceCoverage;
+    readonly bool _retainResolvedInstructionDetail =
+        retainResolvedInstructionDetail;
     MethodDefinitionSourceCoverageBuilder? _requestSourceCoverage;
     LibraryMethodAnalysisRunner? _lookup;
     MethodRowGate? _gate;
     bool _positionsRequestOnMove;
     MethodBodyBlock? _body;
+    MethodBodyData? _bodyData;
     InstructionSequence? _instructions;
 
     public MethodDefinitionUnit(
@@ -760,8 +807,13 @@ internal struct MethodDefinitionUnit(
         PEReader peReader,
         LibraryMethodAnalysisRunner? lookup,
         MethodRowGate gate,
-        MethodDefinitionSourceCoverageBuilder sourceCoverage)
-        : this(reader, peReader, sourceCoverage)
+        MethodDefinitionSourceCoverageBuilder sourceCoverage,
+        bool retainResolvedInstructionDetail = false)
+        : this(
+            reader,
+            peReader,
+            sourceCoverage,
+            retainResolvedInstructionDetail)
     {
         _lookup = lookup;
         _gate = gate;
@@ -837,6 +889,7 @@ internal struct MethodDefinitionUnit(
         MethodHandle = methodHandle;
         MethodDefinition = methodDefinition;
         _body = null;
+        _bodyData = null;
         _instructions = null;
         _physicalSourceCoverage.RecordMethodSelected(methodHandle);
         if (_positionsRequestOnMove)
@@ -871,6 +924,29 @@ internal struct MethodDefinitionUnit(
             MethodHandle,
             body);
         return body;
+    }
+
+    public MethodBodyData GetBodyData()
+    {
+        if (_bodyData is not null)
+            return _bodyData;
+
+        int token = MetadataTokens.GetToken(MethodHandle);
+        _bodyData = MethodBodySource.Read(_peReader, token) switch
+        {
+            MethodBodyReadResult.Available available =>
+                available.Body,
+            MethodBodyReadResult.NoBody =>
+                throw new InvalidOperationException(
+                    $"Method token 0x{token:X8} has no managed IL body."),
+            MethodBodyReadResult.Unavailable unavailable =>
+                throw new BadImageFormatException(
+                    $"Metadata method-body evidence is unavailable "
+                    + $"({unavailable.Reason.GetType().Name})."),
+            _ => throw new InvalidOperationException(
+                "Unknown Metadata method-body result."),
+        };
+        return _bodyData;
     }
 
     public readonly void RecordLookupUse()
@@ -930,9 +1006,13 @@ internal struct MethodDefinitionUnit(
         ArgumentNullException.ThrowIfNull(body);
         sourceOpened = _instructions is null;
         return _instructions ??=
-            InstructionSequence.Borrow(
-                body,
-                static () => { });
+            _retainResolvedInstructionDetail
+                ? InstructionSequence.BorrowResolved(
+                    body,
+                    static () => { })
+                : InstructionSequence.Borrow(
+                    body,
+                    static () => { });
     }
 
     /// <summary>

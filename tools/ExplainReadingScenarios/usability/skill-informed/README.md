@@ -114,7 +114,7 @@ The actual [Literal answer](refined-literal/answer.json),
 [direct-data Facets answer](refined-facets/answer.json), and
 [Style answer](refined-style/answer.json) retain preparation, scope, and sources.
 Their directories retain raw responses, all rendered projections, and logs.
-The selected source payloads compare equal as parsed JSON to the existing
+At trial capture, the selected source payloads compared equal as parsed JSON to the
 [query-space HAL](../../examples/selected/selected-facets-hal.json),
 [query-space direct](../../examples/selected/selected-facets-data.json), and
 [style HAL](../../examples/selected/selected-style-hal.json) fixtures.
@@ -122,7 +122,9 @@ The baseline apphost was built from `ec47a52`; a rebuild at `407a77ed6` occurred
 while excerpt trials ran. Those commits have identical selected explain data,
 as confirmed by these fixture comparisons; per-call executable versions were
 not recorded. These are data-reading observations, not exact-head performance
-evidence.
+evidence. Those selected fixtures have since been refreshed with transitive
+requirements and the CLI candidate-bound gesture; the recorded trial payloads,
+views, answers, and measurements remain unchanged.
 
 For Literal, start with the compact key/requirement/binding index in the guide,
 then select only the requested facet, required context, and consumer rules.
@@ -133,11 +135,16 @@ jq -c --arg key library-literal \
   -f tools/ExplainReadingScenarios/query-preparation.jq query.json
 ```
 
-It produces 1,608 bytes from either query-space format. The narrower facet
-closure produces the checked 1,430-byte [planning answer](../../examples/selected/query-preparation.json);
+At trial capture it produced 1,608 bytes from either query-space format. The narrower facet
+closure produced the 1,430-byte [planning answer](../../examples/selected/query-preparation.json);
 its binding lists only the exposed facets in that closure. These are deterministic
 demonstrations, not the participant's observed 6,948 rendered bytes. Its current complete/available fixture permits
 these joins; a general client must also retain nonempty property states.
+The current filter retains context rules, examples, and depth choices as well.
+It now produces 1,840 bytes for literal planning from a full query-space
+selection and 1,662 bytes from the narrower literal closure. The current
+[transitive demo](../../README.md#worked-transitive-preparation) records its
+own selection and preparation sizes.
 
 For direct-data Facets, inspect only the authoring fields rather than all facts:
 

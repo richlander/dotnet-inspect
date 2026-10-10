@@ -81,6 +81,9 @@ const catalog: BrowserPackageQueryCatalog = {
     selectionGroupId: null, combinesWithinSelectionGroup: false,
     replacementGroupId: null,
     displayGroupId: "package", displayGroupLabel: "Package",
+    categoryId: "package-metadata",
+    categoryLabel: "Package metadata",
+    categoryOrder: 100,
   }],
   terms: [{
     key: "depends",
@@ -93,6 +96,9 @@ const catalog: BrowserPackageQueryCatalog = {
     valueKind: "package-id",
     example: "Microsoft.Extensions.Hosting",
     multiline: false,
+    allowsCustomValue: true,
+    replacementGroupId: null,
+    options: [],
   }],
 };
 const ecosystems: BrowserPackageChangesEcosystemCatalog = {

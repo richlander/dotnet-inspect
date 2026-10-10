@@ -931,19 +931,28 @@ public static class ApiMemberIdentity
         => name is not null && CSharpIdentifierCore.RequiresContainment(name);
 
     public static string GetMemberSignatureSortKey(ApiMember member)
+        => GetMemberSignatureSortKey(
+            member.Name,
+            member.Signature ?? "");
+
+    internal static string GetMemberSignatureSortKey(
+        string memberName,
+        string signature)
     {
-        var signature = member.Signature ?? "";
-        if (signature.Length == 0 || member.Name.Length == 0)
+        if (signature.Length == 0 || memberName.Length == 0)
             return signature;
 
         var searchStart = 0;
         while (searchStart < signature.Length)
         {
-            var nameIndex = signature.IndexOf(member.Name, searchStart, StringComparison.Ordinal);
+            var nameIndex = signature.IndexOf(
+                memberName,
+                searchStart,
+                StringComparison.Ordinal);
             if (nameIndex < 0)
                 return signature;
 
-            var genericStart = nameIndex + member.Name.Length;
+            var genericStart = nameIndex + memberName.Length;
             if (genericStart < signature.Length && signature[genericStart] == '<')
             {
                 var depth = 0;
@@ -964,7 +973,7 @@ public static class ApiMemberIdentity
                 }
             }
 
-            searchStart = nameIndex + member.Name.Length;
+            searchStart = nameIndex + memberName.Length;
         }
 
         return signature;

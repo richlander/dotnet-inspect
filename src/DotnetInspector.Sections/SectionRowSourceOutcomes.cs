@@ -35,12 +35,12 @@ public sealed class SectionRowSourceState<
             TDisposition,
             TCompletionEvidence> evidence,
         bool rowsAreUsable,
-        bool countIsSufficient)
+        bool isComplete)
         : this(
             identity,
             evidence,
             rowsAreUsable,
-            countIsSufficient,
+            isComplete,
             null)
     {
     }
@@ -66,7 +66,7 @@ public sealed class SectionRowSourceState<
             TDisposition,
             TCompletionEvidence> evidence,
         bool rowsAreUsable,
-        bool countIsSufficient,
+        bool isComplete,
         int? exactCount)
     {
         ArgumentNullException.ThrowIfNull(identity);
@@ -76,21 +76,18 @@ public sealed class SectionRowSourceState<
             throw new ArgumentOutOfRangeException(
                 nameof(exactCount));
         }
-        if (countIsSufficient && !rowsAreUsable)
+        if (isComplete && !rowsAreUsable && exactCount is null)
         {
-            if (exactCount is null)
-            {
-                throw new ArgumentException(
-                    "A source cannot satisfy Count without usable rows or "
-                    + "an exact cardinality.",
-                    nameof(countIsSufficient));
-            }
+            throw new ArgumentException(
+                "A source cannot be complete without usable rows or an "
+                + "exact cardinality.",
+                nameof(isComplete));
         }
 
         Identity = identity;
         Evidence = evidence;
         RowsAreUsable = rowsAreUsable;
-        CountIsSufficient = countIsSufficient;
+        IsComplete = isComplete;
         ExactCount = exactCount;
     }
 
@@ -103,7 +100,12 @@ public sealed class SectionRowSourceState<
 
     public bool RowsAreUsable { get; }
 
-    public bool CountIsSufficient { get; }
+    /// <summary>
+    /// Whether the evidence is complete for the resolved logical request.
+    /// Rows and Count share this fact: an incomplete usable source still
+    /// counts, as an observed rather than exact cardinality.
+    /// </summary>
+    public bool IsComplete { get; }
 
     public int? ExactCount { get; }
 }

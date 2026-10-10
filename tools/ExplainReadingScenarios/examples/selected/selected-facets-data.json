@@ -237,7 +237,10 @@
         "effects": [
           "AcquisitionTier: nuspec"
         ],
-        "input-rules": []
+        "input-rules": [
+          "Requires at least one depends, depends-transitive, depends-ecosystem, or dependencies term; applies to all dependency predicates in the query.",
+          "Dependency traversal requires an explicit dependency-target=<tfm>; all is not accepted with dependency-depth or depends-transitive."
+        ]
       },
       "requires": []
     },
@@ -261,7 +264,7 @@
         "identity": "package-query.term.depends",
         "key": "depends",
         "name": "depends on package",
-        "summary": "Matches a direct dependency by exact package ID or literal package-ID prefix.",
+        "summary": "Matches a direct dependency, or exact package reachability through dependency-depth.",
         "operators": [
           "eq",
           "starts-with"
@@ -274,7 +277,10 @@
         "effects": [
           "AcquisitionTier: nuspec"
         ],
-        "input-rules": []
+        "input-rules": [
+          "Without dependency-depth, eq matches direct dependencies and starts-with matches direct package-ID prefixes. With dependency-depth=2, 3, or 4, eq matches direct or transitive declaration paths through that maximum; starts-with remains direct. A starts-with predicate alone cannot admit depth.",
+          "With dependency-depth, supply an explicit dependency-target=<tfm>, not all, and admit at most 5 package candidates; an exact package input admits one. Repeated exact terms AND and share traversal."
+        ]
       },
       "requires": []
     },
@@ -334,7 +340,7 @@
         "identity": "package-query.term.depends-transitive",
         "key": "depends-transitive",
         "name": "transitively depends on package",
-        "summary": "Matches a source-authorized declared dependency reached at depth 2 or greater.",
+        "summary": "Legacy spelling for source-authorized dependency reachability at depth 2 or greater.",
         "operators": [
           "eq"
         ],
@@ -346,9 +352,16 @@
         "effects": [
           "AcquisitionTier: nuspec"
         ],
-        "input-rules": []
+        "input-rules": [
+          "Requires an explicit dependency-target=<tfm> and dependency-depth=2, 3, or 4; all is not accepted as the target.",
+          "Matches declaration edges at depth 2 through the selected maximum depth; direct-only dependencies do not match. Repeated terms AND and share traversal.",
+          "Admits at most 5 package candidates; an exact package input admits one. Set the candidate bound explicitly for a prefix or ecosystem population."
+        ]
       },
-      "requires": []
+      "requires": [
+        "dependency-target",
+        "dependency-depth"
+      ]
     },
     "dependency-depth": {
       "identity": {
@@ -370,7 +383,7 @@
         "identity": "package-query.term.dependency-depth",
         "key": "dependency-depth",
         "name": "dependency depth",
-        "summary": "Bounds transitive dependency traversal to the selected maximum depth.",
+        "summary": "Extends exact depends terms through the selected maximum declaration-edge depth.",
         "operators": [
           "eq"
         ],
@@ -386,9 +399,15 @@
         "effects": [
           "AcquisitionTier: nuspec"
         ],
-        "input-rules": []
+        "input-rules": [
+          "Requires an explicit dependency-target=<tfm> and at least one exact depends (eq) or legacy depends-transitive term. A starts-with predicate alone cannot satisfy this requirement; all is not accepted as the target.",
+          "Selects the maximum declaration-edge depth, not the result row limit. Prefer exact depends plus depth for new queries; depends-transitive remains the depth-2-or-greater legacy spelling.",
+          "Admits at most 5 package candidates; an exact package input admits one. Set the candidate bound explicitly for a prefix or ecosystem population."
+        ]
       },
-      "requires": []
+      "requires": [
+        "dependency-target"
+      ]
     },
     "license": {
       "identity": {
@@ -793,6 +812,7 @@
         "input-rules": [
           "Supply a package ID or PREFIX* as the positional argument after package query.",
           "Supply exposed inspection facets through --where key=value.",
+          "Set the package-candidate work bound through --take N; -n N selects final result rows and does not replace that bound for inspection predicates.",
           "Use --json for structured query result output.",
           "Supply library-target through --tfm TFM, not --where. Use one exact NuGet target framework.",
           "library-literal and --tfm require each other; neither is valid alone."

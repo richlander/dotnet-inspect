@@ -188,6 +188,100 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         return methodHandle is { } handle ? CreateSelection(handle) : null;
     }
 
+    /// <summary>
+    /// Resolves one declared API method in the same name/signature order as
+    /// exact Member selection without constructing the enclosing API surface.
+    /// Returns no answer when another admitted member kind or attached
+    /// extension could participate in the selection.
+    /// </summary>
+    public MethodBodySelection? ResolveApiMethodOverload(
+        string typeName,
+        string methodName,
+        int? overloadIndex,
+        bool includeAll)
+    {
+        _ensureAlive();
+        try
+        {
+            return ResolveApiMethodOverloadCore(
+                typeName,
+                methodName,
+                overloadIndex,
+                includeAll);
+        }
+        catch (Exception exception) when (
+            exception is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException)
+        {
+            return null;
+        }
+    }
+
+    MethodBodySelection? ResolveApiMethodOverloadCore(
+        string typeName,
+        string methodName,
+        int? overloadIndex,
+        bool includeAll)
+    {
+        if (overloadIndex is < 0)
+            return null;
+        if (methodName.AsSpan().IndexOfAny('*', '?') >= 0
+            || DeclaresExtensionMethod(methodName))
+        {
+            return null;
+        }
+
+        TypeDefinitionHandle typeHandle = FindType(typeName);
+        if (typeHandle.IsNil)
+            return null;
+
+        TypeDefinition type = _reader.GetTypeDefinition(typeHandle);
+        string metadataName = _reader.GetString(type.Name);
+        if (TypeFilters.IsCompilerGenerated(metadataName)
+            || (!includeAll
+                && (!type.IsPublic
+                    || AttributeReader.HasHiddenAttribute(
+                        _reader,
+                        type.GetCustomAttributes()))))
+        {
+            return null;
+        }
+
+        var sink = new ApiMethodOverloadSink(
+            _reader,
+            methodName,
+            includeAll);
+        ApiSurfaceExtractor.ClassifyDeclaredMembers(
+            _reader,
+            typeHandle,
+            type,
+            MetadataMemberSpelling.CSharp,
+            publicOnly: !includeAll,
+            extensionContainer: false,
+            classifyLogicalMethodKinds: true,
+            ref sink);
+        if (sink.HasAmbiguity
+            || sink.Candidates.Count == 0
+            || overloadIndex is null && sink.Candidates.Count != 1)
+        {
+            return null;
+        }
+
+        ApiMethodOverloadCandidate[] candidates =
+            [.. sink.Candidates
+                .OrderBy(
+                    static candidate => candidate.Name,
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    static candidate => candidate.SignatureSortKey,
+                    StringComparer.Ordinal)];
+        int selectedIndex = overloadIndex ?? 0;
+        return selectedIndex < candidates.Length
+            ? CreateSelection(candidates[selectedIndex].Handle)
+            : null;
+    }
+
     public MethodBodySelection? ResolveAccessorMethod(
         string typeName,
         string memberName,
@@ -310,6 +404,105 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         }
 
         return MetadataTokens.GetToken(selected);
+    }
+
+    readonly record struct ApiMethodOverloadCandidate(
+        MethodDefinitionHandle Handle,
+        string Name,
+        string SignatureSortKey);
+
+    struct ApiMethodOverloadSink : IClassifiedMemberSink
+    {
+        readonly MetadataReader _reader;
+        readonly string _requestedName;
+        readonly bool _includeAll;
+
+        internal ApiMethodOverloadSink(
+            MetadataReader reader,
+            string requestedName,
+            bool includeAll)
+        {
+            _reader = reader;
+            _requestedName = requestedName;
+            _includeAll = includeAll;
+            Candidates = [];
+            HasAmbiguity = false;
+        }
+
+        internal List<ApiMethodOverloadCandidate> Candidates { get; }
+        internal bool HasAmbiguity { get; private set; }
+
+        public void Add(in ClassifiedMember member)
+        {
+            if (member.IsHidden && !_includeAll)
+                return;
+
+            string name = MemberName(member);
+            if (!TypeMatcher.MatchesMemberName(name, _requestedName))
+                return;
+            if (member.Kind is not ClassifiedMemberKind.Method)
+            {
+                HasAmbiguity = true;
+                return;
+            }
+
+            AddMethod((MethodDefinitionHandle)member.Handle, name);
+        }
+
+        string MemberName(in ClassifiedMember member) =>
+            member.Handle.Kind switch
+            {
+                HandleKind.MethodDefinition =>
+                    _reader.GetString(
+                        _reader.GetMethodDefinition(
+                            (MethodDefinitionHandle)member.Handle).Name),
+                HandleKind.PropertyDefinition =>
+                    _reader.GetString(
+                        _reader.GetPropertyDefinition(
+                            (PropertyDefinitionHandle)member.Handle).Name),
+                HandleKind.FieldDefinition =>
+                    _reader.GetString(
+                        _reader.GetFieldDefinition(
+                            (FieldDefinitionHandle)member.Handle).Name),
+                HandleKind.EventDefinition =>
+                    _reader.GetString(
+                        _reader.GetEventDefinition(
+                            (EventDefinitionHandle)member.Handle).Name),
+                _ => throw new InvalidOperationException(
+                    "Unknown classified Member handle."),
+            };
+
+        void AddMethod(
+            MethodDefinitionHandle handle,
+            string name)
+        {
+            MethodDefinition method =
+                _reader.GetMethodDefinition(handle);
+            TypeDefinitionHandle declaringTypeHandle =
+                method.GetDeclaringType();
+            TypeDefinition declaringType =
+                _reader.GetTypeDefinition(
+                    declaringTypeHandle);
+            string signature =
+                ApiSurfaceExtractor.GetMethodSignatureForIdentity(
+                    _reader,
+                    GenericContext.ForType(
+                        _reader,
+                        declaringType),
+                    handle,
+                    method,
+                    NullabilityReader.GetTypeNullableContext(
+                        _reader,
+                        declaringTypeHandle))
+                .Text;
+            Candidates.Add(
+                new(
+                    handle,
+                    name,
+                    ApiMemberIdentity.GetMemberSignatureSortKey(
+                        name,
+                        signature)));
+        }
     }
 
     public bool ContainsType(string typeName)

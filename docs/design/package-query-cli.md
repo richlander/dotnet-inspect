@@ -144,9 +144,9 @@ The production inspection vocabulary is:
 | --- | --- | --- | --- | --- |
 | `dependencies` | `none` or `cross-prefix` | nuspec | nuspec | No declarations, or at least one declaration outside the package's first dot-delimited ID segment |
 | `dependency-target` | `all` or NuGet TFM | nuspec | nuspec | Scope dependency terms to every group or one compatible selected group |
-| `depends` | NuGet package ID or literal prefix | nuspec | nuspec | With `eq`, a direct dependency with the exact package ID; with `starts-with`, a direct dependency whose package ID begins with the prefix in the selected dependency scope |
-| `depends-transitive` | NuGet package ID | nuspec | nuspec-expensive | Source-authorized declared dependency reached at depth 2 through the selected maximum depth |
-| `dependency-depth` | `2`, `3`, or `4` | nuspec | nuspec-expensive | Maximum declaration-edge depth for transitive dependency terms |
+| `depends` | NuGet package ID or literal prefix | nuspec | nuspec | With `eq`, a direct dependency or, when depth is present, source-authorized reachability within that maximum; with `starts-with`, a direct dependency whose package ID begins with the prefix in the selected dependency scope |
+| `depends-transitive` | NuGet package ID | nuspec | nuspec-expensive | Legacy spelling for source-authorized declared dependency reached at depth 2 through the selected maximum depth |
+| `dependency-depth` | `2`, `3`, or `4` | nuspec | nuspec-expensive | Maximum declaration-edge depth for exact `depends` and legacy `depends-transitive` terms |
 | `depends-ecosystem` | canonical ecosystem ID | nuspec | nuspec | Direct dependency belonging to the ecosystem's registered package population |
 | `downloads` | `10k`, `100k`, or `1m` | search metadata | search metadata | Lifetime downloads meet the closed threshold |
 | `license` | `any`, `MIT`, or `OSMF` | nuspec | nuspec | A license declaration exists, or its nuspec metadata identifies the selected license |
@@ -197,7 +197,7 @@ dotnet-inspect package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 
 dotnet-inspect package query Microsoft.Extensions.Http \
-  --where "depends-transitive=Microsoft.Extensions.Primitives" \
+  --where "depends=Microsoft.Extensions.Primitives" \
   --where "dependency-target=net10.0" \
   --where "dependency-depth=2" --take 1
 
@@ -250,11 +250,15 @@ semantic matches enter `PackageQueryDocument.Results`; complete occurrences,
 selected-library context, exact Root reopening, assessments, failures, and
 Summary accounting remain typed content in the same Document.
 
-`depends=<package-id>` uses NuGet package-ID comparison semantics and matches
-one exact direct dependency. Without `dependency-target`, or with
-`dependency-target=all`, dependency predicates inspect every nuspec group.
-`all` is Package Query scope rather than a target-framework identity and is
-distinct from a manifest's real `any` group.
+`depends=<package-id>` uses NuGet package-ID comparison semantics. Without
+`dependency-depth`, it matches one exact direct dependency. With
+`dependency-depth=2|3|4`, it matches a direct or transitive declaration path
+within that maximum edge depth. Traversal requires one exact
+`dependency-target=<tfm>`; `all` is rejected because every traversed manifest
+needs one framework-selection policy. Without traversal and without
+`dependency-target`, or with `dependency-target=all`, dependency predicates
+inspect every nuspec group. `all` is Package Query scope rather than a
+target-framework identity and is distinct from a manifest's real `any` group.
 
 `depends starts-with <prefix>` uses the Source Selection owner's literal
 `PackagePrefixDeclaration` validation and ordinal case-insensitive matching.
@@ -294,27 +298,60 @@ requires at least one `depends`, `depends-ecosystem`, `depends-transitive`, or
 `dependencies` term, applies to all such terms in the query, and does not
 traverse, resolve version ranges, or select package assets.
 
-`depends-transitive=<package-id>` is distinct from `depends`: it matches only
-resolved declaration edges at depth 2 through the explicit
-`dependency-depth=2|3|4` boundary, so a direct-only dependency does not match.
-The term requires one explicit `dependency-target=<tfm>`; `all` is rejected
-because traversal needs one framework-selection policy for every manifest.
-The root and every traversed manifest use the dependency-group owner's
-compatible selection for that requested target. Candidate resolution uses the
-existing source-authorized declared-range query and therefore does not claim
-NuGet restore, lock-file, or asset-selection equivalence.
+`depends-transitive=<package-id>` remains a compatibility spelling. Unlike
+`depends` with depth, it matches only resolved declaration edges at depth 2
+through the explicit `dependency-depth=2|3|4` boundary, so a direct-only
+dependency does not match. New host experiences author `depends` plus depth.
+Both spellings require one explicit `dependency-target=<tfm>`. The root and
+every traversed manifest use the dependency-group owner's compatible selection
+for that requested target. Candidate resolution uses the existing
+source-authorized declared-range query and therefore does not claim NuGet
+restore, lock-file, or asset-selection equivalence.
 
-One transitive query admits at most five package candidates. Within each
+The owner registers these prerequisites for explain: `depends-transitive`
+requires both `dependency-target` and `dependency-depth`; `dependency-depth`
+requires `dependency-target` and at least one exact `depends` or legacy
+`depends-transitive` predicate. The predicate alternatives are input rules,
+not unconditional required-context edges. Input rules distinguish a framework target from
+`all`, give the candidate bound, and describe the target's alternative
+dependency predicates. The latter is a disjunction, not four unconditional
+required-context edges. Selected `.data` and `.hal` facets include the complete
+prerequisite closure, with operand rules and depth choices available locally.
+The CLI binding registers `--take N` as the candidate work bound and `-n N`
+as final row selection, so a prefix query can apply the declared candidate
+bound without conflating it with traversal depth or result count.
+
+The motivating source asset is
+[`PackageQuery.cs` at `40497bfd87e17520573d8934b14edd6936f33d0e`](https://github.com/richlander/dotnet-inspect/blob/40497bfd87e17520573d8934b14edd6936f33d0e/src/DotnetInspector.Queries/PackageQuery.cs):
+`ResolveIntentCore` enforces target and depth requirements, while the term
+declarations expose no input rules for those facets. This mismatch prevents
+an agent from preparing the existing transitive scenario below using explain
+alone. Durable evidence pairs selected CLI projection tests with the existing
+`PlanInput_DependencyTraversalRequiresExactTargetAndDepth` validation gate;
+the worked jq demo retains both projections and their identical preparation
+answer. These tests are PR-fast catalog and planning checks, with no package
+acquisition.
+
+The integration with [#9811](https://github.com/richlander/dotnet-inspect/pull/9811)
+keeps depth's alternative predicate requirement in input rules and registers
+only its mandatory framework target as required context. Exact `depends`
+records its optional depth behavior without requiring traversal for a direct
+query. Selected CLI gates cover both spellings at every listed depth and the
+neighboring direct-only case; the jq demo retains depth preparation in both
+formats. No execution semantics are changed by these registrations.
+
+One depth-bounded query admits at most five package candidates. Within each
 candidate it admits at most 32 acquired manifest projections and 128
-declaration resolutions. Repeated transitive terms AND and share one traversal
-of that candidate. A candidate-resolution, manifest-acquisition, projection,
+declaration resolutions. Repeated exact dependency terms AND and share one traversal of that candidate.
+Legacy transitive terms share the same traversal. A candidate-resolution,
+manifest-acquisition, projection,
 or work-budget failure anywhere inside the requested depth makes that
 candidate a visible dependency-traversal failure; partial evidence never
 becomes a semantic match or non-match. Reaching the explicit depth boundary is
 successful because every edge through that boundary is known without
 acquiring endpoint manifests.
 
-Transitive evidence counts matching admitted declaration edges. Each preview
+Traversal evidence counts matching admitted declaration edges. Each preview
 is one deterministic shortest root path constructed from the declared version
 ranges and resolved exact package coordinates for that edge. The shared
 160-character `InertString` display budget applies after construction, so a
@@ -515,10 +552,14 @@ source, semantic answers, and structured evidence. `-n` and `--rows` select thos
 rows before projection and Count. `--count` composes with `-n`: finding N
 ordered matches can witness exact `Head(N) -> Count` while candidate-bound
 incompleteness remains visible. Fewer than N matches at a reached candidate
-bound is not exact, and without `-n`, Count requires completion evidence for
-the candidate population. Partial failures block successful Count, empty
-exhausted success remains zero, and cancellation remains a failed operation
-rather than empty success.
+bound is not exact, and without `-n`, Count is exact only with completion
+evidence for the candidate population. Otherwise Count reports the observed
+matches with the same candidate-bound disclosure and exit status as the rows,
+under the section-row owner's
+[incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation).
+Partial failures that leave matches usable are incomplete in the same way;
+empty exhausted success remains exact zero, and cancellation remains a failed
+operation rather than empty success.
 
 The low-compatibility migration removes `--candidates` and `--matches`; they do
 not remain aliases or retirement shims. The shared query engine may retain its
@@ -1030,7 +1071,7 @@ contract.
 The command-wide implementation adds Release gates for direct-row Head
 pushdown, filtered match-stop behavior, all matches returned when `-n` is
 absent, sparse matches at the candidate bound, independent `--take`/`-n`
-variation, Count witness and Count-insufficient cases, mode-neutral
+variation, Count witness and observed incomplete Count cases, mode-neutral
 `--take`/`-n`, package-content's 20-candidate boundary, and output-format
 parity.
 `NoMatchBudget_AllCandidatesMatchingPreservesTerminalCompletion` must exercise

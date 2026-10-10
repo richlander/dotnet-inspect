@@ -13,13 +13,15 @@ internal sealed class ClassicInverseShellFacts
         int stateLocal,
         ImmutableHashSet<int> awaiterLocals,
         ImmutableDictionary<int, TypeRef> awaiterTypes,
-        ClassicInverseLoweringProof protocol)
+        ClassicInverseLoweringProof protocol,
+        ClassicInverseReceiverAliasProof receiverAliases)
     {
         Machine = machine;
         StateLocal = stateLocal;
         AwaiterLocals = awaiterLocals;
         AwaiterTypes = awaiterTypes;
         Protocol = protocol;
+        ReceiverAliases = receiverAliases;
     }
 
     /// <summary>The state-machine definition type that owns the execution body.</summary>
@@ -49,6 +51,8 @@ internal sealed class ClassicInverseShellFacts
     /// role and the accountant declines.
     /// </summary>
     internal ClassicInverseLoweringProof Protocol { get; }
+
+    internal ClassicInverseReceiverAliasProof ReceiverAliases { get; }
 
     /// <summary>
     /// Derives the shell facts from the planning view and the unmodified import
@@ -124,6 +128,8 @@ internal sealed class ClassicInverseShellFacts
             }
         }
 
+        var receiverAliases = ClassicInverseReceiverAliasProof.Derive(
+            execution, rawExecution, machine, budget);
         return new ClassicInverseShellFacts(
             machine,
             stateLocal,
@@ -135,7 +141,8 @@ internal sealed class ClassicInverseShellFacts
                 machine,
                 stateLocal,
                 awaiters.ToImmutable(),
-                budget));
+                budget),
+            receiverAliases);
     }
 }
 

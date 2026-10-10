@@ -64,6 +64,14 @@ const DEPENDS_TERM: QueryTermDescriptor = {
   example: "Microsoft.Extensions.Hosting",
   multiline: false,
 };
+const DEPENDENCY_TARGET_TERM: QueryTermDescriptor = {
+  ...DEPENDS_TERM,
+  key: "dependency-target",
+  label: "Dependency target",
+  summary: "Selects one compatible dependency group.",
+  valueKind: "target framework",
+  example: "net10.0",
+};
 const LIBRARY_LITERAL_TERM: QueryTermDescriptor = {
   key: "library-literal",
   label: "Library literal",
@@ -1214,6 +1222,9 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
         replacementGroupId: null,
         displayGroupId: null,
         displayGroupLabel: null,
+        categoryId: "dependencies",
+        categoryLabel: "Dependencies",
+        categoryOrder: 200,
       },
       {
         key: "readme",
@@ -1229,35 +1240,54 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
         replacementGroupId: null,
         displayGroupId: null,
         displayGroupLabel: null,
+        categoryId: "package-metadata",
+        categoryLabel: "Package metadata",
+        categoryOrder: 100,
+      },
+    ],
+    terms: [
+      {
+        key: "references",
+        label: "Assembly reference",
+        summary: "Matches an AssemblyRef simple name.",
+        weight: 10,
+        tier: "PackageContent",
+        executionClass: "Metadata",
+        operators: ["eq"],
+        valueKind: "assembly simple name",
+        example: "Windows",
+        multiline: false,
+        allowsCustomValue: true,
+        replacementGroupId: null,
+        options: [],
       },
       {
         key: "tool-format",
-        operator: "eq",
-        value: "v2",
-        label: "v2",
-        summary: "RID-specific .NET tool format.",
+        label: "DotnetCliTool",
+        summary: "Matches the tool settings format.",
         weight: 30,
         tier: "PackageContent",
         executionClass: "PackageContent",
-        selectionGroupId: "tool-format",
-        combinesWithinSelectionGroup: true,
+        operators: ["eq"],
+        valueKind: "closed value",
+        example: "v2",
+        multiline: false,
+        allowsCustomValue: false,
         replacementGroupId: "package.query.replacement.dotnet-tool",
-        displayGroupId: "package.query.display.dotnet-tool",
-        displayGroupLabel: ".NET tool format",
+        options: [
+          {
+            value: "v1",
+            label: "v1",
+            summary: "Portable format.",
+          },
+          {
+            value: "v2",
+            label: "v2",
+            summary: "RID-specific format.",
+          },
+        ],
       },
     ],
-    terms: [{
-      key: "references",
-      label: "Assembly reference",
-      summary: "Matches an AssemblyRef simple name.",
-      weight: 10,
-      tier: "PackageContent",
-      executionClass: "Metadata",
-      operators: ["eq"],
-      valueKind: "assembly simple name",
-      example: "Windows",
-      multiline: false,
-    }],
   };
 
   const projected = packageQueryCatalog(catalog);
@@ -1277,6 +1307,9 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
       replacementGroupId: null,
       displayGroupId: null,
       displayGroupLabel: null,
+      categoryId: "dependencies",
+      categoryLabel: "Dependencies",
+      categoryOrder: 200,
     },
     {
       id: "readme:eq:true",
@@ -1293,36 +1326,54 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
       replacementGroupId: null,
       displayGroupId: null,
       displayGroupLabel: null,
+      categoryId: "package-metadata",
+      categoryLabel: "Package metadata",
+      categoryOrder: 100,
+    },
+  ]);
+  assert.deepEqual(projected.terms, [
+    {
+      key: "references",
+      label: "Assembly reference",
+      summary: "Matches an AssemblyRef simple name.",
+      weight: 10,
+      tier: "package-content",
+      executionClass: "metadata",
+      operators: ["eq"],
+      valueKind: "assembly simple name",
+      example: "Windows",
+      multiline: false,
+      allowsCustomValue: true,
+      replacementGroupId: null,
+      options: [],
     },
     {
-      id: "tool-format:eq:v2",
       key: "tool-format",
-      operator: "eq",
-      value: "v2",
-      label: "v2",
-      summary: "RID-specific .NET tool format.",
+      label: "DotnetCliTool",
+      summary: "Matches the tool settings format.",
       weight: 30,
       tier: "package-content",
       executionClass: "package-content",
-      selectionGroupId: "tool-format",
-      combinesWithinSelectionGroup: true,
+      operators: ["eq"],
+      valueKind: "closed value",
+      example: "v2",
+      multiline: false,
+      allowsCustomValue: false,
       replacementGroupId: "package.query.replacement.dotnet-tool",
-      displayGroupId: "package.query.display.dotnet-tool",
-      displayGroupLabel: ".NET tool format",
+      options: [
+        {
+          value: "v1",
+          label: "v1",
+          summary: "Portable format.",
+        },
+        {
+          value: "v2",
+          label: "v2",
+          summary: "RID-specific format.",
+        },
+      ],
     },
   ]);
-  assert.deepEqual(projected.terms, [{
-    key: "references",
-    label: "Assembly reference",
-    summary: "Matches an AssemblyRef simple name.",
-    weight: 10,
-    tier: "package-content",
-    executionClass: "metadata",
-    operators: ["eq"],
-    valueKind: "assembly simple name",
-    example: "Windows",
-    multiline: false,
-  }]);
 });
 
 test("Browser data source maps package-content rows and visible failures", async () => {
@@ -1471,17 +1522,25 @@ test("Browser data source streams matches and failures before terminal completio
   const rows: string[] = [];
   const failures: string[] = [];
   const progress: string[] = [];
-  const request = withPreset(
-    createQueryRequest("Microsoft."),
-    {
-      id: "dependency-depth:eq:2",
-      key: "dependency-depth",
-      operator: "eq",
-      value: "2",
-      label: "Depth 2",
-      tier: "nuspec",
-      executionClass: "nuspec-expensive",
-    });
+  const request = withTerm(
+    withTerm(
+      withPreset(
+        createQueryRequest("Microsoft."),
+        {
+          id: "dependency-depth:eq:2",
+          key: "dependency-depth",
+          operator: "eq",
+          value: "2",
+          label: "Depth 2",
+          tier: "nuspec",
+          executionClass: "nuspec-expensive",
+        }),
+      DEPENDS_TERM,
+      "eq",
+      "Microsoft.Extensions.Primitives"),
+    DEPENDENCY_TARGET_TERM,
+    "eq",
+    "net10.0");
 
   const completion = await createBrowserPackageQueryDataSource(engine).run(
     request,
@@ -1494,7 +1553,15 @@ test("Browser data source streams matches and failures before terminal completio
   assert.equal(typeof receivedArguments[0], "string");
   assert.deepEqual(receivedArguments.slice(1, 8), [
     "Microsoft.",
-    [{ key: "dependency-depth", operator: "eq", value: "2" }],
+    [
+      { key: "dependency-depth", operator: "eq", value: "2" },
+      {
+        key: "depends",
+        operator: "eq",
+        value: "Microsoft.Extensions.Primitives",
+      },
+      { key: "dependency-target", operator: "eq", value: "net10.0" },
+    ],
     null,
     5,
     100,

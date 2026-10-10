@@ -196,9 +196,9 @@ its settled cache entry to remain associated with its own key.
 
 ## Presentation
 
-Leverage is an automatic icon-only Type-row affordance. One wave means sea
-level and one mountain means mountain peak; both evidence modes use the same
-shape. Color continues to distinguish the two poles. The tooltip and accessible
+Leverage is an automatic icon-only Type-row affordance. Waves mean sea level
+and a caret over a horizon line means mountain peak; both evidence modes use
+the same shape. Color continues to distinguish the two poles. The tooltip and accessible
 label name every issued mode and pole.
 
 The API-difference slot stays first and the structural-salience slot stays

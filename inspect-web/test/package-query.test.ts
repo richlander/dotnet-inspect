@@ -9,19 +9,26 @@ import {
   createEcosystemQueryRequest,
   createPackageQueryController,
   createQueryRequest,
+  dependencyReach,
+  dependencyTarget,
   emptyOutcome,
   initialQueryState,
+  isTraversalDependencyTarget,
   isLibraryLiteralQuery,
   shouldExecuteQuery,
+  synchronizeDependencyTermEditor,
+  synchronizeTermEdits,
   togglePreset,
   replaceTerm,
   withCompletion,
+  withDependencyTerm,
   withEditorDraft,
   withPreset,
   withTerm,
   withSourceSelection,
   withScopeQuery,
   withoutPreset,
+  withoutDependencyTerm,
   withoutTerm,
   type PackageQueryDataSource,
   type QueryAssemblyAssessment,
@@ -111,6 +118,25 @@ const TOOL_V2_FACET: QueryPreset = {
   replacementGroupId: "dotnet-tool",
 };
 
+const TOOL_FORMAT_TERM: QueryTermDescriptor = {
+  key: "tool-format",
+  label: "DotnetCliTool",
+  summary: "Matches the DotnetCliTool format version.",
+  weight: 510,
+  tier: "package-content",
+  executionClass: "package-content",
+  operators: ["eq"],
+  valueKind: "closed value",
+  example: "v2",
+  multiline: false,
+  allowsCustomValue: false,
+  replacementGroupId: "dotnet-tool",
+  options: [
+    { value: "v1", label: "v1", summary: "Portable format." },
+    { value: "v2", label: "v2", summary: "RID-specific format." },
+  ],
+};
+
 const DEPENDS_TERM: QueryTermDescriptor = {
   key: "depends",
   label: "Direct dependency",
@@ -118,10 +144,47 @@ const DEPENDS_TERM: QueryTermDescriptor = {
   weight: 10,
   tier: "nuspec",
   executionClass: "nuspec",
-  operators: ["eq"],
+  operators: ["eq", "starts-with"],
   valueKind: "package-id",
   example: "Microsoft.Extensions.Hosting",
   multiline: false,
+};
+
+const DEPENDENCY_TARGET_TERM: QueryTermDescriptor = {
+  ...DEPENDS_TERM,
+  key: "dependency-target",
+  label: "Dependency target",
+  summary: "Selects one compatible dependency group.",
+  operators: ["eq"],
+  valueKind: "target framework",
+  example: "net10.0",
+};
+
+const DEPENDS_ECOSYSTEM_TERM: QueryTermDescriptor = {
+  ...DEPENDS_TERM,
+  key: "depends-ecosystem",
+  label: "Depends on ecosystem",
+  summary: "Matches a direct dependency in an ecosystem.",
+  operators: ["eq"],
+  valueKind: "ecosystem ID",
+  example: "ecosystem.aspire",
+};
+
+const DEPTH_2_FACET: QueryPreset = {
+  id: "dependency-depth:eq:2",
+  key: "dependency-depth",
+  operator: "eq",
+  value: "2",
+  label: "Depth 2",
+  tier: "nuspec",
+  executionClass: "nuspec-expensive",
+};
+
+const DEPTH_3_FACET: QueryPreset = {
+  ...DEPTH_2_FACET,
+  id: "dependency-depth:eq:3",
+  value: "3",
+  label: "Depth 3",
 };
 
 const CONTENT_TERM: QueryTermDescriptor = {
@@ -197,6 +260,446 @@ test("createQueryRequest gives candidate and match limits independent defaults",
   assert.notEqual(defaults.requestedLimit, defaults.requestedMatchLimit);
   assert.equal(defaults.includePrerelease, false);
   assert.deepEqual(defaults.terms, []);
+});
+
+test("dependency facet applies direct or bounded reach atomically", () => {
+  const base = createQueryRequest("Microsoft.Extensions.*");
+  const traversed = withDependencyTerm(
+    base,
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Microsoft.Extensions.Primitives",
+    "2",
+    "net10.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+
+  assert.deepEqual(
+    traversed.terms.map(term => [
+      term.descriptor.key,
+      term.operator,
+      term.value,
+    ]),
+    [
+      ["depends", "eq", "Microsoft.Extensions.Primitives"],
+      ["dependency-target", "eq", "net10.0"],
+    ]);
+  assert.deepEqual(traversed.presets, [DEPTH_2_FACET]);
+  assert.equal(dependencyReach(traversed), "2");
+  assert.equal(dependencyTarget(traversed), "net10.0");
+  assert.equal(traversed.requestedLimit, 5);
+
+  const direct = withDependencyTerm(
+    traversed,
+    DEPENDS_TERM,
+    0,
+    "eq",
+    "Microsoft.Extensions.Primitives",
+    "direct",
+    "net10.0",
+    null,
+    null);
+
+  assert.deepEqual(
+    direct.terms.map(term => term.descriptor.key),
+    ["depends"]);
+  assert.deepEqual(direct.presets, []);
+  assert.equal(dependencyReach(direct), "direct");
+  assert.equal(direct.requestedLimit, 200);
+
+  const directWithAll = withTerm(
+    withTerm(
+      base,
+      DEPENDS_TERM,
+      "eq",
+      "Microsoft.Extensions.Primitives"),
+    DEPENDENCY_TARGET_TERM,
+    "eq",
+    "all");
+  const invalidTraversal = withDependencyTerm(
+    directWithAll,
+    DEPENDS_TERM,
+    0,
+    "eq",
+    "Microsoft.Extensions.Primitives",
+    "2",
+    "all",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+
+  assert.equal(isTraversalDependencyTarget("all"), false);
+  assert.equal(isTraversalDependencyTarget(" ALL "), false);
+  assert.equal(isTraversalDependencyTarget("net10.0"), true);
+  assert.equal(invalidTraversal, directWithAll);
+});
+
+test("dependency prefix forces direct reach and removing the last dependency clears traversal", () => {
+  const traversed = withDependencyTerm(
+    createQueryRequest("Contoso.*"),
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Contoso.First",
+    "2",
+    "net10.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+  const withSecond = withDependencyTerm(
+    traversed,
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Contoso.Second",
+    "2",
+    "net10.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+  const withDirectPrefix = withDependencyTerm(
+    withSecond,
+    DEPENDS_TERM,
+    null,
+    "starts-with",
+    "Contoso.",
+    "direct",
+    "net10.0",
+    null,
+    null);
+
+  assert.equal(dependencyReach(withDirectPrefix), "2");
+  assert.equal(
+    withDirectPrefix.terms.filter(
+      term => term.descriptor.key === "dependency-target").length,
+    1);
+
+  const firstRemoved = withoutDependencyTerm(withSecond, 0);
+
+  assert.equal(dependencyReach(firstRemoved), "2");
+  assert.deepEqual(
+    firstRemoved.terms.map(term => term.descriptor.key),
+    ["depends", "dependency-target"]);
+
+  const directPrefix = withDependencyTerm(
+    firstRemoved,
+    DEPENDS_TERM,
+    0,
+    "starts-with",
+    "Contoso.",
+    "2",
+    "net10.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+
+  assert.equal(dependencyReach(directPrefix), "direct");
+  assert.deepEqual(
+    directPrefix.terms.map(term => term.descriptor.key),
+    ["depends"]);
+  assert.equal(directPrefix.requestedLimit, 200);
+  assert.deepEqual(withoutDependencyTerm(directPrefix, 0).terms, []);
+});
+
+test("switching traversal to direct retains another dependency term's target", () => {
+  const ecosystemScoped = withTerm(
+    withTerm(
+      createQueryRequest("Contoso.*"),
+      DEPENDS_ECOSYSTEM_TERM,
+      "eq",
+      "ecosystem.aspire"),
+    DEPENDENCY_TARGET_TERM,
+    "eq",
+    "net10.0");
+  const traversed = withDependencyTerm(
+    ecosystemScoped,
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Contoso.Target",
+    "2",
+    "net10.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+  const dependencyIndex = traversed.terms.findIndex(
+    term => term.descriptor.key === "depends");
+  const direct = withDependencyTerm(
+    traversed,
+    DEPENDS_TERM,
+    dependencyIndex,
+    "eq",
+    "Contoso.Target",
+    "direct",
+    "net10.0",
+    null,
+    null);
+
+  assert.equal(dependencyReach(direct), "direct");
+  assert.deepEqual(
+    direct.terms.map(term => [term.descriptor.key, term.value]),
+    [
+      ["depends-ecosystem", "ecosystem.aspire"],
+      ["depends", "Contoso.Target"],
+      ["dependency-target", "net10.0"],
+    ]);
+});
+
+test("removing the final dependency fact clears shared context", () => {
+  const ecosystemScoped = withDependencyTerm(
+    withTerm(
+      createQueryRequest("Contoso.*"),
+      DEPENDS_ECOSYSTEM_TERM,
+      "eq",
+      "ecosystem.aspire"),
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Contoso.Target",
+    "2",
+    "net10.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+  const ecosystemExactIndex = ecosystemScoped.terms.findIndex(
+    term => term.descriptor.key === "depends");
+  const ecosystemOnly = withoutDependencyTerm(
+    ecosystemScoped,
+    ecosystemExactIndex);
+
+  assert.deepEqual(
+    ecosystemOnly.terms.map(term => term.descriptor.key),
+    ["depends-ecosystem", "dependency-target"]);
+  assert.deepEqual(ecosystemOnly.presets, []);
+
+  const withoutEcosystem = withoutTerm(ecosystemOnly, 0);
+  assert.deepEqual(withoutEcosystem.terms, []);
+  assert.deepEqual(withoutEcosystem.presets, []);
+
+  const presetScoped = withDependencyTerm(
+    withPreset(
+      createQueryRequest("Contoso.*"),
+      HAS_DEPENDENCIES_FACET),
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Contoso.Target",
+    "2",
+    "net10.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+  const presetExactIndex = presetScoped.terms.findIndex(
+    term => term.descriptor.key === "depends");
+  const presetOnly = withoutDependencyTerm(
+    presetScoped,
+    presetExactIndex);
+
+  assert.deepEqual(
+    presetOnly.terms.map(term => term.descriptor.key),
+    ["dependency-target"]);
+  assert.deepEqual(
+    presetOnly.presets.map(preset => preset.id),
+    [HAS_DEPENDENCIES_FACET.id]);
+
+  const withoutPresetScope = togglePreset(
+    presetOnly,
+    HAS_DEPENDENCIES_FACET);
+  assert.deepEqual(withoutPresetScope.terms, []);
+  assert.deepEqual(withoutPresetScope.presets, []);
+});
+
+test("dependency reach is query-wide across repeated exact terms", () => {
+    const traversed = withDependencyTerm(
+      createQueryRequest("Contoso.*"),
+      DEPENDS_TERM,
+      null,
+      "eq",
+      "Contoso.First",
+      "2",
+      "net10.0",
+      DEPTH_2_FACET,
+      DEPENDENCY_TARGET_TERM);
+    const direct = withDependencyTerm(
+      traversed,
+      DEPENDS_TERM,
+      null,
+      "eq",
+      "Contoso.Second",
+      "direct",
+      "net10.0",
+      null,
+      null);
+
+    assert.equal(dependencyReach(direct), "direct");
+    assert.equal(direct.requestedLimit, 200);
+    assert.deepEqual(
+      direct.terms.filter(
+        term => term.descriptor.key === "depends").map(term => term.value),
+      ["Contoso.First", "Contoso.Second"]);
+});
+
+test("pending dependency editors follow applied shared reach and target", () => {
+    const first = withDependencyTerm(
+      createQueryRequest("Contoso.*"),
+      DEPENDS_TERM,
+      null,
+      "eq",
+      "Contoso.First",
+      "2",
+      "net10.0",
+      DEPTH_2_FACET,
+      DEPENDENCY_TARGET_TERM);
+    const previous = withDependencyTerm(
+      first,
+      DEPENDS_TERM,
+      null,
+      "eq",
+      "Contoso.Second",
+      "2",
+      "net10.0",
+      DEPTH_2_FACET,
+      DEPENDENCY_TARGET_TERM);
+    const secondIndex = previous.terms.findIndex(
+      term => term.descriptor.key === "depends"
+        && term.value === "Contoso.Second");
+    const edits = previous.terms.map((_term, index) => index === secondIndex
+      ? {
+          operator: "eq",
+          value: "Contoso.Second.Edited",
+          dependencyReach: "2" as const,
+          dependencyTarget: "net10.0",
+        }
+      : null);
+    const next = withDependencyTerm(
+      previous,
+      DEPENDS_TERM,
+      0,
+      "eq",
+      "Contoso.First",
+      "3",
+      "net9.0",
+      DEPTH_3_FACET,
+      DEPENDENCY_TARGET_TERM);
+    const synchronized = synchronizeTermEdits(
+      previous,
+      next,
+      edits);
+    const retained = synchronized[next.terms.findIndex(
+      term => term.descriptor.key === "depends"
+        && term.value === "Contoso.Second")];
+
+    assert.deepEqual(retained, {
+      operator: "eq",
+      value: "Contoso.Second.Edited",
+      dependencyReach: "3",
+      dependencyTarget: "net9.0",
+    });
+    assert.deepEqual(
+      synchronizeDependencyTermEditor(previous, next, {
+        operator: "eq",
+        value: "Contoso.Pending",
+        dependencyReach: "2",
+        dependencyTarget: "net10.0",
+      }),
+      {
+        operator: "eq",
+        value: "Contoso.Pending",
+        dependencyReach: "3",
+        dependencyTarget: "net9.0",
+      });
+});
+
+test("unrelated preset toggles preserve pending dependency reach and target", () => {
+  const previous = withDependencyTerm(
+    createQueryRequest("Contoso.*"),
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Contoso.Dependency",
+    "direct",
+    "net10.0",
+    null,
+    null);
+  const pending = [{
+    operator: "eq",
+    value: "Contoso.Dependency.Edited",
+    dependencyReach: "2" as const,
+    dependencyTarget: "net9.0",
+  }];
+  const next = togglePreset(previous, TFM_FACET);
+
+  assert.equal(next.terms[0], previous.terms[0]);
+  assert.equal(
+    synchronizeDependencyTermEditor(previous, next, pending[0]!),
+    pending[0]);
+  assert.deepEqual(
+    synchronizeTermEdits(previous, next, pending),
+    pending);
+});
+
+test("standalone target changes synchronize pending dependency editors", () => {
+  const previous = withTerm(
+    withTerm(
+      createQueryRequest("Contoso.*"),
+      DEPENDS_TERM,
+      "eq",
+      "Contoso.Applied"),
+    DEPENDENCY_TARGET_TERM,
+    "eq",
+    "net10.0");
+  const dependencyIndex = previous.terms.findIndex(
+    term => term.descriptor.key === "depends");
+  const targetIndex = previous.terms.findIndex(
+    term => term.descriptor.key === "dependency-target");
+  const edits = previous.terms.map((_term, index) =>
+    index === dependencyIndex
+      ? {
+          operator: "eq",
+          value: "Contoso.Applied.Edited",
+          dependencyReach: "direct" as const,
+          dependencyTarget: "net10.0",
+        }
+      : null);
+  const draft = {
+    operator: "eq",
+    value: "Contoso.Pending",
+    dependencyReach: "direct" as const,
+    dependencyTarget: "net10.0",
+  };
+  const changed = replaceTerm(previous, targetIndex, "eq", "net9.0");
+  const changedEdits = synchronizeTermEdits(
+    previous,
+    changed,
+    edits);
+  const changedEdit = changedEdits[dependencyIndex];
+
+  assert.deepEqual(changedEdit, {
+    operator: "eq",
+    value: "Contoso.Applied.Edited",
+    dependencyReach: "direct",
+    dependencyTarget: "net9.0",
+  });
+  assert.deepEqual(
+    synchronizeDependencyTermEditor(previous, changed, draft),
+    {
+      ...draft,
+      dependencyTarget: "net9.0",
+    });
+
+  const changedTargetIndex = changed.terms.findIndex(
+    term => term.descriptor.key === "dependency-target");
+  const removed = withoutTerm(changed, changedTargetIndex);
+  const removedEdit = synchronizeTermEdits(
+    changed,
+    removed,
+    changedEdits,
+  )[removed.terms.findIndex(
+    term => term.descriptor.key === "depends")];
+
+  assert.deepEqual(removedEdit, {
+    operator: "eq",
+    value: "Contoso.Applied.Edited",
+    dependencyReach: "direct",
+    dependencyTarget: "net10.0",
+  });
+  assert.deepEqual(
+    synchronizeDependencyTermEditor(changed, removed, draft),
+    draft);
 });
 
 test("Ecosystem requests preserve curated identity with 24 initial and 96 maximum matches", () => {
@@ -468,6 +971,58 @@ test("togglePreset applies product-owned tool replacement and union groups", () 
     backToV2.presets.map(preset => preset.id),
     [TOOL_V2_FACET.id]);
   assert.equal(backToV2.requestedLimit, 20);
+});
+
+test("tool facts and DotnetCliTool value queries replace across control families", () => {
+  const withAny = togglePreset(
+    createQueryRequest("Microsoft."),
+    ANY_TOOL_FACET);
+  const withV1 = withTerm(
+    withAny,
+    TOOL_FORMAT_TERM,
+    "eq",
+    "v1");
+  const withBoth = withTerm(
+    withV1,
+    TOOL_FORMAT_TERM,
+    "eq",
+    "v2");
+  const backToAny = togglePreset(withBoth, ANY_TOOL_FACET);
+
+  assert.deepEqual(withV1.presets, []);
+  assert.deepEqual(
+    withBoth.terms.map(term => term.value),
+    ["v1", "v2"]);
+  assert.equal(withBoth.requestedLimit, 20);
+  assert.deepEqual(
+    backToAny.presets.map(preset => preset.id),
+    [ANY_TOOL_FACET.id]);
+  assert.deepEqual(backToAny.terms, []);
+  assert.equal(backToAny.requestedLimit, 200);
+});
+
+test("term edits follow surviving terms across cross-family replacement", () => {
+  const previous = withTerm(
+    withTerm(
+      createQueryRequest("Microsoft."),
+      TOOL_FORMAT_TERM,
+      "eq",
+      "v1"),
+    LIBRARY_LITERAL_TERM,
+    "eq",
+    "applied");
+  const next = togglePreset(previous, ANY_TOOL_FACET);
+  const edits = synchronizeTermEdits(previous, next, [
+    null,
+    { operator: "eq", value: "pending" },
+  ]);
+
+  assert.deepEqual(
+    next.terms.map(term => term.value),
+    ["applied"]);
+  assert.deepEqual(edits, [
+    { operator: "eq", value: "pending" },
+  ]);
 });
 
 test("appendRows and appendFailure accumulate without mutating prior outcome", () => {

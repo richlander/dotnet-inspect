@@ -1,7 +1,7 @@
 {
   "schemaVersion": 7,
   "description": "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
-  "generatedUtc": "2026-10-09T22:25:12.0389777+00:00",
+  "generatedUtc": "2026-10-10T05:38:05.3796446+00:00",
   "validityCompileCap": 4000,
   "fidelityCompileCap": 50,
   "methodCap": null,
@@ -2590,7 +2590,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "DotnetInspector.Core!DotnetInspector.Core.Downloader\u00601::.ctor#0"
@@ -2887,7 +2887,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "DotnetInspector.Core!DotnetInspector.Core.HttpClientFactory::get_IsOffline#0"
@@ -6759,7 +6759,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.NuGetSourceOptions::.ctor#1"
@@ -10319,7 +10319,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "DotnetInspector.Services!DotnetInspector.Services.AssemblyRefInfo::.ctor#0"
@@ -139024,7 +139024,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.PdbContext::ScanPresenceFlags#0"
@@ -139117,7 +139117,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.PdbContext::get_HasMetadata#0"
@@ -139480,7 +139480,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.PdbContext::set_PdbLocation#0"
@@ -141059,7 +141059,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.SampleReference::.ctor#0"
@@ -144077,7 +144077,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.SourceLinkService::get_NeedsPdb#0"
@@ -264294,7 +264294,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "dotnet-inspect!DotnetInspector.Models.MethodLeverageSummary::.ctor#1"
@@ -377720,7 +377720,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "RecompileFail",
       "controlFlowSites": "conditional-branch|8|0|1;branch|29|0|1;conditional-branch|65|0|1;leave|67|0|1;conditional-branch|70|0|1;end-finally|78|0|1",
@@ -380964,7 +380964,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "RecompileFail",
       "controlFlowSites": "conditional-branch|2|0|1;conditional-branch|16|0|1",
@@ -383199,7 +383199,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "Microsoft.ApplicationInsights!Microsoft.ApplicationInsights.Extensibility.Implementation.Tracing.SelfDiagnostics.MemoryMappedFileHandler::.ctor#0"
@@ -387556,7 +387556,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "OpcodeDiff",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "OpcodeDiff",
       "controlFlowSites": "conditional-branch|20|0|1",
@@ -388450,7 +388450,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "OpcodeDiff",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "RecompileFail",
       "controlFlowSites": "conditional-branch|39|0|1;leave|61|0|1;branch|69|0|1;leave|93|0|1;leave|96|0|1;leave|98|0|1",
@@ -391235,7 +391235,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "OpcodeDiff",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "OpcodeDiff",
       "controlFlowSites": "conditional-branch|8|0|1;leave|22|0|1;end-finally|30|0|1",
@@ -430369,7 +430369,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.CodeGen.LocalDefinition::get_PdbAttributes#0"
     },
@@ -501480,11 +501480,15 @@
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.DiagnosticAnalyzer, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.AnalyzerExecutor, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.GeneratedCodeAnalysisFlags\u003E",
       "fidelity": "Partial",
       "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "residual": "fidelity: unsupported-node",
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "classic async"
+        },
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
@@ -501704,11 +501708,15 @@
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.DiagnosticAnalyzer, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.AnalyzerExecutor, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.Boolean\u003E",
       "fidelity": "Partial",
       "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "residual": "fidelity: unsupported-node",
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "classic async"
+        },
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
@@ -506551,11 +506559,15 @@
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.AdditionalText, corelib:System.Nullable\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Text.TextSpan\u003E, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.DiagnosticAnalyzer\u003E, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.AnalysisResult\u003E",
       "fidelity": "Partial",
       "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "residual": "fidelity: unsupported-node",
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "classic async"
+        },
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
@@ -506573,11 +506585,15 @@
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.AdditionalText, corelib:System.Nullable\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Text.TextSpan\u003E, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.AnalysisResult\u003E",
       "fidelity": "Partial",
       "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "residual": "fidelity: unsupported-node",
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "classic async"
+        },
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
@@ -506707,11 +506723,15 @@
       "signature": "(System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.DiagnosticAnalyzer\u003E, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.AnalysisResult\u003E",
       "fidelity": "Partial",
       "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "residual": "fidelity: unsupported-node",
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "classic async"
+        },
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
@@ -506727,19 +506747,12 @@
       "method": "GetAnalysisResultAsync",
       "overload": 0,
       "signature": "(corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.AnalysisResult\u003E",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "state-machine-type-name",
-          "sites": 15
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.CompilationWithAnalyzers::GetAnalysisResultAsync#0"
     },
     {
@@ -506839,11 +506852,15 @@
       "signature": "(System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.DiagnosticAnalyzer\u003E, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003CSystem.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic\u003E\u003E",
       "fidelity": "Partial",
       "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "residual": "fidelity: unsupported-node",
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "classic async"
+        },
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
@@ -506859,19 +506876,12 @@
       "method": "GetAnalyzerCompilationDiagnosticsAsync",
       "overload": 0,
       "signature": "(corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003CSystem.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic\u003E\u003E",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "state-machine-type-name",
-          "sites": 15
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.CompilationWithAnalyzers::GetAnalyzerCompilationDiagnosticsAsync#0"
     },
     {
@@ -506920,11 +506930,15 @@
       "signature": "(System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.DiagnosticAnalyzer\u003E, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003CSystem.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic\u003E\u003E",
       "fidelity": "Partial",
       "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "residual": "fidelity: unsupported-node",
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "classic async"
+        },
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
@@ -506940,19 +506954,12 @@
       "method": "GetAnalyzerDiagnosticsAsync",
       "overload": 1,
       "signature": "(corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003CSystem.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic\u003E\u003E",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "state-machine-type-name",
-          "sites": 15
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.CompilationWithAnalyzers::GetAnalyzerDiagnosticsAsync#1"
     },
     {
@@ -507002,11 +507009,15 @@
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SemanticModel, corelib:System.Nullable\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Text.TextSpan\u003E, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.DiagnosticAnalyzer\u003E, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003CSystem.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic\u003E\u003E",
       "fidelity": "Partial",
       "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "residual": "fidelity: unsupported-node",
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "classic async"
+        },
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
@@ -507024,11 +507035,15 @@
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SemanticModel, corelib:System.Nullable\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Text.TextSpan\u003E, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003CSystem.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic\u003E\u003E",
       "fidelity": "Partial",
       "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "residual": "fidelity: unsupported-node",
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "classic async"
+        },
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
@@ -507090,11 +507105,15 @@
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SyntaxTree, corelib:System.Nullable\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Text.TextSpan\u003E, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.DiagnosticAnalyzer\u003E, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003CSystem.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic\u003E\u003E",
       "fidelity": "Partial",
       "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "residual": "fidelity: unsupported-node",
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "classic async"
+        },
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
@@ -507112,11 +507131,15 @@
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SyntaxTree, corelib:System.Nullable\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Text.TextSpan\u003E, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003CSystem.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic\u003E\u003E",
       "fidelity": "Partial",
       "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "residual": "fidelity: unsupported-node",
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "classic async"
+        },
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
@@ -640494,7 +640517,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|7|0|1",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.SyntaxTrivia::HasAnnotations#1"
@@ -825775,19 +825798,12 @@
       "method": "GetRootAsyncCore",
       "overload": 0,
       "signature": "(corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.SyntaxNode\u003E",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "state-machine-type-name",
-          "sites": 15
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree::GetRootAsyncCore#0"
     },
     {
@@ -1349801,19 +1349817,12 @@
       "method": "DoReadAsDateTimeAsync",
       "overload": 0,
       "signature": "(corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.Nullable\u00601\u003Ccorelib:System.DateTime\u003E\u003E",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "state-machine-type-name",
-          "sites": 15
-        }
-      ],
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.JsonTextReader::DoReadAsDateTimeAsync#0"
     },
     {
@@ -1349823,19 +1349832,12 @@
       "method": "DoReadAsDateTimeOffsetAsync",
       "overload": 0,
       "signature": "(corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.Nullable\u00601\u003Ccorelib:System.DateTimeOffset\u003E\u003E",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "state-machine-type-name",
-          "sites": 15
-        }
-      ],
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.JsonTextReader::DoReadAsDateTimeOffsetAsync#0"
     },
     {
@@ -1349845,19 +1349847,12 @@
       "method": "DoReadAsDecimalAsync",
       "overload": 0,
       "signature": "(corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.Nullable\u00601\u003Ccorelib:System.Decimal\u003E\u003E",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "state-machine-type-name",
-          "sites": 15
-        }
-      ],
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.JsonTextReader::DoReadAsDecimalAsync#0"
     },
     {
@@ -1349867,19 +1349862,12 @@
       "method": "DoReadAsDoubleAsync",
       "overload": 0,
       "signature": "(corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.Nullable\u00601\u003Ccorelib:System.Double\u003E\u003E",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "state-machine-type-name",
-          "sites": 15
-        }
-      ],
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.JsonTextReader::DoReadAsDoubleAsync#0"
     },
     {
@@ -1349889,19 +1349877,12 @@
       "method": "DoReadAsInt32Async",
       "overload": 0,
       "signature": "(corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.Nullable\u00601\u003Ccorelib:System.Int32\u003E\u003E",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "state-machine-type-name",
-          "sites": 15
-        }
-      ],
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.JsonTextReader::DoReadAsInt32Async#0"
     },
     {
@@ -1349911,19 +1349892,12 @@
       "method": "DoReadAsStringAsync",
       "overload": 0,
       "signature": "(corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task\u00601\u003Ccorelib:System.String\u003E",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "state-machine-type-name",
-          "sites": 15
-        }
-      ],
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.JsonTextReader::DoReadAsStringAsync#0"
     },
     {
@@ -1350835,11 +1350809,15 @@
       "signature": "(corelib:System.Char, Newtonsoft.Json:Newtonsoft.Json.ReadType, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task",
       "fidelity": "Partial",
       "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "residual": "fidelity: unsupported-node",
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "classic async"
+        },
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
@@ -1353316,7 +1353294,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "controlFlowSites": "conditional-branch|16|0|1",
@@ -1355647,7 +1355625,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "controlFlowSites": "conditional-branch|15|0|1",
@@ -1355809,7 +1355787,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.JsonTextWriter::get_ArrayPool#0"
@@ -1355966,7 +1355944,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.JsonTextWriter::set_QuoteName#0"
@@ -1358199,11 +1358177,15 @@
       "signature": "(Newtonsoft.Json:Newtonsoft.Json.JsonToken, Newtonsoft.Json:Newtonsoft.Json.JsonContainerType, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task",
       "fidelity": "Partial",
       "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "residual": "fidelity: unsupported-node",
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
+        {
+          "code": "DEC0004",
+          "discriminator": "classic async"
+        },
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
@@ -1390795,7 +1390777,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.Serialization.TraceJsonWriter::WriteEndObject#0"
@@ -1398432,7 +1398414,7 @@
       "residual": "structuring: conditional-branch",
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "OpcodeDiff",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "OpcodeDiff",
       "controlFlowSites": "conditional-branch|1|0|0;conditional-branch|16|0|0;conditional-branch|34|0|0;branch|43|0|0;conditional-branch|49|0|0;conditional-branch|54|0|0|output@conditional-branch@source_IL_0036-\u003EIL_004E#0;conditional-branch|54|0|1;conditional-branch|62|0|1;branch|103|0|0;conditional-branch|121|0|0|output@conditional-branch@source_IL_0079-\u003EIL_022E#0;conditional-branch|121|0|1;conditional-branch|127|0|1;conditional-branch|135|0|0;switch-branch|140|0|0;conditional-branch|172|0|0;branch|174|0|0;conditional-branch|182|0|0;conditional-branch|190|0|0;conditional-branch|198|0|0;branch|200|0|0;branch|209|0|0;branch|221|0|0;branch|233|0|0;branch|245|0|0;branch|257|0|0;branch|269|0|0;branch|278|0|0;branch|287|0|0;branch|296|0|0;conditional-branch|303|0|0|output@conditional-branch@source_IL_012F-\u003EIL_0189#0;conditional-branch|303|0|1;conditional-branch|308|0|1;conditional-branch|313|0|0;conditional-branch|318|0|1;branch|327|0|0;conditional-branch|332|0|0;conditional-branch|337|0|1;branch|346|0|0;conditional-branch|351|0|0|output@conditional-branch@source_IL_015F-\u003EIL_0177#0;conditional-branch|351|0|1;conditional-branch|359|0|1;branch|391|0|0;conditional-branch|398|0|0;conditional-branch|420|0|0;conditional-branch|427|0|1;branch|430|0|1;conditional-branch|437|0|1;branch|440|0|1;conditional-branch|448|0|0|output@conditional-branch@source_IL_01C0-\u003EIL_01F2#0;conditional-branch|448|0|1;conditional-branch|456|0|1;conditional-branch|470|0|0;conditional-branch|535|0|0;branch|545|0|0;conditional-branch|569|0|0;conditional-branch|585|0|0;conditional-branch|590|0|0|output@conditional-branch@source_IL_024E-\u003EIL_0266#0;conditional-branch|590|0|1;conditional-branch|598|0|1;conditional-branch|638|0|0",
@@ -1412475,7 +1412457,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "System.CommandLine!System.CommandLine.Help.HelpAction::.ctor#0"
@@ -1424544,25 +1424526,25 @@
   ],
   "metrics": {
     "totalMethods": 89065,
-    "fullyRaisedMethods": 78942,
-    "fullyRaisedBasisPoints": 8863,
+    "fullyRaisedMethods": 78952,
+    "fullyRaisedBasisPoints": 8865,
     "conditionalBranchMethods": 2535,
     "conditionalBranchBasisPoints": 285,
     "forwardMergeStoppedContainers": 2137,
     "forwardMergeBasisPoints": 240,
     "fullMalformedMethods": 1,
-    "semanticCheckedMethods": 25348,
+    "semanticCheckedMethods": 25354,
     "semanticDefectMethods": 217,
     "passBugs": 8,
     "residualBuckets": {
       "eh: leave/endfinally": 19,
       "fidelity: DEC0006": 2,
-      "fidelity: DEC0009": 7160,
+      "fidelity: DEC0009": 7137,
       "fidelity: DEC0010": 13,
       "fidelity: DEC0013": 17,
       "fidelity: DEC0014": 12,
       "fidelity: unspellable C# type name \u0027__PrivateImplementationDetails_\u0027": 28,
-      "fidelity: unsupported-node": 242,
+      "fidelity: unsupported-node": 255,
       "structuring: conditional-branch": 2535,
       "structuring: switch-branch": 53,
       "structuring: unconditional-branch": 38
@@ -1424586,24 +1424568,24 @@
     "fidelity": {
       "contractVersion": 5,
       "checkedMethods": 682,
-      "exactMethods": 415,
-      "opcodeDiffMethods": 68,
+      "exactMethods": 434,
+      "opcodeDiffMethods": 65,
       "operandDiffMethods": 6,
       "fidelityUnavailableMethods": 0,
-      "recompileFailMethods": 190,
+      "recompileFailMethods": 174,
       "contextFailMethods": 0,
       "notFullMethods": 3,
       "returnToSenderCutover": {
         "selectedMethods": 682,
-        "nativeAvailableMethods": 489,
-        "nativeUnavailableMethods": 193,
+        "nativeAvailableMethods": 505,
+        "nativeUnavailableMethods": 177,
         "legacyAvailableMethods": 503,
         "legacyUnavailableMethods": 179,
-        "exactLossMethods": 54,
-        "availabilityLossMethods": 55,
-        "exactGainMethods": 41,
-        "availabilityGainMethods": 41,
-        "sameStatusMethods": 570,
+        "exactLossMethods": 37,
+        "availabilityLossMethods": 42,
+        "exactGainMethods": 43,
+        "availabilityGainMethods": 44,
+        "sameStatusMethods": 587,
         "compileBackFloorAppliedMethods": 0
       }
     }
@@ -1424613,7 +1424595,7 @@
   "featureCoverage": {},
   "classicStateMachineCoverage": null,
   "runIdentity": {
-    "sourceRevision": "c33a1c2721d86298023edc52cbc08d0f7d6bb1a7",
+    "sourceRevision": "59668b0bc5127e0ac085950d67be76b7bca27c42",
     "sourceState": "clean",
     "compiler": "Microsoft.CodeAnalysis.CSharp, Version=5.9.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35",
     "runtime": ".NET 11.0.0-rc.1.26425.128",

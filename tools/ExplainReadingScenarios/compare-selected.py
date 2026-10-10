@@ -86,6 +86,7 @@ assert any("1..1024 UTF-16" in rule for rule in operand)
 assert any("ordinal substring" in rule for rule in operand)
 assert any("--tfm TFM, not --where" in rule for rule in host)
 assert any("--json" in rule for rule in host)
+assert any("--take N" in rule for rule in host)
 report["registered_input_rules"] = {"operand_rules": len(operand), "host_rules": len(host),
                                     "equal_across_projections": True}
 prepared_direct = jq(direct, HERE / "query-preparation.jq", key="library-literal")
@@ -95,6 +96,64 @@ assert prepared_hal["data_scope"]["completeness"] == "Complete"
 (args.output / "query-preparation.json").write_text(json.dumps(prepared_hal, indent=2) + "\n")
 report["query_preparation"] = {"equal_across_projections": True, "scope_retained": True,
     "answer_bytes_including_newline": len(json.dumps(prepared_hal, separators=(",", ":"), ensure_ascii=False).encode()) + 1}
+
+# A transitive query needs both prerequisites and their operand rules locally.
+transitive = {}
+transitive_sizes = {}
+for mode in ["data", "hal"]:
+    result = subprocess.run([str(args.cli.resolve()), "explain",
+                             "package-query/query/facets/depends-transitive", "." + mode, "--json"],
+                            text=True, capture_output=True, check=True)
+    transitive[mode] = json.loads(result.stdout)
+    transitive_sizes[mode] = len(result.stdout.encode())
+    (args.output / f"selected-transitive-{mode}.json").write_text(
+        json.dumps(transitive[mode], indent=2, ensure_ascii=False) + "\n")
+prepared_transitive = {mode: jq(value, HERE / "query-preparation.jq", key="depends-transitive")
+                       for mode, value in transitive.items()}
+assert prepared_transitive["data"] == prepared_transitive["hal"]
+answer = prepared_transitive["hal"]
+assert answer["data_scope"]["completeness"] == "Complete"
+assert answer["facet"]["requires"] == ["dependency-target", "dependency-depth"]
+context = {facet["key"]: facet for facet in answer["context"]}
+assert context["dependency-depth"]["values"] == ["2", "3", "4"]
+assert context["dependency-depth"]["requires"] == ["dependency-target"]
+assert not context["dependency-target"]["requires"]
+assert any("all is not accepted" in rule for rule in answer["facet"]["input_rules"])
+assert any("depends-ecosystem, or dependencies" in rule
+           for rule in context["dependency-target"]["input_rules"])
+assert all(set(binding["exposed_facets"]) == set(context) | {"depends-transitive"}
+           for binding in answer["bindings"])
+(args.output / "transitive-preparation.json").write_text(json.dumps(answer, indent=2) + "\n")
+report["transitive_preparation"] = {"bytes_including_newline": transitive_sizes,
+    "answer_bytes_including_newline": len(json.dumps(answer, separators=(",", ":"), ensure_ascii=False).encode()) + 1,
+    "equal_across_projections": True, "locally_resolved_prerequisites": len(context)}
+all_hrefs.update(hrefs(transitive["hal"]))
+
+# Depth supports exact depends or the legacy spelling, so it cannot require both.
+depth = {}
+depth_sizes = {}
+for mode in ["data", "hal"]:
+    result = subprocess.run([str(args.cli.resolve()), "explain",
+                             "package-query/query/facets/dependency-depth", "." + mode, "--json"],
+                            text=True, capture_output=True, check=True)
+    depth[mode] = json.loads(result.stdout)
+    depth_sizes[mode] = len(result.stdout.encode())
+    (args.output / f"selected-depth-{mode}.json").write_text(
+        json.dumps(depth[mode], indent=2, ensure_ascii=False) + "\n")
+prepared_depth = {mode: jq(value, HERE / "query-preparation.jq", key="dependency-depth")
+                  for mode, value in depth.items()}
+assert prepared_depth["data"] == prepared_depth["hal"]
+answer = prepared_depth["hal"]
+assert answer["facet"]["requires"] == ["dependency-target"]
+assert answer["facet"]["values"] == ["2", "3", "4"]
+assert any("exact depends (eq) or legacy depends-transitive" in rule
+           for rule in answer["facet"]["input_rules"])
+assert [facet["key"] for facet in answer["context"]] == ["dependency-target"]
+(args.output / "depth-preparation.json").write_text(json.dumps(answer, indent=2) + "\n")
+report["depth_preparation"] = {"bytes_including_newline": depth_sizes,
+    "answer_bytes_including_newline": len(json.dumps(answer, separators=(",", ":"), ensure_ascii=False).encode()) + 1,
+    "equal_across_projections": True, "locally_resolved_prerequisites": 1}
+all_hrefs.update(hrefs(depth["hal"]))
 
 
 # A HAL-aware client can follow these without understanding our facet/vocabulary layout.

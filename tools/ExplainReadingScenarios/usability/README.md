@@ -102,12 +102,15 @@ jq -c --arg key library-literal \
   -f tools/ExplainReadingScenarios/query-preparation.jq /tmp/query-hal.json
 ```
 
-The same filter accepts the direct `.data` document. The current checked
-[planning answer](../examples/selected/query-preparation.json) is 1,430 bytes
-when minified with its newline. It retains `data_scope`, including `Complete`,
-and compares equal across both layouts. This is a deterministic worked query,
+The same filter accepts the direct `.data` document. The checked
+[planning answer](../examples/selected/query-preparation.json) was 1,430 bytes
+when minified with its newline at trial capture. It retains `data_scope`,
+including `Complete`, and compares equal across both layouts. This is a deterministic worked query,
 not the content consumption observed in the agent trials. The final literal
-HAL resource is 3,188 bytes; the whole query-space HAL resource is 16,149 bytes.
+HAL resource was 3,188 bytes; the whole query-space HAL resource was 16,149 bytes
+at the trial capture. The regenerated planning answer now includes context
+operand rules and the `--take` host gesture; its current sizes are recorded in
+the [transitive preparation demo](../README.md#worked-transitive-preparation).
 
 The current query skill now includes the explain/HAL bootstrap. The recorded
 trials used the earlier skill and standalone bootstraps; they are not measurements

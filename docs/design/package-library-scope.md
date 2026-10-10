@@ -68,6 +68,59 @@ selection and role realization retain ownership of correspondence, role
 preference, implementation overlays, reference-only participants, and
 implementation-only participants.
 
+### Library probes
+
+A Library probe is how an exact-scope operation obtains its one Library
+occurrence: an exact asset-path request, the Namesake Library or
+[First Library](inspection-subject-navigation.md#initial-aggregate-and-package)
+request, or the bare rule that a population with one Library selects it.
+Navigation owns the namesake and First Library matching rules, and the bare
+rule follows the
+[Library subject resolution](primary-subject-views.md#library-owner-library-inspection-documents-and-populations)
+item of Primary subject views; this owner fixes only the population they run
+over.
+
+The operation declares one asset role, and that role's owner issues exactly
+one role population before any probe runs, for example the selected compile
+projection issued by
+[compile selection](package-asset-selection-correspondence.md#authority-and-exact-claim).
+The probe runs only inside that population. It never searches a second
+population, never merges roles, target slices, or RIDs, and never enumerates
+archive paths; members that the issuing owner already qualifies by RID, such as
+nested assets of a tool-Library population, remain ordinary members. When the
+role owner cannot issue one population, the request returns that owner's typed
+non-success before any probe runs. A probe's non-success names the population it
+searched, for example `No namesake library found in lib/net10.0/`, in addition
+to the ordered candidates and participant evidence that Navigation requires.
+
+Which roles a probe may declare beyond the compile projection, how a package
+with no compile Library but RID-specific implementation assets selects its
+role, target, and RID, and whether framework-less `lib/` assets form a compile
+slice belong to Navigation, `PackageAssetSelector`, and compile selection.
+[#9833](https://github.com/richlander/dotnet-inspect/issues/9833) carries
+those decisions.
+
+A survey of the 500 most downloaded nuget.org packages at their latest stable
+versions, under #9833, informs them:
+
+- 341 carry `lib/` Libraries without `ref/` or `runtimes/<rid>/lib/`, 6 carry
+  `ref/` plus `lib/`, and 3 targeting packs carry only `ref/`.
+- 15 also carry `runtimes/<rid>/lib/`. Every RID framework also has a
+  same-framework `lib/` slice, and every RID asset except the
+  implementation-only `System.Diagnostics.EventLog.Messages.dll` has a
+  same-file `lib/` counterpart.
+- 4, all runtime packs, carry managed Libraries only under one
+  `runtimes/<rid>/lib/`.
+- 3 carry only framework-less root `lib/*.dll`: WebGrease, Antlr, and
+  EO.WebBrowser.
+- The rest carry no Library assembly: 53 with no DLLs or native assets, 48
+  only satellite resource assemblies, 10 only native assets, 8 only tool
+  payloads, 5 only analyzers, and 4 only `build/` or `tasks/` DLLs.
+
+Several namesakes in one population can therefore arise only from distinct
+assets in that population that carry the same assembly simple name, such as
+nested or renamed copies.
+
 ## Scope classification
 
 ### Aggregate scope
@@ -286,6 +339,21 @@ may cover population Count, while a bounded row request retains a direct
 population Count. CLI and Browser/Wasm consume the same Package-owned planning
 strategy and identity-row provision; hosts do not infer one provision from
 another.
+
+CLI `library --package` and its namesake request do not yet adopt Library
+probes. When compile selection returns `NoCompileAssets`, and under
+`--tfm all`, the CLI's package Library routes search the extracted archive
+through `TfmSelector` instead of consuming a role population; #9833 records
+each route. Observed results
+include a runtime pack yielding its implementation assemblies, an analyzer
+package its analyzers, a framework-less root `lib/` package its root
+assemblies, and a satellite-only package its satellite resource assemblies.
+`--tfm all` also merges frameworks and roles and ignores explicit empty
+groups. Without `--tfm all`, a selected explicit empty compile group fails
+before the search and reports the group's own folder spelling, such as
+`netstandard`. #9833 records the search's exact rules and decides both paths
+after the root `lib/` and RID-implementation decisions above, and Browser
+adoption of Library probes is not yet recorded.
 
 Later SourceLink and relationship adoptions remain separately scoped. Existing
 aggregate behavior is evidence, not an automatic conformance claim.

@@ -80,9 +80,29 @@ are one-based coordinates in that method's rendered C# body, not an original
 source file or IL instruction. Drill down by selecting `Body Shapes` with its
 member/token/extent columns; do not manufacture an IL offset from a text range.
 
-Both views report the observed matches, preserve partial-search diagnostics,
-and retain the existing explicit empty state. A failed inspection must not
-become a zero-count summary. Structural and query discovery describe both
+**Search completeness.** Body Shapes searches only bodies the decompiler
+reconstructs at Full fidelity. A body below Full fidelity, or one the
+decompiler cannot import or render, contributes no rows, because its rendered
+extents do not describe the authored body. It still leaves the search
+**incomplete**: nothing proves it lacks the selected Kind, and the skipped set
+does not depend on the Kind.
+
+Rows and Count are two views of the same observed result, and incompleteness
+applies to both the same way:
+
+- Each renders what was observed. `--count` equals the rows that would render.
+- Each discloses the skipped bodies on stderr: their number by default, and
+  each member with its reason under `--verbose`.
+- Each exits nonzero, as other incomplete inspections do.
+
+Summary Count values are observed counts under the same disclosure. An
+incomplete search with no observed rows is not the explicit empty state: it
+reports zero observed matches as incomplete, never "no matches". A complete
+search keeps the explicit empty state. A search that stops after a row
+selection's required prefix is incomplete only when it skipped a body before
+stopping. A failed inspection must not become a zero-count summary.
+
+Structural and query discovery describe both
 sections without running the producer; effective discovery uses the same
 Kind requirement and evidence as occurrence output.
 
@@ -118,6 +138,12 @@ and `SummaryCount_CountsSurvivingGroupsNotOccurrences` gate the row unit.
 `TypeSummary_AppliesMemberFilterBeforeGrouping` and
 `LibrarySummary_FiltersMethodsBeforeGrouping` gate scope.
 `FailedSearch_IsNotASuccessfulEmptySummary` gates failed-result propagation.
+`IncompleteSearch_RowsAndCountReportObservedRowsAndExitNonzero`,
+`IncompleteEmptySearch_IsNotTheExplicitEmptyState`,
+`CompleteEmptySearch_KeepsTheExplicitEmptyState`, and
+`IncompleteTypeSearch_ReportsObservedRowsAndExitsNonzero` gate search
+completeness on a fixture whose classic state machines stay below Full
+fidelity.
 The same classes cover predicate authorization, empty output, discovery, and
 native JSON/JSONL behavior. Existing Body Shapes tests continue to cover the
 occurrence producer, location columns, and visible partial-search behavior.

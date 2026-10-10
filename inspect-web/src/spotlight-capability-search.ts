@@ -40,7 +40,11 @@ export function visibleSpotlightCapabilityResults(
 ): readonly BrowserCapabilityCatalogSearchResult[] {
   return state.status === "ready" && state.query === query
     ? state.inspection.content.results.filter(result =>
-        result.resourcePath !== "package-query/query/facets/depends-ecosystem")
+        result.resourcePath !== "package-query/query/facets/depends-ecosystem"
+        && result.resourcePath
+          !== "package-query/query/facets/depends-transitive"
+        && result.resourcePath
+          !== "package-query/query/facets/dependency-depth")
     : [];
 }
 

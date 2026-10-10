@@ -94,20 +94,48 @@ packages.
 ### Navigation cues
 
 Outside Library Compare, the Type navigation marks each Type that the
-last-patch baseline reports with an axis `Changed` or `Indeterminate`:
-**API differences** when the API axis is not `Unchanged`, otherwise
-**implementation differences**. Both glyphs sit between comparison chevrons:
-a lollipop, the provided-interface mark, for API, and `IL` for
-implementation. Library Compare's API cue uses the same lollipop glyph. The
-cue names the baseline version, and an `Indeterminate` axis is described as
-undecided rather than changed. Inside
+last-patch baseline reports with an axis `Changed` or `Indeterminate`. The
+cue names the baseline version and each reported axis, and an
+`Indeterminate` axis is described as undecided rather than changed. Inside
 Library Compare, cues come from the Compare result for the user's target, as
 before.
+
+Change glyphs have two levels: a Type's glyph says that something changed,
+and a Member's glyph says what changed. Every Type cue, inside or outside
+Library Compare, is the change glyph, two opposing arrows, whichever axes are
+reported. A Member cue places a specific glyph between comparison chevrons: a
+lollipop, the provided-interface mark, for API, and `IL` for implementation.
+A Member with both API and implementation differences shows the change glyph.
 
 A cue appears on a Type only when the navigation lists it, so a change
 confined to internal Types is visible under the internal or all accessibility
 filter, not the default public one. A failed baseline is visible in the Type
 navigation status with a retry; a loading baseline shows nothing.
+
+### Member cues and the Type on screen
+
+Every Type cue leads to a view. When the selected Type has a cue, the Members
+header names the change and opens Library Compare against the same baseline:
+**Compare API** for an API cue, **Compare bodies** (Member Body Diff) for an
+implementation cue, and both when both axes are reported.
+
+For an API cue, the queue runs the Type-surface Library API Diff with
+Compare's Type-subject analyses (`api` and `api-attribute`) as
+visible-subject work. That diff's value lists every changed Type in the
+Library, so the cue keeps only the selected Type's row, joined by definition
+identity. The member list and member navigation mark each Member that row
+reports changed with the API Member glyph. The header adds one finding from the row:
+
+- when the row reports a declaration change and no changed Member, the change
+  is in the Type's declaration;
+- when the diff has no row for the Type, the complete API diff shows no change
+  for it, which happens when Fast Diff over-reports or leaves the API axis
+  undecided; and
+- when the diff fails, the failure, with a retry.
+
+Implementation cues are not placed on Members until Fast Diff has per-Member
+states ([Fast Diff adoption](fast-diff.md#adoption) step 7); until then the
+Members header's Compare bodies action is their view.
 
 ## Gates
 
@@ -117,16 +145,20 @@ navigation status with a retry; a loading baseline shows nothing.
   axis state, and failure status.
 - `engine-worker-ordinary.test.ts`: a background binding does not count as
   Worker activity.
+- `type-api-diff-cues.test.ts`: the one-Type API Diff request, held member
+  presence, visible failure, and the Members header line for each cue state.
 
 ## Adoption
 
-1. **Queue and Fast Diff last-patch baseline** (this slice): the queue, the
+1. **Queue and Fast Diff last-patch baseline** (#9817): the queue, the
    background binding, and the navigation cues.
-2. **Library Compare lists and last-major baseline:** with
+2. **Member cues for the Type on screen** (#9826): the first
+   visible-subject task and the Members header's Compare actions.
+3. **Library Compare lists and last-major baseline:** with
    [Fast Diff adoption step 5](fast-diff.md#adoption).
-3. **Type heat and method leverage:** move their pumps onto the queue's
+4. **Type heat and method leverage:** move their pumps onto the queue's
    visible-subject class and retire their own pumps.
-4. **Library rankings:** structural salience and top leverage, after their
+5. **Library rankings:** structural salience and top leverage, after their
    caching in [#9793](https://github.com/richlander/dotnet-inspect/issues/9793).
 
 ## Non-claims

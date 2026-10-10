@@ -282,15 +282,23 @@ either:
   stored to a slot whose every load testifies nominal `System.Object`: the
   slot-target binding pass issues the one reference-conversion witness C#
   needs on the left operand (`(object)left ?? right`), after which the
-  coalesce carries the `object` assignment type the first bullet accepts.
+  coalesce carries the `object` assignment type the first bullet accepts; or
+- materialization has declined a coalesce with no assignment type of its own
+  under both the outside-domain and unrenderable-store gates, every load
+  testifies one named reference target, and each operand is already that type
+  or has an exact importer-issued widening to it: the same pass issues
+  `(Target)left ?? right` and binds the coalesce to that target. A web
+  materialization already accepts receives no extra witness.
 
 This combines the already bounded coalesce assignment decision with the
 ordinary C# reference-to-`object` conversion. It does not infer a class or
-interface hierarchy, array covariance, boxing, user-defined conversions,
-pointers, or unknown reference shapes. The existing null-literal and
-conditional-arm cases remain members of the same accepted-target relation.
-Storage spellability, one-type testimony, pending-swap, scope, and copy-component
-gates remain unchanged.
+interface hierarchy at this late boundary: named-target admission consumes
+only the importer's exact widening facts recorded while metadata was live. It
+does not add array covariance, boxing, user-defined conversions, pointers, or
+unknown reference shapes. The existing null-literal and conditional-arm cases
+remain members of the same accepted-target relation. Storage spellability,
+one-type testimony, pending-swap, scope, and copy-component gates remain
+unchanged.
 
 The printer no longer accepts coalesces or reference-to-`object` widening while
 choosing a residual stack-slot declaration. A separate one-way
@@ -334,6 +342,30 @@ A supplemental full 42,120-method product-render hash comparison reports only
 `UsingStatementBinder.<BindUsingStatementOrDeclarationFromParts>g__bindDisposable|6_0`;
 both changes move an existing `object` declaration to its materialized-local
 position without changing statements.
+
+The named-target extension is motivated by Newtonsoft.Json 13.0.4
+`JsonSerializer.PopulateInternal` and Microsoft.CodeAnalysis.CSharp 5.0.0
+`CSharpOperationFactory.CreateVariableDeclarator`. Both spill a coalesce whose
+natural type is its narrower left operand, then consume the carrier through
+one wider named reference type. Without the witness, residual splitting emits
+an assigned narrow local and reads a different unassigned wide local.
+`ImporterProvenReferenceCoalesceAtNamedCarrierReceivesTheLeftWitness` gates
+the positive proof, while `NamedCarrierCoalesceRequiresEveryImporterWidening`
+gates the missing-fact decline and
+`AlreadyMaterializableNamedCoalesceReceivesNoWitness` excludes webs that do
+not need this repair. The two real-package tests pin product output for the
+Newtonsoft and Roslyn shapes.
+
+On the fixed 14-assembly, 89,065-method corpus at base `0095a65ed`, exactly
+19 split webs in 18 methods satisfy the named-target proof. Residual-bound
+webs fall from 80 to 61, residual-bound locals from 144 to 104, affected
+methods from 53 to 35, and split webs from 49 to 30. The complete
+`OutsideCoercionDomain, UnrenderableStoreType` split group falls from 19 webs
+and 40 locals to zero; every other residual group and the same four known pass
+bugs remain unchanged. Exact `reference-slot-target-binding` impact grows from
+4 to 22 of 89,065 methods, with the 18 candidate-only methods exactly matching
+the retired population. The five non-reference `UnrenderableStoreType` split
+webs remain outside this claim.
 
 ### Join target testimony
 
