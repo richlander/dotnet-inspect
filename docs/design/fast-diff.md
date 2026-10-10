@@ -66,10 +66,16 @@ not, as `--all` would:
 An opcode that ECMA-335 does not define cannot be stepped over safely, so it
 makes the Body axis `Indeterminate` rather than comparing as equal.
 
-Neither axis's facts are configurable. A caller can ask for the API axis
-alone; every Body state is then `NotCompared` and no IL is read. A public member present on one side only is an
-API fact; its body is not compared. A Type public on either side partitions
-its facts as public on both, so a visibility change is an API fact only.
+Neither axis's facts are configurable. A caller can ask for the API axis alone;
+every Body state is then `NotCompared` and no IL is read. A public member
+present on one side only is an API fact; its body is not compared. A Type public
+on either side partitions its facts as public on both, so a visibility change is
+an API fact only.
+
+A Type present in one image only is reported whole by a presence rule: its API
+is `Changed` when it is visible and `Unchanged` otherwise, and its Body is
+`Changed`, or `NotCompared` when only the API axis is asked for. A malformed
+one-sided Type is `Indeterminate` on each axis compared.
 
 ### Steps
 
@@ -303,15 +309,27 @@ first difference.
 
 ### Type
 
-> **Claim.** For one Type in one Library image pair, the Type level returns,
-> for every Member declared on either side, an **API** state and a **Body**
-> state, and one **residual** state per axis for the Type's facts that belong
-> to no single Member. The Member states and the residual partition the
-> Type's facts, so a Type axis is `Unchanged` at the Library level exactly
-> when that axis is `Unchanged` for every Member and for the residual.
+> **Claim.** For one Type present in both images of one Library image pair,
+> the Type level returns, for every Member declared on either side, an
+> **API** state and a **Body** state, and one **residual** state per axis for
+> the Type's facts that belong to no single Member. The Member states and the
+> residual partition the Type's facts, so a Type axis is `Unchanged` at the
+> Library level exactly when that axis is `Unchanged` for every Member and for
+> the residual.
+
+A Type present in one image only has no counterpart to compare Members
+against. The Library level reports it whole, as its
+[presence rule](#axes) states, and the Type level is not run for it: the
+Type itself was added or removed, so it has no per-Member rows. A version
+window compares each adjacent pair this way, so a Type added partway through
+the window has Member rows only for the pairs that contain it on both sides
+([#9920](https://github.com/richlander/dotnet-inspect/issues/9920)).
 
 The partition is defined by ownership of the Library level's own census
-facts, not by a separate list, so the two levels cannot disagree:
+facts, not by a separate list, so the two levels cannot disagree. Every fact
+carries the key of the row it describes as a nested
+[`SymbolKey`](#identity) part, so the row a fact describes is read from the
+fact's structure, never from its spelling:
 
 1. **Every census fact has one owner.** A fact belongs to the Member whose
    declaration row it describes: the method, field, property, or event row,
@@ -387,7 +405,9 @@ public property with a private setter, a public Type made internal, an enum
 underlying-type change, a
 `[field:]` attribute on a field-like event, an attribute added to an internal
 method, a base Type change on an internal Type, and a nested Type whose
-inherited nullable context changed; every Member the complete Public API diff
+inherited nullable context changed; a Type present in one image only is
+reported whole by the Library level and has no Type-level rows; every Member
+the complete Public API diff
 reports changed is not API `Unchanged`; and every owner of a body that
 canonical IL comparison reports changed is Body `Changed` or `Indeterminate`,
 or the change is a residual Body change. `eng/measure-fast-diff.cs` reports
