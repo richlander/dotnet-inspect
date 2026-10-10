@@ -66,6 +66,18 @@ public sealed class FastDiffIdentityTests
     }
 
     [Fact]
+    public void FunctionPointerReturnAndPointerToFunctionPointer_AreDistinct()
+    {
+        // M(delegate*<void*>) and M(delegate*<void>*) are different public
+        // signatures.
+        FastDiffResult result = Compare(
+            [new("N", "C", null, ReturnOne, Parameter: FunctionPointerToVoidPointer)],
+            [new("N", "C", null, ReturnOne, Parameter: PointerToFunctionPointer)]);
+
+        Assert.Equal(FastDiffState.Changed, Single(result, "N.C").Api);
+    }
+
+    [Fact]
     public void DuplicateGeneratedTypeNames_AreIndeterminate()
     {
         // Two nested <>c rows spell one key, so neither lambda body can be
@@ -118,6 +130,8 @@ public sealed class FastDiffIdentityTests
     }
 
     const int Int32Primitive = -1;
+    const int FunctionPointerToVoidPointer = -2;
+    const int PointerToFunctionPointer = -3;
 
     static FastDiffTypeState Single(FastDiffResult result, string fullName)
         => Assert.Single(result.Types, type => type.FullName == fullName);
@@ -125,7 +139,8 @@ public sealed class FastDiffIdentityTests
     /// <summary>
     /// One Type declaration: a namespace, a name, the index of its declaring
     /// Type, and the IL of each of its public static void methods, which take
-    /// no parameter, an <c>int</c>, or an instance of an earlier Type.
+    /// no parameter, an <c>int</c>, a function pointer, or an instance of an
+    /// earlier Type.
     /// </summary>
     sealed record TypeSpec(
         string? Namespace,
@@ -214,6 +229,10 @@ public sealed class FastDiffIdentityTests
                             SignatureTypeEncoder encoder = parameters.AddParameter().Type();
                             if (parameter == Int32Primitive)
                                 encoder.Int32();
+                            else if (parameter == FunctionPointerToVoidPointer)
+                                encoder.FunctionPointer().Parameters(0, r => r.Type().VoidPointer(), _ => { });
+                            else if (parameter == PointerToFunctionPointer)
+                                encoder.Pointer().FunctionPointer().Parameters(0, r => r.Void(), _ => { });
                             else
                                 encoder.Type(handles[parameter], isValueType: false);
                         });

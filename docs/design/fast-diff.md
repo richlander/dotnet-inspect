@@ -96,7 +96,9 @@ Type `B` nested in `A`, a Type `A.B` in namespace `N`, and a Type `B` in
 namespace `N.A` never share a key, and neither do member names that contain
 `::` or signature punctuation. A primitive Type is spelled with a leading
 `#`, which every name escapes, so `int` and a global Type named `Int32` stay
-distinct. Two Type rows, or two method rows of one Type and its generated
+distinct. Every signature key closes its return Type, so a pointer, byref, or
+modifier suffix and a method instantiation's arguments cannot be read as part
+of it: `delegate*<void*>` and `delegate*<void>*` are distinct. Two Type rows, or two method rows of one Type and its generated
 code, that still spell one key, which valid metadata does not allow, are
 `Indeterminate` rather than one replacing the other.
 
@@ -172,7 +174,8 @@ generated image pairs compared whole and stepped: a nested Type's body
 change beside a top-level Type whose name spells the same path, a namespace
 and a dotted Type name that display alike, a caller switching between two
 callees whose unescaped keys collide, a primitive and a global Type of one
-name, duplicate Type names and duplicate generated Type names, and undefined
+name, a function pointer returning a pointer and a pointer to a function
+pointer, duplicate Type names and duplicate generated Type names, and undefined
 one-byte and two-byte opcodes.
 
 Stepping and the API axis are gated by outcome: a comparison stepped at

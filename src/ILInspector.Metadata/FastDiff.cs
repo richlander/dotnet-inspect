@@ -916,7 +916,7 @@ public static class FastDiff
         {
             Guard(property.Signature, SignatureBlobGuard.Kind.Property);
             MethodSignature<string> signature = property.DecodeSignature(_signatures, null);
-            return $"{signature.Header.IsInstance}({string.Join(",", signature.ParameterTypes)}){signature.ReturnType}";
+            return $"{signature.Header.IsInstance}({string.Join(",", signature.ParameterTypes)})[{signature.ReturnType}]";
         }
 
         /// <summary>
@@ -1057,7 +1057,7 @@ public static class FastDiff
             MethodSignature<string> signature = method.DecodeSignature(_signatures, null);
             return $"{TypeKey(method.GetDeclaringType())}::{KeyName(method.Name)}"
                 + $"`{signature.GenericParameterCount}#{signature.Header.RawValue}"
-                + $"({string.Join(",", signature.ParameterTypes)}){signature.ReturnType}";
+                + $"({string.Join(",", signature.ParameterTypes)})[{signature.ReturnType}]";
         }
 
         string FieldKey(FieldDefinitionHandle handle)
@@ -1080,7 +1080,7 @@ public static class FastDiff
             Guard(member.Signature, SignatureBlobGuard.Kind.Method);
             MethodSignature<string> signature = member.DecodeMethodSignature(_signatures, null);
             return $"{parent}::{KeyName(member.Name)}`{signature.GenericParameterCount}#{signature.Header.RawValue}"
-                + $"({string.Join(",", signature.ParameterTypes)}){signature.ReturnType}";
+                + $"({string.Join(",", signature.ParameterTypes)})[{signature.ReturnType}]";
         }
 
         string MethodSpecificationKey(MethodSpecificationHandle handle)
@@ -1101,7 +1101,7 @@ public static class FastDiff
             }
             Guard(signature.Signature, SignatureBlobGuard.Kind.StandaloneMethod);
             MethodSignature<string> method = signature.DecodeMethodSignature(_signatures, null);
-            return $"S{(int)method.Header.CallingConvention}({string.Join(",", method.ParameterTypes)}){method.ReturnType}";
+            return $"S{(int)method.Header.CallingConvention}({string.Join(",", method.ParameterTypes)})[{method.ReturnType}]";
         }
     }
 
@@ -1111,7 +1111,7 @@ public static class FastDiff
             => $"{elementType}[{shape.Rank}:{string.Join(",", shape.Sizes)}:{string.Join(",", shape.LowerBounds)}]";
         public string GetByReferenceType(string elementType) => elementType + "&";
         public string GetFunctionPointerType(MethodSignature<string> signature)
-            => $"fnptr{(int)signature.Header.CallingConvention}({string.Join(",", signature.ParameterTypes)}){signature.ReturnType}";
+            => $"#fnptr{(int)signature.Header.CallingConvention}({string.Join(",", signature.ParameterTypes)})[{signature.ReturnType}]";
         public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
             => genericType + "<" + string.Join(",", typeArguments) + ">";
         public string GetGenericMethodParameter(object? genericContext, int index) => "!!" + index;
