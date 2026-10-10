@@ -214,6 +214,7 @@ test("member filters compose locally after managed accessibility selection", () 
   assert.ok(staticGroup);
   assert.equal(staticGroup.overloads.length, 1);
   assert.equal(staticGroup.sourceOverloadCount, 2);
+  assert.equal(staticGroup.visibleOverloadCount, 1);
   assert.equal(memberGroupVisibleCount(staticGroup), 1);
   assert.match(staticGroup.overloads[0]?.signature ?? "", /static/);
 
@@ -228,6 +229,7 @@ test("member filters compose locally after managed accessibility selection", () 
   assert.ok(instanceGroup);
   assert.equal(instanceGroup.overloads.length, 1);
   assert.equal(instanceGroup.sourceOverloadCount, 2);
+  assert.equal(instanceGroup.visibleOverloadCount, 1);
   assert.equal(memberGroupVisibleCount(instanceGroup), 1);
   assert.doesNotMatch(instanceGroup.overloads[0]?.signature ?? "", /static/);
 });
@@ -321,9 +323,14 @@ test("compact group traits filter names and exact counts before declarations loa
     filterMemberGroups(pending, { trait: "virtual", query: "form" });
   assert.deepEqual(
     virtualGroups
-      .map(group => [group.key, group.sourceOverloadCount]),
-    [["method:Format", 1]]);
+      .map(group => [
+        group.key,
+        group.sourceOverloadCount,
+        group.visibleOverloadCount,
+      ]),
+    [["method:Format", 3, 1]]);
   assert.equal(memberGroupVisibleCount(virtualGroups[0]!), 1);
+  assert.equal(memberGroupUsesFamilySurface(virtualGroups[0]!), true);
   assert.deepEqual(
     filterMemberGroups(pending, { trait: "interface" }), []);
   assert.deepEqual(

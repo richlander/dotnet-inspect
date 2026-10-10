@@ -50,6 +50,7 @@ type FilteredMemberGroup<TGroup extends FilterableMemberGroup> =
   Omit<TGroup, "overloads"> & {
     overloads: Array<TGroup["overloads"][number]>;
     sourceOverloadCount: number;
+    visibleOverloadCount: number;
   };
 
 export function memberGroupMatches(
@@ -118,7 +119,9 @@ export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
         ? [{
             ...group,
             overloads,
-            sourceOverloadCount: count,
+            sourceOverloadCount:
+              group.sourceOverloadCount ?? group.overloads.length,
+            visibleOverloadCount: count,
           }]
         : [];
     }
@@ -134,9 +137,9 @@ export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
     return [{
       ...group,
       overloads,
-      sourceOverloadCount: group.detailsPending
-        ? count
-        : group.sourceOverloadCount ?? group.overloads.length,
+      sourceOverloadCount:
+        group.sourceOverloadCount ?? group.overloads.length,
+      visibleOverloadCount: group.detailsPending ? count : overloads.length,
     }];
   });
 }
@@ -237,11 +240,11 @@ export function memberKindCount(
 }
 
 export function memberGroupVisibleCount(
-  group: FilterableMemberGroup,
+  group: FilterableMemberGroup & { visibleOverloadCount?: number },
 ): number {
-  return group.detailsPending
+  return group.visibleOverloadCount ?? (group.detailsPending
     ? group.sourceOverloadCount ?? group.overloads.length
-    : group.overloads.length;
+    : group.overloads.length);
 }
 
 export interface MemberScopeState {
