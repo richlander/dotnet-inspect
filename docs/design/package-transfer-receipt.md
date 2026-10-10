@@ -176,7 +176,7 @@ serializer.
 | 2. Cached payload | path `Cache`; no requests | contract suite |
 | 3. Ranged read | path `Ranged`; the abandoned `SizeProbe`, a `DirectoryTail` request, then one `EntrySpan` per span, each with its requested range and bytes received | contract suite, real asset `PCLStorage` 1.0.2 |
 | 3a. A read the entry cache answers in full | path `EntryCache`; no requests | `PackageRangedRealizationTests.EntryCache_WarmReadOfTheSameSelection_MakesNoRequest` |
-| 3b. A read with a cached directory and a missing entry | path `Ranged`; no `SizeProbe`: a `DirectoryTail` request, then the missing entry's `EntrySpan` | `PackageRangedRealizationTests.EntryCache_WarmReadMissingAnEntry_ReadsOnlyThatEntry` |
+| 3b. A read with a cached directory and a missing entry | path `Ranged`; only the missing entry's `EntrySpan`, with no `SizeProbe` or `DirectoryTail` | `PackageRangedRealizationTests.EntryCache_WarmReadMissingAnEntry_ReadsOnlyThatEntry` |
 | 4. A server that ignores `Range` | path `RangedThenDownload` with reason `RangeIgnored`; the ignored request, then one `Complete` request | contract suite |
 | 5. A refused credential | no fallback request; the refused request is recorded | contract suite |
 | 6. The House acquisition receipt | its origin agrees with the transfer receipt's path | contract suite |

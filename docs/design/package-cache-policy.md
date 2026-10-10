@@ -235,23 +235,40 @@ the same rule as a changed archive below. The complete payload publishes to
 the authority-scoped store, which answers before the entry cache from then
 on, so the invalid item is never consulted again.
 
-When some are missing, the step makes an ordinary ranged read as the
-[range-access](package-archive-range-access.md#reading-the-directory) reader
-defines it: the tail read, which usually carries the whole directory, then
-the missing entries. The reader is unchanged; the entry cache adds no
-operation to it. The step then compares the fresh directory region and total
-length with the cached ones, byte for byte. It does not compare validators:
-nuget.org's unquoted `ETag` is not a usable validator (see
-[Host scope](#host-scope)), and any republish that changes an entry changes
-the directory's sizes, CRCs, or offsets. When they agree, it publishes the new
-entries beside the cached ones. When they differ, the archive changed, and
-the step takes the complete fetch, as range access means by
-`ArchiveChanged`: the complete payload answers the read with the full
-selection and publishes to the authority-scoped store, which answers before
-the entry cache from then on. Entry-cache items are never replaced. A warm
-read missing an entry therefore costs the tail round trip plus the entry
-requests; only a republished archive, which nuget.org never serves, costs a
-complete transfer.
+When some are missing, the step reopens the archive using its cached,
+validated directory and fetches only missing entries. Remote feeds are assumed
+immutable for an exact package ID/version on an authorized source (operator
+direction, Rich, 2026-10-09). Moving to another operation does not require
+revalidation: the cache already relies on the same assumption when every entry
+is present. Cached directory evidence remains bound to its authority-scoped
+store and exact coordinate. Neither a display name nor a bare coordinate
+permits reuse across sources.
+
+The range capability consumes the existing validated `ZipDirectory`, checks
+its region under the current bounds, and opens a fresh reader with the new
+operation context, deadline, cancellation and resolved credentials. The
+[range-access owner](package-archive-range-access.md#reopening-with-retained-directory-evidence)
+owns that mechanism. This policy retains no live reader or old operation lease
+and adds no directory cache. The existing entry store owns the retained bytes.
+
+Every newly fetched entry retains the existing HTTP response, local-header,
+expanded-size and CRC checks. A refused or invalid ranged read keeps its
+existing typed complete fallback. A changed total length is still refused;
+feed republishing is outside the immutable-feed contract and is not promised
+to be detected by a fresh directory comparison. Invalid cached directory or
+entry bytes remain visible and retain the existing cache-bypass policy.
+
+The motivating asset is `Newtonsoft.Json@13.0.4`, `net6.0`: the website Summary
+already retains its directory. Reopening for its exact Library currently costs
+another 65,557-byte tail before a 275,871-byte DLL span. Reuse removes that tail,
+so Summary plus Overview should cost four archive requests and 343,246 consumed
+body bytes instead of five and 408,803. API and Enablements retain the shared
+acquisition introduced under semantic content demand. The production adopter
+is the common Package acquisition step, so Browser/Wasm and CLI entry-cache
+reads receive the same behavior. Focused gates cover a missing cached entry,
+invalid cached data, authority isolation, new operation cancellation, and
+unchanged complete-download fallback. NativeAOT and browser comparisons retain
+full result parity for Avalonia, Avalonia.Base, Roslyn, Newtonsoft and Dapper.
 
 Because the directory is cached, a later read knows which of the entries its
 demand needs are cached and which are missing without a request. Ranged reads
@@ -356,10 +373,10 @@ All gates run in Release.
 | 3. Version-service priors for an HTTP authority | identity is still the endpoint | `PackageVersionServiceTests.Entry_RecordsTheSourceIdentityTheKeyUses` |
 | 4. Search of an archive under the cut, then a second invocation | first: one complete request, published durably; second: cache hit, no package request | `PackageRangedRealizationTests.SizeFirst_ArchiveAtOrUnderTheCut_IsAcquiredComplete`, then `RangedRealize_CachedPayloadAnswersWithoutTransfer` |
 | 5. Search of an archive over the cut, twice | first: one abandoned request, the ranged read, and the directory and entries published to the entry cache; second: no package request | `ConfiguredPayloadAcquisitionTests.SearchCommand_RangedRead_TransfersOnlyTheSelectedAssembly`, two invocations; `PackageRangedRealizationTests.EntryCache_WarmReadOfTheSameSelection_MakesNoRequest` |
-| 5a. A second query needing one more entry of the same archive | the tail request and one entry request; no abandoned request | `PackageRangedRealizationTests.EntryCache_WarmReadMissingAnEntry_ReadsOnlyThatEntry` |
+| 5a. A second query needing one more entry of the same immutable archive | one missing-entry request; no size probe or directory transfer | `PackageRangedRealizationTests.EntryCache_WarmReadMissingAnEntry_ReadsOnlyThatEntry` |
 | 5e. Entries named with `..`, a rooted path, and two names that differ only by case | each published inside the entry cache under its digest; all three read back to their own content | `PackageEntryStoreTests.EntryCache_HostileEntryNames_StayContainedAndDistinct` |
 | 5b. A cached entry whose bytes no longer match the cached directory, or a cached directory that cannot be read | one complete transfer answers the read; later reads are served from the complete store; the invalid item is left in place; a verbose diagnostic names it | `PackageRangedRealizationTests.EntryCache_InvalidItem_TakesTheCompleteFetch`, for an entry and for the directory |
-| 5c. The archive changed since the directory was cached | the fresh directory differs from the cached one; one complete transfer answers the read with the full selection and publishes to the complete store; later reads are served from the complete store; no entry-cache item is replaced | `PackageRangedRealizationTests.EntryCache_ChangedArchive_TakesTheCompleteFetch` |
+| 5c. A source violates immutability and returns a different archive length | the entry response is refused; complete fallback answers without publishing mixed cached entries | `PackageRangedRealizationTests.EntryCache_ChangedArchiveLength_TakesTheCompleteFetch` |
 | 5d. An authority without a persistent key | nothing published to the entry cache | `PackageEntryStoreTests.EntryCache_AuthorityWithoutPersistentKey_KeepsNothing` |
 | 6. No advertised length | complete acquisition | `PackageRangedRealizationTests.SizeFirst_NoAdvertisedLength_IsAcquiredComplete` |
 | 7. A consumer other than the search Root | `package ID@VERSION` from a credential-free HTTP feed, twice: the second is a cache hit | `ConfiguredPayloadAcquisitionTests.ExtractPinnedPackage_CredentialFreeHttpPinIsDurable` |

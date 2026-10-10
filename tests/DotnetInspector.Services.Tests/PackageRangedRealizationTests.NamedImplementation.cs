@@ -208,8 +208,8 @@ public sealed partial class PackageRangedRealizationTests
                 compile.Selection.ImplementationAssets.Select(asset => asset.Path));
         }
 
-        // Another block: the cached directory spares the probe, the tail
-        // confirms the archive, and the one block is one request.
+        // Another block: the immutable cached directory spares both the probe
+        // and the tail; the one missing block is one request.
         IReadOnlyList<string> baseBlock = oracle.BlockOf(
             AvaloniaImplementation + "Avalonia.Base.dll",
             PackageRangedRead.DefaultSizeCut);
@@ -220,9 +220,9 @@ public sealed partial class PackageRangedRealizationTests
             await RealizeAvaloniaAsync(again, store, "Avalonia.Base.dll"),
             PackagePayloadOrigin.Ranged);
         Assert.Equal(
-            [PackageTransferRequestPurpose.DirectoryTail, PackageTransferRequestPurpose.EntrySpan],
+            [PackageTransferRequestPurpose.EntrySpan],
             other.Requests.Select(request => request.Purpose));
-        Assert.Equal(baseStart, other.Requests[1].Range!.Value.Start);
+        Assert.Equal(baseStart, other.Requests[0].Range!.Value.Start);
     }
 
     /// <summary>
