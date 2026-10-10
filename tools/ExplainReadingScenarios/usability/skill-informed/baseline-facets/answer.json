@@ -1,0 +1,73 @@
+{
+  "outcome": "The Package Query CLI exposes 14 authorable --where facets. The complete installed Query Space contains 19 facets: 14 exposed by the CLI binding and five used as positional or context facets.",
+  "authorable_keys": [
+    "dependencies",
+    "dependency-target",
+    "depends",
+    "depends-ecosystem",
+    "depends-transitive",
+    "dependency-depth",
+    "license",
+    "downloads",
+    "readme",
+    "tool",
+    "tool-format",
+    "references",
+    "skill",
+    "library-literal"
+  ],
+  "context_or_positional_keys": [
+    {"key": "package", "role": "exact package ID positional selector"},
+    {"key": "prefix", "role": "PREFIX* positional selector"},
+    {"key": "ecosystem", "role": "ecosystem population selector, supplied through --ecosystem according to -Q summary; not listed among the binding's --where exposures"},
+    {"key": "prerelease", "role": "package-version context facet; not listed among the binding's --where exposures"},
+    {"key": "library-target", "role": "implementation-library TFM context, supplied through --tfm"}
+  ],
+  "required_context": {
+    "authored_facet_relationships": {"library-literal": ["library-target"]},
+    "cli_invocation_constraints": {
+      "library-literal": ["library-target via --tfm; library-literal and --tfm require each other"],
+      "depends-transitive": ["dependency-target=<exact TFM>", "dependency-depth=2|3|4"]
+    },
+    "distinction": "The complete installed facet graph records a requires edge only for library-literal. The transitive dependency requirements appear in the CLI -Q query summary and shipped query skill, while its facet's authored requires list is empty."
+  },
+  "library_target_gesture": "Use package query <package ID or PREFIX*> --where \"library-literal=<text>\" --tfm <one exact NuGet TFM>. library-target is authored by the CLI from --tfm, not through --where; the CLI binding says library-literal and --tfm require each other.",
+  "empty_values_input_rules_interpretation": "No. An empty values array is not an allow list, and absent/empty registered input rules do not prove unrestricted operand acceptance. library-literal is a specific exception with an explicit rule accepting decoded UTF-16 text subject to length 1..1024 code units and other constraints. That rule cannot be generalized to another facet.",
+  "selected_completeness": {
+    "installed_query_space_hal": "Complete (data_scope.completeness)",
+    "cli_binding_exposes_relationship": "Complete (relationships.exposes.completeness)",
+    "cli_binding_traversal": "Truncated at depth 0; its listed exposes relationship is complete",
+    "input_domain_conclusion": "Partial for facets without registered operand rules or closed values"
+  },
+  "evidence_scope": "Installed product discovery and explanation only; no package query or inspection was executed. -Q Packages gave the 14 CLI controls; query-space HAL gave all 19 facets, requires, values, input rules, and embedded CLI binding; linked facet HAL and binding views checked the key relationships and invocation rules.",
+  "issued_path_href_provenance": [
+    {"source": "response-01.out (-Q Packages)", "path": "package-query/query/facets/depends-transitive", "use": "CLI-exposed facet"},
+    {"source": "response-01.out (-Q Packages)", "path": "package-query/query/facets/dependency-depth", "use": "CLI-exposed facet"},
+    {"source": "response-01.out (-Q Packages)", "path": "package-query/query/facets/library-literal", "use": "CLI-exposed facet"},
+    {"source": "response-02.out query-space HAL", "href": "inspect-resource:/package-query/query/facets/depends-transitive?projection=hal", "response": "response-03.out"},
+    {"source": "response-02.out query-space HAL", "href": "inspect-resource:/package-query/query/facets/dependency-depth?projection=hal", "response": "response-04.out"},
+    {"source": "response-02.out query-space HAL", "href": "inspect-resource:/package-query/query/facets/library-literal?projection=hal", "response": "response-05.out"},
+    {"source": "response-02.out query-space HAL required-context link", "href": "inspect-resource:/package-query/query/facets/library-target?projection=hal", "response": "response-06.out"},
+    {"source": "response-02.out query-space HAL binding link", "href": "inspect-resource:/package-query/bindings/cli", "response": "response-07.out"},
+    {"source": "shipped query skill example", "path": "package-query/query", "projection": ".hal", "response": "response-02.out"}
+  ],
+  "uncertainties": [
+    "Input rules are unregistered for exposed dependency-target, depends, depends-ecosystem, depends-transitive, and references, each of which also has an empty listed values array. Their value kinds/examples and CLI summaries guide syntax, but do not define complete operand domains.",
+    "The positional/context facets package, prefix, ecosystem, and library-target likewise have empty values and input rules; their complete input domains cannot be inferred from those empty fields.",
+    "The installed facet graph has no authored requires edge for depends-transitive despite the CLI's explicit dependency-target/dependency-depth invocation requirement."
+  ],
+  "guessed_syntax": [],
+  "failed_attempts": [],
+  "reasons_for_extra_fetches": [
+    "Fetched query-space HAL to compare the complete installed facet membership against the CLI's 14 exposed --where controls.",
+    "Fetched transitive and depth facet HAL to check authored requires/input rules against CLI summary.",
+    "Fetched library-literal and its emitted required-context href to verify the exact requirement and constrained text rule.",
+    "Fetched the emitted CLI binding href to verify --tfm invocation and the completeness of exposed-facet membership."
+  ],
+  "jq_filters_used": [
+    ".",
+    "{data_scope, data_states, keys: keys, links: ._links, embedded: ._embedded | keys}",
+    "{data_scope, name, summary, members, embedded_facets: ._embedded.facets, embedded_bindings: ._embedded.bindings}",
+    "{data_scope, data_states, kind, key, name, requires, input_rules, values, _links, gesture, exposed_facets, summary}"
+  ]
+}
