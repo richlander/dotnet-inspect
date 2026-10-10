@@ -723,7 +723,8 @@ unit is the selected section's aggregate row unit under
 [Section cardinality](section-cardinality.md):
 
 - `Library Info`: one row per library. Its fields become columns, in owner
-  order, after the provenance cells; Count is the number of libraries.
+  order, after the provenance cells; a field that a library lacks is an empty
+  cell, or `null` in JSON. Count is the number of libraries.
 - `Switches`, `Integrations`, and `Integration Opportunities`: one row per
   row of that section for each library, with the section's columns after the
   provenance cells.
@@ -746,9 +747,9 @@ it is `Library Info`, so `--count` alone returns the number of libraries. Any
 other section, a category selector, or a selection of several sections fails
 visibly in every format and with `--count`, and names the supported sections.
 It does not fall back to per-Library documents, choose one section, or sum
-independent per-library row sets into one Count. `--tree`, standalone
-`--mermaid`, and `--print` fail because the result is neither a hierarchy, a
-graph, nor one payload. Which assets enter the aggregate is owned by
+independent per-library row sets into one Count. `--plaintext`, `--tree`,
+standalone `--mermaid`, and `--print` fail because the result is neither a
+document, a hierarchy, a graph, nor one payload. Which assets enter the aggregate is owned by
 [Package Library scope](package-library-scope.md), not by this shape.
 
 Adoption: the CLI does not yet meet this contract. Today it:
@@ -761,14 +762,18 @@ Adoption: the CLI does not yet meet this contract. Today it:
 - renders per-Library documents for unsupported sections in Markdown, and sums
   their rows across libraries under `--count`;
 - renders and counts each section of a multi-section selection;
+- renders the Markdown document and exits 0 for `--plaintext` and standalone
+  `--mermaid` on the unnamed route;
 - rejects `--count` without `-S` and rejects `--columns`; and
 - applies bare `-n` to rendered lines, as
   [CLI row selection](cli-row-selection.md) records for `--tfm all`.
 
 The CLI adoption under #9833 replaces those behaviors with the Table above.
 Package `--library` produces the same aggregate rows for one selected
-framework, so the row layout applies to it as well; its omitted-format default
-and JSON shape stay with Package adoption under #9547.
+framework, so the row layout applies to it as well. It also emits
+`field`/`value` `Library Info` rows today; the shared row change under #9833
+adopts the new layout for both routes. Its omitted-format default and JSON
+shape stay with Package adoption under #9547.
 
 For unreduced output, shape cardinality is evaluated after both section and
 subject selection. `--table`, `--tsv`, and `--jsonl` require exactly one table
