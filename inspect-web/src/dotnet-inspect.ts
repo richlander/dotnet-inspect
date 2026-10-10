@@ -317,6 +317,7 @@ import { createBackgroundAnalysisQueue } from "./background-analysis.ts";
 import {
   bindLibraryFastDiffRetry,
   createLibraryFastDiff,
+  fastDiffAxisReported,
   libraryFastDiffAchievement,
   libraryFastDiffKey,
   renderLibraryFastDiffStatus,
@@ -7064,6 +7065,12 @@ const apiDiffAchievement: ItemAchievement = {
   description: "API differences",
 };
 
+// A Type's cue says that something changed; its Members' cues say what.
+const typeApiDiffAchievement: ItemAchievement = {
+  ...apiDiffAchievement,
+  kind: "diff",
+};
+
 function memberApiDiffAchievements(
   memberFingerprints: ReadonlySet<string>,
   group: {
@@ -8245,7 +8252,7 @@ function selectedTypeChangeCue() {
 // whose API axis is reported (inspect-web-background-analysis.md#navigation-cues).
 function currentTypeApiDiffCueRequest(): TypeApiDiffCueRequest | null {
   const change = selectedTypeChangeCue();
-  if (!change || change.cue.kind !== "api-diff" || !state.package) return null;
+  if (!change || !fastDiffAxisReported(change.fastDiff.api) || !state.package) return null;
   return {
     packageModel: state.package,
     baseline: change.baseline,
@@ -8285,9 +8292,8 @@ function selectedTypeChangeStatus(type: AppTypeSurface): string {
   return renderTypeChangeStatus(
     {
       description: change.cue.description,
-      api: change.cue.kind === "api-diff",
-      body: change.fastDiff.body === "Changed"
-        || change.fastDiff.body === "Indeterminate",
+      api: fastDiffAxisReported(change.fastDiff.api),
+      body: fastDiffAxisReported(change.fastDiff.body),
     },
     request ? typeApiDiffCues.entry(request) : null,
     escapeHtml);
@@ -10602,7 +10608,7 @@ function renderTypeNavPane(
             fastDiffTypes?.get(identifier),
             fastDiffCues.baseline.targetVersion)
         : diffPresence.typeIdentifiers.has(identifier)
-          ? apiDiffAchievement
+          ? typeApiDiffAchievement
           : null;
       return typeLeverageAchievements(
         presentation?.byType.get(identifier) ?? [],

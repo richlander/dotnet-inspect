@@ -158,7 +158,7 @@ export function renderTypeChangeStatus(
     ...(change.body ? ['<button type="button" class="type-change-action" data-type-change-compare="member-body">Compare bodies</button>'] : []),
   ].join("\n      ");
   return `<p class="type-change-status" role="status">
-      <span class="item-achievement-glyph ${change.api ? "api-diff" : "body-diff"}" aria-hidden="true"></span>
+      <span class="item-achievement-glyph diff" aria-hidden="true"></span>
       <span class="type-change-text">${escapeHtml(change.description)}</span>${detail}
       ${actions}</p>`;
 }

@@ -94,14 +94,18 @@ packages.
 ### Navigation cues
 
 Outside Library Compare, the Type navigation marks each Type that the
-last-patch baseline reports with an axis `Changed` or `Indeterminate`:
-**API differences** when the API axis is not `Unchanged`, otherwise
-**implementation differences**. Both glyphs sit between comparison chevrons:
-a lollipop, the provided-interface mark, for API, and `IL` for
-implementation. Library Compare's API cue uses the same lollipop glyph. The
-cue names the baseline version, and an `Indeterminate` axis is described as
-undecided rather than changed. Inside Library Compare, cues come from the
-Compare result for the user's target, as before.
+last-patch baseline reports with an axis `Changed` or `Indeterminate`. The
+cue names the baseline version and each reported axis, and an
+`Indeterminate` axis is described as undecided rather than changed. Inside
+Library Compare, cues come from the Compare result for the user's target, as
+before.
+
+Change glyphs have two levels: a Type's glyph says that something changed,
+and a Member's glyph says what changed. Every Type cue, inside or outside
+Library Compare, is the change glyph, two opposing arrows, whichever axes are
+reported. A Member cue places a specific glyph between comparison chevrons: a
+lollipop, the provided-interface mark, for API, and `IL` for implementation.
+A Member with both API and implementation differences shows the change glyph.
 
 A cue appears on a Type only when the navigation lists it, so a change
 confined to internal Types is visible under the internal or all accessibility
@@ -120,7 +124,7 @@ Compare's Type-subject analyses (`api` and `api-attribute`) as
 visible-subject work. That diff's value lists every changed Type in the
 Library, so the cue keeps only the selected Type's row, joined by definition
 identity. The member list and member navigation mark each Member that row
-reports changed with the API glyph. The header adds one finding from the row:
+reports changed with the API Member glyph. The header adds one finding from the row:
 
 - when the row reports a declaration change and no changed Member, the change
   is in the Type's declaration;
@@ -148,7 +152,7 @@ Members header's Compare bodies action is their view.
 
 1. **Queue and Fast Diff last-patch baseline** (#9817): the queue, the
    background binding, and the navigation cues.
-2. **Member cues for the Type on screen** (this slice): the first
+2. **Member cues for the Type on screen** (#9826): the first
    visible-subject task and the Members header's Compare actions.
 3. **Library Compare lists and last-major baseline:** with
    [Fast Diff adoption step 5](fast-diff.md#adoption).
