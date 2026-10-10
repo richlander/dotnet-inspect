@@ -1635,17 +1635,19 @@ public static class MemberCommand
                 api,
                 apiType,
                 effectiveOptions.MemberFilter);
+            var bodyShapeCompletion = new BodyShapeCompletion();
             var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
                 apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
                 acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions,
-                memberCodeSourceAssembly: sourceAssembly);
+                memberCodeSourceAssembly: sourceAssembly,
+                bodyShapeCompletion: bodyShapeCompletion);
             if (writeExitCode != 0)
                 return writeExitCode;
 
             if (selectedSurfaceExitCode != 0)
                 return selectedSurfaceExitCode;
 
-            return WriteContextualCompanion(
+            int companionExitCode = WriteContextualCompanion(
                 0,
                 effectiveOptions,
                 companionGroupExplanationBasis,
@@ -1655,6 +1657,9 @@ public static class MemberCommand
                 contextualExplanationSelector,
                 packageName,
                 packageVersion);
+            return companionExitCode == 0 && bodyShapeCompletion.Incomplete
+                ? 1
+                : companionExitCode;
         }
         catch (Exception ex)
         {

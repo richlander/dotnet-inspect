@@ -1,3 +1,4 @@
+using DotnetInspect.Cli.Views;
 using ILInspector.Decompiler;
 
 namespace DotnetInspect.Cli.Output;
@@ -31,4 +32,16 @@ internal static class BodyShapeCompleteness
         return $"Body Shapes inspection incomplete: {observed}{bodies}; "
             + "rerun with --verbose for details.";
     }
+}
+
+/// <summary>
+/// Carries a <c>type</c> or <c>member</c> Body Shapes search's completeness
+/// out of rendering, so the command publishes the observed output before it
+/// exits nonzero for an incomplete search.
+/// </summary>
+internal sealed class BodyShapeCompletion
+{
+    internal TypeView? View { get; set; }
+
+    public bool Incomplete => View?.BodyShapeSearchIncomplete == true;
 }

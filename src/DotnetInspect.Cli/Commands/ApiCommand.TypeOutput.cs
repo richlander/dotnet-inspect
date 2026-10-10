@@ -108,10 +108,11 @@ public partial class ApiCommand
         return 1;
     }
 
-    /// <summary>
-    /// Writes the type output, then reports an incomplete Body Shapes search
-    /// with a nonzero exit after its observed rows or Count are written.
-    /// </summary>
+    /// <param name="bodyShapeCompletion">
+    /// Receives whether a selected Body Shapes search was incomplete. The
+    /// caller publishes the rendered output first and then exits nonzero, so
+    /// incompleteness never withholds observed rows.
+    /// </param>
     internal static async Task<int> WriteTypeOutputAsync(
         ApiType type,
         string? foundIn,
@@ -123,40 +124,8 @@ public partial class ApiCommand
         TextWriter? output = null,
         ResolvedAssemblyReference? sourceAssembly = null,
         ResolvedAssemblyReference? memberCodeSourceAssembly = null,
-        HttpClient? sourceClient = null)
-    {
-        TypeView? bodyShapeView = null;
-        int exitCode = await WriteTypeOutputCoreAsync(
-            type,
-            foundIn,
-            packageName,
-            packageVersion,
-            apiSource,
-            selectedTfm,
-            options,
-            output,
-            sourceAssembly,
-            memberCodeSourceAssembly,
-            sourceClient,
-            view => bodyShapeView = view);
-        return exitCode == 0 && bodyShapeView?.BodyShapeSearchIncomplete == true
-            ? 1
-            : exitCode;
-    }
-
-    private static async Task<int> WriteTypeOutputCoreAsync(
-        ApiType type,
-        string? foundIn,
-        string? packageName,
-        string? packageVersion,
-        string? apiSource,
-        string? selectedTfm,
-        ApiOptions options,
-        TextWriter? output,
-        ResolvedAssemblyReference? sourceAssembly,
-        ResolvedAssemblyReference? memberCodeSourceAssembly,
-        HttpClient? sourceClient,
-        Action<TypeView> observeView)
+        HttpClient? sourceClient = null,
+        BodyShapeCompletion? bodyShapeCompletion = null)
     {
         var sink = output ?? Console.Out;
 
@@ -464,7 +433,8 @@ public partial class ApiCommand
         }
 
         var view = ApiOutputFormatter.BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
-        observeView(view);
+        if (bodyShapeCompletion is not null)
+            bodyShapeCompletion.View = view;
         EventsView? eventsView = null;
         MethodGroupsView? methodGroupsView = null;
         MethodsView? methodsView = null;

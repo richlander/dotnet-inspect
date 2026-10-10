@@ -1893,13 +1893,31 @@ public sealed class BodyShapesSectionTests
 
         var tsv = await Run([.. type, "--tsv", "--no-header"]);
         var count = await Run([.. type, "--count"]);
+        // Projected tabular output is buffered until it validates; an
+        // incomplete search must still publish it before exiting nonzero.
+        var projected = await Run(
+            [.. type, "--columns", "Kind;Match", "--tsv", "--no-header"]);
+        var summary = await Run(
+            [
+                .. type,
+                "-S",
+                SectionNames.BodyShapeSummary,
+                "--columns",
+                "Match;Count",
+                "--jsonl",
+            ]);
 
+        int rows = tsv.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
         Assert.Equal(1, tsv.ExitCode);
         Assert.Equal(1, count.ExitCode);
-        Assert.Equal(
-            tsv.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length.ToString(),
-            count.Output.Trim());
+        Assert.Equal(rows.ToString(), count.Output.Trim());
         Assert.Contains("Body Shapes inspection incomplete: ", count.Error);
+        Assert.Equal(1, projected.ExitCode);
+        Assert.Equal(
+            rows,
+            projected.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.Equal(1, summary.ExitCode);
+        Assert.NotEmpty(summary.Output.Trim());
     }
 
     [Fact]
