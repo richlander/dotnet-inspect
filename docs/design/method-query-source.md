@@ -186,14 +186,6 @@ Exact-method and exact-type seeds are already resolved source coordinates.
 Their construction may depend on an earlier selector operation, but source
 planning neither replays that selector nor infers handles from display text.
 
-An exact-member adopter that accepts a caller-supplied metadata token first
-binds an `ExactMethodTarget` to the operation subject. Source admission checks
-the raw token kind and row against the retained reader without table traversal.
-An invalid target settles with a typed invalid-target outcome and no selected
-method; a valid target normalizes to an exact MethodDef handle. This validation
-is distinct from breadth construction: a naked token is not source identity,
-and an invalid target is not an empty exact seed.
-
 A predicate declares both its candidate range and the declaration fields it
 reads. `All definitions` with a predicate is not an exact-method request and
 must receipt the definitions it examined. A sparse exact-handle request does
@@ -497,8 +489,7 @@ work or a cost estimate. It contains:
   acquired, module-lookup use, and each deeper terminal layer acquired;
 - generated and referenced expansion origins;
 - generated-discovery probe bytes and relationship work;
-- shared lookup-support construction and use, including correspondence rows
-  and bytes when support enumerates metadata;
+- shared lookup-support construction and use;
 - source bounds approached or reached; and
 - executor identity.
 
@@ -584,11 +575,13 @@ Migration is incremental:
    lanes, and the producer closes Rows, Count, and Exists as independent
    QuerySpace requests through `SyncCallsInAsyncQuery`. This slice is
    **unverified**; legacy callers stay until their consumers move.
-10. Move exact-member declaration, direct-call, selected-method safety, and
-    call-safety producers through
+10. Add bounded semantic MethodDef identity (#9830) and receipted
+    memory-safety contract support (#9831) as independent source capabilities.
+11. Move the first exact-member consumer in #9832 through
     [exact-member scoped producers](assembly-analysis-operation.md#exact-member-scoped-producers),
-    consuming this source's method packets and targeted receipted lookups.
-11. Move remaining producers and delete each superseded legacy scan and index
+    consuming #8700 and #8945 rather than defining another call resolver or
+    population.
+12. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 
 Wrapping `LibraryBodyAnalysisBuilder.Build`, constructing every legacy result

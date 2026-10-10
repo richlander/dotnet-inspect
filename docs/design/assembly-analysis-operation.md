@@ -25,8 +25,8 @@ Method Classification is its first production caller: the session-backed query
 uses request-set access while the PEReader overload remains the direct
 reference.
 Other source kinds, cancellation, residual request satisfaction, and mixed-
-hub composition remain **unverified**. The first exact-member
-producers are designed under
+hub composition remain **unverified**. The no-remainder rule and split
+exact-member prerequisites are recorded under
 [Exact-member scoped producers](#exact-member-scoped-producers).
 
 ## Authority and exact claim
@@ -52,7 +52,7 @@ This owner defines:
 - the coarse operation boundary at which optional cancellation is observed;
 - the sequential reference composition required on single-threaded
   Browser/Wasm; and
-- the exact-member producer rule used while the current producer hub is
+- the exact-member producer drain rule used while the current producer hub is
   drained.
 
 This owner does not define:
@@ -308,116 +308,45 @@ as migration.
 
 ### Exact-member scoped producers
 
-The first hub-draining slices are designed here and are **unverified** until
-they land. The whole-assembly `LibraryBodyAnalysisResult` is not reproducible
-from source-scoped units: its declaration counts, unsafe-mode counts,
-call-resolution map, declared-source publication, and exception classification
-all span every MethodDef and TypeDef. No aggregate "remainder" producer is
-declared. Each slice instead peels one focused result for one real consumer,
-using exact-member units from the owner-issued Method source and targeted,
-receipted lookups for anything outside the selection. A lookup that would need
-an unrelated body or would enumerate a producer population is a second planner
-and is rejected. An owner-declared, bounded metadata correspondence index is
-shared lookup support, not producer breadth; the source receipts every row and
-byte it examines.
+The whole-assembly `LibraryBodyAnalysisResult` is not reproducible from
+source-scoped units: its declaration counts, unsafe-mode counts,
+call-resolution map, declared-source publication, exception classification,
+and safety-contract associations span populations larger than one source
+selection. No aggregate remainder producer is declared.
 
-Normative claim, owned here with call-site population and identity owned by
-[#8945](https://github.com/richlander/dotnet-inspect/issues/8945):
+This owner supplies only the drain rule:
 
-> For an owner-issued exact MethodDef target, Method-source producers publish
-> the focused declaration, direct-call, and selected-method safety facts the
-> consumer reads today. Body work is limited to the selected method; metadata
-> correspondence is limited to declared, bounded shared lookups; and the source
-> receipts every unit, lookup row, byte, and body it touches.
+> Move one focused producer and real consumer at a time after every semantic
+> input has an owner-issued capability and receipt. Leave unmoved producers on
+> `LibraryBodyAnalysisService`; never wrap `LibraryBodyAnalysisBuilder.Build`,
+> filter its aggregate, hide wider metadata support inside an exact-member
+> visit, or create a second planner.
 
-An `ExactMethodTarget` associates the operation subject with the caller's raw
-metadata token. Source admission checks the token kind and row against the
-retained reader without scanning a table. An invalid target settles as typed
-`InvalidToken` with no producer visit; a valid target becomes the exact
-MethodDef breadth and then distinguishes `Bodiless` from `Body`. The resulting
-`EvidenceMethod` remains associated with the subject and source receipt; a
-naked token is never a cross-module identity.
+Exact-member work is split across focused owners:
 
-**Producers.**
+| Concern | Owner |
+| --- | --- |
+| Method-targeted call population and identity tiers | [#8945](https://github.com/richlander/dotnet-inspect/issues/8945) |
+| Typed same-module callee resolution | [#8700](https://github.com/richlander/dotnet-inspect/issues/8700) |
+| Bounded semantic MethodDef identity | [#9830](https://github.com/richlander/dotnet-inspect/issues/9830) |
+| Receipted memory-safety contract and accessor association support | [#9831](https://github.com/richlander/dotnet-inspect/issues/9831) |
+| First exact-member consumer adoption | [#9832](https://github.com/richlander/dotnet-inspect/issues/9832) |
 
-| Producer | Fact and result | Support |
-| --- | --- | --- |
-| Exact-target declaration | For an admitted MethodDef, its detached identity, signature, and body presence. Combined with source admission, it distinguishes an invalid token from a bodiless method and replaces the `callGraph.DeclaredMethods` read. | Declaration and Identity layers. Identity is charged through the source gate's bounded identity decoder. |
-| Selected-method safety | Declaration, local, and instruction safety for the selected method: its non-call `UnsafeEvidence` and `UnsafetyOccurrence` values. Bodiless methods retain declaration evidence and have no body evidence. | Declaration, Instructions, and Calls layers for the selected method only. |
-| Direct calls | The method's call sites with the #8945 identity tiers (Count; exact declaring Type; exact Type.Member.Overload; full signature), consuming the one physical `EvidenceMethod`. | Calls layer, plus `ReferenceBinding` when a tier needs cross-assembly identity. |
-| Call safety | The unsafe mode of each same-image target the selected method calls, plus the normalized unsafe-call evidence. Cross-assembly callees keep the legacy outcome, an unset unsafe mode; resolving external contracts is a later, separately gated behavior change. | `SameImageCallTargetLookup`, below. No target body is acquired. |
+The prerequisite owners define their result shapes, work bounds, typed
+failures, and gates. Wider metadata correspondence or association work is
+declared execution-scoped source support and receipted separately from sparse
+MethodDef breadth. It never acquires an unrelated body or silently becomes
+successful empty evidence.
 
-The declarations publish one host-neutral focused result containing the token
-outcome, method identity, direct calls, unsafety occurrences, unsafe evidence,
-and producer diagnostics. Call safety consumes the direct-call result through
-its declared dependency, replaces only unsafe-call evidence, and combines that
-with the selected-method producer's non-call evidence. It never reconstructs a
-whole-assembly call-resolution map.
+[#9832](https://github.com/richlander/dotnet-inspect/issues/9832) composes the
+prerequisites for `AssemblyContextMethodAnalysisQuery`. Allocations,
+optimization opportunities, and final `MethodSignals` composition remain
+explicitly on the old boundary in that mixed slice. `ILOffsetQuery` follows
+only after an owner can bind its prefetched image without reopening by path.
 
-`SameImageCallTargetLookup` is execution-scoped Method-source support. It
-preserves every current-module operand shape admitted by the existing
-resolver:
-
-- a MethodSpec first peels to its underlying MethodDef or `MemberRef`, then
-  follows the matching path below;
-- a MethodDef operand reads that exact declaration;
-- a `MemberRef` parented by a MethodDef reads that exact declaration, preserving
-  its vararg call-site signature;
-- a `MemberRef` parented by a TypeDef starts from that exact type and examines
-  its method range;
-- a `MemberRef` parented by a constructed TypeSpec decodes the generic
-  definition, verifies constructed arity, and resolves the target method; and
-- a local TypeRef, including a module or assembly alias authenticated as the
-  current image, uses type-name correspondence.
-
-Only the final two paths lazily build the bounded type-name index over the
-TypeDef table; all type-based paths examine only the matched TypeDef's method
-range for signature correspondence. Construction is shared across named
-targets and charges every TypeDef row, candidate MethodDef row, and decoded
-correspondence byte to the source receipt. Ambiguous, malformed, or
-budget-exhausted correspondence retains the existing visible failure; it never
-becomes an unset mode or successful empty result.
-
-**Body acquisition.** Producers read the body from the source's packet; none
-calls `GetMethodBody`, `RequireMethodBody`, or `MethodBodySource.Read`. A
-call-target lookup reads declarations and signatures only and acquires no body.
-Producers left on the old boundary may still acquire bodies independently;
-their work is not attributed to the migrated source.
-
-**Admission.** These producers serve exact-MethodDef requests only. Type-wide,
-predicate-scoped, and unscoped requests stay on `LibraryBodyAnalysisService`
-until a later slice gives their population an owner. The service never falls
-back silently, and a request outside admission is rejected with a typed
-planning rejection.
-
-**First adopter.** `AssemblyContextMethodAnalysisQuery` is Workspace-backed,
-uses one exact method token, and already receives its resolver from the
-universe provider (`AssemblyContextAnalysisSource.Resolver`), so the owner that
-issues the [reference binding](#reference-binding-access) exists. It reads
-declaration, `MethodSignals`, direct calls, safety, allocations, optimization
-opportunities, and diagnostics for that one method. This slice moves the
-declaration, direct-call, selected-method safety, and call-safety facts.
-Allocations, optimization opportunities, and final `MethodSignals` composition
-stay on the old boundary until their producers move; the query composes both
-paths without wrapping `Build`. The slice therefore claims proportional
-migrated work, not proportional total query work while the old path remains.
-Issuing the `AssemblyReferenceBindingAccess` from the provider is part of this
-slice.
-
-`ILOffsetQuery` follows once an owner can issue operation access and a
-reference binding over its prefetched `PdbContext` image without reopening by
-path. Until then it stays on the old boundary.
-
-**Stage participation.** Migrated producers do not publish the legacy
-`LibraryBodyAnalysisStageParticipation` receipt. The Method source receipt and
-Producer Planning `WorkReceipt` describe their work. A consumer that requires
-the legacy receipt (CLI `--trace`) stays on the old boundary until it moves.
-
-**Shrink rule.** Each slice moves one real consumer, publishes its existing
-focused result, and updates the live drain map in #8965. A hub branch, request
-parameter, or feature is deleted when its final consumer moves, not merely
-when the first focused adopter lands. The hub is deleted when its last field
-leaves.
+Each adoption updates #8965's live drain map. A hub branch, request parameter,
+or feature is deleted when its final consumer moves, not when the first
+focused adopter lands. The hub is deleted when its last field leaves.
 
 `CompleteProfileV1` remains a compatibility composition of independently
 owned metrics and relationships. It is not one producer. Metric selection and
@@ -528,43 +457,17 @@ exhausted, producer-failed, or aborted completion. Later source kinds and
 mid-source delegation failures add their owner-issued outcomes and gates when
 they adopt the service.
 
-The first exact-member slice supplies
-`AssemblyAnalysisService_MixedLegacyAndMigratedProducersUseOneSourcePlan` and
-these gates:
+The exact-member successors own their evidence:
 
-- `ExactMember_DeclarationDistinguishesInvalidFromBodilessToken` asserts the
-  typed outcome for a valid body, a bodiless method, and an invalid token, and
-  proves that invalid-target admission examines no MethodDef row. For valid
-  targets it compares the published detached identity with legacy and asserts
-  Identity-layer participation and bounded identity work;
-- `ExactMember_SelectedMethodSafetyMatchesLegacy` covers declaration evidence,
-  pointer and pinned locals, indirect operations, and non-call unsafe evidence,
-  and proves that only the selected body is acquired;
-- `ExactMember_CallSafetyResolvesOnlyNamedCallees` asserts that a selected
-  caller with an unsafe callee outside the selection reports the legacy safety
-  result for a MethodDef/MethodSpec target and `MemberRef` parents of MethodDef,
-  TypeDef, constructed TypeSpec, local TypeRef, module-alias TypeRef, and
-  assembly-alias TypeRef. The receipt shows which paths avoid the TypeDef
-  index, lazy index construction for correspondence paths, only the matched
-  TypeDef's MethodDef range, zero target-body acquisitions, and an unset mode
-  for a cross-assembly callee exactly as legacy does;
-- `ExactMember_AccountsForSelectedAndCorrespondenceWork` counts every
-  definition, body, lookup row, and correspondence byte in the migrated source
-  plan, including completion. Producer visits and body work cover only the
-  selected method; any wider metadata work is bounded declared lookup support
-  and appears separately in the source receipt. The gate does not measure
-  producers that remain on the old boundary, whose `Build` still enumerates
-  the assembly until they move; and
-- `ExactMember_RejectsTypeUnscopedOrPredicateRequest` asserts the typed
-  planning rejection and that no fallback executes.
+- #9830 gates bounded semantic MethodDef identity;
+- #9831 gates memory-safety contract and accessor-association support; and
+- #9832 gates the first consumer's complete public outcome and mixed legacy
+  provenance.
 
-The first adopter's validation compares `AssemblyContextMethodAnalysisQuery`'s
-complete public outcome (`MethodSignals`, direct calls, allocations, safety,
-optimization opportunities, diagnostics, and exception regions), including
-invalid and bodiless tokens and same-image aliases, with the old boundary, not
-only the focused result. It also proves that the retained `MethodSignals`,
-allocation, and optimization values came from the old boundary during this
-mixed slice rather than being silently omitted or reattributed.
+When #9832 lands, it supplies
+`AssemblyAnalysisService_MixedLegacyAndMigratedProducersUseOneSourcePlan`.
+This design does not predeclare the successors' result or receipt shapes and
+does not claim their implementation evidence.
 
 The positive session path inherits the Release gates owned by
 [session-owned format admission](assembly-inspection-query.md#session-owned-format-admission).
