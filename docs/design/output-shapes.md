@@ -714,19 +714,42 @@ The proposed `--envelope` is a separate
 [service-output selector](#content-shapes-and-service-envelopes), not another
 content-shape or presentation modifier.
 
-`library --package ... --tfm all` selects multiple independent inspections. Its
-full output therefore requires a document format: Markdown or JSON.
-Single-table, stream, plain-text, tree, unary projection, and single-row-set
-`--print` output fail closed rather than selecting one inspection or combining
-independent row sets. Count remains valid because it preserves the producer's
-declared aggregate or independent row-set scopes.
+`library --package ... --tfm all` selects the Library aggregate over every
+framework in the package. Its result is one Table: the aggregate's row output,
+whose provenance cells (`package`, `version`, `library`, `tfm`) precede the
+selected section's own cells. The `library` cell carries the asset path, so
+assets that share a framework in different package layouts remain distinct
+rows. Under the [shape-native default](cli-verbosity-retirement.md#presentation),
+an omitted format renders that Table as TSV. Markdown renders the same rows as
+one Markdown table, JSONL as one object per row, and JSON as an array of row
+objects; none of them restores one document per Library.
+
+A named Library (`library <L> --package ... --tfm all`) is the same Table
+restricted to the assets that the exact Library request names. It has no
+separate format rule, and a name that matches no asset fails as the exact
+Library request does.
+
+The Table admits exactly one section with a declared aggregate row unit:
+`Library Info`, `Switches`, `Integrations`, or `Integration Opportunities`.
+With no section selected, it is `Library Info`. Any other section, a category
+selector, or a selection of several sections fails visibly in every format and
+names the supported sections; it does not fall back to per-Library documents
+or choose one section. Count and row selection keep the aggregate's declared
+scopes. `--tree`, standalone `--mermaid`, and `--print` fail because the
+result is neither a hierarchy, a graph, nor one payload. Which assets enter the
+aggregate is owned by [Package Library scope](package-library-scope.md), not by
+this shape.
+
+Adoption: the CLI does not yet meet this contract. It renders one Markdown
+section per Library by default, emits whole-inspection JSON, rejects table
+formats for a named Library, renders per-Library documents for unsupported
+sections in Markdown, and renders each section of a multi-section selection.
+The CLI adoption under #9833 replaces those behaviors with the Table above.
 
 For unreduced output, shape cardinality is evaluated after both section and
 subject selection. `--table`, `--tsv`, and `--jsonl` require exactly one table
 shape; `--tree` requires exactly one tree shape; standalone `--mermaid`
-requires exactly one graph shape. Selecting one section with `--tfm all` still
-produces one shape per inspection, so it does not satisfy any unreduced
-single-shape contract.
+requires exactly one graph shape.
 
 Count does not apply that eligibility test to its contributing inputs. It first
 consumes the already-bound typed reduction result, then evaluates format
