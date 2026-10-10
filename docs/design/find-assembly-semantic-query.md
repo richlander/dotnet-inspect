@@ -392,7 +392,7 @@ package-grain CLI adoption is:
 | --- | --- |
 | `package query ID --where "library-literal=TEXT" --tfm TFM` | The latest eligible listed exact package candidate. |
 | `package query 'PREFIX*' --where "library-literal=TEXT" --tfm TFM --take N` | At most the first `N` source-selected exact package candidates, where `N` is 1-5. |
-| `-n N` | Semantic Head over matched package Results after the admitted population is evaluated. |
+| `-n N` | Semantic Head over matched package Results in the admitted population; a lone Head may stop evaluation at the Nth match. |
 | `--count` | Count of the selected package Result set. It is exact only when population formation and semantic evaluation are complete; otherwise it is the observed count, with the same incompleteness disclosure as the rows. |
 
 The `--take` and `-n` spellings and their adoption by literal mode remain owned

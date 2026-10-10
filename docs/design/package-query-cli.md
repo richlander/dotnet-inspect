@@ -72,9 +72,9 @@ remains owned by
 [Package Query assembly-pattern evaluation](package-query-assembly-evaluation.md).
 `package query` uses [CLI execution bounds](cli-execution-bounds.md):
 `--take` bounds candidate work and semantic `-n` selects final package rows.
-Without explicit `--take`, a single semantic Head is delegated to the shared
-query's optional `matches` bound; direct package rows also use that Head as
-their candidate bound. Browser requests author the same Head stage and explicit
+A single semantic Head is delegated to the shared query's optional `matches`
+bound, with or without explicit `--take`; without explicit `--take`, direct
+package rows also use that Head as their candidate bound. Browser requests author the same Head stage and explicit
 match bound through the same planner.
 
 The adoption under
@@ -510,17 +510,18 @@ evaluation before its match status is known. The manifest-only default remains
 200 candidates and an explicit value may raise it to 1,000. Package-content
 queries default to and reject values above 20; a `metadata-expensive`
 `library-literal` query instead defaults to and rejects values above five.
-Reaching a default candidate bound is visible bounded incompleteness. An
+Reaching a default candidate bound is visible bounded incompleteness: a
+partial view with observed rows and Count, a disclosure, and a nonzero exit. An
 explicit `--take` instead fixes the requested candidate population: when every
 candidate in it was evaluated without failure, its matches are the complete
 answer for that population, and the result names the bound as its scope rather
 than warning that the package-ID scope was not exhausted. Neither integer is a
 matched-row count.
 
-`-n` is semantic Head over final matched-package rows. When no explicit
-`--take` is present and the row plan is one Head operation, the CLI pushes that
-head into execution. A direct metadata row path uses N as both the candidate
-and match bound, so `package query 'Foo*' -n 2` has the effective work shape
+`-n` is semantic Head over final matched-package rows. When the row plan is one
+Head operation, the CLI pushes that head into execution, with or without an
+explicit `--take`. Without explicit `--take`, a direct metadata row path uses N
+as both the candidate and match bound, so `package query 'Foo*' -n 2` has the effective work shape
 `--take 2 -n 2`. An inspection-term-filtered path retains its default candidate ceiling
 and stops after finding N matches. Failures encountered before the Nth match
 remain visible; later candidates are outside the requested Head evaluation.
@@ -533,11 +534,14 @@ valid: direct prefix queries infer the maximum 1,000-candidate work bound,
 filtered queries retain their normal candidate ceiling, and the final Head is
 applied after execution with ordinary incompleteness disclosure.
 
-An explicit `--take` disables this pushdown. `--take 100 -n 2` evaluates the
-authorized population of up to 100 candidates, including its failures and
-intermediate query work, before L2 selects two rows. Tail, open-ended windows,
-aggregation, and global ordering likewise require their bounded input before
-selection and cannot infer `--take N` from their final row count.
+An explicit `--take` keeps this pushdown inside its window, as
+[CLI execution bounds](cli-execution-bounds.md#three-query-shapes) defines:
+`--take 100 -n 2` stops at the second match or the 100th candidate, whichever
+comes first, and candidates after the second match are outside the requested
+Head evaluation. The window is never materialized before selection for a lone
+Head. Tail, open-ended windows, aggregation, and global ordering require their
+whole bounded input before selection and cannot infer `--take N` from their
+final row count.
 
 When `-n` is absent, the semantic row-selection plan is empty and every match
 from the authorized candidate population reaches row shaping. The historical
@@ -585,10 +589,10 @@ and the typed summary carries no match-limit denominator. Presentation reports
 the observed match count without manufacturing an infinite or candidate-equal
 ceiling.
 
-The CLI requests an absent match budget when `-n` is absent or explicit
-`--take` fixes the candidate population. A lone semantic Head supplies its N
-as the match budget; a direct prefix-metadata path also uses N as its candidate
-budget. The semantic row intent still reaches L2 after execution as a
+The CLI requests an absent match budget when the row plan is not one Head
+operation. A lone semantic Head supplies its N as the match budget, with or
+without explicit `--take`; without explicit `--take`, a direct prefix-metadata
+path also uses N as its candidate budget. The semantic row intent still reaches L2 after execution as a
 backstop. This optional state is required rather than a sentinel: with
 `--take 1000`, all 1,000 candidates may match, so no larger valid integer
 exists under the owner's 1,000 match-budget maximum.
@@ -1042,8 +1046,9 @@ not need to translate a differently-shaped CLI completion signal.
 Package Query composes candidate admission and semantic selection in this
 order:
 
-- **Nuspec-tier `--where`** evaluates every candidate admitted by `--take` or
-  the default candidate ceiling, then `-n` selects matched-package rows. For
+- **Nuspec-tier `--where`** evaluates candidates admitted by `--take` or the
+  default candidate ceiling in order, and a lone `-n` stops evaluation at the
+  Nth match. For
   example, `--take 500 -n 20` means "inspect at most 500 candidates, then keep
   the first 20 matches," not "inspect 20 candidates." If only seven of those
   500 candidates match, the command returns seven as the complete answer for

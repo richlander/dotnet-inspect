@@ -625,14 +625,15 @@ dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 11..20
   explicit `--take` yields the matches within that population, exact when
   every candidate in it completed and never a total for the wider scope; a
   reached default ceiling yields an observed match count. Neither is the work
-  ceiling. An explicit `-n 20` is semantic `Head(20)`. Without explicit
-  `--take`, Package Query may push a lone Head into direct candidate or
-  filtered match execution; reaching that derived Head is complete for the
-  selected rows rather than a candidate truncation.
+  ceiling. An explicit `-n 20` is semantic `Head(20)`. Package Query may push
+  a lone Head into filtered match execution, inside an explicit `--take`
+  window or the default ceiling, and without explicit `--take` into direct
+  candidate execution; reaching that Head is complete for the selected rows
+  rather than a candidate truncation.
 - `-n N` and numeric shorthand such as `-6` limit declared items independently
   within each row set after filtering and ordering. `package query` keeps this
-  semantic selection separate from explicit `--take`; without explicit
-  `--take`, a lone Head may be delegated into query execution.
+  semantic selection separate from explicit `--take`; a lone Head may be
+  delegated into query execution with or without it.
 - `--tail` takes items from the end.
 - `--rows` selects absolute stable row ranges such as `11..20`, `11+10`, or
   `11..`; it carries no count-only form.
