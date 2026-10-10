@@ -84,7 +84,8 @@ public sealed record CSharpMemberShellSpec(
     int? SetterToken = null,
     int? AdderToken = null,
     int? RemoverToken = null,
-    bool IsReadOnly = false);
+    bool IsReadOnly = false,
+    IReadOnlyList<ApiTypeReferenceIdentity>? ReturnTypeReferences = null);
 
 /// <summary>
 /// Composes product-owned C# member models and body policies from a neutral shell
@@ -296,11 +297,26 @@ public static class CSharpMemberShellProducer
             RemoverToken = spec.RemoverToken,
         };
 
-        if (spec.Kind != CSharpShellMemberKind.Field)
+        if (spec.Kind == CSharpShellMemberKind.Field)
+        {
+            // Mirror a metadata-sourced field: its typed type identity lets the
+            // declaration writer tell a nested type from a namespace member.
+            if (spec.ReturnTypeReferences is { Count: > 0 } fieldTypeReferences)
+            {
+                member.SignatureModel = new ApiSignature
+                {
+                    ReturnType = spec.ReturnType,
+                    MemberName = spec.Name,
+                    ReturnTypeReferences = [.. fieldTypeReferences],
+                };
+            }
+        }
+        else
         {
             member.SignatureModel = new ApiSignature
             {
                 ReturnType = spec.ReturnType,
+                ReturnTypeReferences = [.. spec.ReturnTypeReferences ?? []],
                 ReturnAttributes = spec.Kind == CSharpShellMemberKind.Method
                     ? spec.ReturnAttributes?.ToList() ?? []
                     : [],
