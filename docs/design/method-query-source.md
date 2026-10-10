@@ -539,6 +539,25 @@ satisfy the early-stop work property. Concurrency, incremental publication,
 and cross-operation caches require their own scheduling, close, and lifetime
 designs before adoption.
 
+Library Metrics adopts an exact structural request. One shallow decoded
+instruction array supplies instruction cardinality, normal-flow branch shape,
+backward-loop ranges, and allocation opcodes; direct invocation resolution
+consumes that same bounded per-method evidence without constructing the
+canonical `BlockGraph` or `ExceptionFlowTopology`. The physical request
+therefore omits local-signature and canonical-context facts entirely. Async
+disposition retains the generated-type provenance metadata needed to suppress
+runtime-async methods in generated types without requesting complete
+MethodEvidence. Research consumes a focused structural result rather than
+reconstructing or publishing complete implementation profiles.
+
+The distinction is measured, not aesthetic. A rejected retained
+complete-profile packet removed traversals but improved the exact NativeAOT
+CoreLib Library Metrics command median by only 1.264%, below its 5% admission
+gate. The packet implementation is not retained. The structural route exists
+because QuerySpace must select the minimum physical fact family for the
+terminal, not merely share a cheaper implementation of an overbroad
+compatibility result.
+
 ## Migration and production adoption
 
 Migration is incremental:
@@ -724,9 +743,10 @@ assemblies.
 Resource-free planning and serial execution are deterministic ordinary code.
 The routing and settlement transition system remains owned and modeled by
 [Open and closed queries](open-and-closed-queries.md). This design adds no
-independent concurrent state machine. A future parallel, incremental, or
-retained executor must model its scheduling and close interaction before
-implementation.
+independent concurrent state machine. The Library Metrics structural route uses
+the existing scheduler and has no early-settling terminal. A future parallel,
+incremental, or retained executor must model its scheduling and close
+interaction before implementation.
 
 ## Non-claims
 

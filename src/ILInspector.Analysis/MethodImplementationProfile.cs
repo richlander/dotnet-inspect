@@ -38,6 +38,7 @@ public sealed record MethodImplementationProfile(
     int OutgoingOverloadTargetCount,
     bool IsComplete,
     ImmutableArray<string> IncompleteReasons)
+    : ILibraryStructuralMethodEvidence
 {
     /// <summary>
     /// Cyclomatic complexity of the ordinary-flow IL graph.
@@ -52,6 +53,9 @@ public sealed record MethodImplementationProfile(
     /// </remarks>
     public int NormalFlowCyclomaticComplexity =>
         1 + ConditionalBranchCount - SwitchCount + SwitchTargetCount;
+
+    public int ExceptionRegionCount =>
+        CatchCount + FilterCount + FinallyCount + FaultCount;
 }
 
 /// <summary>An exact direct call between distinct methods in one overload family.</summary>
@@ -198,7 +202,7 @@ internal static class MethodImplementationProfileAnalysis
             IncompleteReasons(context));
     }
 
-    static ImmutableArray<string> IncompleteReasons(
+    internal static ImmutableArray<string> IncompleteReasons(
         MethodBodyAnalysisContext context)
     {
         var reasons = ImmutableArray.CreateBuilder<string>();

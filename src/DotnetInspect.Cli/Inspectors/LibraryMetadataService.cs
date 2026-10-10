@@ -92,17 +92,25 @@ internal static class LibraryMetadataService
             bool needsResourceLifecycle =
                 requiredQueries?.Contains(
                     ResourceTriageQuery.Definition) == true;
+            bool usesFocusedLibraryMetrics =
+                requiredQueries?.Count == 1
+                && requiredQueries.Contains(
+                    LibraryMetricsQuery.Definition);
             Analysis.LibraryBodyAnalysisRequest bodyAnalysisRequest =
                 needsResourceLifecycle
                     ? Analysis.LibraryBodyAnalysisRequest
                         .CreateResourceLifecycle(
                             Analysis.ArrayPoolResourceEffectModel.Create(),
                             bodyAnalysisFeatures)
+                    : usesFocusedLibraryMetrics
+                            ? Analysis.LibraryBodyAnalysisRequest
+                                .CreateLibraryStructuralReport()
                     : Analysis.LibraryBodyAnalysisRequest.Create(
                         bodyAnalysisFeatures);
             bool needsPrefetchedImage =
                 bodyAnalysisFeatures
                     != Analysis.LibraryBodyAnalysisFeatures.None
+                || usesFocusedLibraryMetrics
                 || needsResourceLifecycle;
             bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(

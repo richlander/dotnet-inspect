@@ -421,6 +421,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 methodHandle,
                 methodDefinition);
 
+    bool ILibraryMethodAnalysisInfrastructure
+        .HasRejectedAsyncStateMachineAttribute(
+            MethodDefinition methodDefinition) =>
+        _asyncSourceResolver.HasRejectedAsyncStateMachineAttribute(
+            methodDefinition);
+
     AsyncSiblingOpportunityAnalyzer
         ILibraryMethodAnalysisInfrastructure.AsyncSiblingAnalyzer =>
         _asyncSiblingAnalyzer;
@@ -598,6 +604,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         sourceAttribution?.Complete();
         bool includeMethodEvidence = plan.Includes(
             LibraryBodyAnalysisFeatures.MethodEvidence);
+        bool includeGeneratedTypeProvenance =
+            includeMethodEvidence
+            || plan.ImplementationMetrics
+                ?.RequiresGeneratedTypeProvenance == true;
         bool includeOpportunities = plan.Includes(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
         bool includeAsyncSiblingOpportunities = plan.Includes(
@@ -635,7 +645,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             // Source-generated types (JSON/regex/etc. carry [GeneratedCode]) are not
             // actionable source-shape opportunities, so skip optimization-opportunity
             // collection for them (they are still indexed for calls/leverage/signals).
-            bool typeSourceGenerated = includeMethodEvidence
+            bool typeSourceGenerated =
+                includeGeneratedTypeProvenance
                 && _generatedProvenanceClassifier
                     .IsSourceGeneratedTypeOrEnclosing(
                         typeHandle);

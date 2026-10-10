@@ -64,6 +64,10 @@ internal sealed record MethodImplementationMetricEvidence(
     ImplementationMetricCallSiteCount? CallSiteCount,
     ImplementationMetricDirectCalls? DirectCalls)
 {
+    internal bool? IsAsync { get; init; }
+
+    internal ImmutableArray<string> IncompleteReasons { get; init; } = [];
+
     internal bool DirectCallCollectionAttempted { get; init; }
 
     internal bool DirectCallCollectionComplete { get; init; }

@@ -1106,6 +1106,54 @@ Each slice is independently coherent and reaches an existing production
 consumer or the next named host-neutral consumer. No unused generic execution
 substrate lands ahead of adoption.
 
+#### Library Metrics structural request
+
+A complete-profile packet experiment removed duplicate instruction traversals
+but retained canonical contexts and complete-profile publication. Exact
+NativeAOT measurement improved the CoreLib command median by only 1.264%;
+standard presentation remained neutral. That negative result rejects complete
+profile construction as the production migration boundary, and the rejected
+packet implementation is not retained.
+
+An exact Library Metrics query instead issues
+`CreateLibraryStructuralReport()`. Its versioned metric set contains only:
+
+- instruction count;
+- normal-flow cyclomatic complexity;
+- loop count;
+- exception-region count;
+- direct invocation count and the direct calls needed for type relationships;
+- allocation count; and
+- async-state-machine body attribution.
+
+Async disposition also requires generated-type provenance: runtime-async
+methods inside a `[GeneratedCode]` type or enclosing type remain suppressed
+exactly as they are in the complete-profile route. This prerequisite is a
+metadata classification fact, not a request for complete MethodEvidence.
+
+This request publishes `LibraryStructuralAnalysisResult`; it does not publish
+`MethodImplementationProfile` rows. Research consumes the structural result
+directly and preserves the existing Library Metrics document, compatibility
+receipt, population coverage, diagnostics, ordering, and transport bytes.
+Other queries, including Implementation Profiles and exact-family Member
+Metrics, retain their existing result and execution routes.
+
+The Library Metrics physical plan uses one shallow decoded instruction array
+per admitted body. One scan computes instruction, branch, switch, backward-loop,
+`newarr`, and allocating-`box` facts. Backward `leave` targets count as loops
+only when the transfer is not redirected through an enclosing `finally`,
+matching the canonical graph's normal successor. A second shallow pass resolves
+only `call`, `callvirt`, and `newobj` facts required by allocation counts and
+cross-type relationships. The route does not decode local signatures or build
+`MethodInstructions`, `BlockGraph`, `ExceptionFlowTopology`, canonical method
+contexts, allocation occurrences, safety evidence, or complete profiles.
+
+The implementation-metric plan records
+`StructuralInstructionStream` and `GeneratedTypeProvenance` as required
+physical facts and `StructuralInstructionScan` as actual work. Stage receipts
+must show no local-signature or canonical-context participation. The existing
+metadata-ordered parallel scheduler and ordered aggregation remain unchanged.
+
 ### Fusion-payoff admission for profile migration
 
 The implementation-profile migration does not count producer declarations,

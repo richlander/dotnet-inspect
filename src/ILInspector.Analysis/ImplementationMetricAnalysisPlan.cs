@@ -19,6 +19,8 @@ internal enum ImplementationMetricKind
     Async = 1 << 12,
     DirectCallCount = 1 << 13,
     CallSiteCount = 1 << 14,
+    NormalFlowComplexity = 1 << 15,
+    LoopCount = 1 << 16,
     All = BodySize
         | InstructionShape
         | ControlFlow
@@ -33,7 +35,9 @@ internal enum ImplementationMetricKind
         | DirectReflectionCalls
         | Async
         | DirectCallCount
-        | CallSiteCount,
+        | CallSiteCount
+        | NormalFlowComplexity
+        | LoopCount,
 }
 
 [Flags]
@@ -50,6 +54,8 @@ internal enum ImplementationMetricFactKind
     BodySignals = 1 << 7,
     Safety = 1 << 8,
     DirectCallDiscovery = 1 << 9,
+    StructuralInstructionStream = 1 << 10,
+    GeneratedTypeProvenance = 1 << 11,
     All = SourceAttribution
         | ManagedBody
         | LocalSignature
@@ -59,7 +65,9 @@ internal enum ImplementationMetricFactKind
         | AllocationOccurrences
         | BodySignals
         | Safety
-        | DirectCallDiscovery,
+        | DirectCallDiscovery
+        | StructuralInstructionStream
+        | GeneratedTypeProvenance,
 }
 
 [Flags]
@@ -78,11 +86,13 @@ internal enum ImplementationMetricWorkStage
     SafetyCollection = 1 << 9,
     SiblingRelationshipProjection = 1 << 10,
     DirectCallDiscovery = 1 << 11,
+    StructuralInstructionScan = 1 << 12,
 }
 
 internal enum ImplementationMetricRequestOrigin
 {
     Explicit,
+    LibraryStructuralReport,
     CompleteProfileCompatibility,
     LegacyFeatureCompatibility,
 }
@@ -168,6 +178,14 @@ internal sealed record ImplementationMetricAnalysisRequest(
                 .CompleteProfileCompatibility);
 
     internal static ImplementationMetricAnalysisRequest
+        LibraryStructuralReport() =>
+        new(
+            LibraryStructuralReportV1,
+            ImplementationMetricWorkLimits.LegacyUnbounded,
+            ImplementationMetricRequestOrigin
+                .LibraryStructuralReport);
+
+    internal static ImplementationMetricAnalysisRequest
         LegacyFeatureCompatibility() =>
         CompleteProfile(
             ImplementationMetricWorkLimits.LegacyUnbounded,
@@ -199,6 +217,17 @@ internal sealed record ImplementationMetricAnalysisRequest(
         | ImplementationMetricKind.ThrowCount
         | ImplementationMetricKind.UnsafePresence
         | ImplementationMetricKind.DirectReflectionCalls
+        | ImplementationMetricKind.Async;
+
+    internal static ImplementationMetricKind
+        LibraryStructuralReportV1 =>
+        ImplementationMetricKind.InstructionShape
+        | ImplementationMetricKind.NormalFlowComplexity
+        | ImplementationMetricKind.LoopCount
+        | ImplementationMetricKind.ExceptionRegions
+        | ImplementationMetricKind.DirectCalls
+        | ImplementationMetricKind.DirectCallCount
+        | ImplementationMetricKind.AllocationCount
         | ImplementationMetricKind.Async;
 }
 
@@ -241,6 +270,14 @@ internal sealed record ImplementationMetricAnalysisPlan(
         RequestedMetrics.HasFlag(
             ImplementationMetricKind.CallSiteCount);
 
+    internal bool IncludesAllocationCountMetric =>
+        RequestedMetrics.HasFlag(
+            ImplementationMetricKind.AllocationCount);
+
+    internal bool IncludesAsyncMetric =>
+        RequestedMetrics.HasFlag(
+            ImplementationMetricKind.Async);
+
     internal bool RequiresDirectCallDiscovery =>
         RequiredFacts.HasFlag(
             ImplementationMetricFactKind.DirectCallDiscovery);
@@ -262,8 +299,16 @@ internal sealed record ImplementationMetricAnalysisPlan(
             ImplementationMetricFactKind.LocalSignature);
 
     internal bool RequiresMethodBodyBlock =>
+        RequiredFacts.HasFlag(
+            ImplementationMetricFactKind
+                .StructuralInstructionStream)
+        ||
         RequiresLocalSignatureDecode
         || RequiresDirectCallDiscovery;
+
+    internal bool RequiresGeneratedTypeProvenance =>
+        RequiredFacts.HasFlag(
+            ImplementationMetricFactKind.GeneratedTypeProvenance);
 
     internal ImplementationMetricKind MetricCausesFor(
         ImplementationMetricWorkStage stage)
@@ -283,6 +328,10 @@ internal sealed record ImplementationMetricAnalysisPlan(
                     MetricsRequiringContext,
                 ImplementationMetricWorkStage.DirectCallDiscovery =>
                     MetricsRequiringDiscovery,
+                ImplementationMetricWorkStage
+                    .StructuralInstructionScan =>
+                    ImplementationMetricAnalysisRequest
+                        .LibraryStructuralReportV1,
                 ImplementationMetricWorkStage.DirectCallCollection =>
                     MetricsRequiringCalls,
                 ImplementationMetricWorkStage
@@ -332,7 +381,19 @@ internal sealed record ImplementationMetricAnalysisPlan(
         }
 
         ImplementationMetricFactKind requiredFacts =
-            NormalizeRequiredFacts(requested);
+            request.Origin
+                == ImplementationMetricRequestOrigin
+                    .LibraryStructuralReport
+                ? ImplementationMetricFactKind.SourceAttribution
+                    | ImplementationMetricFactKind.ManagedBody
+                    | ImplementationMetricFactKind
+                        .StructuralInstructionStream
+                    | ImplementationMetricFactKind.DirectCalls
+                    | ImplementationMetricFactKind
+                        .AllocationSignals
+                    | ImplementationMetricFactKind
+                        .GeneratedTypeProvenance
+                : NormalizeRequiredFacts(requested);
         return new(
             requested,
             requiredFacts,
@@ -398,6 +459,12 @@ internal sealed record ImplementationMetricAnalysisPlan(
         {
             facts |= ImplementationMetricFactKind.Safety;
         }
+        if (metrics.HasFlag(
+            ImplementationMetricKind.Async))
+        {
+            facts |= ImplementationMetricFactKind
+                .GeneratedTypeProvenance;
+        }
         return facts;
     }
 
@@ -435,6 +502,14 @@ internal sealed record ImplementationMetricAnalysisPlan(
         {
             stages |=
                 ImplementationMetricWorkStage.DirectCallDiscovery;
+        }
+        if (facts.HasFlag(
+            ImplementationMetricFactKind
+                .StructuralInstructionStream))
+        {
+            stages |=
+                ImplementationMetricWorkStage
+                .StructuralInstructionScan;
         }
         if (facts.HasFlag(
             ImplementationMetricFactKind.DirectCalls))
@@ -490,6 +565,10 @@ internal sealed record ImplementationMetricAnalysisPlan(
         | ImplementationMetricKind.DirectCallCount
         | ImplementationMetricKind.CallSiteCount
         | ImplementationMetricKind.DirectCalls
+        | ImplementationMetricKind.AllocationCount
+        | ImplementationMetricKind.Async
+        | ImplementationMetricKind.NormalFlowComplexity
+        | ImplementationMetricKind.LoopCount
         | ImplementationMetricKind
             .SiblingOverloadRelationships;
 
@@ -512,6 +591,7 @@ internal sealed record ImplementationMetricAnalysisPlan(
         ImplementationMetricKind.DirectCalls
         | ImplementationMetricKind
             .SiblingOverloadRelationships
+        | ImplementationMetricKind.AllocationCount
         | ImplementationMetricKind.UnsafePresence
         | ImplementationMetricKind.DirectReflectionCalls;
 
