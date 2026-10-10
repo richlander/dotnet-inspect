@@ -360,17 +360,33 @@ test("production Analysis opens a private ranked member through all accessibilit
     }],
     isHidden: true,
   };
+  const otherWork = {
+    ...privateWork,
+    name: "OtherWork",
+    signature: "private void OtherWork()",
+    stableSelector: "OtherWork",
+    canonicalSignature: "M:Example.Widget.OtherWork",
+    documentationId: "M:Example.Widget.OtherWork",
+    graphSelectorKey: "OtherWork",
+    metadataToken: 0x06000004,
+    declarationMetadataToken: 0x06000004,
+    bodySelectors: [{
+      token: 0x06000004,
+      memberName: "OtherWork",
+      selectorKey: "OtherWork",
+    }],
+  };
   await installFacades(page, {
     ...surface,
     types: surface.types.map(candidate =>
       candidate.definitionId === "Example.Widget"
         ? {
             ...candidate,
-            members: candidate.members + 1,
-            api: [...candidate.api, privateWork],
+            members: candidate.members + 2,
+            api: [...candidate.api, privateWork, otherWork],
           }
         : candidate),
-    totalMembers: surface.totalMembers + 1,
+    totalMembers: surface.totalMembers + 2,
   });
   await openAnalysis(page);
   await page.locator(".library-analysis-surface .perf-row")
@@ -416,6 +432,28 @@ test("production Analysis opens a private ranked member through all accessibilit
     );
   await expect(page.locator(".signature-code"))
     .toContainText("private void PrivateWork()");
+  await page.locator("[data-nav-member]")
+    .filter({ hasText: "OtherWork" })
+    .click();
+  await expect(inspectorTab(page, "data-member-section", "overview"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("html"))
+    .toHaveAttribute(
+      "data-member-declaration-request",
+      JSON.stringify([
+        "Example.Package",
+        "1.0.0",
+        "net10.0",
+        "Example.Core.dll",
+        "Example.ImplementationOnlyWorker",
+        "OtherWork",
+        "OtherWork",
+        0x06000004,
+        true,
+      ]),
+    );
+  await expect(page.locator(".signature-code"))
+    .toContainText("private void OtherWork()");
   expect(await page.locator("html").getAttribute(
     "data-type-member-population-request",
   )).toBeNull();

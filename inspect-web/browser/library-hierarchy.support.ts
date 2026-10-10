@@ -1522,9 +1522,9 @@ async function installFacades(
       function implementationPerformanceSurface(surface) {
         const source = surface.types.find(type =>
           type.api.some(member => member.name === "PrivateWork"));
-        const privateMember =
-          source?.api.find(member => member.name === "PrivateWork");
-        if (!source || !privateMember) return surface;
+        const implementationMembers = source?.api.filter(member =>
+          member.name === "PrivateWork" || member.name === "OtherWork");
+        if (!source || !implementationMembers?.length) return surface;
         const implementationType = {
           ...source,
           id: source.assemblyId + ":Example.ImplementationOnlyWorker",
@@ -1533,9 +1533,9 @@ async function installFacades(
           metadataId: "Example.ImplementationOnlyWorker",
           name: "ImplementationOnlyWorker",
           displayName: "ImplementationOnlyWorker",
-          members: 1,
+          members: implementationMembers.length,
           signature: "public sealed class ImplementationOnlyWorker",
-          api: [privateMember],
+          api: implementationMembers,
         };
         return {
           ...surface,
@@ -2856,9 +2856,9 @@ async function installFacades(
       function implementationPerformanceSurface(surface) {
         const source = surface.types.find(type =>
           type.api.some(member => member.name === "PrivateWork"));
-        const privateMember =
-          source?.api.find(member => member.name === "PrivateWork");
-        if (!source || !privateMember) return surface;
+        const implementationMembers = source?.api.filter(member =>
+          member.name === "PrivateWork" || member.name === "OtherWork");
+        if (!source || !implementationMembers?.length) return surface;
         const implementationType = {
           ...source,
           id: source.assemblyId + ":Example.ImplementationOnlyWorker",
@@ -2867,9 +2867,9 @@ async function installFacades(
           metadataId: "Example.ImplementationOnlyWorker",
           name: "ImplementationOnlyWorker",
           displayName: "ImplementationOnlyWorker",
-          members: 1,
+          members: implementationMembers.length,
           signature: "public sealed class ImplementationOnlyWorker",
-          api: [privateMember],
+          api: implementationMembers,
         };
         return {
           ...surface,
