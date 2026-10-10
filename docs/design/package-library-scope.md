@@ -344,15 +344,23 @@ CLI `library --package` and its namesake request do not yet adopt Library
 probes. When compile selection returns `NoCompileAssets`, and under
 `--tfm all`, the CLI's package Library routes search the extracted archive
 through `TfmSelector` instead of consuming a role population; #9833 records
-each route. Observed results
+each route. `--tfm all` is package discovery under
+[Package file inventory](package-file-inventory.md#selected-entry-set), so
+its Library routes are retired rather than repopulated: #9833 makes
+`library ... --tfm all` and `package ... --library --tfm all` fail before
+acquisition, and makes Package's default Library hierarchy honor
+`--tfm all`, which it currently ignores in favor of the selected framework.
+Observed results
 include a runtime pack yielding its implementation assemblies, an analyzer
 package its analyzers, a framework-less root `lib/` package its root
 assemblies, and a satellite-only package its satellite resource assemblies.
-`--tfm all` also merges frameworks and roles and ignores explicit empty
-groups. Without `--tfm all`, a selected explicit empty compile group fails
+Until that retirement, `--tfm all` also merges frameworks and roles and
+ignores explicit empty groups. Without `--tfm all`, a selected explicit empty
+compile group fails
 before the search and reports the group's own folder spelling, such as
-`netstandard`. #9833 records the search's exact rules and decides both paths
-after the root `lib/` and RID-implementation decisions above, and Browser
+`netstandard`. #9833 records the search's exact rules and decides the
+`NoCompileAssets` path after the root `lib/` and RID-implementation decisions
+above, and Browser
 adoption of Library probes is not yet recorded.
 
 Later SourceLink and relationship adoptions remain separately scoped. Existing

@@ -89,7 +89,16 @@ order.
 inventory. When both are present, an entry must satisfy both. `--tfm` matches
 the requested value case-insensitively as one complete directory segment at any
 depth; it does not match a filename, a segment substring, or only known NuGet
-roots. `--tfm all` retains the existing unfiltered package behavior.
+roots.
+
+`--tfm all` is package discovery in the manner of a package explorer: it
+selects every framework, adds no predicate, and lists archive content by path.
+It never acquires assembly metadata, and it is valid only on `package`
+discovery. Library inspection, `library ... --tfm all` and
+`package ... --library --tfm all`, rejects it before acquisition and names
+`package <id> --tfm all` instead. Package's default Library hierarchy under
+`--tfm all` lists the compile-Library assets of every framework group by path;
+[Package library scope](package-library-scope.md) owns that population.
 
 The target-framework value is validated before package acquisition through the
 package target-context validation used by other `--tfm` consumers.
