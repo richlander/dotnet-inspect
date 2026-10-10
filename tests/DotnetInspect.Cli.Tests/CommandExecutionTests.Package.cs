@@ -329,7 +329,7 @@ public partial class CommandExecutionTests
         Assert.True(selected.Exit == 0, selected.Error);
         Assert.Equal(shortcut.Output, selected.Output);
         var selectedCount = await RunAppAsync("package", "System.Text.Json@10.0.12*",
-            "--tfms", "--count", "--head", "2");
+            "--tfms", "--count", "-n", "2", "--head");
         Assert.True(selectedCount.Exit == 0, selectedCount.Error);
         Assert.Equal("2", selectedCount.Output.Trim());
         foreach (string[] entrance in new[] { new[] { "--tfms" }, new[] { "-S", "Target Frameworks" } })
