@@ -1741,6 +1741,14 @@ and traces distinguish domain-task correctness from navigation and
 schema-exploration mistakes; this remains diagnostic evidence rather than a
 spontaneous-recognition gate or a general format ranking.
 
+The [HAL stopping-rule trials](../../tools/ExplainReadingScenarios/usability/hal-stop/README.md)
+add one local-data-first instruction without changing product responses. Query
+retrieval falls in this diagnostic sample; Style agents recognize embedded
+tiers but still fetch schema contracts for corroboration. Separate boundary
+trials preserve navigation for missing facts. Neutral post-task questions are
+asked only after answers and logs are frozen; reflections supplement traces
+without changing their results or establishing a causal instruction effect.
+
 ## Demo scenario
 
 `System.Text.Json@10.0.0` motivates the complete production flow:

@@ -1,0 +1,135 @@
+{
+  "method": "Manual obligation-level assessment under unchanged pre-dispatch Query/Style criteria and separate navigation criteria; cross-checked with frozen registered data and independent compare-selected probes. Replay checks integrity, not answer semantics.",
+  "trials": {
+    "query-stop-1": {
+      "outcome": "satisfied",
+      "obligations": {
+        "commands": "satisfied",
+        "literal_rules": "satisfied",
+        "depth_and_target": "satisfied",
+        "dependency_semantics": "satisfied",
+        "candidate_vs_rows": "satisfied",
+        "qualifications": "satisfied"
+      },
+      "evidence": [
+        "response-06.out",
+        "view-09.txt",
+        "response-08.out",
+        "response-09.out",
+        "response-10.out",
+        "response-11.out",
+        "response-12.out",
+        "response-13.out",
+        "response-14.out"
+      ],
+      "assessment": "Both unrun command argv arrays match the requested literal/framework and preferred dependency/depth/target scenarios. Literal preservation, ordinal matching, repeat collapse, UTF-16 limit and astral rejection, closed depth values and 1/all neighbors, direct-inclusive versus legacy semantics, and candidate/row bounds agree with registered rules. No unstated package-ID normalization or executed package result is asserted. Complete installed facet data is distinguished from live package availability and completion/failure caveats.",
+      "trace": "The query-space embeds the relevant facets and CLI binding; individual facet and binding requests repeat locally available rules. No explicit schema contract was requested."
+    },
+    "query-stop-2": {
+      "outcome": "satisfied",
+      "obligations": {
+        "commands": "satisfied",
+        "literal_rules": "satisfied",
+        "depth_and_target": "satisfied",
+        "dependency_semantics": "satisfied",
+        "candidate_vs_rows": "satisfied",
+        "qualifications": "satisfied"
+      },
+      "evidence": [
+        "response-07.out",
+        "response-08.out",
+        "view-15.txt",
+        "response-09.out",
+        "response-10.out",
+        "response-11.out",
+        "response-12.out",
+        "response-13.out",
+        "response-15.out"
+      ],
+      "assessment": "Both unrun command argv arrays match the requested literal/framework and preferred dependency/depth/target scenarios. Literal preservation, ordinal matching, repeat collapse, UTF-16 limit and astral rejection, closed depth values and 1/all neighbors, direct-inclusive versus legacy semantics, and candidate/row bounds agree with registered rules. No unstated package-ID normalization or executed package result is asserted. Complete installed facet data is distinguished from live package availability and completion/failure caveats.",
+      "trace": "The query-space embeds the relevant facets and CLI binding; individual facet and binding requests repeat locally available rules. No explicit schema contract was requested."
+    },
+    "style-stop-1": {
+      "outcome": "satisfied",
+      "obligations": {
+        "membership_join_groups": "satisfied",
+        "configuration_limits": "satisfied",
+        "omission_rules": "satisfied",
+        "qualifications_and_fetch": "satisfied"
+      },
+      "evidence": [
+        "response-08.out",
+        "response-07.out",
+        "view-09.txt",
+        "response-09.out",
+        "view-15.txt"
+      ],
+      "assessment": "Exact five qualifying choices, option true, Formatting/Spelling names and descriptions, both conflict groups and all members agree with registered data. Arbitrary-key and invocation behavior remain bounded. Sparse omission distinguishes complete known available data from unknown IDs, incomplete coverage and unavailable properties. Final filtered evidence retains relevant data scope and map declarations. The answer correctly recognizes local tiers and says separate tier/contract reads were corroborative, not required.",
+      "fetch_falsifier": {
+        "source": "response-08.out",
+        "path": "_embedded.vocabularies[0]._embedded.values",
+        "complete_tiers": 4
+      },
+      "trace": "Standalone tier response is viewed before the substantive primary-choice views. A full 95,618-byte schema contract is requested after local embedded tiers have been rendered. The retrospective characterization as verification does not erase either request."
+    },
+    "style-stop-2": {
+      "outcome": "satisfied",
+      "obligations": {
+        "membership_join_groups": "satisfied",
+        "configuration_limits": "satisfied",
+        "omission_rules": "satisfied",
+        "qualifications_and_fetch": "satisfied"
+      },
+      "evidence": [
+        "response-05.out",
+        "response-06.out",
+        "view-09.txt",
+        "response-07.out",
+        "view-16.txt"
+      ],
+      "assessment": "Exact five qualifying choices, option true, Formatting/Spelling names and descriptions, both conflict groups and all members agree with registered data. Arbitrary-key and invocation behavior remain bounded. Sparse omission distinguishes complete known available data from unknown IDs, incomplete coverage and unavailable properties. Final filtered evidence retains relevant data scope and map declarations. The answer correctly recognizes local tiers and says separate tier/contract reads were corroborative, not required.",
+      "fetch_falsifier": {
+        "source": "response-05.out",
+        "path": "_embedded.vocabularies[0]._embedded.values",
+        "complete_tiers": 4
+      },
+      "trace": "Standalone tier response is viewed before the substantive primary-choice views. A full 95,618-byte schema contract is requested after local embedded tiers have been rendered. The retrospective characterization as verification does not erase either request."
+    },
+    "navigation-baseline-1": {
+      "outcome": "satisfied",
+      "obligations": {
+        "command": "satisfied",
+        "depth_and_target": "satisfied",
+        "gestures_and_limits": "satisfied",
+        "href_only_navigation": "satisfied"
+      },
+      "evidence": [
+        "response-01.out",
+        "response-02.out",
+        "response-03.out",
+        "response-05.out",
+        "response-06.out"
+      ],
+      "assessment": "Starting literal closure lacks dependency depth and target rules. The agent follows the emitted CLI-binding href and its advertised facet hrefs, obtains the preferred exact dependency/depth/target command, rejects 1/all, and preserves unexecuted-result uncertainty. All later requests use previously returned hrefs verbatim, with no search or constructed path.",
+      "trace": "The binding advertises ordinary application/json resource links without projection=hal. Subsequent facet responses are compact ordinary explain resources, not explicit schema contracts, although the participant calls them full contracts. This boundary demonstrates necessary navigation across the advertised graph; it does not demonstrate remaining in HAL throughout."
+    },
+    "navigation-stop-1": {
+      "outcome": "satisfied",
+      "obligations": {
+        "command": "satisfied",
+        "depth_and_target": "satisfied",
+        "gestures_and_limits": "satisfied",
+        "href_only_navigation": "satisfied"
+      },
+      "evidence": [
+        "response-01.out",
+        "response-02.out",
+        "response-06.out",
+        "response-07.out",
+        "response-08.out"
+      ],
+      "assessment": "Starting literal closure lacks dependency depth and target rules. The agent follows the emitted CLI-binding href and its advertised facet hrefs, obtains the preferred exact dependency/depth/target command, rejects 1/all, and preserves unexecuted-result uncertainty. All later requests use previously returned hrefs verbatim, with no search or constructed path.",
+      "trace": "The binding advertises ordinary application/json resource links without projection=hal. Subsequent facet responses are compact ordinary explain resources, not explicit schema contracts, although the participant calls them full contracts. This boundary demonstrates necessary navigation across the advertised graph; it does not demonstrate remaining in HAL throughout."
+    }
+  }
+}

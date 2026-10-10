@@ -1,0 +1,14 @@
+Prepare two CLI commands without running them for exact package
+Microsoft.Azure.SignalR with JSON output:
+1. Implementation-library decoded literal contains https://, net8.0.
+2. Preferred exact dependency predicate for Newtonsoft.Json with maximum
+declaration-edge depth 3, dependency target net8.0.
+
+Distinguish direct hits from depth-2-or-greater legacy syntax. Explain
+normalization/matching rules and prerequisite gestures, whether 600 astral
+Unicode characters is an accepted literal operand, accepted depth values,
+whether depth 1 or target all is legal for the second command, and how to
+bound candidate work versus returned rows for Microsoft.Azure.* with at most
+two final rows. State whether empty listed literal values means unrestricted
+acceptance. Preserve completeness and unavailable-data caveats. Do not invent
+domain rules.
