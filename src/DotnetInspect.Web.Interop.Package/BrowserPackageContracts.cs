@@ -430,12 +430,6 @@ public enum BrowserPackageQueryExecutionClass
     MetadataExpensive,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryWorkspaceLens>))]
-public enum BrowserPackageQueryWorkspaceLens
-{
-    Dependencies,
-}
-
 public sealed record BrowserPackageQueryPresetDescriptor(
     string Key,
     string Operator,
@@ -453,7 +447,7 @@ public sealed record BrowserPackageQueryPresetDescriptor(
     string CategoryId,
     string CategoryLabel,
     int CategoryOrder,
-    BrowserPackageQueryWorkspaceLens? WorkspaceLens);
+    string[] RelatedOperations);
 
 public sealed record BrowserPackageQueryCatalog(
     BrowserPackageQueryPresetDescriptor[] Presets,
@@ -473,7 +467,7 @@ public sealed record BrowserPackageQueryTermDescriptor(
     bool AllowsCustomValue,
     string? ReplacementGroupId,
     BrowserPackageQueryTermOptionDescriptor[] Options,
-    BrowserPackageQueryWorkspaceLens? WorkspaceLens);
+    string[] RelatedOperations);
 
 public sealed record BrowserPackageQueryTermOptionDescriptor(
     string Value,

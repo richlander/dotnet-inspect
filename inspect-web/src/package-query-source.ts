@@ -15,7 +15,6 @@ import type {
   BrowserPackageQueryMatchCreditResponse,
   BrowserPackageQueryResult,
   BrowserPackageQueryTerm,
-  BrowserPackageQueryWorkspaceLens,
 } from "./facades/inspect-web-package.d.ts";
 import type {
   PackageQueryDataSource,
@@ -118,7 +117,7 @@ function toQueryPreset(
     categoryId: descriptor.categoryId,
     categoryLabel: descriptor.categoryLabel,
     categoryOrder: descriptor.categoryOrder,
-    workspaceLens: packageWorkspaceLens(descriptor),
+    relatedOperations: [...descriptor.relatedOperations],
   };
 }
 
@@ -143,26 +142,8 @@ function toQueryTermDescriptor(
       label: option.label,
       summary: option.summary,
     })),
-    workspaceLens: packageWorkspaceLens(descriptor),
+    relatedOperations: [...descriptor.relatedOperations],
   };
-}
-
-function packageWorkspaceLens(
-  descriptor: {
-    readonly key: string;
-    readonly workspaceLens?: BrowserPackageQueryWorkspaceLens | null;
-  },
-): "dependencies" | null {
-  switch (descriptor.workspaceLens) {
-    case "Dependencies":
-      return "dependencies";
-    case null:
-    case undefined:
-      return null;
-    default:
-      throw new TypeError(
-        `Unknown Package Query Workspace lens for '${descriptor.key}'.`);
-  }
 }
 
 export function createBrowserPackageQueryDataSource(

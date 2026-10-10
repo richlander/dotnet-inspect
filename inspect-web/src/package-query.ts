@@ -16,8 +16,6 @@ type QueryExecutionClass =
   | "metadata"
   | "metadata-expensive";
 
-export type PackageQueryWorkspaceLens = "dependencies";
-
 /** One product-issued package-query preset descriptor. */
 export interface QueryPreset {
   id: string;
@@ -37,7 +35,7 @@ export interface QueryPreset {
   categoryId?: string;
   categoryLabel?: string;
   categoryOrder?: number;
-  workspaceLens?: PackageQueryWorkspaceLens | null;
+  relatedOperations?: readonly string[];
 }
 
 export interface QueryTermOption {
@@ -61,7 +59,7 @@ export interface QueryTermDescriptor {
   allowsCustomValue?: boolean;
   replacementGroupId?: string | null;
   options?: readonly QueryTermOption[];
-  workspaceLens?: PackageQueryWorkspaceLens | null;
+  relatedOperations?: readonly string[];
 }
 
 export type DependencyReach = "direct" | "2" | "3" | "4";
@@ -331,18 +329,16 @@ export function dependencyTarget(request: QueryRequest): string {
   return value.toLowerCase() === "all" ? "" : value;
 }
 
-export function packageQueryWorkspaceLens(
+export function packageQueryRelatedOperation(
   request: QueryRequest | null,
-): PackageQueryWorkspaceLens | null {
+): string | null {
   if (request === null) return null;
-  const hints = [
-    ...request.presets.map(preset => preset.workspaceLens),
-    ...request.terms.map(term => term.descriptor.workspaceLens),
-  ].filter((hint): hint is PackageQueryWorkspaceLens => hint !== null
-    && hint !== undefined);
-  if (hints.length === 0) return null;
-  const first = hints[0]!;
-  return hints.every(hint => hint === first) ? first : null;
+  const operations = new Set([
+    ...request.presets.flatMap(preset => preset.relatedOperations ?? []),
+    ...request.terms.flatMap(
+      term => term.descriptor.relatedOperations ?? []),
+  ]);
+  return operations.size === 1 ? operations.values().next().value ?? null : null;
 }
 
 function dependencyContextChanged(

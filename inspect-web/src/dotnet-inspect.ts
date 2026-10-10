@@ -709,7 +709,7 @@ import {
   ECOSYSTEM_PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
   initialQueryState,
   isTraversalDependencyTarget,
-  packageQueryWorkspaceLens,
+  packageQueryRelatedOperation,
   requiresTraversalDependencyTarget,
   shouldExecuteQuery,
   synchronizeDependencyTermEditor,
@@ -21252,6 +21252,18 @@ function cancelPackageQueryTermDraft() {
       `[data-query-term-add="${cssEscape(descriptor.key)}"]`)?.focus());
 }
 
+const packageQueryRelatedOperationBindings =
+  new Map<string, PackageLens>([
+    ["package.dependencies.inspect", "dependencies"],
+  ]);
+
+function packageQueryInitialLens(request: QueryRequest | null): PackageLens {
+  const operation = packageQueryRelatedOperation(request);
+  return operation === null
+    ? "overview"
+    : packageQueryRelatedOperationBindings.get(operation) ?? "overview";
+}
+
 async function openPackageQueryRow(
   packageId: string,
   version: string,
@@ -21267,7 +21279,7 @@ async function openPackageQueryRow(
       capturePackageQueryViewport(document) ?? packageQueryViewport;
   }
   const initialPackageLens: PackageLens = origin === "query"
-    ? packageQueryWorkspaceLens(state.packageQueryState.request) ?? "overview"
+    ? packageQueryInitialLens(state.packageQueryState.request)
     : "overview";
   if (!canPublishRetainedWorkspace()) {
     if (origin === "query") {

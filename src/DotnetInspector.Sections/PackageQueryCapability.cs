@@ -59,6 +59,16 @@ public static class PackageQueryCapability
                     + "failures, and completion summary.",
                     PackageQuery.ResultContractIdentity));
 
+    private static readonly string[] DependencyContinuationTerms =
+    [
+        PackageQuery.DependenciesTermKey,
+        PackageQuery.DependencyDepthTermKey,
+        PackageQuery.DependencyTargetTermKey,
+        PackageQuery.DependsTermKey,
+        PackageQuery.DependsTransitiveTermKey,
+        PackageQuery.DependsEcosystemTermKey,
+    ];
+
     public static InspectionRouteRegistration<
         PackageQueryInspectionRequest,
         PackageQueryDocument> Route { get; } =
@@ -106,6 +116,14 @@ public static class PackageQueryCapability
                             PackageQuery.LibraryLiteralTermKey),
                         PackageQuery.TermBindingIdentity(
                             PackageQuery.LibraryTargetTermKey)),
+                ],
+                queryTermRelatedOperations:
+                [
+                    .. DependencyContinuationTerms.Select(term =>
+                        new InspectionQueryTermRelatedOperation(
+                            PackageQuery.TermBindingIdentity(term),
+                            PackageRelatedOperationAffordances
+                                .InspectDependencies)),
                 ]);
 
     public static InspectionCapabilityModule ProductModule { get; } =

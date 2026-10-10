@@ -528,6 +528,12 @@ public sealed class ResourceExplanationCatalog
             .. querySpaces.SelectMany(querySpace =>
                 querySpace.Descriptor.Operation.Terms.Select(term =>
                     QueryFacetIdentity(querySpace, term))),
+            .. catalog.Routes
+                .SelectMany(static route =>
+                    route.QueryTermRelatedOperations)
+                .Select(static relationship =>
+                    RelatedOperationIdentity(relationship.Operation))
+                .Distinct(),
             .. catalog.Bindings.Select(ConsumerBindingIdentity),
         ];
         if (paths.Count != identities.Length)
@@ -655,6 +661,40 @@ public sealed class ResourceExplanationCatalog
                         })));
         }
 
+        foreach (RelatedOperationAffordance operation in catalog.Routes
+                     .SelectMany(static route =>
+                         route.QueryTermRelatedOperations)
+                     .Select(static relationship => relationship.Operation)
+                     .DistinctBy(
+                         static operation => operation.Id.Value,
+                         StringComparer.Ordinal))
+        {
+            InspectionCapabilityResourceIdentity identity =
+                RelatedOperationIdentity(operation);
+            snapshots.Add(
+                Snapshot(
+                    paths[identity],
+                    keys[identity],
+                    [
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .RelatedOperationType,
+                            "identity",
+                            operation.Id.Value),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .RelatedOperationType,
+                            "name",
+                            operation.Title),
+                        ResourceExplanationVocabulary.TextFact(
+                            ResourceExplanationVocabulary
+                                .RelatedOperationType,
+                            "summary",
+                            operation.Summary),
+                    ],
+                    []));
+        }
+
         foreach (QuerySpaceBinding querySpace in querySpaces)
         {
             InspectionCapabilityResourceIdentity identity =
@@ -703,6 +743,14 @@ public sealed class ResourceExplanationCatalog
                     .SelectMany(static route =>
                         route.QueryTermRelationships)
                     .Distinct();
+            IEnumerable<InspectionQueryTermRelatedOperation>
+                termRelatedOperations =
+                    catalog.Routes
+                        .Where(route =>
+                            ReferenceEquals(route.QuerySpace, querySpace))
+                        .SelectMany(static route =>
+                            route.QueryTermRelatedOperations)
+                        .Distinct();
             foreach (QuerySpaceOperationTermDescriptor term
                      in querySpace.Descriptor.Operation.Terms)
             {
@@ -798,6 +846,13 @@ public sealed class ResourceExplanationCatalog
                                                 querySpace,
                                                 target)];
                                     }),
+                                ["related-operation"] = termRelatedOperations
+                                    .Where(relationship =>
+                                        relationship.SourceTerm
+                                                == term.Identity)
+                                    .Select(relationship =>
+                                        keys[RelatedOperationIdentity(
+                                                relationship.Operation)]),
                                 ["exposed-by"] = catalog.Bindings
                                     .Where(binding =>
                                         ReferenceEquals(
@@ -1797,6 +1852,13 @@ public sealed class ResourceExplanationCatalog
             querySpace.Descriptor.Identity);
 
     internal static InspectionCapabilityResourceIdentity
+        RelatedOperationIdentity(
+            RelatedOperationAffordance operation) =>
+        new(
+            InspectionCapabilityResourceKind.RelatedOperation,
+            operation.Id.Value);
+
+    internal static InspectionCapabilityResourceIdentity
         ConsumerBindingIdentity(
             InspectionConsumerBinding binding) =>
         new(
@@ -1816,6 +1878,8 @@ public sealed class ResourceExplanationCatalog
                     ResourceExplanationVocabulary.QuerySpaceType,
                 InspectionCapabilityResourceKind.QueryFacet =>
                     ResourceExplanationVocabulary.QueryFacetType,
+                InspectionCapabilityResourceKind.RelatedOperation =>
+                    ResourceExplanationVocabulary.RelatedOperationType,
                 InspectionCapabilityResourceKind.ConsumerBinding =>
                     ResourceExplanationVocabulary.ConsumerBindingType,
                 InspectionCapabilityResourceKind.Analysis =>
