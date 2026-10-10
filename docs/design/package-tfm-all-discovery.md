@@ -52,7 +52,8 @@ one selected compile projection. The projection is a Hierarchy under
   format and in Count.
 - A tool package groups its tool slices, as
   [Package Info tool measurements](package-info-tool-measurements.md) defines
-  them, the same way.
+  them, the same way. A tool slice without a Library is itself a row with role
+  tool and its slice directory path, so it stays visible in every format.
 - An empty compile and tool inventory returns the typed no-Library state with
   zero rows. A package without compile assets is not searched for other
   assemblies.
@@ -93,6 +94,10 @@ The CLI does not yet meet this contract. Observed on main:
   `build/` and `tools/` assets.
 - `-S @SourceLink` and `-S Signals` read assemblies and PDBs across every
   framework.
+- `-S "Package Info"` keeps its selected-framework fields and Ecosystem
+  Dependencies, identical to the request without `--tfm all`; the tool gate
+  `PackageCommand_DeclaredToolUsesAggregateToolMeasurementsColdAndWarm`
+  asserts those fields under `--tfm all`.
 - `-S Dependencies` filters dependency groups by the literal `all` and returns
   no rows.
 - Every package request except the default children projection runs the
@@ -108,15 +113,15 @@ The CLI does not yet meet this contract. Observed on main:
   framework, while type-mode `depends`, `member`, and `workspace` accept it,
   and `package query` returns zero matches.
 
-The adoption under #9833 declares the projection's QuerySpace producer
-capabilities for Count and row windows, skips the binary-signal scan under
-`--tfm all`, adds one shared pre-acquisition admission check,
-classifies every `package` section against this table, and gates each row. It
-also retires the IL-reading `--tfm all` code paths and the current-mechanics
-descriptions in [Integrations](integrations.md), [Inspection
-space](../inspection-space.md), [Assembly inspection
-query](assembly-inspection-query.md), [CLI row
+The adoption under #9833 updates that tool gate's selected-TFM assertions,
+declares the projection's QuerySpace producer capabilities for Count and row
+windows, skips the binary-signal scan under `--tfm all`, adds one shared
+pre-acquisition admission check, classifies every `package` section against
+this table, and gates each row. It also retires the IL-reading `--tfm all` code
+paths and the current-mechanics descriptions in
+[Integrations](integrations.md), [Inspection space](../inspection-space.md),
+[Assembly inspection query](assembly-inspection-query.md), [CLI row
 selection](cli-row-selection.md), [CLI architecture](../cli-architecture.md),
 [Find search service](find-search-service.md), and the default-request format
-statements in [CLI reference](../cli-reference.md) and
-[Primary subject views](primary-subject-views.md).
+statements in [CLI reference](../cli-reference.md) and [Primary subject
+views](primary-subject-views.md).
