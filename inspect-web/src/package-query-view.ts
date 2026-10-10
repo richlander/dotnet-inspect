@@ -1,4 +1,5 @@
 import type {
+  DependencyReach,
   PackageQueryState,
   QueryPreset,
   QueryRequest,
@@ -9,6 +10,9 @@ import type {
 } from "./package-query.ts";
 import {
   createQueryRequest,
+  dependencyReach,
+  dependencyTarget,
+  isTraversalDependencyTarget,
   isLibraryLiteralQuery,
 } from "./package-query.ts";
 import {
@@ -37,11 +41,15 @@ export interface PackageQueryBindingActions {
     operator: string,
     value: string,
     prefix: string,
+    dependencyReach?: DependencyReach,
+    dependencyTarget?: string,
   ) => void;
   onTermEdit?: (
     index: number | null,
     operator: string,
     value: string,
+    dependencyReach?: DependencyReach,
+    dependencyTarget?: string,
   ) => void;
   onTermDraftCancel?: () => void;
   onTermRemove?: (index: number, prefix: string) => void;
@@ -80,12 +88,14 @@ export type PackageQueryFocusSnapshot =
   | {
       kind: "term";
       index: number;
-      control: "operator" | "value" | "apply" | "remove";
+      control: "operator" | "value" | "dependency-reach"
+        | "dependency-target" | "apply" | "remove";
       editor: PackageQueryEditorSnapshot | null;
     }
   | {
       kind: "term-draft";
-      control: "operator" | "value" | "apply" | "cancel";
+      control: "operator" | "value" | "dependency-reach"
+        | "dependency-target" | "apply" | "cancel";
       editor: PackageQueryEditorSnapshot | null;
     }
   | { kind: "row"; packageId: string; version: string }
@@ -109,10 +119,13 @@ function revealLibraryLiteralControl(element: Element | null): void {
 
 function termControl(
   value: string | undefined,
-): "operator" | "value" | "apply" | "remove" | null {
+): "operator" | "value" | "dependency-reach"
+  | "dependency-target" | "apply" | "remove" | null {
   switch (value) {
     case "operator":
     case "value":
+    case "dependency-reach":
+    case "dependency-target":
     case "apply":
     case "remove":
       return value;
@@ -123,15 +136,32 @@ function termControl(
 
 function termDraftControl(
   value: string | undefined,
-): "operator" | "value" | "apply" | "cancel" | null {
+): "operator" | "value" | "dependency-reach"
+  | "dependency-target" | "apply" | "cancel" | null {
   switch (value) {
     case "operator":
     case "value":
+    case "dependency-reach":
+    case "dependency-target":
     case "apply":
     case "cancel":
       return value;
     default:
       return null;
+  }
+}
+
+function dependencyReachValue(
+  value: string | undefined,
+): DependencyReach | undefined {
+  switch (value) {
+    case "direct":
+    case "2":
+    case "3":
+    case "4":
+      return value;
+    default:
+      return undefined;
   }
 }
 
@@ -180,6 +210,7 @@ export function capturePackageQueryFocus(
         index,
         control: activeTermControl,
         editor: activeTermControl === "value"
+            || activeTermControl === "dependency-target"
           ? capturePackageQueryEditor(active)
           : null,
       };
@@ -192,6 +223,7 @@ export function capturePackageQueryFocus(
       kind: "term-draft",
       control: activeDraftControl,
       editor: activeDraftControl === "value"
+          || activeDraftControl === "dependency-target"
         ? capturePackageQueryEditor(active)
         : null,
     };
@@ -399,6 +431,12 @@ function bindPackageQueryTerms(
       const termOperator =
         form.querySelector<HTMLInputElement | HTMLSelectElement>(
           "[data-query-term-operator]");
+      const dependencyReachControl =
+        form.querySelector<HTMLSelectElement>(
+          "[data-query-dependency-reach]");
+      const dependencyTargetControl =
+        form.querySelector<HTMLInputElement>(
+          "[data-query-dependency-target]");
       const indexText = form.dataset.queryTermForm;
       const index = indexText === "draft" ? null : Number(indexText);
       if (index !== null && (!Number.isInteger(index) || index < 0)) {
@@ -411,7 +449,9 @@ function bindPackageQueryTerms(
           termOperator.value,
           termValue instanceof HTMLTextAreaElement
             ? decodeLibraryLiteralEditorValue(termValue.value)
-            : termValue.value);
+            : termValue.value,
+          dependencyReachValue(dependencyReachControl?.value),
+          dependencyTargetControl?.value);
       };
       if (termValue) {
         const updateValue = () => {
@@ -424,7 +464,40 @@ function bindPackageQueryTerms(
           actions.onEditorCompositionEnd);
         termValue.addEventListener("change", updateValue);
       }
-      termOperator?.addEventListener("change", retainEdit);
+      const updateDependencyAvailability = () => {
+        if (!dependencyReachControl || !dependencyTargetControl
+          || !termOperator) return;
+        if (termOperator.value !== "eq") {
+          dependencyReachControl.value = "direct";
+          dependencyReachControl.disabled = true;
+        } else {
+          dependencyReachControl.disabled = false;
+        }
+        const direct = dependencyReachControl.value === "direct";
+        dependencyTargetControl.disabled = direct;
+        dependencyTargetControl.required = !direct;
+      };
+      termOperator?.addEventListener("change", () => {
+        updateDependencyAvailability();
+        retainEdit();
+      });
+      dependencyReachControl?.addEventListener("change", () => {
+        updateDependencyAvailability();
+        retainEdit();
+      });
+      if (dependencyTargetControl) {
+        const updateDependencyTarget = () => {
+          dependencyTargetControl.setCustomValidity("");
+          retainEdit();
+        };
+        bindPackageQueryEditor(
+          dependencyTargetControl,
+          updateDependencyTarget,
+          actions.onEditorCompositionEnd);
+        dependencyTargetControl.addEventListener(
+          "change",
+          updateDependencyTarget);
+      }
       form.addEventListener("submit", event => {
         event.preventDefault();
         if (!termValue || !termOperator) {
@@ -441,11 +514,23 @@ function bindPackageQueryTerms(
           termValue.reportValidity();
           return;
         }
+        if (dependencyTargetControl
+          && !dependencyTargetControl.disabled
+          && !isTraversalDependencyTarget(
+            dependencyTargetControl.value)) {
+          dependencyTargetControl.setCustomValidity(
+            "Enter an exact target framework.");
+          dependencyTargetControl.reportValidity();
+          return;
+        }
+        dependencyTargetControl?.setCustomValidity("");
         actions.onTermApply?.(
           index,
           termOperator.value,
           value,
-          prefixInput()?.value ?? "");
+          prefixInput()?.value ?? "",
+          dependencyReachValue(dependencyReachControl?.value),
+          dependencyTargetControl?.value);
       });
     });
   root.querySelectorAll<HTMLElement>("[data-query-term-remove]")
@@ -772,16 +857,107 @@ function renderTermEditor(
     </form>`;
 }
 
+function renderDependencyTermEditor(
+  descriptor: QueryTermDescriptor,
+  operator: string,
+  value: string,
+  reach: DependencyReach,
+  targetFramework: string,
+  index: number | null,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const draft = index === null;
+  const identity = draft ? "draft" : String(index);
+  const control = (name: string) => draft
+    ? `data-query-term-draft-control="${name}"`
+    : `data-query-term-index="${index}" data-query-term-control="${name}"`;
+  const traversalAllowed = operator === "eq";
+  const effectiveReach = traversalAllowed ? reach : "direct";
+  return `
+    <form
+      class="query-term query-dependency-term"
+      data-query-term-form="${identity}"
+      data-query-dependency-term
+      aria-label="${escapeHtml(descriptor.label)}">
+      <label class="query-term-value" for="package-query-term-${identity}">
+        <span>${escapeHtml(descriptor.label)}</span>
+        <input
+          id="package-query-term-${identity}"
+          data-query-term-value
+          ${draft ? "data-query-term-draft-value" : ""}
+          ${control("value")}
+          type="text"
+          required
+          value="${escapeHtml(value)}"
+          placeholder="${escapeHtml(descriptor.example)}"
+          title="${escapeHtml(descriptor.summary)}"
+          autocomplete="off"
+          spellcheck="false" />
+      </label>
+      ${renderTermOperator(
+        descriptor,
+        operator,
+        index,
+        escapeHtml)}
+      <label class="query-dependency-reach">
+        <span>Shared reach for exact package dependencies</span>
+        <select
+          data-query-dependency-reach
+          ${control("dependency-reach")}
+          ${traversalAllowed ? "" : "disabled"}>
+          <option value="direct"${effectiveReach === "direct" ? " selected" : ""}>Direct only</option>
+          <option value="2"${effectiveReach === "2" ? " selected" : ""}>Within 2 edges</option>
+          <option value="3"${effectiveReach === "3" ? " selected" : ""}>Within 3 edges</option>
+          <option value="4"${effectiveReach === "4" ? " selected" : ""}>Within 4 edges</option>
+        </select>
+      </label>
+      <label class="query-dependency-target">
+        <span>Shared dependency target framework</span>
+        <input
+          data-query-dependency-target
+          ${control("dependency-target")}
+          type="text"
+          value="${escapeHtml(targetFramework)}"
+          placeholder="net10.0"
+          ${effectiveReach === "direct" ? "disabled" : "required"}
+          autocomplete="off"
+          spellcheck="false" />
+      </label>
+      <p class="query-preset-disclosure">Reach applies to every exact package dependency in this query. Direct only inspects declared dependencies. A bounded reach includes direct and transitive declaration paths and inspects at most five candidates. The target framework scopes every dependency fact.</p>
+      <div class="query-term-actions">
+        <button type="submit" ${control("apply")}>Apply</button>
+        ${draft
+          ? `<button type="button" data-query-term-draft-cancel ${control("cancel")}>Cancel</button>`
+          : `<button type="button" data-query-term-remove="${index}" ${control("remove")}>Remove</button>`}
+      </div>
+    </form>`;
+}
+
 function renderTermControls(
   state: PackageQueryState,
   availableTerms: readonly QueryTermDescriptor[],
   escapeHtml: (value: unknown) => string,
 ): string {
   const applied = state.request?.terms ?? [];
+  const request = state.request ?? createQueryRequest("");
+  const sharedReach = dependencyReach(request);
+  const sharedTarget = dependencyTarget(request);
   const draft = state.termDraft;
   const active = [
     ...applied.map((term, index) => {
+      if (term.descriptor.key === "dependency-target"
+        && sharedReach !== "direct") return "";
       const edit = state.termEdits?.[index];
+      if (term.descriptor.key === "depends") {
+        return renderDependencyTermEditor(
+          term.descriptor,
+          edit?.operator ?? term.operator,
+          edit?.value ?? term.value,
+          edit?.dependencyReach ?? sharedReach,
+          edit?.dependencyTarget ?? sharedTarget,
+          index,
+          escapeHtml);
+      }
       return renderTermEditor(
         term.descriptor,
         edit?.operator ?? term.operator,
@@ -790,7 +966,16 @@ function renderTermControls(
         escapeHtml);
     }),
     ...(draft
-      ? [renderTermEditor(
+      ? [draft.descriptor.key === "depends"
+        ? renderDependencyTermEditor(
+          draft.descriptor,
+          draft.operator,
+          draft.value,
+          draft.dependencyReach ?? "direct",
+          draft.dependencyTarget ?? request.targetFramework,
+          null,
+          escapeHtml)
+        : renderTermEditor(
           draft.descriptor,
           draft.operator,
           draft.value,
@@ -806,7 +991,10 @@ function renderTermControls(
       </section>`
     : "";
   const palette = availableTerms
-    .filter(term => term.operators.length > 0)
+    .filter(term => term.operators.length > 0
+      && term.key !== "depends-transitive"
+      && !(sharedReach !== "direct"
+        && term.key === "dependency-target"))
     .map(term => `
       <button
         type="button"
@@ -1235,7 +1423,10 @@ export function renderPackageQueryView(
     viewport = null,
   } = options;
   const activeKeys = new Set(state.request?.presets.map(preset => preset.id) ?? []);
-  const presets = renderPresets(availablePresets, activeKeys, escapeHtml);
+  const presets = renderPresets(
+    availablePresets.filter(preset => preset.key !== "dependency-depth"),
+    activeKeys,
+    escapeHtml);
   const failures = renderFailures(state, escapeHtml);
   const results = renderResults(state, escapeHtml, viewport);
   const request = state.request ?? createQueryRequest("");
@@ -1276,7 +1467,7 @@ export function renderPackageQueryView(
             <p>Changes rerun the selected input; blank package input stays idle.</p>
             <div class="query-presets">${presets}</div>
             <p class="query-preset-disclosure">Content facts download up to 20 candidate package archives.</p>
-            <p class="query-preset-disclosure">Transitive dependency facts inspect up to 5 package candidates.</p>
+            <p class="query-preset-disclosure">Bounded dependency reach inspects up to 5 package candidates.</p>
             <p class="query-preset-disclosure">Metadata-expensive facts inspect up to 5 package candidates.</p>
             <p class="query-preset-disclosure">Candidate bound K: ${request.requestedLimit.toLocaleString()}; exact IDs use one candidate. Maximum matches N: ${request.requestedMatchLimit.toLocaleString()}. The match limit does not change prefix capacity.</p>
             <p class="query-preset-disclosure">Match counts and lifetime downloads describe a bounded response, not global top-N.</p>

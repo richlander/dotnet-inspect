@@ -394,29 +394,35 @@ public static class TypeDependencyScanner
             targetType,
             assemblies,
             requireExactMatch: false,
-            maximumDepth);
+            maximumDepth,
+            rootRegistration: null);
 
     /// <summary>
     /// Builds dependency graph facts only when the target resolves by its exact
-    /// normalized type name.
+    /// normalized type name. An explicitly selected registration also admits
+    /// that exact root regardless of accessibility, without expanding the
+    /// ordinary public-type population.
     /// </summary>
     public static TypeDependencyPopulationResult
         BuildExactDependencyPopulation(
             string targetType,
             IReadOnlyList<ResolvedAssemblyReference> assemblies,
-            int? maximumDepth = null) =>
+            int? maximumDepth = null,
+            AssemblyAcquisitionRegistration? rootRegistration = null) =>
         BuildDependencyPopulationCore(
             targetType,
             assemblies,
             requireExactMatch: true,
-            maximumDepth);
+            maximumDepth,
+            rootRegistration);
 
     private static TypeDependencyPopulationResult
         BuildDependencyPopulationCore(
             string targetType,
             IReadOnlyList<ResolvedAssemblyReference> assemblies,
             bool requireExactMatch,
-            int? maximumDepth)
+            int? maximumDepth,
+            AssemblyAcquisitionRegistration? rootRegistration)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetType);
         ArgumentNullException.ThrowIfNull(assemblies);
@@ -454,7 +460,14 @@ public static class TypeDependencyScanner
                 {
                     image = CandidateImage.Open(assembly.OpenRead);
                     CandidateStage stage =
-                        StageCandidate(image.PeReader, assembly);
+                        StageCandidate(
+                            image.PeReader,
+                            assembly,
+                            ReferenceEquals(
+                                assembly.Registration,
+                                rootRegistration)
+                                ? FqnParser.NormalizeTypeName(targetType)
+                                : null);
                     if (!stage.HasManagedMetadata)
                     {
                         outcomes.Add(
@@ -582,7 +595,8 @@ public static class TypeDependencyScanner
 
     private static CandidateStage StageCandidate(
         PEReader peReader,
-        ResolvedAssemblyReference? descriptor)
+        ResolvedAssemblyReference? descriptor,
+        string? exactRoot = null)
     {
         if (!MetadataFormatAdmission.AdmitImage(peReader))
             return CandidateStage.Descriptorless;
@@ -620,14 +634,24 @@ public static class TypeDependencyScanner
         {
             TypeDefinition definition =
                 reader.GetTypeDefinition(handle);
-            if (!definition.IsPublic)
+            if (!definition.IsPublic && exactRoot is null)
                 continue;
 
             string name = reader.GetString(definition.Name);
-            if (TypeFilters.IsCompilerGenerated(name))
+            bool isCompilerGenerated = TypeFilters.IsCompilerGenerated(name);
+            if (isCompilerGenerated && exactRoot is null)
                 continue;
 
             string fullName = TypeResolver.GetFullName(reader, definition);
+            bool isSelectedRoot = fullName.Equals(
+                exactRoot,
+                StringComparison.Ordinal);
+            if (!isSelectedRoot
+                && (!definition.IsPublic || isCompilerGenerated))
+            {
+                continue;
+            }
+
             ValidateRelationships(reader, definition);
             staged.TryAdd(
                 fullName,

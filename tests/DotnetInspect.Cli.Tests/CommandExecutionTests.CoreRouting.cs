@@ -1063,7 +1063,16 @@ public partial class CommandExecutionTests
         var deferred = await RunAppAsync(arguments);
 
         Assert.Equal(direct, deferred);
-        Assert.Equal(0, deferred.Exit);
+        // An incomplete Body Shapes search still renders its observed rows and
+        // exits nonzero; which platform bodies fall below Full fidelity varies
+        // with the decompiler, so tie the exit to the disclosure.
+        Assert.Equal(
+            deferred.Error.Contains(
+                "Body Shapes inspection incomplete",
+                StringComparison.Ordinal)
+                ? 1
+                : 0,
+            deferred.Exit);
         Assert.Contains("InvocationExpression", deferred.Output);
     }
 

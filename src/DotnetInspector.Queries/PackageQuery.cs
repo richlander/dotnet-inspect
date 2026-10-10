@@ -181,11 +181,11 @@ public sealed record PackageQueryRequestFailure
         PackageQueryRequestFailureReason.OrderNotSupported =>
             "Package Query does not define an ordering namespace.",
         PackageQueryRequestFailureReason.TransitiveDependencyRequiresTarget =>
-            "depends-transitive requires an explicit dependency-target=<tfm>.",
+            "Dependency traversal requires an explicit dependency-target=<tfm>.",
         PackageQueryRequestFailureReason.TransitiveDependencyRequiresDepth =>
             "depends-transitive requires dependency-depth=2, 3, or 4.",
         PackageQueryRequestFailureReason.DependencyDepthRequiresTransitiveDependency =>
-            "dependency-depth requires at least one depends-transitive term.",
+            "dependency-depth requires at least one exact depends or depends-transitive term.",
         PackageQueryRequestFailureReason.LibraryLiteralRequiresTarget =>
             "library-literal requires one exact target framework.",
         PackageQueryRequestFailureReason.LibraryTargetRequiresLiteral =>
@@ -286,7 +286,10 @@ public sealed class PackageQueryPlan
             ?.Predicate.Text;
     public bool RequiresDependencyTraversal =>
         BoundTerms.Any(term =>
-            term.Predicate.Kind == PackageQueryPredicateKind.DependsTransitive);
+            term.Predicate.Kind == PackageQueryPredicateKind.DependsTransitive)
+        || DependencyDepth is not null
+            && BoundTerms.Any(term =>
+                term.Predicate.Kind == PackageQueryPredicateKind.Depends);
     internal bool RequiresSearchMetadata =>
         BoundTerms.Any(term =>
             term.Descriptor.Tier == PackageQueryAcquisitionTier.SearchMetadata);
@@ -304,6 +307,13 @@ public sealed class PackageQueryPlan
                 or PackageQueryPredicateKind.DependsPrefix
                 or PackageQueryPredicateKind.DependsTransitive
                 or PackageQueryPredicateKind.DependsEcosystem);
+    internal bool HasTransitiveDependencyPredicate =>
+        BoundTerms.Any(term =>
+            term.Predicate.Kind == PackageQueryPredicateKind.DependsTransitive);
+    internal bool HasTraversableDependencyPredicate =>
+        BoundTerms.Any(term =>
+            term.Predicate.Kind is PackageQueryPredicateKind.Depends
+                or PackageQueryPredicateKind.DependsTransitive);
     internal bool HasExplicitDependencyTarget =>
         BoundTerms.Any(term =>
             term.Predicate.Kind == PackageQueryPredicateKind.DependencyTarget);
@@ -979,13 +989,13 @@ public static partial class PackageQuery
             InputRules =
             [
                 "Requires at least one depends, depends-transitive, depends-ecosystem, or dependencies term; applies to all dependency predicates in the query.",
-                "depends-transitive requires an explicit dependency-target=<tfm>; all is not accepted for traversal.",
+                "Dependency traversal requires an explicit dependency-target=<tfm>; all is not accepted with dependency-depth or depends-transitive.",
             ],
         },
         new(
             DependsTermKey,
             "depends on package",
-            "Matches a direct dependency by exact package ID or literal package-ID prefix.",
+            "Matches a direct dependency, or exact package reachability through dependency-depth.",
             200,
             PackageQueryAcquisitionTier.Nuspec,
             PackageQueryExecutionClass.Nuspec,
@@ -993,7 +1003,14 @@ public static partial class PackageQuery
             "NuGet package ID or prefix",
             "Microsoft.Extensions.DependencyInjection",
             PackageQueryTermRole.Inspection,
-            PackageQueryTermControlKind.Input),
+            PackageQueryTermControlKind.Input)
+        {
+            InputRules =
+            [
+                "Without dependency-depth, eq matches direct dependencies and starts-with matches direct package-ID prefixes. With dependency-depth=2, 3, or 4, eq matches direct or transitive declaration paths through that maximum; starts-with remains direct.",
+                $"With dependency-depth, supply an explicit dependency-target=<tfm>, not all, and admit at most {MaximumNuspecExpensiveCandidates} package candidates; an exact package input admits one. Repeated exact terms AND and share traversal.",
+            ],
+        },
         new(
             DependsEcosystemTermKey,
             "depends on ecosystem",
@@ -1009,7 +1026,7 @@ public static partial class PackageQuery
         new(
             DependsTransitiveTermKey,
             "transitively depends on package",
-            "Matches a source-authorized declared dependency reached at depth 2 or greater.",
+            "Legacy spelling for source-authorized dependency reachability at depth 2 or greater.",
             220,
             PackageQueryAcquisitionTier.Nuspec,
             PackageQueryExecutionClass.NuspecExpensive,
@@ -1029,7 +1046,7 @@ public static partial class PackageQuery
         new(
             DependencyDepthTermKey,
             "dependency depth",
-            "Bounds transitive dependency traversal to the selected maximum depth.",
+            "Extends exact depends terms through the selected maximum declaration-edge depth.",
             225,
             PackageQueryAcquisitionTier.Nuspec,
             PackageQueryExecutionClass.NuspecExpensive,
@@ -1042,7 +1059,9 @@ public static partial class PackageQuery
             SelectionGroupId = PackageQueryVocabulary.DependencyDepthFamily,
             InputRules =
             [
-                "Requires at least one depends-transitive term; selects the maximum declaration-edge depth, not the result row limit.",
+                "Requires an explicit dependency-target=<tfm> and at least one exact depends (eq) or legacy depends-transitive term. A starts-with predicate alone cannot satisfy this requirement; all is not accepted as the target.",
+                "Selects the maximum declaration-edge depth, not the result row limit. Prefer exact depends plus depth for new queries; depends-transitive remains the depth-2-or-greater legacy spelling.",
+                $"Admits at most {MaximumNuspecExpensiveCandidates} package candidates; an exact package input admits one. Set the candidate bound explicitly for a prefix or ecosystem population.",
             ],
             Options =
             [
@@ -1345,9 +1364,13 @@ public static partial class PackageQuery
             return Rejected(
                 PackageQueryRequestFailureReason
                     .TransitiveDependencyRequiresTarget,
-                [DependsTransitiveTermKey, DependencyTargetTermKey]);
+                [
+                    DependsTermKey,
+                    DependsTransitiveTermKey,
+                    DependencyTargetTermKey,
+                ]);
         }
-        if (plan.RequiresDependencyTraversal
+        if (plan.HasTransitiveDependencyPredicate
             && plan.DependencyDepth is null)
         {
             return Rejected(
@@ -1355,13 +1378,17 @@ public static partial class PackageQuery
                     .TransitiveDependencyRequiresDepth,
                 [DependsTransitiveTermKey, DependencyDepthTermKey]);
         }
-        if (!plan.RequiresDependencyTraversal
+        if (!plan.HasTraversableDependencyPredicate
             && plan.DependencyDepth is not null)
         {
             return Rejected(
                 PackageQueryRequestFailureReason
                     .DependencyDepthRequiresTransitiveDependency,
-                [DependencyDepthTermKey, DependsTransitiveTermKey]);
+                [
+                    DependencyDepthTermKey,
+                    DependsTermKey,
+                    DependsTransitiveTermKey,
+                ]);
         }
         if (plan.RequiresLibraryLiteralEvaluation
             && plan.LibraryTargetFramework is null)
@@ -2314,7 +2341,9 @@ public static partial class PackageQuery
                     MatchesManifest(
                         candidate,
                         match,
-                        dependencySelection)),
+                        dependencySelection,
+                        deferExactDependencies:
+                            plan.DependencyDepth is not null)),
             ];
             if (matched.Length == 0)
             {
@@ -2329,6 +2358,12 @@ public static partial class PackageQuery
                     || candidate.Predicate.Kind is
                         PackageQueryPredicateKind.DependsTransitive
                         or PackageQueryPredicateKind.DependencyDepth)
+                {
+                    continue;
+                }
+                if (plan.DependencyDepth is not null
+                    && candidate.Predicate.Kind
+                        == PackageQueryPredicateKind.Depends)
                 {
                     continue;
                 }
@@ -2686,7 +2721,8 @@ public static partial class PackageQuery
     static bool MatchesManifest(
         BoundPackageQueryTerm term,
         PackageQueryPackage match,
-        PackageQueryDependencySelection? dependencySelection) =>
+        PackageQueryDependencySelection? dependencySelection,
+        bool deferExactDependencies) =>
         term.Predicate.Kind switch
         {
             PackageQueryPredicateKind.NoDependencies =>
@@ -2696,11 +2732,12 @@ public static partial class PackageQuery
                         "Dependency matching requires one dependency selection.")),
             PackageQueryPredicateKind.DependencyTarget => true,
             PackageQueryPredicateKind.Depends =>
-                MatchingDependencies(
-                    term,
-                    dependencySelection
-                    ?? throw new InvalidOperationException(
-                        "Dependency matching requires one dependency selection."))
+                deferExactDependencies
+                || MatchingDependencies(
+                        term,
+                        dependencySelection
+                        ?? throw new InvalidOperationException(
+                            "Dependency matching requires one dependency selection."))
                     .Length > 0,
             PackageQueryPredicateKind.DependsPrefix =>
                 MatchingPrefixDependencies(

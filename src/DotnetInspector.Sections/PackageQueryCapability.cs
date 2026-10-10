@@ -98,7 +98,7 @@ public static class PackageQueryCapability
                         PackageQuery.TermBindingIdentity(
                             PackageQuery.DependencyDepthTermKey),
                         PackageQuery.TermBindingIdentity(
-                            PackageQuery.DependsTransitiveTermKey)),
+                            PackageQuery.DependencyTargetTermKey)),
                     new(
                         InspectionQueryTermRelationshipKind
                             .RequiredContext,

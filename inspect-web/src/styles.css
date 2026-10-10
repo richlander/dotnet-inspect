@@ -5911,6 +5911,30 @@ button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspect
 }
 .compare-change-target:hover { text-decoration: underline; }
 .compare-change-target:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The selected Type's change cue and the Compare view that shows it. */
+.type-change-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font: 11px var(--mono);
+}
+.type-change-status > .item-achievement-glyph { flex: none; width: 16px; height: 16px; }
+.type-change-text { color: var(--text); }
+.type-change-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  font: 11px var(--mono);
+  cursor: pointer;
+}
+.type-change-action:hover { text-decoration: underline; }
+.type-change-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .compare-retry:hover { color: var(--text); }
 .compare-panel {
   min-width: 0;

@@ -28,6 +28,7 @@ import {
   emptyOutcome,
   initialQueryState,
   withCompletion,
+  withDependencyTerm,
   withPreset,
   withTerm,
   type PackageQueryState,
@@ -124,10 +125,32 @@ const DEPENDS_TERM: QueryTermDescriptor = {
   weight: 10,
   tier: "nuspec",
   executionClass: "nuspec",
-  operators: ["eq"],
+  operators: ["eq", "starts-with"],
   valueKind: "package-id",
   example: "Microsoft.Extensions.Hosting",
   multiline: false,
+};
+const DEPENDENCY_TARGET_TERM: QueryTermDescriptor = {
+  ...DEPENDS_TERM,
+  key: "dependency-target",
+  label: "Dependency target",
+  operators: ["eq"],
+  example: "net10.0",
+};
+const TRANSITIVE_DEPENDS_TERM: QueryTermDescriptor = {
+  ...DEPENDS_TERM,
+  key: "depends-transitive",
+  label: "Transitively depends on package",
+  operators: ["eq"],
+};
+const DEPTH_2_FACET: QueryPreset = {
+  id: "dependency-depth:eq:2",
+  key: "dependency-depth",
+  operator: "eq",
+  value: "2",
+  label: "Depth 2",
+  tier: "nuspec",
+  executionClass: "nuspec-expensive",
 };
 const LIBRARY_LITERAL_TERM: QueryTermDescriptor = {
   key: "library-literal",
@@ -143,6 +166,8 @@ const LIBRARY_LITERAL_TERM: QueryTermDescriptor = {
 };
 const TERMS: readonly QueryTermDescriptor[] = [
   DEPENDS_TERM,
+  DEPENDENCY_TARGET_TERM,
+  TRANSITIVE_DEPENDS_TERM,
   LIBRARY_LITERAL_TERM,
 ];
 
@@ -501,6 +526,41 @@ test("active terms render above the product-issued available-term palette", () =
   assert.match(html, /value="Microsoft\.Extensions\.DependencyInjection"/);
   assert.match(html, /data-query-term-add="depends"/);
   assert.match(html, /Add Direct dependency/);
+  assert.match(html, /Add Dependency target/);
+  assert.doesNotMatch(html, /Add Transitively depends on package/);
+});
+
+test("dependency package, reach, and target render as one facet", () => {
+  const request = withDependencyTerm(
+    createQueryRequest("Microsoft.Extensions.*"),
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Microsoft.Extensions.Primitives",
+    "2",
+    "net10.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+  const html = renderPackageQueryView({
+    state: { request, outcome: emptyOutcome() },
+    availablePresets: [...FACETS, DEPTH_2_FACET],
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+
+  assert.match(html, /data-query-dependency-term/);
+  assert.match(html, /Shared reach for exact package dependencies/);
+  assert.match(html, /Shared dependency target framework/);
+  assert.match(
+    html,
+    /Reach applies to every exact package dependency in this query/);
+  assert.match(html, /Within 2 edges/);
+  assert.match(html, /value="2" selected/);
+  assert.match(html, /data-query-dependency-target/);
+  assert.match(html, /value="net10\.0"/);
+  assert.doesNotMatch(html, /data-query-preset="dependency-depth:eq:2"/);
+  assert.doesNotMatch(html, /data-query-term-form="1"/);
+  assert.doesNotMatch(html, /Add Dependency target/);
 });
 
 test("an empty term draft is editable but not part of the executable request", () => {
@@ -576,7 +636,7 @@ test("candidate and local match bounds are independently disclosed before and du
     assert.ok(html.includes(`Maximum matches N: ${request?.requestedMatchLimit ?? 100}`));
     assert.match(html, /The match limit does not change prefix capacity/);
     assert.match(html, /Content facts download up to 20 candidate package archives/);
-    assert.match(html, /Transitive dependency facts inspect up to 5 package candidates/);
+    assert.match(html, /Bounded dependency reach inspects up to 5 package candidates/);
     assert.match(html, /Match counts and lifetime downloads describe a bounded response, not global top-N/);
   }
 });
@@ -2045,6 +2105,62 @@ test("bindPackageQueryView applies exact term values and keeps empty drafts idle
     "draft-cancel",
   ]);
 });
+
+test("bindPackageQueryView applies dependency reach and target atomically", () => {
+  const root = new FakeRoot();
+  const prefix = new FakeElement({}, "package-query-prefix");
+  prefix.value = "Microsoft.Extensions.*";
+  const form = new FakeElement({ queryTermForm: "draft" });
+  const value = new FakeElement();
+  value.value = "Microsoft.Extensions.Primitives";
+  const operator = new FakeElement();
+  operator.value = "eq";
+  const reach = new FakeElement();
+  reach.value = "2";
+  const target = new FakeElement();
+  target.value = "all";
+  form.add("[data-query-term-value]", value);
+  form.add("[data-query-term-operator]", operator);
+  form.add("[data-query-dependency-reach]", reach);
+  form.add("[data-query-dependency-target]", target);
+  root.add("#package-query-prefix", prefix);
+  root.add("[data-query-term-form]", form);
+  const calls: unknown[][] = [];
+
+  bindPackageQueryView(fakeDom.parentNode(root), {
+    onBack: () => {},
+    onCancel: () => {},
+    onPresetToggle: () => {},
+    onLibraryTargetInput: () => {},
+    onPrefixInput: () => {},
+    onResultPressure: () => {},
+    onResultViewportChange: () => {},
+    onRowOpen: () => {},
+    onRun: () => {},
+    onSourceChange: () => {},
+    onTermApply: (...args) => calls.push(args),
+  });
+
+  form.dispatch("submit", fakeDom.event({ preventDefault() {} }));
+
+  assert.equal(target.customValidity, "Enter an exact target framework.");
+  assert.equal(target.validityReports, 1);
+  assert.deepEqual(calls, []);
+
+  target.value = "net10.0";
+  target.dispatch("input");
+  form.dispatch("submit", fakeDom.event({ preventDefault() {} }));
+
+  assert.deepEqual(calls, [[
+    null,
+    "eq",
+    "Microsoft.Extensions.Primitives",
+    "Microsoft.Extensions.*",
+    "2",
+    "net10.0",
+  ]]);
+});
+
 test("assembly row binding forwards the exact opaque Root request", () => {
   const root = new FakeRoot();
   const rootRequest =
