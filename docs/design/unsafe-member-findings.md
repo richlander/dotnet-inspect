@@ -242,14 +242,13 @@ This slice is step 2 of 5 for #5254's Unsafe view:
    comparison, replacing the legacy `Unsafe Members` evidence rows after
    parity. Under an incomplete census the section is expected to render the
    observed findings, report a `--count` equal to those rows, disclose the
-   limitations on stderr, and exit nonzero, as proposed for Rows and Count in
-   [#9621](https://github.com/richlander/dotnet-inspect/issues/9621) and
-   applied to Body Shapes in
+   limitations on stderr, and exit nonzero, under the Count-terminal owner's
+   [incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation),
+   as applied to Body Shapes in
    [#9622](https://github.com/richlander/dotnet-inspect/issues/9622). An
    incomplete census with no findings reports zero observed findings as
-   incomplete, never as no unsafe members. The Count-terminal owner decides
-   that contract; this producer supplies the observed findings and enumerable
-   limitations it needs.
+   incomplete, never as no unsafe members. This producer supplies the observed
+   findings and enumerable limitations that rule needs.
 4. Inspect Web Library Analysis Unsafe tab, reworking #9366 onto this census
    and replacing its public-member-only attribution.
 5. Unsafe guidance findings: a focused checker family with its own design.

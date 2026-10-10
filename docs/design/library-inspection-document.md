@@ -468,8 +468,10 @@ about declaration kind, public-surface or accessibility selection, Type kind,
 Type trait, hidden/compiler-generated admission, Library snapshot, or
 completion.
 
-Count is exact or visibly non-successful. It never reports retained Rows,
-current page length, a prefix, or zero after failure.
+Count is exact, observed over usable incomplete evidence under the section-row
+owner's [incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation),
+or visibly non-successful. It never reports retained Rows, current page
+length, or a prefix as the population count, nor zero after failure.
 
 The initial Count preserves disjoint declaration evidence:
 

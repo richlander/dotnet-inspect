@@ -405,8 +405,9 @@ search completion, source dispositions, preparation and capacity failures, and
 the Scope operation. Each selected occurrence also retains its exact admission
 context or typed admission failure. A failed or non-ready neighbor therefore
 makes composition incomplete without discarding useful Rows from admitted
-candidates. When Count was requested, it is incomplete rather than an exact
-count over only the successfully admitted subset.
+candidates. When Count was requested, it is the observed count of those Rows,
+with the same incompleteness evidence, rather than an exact count over only
+the successfully admitted subset.
 
 When the focus context already represents the same exact realized Package
 target as a selected Scope occurrence, the adapter still exercises ordinary
@@ -487,11 +488,12 @@ SubjectRelationPopulationResult
 ```
 
 Count and Rows execute the same canonical facet selection but remain
-independent terminals. Count succeeds only from exact completion or another
-owner-accepted exact witness. Rows may retain a useful bounded segment while
-remaining visibly incomplete. Count success does not conceal Rows failure, and
-Rows success does not turn a partial observed cardinality, including zero, into
-exact Count. The hierarchy operation treats its independently completed
+independent terminals. Count is exact only from exact completion or another
+owner-accepted exact witness; over usable incomplete evidence it reports the
+observed cardinality, including zero, with the same incompleteness evidence as
+Rows. Rows may retain a useful bounded segment while remaining visibly
+incomplete. Count success does not conceal Rows failure, and Rows success does
+not turn an observed cardinality into exact Count. The hierarchy operation treats its independently completed
 non-materializing Count pass as that exact witness when Rows projection remains
 partial and preserves the Rows diagnostics in producer evidence.
 
