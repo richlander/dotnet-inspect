@@ -1064,6 +1064,23 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task VocabularyExplanation_CompactAndSelectedMatchesThePinnedCrossHostContent()
+    {
+        foreach (ExplanationContentPin pin in ProductVocabularyPin.CompactContent)
+        {
+            string[] args = pin.Selection is null
+                ? ["explain", pin.Path, "--depth", pin.Depth.ToString(CultureInfo.InvariantCulture), "--json"]
+                : ["explain", pin.Path, "." + pin.Selection, "--json"];
+            var result = await RunAsync(args);
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            string content = result.Output.Replace("\r\n", "\n", StringComparison.Ordinal).TrimEnd('\n');
+            Assert.Equal(pin.Digest, "sha256:" + Convert.ToHexStringLower(
+                SHA256.HashData(Encoding.UTF8.GetBytes(content))));
+        }
+    }
+
+    [Fact]
     public async Task VocabularyTermMap_LinksToItsTargetVocabulary()
     {
         var result = await RunAsync(
