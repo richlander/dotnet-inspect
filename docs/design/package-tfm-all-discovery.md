@@ -62,11 +62,11 @@ one selected compile projection. The projection is a Hierarchy under
 The Tree is its native presentation. Explicit `--tree`, JSON, the service
 envelope, TSV, JSONL, and table output lower the same rows; Count counts them
 and `--rows` windows them. Every row carries its own framework. A row whose
-path is in that framework's selected compile projection, or a tool row, is
-followed with `package <id> --tfm <framework> --library <path>`. Marker rows
-and candidates that a real `ref` asset shadows or a co-located marker
-suppresses are listed for discovery only; no row implies a `--library` path
-that its own framework's selection would reject.
+path is in that framework's selected compile projection, or a tool Library row,
+is followed with `package <id> --tfm <framework> --library <path>`. Marker
+rows, tool-slice rows without a Library, and candidates that a real `ref` asset
+shadows or a co-located marker suppresses are listed for discovery only; no row
+implies a `--library` path that its own framework's selection would reject.
 
 The projection's producer sits beside the Package children producer and
 declares its own QuerySpace capabilities. Inspect Web has no `--tfm all`
