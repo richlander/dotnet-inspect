@@ -341,9 +341,10 @@ strategy and identity-row provision; hosts do not infer one provision from
 another.
 
 CLI `library --package` and its namesake request do not yet adopt Library
-probes. When compile selection returns `NoCompileAssets`, and always under
-`--tfm all`, `ResolvePackageLibraryCandidates` searches the extracted archive
-through `TfmSelector` instead of consuming a role population. Observed results
+probes. When compile selection returns `NoCompileAssets`, and under
+`--tfm all`, the CLI's package Library routes search the extracted archive
+through `TfmSelector` instead of consuming a role population; #9833 records
+each route. Observed results
 include a runtime pack yielding its implementation assemblies, an analyzer
 package its analyzers, a framework-less root `lib/` package its root
 assemblies, and a satellite-only package its satellite resource assemblies.
