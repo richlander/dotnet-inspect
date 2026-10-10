@@ -809,6 +809,37 @@ public partial class LibraryCommand
             }
         }
 
+        if (options.PerformanceTriage.HasFilters
+            && !SupportsSyncCallsInAsyncTriage(
+                options.PerformanceTriage)
+            && options.IncludeSections?.Contains(
+                SectionNames.PerformanceSyncCallsInAsync) == true)
+        {
+            if (options.ExactIncludeSections?.Contains(
+                    SectionNames.PerformanceSyncCallsInAsync) == true)
+            {
+                CommandError.Write(
+                    $"{SectionNames.PerformanceSyncCallsInAsync} supports "
+                        + "--triage-shape sync-call-in-async, but not "
+                        + "legacy Performance Triage predicates or ranking. "
+                        + "Use -n or --rows to limit rendered rows.");
+                return 1;
+            }
+
+            options = options with
+            {
+                IncludeSections =
+                    options.IncludeSections
+                        .Where(section =>
+                            !section.Equals(
+                                SectionNames
+                                    .PerformanceSyncCallsInAsync,
+                                StringComparison.OrdinalIgnoreCase))
+                        .ToHashSet(
+                            StringComparer.OrdinalIgnoreCase),
+            };
+        }
+
         options = options with
         {
             UserIncludeSectionsOverride = options.IncludeSections is { Count: > 0 }
@@ -3755,6 +3786,18 @@ public partial class LibraryCommand
         CommandError.Write("--print requires -S/--select to match exactly one printable section.");
         return false;
     }
+
+    private static bool SupportsSyncCallsInAsyncTriage(
+        PerformanceTriageOptions options) =>
+        !options.LoopOnly
+        && string.IsNullOrWhiteSpace(options.MinConfidence)
+        && options.Where.Length == 0
+        && !options.HasRanking
+        && options.Shapes is { Length: > 0 }
+        && options.Shapes.Any(static shape =>
+            shape.Equals(
+                "sync-call-in-async",
+                StringComparison.OrdinalIgnoreCase));
 
     private static bool ValidateMultiTfmOutput(LibraryOptions options)
     {

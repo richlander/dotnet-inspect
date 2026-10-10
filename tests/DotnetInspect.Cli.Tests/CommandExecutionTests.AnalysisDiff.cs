@@ -772,6 +772,54 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PerformanceSyncCallsInAsync_RejectsLegacyTriagePredicates()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance: Sync Calls in Async",
+            "--where",
+            "Priority>=low",
+            "--tsv");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "supports --triage-shape sync-call-in-async",
+            error);
+        Assert.Contains(
+            "Use -n or --rows",
+            error);
+    }
+
+    [Fact]
+    public async Task PerformanceGroup_MixedShapeSelectionRetainsSyncCalls()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance:*",
+            "--triage-shape",
+            "box-value-type,sync-call-in-async",
+            "--tsv");
+
+        Assert.Equal(0, exit);
+        AssertOnlyPerformanceAnalysisWarnings(error);
+        Assert.Contains(
+            output.Split('\n'),
+            line => line.StartsWith(
+                "Boxing\t",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            output.Split('\n'),
+            line => line.StartsWith(
+                "Sync Calls in Async\t",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task PerformanceTriageEvidence_TypeScope_RendersAsCodeSpan_WithoutHtmlEscapingGenerics()
     {
         // The type/member Performance Triage lens has the same Evidence column; a generic value-type

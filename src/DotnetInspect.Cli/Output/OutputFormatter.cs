@@ -866,7 +866,8 @@ public static class OutputFormatter
         }
 
         bool performanceGroupRequested =
-            options.IncludeSections is { Count: > 1 } requestedSections
+            options.SelectExplicitlySet
+            && options.IncludeSections is { Count: > 1 } requestedSections
             && Sections.PerformanceKinds.AllShareCommonView(
                 requestedSections);
         bool multiplePerformanceSectionsEffective =
