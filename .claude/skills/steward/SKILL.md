@@ -63,6 +63,10 @@ Then apply the matching transition.
 
 ## Review and metadata
 
+- For network-related commands, use the command's Debug evidence envelope
+  during investigation. If support is missing, ask the operator to approve a
+  diagnostics side quest before adding it. Follow the
+  [evidence workflow](../../../docs/evidence-and-validation.md#agent-workflow-for-network-related-commands).
 - Use one reviewer seat from the roster. Ordinary non-Markdown candidates wait
   for green current-head `ci-required` unless the user approved parallel review
   or conflict recovery applies; Markdown-only candidates use the fast path.
