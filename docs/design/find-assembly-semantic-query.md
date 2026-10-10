@@ -144,13 +144,18 @@ The CLI:
 2. select one exact eligible version for each candidate under the package
    source owner's policy;
 3. acquire and evaluate the selected primary implementation assembly of each
-   admitted coordinate; and
-4. select at most two final matching package Results from that completed
-   bounded population.
+   admitted coordinate, in candidate order; and
+4. select at most two final matching package Results from that bounded
+   population, stopping evaluation once the second match is established.
 
-It does **not** mean "download packages until two matches appear." `--take 5`
-authorizes candidate work; `-n 2` selects matched package Results. Every
-occurrence remains typed evidence on its package Result.
+It does **not** mean "download packages until two matches appear" without
+bound: `--take 5` declares the candidate window, and `-n 2` selects matched
+package Results within it. A lone Head may stop inside the window, as
+[CLI execution bounds](cli-execution-bounds.md#three-query-shapes) defines;
+candidates after the second match are outside the requested Head evaluation.
+A row operation that needs the whole window, such as `--rows tail:1`,
+evaluates every admitted candidate. Every occurrence remains typed evidence on
+its package Result.
 
 The neighboring cheap query remains unchanged:
 
@@ -392,7 +397,7 @@ package-grain CLI adoption is:
 | --- | --- |
 | `package query ID --where "library-literal=TEXT" --tfm TFM` | The latest eligible listed exact package candidate. |
 | `package query 'PREFIX*' --where "library-literal=TEXT" --tfm TFM --take N` | At most the first `N` source-selected exact package candidates, where `N` is 1-5. |
-| `-n N` | Semantic Head over matched package Results after the admitted population is evaluated. |
+| `-n N` | Semantic Head over matched package Results in the admitted population; a lone Head may stop evaluation at the Nth match. |
 | `--count` | Count of the selected package Result set. It is exact only when population formation and semantic evaluation are complete; otherwise it is the observed count, with the same incompleteness disclosure as the rows. |
 
 The `--take` and `-n` spellings and their adoption by literal mode remain owned
@@ -567,7 +572,8 @@ The implementation must name Release gates for:
 - the five-candidate pathological case above;
 - distinct match, semantic miss, not-applicable, acquisition failure,
   evaluation failure, and cleanup failure outcomes;
-- occurrence ordering and `-n` selection after complete candidate evaluation;
+- occurrence ordering, a lone `-n` that stops inside the candidate window once
+  satisfied, and whole-window evaluation for row operations that need it;
 - exact Count for a complete bounded population, and observed Count with the
   same incompleteness disclosure as the rows for incomplete source or
   candidate evaluation;

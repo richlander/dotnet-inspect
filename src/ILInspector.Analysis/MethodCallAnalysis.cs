@@ -102,6 +102,44 @@ internal static partial class MethodCallAnalysis
             includeCallValueFlow: false,
             includeNonInvocationSites: false);
 
+    internal static void CollectStructuralDirectCalls(
+        MethodIdentity caller,
+        ImmutableArray<DecodedInstruction> instructions,
+        IMethodCallResolver resolver,
+        ImmutableArray<DirectCall>.Builder calls)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        ArgumentNullException.ThrowIfNull(resolver);
+        ArgumentNullException.ThrowIfNull(calls);
+
+        foreach (DecodedInstruction instruction in instructions)
+        {
+            ILOpCode opcode = instruction.OpCode;
+            if (opcode is not (
+                ILOpCode.Call
+                or ILOpCode.Callvirt
+                or ILOpCode.Newobj))
+            {
+                continue;
+            }
+
+            int token =
+                MethodInstructionFacts.OperandInt32(instruction);
+            calls.Add(
+                new(
+                    caller,
+                    resolver.ResolveMember(token),
+                    instruction.Offset,
+                    token,
+                    resolver.DefinitionToken(token),
+                    ToCallKind(opcode))
+                {
+                    Opcode = FormatCallOpcode(opcode),
+                    ReturnAddress = instruction.NextOffset,
+                });
+        }
+    }
+
     /// <summary>
     /// Appends results incrementally so calls and safety evidence emitted before
     /// a later recoverable metadata failure remain visible to the method-level

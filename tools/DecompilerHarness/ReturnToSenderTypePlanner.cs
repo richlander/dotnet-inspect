@@ -62,7 +62,10 @@ public static partial class CompileBackSourceComposer
             produced.Body.RequiresAsyncModifier,
             produced.Body.RequiresUnsafeModifier,
             produced.Projection.Fidelity,
-            SingleLineExpression: produced.SingleLineExpression);
+            SingleLineExpression: produced.SingleLineExpression)
+        {
+            FieldInitializers = produced.Projection.FieldInitializers,
+        };
     }
 
     // ReferencedNamespaces already returns an ordinal-sorted set; route "System"
@@ -155,7 +158,8 @@ public static partial class CompileBackSourceComposer
                 closure.Facts,
                 closure.MemberRequirements,
                 request.TargetBody.ConstructorChain,
-                request.TargetBody.RequiresUnsafeModifier),
+                request.TargetBody.RequiresUnsafeModifier,
+                request.TargetBody.FieldInitializers),
             _ => throw new ArgumentException($"Unknown artifact request type '{request.GetType().FullName}'.", nameof(request)),
         };
 
@@ -2353,7 +2357,8 @@ public static partial class CompileBackSourceComposer
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
         string? constructorChain = null,
-        bool targetBodyRequiresUnsafeModifier = false)
+        bool targetBodyRequiresUnsafeModifier = false,
+        IReadOnlyList<(string Field, string Value)>? liftedFieldInitializers = null)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var method = reader.GetMethodDefinition(targetMethod);
@@ -2543,6 +2548,17 @@ public static partial class CompileBackSourceComposer
                 member.StubBody != CompileBackStubBodyKind.TargetBody
                 && IsSynthesizedRecordHelperStub(member)
                 && !shadowedHelpers.Contains((member.Kind, member.Identity.Method)));
+        }
+
+        if (isConstructor && liftedFieldInitializers is { Count: > 0 })
+        {
+            PlaceLiftedFieldInitializers(
+                targetMembers,
+                reader,
+                targetTypeDef,
+                targetIdentity,
+                isStatic: function.MethodKind is IrMethodKind.StaticConstructor,
+                liftedFieldInitializers);
         }
 
         var requirements = new List<CompileBackTypeRequirement>
@@ -3363,6 +3379,87 @@ public static partial class CompileBackSourceComposer
                 return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// Places the product's lifted constructor field initializers
+    /// (<see cref="DecompilerResult.FieldInitializers"/>) on the declarations the shell
+    /// reconstructs: a field gets the product's value text as its initializer, and an
+    /// auto-property backing field gives it to its property. RTS composes the product's
+    /// text and never spells a value. An initializer with no declaration to carry it, or
+    /// one whose declaration already has a body, refuses the artifact
+    /// (<see cref="CompileBackSourceUnavailableException"/>) rather than compiling a
+    /// constructor that silently lost the store (#9584). C# emits initializers in
+    /// declaration order, and the product lists them in the original store order, so the
+    /// initialized declarations are regrouped, in that order, where the first one stood.
+    /// </summary>
+    static void PlaceLiftedFieldInitializers(
+        List<CompileBackMemberRequirement> members,
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        CompileBackTypeIdentity targetIdentity,
+        bool isStatic,
+        IReadOnlyList<(string Field, string Value)> initializers)
+    {
+        var placed = new List<CompileBackMemberRequirement>(initializers.Count);
+        foreach (var (fieldName, value) in initializers)
+        {
+            int property = members.FindIndex(member =>
+                member.Kind == CompileBackMemberKind.PropertyGet
+                && member.IsStatic == isStatic
+                && member.Identity.Type == targetIdentity.FullName
+                && member.SourceFacts.Any(fact =>
+                    fact.Id is "target-backing-field-write"
+                    && fact.Detail == fieldName));
+            if (property >= 0)
+            {
+                if (members[property].PropertyInitializer is not null)
+                {
+                    throw new CompileBackSourceUnavailableException(
+                        $"Lifted initializer for '{fieldName}' targets a property that already has one.");
+                }
+                members[property] = members[property] with { PropertyInitializer = value };
+                placed.Add(members[property]);
+                continue;
+            }
+
+            string memberName = Identifier(fieldName);
+            int field = members.FindIndex(member =>
+                member.Kind == CompileBackMemberKind.Field
+                && member.IsStatic == isStatic
+                && member.Identity.Type == targetIdentity.FullName
+                && member.Identity.Method == memberName);
+            if (field < 0
+                && !fieldName.StartsWith('<')
+                && FindField(reader, typeDef, fieldName) is { } fieldHandle
+                && TypeProducer.FieldRequirement(reader, typeDef, targetIdentity, fieldHandle) is { } declared
+                && declared.IsStatic == isStatic)
+            {
+                members.Add(declared);
+                field = members.Count - 1;
+            }
+            if (field < 0)
+            {
+                throw new CompileBackSourceUnavailableException(
+                    $"Lifted initializer for '{fieldName}' has no reconstructable declaration.");
+            }
+            if (members[field].StubBody != CompileBackStubBodyKind.None)
+            {
+                throw new CompileBackSourceUnavailableException(
+                    $"Lifted initializer for '{fieldName}' targets a field that already has a body.");
+            }
+            members[field] = members[field] with
+            {
+                StubBody = CompileBackStubBodyKind.FieldInitializer,
+                TargetBody = value,
+            };
+            placed.Add(members[field]);
+        }
+
+        var placedSet = placed.ToHashSet(ReferenceEqualityComparer.Instance);
+        int first = members.FindIndex(placedSet.Contains);
+        members.RemoveAll(placedSet.Contains);
+        members.InsertRange(Math.Min(first, members.Count), placed);
     }
 
     static FieldDefinitionHandle? FindField(MetadataReader reader, TypeDefinition typeDef, string name)

@@ -36,15 +36,14 @@ public partial class PackageQueryTests
                 MaximumCandidates: 1, MaximumMatches: 1)));
 
         Assert.True(plan.RequiresPackageContent);
-        Assert.Same(inventoryOnly ? PackageQueryContentDemand.Inventory
-            : PackageQueryContentDemand.EntryContent, plan.ContentDemand);
-        if (inventoryOnly)
-        {
-            PackageHouseContentQuery query = Assert.IsType<PackageHouseContentQuery>(
-                plan.ContentDemand.ContentQuery);
-            Assert.IsType<PackageHouseContentNarrowing.PackageWide>(query.Narrowing);
-            Assert.IsType<PackageHouseContentTerminal.FileList>(Assert.Single(query.Terminals));
-        }
+        Assert.True(plan.ContentDemand.RequiresSkillInventory);
+        Assert.Equal(!inventoryOnly, plan.ContentDemand.RequiresEntryContent);
+        Assert.Equal(
+            additionalKey == "tool-format",
+            plan.ContentDemand.RequiresToolSettings);
+        Assert.Equal(
+            additionalKey == "references",
+            plan.ContentDemand.RequiresAssemblyReferences);
     }
 
     [Fact]

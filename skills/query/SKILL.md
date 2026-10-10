@@ -393,9 +393,10 @@ filtered queries scan until N matches or their default candidate bound.
 Pushdown is capped at 1,000 candidates; larger semantic heads remain valid and
 are applied after bounded execution. Selecting a package-content term is
 itself approval for archive acquisition and permits at most 20 candidates; use
-`--nuspec-only` to reject such a query. `--count` observes selected rows and
-succeeds only when completion or a satisfied finite row selection proves that
-count exact. Reached candidate bounds and failures remain visible.
+`--nuspec-only` to reject such a query. `--count` counts the selected rows the
+same query would render, with the same warnings and exit status: a reached
+candidate bound or partial failure gives an observed count, disclosed on
+stderr, not the scope's total.
 Default non-count output shows `Packages` when at least one package matched and
 `Query Summary` otherwise. The summary separates candidate, match, and
 evaluation-failure counts; select a stable shape with `-S Packages` or
