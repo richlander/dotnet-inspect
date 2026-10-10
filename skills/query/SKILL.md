@@ -161,7 +161,6 @@ single-result formats such as tree or Mermaid.
 | `member` and exact type | `@Member` | `@Audit`, `@Calls`, `@Decompiler`, `@Performance`, `@Source`, `@SourceLink` |
 | `diff` | `@Diff` | none |
 | `project` | `@Project` | none |
-| `vocabulary` | `@Vocabulary` | `@API`, `@Decompiler` |
 | `ecosystem` | `@Ecosystem` | none |
 | `graph libraries` | `@Libraries` | none |
 | `package query` | `@Query` | none |
@@ -179,9 +178,7 @@ overload. Use its domain doors for audit, call, decompiler, performance, source,
 or SourceLink evidence. Diff `@Diff` composes `Changes`, `Analysis Diff`, and
 `Implementation Diff`; select the non-composable `Finding Transitions` section
 by exact name. Project `@Project` composes restored dependency `Skills` and
-`README` inventories. Vocabulary `@Vocabulary` composes the
-complete product-owned vocabulary document; use `@API` or `@Decompiler` for
-the corresponding query family. Ecosystem `@Ecosystem` composes every section
+`README` inventories. Ecosystem `@Ecosystem` composes every section
 available after the optional focus operand chooses the route; select exact
 `Integrations` for configured Integration bindings. Graph `@Libraries`
 composes the pair-wide call-site, summary, and direct-use cluster projections;
@@ -224,6 +221,37 @@ with `explain "$href" --json`; its link media type identifies the representation
 Read the facet's input rules and required context together with its consumer
 binding's invocation rules. Filter locally with jq before reading the answer,
 retaining `data_scope` and applicable `data_states` for interpretation.
+
+Start with a compact index instead of printing the entire document:
+
+```bash
+jq -c '{data_scope, data_states,
+  facets: [._embedded.facets[]? | {key, requires}],
+  bindings: [._embedded.bindings[]? | {gesture, exposed_facets}]}' query.json
+```
+
+Then select one facet and its required context from the saved response:
+
+```bash
+jq -c --arg key library-literal '
+  . as $doc | ._embedded.facets | map(select(.key == $key)) as $selected
+  | {data_scope: $doc.data_scope, data_states: $doc.data_states,
+     facets: $selected,
+     context: [$selected[].requires[] as $required
+       | $doc._embedded.facets[] | select(.key == $required)],
+     bindings: $doc._embedded.bindings}' query.json
+```
+
+For vocabulary questions, join `_embedded.values` to referenced vocabularies
+already in `_embedded.vocabularies`; follow a link only when the needed resource
+is absent. `property_sets` lists IDs with a true Boolean property, while
+`property_groups` groups IDs by a non-null property value. Absence means false
+or null only for a known member with an available property in a complete selected
+dataset. Check `data_scope` and applicable `data_states` first; unknown IDs,
+incomplete datasets, and unavailable properties do not establish a negative.
+Keep those interpretation fields in the filtered answer, including any states
+on selected embedded members. A declared group's meaning comes from its owning
+vocabulary; a shared group name alone does not establish an invocation rule.
 
 `.data --json` supplies the direct data model. `.contract --json` supplies the
 explanation schema and observation details for client development. Empty listed
@@ -412,7 +440,7 @@ IDs from the `C# Body Kinds` vocabulary. A `Kind=...` predicate auto-selects
 the explicit-only `Body Shapes` section when no `-S` selection is present:
 
 ```bash
-dnx dotnet-inspect -y -- vocabulary -S "C# Body Kinds"
+dnx dotnet-inspect -y -- explain vocabularies/csharp.body-kinds .hal --json
 dnx dotnet-inspect -y -- library MyLib.dll \
   --where "Kind=ObjectCreationExpression" --jsonl
 dnx dotnet-inspect -y -- library MyLib.dll \
@@ -496,7 +524,7 @@ Member `Call Graph` is the current exception: its legacy command-owned
 `--rows` window clamps an unavailable end to the available edges. It produces
 an empty edge table only when the requested start is beyond the available rows.
 
-`find`, focused Type hierarchy sections, `extensions`, `depends`, `ecosystem`, `vocabulary`,
+`find`, focused Type hierarchy sections, `extensions`, `depends`, `ecosystem`,
 `diff --history`, `match --similar`, `package query`, `library query`, package
 activity, package `--versions` / `--versions-with-feed`, `demo list`, Workspace inventory,
 Integration graph edges, selected package file/SourceLink inventories,

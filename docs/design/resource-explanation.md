@@ -1689,6 +1689,17 @@ An agent acceptance scenario starts with only that shallow skill and an
 unfamiliar task, then measures whether discovery and explanation lead to a
 valid command without guessing semantic identities.
 
+The post-landing usability asset is this repository at
+`ec47a520c742136f24fe5ffcec43b06318940b93`, specifically the shipped
+`skills/dotnet-inspect/SKILL.md` and `skills/query/SKILL.md`. Fresh agents reading
+those files encountered obsolete `vocabulary` commands, fetched already embedded
+resources, and fetched the explanation schema to interpret sparse properties.
+The [skill-informed trials](../../tools/ExplainReadingScenarios/usability/skill-informed/README.md)
+retain preparation answers and request/rendering evidence. Updated guidance
+uses current discovery and teaches local joins and completeness-aware filtering.
+These diagnostic trials do not establish that every query owner's registration
+is complete or authorize removal of the remaining domain guidance.
+
 ## Demo scenario
 
 `System.Text.Json@10.0.0` motivates the complete production flow:
