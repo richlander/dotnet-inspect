@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Reflection;
@@ -329,8 +330,8 @@ public static class FastDiff
                         return false;
                     break;
                 case Operand.Token:
-                    if (a.Key(MetadataTokens.EntityHandle(readerA.ReadInt32()))
-                        != b.Key(MetadataTokens.EntityHandle(readerB.ReadInt32())))
+                    if (a.ReferenceKey(MetadataTokens.EntityHandle(readerA.ReadInt32()))
+                        != b.ReferenceKey(MetadataTokens.EntityHandle(readerB.ReadInt32())))
                     {
                         return false;
                     }
@@ -372,6 +373,28 @@ public static class FastDiff
     // The `no.` prefix (0xFE 0x19) takes a one-byte operand and has no ILOpCode member.
     const ILOpCode NoPrefix = (ILOpCode)0xFE19;
 
+    // Every defined opcode, indexed by its second byte for the 0xFE page.
+    static readonly bool[] KnownOneByte = new bool[256];
+    static readonly bool[] KnownTwoByte = new bool[256];
+
+    static FastDiff()
+    {
+        foreach (ILOpCode opCode in Enum.GetValues<ILOpCode>())
+        {
+            int value = (int)opCode;
+            if (value <= 0xFF)
+                KnownOneByte[value] = true;
+            else if ((value & 0xFF00) == 0xFE00)
+                KnownTwoByte[value & 0xFF] = true;
+        }
+    }
+
+    static bool IsKnown(ILOpCode opCode)
+    {
+        int value = (int)opCode;
+        return value <= 0xFF ? KnownOneByte[value] : KnownTwoByte[value & 0xFF];
+    }
+
     static Operand OperandOf(ILOpCode opCode) => opCode switch
     {
         ILOpCode.Ldarg_s or ILOpCode.Ldarga_s or ILOpCode.Starg_s
@@ -403,8 +426,38 @@ public static class FastDiff
             or ILOpCode.Unbox_any or ILOpCode.Refanyval or ILOpCode.Mkrefany
             or ILOpCode.Ldtoken or ILOpCode.Ldftn or ILOpCode.Ldvirtftn
             or ILOpCode.Initobj or ILOpCode.Constrained or ILOpCode.Sizeof => Operand.Token,
-        _ => Operand.None,
+        _ when IsKnown(opCode) => Operand.None,
+        _ => throw new BadImageFormatException($"Unknown IL opcode 0x{(int)opCode:X}."),
     };
+
+    static readonly SearchValues<char> KeySeparators = SearchValues.Create("\\./:`#(),<>[]&*! ");
+
+    internal static string EscapeKeyName(string name)
+    {
+        if (name.AsSpan().IndexOfAny(KeySeparators) < 0)
+            return name;
+        var escaped = new System.Text.StringBuilder(name.Length + 8);
+        foreach (char c in name)
+        {
+            if (KeySeparators.Contains(c))
+                escaped.Append('\\');
+            escaped.Append(c);
+        }
+        return escaped.ToString();
+    }
+
+    /// <summary>
+    /// A signature's parameter list, with the vararg sentinel spelled as the
+    /// reserved <c>#...</c> where the required parameters end.
+    /// </summary>
+    internal static string Parameters(MethodSignature<string> signature)
+    {
+        ImmutableArray<string> types = signature.ParameterTypes;
+        int required = signature.RequiredParameterCount;
+        return required >= types.Length
+            ? string.Join(",", types)
+            : string.Join(",", [.. types.Take(required), "#...", .. types.Skip(required)]);
+    }
 
     static bool IsMalformed(Exception ex)
         => ex is BadImageFormatException
@@ -446,6 +499,7 @@ public static class FastDiff
         readonly Guid _mvid;
         readonly Dictionary<int, string> _keys = [];
         readonly Dictionary<int, string> _displayNames = [];
+        readonly HashSet<string> _duplicateTypeKeys = new(StringComparer.Ordinal);
         readonly SignatureKeys _signatures;
         readonly Dictionary<TypeDefinitionHandle, HashSet<MethodDefinitionHandle>> _explicitImplementations = [];
 
@@ -545,7 +599,17 @@ public static class FastDiff
                     }
                     if (generatedAt < 0)
                     {
-                        units[TypeKey(handle)] = new Unit(
+                        string key = TypeKey(handle);
+                        if (units.TryGetValue(key, out Unit? existing))
+                        {
+                            // Two rows that spell one name cannot be told apart, so
+                            // neither is decided.
+                            units[key] = existing with { Malformed = true };
+                            _duplicateTypeKeys.Add(key);
+                            AddMalformed(units, handle);
+                            continue;
+                        }
+                        units[key] = new Unit(
                             DisplayName(handle), EscapedName(handle), handle, []);
                         continue;
                     }
@@ -670,16 +734,27 @@ public static class FastDiff
                 census.AddRange(VisibleFacts(unit).Where(fact => fact.StartsWith(NonApiFact, StringComparison.Ordinal)));
             MemberFacts(census, unit.Owner, api: !visible ? null : false, out var ownerMethods);
             foreach ((string key, MethodDefinitionHandle method) in ownerMethods)
-                methods[key] = method;
+                AddMethod(methods, key, method);
             foreach (TypeDefinitionHandle generated in unit.Generated)
             {
                 TypeFacts(census, generated);
                 MemberFacts(census, generated, api: null, out var generatedMethods);
                 foreach ((string key, MethodDefinitionHandle method) in generatedMethods)
-                    methods[key] = method;
+                    AddMethod(methods, key, method);
             }
             census.Sort(StringComparer.Ordinal);
             return census;
+        }
+
+        // Two method rows that spell one key, which valid metadata does not
+        // allow, cannot be told apart, so the body is not decided.
+        static void AddMethod(
+            Dictionary<string, MethodDefinitionHandle> methods,
+            string key,
+            MethodDefinitionHandle method)
+        {
+            if (!methods.TryAdd(key, method))
+                throw new BadImageFormatException($"Two methods share the compared key {key}.");
         }
 
         void TypeFacts(List<string> census, TypeDefinitionHandle handle)
@@ -755,7 +830,7 @@ public static class FastDiff
                     Parameter parameter = Md.GetParameter(parameterHandle);
                     string parameterKey = $"{key}#{parameter.SequenceNumber}";
                     census.Add(
-                        $"A {parameterKey} {Md.GetString(parameter.Name)} {(int)parameter.Attributes} "
+                        $"A {parameterKey} {KeyName(parameter.Name)} {(int)parameter.Attributes} "
                             + Constant(parameter.GetDefaultValue()));
                     Attributes(census, parameter.GetCustomAttributes(), parameterKey);
                 }
@@ -763,8 +838,8 @@ public static class FastDiff
                 if (!import.Module.IsNil)
                 {
                     census.Add(
-                        $"N {key} {Md.GetString(import.Name)} "
-                            + $"{Md.GetString(Md.GetModuleReference(import.Module).Name)} {(int)import.Attributes}");
+                        $"N {key} {KeyName(import.Name)} "
+                            + $"{KeyName(Md.GetModuleReference(import.Module).Name)} {(int)import.Attributes}");
                 }
             }
             foreach (PropertyDefinitionHandle propertyHandle in type.GetProperties())
@@ -777,7 +852,7 @@ public static class FastDiff
                     continue;
                 }
                 string key =
-                    $"{name}::{Md.GetString(property.Name)}:{PropertySignature(property)}";
+                    $"{name}::{KeyName(property.Name)}:{PropertySignature(property)}";
                 census.Add(
                     $"P {key} {(int)property.Attributes} {Constant(property.GetDefaultValue())} "
                         + $"{AccessorKey(accessors.Getter)} {AccessorKey(accessors.Setter)}");
@@ -792,7 +867,9 @@ public static class FastDiff
                 {
                     continue;
                 }
-                string key = $"{name}::{Md.GetString(value.Name)}:{Key(value.Type)}";
+                // An unescaped '!' cannot occur in an escaped name, so an event never
+                // spells the key of its backing field.
+                string key = $"{name}::{KeyName(value.Name)}!event:{Key(value.Type)}";
                 census.Add(
                     $"E {key} {(int)value.Attributes} {AccessorKey(accessors.Adder)} "
                         + $"{AccessorKey(accessors.Remover)} {AccessorKey(accessors.Raiser)}");
@@ -822,7 +899,7 @@ public static class FastDiff
             {
                 GenericParameter parameter = Md.GetGenericParameter(handle);
                 string key = $"{owner}<{parameter.Index}";
-                census.Add($"G {key} {Md.GetString(parameter.Name)} {(int)parameter.Attributes}");
+                census.Add($"G {key} {KeyName(parameter.Name)} {(int)parameter.Attributes}");
                 foreach (GenericParameterConstraintHandle constraintHandle in parameter.GetConstraints())
                 {
                     GenericParameterConstraint constraint = Md.GetGenericParameterConstraint(constraintHandle);
@@ -856,15 +933,22 @@ public static class FastDiff
         {
             Guard(property.Signature, SignatureBlobGuard.Kind.Property);
             MethodSignature<string> signature = property.DecodeSignature(_signatures, null);
-            return $"{signature.Header.IsInstance}({string.Join(",", signature.ParameterTypes)}){signature.ReturnType}";
+            return $"{signature.Header.IsInstance}({string.Join(",", signature.ParameterTypes)})[{signature.ReturnType}]";
         }
+
+        /// <summary>
+        /// A metadata name as it appears in a compared key, with every
+        /// character the key grammar uses as a separator escaped, so distinct
+        /// names never spell the same key.
+        /// </summary>
+        string KeyName(StringHandle handle) => EscapeKeyName(Md.GetString(handle));
 
         /// <summary>The symbolic name of a Type, with <c>/</c> between nested names.</summary>
         public string TypeKey(TypeDefinitionHandle handle)
         {
             int token = MetadataTokens.GetToken(handle);
             if (!_keys.TryGetValue(token, out string? key))
-                _keys[token] = key = DefinitionName(handle, '/');
+                _keys[token] = key = DefinitionName(handle, '/', KeyName);
             return key;
         }
 
@@ -872,7 +956,7 @@ public static class FastDiff
         {
             int token = MetadataTokens.GetToken(handle);
             if (!_displayNames.TryGetValue(token, out string? name))
-                _displayNames[token] = name = DefinitionName(handle, '.');
+                _displayNames[token] = name = DefinitionName(handle, '.', Md.GetString);
             return name;
         }
 
@@ -895,7 +979,7 @@ public static class FastDiff
                 : throw new BadImageFormatException("The Type name cannot be represented.");
         }
 
-        string DefinitionName(TypeDefinitionHandle handle, char nestedSeparator)
+        string DefinitionName(TypeDefinitionHandle handle, char nestedSeparator, Func<StringHandle, string> read)
         {
             Span<TypeDefinitionHandle> chain =
                 stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -904,14 +988,54 @@ public static class FastDiff
             TypeDefinition root = Md.GetTypeDefinition(chain[0]);
             var name = new System.Text.StringBuilder();
             if (!root.Namespace.IsNil)
-                name.Append(Md.GetString(root.Namespace)).Append('.');
+                name.Append(read(root.Namespace)).Append('.');
             for (int i = 0; i < length; i++)
             {
                 if (i > 0)
                     name.Append(nestedSeparator);
-                name.Append(Md.GetString(Md.GetTypeDefinition(chain[i]).Name));
+                name.Append(read(Md.GetTypeDefinition(chain[i]).Name));
             }
             return name.ToString();
+        }
+
+        /// <summary>
+        /// The key of an entity a fact refers to, rather than declares. A
+        /// reference to a Type row that shares its key with another row, or to
+        /// a compiler-controlled (<c>PrivateScope</c>) method or field, which
+        /// ECMA-335 lets share a name and signature, cannot say which
+        /// declaration it names, so the referring fact is not decided.
+        /// </summary>
+        public string ReferenceKey(EntityHandle handle)
+        {
+            switch (handle.Kind)
+            {
+                case HandleKind.TypeDefinition:
+                    RejectDuplicate((TypeDefinitionHandle)handle);
+                    break;
+                case HandleKind.MethodDefinition:
+                {
+                    MethodDefinition method = Md.GetMethodDefinition((MethodDefinitionHandle)handle);
+                    if ((method.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.PrivateScope)
+                        throw new BadImageFormatException("A reference names a compiler-controlled method.");
+                    RejectDuplicate(method.GetDeclaringType());
+                    break;
+                }
+                case HandleKind.FieldDefinition:
+                {
+                    FieldDefinition field = Md.GetFieldDefinition((FieldDefinitionHandle)handle);
+                    if ((field.Attributes & FieldAttributes.FieldAccessMask) == FieldAttributes.PrivateScope)
+                        throw new BadImageFormatException("A reference names a compiler-controlled field.");
+                    RejectDuplicate(field.GetDeclaringType());
+                    break;
+                }
+            }
+            return Key(handle);
+        }
+
+        void RejectDuplicate(TypeDefinitionHandle handle)
+        {
+            if (_duplicateTypeKeys.Count > 0 && _duplicateTypeKeys.Contains(TypeKey(handle)))
+                throw new BadImageFormatException("A reference names one of two Type rows that share a key.");
         }
 
         /// <summary>The symbolic name of a metadata entity, resolved once per side.</summary>
@@ -973,12 +1097,12 @@ public static class FastDiff
             TypeReference root = Md.GetTypeReference(chain[0]);
             var name = new System.Text.StringBuilder();
             if (!root.Namespace.IsNil)
-                name.Append(Md.GetString(root.Namespace)).Append('.');
+                name.Append(KeyName(root.Namespace)).Append('.');
             for (int i = 0; i < length; i++)
             {
                 if (i > 0)
                     name.Append('/');
-                name.Append(Md.GetString(Md.GetTypeReference(chain[i]).Name));
+                name.Append(KeyName(Md.GetTypeReference(chain[i]).Name));
             }
             return name.ToString();
         }
@@ -988,39 +1112,39 @@ public static class FastDiff
             MethodDefinition method = Md.GetMethodDefinition(handle);
             Guard(method.Signature, SignatureBlobGuard.Kind.Method);
             MethodSignature<string> signature = method.DecodeSignature(_signatures, null);
-            return $"{TypeKey(method.GetDeclaringType())}::{Md.GetString(method.Name)}"
+            return $"{TypeKey(method.GetDeclaringType())}::{KeyName(method.Name)}"
                 + $"`{signature.GenericParameterCount}#{signature.Header.RawValue}"
-                + $"({string.Join(",", signature.ParameterTypes)}){signature.ReturnType}";
+                + $"({Parameters(signature)})[{signature.ReturnType}]";
         }
 
         string FieldKey(FieldDefinitionHandle handle)
         {
             FieldDefinition field = Md.GetFieldDefinition(handle);
             Guard(field.Signature, SignatureBlobGuard.Kind.Field);
-            return $"{TypeKey(field.GetDeclaringType())}::{Md.GetString(field.Name)}:"
+            return $"{TypeKey(field.GetDeclaringType())}::{KeyName(field.Name)}:"
                 + field.DecodeSignature(_signatures, null);
         }
 
         string MemberReferenceKey(MemberReferenceHandle handle)
         {
             MemberReference member = Md.GetMemberReference(handle);
-            string parent = Key(member.Parent);
+            string parent = ReferenceKey(member.Parent);
             if (member.GetKind() == MemberReferenceKind.Field)
             {
                 Guard(member.Signature, SignatureBlobGuard.Kind.Field);
-                return $"{parent}::{Md.GetString(member.Name)}:{member.DecodeFieldSignature(_signatures, null)}";
+                return $"{parent}::{KeyName(member.Name)}:{member.DecodeFieldSignature(_signatures, null)}";
             }
             Guard(member.Signature, SignatureBlobGuard.Kind.Method);
             MethodSignature<string> signature = member.DecodeMethodSignature(_signatures, null);
-            return $"{parent}::{Md.GetString(member.Name)}`{signature.GenericParameterCount}#{signature.Header.RawValue}"
-                + $"({string.Join(",", signature.ParameterTypes)}){signature.ReturnType}";
+            return $"{parent}::{KeyName(member.Name)}`{signature.GenericParameterCount}#{signature.Header.RawValue}"
+                + $"({Parameters(signature)})[{signature.ReturnType}]";
         }
 
         string MethodSpecificationKey(MethodSpecificationHandle handle)
         {
             MethodSpecification specification = Md.GetMethodSpecification(handle);
             Guard(specification.Signature, SignatureBlobGuard.Kind.MethodSpecification);
-            return Key(specification.Method)
+            return ReferenceKey(specification.Method)
                 + "<" + string.Join(",", specification.DecodeSignature(_signatures, null)) + ">";
         }
 
@@ -1034,7 +1158,7 @@ public static class FastDiff
             }
             Guard(signature.Signature, SignatureBlobGuard.Kind.StandaloneMethod);
             MethodSignature<string> method = signature.DecodeMethodSignature(_signatures, null);
-            return $"S{(int)method.Header.CallingConvention}({string.Join(",", method.ParameterTypes)}){method.ReturnType}";
+            return $"S{method.Header.RawValue}({Parameters(method)})[{method.ReturnType}]";
         }
     }
 
@@ -1044,7 +1168,7 @@ public static class FastDiff
             => $"{elementType}[{shape.Rank}:{string.Join(",", shape.Sizes)}:{string.Join(",", shape.LowerBounds)}]";
         public string GetByReferenceType(string elementType) => elementType + "&";
         public string GetFunctionPointerType(MethodSignature<string> signature)
-            => $"fnptr{(int)signature.Header.CallingConvention}({string.Join(",", signature.ParameterTypes)}){signature.ReturnType}";
+            => $"#fnptr{signature.Header.RawValue}({Parameters(signature)})[{signature.ReturnType}]";
         public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
             => genericType + "<" + string.Join(",", typeArguments) + ">";
         public string GetGenericMethodParameter(object? genericContext, int index) => "!!" + index;
@@ -1053,10 +1177,22 @@ public static class FastDiff
             => unmodifiedType + (isRequired ? " modreq(" : " modopt(") + modifier + ")";
         public string GetPinnedType(string elementType) => elementType + " pinned";
         public string GetPointerType(string elementType) => elementType + "*";
-        public string GetPrimitiveType(PrimitiveTypeCode typeCode) => typeCode.ToString();
+        // A leading '#' is escaped in every name, so no Type spells a primitive.
+        static readonly string[] PrimitiveKeys = CreatePrimitiveKeys();
+
+        static string[] CreatePrimitiveKeys()
+        {
+            var keys = new string[256];
+            foreach (PrimitiveTypeCode code in Enum.GetValues<PrimitiveTypeCode>())
+                keys[(byte)code] = "#" + code;
+            return keys;
+        }
+
+        public string GetPrimitiveType(PrimitiveTypeCode typeCode)
+            => PrimitiveKeys[(byte)typeCode] ?? "#" + typeCode;
         public string GetSZArrayType(string elementType) => elementType + "[]";
         public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-            => side.TypeKey(handle);
+            => side.ReferenceKey(handle);
         public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
             => side.Key(handle);
         public string GetTypeFromSpecification(
