@@ -104,6 +104,7 @@ public static class CSharpMemberShellProducer
         ValidateBodyKind(spec);
         ValidateExplicitInterfaceMemberName(spec);
         ValidateConstructorInitializer(spec);
+        ValidateStaticConstructor(spec);
         var member = BuildMember(spec);
         return spec.BodyKind switch
         {
@@ -249,7 +250,12 @@ public static class CSharpMemberShellProducer
         bool isExplicitInterface = spec.ExplicitInterfaceMemberName is not null;
         var member = new ApiMember
         {
-            Name = spec.ExplicitInterfaceMemberName ?? spec.Name,
+            // A static constructor is identified by its metadata name: the declaration
+            // writer spells `.cctor` as `static T()`, with no accessibility (CS0515),
+            // whatever identifier the caller sanitized the metadata name into.
+            Name = IsStaticConstructor(spec)
+                ? ".cctor"
+                : spec.ExplicitInterfaceMemberName ?? spec.Name,
             Kind = isExplicitInterface && (isProperty || isEvent || spec.Kind == CSharpShellMemberKind.Method)
                 ? "explicit-interface-implementation"
                 : spec.Kind switch
@@ -497,6 +503,26 @@ public static class CSharpMemberShellProducer
 
     static bool IsTypeNameSeparator(char ch)
         => ch is '<' or '>' or ',' or '.' or '(' or ')' or '[' or ']' or '?' or '*' or '&' or ':';
+
+    static bool IsStaticConstructor(CSharpMemberShellSpec spec)
+        => spec.Kind == CSharpShellMemberKind.Constructor && spec.IsStatic;
+
+    /// <summary>
+    /// A static constructor takes no parameters and chains to nothing; a shell that
+    /// asks for either is not a C# static constructor, so it is refused rather than
+    /// spelled.
+    /// </summary>
+    static void ValidateStaticConstructor(CSharpMemberShellSpec spec)
+    {
+        if (!IsStaticConstructor(spec))
+            return;
+        if (spec.Parameters.Count != 0 || spec.ConstructorInitializer is not null)
+        {
+            throw new ArgumentException(
+                "Static constructor shells take no parameters and no constructor initializer.",
+                nameof(spec));
+        }
+    }
 
     static void ValidateConstructorInitializer(CSharpMemberShellSpec spec)
     {

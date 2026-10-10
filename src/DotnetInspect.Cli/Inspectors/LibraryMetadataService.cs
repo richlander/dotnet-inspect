@@ -256,6 +256,9 @@ internal static class LibraryMetadataService
                 IntegrationQuery = options.IntegrationQuery,
                 BodyShapeSections = options.IncludeSections,
                 BodyShapeSummaryRows = options.Rows,
+                BodyShapeSearchLimit = BodyShapeRowSelection.SearchLimit(
+                    options.BodyShapeRowSelection,
+                    options.IncludeSections),
             };
 
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo();

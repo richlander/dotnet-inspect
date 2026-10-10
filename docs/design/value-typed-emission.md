@@ -877,6 +877,60 @@ third rewrite is a compatible `string`/`object` carrier in
 `ApiOutputFormatter.BuildMemberDrillMap`; it is disclosed separately because it
 was not a residual split.
 
+### Reference-coalesce self-update ranges
+
+A top-level store in one direct `Block` supplies a distinct sequential-range
+proof when it writes a reference coalesce whose left operand is the prior value
+of the same stack carrier:
+
+```text
+S_0 = methodSymbol
+S_0 = S_0 ?? propertySymbol
+use-as-Symbol S_0
+```
+
+The value before the self-update is still a `MethodSymbol`; the value afterward
+is the coalesce's common `Symbol` target. Treating both definitions as one local
+either narrows the destination incorrectly or leaves the widened split piece
+unassigned. The live-range pass therefore closes the old carrier at the
+coalesce read and gives the coalesce destination and its later loads a new
+identity.
+
+This proof is deliberately smaller than general testimony reconciliation. It
+requires no structured exception handling, no enclosing structured loop, the
+self-update as a top-level same-block store, exactly one same-slot read in the
+coalesce, no reference to the slot outside that block, and at least one later
+load before the next store. That next store boundary must not read the carrier:
+such a read still observes the widened result and cannot remain on the old
+identity. Every admitted later load must testify the same target type.
+Import-time `ReferenceWidening` facts must prove both the prior carrier type and
+the right operand's assignment type assignable to that target. The pass does
+not walk a type hierarchy late, infer a common base, admit cross-block
+ownership, or generalize arbitrary coalesces.
+
+C# also needs the proven target at the expression boundary:
+`MethodSymbol ?? PropertySymbol` does not itself select their common `Symbol`
+base. At the split, the pass therefore issues the left reference witness and
+the coalesce's assignment target. The owner-issued target survives later
+reference-coalesce refreshes, so slots-only expression inlining may erase both
+temporary carriers without erasing the proof:
+
+```csharp
+((Symbol)methodSymbol) ?? propertySymbol
+```
+
+The pinned Microsoft.CodeAnalysis.CSharp 5.0.0 witnesses are
+`SourceMemberContainerTypeSymbol.GetAccessorOrPropertyLocation` and
+`GetAccessorOrEventLocation`. Synthetic gates cover the admitted split,
+missing importer widening, structured loops, and structured exception
+handling, and a later self-coalesce that must read the widened result. On the
+fixed 14-assembly corpus, exact `stack-slot-live-range` pass impact grows from
+65 to 67 methods, with exactly those two witnesses as candidate-only changes.
+The rule reduces residual-bound webs from 82 to 80, residual-bound locals from
+148 to 144, methods with residual bindings from 55 to 53, and split webs from
+51 to 49. Late-decidable webs remain zero and the same four known pass bugs
+remain visible.
+
 ### Residual storage binding
 
 The focused claim:

@@ -269,12 +269,18 @@ public abstract class InspectionConsumerBinding
     private protected InspectionConsumerBinding(
         InspectionConsumerDescriptor descriptor,
         InspectionRouteRegistration route,
-        IEnumerable<string> exposedQueryTerms)
+        IEnumerable<string> exposedQueryTerms,
+        IEnumerable<string>? inputRules = null)
     {
         Descriptor = descriptor
             ?? throw new ArgumentNullException(nameof(descriptor));
         Route = route
             ?? throw new ArgumentNullException(nameof(route));
+        InputRules = [.. (inputRules ?? []).Select(rule =>
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(rule);
+            return rule;
+        })];
         ArgumentNullException.ThrowIfNull(exposedQueryTerms);
         ExposedQueryTerms =
         [
@@ -300,6 +306,9 @@ public abstract class InspectionConsumerBinding
     public InspectionRouteRegistration Route { get; }
 
     public ImmutableArray<string> ExposedQueryTerms { get; }
+
+    /// <summary>Consumer-owned input lowering rules; empty means unregistered.</summary>
+    public ImmutableArray<string> InputRules { get; }
 }
 
 public sealed class InspectionConsumerBinding<TRequest, TContent> :
@@ -309,8 +318,9 @@ public sealed class InspectionConsumerBinding<TRequest, TContent> :
     public InspectionConsumerBinding(
         InspectionConsumerDescriptor descriptor,
         InspectionRouteRegistration<TRequest, TContent> route,
-        IEnumerable<string> exposedQueryTerms)
-        : base(descriptor, route, exposedQueryTerms)
+        IEnumerable<string> exposedQueryTerms,
+        IEnumerable<string>? inputRules = null)
+        : base(descriptor, route, exposedQueryTerms, inputRules)
     {
     }
 

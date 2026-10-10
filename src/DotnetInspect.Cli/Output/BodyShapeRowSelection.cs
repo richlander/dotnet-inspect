@@ -59,6 +59,19 @@ internal sealed record BodyShapeRowSelection(
     }
 
     /// <summary>
+    /// The match count after which the search may stop: the selection's
+    /// required prefix of occurrences. Summary groups need every occurrence for
+    /// their Counts, and Tail needs the complete search, so both search
+    /// everything.
+    /// </summary>
+    public static int? SearchLimit(
+        RowSelectionIntent<string>? intent,
+        IReadOnlyCollection<string>? sections) =>
+        intent is null || SelectsSummary(sections)
+            ? null
+            : intent.RequiredPrefix();
+
+    /// <summary>
     /// True when <paramref name="sections"/> selects <c>Body Shape Summary</c>,
     /// whose rows are groups rather than occurrences.
     /// </summary>

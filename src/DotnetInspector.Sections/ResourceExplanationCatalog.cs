@@ -760,6 +760,9 @@ public sealed class ResourceExplanationCatalog
                                 "effects",
                                 term.Effects.Select(static effect =>
                                     $"{effect.Kind}: {effect.Identity}")),
+                            ResourceExplanationVocabulary.TextsFact(
+                                ResourceExplanationVocabulary.QueryFacetType,
+                                "input-rules", term.InputRules),
                         ],
                         RelationshipObservations(
                             ResourceExplanationVocabulary.QueryFacetType,
@@ -845,6 +848,9 @@ public sealed class ResourceExplanationCatalog
                                 .ConsumerBindingType,
                             "gesture",
                             binding.Descriptor.Gesture),
+                        ResourceExplanationVocabulary.TextsFact(
+                            ResourceExplanationVocabulary.ConsumerBindingType,
+                            "input-rules", binding.InputRules),
                         ResourceExplanationVocabulary.IntegerFact(
                             ResourceExplanationVocabulary
                                 .ConsumerBindingType,

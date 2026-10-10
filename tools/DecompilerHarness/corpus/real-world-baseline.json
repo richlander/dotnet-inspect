@@ -1,7 +1,7 @@
 {
   "schemaVersion": 7,
   "description": "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
-  "generatedUtc": "2026-10-07T10:44:23.4593396+00:00",
+  "generatedUtc": "2026-10-09T22:25:12.0389777+00:00",
   "validityCompileCap": 4000,
   "fidelityCompileCap": 50,
   "methodCap": null,
@@ -1666,7 +1666,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "DotnetInspector.Core!DotnetInspector.Core.CoreCache::.cctor#0"
@@ -5657,7 +5657,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.HttpRetryHelper::.cctor#0"
@@ -7982,7 +7982,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 321
+          "sites": 318
         }
       ],
       "controlFlowSites": "switch-branch|8|0|0;conditional-branch|75|0|1;conditional-branch|101|0|0;conditional-branch|141|0|0;conditional-branch|159|0|0;conditional-branch|223|0|0;leave|256|0|0;conditional-branch|313|0|0;leave|342|0|0;conditional-branch|353|0|0;conditional-branch|423|0|0;leave|456|0|0;conditional-branch|513|0|0;conditional-branch|520|0|0;leave|549|0|0;leave|581|0|0;leave|646|0|0;conditional-branch|650|0|0;conditional-branch|654|0|0;end-finally|663|0|0;conditional-branch|665|0|0;conditional-branch|673|0|0;conditional-branch|682|0|0;branch|685|0|0;leave|751|0|0;conditional-branch|761|0|0;leave|848|0|0;conditional-branch|968|0|0;conditional-branch|972|0|0;branch|977|0|0;conditional-branch|1058|0|0;leave|1091|0|0;conditional-branch|1136|0|0;conditional-branch|1148|0|0;branch|1151|0|0;conditional-branch|1258|0|0;conditional-branch|1336|0|0;leave|1369|0|0;conditional-branch|1410|0|0;leave|1429|0|0;leave|1431|0|0;conditional-branch|1442|0|0;branch|1445|0|0;leave|1485|0|0;conditional-branch|1505|0|0;leave|1510|0|0;conditional-branch|1514|0|0;end-finally|1533|0|0;conditional-branch|1552|0|0;leave|1569|0|0;leave|1572|0|0;conditional-branch|1633|0|0;leave|1666|0|0;conditional-branch|1711|0|0|output@conditional-branch@source_IL_06AF-\u003EIL_06DA#0;conditional-branch|1711|0|1;conditional-branch|1720|0|1;leave|1749|0|0;leave|1839|0|0;conditional-branch|1869|0|0;branch|1872|0|0;conditional-branch|1927|0|0;conditional-branch|1936|0|0;branch|1939|0|0;leave|1958|0|0;leave|1974|0|0;leave|1977|0|0;leave|2078|0|0;leave|2125|0|0;leave|2213|0|0",
@@ -8162,7 +8162,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 85
+          "sites": 82
         }
       ],
       "controlFlowSites": "conditional-branch|8|0|1;conditional-branch|23|0|1;conditional-branch|100|0|0;branch|105|0|0;conditional-branch|148|0|0;conditional-branch|190|0|0;conditional-branch|199|0|1;branch|202|0|1;conditional-branch|233|0|0;conditional-branch|291|0|0;leave|324|0|1;conditional-branch|369|0|0;conditional-branch|409|0|0;conditional-branch|469|0|0;leave|474|0|1;conditional-branch|478|0|1;end-finally|497|0|1;conditional-branch|516|0|1;leave|520|0|0;branch|550|0|1;conditional-branch|570|0|1;branch|587|0|1;conditional-branch|604|0|1;leave|606|0|1;conditional-branch|610|0|1;end-finally|625|0|1;conditional-branch|633|0|1;conditional-branch|676|0|1;leave|719|0|1;leave|751|0|1",
@@ -8207,7 +8207,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 93
+          "sites": 88
         }
       ],
       "controlFlowSites": "conditional-branch|8|0|1;conditional-branch|37|0|1;branch|45|0|1;conditional-branch|75|0|1;conditional-branch|89|0|1;branch|119|0|1;conditional-branch|133|0|1;leave|170|0|1;conditional-branch|174|0|1;conditional-branch|177|0|1;end-finally|185|0|1;conditional-branch|187|0|1;conditional-branch|196|0|1;branch|199|0|1;leave|219|0|0;conditional-branch|243|0|0;branch|245|0|0;conditional-branch|326|0|0;leave|359|0|1;conditional-branch|404|0|0;conditional-branch|412|0|0;conditional-branch|425|0|0;leave|459|0|1;conditional-branch|463|0|1;conditional-branch|467|0|1;end-finally|476|0|1;leave|480|0|0;conditional-branch|500|0|0;leave|505|0|1;conditional-branch|509|0|1;end-finally|528|0|1;leave|543|0|1;leave|582|0|1",
@@ -9510,7 +9510,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 129
+          "sites": 124
         }
       ],
       "controlFlowSites": "switch-branch|15|0|0;conditional-branch|85|0|1;branch|129|0|1;conditional-branch|154|0|1;branch|167|0|1;conditional-branch|181|0|0;conditional-branch|193|0|0;branch|196|0|0;conditional-branch|204|0|1;branch|211|0|1;conditional-branch|271|0|0;leave|304|0|1;conditional-branch|354|0|0;leave|359|0|0;conditional-branch|371|0|0;conditional-branch|391|0|0;conditional-branch|407|0|0;conditional-branch|478|0|0;leave|511|0|1;conditional-branch|561|0|0;leave|566|0|0;conditional-branch|578|0|0;conditional-branch|593|0|0;conditional-branch|646|0|0;leave|679|0|1;conditional-branch|729|0|0;leave|734|0|0;conditional-branch|743|0|0;conditional-branch|759|0|0;branch|762|0|0;leave|788|0|1;leave|820|0|1",
@@ -9730,7 +9730,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.SymbolPackageDownloader::.cctor#0"
@@ -10896,7 +10896,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 81
+          "sites": 78
         }
       ],
       "controlFlowSites": "conditional-branch|8|0|1;conditional-branch|34|0|1;conditional-branch|76|0|0;branch|81|0|0;conditional-branch|125|0|0;conditional-branch|137|0|1;branch|140|0|1;conditional-branch|259|0|0;leave|292|0|1;conditional-branch|404|0|0;leave|409|0|1;conditional-branch|413|0|1;conditional-branch|421|0|1;end-finally|434|0|1;leave|449|0|1;leave|481|0|1",
@@ -36928,20 +36928,14 @@
       "method": "FoldSlotDiamond",
       "overload": 0,
       "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.IrFunction, ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.IfStatement, ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.Stepper) -\u003E corelib:System.Boolean",
-      "fidelity": "Partial",
+      "fidelity": "Full",
       "fullyRaised": false,
       "residual": "structuring: conditional-branch",
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "generic-arity-mismatch"
-        }
-      ],
       "controlFlowSites": "conditional-branch|8|0|0;conditional-branch|20|0|0;conditional-branch|30|0|0;conditional-branch|49|0|0;conditional-branch|75|0|0;conditional-branch|96|0|0;conditional-branch|110|0|0;conditional-branch|128|0|1;branch|132|0|1;conditional-branch|140|0|1;conditional-branch|180|0|0;conditional-branch|248|0|1",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.BooleanFoldingPass::FoldSlotDiamond#0"
     },
@@ -43873,7 +43867,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.Cfg.BlockEdges::GetHashCode#0"
     },
@@ -56521,19 +56515,12 @@
       "method": "SameZone",
       "overload": 0,
       "signature": "(System.Collections:System.Collections.Generic.List\u00601\u003CILInspector.Decompiler:ILInspector.Decompiler.Pipeline.EhStructuringPass\u002BConstruct\u003E, corelib:System.Int32, corelib:System.Int32) -\u003E corelib:System.Boolean",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "generic-arity-mismatch",
-          "sites": 3
-        }
-      ],
       "controlFlowSites": "conditional-branch|42|0|1",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.EhStructuringPass::SameZone#0"
     },
@@ -66083,7 +66070,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|6|0|1;conditional-branch|9|0|1;conditional-branch|24|0|1;conditional-branch|41|0|1",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.IlProjection::ArgName#0"
@@ -66147,7 +66134,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.IlProjection::Field#0"
     },
@@ -103241,18 +103228,12 @@
       "method": "Match",
       "overload": 0,
       "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.IrFunction, corelib:System.Collections.Generic.IReadOnlyList\u00601\u003CILInspector.Decompiler:ILInspector.Decompiler.Pipeline.Block\u003E, System.Collections:System.Collections.Generic.Dictionary\u00602\u003Ccorelib:System.Int32, corelib:System.Int32\u003E, corelib:System.Int32) -\u003E corelib:System.Nullable\u00601\u003CILInspector.Decompiler:ILInspector.Decompiler.Pipeline.SlotDiamondPass\u002BDiamond\u003E",
-      "fidelity": "Partial",
+      "fidelity": "Full",
       "fullyRaised": false,
       "residual": "structuring: conditional-branch",
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "generic-arity-mismatch"
-        }
-      ],
       "controlFlowSites": "conditional-branch|19|0|0;conditional-branch|47|0|0;branch|63|0|0;conditional-branch|83|0|0;conditional-branch|117|0|0;conditional-branch|133|0|0|output@conditional-branch@source_IL_0085-\u003EIL_0098#0;conditional-branch|133|0|1;conditional-branch|139|0|1;conditional-branch|177|0|0;conditional-branch|187|0|0;conditional-branch|206|0|0;conditional-branch|225|0|0;conditional-branch|242|0|0;conditional-branch|248|0|0;conditional-branch|282|0|0;conditional-branch|301|0|0;conditional-branch|322|0|0;conditional-branch|332|0|0;conditional-branch|351|0|0;conditional-branch|368|0|0;conditional-branch|374|0|0;conditional-branch|401|0|0;conditional-branch|431|0|0;conditional-branch|448|0|0;conditional-branch|453|0|0;branch|455|0|0;conditional-branch|477|0|0;conditional-branch|495|0|0;branch|497|0|0;conditional-branch|516|0|0;conditional-branch|534|0|0;conditional-branch|553|0|0;conditional-branch|571|0|0;branch|573|0|0;branch|579|0|0;conditional-branch|595|0|0;branch|601|0|0;conditional-branch|612|0|0|output@conditional-branch@source_IL_0264-\u003EIL_0281#0;conditional-branch|612|0|1;conditional-branch|628|0|1;conditional-branch|678|0|1;conditional-branch|714|0|0",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.SlotDiamondPass::Match#0"
     },
@@ -104220,7 +104201,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.SlotStoreDiamondPass.TrueRegionShape::set_Store#0"
     },
@@ -104405,18 +104386,12 @@
       "method": "Match",
       "overload": 0,
       "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.IrFunction, corelib:System.Collections.Generic.IReadOnlyList\u00601\u003CILInspector.Decompiler:ILInspector.Decompiler.Pipeline.Block\u003E, System.Collections:System.Collections.Generic.Dictionary\u00602\u003Ccorelib:System.Int32, corelib:System.Int32\u003E, System.Collections:System.Collections.Generic.HashSet\u00601\u003Ccorelib:System.Int32\u003E, corelib:System.Int32) -\u003E ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.SlotStoreDiamondPass\u002BShape",
-      "fidelity": "Partial",
+      "fidelity": "Full",
       "fullyRaised": false,
       "residual": "structuring: conditional-branch",
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "generic-arity-mismatch"
-        }
-      ],
       "controlFlowSites": "conditional-branch|20|0|0;conditional-branch|48|0|0;branch|55|0|0;conditional-branch|75|0|0;conditional-branch|100|0|0;conditional-branch|123|0|0;conditional-branch|133|0|0;conditional-branch|150|0|0;conditional-branch|169|0|0;conditional-branch|186|0|0;conditional-branch|202|0|0;conditional-branch|207|0|0;conditional-branch|213|0|0;conditional-branch|231|0|0;conditional-branch|253|0|0;conditional-branch|295|0|0;conditional-branch|316|0|1;conditional-branch|356|0|0;conditional-branch|407|0|0;conditional-branch|458|0|1;conditional-branch|496|0|0;conditional-branch|508|0|1;conditional-branch|532|0|0;conditional-branch|555|0|0",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.SlotStoreDiamondPass::Match#0"
     },
@@ -135749,18 +135724,12 @@
       "method": "Compute",
       "overload": 0,
       "signature": "(corelib:System.String, corelib:System.String) -\u003E corelib:System.Int32",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "generic-arity-mismatch"
-        }
-      ],
       "controlFlowSites": "conditional-branch|6|0|1;conditional-branch|9|0|1;conditional-branch|26|0|1;conditional-branch|47|0|1;branch|71|0|1;conditional-branch|88|0|1;branch|92|0|1;branch|105|0|1;conditional-branch|180|0|1;conditional-branch|193|0|1",
       "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.LevenshteinDistance::Compute#0"
     },
@@ -150052,7 +150021,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.SignatureDecoder::.cctor#0"
@@ -178464,7 +178433,7 @@
         {
           "code": "DEC0009",
           "discriminator": "display-class-type-name",
-          "sites": 76
+          "sites": 74
         }
       ],
       "controlFlowSites": "conditional-branch|15|0|0;conditional-branch|22|0|0;conditional-branch|46|0|1;conditional-branch|66|0|0;leave|81|0|0;conditional-branch|101|0|0;leave|184|0|0;conditional-branch|237|0|0;leave|270|0|1;conditional-branch|367|0|0;conditional-branch|392|0|0;leave|429|0|0;conditional-branch|478|0|0;leave|511|0|1;leave|550|0|1;leave|582|0|1",
@@ -187968,7 +187937,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 127
+          "sites": 124
         }
       ],
       "controlFlowSites": "conditional-branch|8|0|0;conditional-branch|15|0|0;conditional-branch|83|0|0|output@conditional-branch@source_IL_0053-\u003EIL_0076#0;conditional-branch|83|0|1;conditional-branch|91|0|1;conditional-branch|99|0|1;leave|113|0|0;conditional-branch|131|0|1;conditional-branch|344|0|0;leave|377|0|1;conditional-branch|442|0|0;leave|473|0|0;conditional-branch|550|0|0;leave|583|0|1;conditional-branch|640|0|0;leave|672|0|0;conditional-branch|722|0|0|output@conditional-branch@source_IL_02D2-\u003EIL_02E6#0;conditional-branch|722|0|1;conditional-branch|726|0|1;leave|740|0|0;leave|795|0|1;leave|855|0|1",
@@ -193647,7 +193616,11 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 578
+          "sites": 575
+        },
+        {
+          "code": "DEC0009",
+          "discriminator": "unspellable-local-name"
         }
       ],
       "controlFlowSites": "conditional-branch|9|0|0;conditional-branch|80|0|1;conditional-branch|98|0|1;branch|119|0|1;conditional-branch|134|0|0;conditional-branch|155|0|0;conditional-branch|233|0|1;branch|249|0|1;leave|298|0|0;conditional-branch|315|0|1;branch|331|0|1;conditional-branch|398|0|0;conditional-branch|482|0|0;leave|486|0|0;conditional-branch|498|0|0;conditional-branch|541|0|0;conditional-branch|559|0|0;leave|563|0|0;conditional-branch|605|0|0;conditional-branch|647|0|0|output@conditional-branch@source_IL_0287-\u003EIL_02A8#0;conditional-branch|647|0|1;conditional-branch|654|0|1;conditional-branch|671|0|0;conditional-branch|678|0|0;conditional-branch|695|0|0;conditional-branch|705|0|0;conditional-branch|746|0|0;leave|750|0|0;conditional-branch|782|0|0;leave|786|0|0;conditional-branch|797|0|0;conditional-branch|810|0|0;conditional-branch|901|0|0;conditional-branch|919|0|0;conditional-branch|937|0|0;leave|971|0|0;switch-branch|1024|0|0;conditional-branch|1095|0|0;conditional-branch|1157|0|0;conditional-branch|1243|0|0;leave|1276|0|0;conditional-branch|1365|0|0;leave|1391|0|0;conditional-branch|1436|0|0;conditional-branch|1453|0|0;conditional-branch|1459|0|0;conditional-branch|1481|0|0;leave|1551|0|0;conditional-branch|1619|0|0;leave|1652|0|0;conditional-branch|1697|0|0;leave|1727|0|0;conditional-branch|1796|0|0;conditional-branch|1852|0|0;leave|1885|0|0;leave|1927|0|0;conditional-branch|1938|0|0;leave|1972|0|0;leave|2055|0|0;conditional-branch|2076|0|0;conditional-branch|2167|0|0;leave|2200|0|0;conditional-branch|2250|0|0;leave|2254|0|0;conditional-branch|2370|0|0;conditional-branch|2442|0|0;leave|2475|0|0;leave|2517|0|0;conditional-branch|2528|0|0;conditional-branch|2548|0|0;conditional-branch|2554|0|0;conditional-branch|2568|0|0;conditional-branch|2596|0|0;leave|2672|0|0;conditional-branch|2682|0|0;conditional-branch|2733|0|0;leave|2766|0|0;conditional-branch|2889|0|0;leave|2922|0|0;conditional-branch|2972|0|0;leave|2991|0|0;branch|3005|0|0;conditional-branch|3031|0|0;leave|3033|0|0;conditional-branch|3037|0|0;end-finally|3052|0|0;conditional-branch|3059|0|0;leave|3105|0|0;conditional-branch|3143|0|0;branch|3170|0|0;conditional-branch|3203|0|0;leave|3247|0|0;conditional-branch|3263|0|0;leave|3293|0|0;conditional-branch|3304|0|0;conditional-branch|3321|0|0;conditional-branch|3327|0|0;conditional-branch|3349|0|0;leave|3419|0|0;conditional-branch|3487|0|0;leave|3520|0|0;conditional-branch|3565|0|0;leave|3595|0|0;conditional-branch|3628|0|0;conditional-branch|3684|0|0;leave|3717|0|0;leave|3759|0|0;conditional-branch|3770|0|0;leave|3804|0|0;leave|3887|0|0;leave|3923|0|0;conditional-branch|3927|0|0;conditional-branch|3935|0|0;conditional-branch|3948|0|0;leave|3962|0|0;leave|3965|0|0;end-finally|3967|0|0;leave|4040|0|0",
@@ -193746,7 +193719,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 95
+          "sites": 92
         }
       ],
       "controlFlowSites": "conditional-branch|8|0|0;conditional-branch|15|0|0;conditional-branch|59|0|0;leave|69|0|0;conditional-branch|87|0|1;conditional-branch|117|0|0;leave|152|0|0;conditional-branch|182|0|0;conditional-branch|249|0|0;leave|282|0|1;branch|325|0|0;conditional-branch|407|0|0;leave|440|0|1;conditional-branch|493|0|0;leave|628|0|0;conditional-branch|666|0|1;conditional-branch|706|0|0;leave|808|0|0;leave|859|0|1;leave|898|0|1",
@@ -194708,7 +194681,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 516
+          "sites": 512
         }
       ],
       "controlFlowSites": "switch-branch|8|0|0;conditional-branch|44|0|0;conditional-branch|71|0|1;conditional-branch|188|0|0;conditional-branch|218|0|0;leave|251|0|0;conditional-branch|301|0|0;leave|315|0|0;conditional-branch|377|0|1;conditional-branch|392|0|1;leave|407|0|0;conditional-branch|443|0|0;leave|453|0|0;conditional-branch|507|0|0;leave|540|0|0;conditional-branch|603|0|0;leave|613|0|0;switch-branch|748|0|0;conditional-branch|852|0|0;leave|871|0|0;conditional-branch|925|0|0;leave|941|0|0;conditional-branch|975|0|0;conditional-branch|1051|0|0;conditional-branch|1092|0|0;conditional-branch|1108|0|0;conditional-branch|1119|0|0;conditional-branch|1142|0|0;branch|1146|0|0;conditional-branch|1176|0|0;branch|1180|0|0;conditional-branch|1193|0|1;conditional-branch|1242|0|0;conditional-branch|1252|0|0;conditional-branch|1278|0|0;leave|1311|0|0;conditional-branch|1323|0|1;branch|1326|0|1;conditional-branch|1372|0|0;conditional-branch|1386|0|1;conditional-branch|1433|0|0;conditional-branch|1487|0|0;conditional-branch|1513|0|0;conditional-branch|1531|0|0;conditional-branch|1591|0|1;conditional-branch|1656|0|0;conditional-branch|1686|0|0;leave|1705|0|0;conditional-branch|1732|0|0;leave|1751|0|0;conditional-branch|1818|0|1;conditional-branch|1859|0|1;conditional-branch|1921|0|1;conditional-branch|1987|0|0;leave|2086|0|0;conditional-branch|2099|0|0;branch|2154|0|0;conditional-branch|2216|0|0;leave|2218|0|0;conditional-branch|2222|0|0;end-finally|2237|0|0;leave|2240|0|0;conditional-branch|2314|0|1;conditional-branch|2410|0|0;conditional-branch|2417|0|0;conditional-branch|2444|0|0;leave|2463|0|0;conditional-branch|2530|0|1;conditional-branch|2571|0|1;conditional-branch|2639|0|0|output@conditional-branch@source_IL_0A4F-\u003EIL_0AFB#0;conditional-branch|2639|0|1;conditional-branch|2650|0|1;leave|2806|0|0;conditional-branch|2871|0|1;conditional-branch|2964|0|0;conditional-branch|2987|0|0;conditional-branch|3054|0|0;conditional-branch|3067|0|0;conditional-branch|3087|0|1;branch|3132|0|0;leave|3349|0|0;conditional-branch|3379|0|0;conditional-branch|3398|0|1;branch|3402|0|1;conditional-branch|3414|0|0;conditional-branch|3423|0|1;conditional-branch|3436|0|1;conditional-branch|3480|0|1;conditional-branch|3493|0|0;conditional-branch|3511|0|0;conditional-branch|3554|0|0;conditional-branch|3575|0|0;conditional-branch|3597|0|1;conditional-branch|3680|0|0;leave|3713|0|0;conditional-branch|3758|0|1;conditional-branch|3820|0|0;conditional-branch|3831|0|0;conditional-branch|3863|0|0;conditional-branch|3929|0|1;branch|3932|0|1;conditional-branch|3958|0|1;branch|3962|0|1;conditional-branch|3970|0|1;conditional-branch|3993|0|0;branch|4006|0|0;conditional-branch|4022|0|0;branch|4049|0|0;conditional-branch|4063|0|1;branch|4067|0|1;conditional-branch|4168|0|0;leave|4201|0|0;conditional-branch|4313|0|0;leave|4359|0|0;conditional-branch|4380|0|0;conditional-branch|4398|0|0;conditional-branch|4406|0|1;conditional-branch|4463|0|0;conditional-branch|4482|0|0;conditional-branch|4504|0|1;conditional-branch|4514|0|1;conditional-branch|4633|0|0;leave|4666|0|0;leave|4771|0|0;conditional-branch|4775|0|0;branch|4790|0|0;conditional-branch|4808|0|0;leave|4818|0|0;leave|4821|0|0;conditional-branch|4830|0|0;leave|4832|0|0;conditional-branch|4836|0|0;end-finally|4851|0|0;end-finally|4852|0|0;conditional-branch|4880|0|0;conditional-branch|4912|0|0;conditional-branch|4988|0|0;conditional-branch|5041|0|0|output@conditional-branch@source_IL_13B1-\u003EIL_13D7#0;conditional-branch|5041|0|1;conditional-branch|5048|0|1;conditional-branch|5070|0|0;conditional-branch|5077|0|0;conditional-branch|5081|0|0;conditional-branch|5091|0|0;conditional-branch|5164|0|0;leave|5168|0|0;conditional-branch|5235|0|0;leave|5240|0|0;conditional-branch|5261|0|0;conditional-branch|5282|0|0;conditional-branch|5312|0|0;conditional-branch|5333|0|0;conditional-branch|5351|0|0;branch|5353|0|0|output@branch@block_IL_14E9-\u003EIL_154F#0;conditional-branch|5369|0|1;branch|5376|0|1;branch|5399|0|1;conditional-branch|5413|0|1;branch|5432|0|0;conditional-branch|5502|0|1;conditional-branch|5534|0|1;conditional-branch|5570|0|1;conditional-branch|5622|0|0;conditional-branch|5644|0|1;branch|5653|0|1;conditional-branch|5769|0|1;conditional-branch|5799|0|0;conditional-branch|5936|0|1;branch|5939|0|1;conditional-branch|5949|0|1;conditional-branch|6016|0|0;conditional-branch|6029|0|0;leave|6171|0|0;leave|6207|0|0;conditional-branch|6211|0|0;conditional-branch|6219|0|0;conditional-branch|6232|0|0;leave|6246|0|0;leave|6249|0|0;end-finally|6251|0|0;leave|6331|0|0",
@@ -198130,7 +198103,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 952
+          "sites": 938
         },
         {
           "code": "DEC0011"
@@ -198178,7 +198151,11 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 135
+          "sites": 130
+        },
+        {
+          "code": "DEC0009",
+          "discriminator": "unspellable-local-name"
         }
       ],
       "controlFlowSites": "conditional-branch|8|0|0;conditional-branch|15|0|0;conditional-branch|31|0|0;leave|35|0|0;conditional-branch|51|0|0;conditional-branch|64|0|0;conditional-branch|81|0|0;conditional-branch|119|0|0;leave|151|0|1;leave|192|0|0;conditional-branch|214|0|0;leave|218|0|0;conditional-branch|235|0|0;conditional-branch|248|0|1;conditional-branch|262|0|1;branch|266|0|1;conditional-branch|274|0|1;conditional-branch|300|0|0;branch|329|0|0;conditional-branch|348|0|0;conditional-branch|356|0|0;leave|390|0|0;branch|412|0|0;conditional-branch|426|0|0;leave|430|0|0;conditional-branch|455|0|0;conditional-branch|483|0|0;branch|485|0|0;conditional-branch|517|0|1;branch|536|0|1;conditional-branch|585|0|0;conditional-branch|626|0|0;leave|659|0|1;conditional-branch|704|0|0;leave|708|0|0;leave|739|0|1;conditional-branch|743|0|1;conditional-branch|751|0|1;end-finally|764|0|1;conditional-branch|783|0|0;leave|788|0|1;conditional-branch|792|0|1;end-finally|811|0|1;conditional-branch|835|0|0;leave|881|0|0;conditional-branch|894|0|0;leave|929|0|0;leave|956|0|1;leave|995|0|1",
@@ -198579,7 +198556,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 231
+          "sites": 226
         }
       ],
       "controlFlowSites": "conditional-branch|9|0|0;switch-branch|61|0|0;conditional-branch|104|0|1;branch|117|0|1;conditional-branch|174|0|1;conditional-branch|188|0|1;branch|191|0|1;branch|199|0|1;conditional-branch|243|0|0;leave|276|0|0;conditional-branch|325|0|0;leave|356|0|0;conditional-branch|404|0|1;conditional-branch|442|0|0;conditional-branch|477|0|0;conditional-branch|495|0|0;conditional-branch|542|0|1;branch|546|0|1;conditional-branch|608|0|1;branch|611|0|1;conditional-branch|700|0|0;leave|733|0|0;conditional-branch|795|0|0;conditional-branch|831|0|1;branch|838|0|1;conditional-branch|856|0|0;conditional-branch|887|0|0;conditional-branch|964|0|0;leave|997|0|0;conditional-branch|1102|0|0;leave|1135|0|0;leave|1183|0|0;conditional-branch|1190|0|0;conditional-branch|1198|0|0;conditional-branch|1211|0|0;conditional-branch|1224|0|0;conditional-branch|1242|0|0;leave|1261|0|0;leave|1264|0|0;end-finally|1266|0|0;leave|1318|0|0",
@@ -198674,7 +198651,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 89
+          "sites": 86
         }
       ],
       "controlFlowSites": "conditional-branch|8|0|0;conditional-branch|48|0|0;conditional-branch|75|0|1;branch|88|0|1;conditional-branch|140|0|1;conditional-branch|154|0|1;branch|157|0|1;branch|165|0|1;conditional-branch|209|0|0;leave|242|0|0;conditional-branch|291|0|0;leave|322|0|0;conditional-branch|364|0|1;conditional-branch|398|0|0;conditional-branch|413|0|1;branch|416|0|1;conditional-branch|426|0|1;conditional-branch|444|0|1;branch|447|0|1;conditional-branch|457|0|1;conditional-branch|471|0|1;branch|474|0|1;leave|508|0|0;conditional-branch|512|0|0;conditional-branch|520|0|0;conditional-branch|533|0|0;conditional-branch|546|0|0;conditional-branch|564|0|0;leave|583|0|0;leave|586|0|0;end-finally|588|0|0;leave|626|0|0",
@@ -206720,7 +206697,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 134
+          "sites": 132
         }
       ],
       "controlFlowSites": "conditional-branch|8|0|0;conditional-branch|15|0|0;conditional-branch|33|0|1;branch|51|0|1;conditional-branch|188|0|0;leave|221|0|1;conditional-branch|279|0|1;conditional-branch|315|0|1;conditional-branch|362|0|0;leave|366|0|0;conditional-branch|378|0|1;conditional-branch|414|0|1;conditional-branch|445|0|1;conditional-branch|519|0|1;conditional-branch|596|0|0;branch|601|0|0;conditional-branch|745|0|0;leave|778|0|1;conditional-branch|836|0|0|output@conditional-branch@source_IL_0344-\u003EIL_03B2#0;conditional-branch|836|0|1;conditional-branch|840|0|1;branch|941|0|0;conditional-branch|969|0|0;conditional-branch|1019|0|1;branch|1067|0|1;conditional-branch|1112|0|1;leave|1114|0|1;conditional-branch|1118|0|1;conditional-branch|1122|0|1;end-finally|1131|0|1;conditional-branch|1164|0|0;leave|1169|0|1;conditional-branch|1173|0|1;end-finally|1192|0|1;conditional-branch|1228|0|1;conditional-branch|1269|0|1;leave|1332|0|1;leave|1371|0|1",
@@ -206770,7 +206747,11 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 591
+          "sites": 584
+        },
+        {
+          "code": "DEC0009",
+          "discriminator": "unspellable-local-name"
         }
       ],
       "controlFlowSites": "switch-branch|8|0|0;conditional-branch|68|0|0;leave|78|0|0;conditional-branch|126|0|0;conditional-branch|130|0|0;conditional-branch|166|0|0;leave|199|0|0;conditional-branch|249|0|0;leave|263|0|0;conditional-branch|293|0|0;leave|326|0|0;conditional-branch|376|0|0;leave|390|0|0;leave|395|0|0;leave|428|0|0;conditional-branch|458|0|0;leave|491|0|0;conditional-branch|554|0|0;conditional-branch|568|0|1;conditional-branch|583|0|1;conditional-branch|598|0|1;leave|619|0|0;conditional-branch|749|0|1;switch-branch|799|0|0;conditional-branch|827|0|0;conditional-branch|907|0|0;leave|926|0|0;conditional-branch|969|0|1;branch|973|0|1;conditional-branch|981|0|1;conditional-branch|1011|0|0;conditional-branch|1035|0|0;conditional-branch|1044|0|0;conditional-branch|1079|0|0;conditional-branch|1227|0|1;branch|1243|0|1;leave|1293|0|0;conditional-branch|1328|0|0;conditional-branch|1344|0|0;conditional-branch|1365|0|0;conditional-branch|1383|0|0;branch|1385|0|0|output@branch@block_IL_0569-\u003EIL_05CF#0;conditional-branch|1401|0|1;branch|1408|0|1;branch|1431|0|1;conditional-branch|1445|0|1;branch|1464|0|0;conditional-branch|1502|0|1;conditional-branch|1541|0|0;branch|1692|0|0;conditional-branch|1772|0|0;leave|1791|0|0;conditional-branch|1856|0|0;conditional-branch|1895|0|0;conditional-branch|1928|0|0;leave|1944|0|0;conditional-branch|1956|0|1;branch|1959|0|1;conditional-branch|2000|0|0;conditional-branch|2014|0|0;conditional-branch|2065|0|1;conditional-branch|2075|0|1;conditional-branch|2109|0|0;conditional-branch|2129|0|0;conditional-branch|2142|0|0;conditional-branch|2174|0|0;conditional-branch|2223|0|0;leave|2256|0|0;conditional-branch|2335|0|0;leave|2369|0|0;conditional-branch|2385|0|0;conditional-branch|2398|0|0;conditional-branch|2430|0|0;conditional-branch|2443|0|0;conditional-branch|2456|0|0;conditional-branch|2469|0|0;conditional-branch|2493|0|1;conditional-branch|2506|0|0;conditional-branch|2519|0|0;conditional-branch|2557|0|0;leave|2583|0|0;conditional-branch|2603|0|0;conditional-branch|2635|0|0;conditional-branch|2701|0|0;leave|2734|0|0;conditional-branch|2790|0|0|output@conditional-branch@source_IL_0AE6-\u003EIL_0B0C#0;conditional-branch|2790|0|1;conditional-branch|2797|0|1;branch|2799|0|0|output@branch@block_IL_0AEF-\u003EIL_0B0D#0;conditional-branch|2814|0|1;branch|2823|0|1;branch|2826|0|1;conditional-branch|2829|0|0;conditional-branch|2842|0|1;conditional-branch|2855|0|1;conditional-branch|2863|0|1;branch|2876|0|1;branch|2882|0|0;conditional-branch|2889|0|0;conditional-branch|2906|0|0;conditional-branch|2916|0|0;conditional-branch|2967|0|0;leave|2971|0|0;conditional-branch|2978|0|0;conditional-branch|3040|0|0;leave|3045|0|0;conditional-branch|3071|0|1;branch|3104|0|0;conditional-branch|3158|0|0;leave|3163|0|0;conditional-branch|3179|0|0;conditional-branch|3187|0|0|output@conditional-branch@source_IL_0C73-\u003EIL_0C99#0;conditional-branch|3187|0|1;conditional-branch|3200|0|1;conditional-branch|3236|0|0;conditional-branch|3252|0|0;conditional-branch|3273|0|0;conditional-branch|3291|0|0;branch|3293|0|0|output@branch@block_IL_0CDD-\u003EIL_0D43#0;conditional-branch|3309|0|1;branch|3316|0|1;branch|3339|0|1;conditional-branch|3353|0|1;branch|3372|0|0;conditional-branch|3432|0|1;conditional-branch|3464|0|1;conditional-branch|3500|0|1;conditional-branch|3552|0|0;conditional-branch|3574|0|1;branch|3583|0|1;conditional-branch|3699|0|1;conditional-branch|3729|0|0;conditional-branch|3866|0|1;branch|3869|0|1;conditional-branch|3879|0|1;conditional-branch|3946|0|0;conditional-branch|3959|0|0;branch|4115|0|0;conditional-branch|4175|0|0;conditional-branch|4213|0|0;leave|4246|0|0;conditional-branch|4296|0|0;leave|4306|0|0;conditional-branch|4328|0|0;conditional-branch|4346|0|1;branch|4361|0|1;conditional-branch|4364|0|0;conditional-branch|4453|0|1;branch|4466|0|1;branch|4502|0|0;leave|4522|0|0;leave|4545|0|0;leave|4573|0|0;leave|4609|0|0;conditional-branch|4616|0|0;conditional-branch|4624|0|0;conditional-branch|4637|0|0;leave|4651|0|0;leave|4654|0|0;end-finally|4656|0|0;leave|4764|0|0",
@@ -206860,7 +206841,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 71
+          "sites": 68
         }
       ],
       "controlFlowSites": "conditional-branch|8|0|0;conditional-branch|15|0|0;conditional-branch|33|0|1;conditional-branch|48|0|1;conditional-branch|78|0|0|output@conditional-branch@source_IL_004E-\u003EIL_0077#0;conditional-branch|78|0|1;conditional-branch|91|0|1;conditional-branch|104|0|1;leave|114|0|0;conditional-branch|197|0|0;leave|230|0|1;conditional-branch|280|0|0;leave|290|0|0;conditional-branch|303|0|0;conditional-branch|465|0|0;leave|498|0|1;leave|546|0|0;leave|561|0|1;leave|593|0|1",
@@ -218858,7 +218839,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 81
+          "sites": 78
         }
       ],
       "controlFlowSites": "conditional-branch|9|0|1;conditional-branch|24|0|0;conditional-branch|31|0|0;conditional-branch|151|0|0;leave|184|0|1;conditional-branch|233|0|0;conditional-branch|243|0|1;leave|274|0|0;conditional-branch|293|0|0;conditional-branch|320|0|1;conditional-branch|355|0|0;leave|368|0|0;conditional-branch|395|0|0|output@conditional-branch@source_IL_018B-\u003EIL_01A7#0;conditional-branch|395|0|1;conditional-branch|405|0|1;leave|418|0|0;conditional-branch|438|0|0;conditional-branch|458|0|0;conditional-branch|503|0|1;leave|549|0|0;conditional-branch|567|0|1;conditional-branch|625|0|0;leave|650|0|0;conditional-branch|720|0|0;leave|753|0|1;leave|831|0|1;conditional-branch|835|0|1;end-finally|848|0|1;leave|879|0|1",
@@ -220704,7 +220685,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 393
+          "sites": 388
         }
       ],
       "controlFlowSites": "conditional-branch|9|0|1;conditional-branch|46|0|1;switch-branch|84|0|0;conditional-branch|133|0|0;leave|241|0|0;conditional-branch|254|0|1;branch|258|0|1;conditional-branch|316|0|0;branch|328|0|0;conditional-branch|396|0|1;branch|409|0|1;conditional-branch|993|0|0;branch|1033|0|0;conditional-branch|1052|0|0;conditional-branch|1069|0|1;branch|1073|0|1;conditional-branch|1080|0|0;conditional-branch|1126|0|1;conditional-branch|1212|0|0;conditional-branch|1220|0|1;branch|1280|0|0;conditional-branch|1297|0|0;leave|1459|0|1;conditional-branch|1463|0|1;conditional-branch|1467|0|1;end-finally|1476|0|1;leave|1477|0|1;conditional-branch|1481|0|1;conditional-branch|1485|0|1;end-finally|1494|0|1;leave|1495|0|1;leave|1538|0|1;conditional-branch|1791|0|0;leave|1824|0|1;conditional-branch|1871|0|0;conditional-branch|1902|0|0;conditional-branch|1918|0|0;conditional-branch|1934|0|0;conditional-branch|1981|0|0;leave|2014|0|1;conditional-branch|2061|0|0;conditional-branch|2092|0|0;conditional-branch|2108|0|0;conditional-branch|2124|0|0;conditional-branch|2176|0|0;leave|2209|0|1;conditional-branch|2256|0|0;conditional-branch|2288|0|1;branch|2292|0|1;conditional-branch|2304|0|0;conditional-branch|2387|0|0;leave|2420|0|1;leave|2490|0|1;conditional-branch|2494|0|1;conditional-branch|2502|0|1;end-finally|2515|0|1;leave|2564|0|1;leave|2589|0|1",
@@ -224906,7 +224887,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 309
+          "sites": 306
         }
       ],
       "controlFlowSites": "switch-branch|8|0|0;conditional-branch|36|0|1;conditional-branch|44|0|1;branch|58|0|1;branch|61|0|1;conditional-branch|75|0|0;leave|111|0|1;conditional-branch|115|0|1;conditional-branch|119|0|1;end-finally|128|0|1;conditional-branch|135|0|0;conditional-branch|146|0|0;conditional-branch|211|0|0;leave|244|0|1;leave|307|0|0;conditional-branch|360|0|0;conditional-branch|383|0|1;conditional-branch|442|0|1;conditional-branch|862|0|0;conditional-branch|882|0|0;conditional-branch|921|0|0;conditional-branch|951|0|0|output@conditional-branch@source_IL_03B7-\u003EIL_03FA#0;conditional-branch|951|0|1;conditional-branch|961|0|1;conditional-branch|975|0|0;conditional-branch|978|0|1;branch|980|0|0|output@branch@block_IL_03D4-\u003EIL_03F5#0;conditional-branch|995|0|1;branch|1007|0|1;branch|1010|0|1;conditional-branch|1136|0|0;leave|1169|0|1;conditional-branch|1238|0|0;branch|1262|0|0;conditional-branch|1297|0|0;conditional-branch|1310|0|0;conditional-branch|1330|0|0;conditional-branch|1343|0|0;conditional-branch|1354|0|1;branch|1357|0|1;conditional-branch|1427|0|0;leave|1460|0|1;conditional-branch|1507|0|0;conditional-branch|1520|0|0;conditional-branch|1550|0|0;leave|1583|0|1;conditional-branch|1587|0|1;conditional-branch|1591|0|1;end-finally|1600|0|1;conditional-branch|1607|0|0;conditional-branch|1672|0|0;leave|1705|0|1;leave|1768|0|1;leave|1807|0|1",
@@ -224951,7 +224932,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 195
+          "sites": 192
         }
       ],
       "controlFlowSites": "conditional-branch|8|0|1;conditional-branch|31|0|1;conditional-branch|82|0|1;leave|86|0|0;conditional-branch|194|0|0;branch|196|0|0;conditional-branch|220|0|1;conditional-branch|242|0|0;conditional-branch|253|0|0;conditional-branch|269|0|0;conditional-branch|348|0|0;leave|380|0|1;conditional-branch|431|0|0;switch-branch|474|0|0;branch|495|0|0;conditional-branch|529|0|0;branch|552|0|0;conditional-branch|586|0|0;branch|609|0|0;conditional-branch|643|0|0;branch|663|0|0;conditional-branch|694|0|0;branch|714|0|0;conditional-branch|745|0|0;conditional-branch|776|0|0;leave|796|0|1;conditional-branch|800|0|1;conditional-branch|808|0|1;end-finally|821|0|1;leave|829|0|1;leave|877|0|1;conditional-branch|897|0|0;leave|902|0|1;conditional-branch|906|0|1;end-finally|925|0|1;leave|1105|0|1;leave|1137|0|1",
@@ -226416,7 +226397,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 101
+          "sites": 98
         }
       ],
       "controlFlowSites": "conditional-branch|8|0|0;conditional-branch|21|0|0|output@conditional-branch@source_IL_0015-\u003EIL_002F#0;conditional-branch|21|0|1;conditional-branch|34|0|1;leave|42|0|0;conditional-branch|67|0|0;leave|75|0|0;conditional-branch|109|0|0;conditional-branch|124|0|1;conditional-branch|171|0|0;branch|176|0|0;conditional-branch|216|0|0;conditional-branch|235|0|0;conditional-branch|254|0|0;conditional-branch|286|0|0;conditional-branch|337|0|0;leave|370|0|0;conditional-branch|421|0|0;branch|446|0|0;branch|500|0|0;conditional-branch|553|0|0;leave|555|0|0;conditional-branch|559|0|0;end-finally|574|0|0;conditional-branch|593|0|0;leave|598|0|0;conditional-branch|602|0|0;conditional-branch|610|0|0;end-finally|623|0|0;leave|631|0|0;conditional-branch|635|0|0;branch|655|0|0;conditional-branch|676|0|0;leave|678|0|0;conditional-branch|682|0|0;end-finally|697|0|0;end-finally|698|0|0;leave|706|0|0;leave|745|0|0",
@@ -229774,7 +229755,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 126
+          "sites": 122
         }
       ],
       "controlFlowSites": "conditional-branch|8|0|0;conditional-branch|12|0|0;conditional-branch|66|0|0;leave|99|0|1;conditional-branch|173|0|0;conditional-branch|191|0|0;conditional-branch|209|0|0;conditional-branch|258|0|0;leave|291|0|1;conditional-branch|342|0|1;conditional-branch|407|0|0;leave|530|0|0;conditional-branch|573|0|0;conditional-branch|594|0|1;conditional-branch|625|0|1;conditional-branch|670|0|1;conditional-branch|737|0|1;conditional-branch|809|0|1;conditional-branch|842|0|1;conditional-branch|892|0|0;branch|895|0|0;conditional-branch|958|0|0;branch|965|0|0;leave|1006|0|1;leave|1052|0|1",
@@ -288695,7 +288676,7 @@
       "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "dotnet-inspect!DotnetInspector.Output.SelectResolver::.cctor#0"
@@ -306217,7 +306198,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 243
+          "sites": 240
         }
       ],
       "controlFlowSites": "conditional-branch|8|0|0;conditional-branch|105|0|0;conditional-branch|116|0|0;branch|135|0|0;conditional-branch|149|0|0;conditional-branch|174|0|0;conditional-branch|196|0|0;conditional-branch|221|0|0;conditional-branch|251|0|0;leave|387|0|0;conditional-branch|401|0|0;conditional-branch|409|0|0;conditional-branch|417|0|0;conditional-branch|440|0|0;conditional-branch|481|0|0;conditional-branch|492|0|0;conditional-branch|510|0|0;conditional-branch|543|0|0;conditional-branch|563|0|0;branch|592|0|0;leave|706|0|0;conditional-branch|726|0|0;conditional-branch|729|0|0;branch|745|0|0;conditional-branch|752|0|0;branch|765|0|0;conditional-branch|776|0|0;conditional-branch|795|0|1;branch|803|0|1;conditional-branch|848|0|1;branch|851|0|1;conditional-branch|892|0|0;conditional-branch|926|0|0;conditional-branch|952|0|0;conditional-branch|1011|0|0;leave|1044|0|1;conditional-branch|1102|0|0;conditional-branch|1106|0|0;conditional-branch|1152|0|0;conditional-branch|1160|0|0;conditional-branch|1168|0|0;conditional-branch|1176|0|0;conditional-branch|1184|0|0;conditional-branch|1208|0|0;conditional-branch|1230|0|0;branch|1252|0|0;leave|1312|0|1;leave|1372|0|1",
@@ -322137,7 +322118,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "dotnet-inspect!DotnetInspector.Views.ExtensionMethodRowMarkoutTypeInfo::.cctor#0"
@@ -346392,7 +346373,7 @@
       "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "dotnet-inspect!DotnetInspector.Views.SourceILOffsetViewMarkoutTypeInfo::.cctor#0"
@@ -354186,7 +354167,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 149
+          "sites": 136
         }
       ],
       "controlFlowSites": "conditional-branch|8|0|1;conditional-branch|34|0|1;branch|56|0|1;conditional-branch|60|0|1;conditional-branch|75|0|1;conditional-branch|137|0|1;branch|159|0|1;conditional-branch|173|0|1;conditional-branch|188|0|1;conditional-branch|249|0|1;branch|271|0|1;conditional-branch|276|0|1;conditional-branch|291|0|1;conditional-branch|363|0|1;conditional-branch|376|0|1;branch|410|0|1;conditional-branch|415|0|1;conditional-branch|427|0|1;conditional-branch|446|0|1;conditional-branch|516|0|1;conditional-branch|531|0|1;conditional-branch|585|0|1;conditional-branch|589|0|1;conditional-branch|639|0|1;conditional-branch|743|0|1;branch|746|0|1;conditional-branch|760|0|1;conditional-branch|793|0|1;conditional-branch|799|0|1;conditional-branch|833|0|1;conditional-branch|853|0|1;leave|867|0|0;conditional-branch|881|0|1;conditional-branch|901|0|1;leave|915|0|0;conditional-branch|929|0|1;conditional-branch|949|0|1;conditional-branch|970|0|1;leave|993|0|1;conditional-branch|997|0|1;conditional-branch|1001|0|1;end-finally|1010|0|1;leave|1013|0|0;conditional-branch|1020|0|1;conditional-branch|1024|0|1;end-finally|1033|0|1;conditional-branch|1060|0|1;conditional-branch|1069|0|1;conditional-branch|1091|0|1;conditional-branch|1147|0|1;conditional-branch|1181|0|1;conditional-branch|1197|0|1;leave|1216|0|0;conditional-branch|1223|0|1;conditional-branch|1239|0|1;leave|1258|0|0;conditional-branch|1265|0|1;conditional-branch|1281|0|1;conditional-branch|1330|0|1;conditional-branch|1391|0|0;conditional-branch|1425|0|0;leave|1458|0|1;leave|1501|0|1;leave|1506|0|0;conditional-branch|1517|0|1;conditional-branch|1536|0|1;conditional-branch|1574|0|1;branch|1623|0|1;conditional-branch|1710|0|1;branch|1713|0|1;conditional-branch|1756|0|1;branch|1763|0|1;conditional-branch|1794|0|1;conditional-branch|1802|0|1;branch|1805|0|1;conditional-branch|1851|0|1;branch|1858|0|1;conditional-branch|1914|0|1;branch|1921|0|1;conditional-branch|1992|0|1;conditional-branch|2044|0|1;leave|2096|0|1;conditional-branch|2100|0|1;conditional-branch|2108|0|1;end-finally|2121|0|1;conditional-branch|2124|0|1;conditional-branch|2132|0|1;end-finally|2145|0|1;leave|2190|0|1",
@@ -379293,7 +379274,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "Microsoft.ApplicationInsights!Microsoft.ApplicationInsights.Extensibility.Implementation.Tracing.CoreEventSource::.cctor#0"
@@ -414565,18 +414546,12 @@
       "method": "IsTargetEarlyAttribute",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Symbols.INamedTypeSymbolInternal, corelib:System.Int32, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.AttributeDescription) -\u003E corelib:System.Boolean",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "local-function-method-name"
-        }
-      ],
       "controlFlowSites": "conditional-branch|7|0|1;branch|11|0|1;conditional-branch|25|0|1;branch|40|0|1;conditional-branch|53|0|1;conditional-branch|61|0|1;branch|64|0|1;conditional-branch|86|0|1;conditional-branch|115|0|1",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.AttributeData::IsTargetEarlyAttribute#0"
     },
@@ -441938,7 +441913,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|7|0|1",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Collections.ImmutableSegmentedHashSet\u00601::GetHashCode#0"
@@ -446467,7 +446442,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "semantic-defect:CS0305",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|9|0|1",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Collections.Internal.DictionaryKeyCollectionDebugView\u00602::.ctor#0"
@@ -474449,7 +474424,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Compilation::get_DataSectionStringLiteralThreshold#0"
     },
@@ -480856,18 +480831,12 @@
       "method": ".ctor",
       "overload": 1,
       "signature": "() -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.CustomAttributesBag\u00601::.ctor#1"
     },
     {
@@ -488173,18 +488142,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Compilation) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.AnalysisContextInfo::.ctor#0"
     },
     {
@@ -488239,18 +488202,12 @@
       "method": ".ctor",
       "overload": 2,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Compilation, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.ISymbol) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.AnalysisContextInfo::.ctor#2"
     },
     {
@@ -493031,7 +492988,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 158
+          "sites": 156
         }
       ],
       "controlFlowSites": "conditional-branch|16|0|1;switch-branch|99|0|0;conditional-branch|139|0|0;conditional-branch|156|0|1;branch|164|0|1;branch|213|0|0;conditional-branch|235|0|1;conditional-branch|291|0|0;conditional-branch|330|0|1;branch|337|0|1;conditional-branch|394|0|1;branch|401|0|1;conditional-branch|444|0|0;conditional-branch|453|0|0;conditional-branch|462|0|0;conditional-branch|511|0|0;leave|544|0|1;branch|588|0|0;conditional-branch|605|0|0;conditional-branch|621|0|1;branch|643|0|0;conditional-branch|659|0|0;branch|668|0|0;conditional-branch|736|0|0;leave|769|0|1;conditional-branch|882|0|0;conditional-branch|945|0|0;leave|978|0|1;leave|1026|0|1;conditional-branch|1034|0|1;branch|1038|0|1;end-filter|1060|0|1;leave|1079|0|1;leave|1111|0|1",
@@ -493211,7 +493168,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 83
+          "sites": 80
         }
       ],
       "controlFlowSites": "conditional-branch|15|0|0;conditional-branch|93|0|1;conditional-branch|101|0|1;branch|112|0|1;branch|115|0|1;conditional-branch|129|0|0;conditional-branch|178|0|0;leave|211|0|1;branch|254|0|0;conditional-branch|274|0|0;conditional-branch|312|0|0;conditional-branch|352|0|0;conditional-branch|397|0|0;conditional-branch|406|0|1;branch|415|0|1;leave|423|0|0;leave|431|0|1;leave|456|0|1",
@@ -499988,7 +499945,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.AnalyzerLoadFailureEventArgs::get_ErrorCode#0"
     },
@@ -503173,18 +503130,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SyntaxNode, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.ISymbol, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SemanticModel, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.AnalyzerOptions, corelib:System.Action\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic\u003E, corelib:System.Func\u00602\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic, corelib:System.Boolean\u003E, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.CodeBlockAnalysisContext::.ctor#0"
     },
     {
@@ -503390,18 +503341,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SyntaxNode, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.ISymbol, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SemanticModel, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.AnalyzerOptions, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.CodeBlockStartAnalysisContext\u00601::.ctor#0"
     },
     {
@@ -504799,7 +504744,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 201
+          "sites": 198
         }
       ],
       "controlFlowSites": "conditional-branch|20|0|0;conditional-branch|29|0|0;conditional-branch|80|0|0;leave|82|0|0;conditional-branch|99|0|1;branch|127|0|1;conditional-branch|200|0|0;leave|233|0|1;switch-branch|286|0|0;conditional-branch|356|0|0;leave|389|0|1;conditional-branch|492|0|0;conditional-branch|536|0|0;conditional-branch|591|0|0;leave|624|0|1;branch|706|0|0;conditional-branch|786|0|1;conditional-branch|816|0|0;conditional-branch|838|0|0;conditional-branch|903|0|0;conditional-branch|1059|0|0;leave|1092|0|1;branch|1146|0|0;conditional-branch|1206|0|0;leave|1215|0|1;conditional-branch|1219|0|1;conditional-branch|1227|0|1;end-finally|1240|0|1;leave|1269|0|1;conditional-branch|1277|0|1;branch|1281|0|1;end-filter|1298|0|1;leave|1317|0|1;leave|1342|0|1",
@@ -510097,18 +510042,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.IOperation, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.ISymbol, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Compilation, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.AnalyzerOptions, corelib:System.Action\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic\u003E, corelib:System.Func\u00602\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic, corelib:System.Boolean\u003E, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.OperationAnalysisContext::.ctor#0"
     },
     {
@@ -510183,7 +510122,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.OperationAnalysisContext::get_Compilation#0"
     },
@@ -510926,18 +510865,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SemanticModel, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.AnalyzerOptions, corelib:System.Action\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic\u003E, corelib:System.Func\u00602\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic, corelib:System.Boolean\u003E, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.SemanticModelAnalysisContext::.ctor#0"
     },
     {
@@ -512813,18 +512746,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.ISymbol, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Compilation, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.AnalyzerOptions, corelib:System.Action\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic\u003E, corelib:System.Func\u00602\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic, corelib:System.Boolean\u003E, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.SymbolAnalysisContext::.ctor#0"
     },
     {
@@ -513240,18 +513167,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.ISymbol, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Compilation, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.AnalyzerOptions, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.SymbolStartAnalysisContext::.ctor#0"
     },
     {
@@ -513527,18 +513448,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SyntaxNode, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.ISymbol, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SemanticModel, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.AnalyzerOptions, corelib:System.Action\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic\u003E, corelib:System.Func\u00602\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic, corelib:System.Boolean\u003E, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.SyntaxNodeAnalysisContext::.ctor#0"
     },
     {
@@ -513563,18 +513478,12 @@
       "method": ".ctor",
       "overload": 1,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SyntaxNode, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SemanticModel, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.AnalyzerOptions, corelib:System.Action\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic\u003E, corelib:System.Func\u00602\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic, corelib:System.Boolean\u003E, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.SyntaxNodeAnalysisContext::.ctor#1"
     },
     {
@@ -513824,18 +513733,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SyntaxTree, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostics.AnalyzerOptions, corelib:System.Action\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic\u003E, corelib:System.Func\u00602\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Diagnostic, corelib:System.Boolean\u003E, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.SyntaxTreeAnalysisContext::.ctor#0"
     },
     {
@@ -522740,7 +522643,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Emit.DeltaMetadataWriter::TryGetMethodDefinitionHandle#0"
     },
@@ -527703,18 +527606,12 @@
       "method": ".ctor",
       "overload": 1,
       "signature": "(corelib:System.Boolean, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Emit.DebugInformationFormat, corelib:System.String, corelib:System.String, corelib:System.Int32, corelib:System.UInt64, corelib:System.Boolean, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SubsystemVersion, corelib:System.String, corelib:System.Boolean, corelib:System.Boolean, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Emit.InstrumentationKind\u003E) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Emit.EmitOptions::.ctor#1"
     },
     {
@@ -541862,7 +541759,7 @@
         {
           "code": "DEC0009",
           "discriminator": "local-function-method-name",
-          "sites": 6
+          "sites": 3
         }
       ],
       "controlFlowSites": "branch|7|0|0;conditional-branch|35|0|0;conditional-branch|41|0|0;conditional-branch|52|0|1;branch|55|0|1;conditional-branch|196|0|0;conditional-branch|206|0|0;conditional-branch|209|0|0;conditional-branch|220|0|0",
@@ -542711,7 +542608,7 @@
         {
           "code": "DEC0009",
           "discriminator": "local-function-method-name",
-          "sites": 5
+          "sites": 3
         }
       ],
       "controlFlowSites": "conditional-branch|13|0|1;conditional-branch|54|0|0;conditional-branch|76|0|0;conditional-branch|85|0|0;branch|87|0|0;branch|96|0|0;conditional-branch|139|0|0;conditional-branch|152|0|0;branch|154|0|0;branch|164|0|0;branch|174|0|0",
@@ -543746,7 +543643,7 @@
         {
           "code": "DEC0009",
           "discriminator": "local-function-method-name",
-          "sites": 5
+          "sites": 3
         }
       ],
       "controlFlowSites": "branch|64|0|0;conditional-branch|100|0|0;conditional-branch|113|0|0;conditional-branch|125|0|0;conditional-branch|144|0|0;conditional-branch|156|0|0;conditional-branch|175|0|0;conditional-branch|206|0|0;conditional-branch|238|0|0;conditional-branch|252|0|0;conditional-branch|286|0|0;conditional-branch|299|0|0;conditional-branch|311|0|0;conditional-branch|324|0|0;conditional-branch|336|0|0;conditional-branch|373|0|0;conditional-branch|382|0|1;conditional-branch|391|0|1;branch|429|0|0;branch|512|0|0;conditional-branch|525|0|0;conditional-branch|534|0|0;conditional-branch|550|0|0;conditional-branch|566|0|0;conditional-branch|585|0|0;conditional-branch|604|0|0;conditional-branch|624|0|0;branch|643|0|0;conditional-branch|666|0|0;conditional-branch|670|0|0;conditional-branch|697|0|0;conditional-branch|704|0|0;conditional-branch|716|0|0;conditional-branch|726|0|1;conditional-branch|741|0|0;conditional-branch|753|0|0;conditional-branch|767|0|0;conditional-branch|789|0|0;branch|791|0|0;conditional-branch|807|0|0;conditional-branch|819|0|0;conditional-branch|831|0|0;conditional-branch|851|0|0;conditional-branch|863|0|1;branch|883|0|1;conditional-branch|895|0|0;conditional-branch|901|0|0;branch|909|0|0;conditional-branch|929|0|0;conditional-branch|938|0|0;branch|941|0|0;conditional-branch|955|0|0;branch|958|0|0;conditional-branch|977|0|0;branch|990|0|0;conditional-branch|1017|0|0;conditional-branch|1021|0|0;conditional-branch|1056|0|0;conditional-branch|1066|0|0;branch|1069|0|0;branch|1105|0|0;conditional-branch|1118|0|0;conditional-branch|1134|0|0;conditional-branch|1163|0|0;conditional-branch|1175|0|0;conditional-branch|1194|0|0;conditional-branch|1206|0|0;conditional-branch|1226|0|0;conditional-branch|1255|0|0;branch|1258|0|0;conditional-branch|1325|0|0;conditional-branch|1382|0|0;conditional-branch|1426|0|0;conditional-branch|1438|0|0;branch|1441|0|0;conditional-branch|1455|0|0;branch|1458|0|0;conditional-branch|1472|0|0;branch|1475|0|0;conditional-branch|1483|0|0",
@@ -608109,7 +608006,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.RealParser.FloatFloatingPointType::get_MaxBinaryExponent#0"
     },
@@ -613729,7 +613626,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|39|0|1;conditional-branch|58|0|1",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.ShadowCopyAnalyzerPathResolver::.ctor#0"
@@ -643397,18 +643294,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Text.SourceText, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Text.SourceText, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Text.TextChangeRange\u003E) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "controlFlowSites": "conditional-branch|54|0|1;branch|58|0|1",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Text.ChangedText::.ctor#0"
     },
@@ -643884,18 +643775,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.Text.SourceText\u003E, corelib:System.Text.Encoding, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Text.SourceHashAlgorithm) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "controlFlowSites": "branch|78|0|1;conditional-branch|122|0|1",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Text.CompositeText::.ctor#0"
     },
@@ -646698,18 +646583,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(corelib:System.Text.StringBuilder, corelib:System.Text.Encoding, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Text.SourceHashAlgorithm) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Text.StringBuilderText::.ctor#0"
     },
     {
@@ -647086,18 +646965,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Text.SourceText, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Text.TextSpan) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "controlFlowSites": "conditional-branch|25|0|1;conditional-branch|46|0|1;conditional-branch|61|0|1",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Text.SubText::.ctor#0"
     },
@@ -651036,18 +650909,12 @@
       "method": ".ctor",
       "overload": 2,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.DiagnosticInfo) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.UseSiteInfo\u00601::.ctor#2"
     },
     {
@@ -651088,18 +650955,12 @@
       "method": ".ctor",
       "overload": 1,
       "signature": "(System.Collections.Immutable:System.Collections.Immutable.ImmutableHashSet\u00601\u003C!0\u003E) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.UseSiteInfo\u00601::.ctor#1"
     },
     {
@@ -689425,8 +689286,7 @@
       "fidelityCauses": [
         {
           "code": "DEC0009",
-          "discriminator": "local-function-method-name",
-          "sites": 2
+          "discriminator": "local-function-method-name"
         }
       ],
       "controlFlowSites": "conditional-branch|60|0|1;conditional-branch|85|0|1;branch|115|0|1;conditional-branch|127|0|1;branch|143|0|1;conditional-branch|155|0|1;conditional-branch|168|0|1;branch|184|0|1;conditional-branch|200|0|1;conditional-branch|248|0|1;branch|264|0|1;conditional-branch|303|0|1;branch|339|0|1;conditional-branch|352|0|1;branch|402|0|1;conditional-branch|439|0|1;branch|457|0|1;branch|469|0|1",
@@ -706176,18 +706036,12 @@
       "method": "TryBindInteractiveReceiver",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SyntaxNode, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.NamedTypeSymbol) -\u003E Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundExpression",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "local-function-method-name"
-        }
-      ],
       "controlFlowSites": "conditional-branch|13|0|1;conditional-branch|21|0|1;conditional-branch|31|0|1;conditional-branch|67|0|1;conditional-branch|79|0|1",
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.Binder::TryBindInteractiveReceiver#0"
     },
@@ -712280,18 +712134,12 @@
       "method": ".ctor",
       "overload": 1,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SyntaxNode, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BinaryOperatorKind, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.ConstantValue, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.MethodSymbol, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.TypeSymbol, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.LookupResultKind, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundExpression, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundExpression, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.TypeSymbol, corelib:System.Boolean) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.BoundBinaryOperator::.ctor#1"
     },
     {
@@ -713080,18 +712928,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SyntaxNode, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundExpression, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.ThreeState, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.MethodSymbol, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundExpression\u003E, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003Ccorelib:System.String\u003E, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.RefKind\u003E, corelib:System.Boolean, corelib:System.Boolean, corelib:System.Boolean, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003Ccorelib:System.Int32\u003E, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.BitVector, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.LookupResultKind, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.TypeSymbol, corelib:System.Boolean) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.BoundCall::.ctor#0"
     },
     {
@@ -714637,18 +714479,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SyntaxNode, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BinaryOperatorSignature, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundExpression, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundExpression, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundValuePlaceholder, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundExpression, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundValuePlaceholder, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundExpression, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.LookupResultKind, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.TypeSymbol, corelib:System.Boolean) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.BoundCompoundAssignmentOperator::.ctor#0"
     },
     {
@@ -723895,18 +723731,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.CSharpSyntaxNode, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.UnaryOperatorKind, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundExpression, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.MethodSymbol, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.TypeSymbol, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundValuePlaceholder, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundExpression, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundValuePlaceholder, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundExpression, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.LookupResultKind, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.TypeSymbol, corelib:System.Boolean) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.BoundIncrementOperator::.ctor#0"
     },
     {
@@ -724158,18 +723988,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SyntaxNode, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundExpression, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.ThreeState, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.PropertySymbol, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundExpression\u003E, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003Ccorelib:System.String\u003E, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis:Microsoft.CodeAnalysis.RefKind\u003E, corelib:System.Boolean, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.AccessorKind, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003Ccorelib:System.Int32\u003E, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.BitVector, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.TypeSymbol, corelib:System.Boolean) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.BoundIndexerAccess::.ctor#0"
     },
     {
@@ -730286,18 +730110,12 @@
       "method": ".ctor",
       "overload": 1,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SyntaxNode, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.MethodSymbol, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundExpression[]) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.BoundObjectCreationExpression::.ctor#1"
     },
     {
@@ -730307,18 +730125,12 @@
       "method": ".ctor",
       "overload": 2,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SyntaxNode, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.MethodSymbol, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003CMicrosoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundExpression\u003E) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.BoundObjectCreationExpression::.ctor#2"
     },
     {
@@ -757303,18 +757115,12 @@
       "method": ".ctor",
       "overload": 3,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SyntaxNode, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.AliasSymbol, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.TypeSymbol, corelib:System.Boolean) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.BoundTypeExpression::.ctor#3"
     },
     {
@@ -758011,18 +757817,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SyntaxNode, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.UnaryOperatorKind, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BoundExpression, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.ConstantValue, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.MethodSymbol, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.TypeSymbol, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.LookupResultKind, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.TypeSymbol, corelib:System.Boolean) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.BoundUnaryOperator::.ctor#0"
     },
     {
@@ -770253,18 +770053,12 @@
       "method": ".ctor",
       "overload": 7,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.OutputKind, corelib:System.Boolean, corelib:System.String, corelib:System.String, corelib:System.String, corelib:System.Collections.Generic.IEnumerable\u00601\u003Ccorelib:System.String\u003E, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.OptimizationLevel, corelib:System.Boolean, corelib:System.Boolean, corelib:System.String, corelib:System.String, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003Ccorelib:System.Byte\u003E, corelib:System.Nullable\u00601\u003Ccorelib:System.Boolean\u003E, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Platform, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.ReportDiagnostic, corelib:System.Int32, corelib:System.Collections.Generic.IEnumerable\u00601\u003Ccorelib:System.Collections.Generic.KeyValuePair\u00602\u003Ccorelib:System.String, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.ReportDiagnostic\u003E\u003E, corelib:System.Boolean, corelib:System.Boolean, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.XmlReferenceResolver, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SourceReferenceResolver, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.MetadataReferenceResolver, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.AssemblyIdentityComparer, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.StrongNameProvider) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions::.ctor#7"
     },
     {
@@ -770304,18 +770098,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.OutputKind, corelib:System.Boolean, corelib:System.String, corelib:System.String, corelib:System.String, corelib:System.Collections.Generic.IEnumerable\u00601\u003Ccorelib:System.String\u003E, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.OptimizationLevel, corelib:System.Boolean, corelib:System.Boolean, corelib:System.String, corelib:System.String, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003Ccorelib:System.Byte\u003E, corelib:System.Nullable\u00601\u003Ccorelib:System.Boolean\u003E, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Platform, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.ReportDiagnostic, corelib:System.Int32, corelib:System.Collections.Generic.IEnumerable\u00601\u003Ccorelib:System.Collections.Generic.KeyValuePair\u00602\u003Ccorelib:System.String, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.ReportDiagnostic\u003E\u003E, corelib:System.Boolean, corelib:System.Boolean, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.XmlReferenceResolver, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SourceReferenceResolver, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.MetadataReferenceResolver, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.AssemblyIdentityComparer, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.StrongNameProvider, corelib:System.Boolean, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.MetadataImportOptions, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.NullableContextOptions) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions::.ctor#0"
     },
     {
@@ -825432,18 +825220,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "() -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree::.ctor#0"
     },
     {
@@ -927960,11 +927742,6 @@
           "code": "DEC0009",
           "discriminator": "display-class-type-name",
           "sites": 119
-        },
-        {
-          "code": "DEC0009",
-          "discriminator": "local-function-method-name",
-          "sites": 2
         }
       ],
       "controlFlowSites": "conditional-branch|68|0|0;conditional-branch|93|0|0;conditional-branch|122|0|0;branch|134|0|0;conditional-branch|149|0|1;branch|318|0|0;conditional-branch|372|0|0;branch|394|0|0;conditional-branch|420|0|0;conditional-branch|433|0|0;conditional-branch|449|0|0;conditional-branch|465|0|0;branch|470|0|0;conditional-branch|504|0|0;conditional-branch|555|0|0;conditional-branch|568|0|0;conditional-branch|584|0|0;conditional-branch|600|0|0;conditional-branch|616|0|0;conditional-branch|632|0|0;conditional-branch|648|0|0;conditional-branch|660|0|0;branch|665|0|0;branch|694|0|0;conditional-branch|801|0|0;branch|803|0|0;conditional-branch|882|0|0;conditional-branch|888|0|1;conditional-branch|894|0|0;branch|896|0|0;branch|902|0|0;conditional-branch|920|0|0;conditional-branch|940|0|0;branch|1018|0|0;conditional-branch|1091|0|1;conditional-branch|1100|0|1;branch|1103|0|1;conditional-branch|1111|0|0;conditional-branch|1132|0|0;conditional-branch|1150|0|0;conditional-branch|1155|0|0;conditional-branch|1170|0|1;conditional-branch|1215|0|0;branch|1250|0|0;conditional-branch|1267|0|1;branch|1288|0|1;conditional-branch|1377|0|0;conditional-branch|1419|0|0;branch|1439|0|0;branch|1467|0|0;branch|1564|0|0;branch|1655|0|0;branch|1697|0|0;conditional-branch|1762|0|0;conditional-branch|1775|0|0;conditional-branch|1784|0|0;conditional-branch|1800|0|0;conditional-branch|1812|0|0;branch|1817|0|0;conditional-branch|1825|0|0;branch|1889|0|0;conditional-branch|1918|0|0;conditional-branch|1944|0|0;branch|2028|0|0;conditional-branch|2036|0|0;branch|2117|0|0;conditional-branch|2134|0|0;conditional-branch|2171|0|0;conditional-branch|2184|0|0;conditional-branch|2193|0|1;branch|2209|0|0;conditional-branch|2214|0|0;conditional-branch|2261|0|1;branch|2269|0|1;conditional-branch|2296|0|1;branch|2304|0|1;branch|2321|0|0;conditional-branch|2329|0|0;branch|2393|0|0;branch|2449|0|0;branch|2478|0|0;conditional-branch|2520|0|0;conditional-branch|2569|0|0;conditional-branch|2590|0|0;conditional-branch|2646|0|1;conditional-branch|2722|0|0;conditional-branch|2753|0|0;conditional-branch|2765|0|0;conditional-branch|2789|0|1;branch|2850|0|0;branch|2875|0|0;conditional-branch|2902|0|0",
@@ -936522,18 +936299,12 @@
       "method": "IsApplicable",
       "overload": 0,
       "signature": "\u00601(!!0, !!0, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.PooledObjects.ArrayBuilder\u00601\u003CMicrosoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.TypeWithAnnotations\u003E, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.AnalyzedArguments, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.OverloadResolution\u002BOptions, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.OverloadResolution\u002BEffectiveParameters, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.TypeWithAnnotations, corelib:System.Boolean, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003Ccorelib:System.Int32\u003E, corelib:System.Boolean, corelib:System.Boolean, corelib:System.Boolean, corelib:System.Boolean, corelib:System.Boolean, ref Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.CompoundUseSiteInfo\u00601\u003CMicrosoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.AssemblySymbol\u003E) -\u003E Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.MemberResolutionResult\u00601\u003C!!0\u003E",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "local-function-method-name"
-        }
-      ],
       "controlFlowSites": "conditional-branch|10|0|1;conditional-branch|27|0|1;conditional-branch|51|0|1;conditional-branch|60|0|1;conditional-branch|64|0|1;branch|78|0|1;conditional-branch|90|0|1;branch|100|0|1;conditional-branch|138|0|1;conditional-branch|178|0|1;branch|191|0|1;branch|209|0|1;conditional-branch|246|0|1;conditional-branch|279|0|1;conditional-branch|285|0|1;branch|293|0|1;branch|356|0|1",
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.OverloadResolution::IsApplicable#0"
     },
@@ -938820,8 +938591,16 @@
       "fidelityCauses": [
         {
           "code": "DEC0009",
-          "discriminator": "local-function-method-name",
-          "sites": 2
+          "discriminator": "display-class-type-name",
+          "sites": 24
+        },
+        {
+          "code": "DEC0009",
+          "discriminator": "local-function-method-name"
+        },
+        {
+          "code": "DEC0009",
+          "discriminator": "unspellable-local-name"
         }
       ],
       "controlFlowSites": "leave|38|0|1;leave|41|0|1",
@@ -948256,18 +948035,12 @@
       "method": ".ctor",
       "overload": 2,
       "signature": "(Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.NamedTypeSymbol, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.TypeSymbol, corelib:System.String, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.CodeGen.LocalSlotDebugInfo, corelib:System.Int32, corelib:System.Boolean) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.StateMachineFieldSymbol::.ctor#2"
     },
     {
@@ -984380,18 +984153,12 @@
       "method": "\u003CTryParseFileTypeName\u003Eg__hexCharToByte|15_0",
       "overload": 0,
       "signature": "(corelib:System.Char) -\u003E corelib:System.Byte",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "local-function-method-name"
-        }
-      ],
       "controlFlowSites": "conditional-branch|3|0|1;conditional-branch|8|0|1;branch|10|0|1;conditional-branch|15|0|1;conditional-branch|20|0|1;branch|28|0|1;branch|39|0|1",
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.Symbols.GeneratedNameParser::\u003CTryParseFileTypeName\u003Eg__hexCharToByte|15_0#0"
     },
@@ -984480,19 +984247,12 @@
       "method": "TryParseFileTypeName",
       "overload": 0,
       "signature": "(corelib:System.String, ref corelib:System.String, ref corelib:System.Byte[], ref corelib:System.String) -\u003E corelib:System.Boolean",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "local-function-method-name",
-          "sites": 2
-        }
-      ],
       "controlFlowSites": "conditional-branch|13|0|1;conditional-branch|24|0|1;branch|90|0|1;conditional-branch|145|0|1",
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.Symbols.GeneratedNameParser::TryParseFileTypeName#0"
     },
@@ -1005452,18 +1005212,12 @@
       "method": "CheckAndReportValidUnmanagedCallersOnlyTarget",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.SyntaxNode, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BindingDiagnosticBag) -\u003E corelib:System.Boolean",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "local-function-method-name"
-        }
-      ],
       "controlFlowSites": "conditional-branch|6|0|1;conditional-branch|14|0|1;branch|22|0|1;conditional-branch|27|0|1;conditional-branch|39|0|1;conditional-branch|44|0|1;branch|48|0|1;conditional-branch|58|0|1;conditional-branch|61|0|1;conditional-branch|89|0|1;conditional-branch|102|0|1;conditional-branch|105|0|1",
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.Symbols.MethodSymbol::CheckAndReportValidUnmanagedCallersOnlyTarget#0"
     },
@@ -1009242,18 +1008996,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "() -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.Symbols.MissingCorLibrarySymbol::.ctor#0"
     },
     {
@@ -1049244,18 +1048992,12 @@
       "method": ".ctor",
       "overload": 1,
       "signature": "(Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.CSharpCompilation, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Syntax.AttributeSyntax, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.NamedTypeSymbol, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.MethodSymbol, corelib:System.Boolean) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.Symbols.SourceAttributeData::.ctor#1"
     },
     {
@@ -1049453,7 +1049195,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.Symbols.SourceAttributeData::get_AttributeConstructor#0"
     },
@@ -1060433,18 +1060175,12 @@
       "method": "\u003CCheckValidNullableMethodOverride\u003Eg__isValidNullableConversion|249_1",
       "overload": 0,
       "signature": "\u00601(Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.ConversionsBase, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.RefKind, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.TypeSymbol, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.TypeSymbol) -\u003E corelib:System.Boolean",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "generic-arity-mismatch"
-        }
-      ],
       "controlFlowSites": "conditional-branch|2|0|1;conditional-branch|6|0|1;branch|8|0|1",
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.Symbols.SourceMemberContainerTypeSymbol::\u003CCheckValidNullableMethodOverride\u003Eg__isValidNullableConversion|249_1#0"
     },
@@ -1061414,18 +1061150,12 @@
       "method": "CheckInterfaceUnification",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BindingDiagnosticBag) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "generic-arity-mismatch"
-        }
-      ],
       "controlFlowSites": "conditional-branch|6|0|1;conditional-branch|23|0|1;branch|45|0|1;branch|54|0|1;conditional-branch|76|0|1;conditional-branch|88|0|1;conditional-branch|110|0|1;conditional-branch|121|0|1;conditional-branch|167|0|1;conditional-branch|221|0|1;conditional-branch|232|0|1",
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.Symbols.SourceMemberContainerTypeSymbol::CheckInterfaceUnification#0"
     },
@@ -1066098,11 +1065828,6 @@
         {
           "code": "DEC0009",
           "discriminator": "lambda-holder-type-name",
-          "sites": 2
-        },
-        {
-          "code": "DEC0009",
-          "discriminator": "local-function-method-name",
           "sites": 2
         }
       ],
@@ -1074575,18 +1074300,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.NamedTypeSymbol, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.SourcePropertySymbol, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.DeclarationModifiers, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Location, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Syntax.ArrowExpressionClauseSyntax, corelib:System.Boolean, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BindingDiagnosticBag) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.Symbols.SourcePropertyAccessorSymbol::.ctor#0"
     },
     {
@@ -1100220,18 +1099939,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.SynthesizedIntrinsicOperatorSymbol, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.TypeSymbol, corelib:System.Int32, corelib:System.String) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.Symbols.SynthesizedIntrinsicOperatorSymbol.SynthesizedOperatorParameterSymbol::.ctor#0"
     },
     {
@@ -1109348,18 +1109061,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.NamedTypeSymbol, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.SourcePropertySymbolBase, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.DeclarationModifiers, Microsoft.CodeAnalysis:Microsoft.CodeAnalysis.Location, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.CSharpSyntaxNode, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BindingDiagnosticBag) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.Symbols.SynthesizedRecordEqualityContractProperty.GetAccessorSymbol::.ctor#0"
     },
     {
@@ -1109680,18 +1109387,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.SourceMemberContainerTypeSymbol, corelib:System.String, corelib:System.Int32, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.BindingDiagnosticBag) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.Symbols.SynthesizedRecordEqualityOperatorBase::.ctor#0"
     },
     {
@@ -1110198,18 +1109899,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.SourceMemberContainerTypeSymbol, corelib:System.String, corelib:System.Int32, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.DeclarationModifiers) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.Symbols.SynthesizedRecordOrdinaryMethod::.ctor#0"
     },
     {
@@ -1194113,18 +1193808,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax.Lexer) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax.DirectiveParser::.ctor#0"
     },
     {
@@ -1195750,18 +1195439,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax.Lexer) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax.DocumentationCommentParser::.ctor#0"
     },
     {
@@ -1320373,18 +1320056,12 @@
       "method": "CanUnifyHelper",
       "overload": 1,
       "signature": "(Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.TypeWithAnnotations, Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.TypeWithAnnotations, ref Microsoft.CodeAnalysis.CSharp:Microsoft.CodeAnalysis.CSharp.Symbols.MutableTypeMap) -\u003E corelib:System.Boolean",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "generic-arity-mismatch"
-        }
-      ],
       "controlFlowSites": "conditional-branch|7|0|1;conditional-branch|16|0|1;conditional-branch|29|0|1;conditional-branch|74|0|1;conditional-branch|96|0|1;conditional-branch|112|0|1;conditional-branch|126|0|1;conditional-branch|149|0|1;conditional-branch|153|0|1;conditional-branch|157|0|1;branch|162|0|1;conditional-branch|170|0|1;conditional-branch|178|0|1;conditional-branch|183|0|1;branch|188|0|1;conditional-branch|207|0|1;conditional-branch|229|0|1;conditional-branch|266|0|1;conditional-branch|303|0|1;conditional-branch|325|0|1;conditional-branch|386|0|1;conditional-branch|408|0|1;conditional-branch|447|0|1;conditional-branch|456|0|1;conditional-branch|478|0|1;conditional-branch|500|0|1;branch|525|0|1;conditional-branch|551|0|1;conditional-branch|565|0|1;conditional-branch|574|0|1;conditional-branch|611|0|1;conditional-branch|620|0|1;conditional-branch|652|0|1;conditional-branch|672|0|1;conditional-branch|705|0|1;conditional-branch|772|0|1;conditional-branch|823|0|1;conditional-branch|921|0|1;conditional-branch|956|0|1;conditional-branch|1001|0|1;conditional-branch|1052|0|1",
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.TypeUnification::CanUnifyHelper#1"
     },
@@ -1334191,7 +1333868,8 @@
       "fidelityCauses": [
         {
           "code": "DEC0009",
-          "discriminator": "local-function-method-name"
+          "discriminator": "lambda-holder-type-name",
+          "sites": 2
         }
       ],
       "controlFlowSites": "conditional-branch|44|0|1;branch|55|0|1",
@@ -1349261,7 +1348939,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 81
+          "sites": 78
         }
       ],
       "controlFlowSites": "switch-branch|15|0|0;conditional-branch|49|0|0|output@conditional-branch@source_IL_0031-\u003EIL_00CF#0;conditional-branch|49|0|1;conditional-branch|54|0|1;conditional-branch|128|0|0;leave|161|0|1;branch|202|0|0;conditional-branch|214|0|0;conditional-branch|265|0|0;leave|298|0|1;branch|339|0|0;conditional-branch|387|0|0;conditional-branch|435|0|1;branch|460|0|0;conditional-branch|521|0|0;leave|554|0|1;conditional-branch|610|0|0;leave|699|0|1;leave|731|0|1",
@@ -1349936,7 +1349614,7 @@
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
-          "sites": 249
+          "sites": 246
         }
       ],
       "controlFlowSites": "switch-branch|15|0|0;switch-branch|86|0|0;branch|143|0|0;conditional-branch|185|0|0;leave|218|0|1;conditional-branch|259|0|0;leave|263|0|0;conditional-branch|287|0|0;conditional-branch|296|0|0;conditional-branch|300|0|0;switch-branch|310|0|0;branch|335|0|0;switch-branch|345|0|0;conditional-branch|458|0|0;branch|463|0|0;conditional-branch|472|0|0;conditional-branch|478|0|0;conditional-branch|487|0|0;branch|492|0|0;conditional-branch|501|0|0;conditional-branch|510|0|0;conditional-branch|519|0|0;branch|524|0|0;conditional-branch|565|0|0;leave|598|0|1;conditional-branch|639|0|0;leave|655|0|0;conditional-branch|704|0|0;leave|737|0|1;leave|791|0|0;conditional-branch|834|0|0;leave|867|0|1;conditional-branch|908|0|0;conditional-branch|927|0|0;leave|942|0|0;conditional-branch|989|0|0;leave|1022|0|1;leave|1070|0|0;conditional-branch|1082|0|0;conditional-branch|1144|0|0;leave|1177|0|1;leave|1225|0|0;conditional-branch|1237|0|0;conditional-branch|1267|0|1;branch|1274|0|1;conditional-branch|1328|0|0;leave|1361|0|1;conditional-branch|1402|0|0;leave|1445|0|0;conditional-branch|1492|0|0;leave|1525|0|1;leave|1567|0|0;conditional-branch|1614|0|0;leave|1647|0|1;leave|1689|0|0;conditional-branch|1730|0|0;leave|1764|0|1;leave|1807|0|0;conditional-branch|1849|0|0;leave|1883|0|1;branch|1924|0|0;branch|1935|0|0;conditional-branch|1961|0|0|output@conditional-branch@source_IL_07A9-\u003EIL_07CC#0;conditional-branch|1961|0|1;conditional-branch|1970|0|1;conditional-branch|1979|0|1;leave|1991|0|0;conditional-branch|2042|0|0;leave|2076|0|1;branch|2117|0|0;branch|2125|0|0;branch|2141|0|0;conditional-branch|2164|0|0;branch|2182|0|0;conditional-branch|2223|0|0;leave|2257|0|1;leave|2297|0|0;leave|2355|0|1",
@@ -1373208,18 +1372886,12 @@
       "method": ".ctor",
       "overload": 16,
       "signature": "(corelib:System.Object) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.Linq.JValue::.ctor#16"
     },
     {
@@ -1403640,7 +1403312,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "NuGet.Versioning!NuGet.SharedStringBuilder::.cctor#0"
@@ -1406245,7 +1405917,7 @@
       "residual": null,
       "passBug": null,
       "validity": "semantic-defect:CS0198",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "NuGet.Versioning!NuGet.Versioning.VersionRange::.cctor#0"
@@ -1407430,7 +1407102,7 @@
       "residual": null,
       "passBug": null,
       "validity": "semantic-defect:CS0198",
-      "fidelityCheck": "RecompileFail",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "NuGet.Versioning!NuGet.Versioning.VersionRangeFormatter::.cctor#0"
@@ -1411874,18 +1411546,12 @@
       "method": ".ctor",
       "overload": 0,
       "signature": "(System.CommandLine:System.CommandLine.ParseResult) -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
-      "validity": "syntax-valid",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "call .ctor"
-        }
-      ],
       "displayMethod": "System.CommandLine!System.CommandLine.Completions.CompletionContext::.ctor#0"
     },
     {
@@ -1424878,25 +1424544,25 @@
   ],
   "metrics": {
     "totalMethods": 89065,
-    "fullyRaisedMethods": 78888,
-    "fullyRaisedBasisPoints": 8857,
+    "fullyRaisedMethods": 78942,
+    "fullyRaisedBasisPoints": 8863,
     "conditionalBranchMethods": 2535,
     "conditionalBranchBasisPoints": 285,
     "forwardMergeStoppedContainers": 2137,
     "forwardMergeBasisPoints": 240,
     "fullMalformedMethods": 1,
-    "semanticCheckedMethods": 25345,
-    "semanticDefectMethods": 218,
+    "semanticCheckedMethods": 25348,
+    "semanticDefectMethods": 217,
     "passBugs": 8,
     "residualBuckets": {
       "eh: leave/endfinally": 19,
       "fidelity: DEC0006": 2,
-      "fidelity: DEC0009": 7171,
+      "fidelity: DEC0009": 7160,
       "fidelity: DEC0010": 13,
       "fidelity: DEC0013": 17,
       "fidelity: DEC0014": 12,
       "fidelity: unspellable C# type name \u0027__PrivateImplementationDetails_\u0027": 28,
-      "fidelity: unsupported-node": 285,
+      "fidelity: unsupported-node": 242,
       "structuring: conditional-branch": 2535,
       "structuring: switch-branch": 53,
       "structuring: unconditional-branch": 38
@@ -1424920,24 +1424586,24 @@
     "fidelity": {
       "contractVersion": 5,
       "checkedMethods": 682,
-      "exactMethods": 404,
+      "exactMethods": 415,
       "opcodeDiffMethods": 68,
       "operandDiffMethods": 6,
       "fidelityUnavailableMethods": 0,
-      "recompileFailMethods": 201,
+      "recompileFailMethods": 190,
       "contextFailMethods": 0,
       "notFullMethods": 3,
       "returnToSenderCutover": {
         "selectedMethods": 682,
-        "nativeAvailableMethods": 478,
-        "nativeUnavailableMethods": 204,
+        "nativeAvailableMethods": 489,
+        "nativeUnavailableMethods": 193,
         "legacyAvailableMethods": 503,
         "legacyUnavailableMethods": 179,
-        "exactLossMethods": 65,
-        "availabilityLossMethods": 66,
+        "exactLossMethods": 54,
+        "availabilityLossMethods": 55,
         "exactGainMethods": 41,
         "availabilityGainMethods": 41,
-        "sameStatusMethods": 559,
+        "sameStatusMethods": 570,
         "compileBackFloorAppliedMethods": 0
       }
     }
@@ -1424947,7 +1424613,7 @@
   "featureCoverage": {},
   "classicStateMachineCoverage": null,
   "runIdentity": {
-    "sourceRevision": "3217292686be80757e859f44c23dc53009a0c1aa",
+    "sourceRevision": "c33a1c2721d86298023edc52cbc08d0f7d6bb1a7",
     "sourceState": "clean",
     "compiler": "Microsoft.CodeAnalysis.CSharp, Version=5.9.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35",
     "runtime": ".NET 11.0.0-rc.1.26425.128",

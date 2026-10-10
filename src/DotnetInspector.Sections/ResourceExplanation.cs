@@ -769,6 +769,7 @@ public abstract record ResourcePathResolution
     UseStringEnumConverter = true,
     Converters = new[] { typeof(ExplanationBigIntegerJsonConverter) })]
 [JsonSerializable(typeof(ResourceExplanationDocument))]
+[JsonSerializable(typeof(ResourceExplanationTraversalReceipt))]
 [JsonSerializable(
     typeof(ExplanationValue.Scalar),
     TypeInfoPropertyName = "ExplanationValueScalar")]

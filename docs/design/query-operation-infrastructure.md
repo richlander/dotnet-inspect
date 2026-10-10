@@ -253,6 +253,12 @@ help row. Every query-term or order binding records:
 - any capability, acquisition-tier, cost, or work-bound consequences;
 - the structural description projected to discovery.
 
+The structural description may include ordered owner-issued input rules. These
+resource-free declarations describe operand admission, comparison behavior, and
+query bounds;
+an empty list means unregistered rules, not an unrestricted domain. They remain
+separate from the executable binder and do not introduce a validation DSL.
+
 The binding is then one of two disjoint shapes.
 
 A **query-term binding** additionally records:

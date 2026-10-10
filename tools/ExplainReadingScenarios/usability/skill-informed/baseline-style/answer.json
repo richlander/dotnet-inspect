@@ -1,0 +1,261 @@
+{
+  "task": "Installed C# Style Choices: byte-preserving oracle- or corpus-endorsed choices",
+  "result": {
+    "choices": [
+      {
+        "id": "wrap-splittable-expressions",
+        "option": "wrap-splittable-expressions",
+        "value": "true",
+        "tier_id": "Formatting",
+        "tier_name": "Formatting",
+        "tier_description": "Layout only — whitespace and line breaks. The code itself is unchanged, and compiles to identical IL.",
+        "oracle_endorsed": false,
+        "corpus_endorsed": true,
+        "byte_divergent": false,
+        "evidence_href": "inspect-resource:/vocabularies/csharp.style-choices/values/wrap-splittable-expressions"
+      },
+      {
+        "id": "qualify-field-access",
+        "option": "qualify-field-access",
+        "value": "true",
+        "tier_id": "Spelling",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "oracle_endorsed": true,
+        "corpus_endorsed": false,
+        "byte_divergent": false,
+        "evidence_href": "inspect-resource:/vocabularies/csharp.style-choices/values/qualify-field-access"
+      },
+      {
+        "id": "qualify-property-access",
+        "option": "qualify-property-access",
+        "value": "true",
+        "tier_id": "Spelling",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "oracle_endorsed": true,
+        "corpus_endorsed": false,
+        "byte_divergent": false,
+        "evidence_href": "inspect-resource:/vocabularies/csharp.style-choices/values/qualify-property-access"
+      },
+      {
+        "id": "qualify-method-access",
+        "option": "qualify-method-access",
+        "value": "true",
+        "tier_id": "Spelling",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "oracle_endorsed": true,
+        "corpus_endorsed": false,
+        "byte_divergent": false,
+        "evidence_href": "inspect-resource:/vocabularies/csharp.style-choices/values/qualify-method-access"
+      },
+      {
+        "id": "qualify-event-access",
+        "option": "qualify-event-access",
+        "value": "true",
+        "tier_id": "Spelling",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "oracle_endorsed": true,
+        "corpus_endorsed": false,
+        "byte_divergent": false,
+        "evidence_href": "inspect-resource:/vocabularies/csharp.style-choices/values/qualify-event-access"
+      }
+    ],
+    "declared_mutually_exclusive_choice_groups": [
+      {
+        "group": "guarded-boolean-return-style",
+        "choice_ids": [
+          "guarded-boolean-return-style:conditional-expression",
+          "guarded-boolean-return-style:branchless"
+        ]
+      },
+      {
+        "group": "var-spelling-style",
+        "choice_ids": [
+          "var-spelling-style:var-for-built-in-types",
+          "var-spelling-style:var-when-type-apparent",
+          "var-spelling-style:var-elsewhere"
+        ]
+      }
+    ]
+  },
+  "sparse_negative_interpretation": {
+    "known_choice_absent_from_complete_membership_set": "For a choice ID present in the complete installed 17-choice population, absence from an endorsed or byte_divergent property set means that Boolean map entry is false. The individual qualify-field-access resource confirms explicit false for corpus_endorsed.",
+    "unknown_choice_id": "Do not infer a Boolean false for an unknown ID. Its absence means it is not established as a member of the observed installed choice population; the membership predicate has no applicable known choice to evaluate.",
+    "incomplete_or_unavailable_population": "Do not infer false from absence when the relevant population or property set is incomplete or unavailable; retain the observation state and seek more evidence."
+  },
+  "evidence_scope": {
+    "style_choices": {
+      "scope": "Installed",
+      "vocabulary_id": "csharp.style-choices",
+      "members_declared": 17,
+      "embedded_values_count": 17,
+      "hal_data_scope": {
+        "completeness": "Complete"
+      },
+      "root_relationship_state": "Available",
+      "root_relationship_completeness": "Complete",
+      "map_coverage": {
+        "option": "complete",
+        "value": "complete",
+        "tier": "complete",
+        "byte_divergent": "complete",
+        "oracle_endorsed": "complete",
+        "corpus_endorsed": "complete",
+        "conflict_group": "complete"
+      },
+      "property_set_names": [
+        "byte_divergent",
+        "oracle_endorsed",
+        "corpus_endorsed"
+      ],
+      "root_fact_states": {},
+      "root_traversal": {
+        "requested_depth": 0,
+        "requested_resource_limit": 256,
+        "requested_relationship_limit": 2048,
+        "requested_relationship_target_limit": 4096,
+        "requested_schema_declaration_limit": 4096,
+        "completed_depth": 0,
+        "visited_resource_count": 1,
+        "emitted_relationship_count": 2,
+        "emitted_relationship_target_count": 18,
+        "emitted_schema_declaration_count": 40,
+        "completeness": "Truncated",
+        "truncation_reasons": [
+          "Depth"
+        ]
+      }
+    },
+    "style_tiers": {
+      "scope": "Installed",
+      "vocabulary_id": "csharp.style-tiers",
+      "members_declared": 4,
+      "embedded_values_count": 4,
+      "hal_data_scope": {
+        "completeness": "Complete"
+      }
+    },
+    "single_choice_check": {
+      "id": "qualify-field-access",
+      "scope": "Installed",
+      "fact_states": {},
+      "map_entries": [
+        {
+          "map": "option",
+          "value": {
+            "case": "text",
+            "value": "qualify-field-access"
+          }
+        },
+        {
+          "map": "value",
+          "value": {
+            "case": "text",
+            "value": "true"
+          }
+        },
+        {
+          "map": "tier",
+          "value": {
+            "case": "term",
+            "value": "Spelling"
+          }
+        },
+        {
+          "map": "byte_divergent",
+          "value": {
+            "case": "boolean",
+            "value": false
+          }
+        },
+        {
+          "map": "oracle_endorsed",
+          "value": {
+            "case": "boolean",
+            "value": true
+          }
+        },
+        {
+          "map": "corpus_endorsed",
+          "value": {
+            "case": "boolean",
+            "value": false
+          }
+        }
+      ],
+      "term_map_value_state": "Available",
+      "term_map_value_completeness": "Complete"
+    }
+  },
+  "issued_path_href_provenance": [
+    {
+      "source": "response-02.out",
+      "issued_path": "vocabularies/csharp.style-choices",
+      "use": "response-03 HAL style-choice listing and response-05 root resource"
+    },
+    {
+      "source": "response-03.out",
+      "issued_href": "inspect-resource:/vocabularies/csharp.style-choices?projection=contract",
+      "use": "response-04 contract for map coverage and resource schema"
+    },
+    {
+      "source": "response-03.out",
+      "issued_href": "inspect-resource:/vocabularies/csharp.style-tiers?projection=hal",
+      "use": "response-06 tier names and descriptions"
+    },
+    {
+      "source": "response-03.out",
+      "issued_href": "inspect-resource:/vocabularies/csharp.style-choices/values/qualify-field-access",
+      "use": "response-07 explicit Boolean map-entry check"
+    }
+  ],
+  "jq_filters_used": [
+    "response-02.out: .",
+    "response-03.out: {keys:keys, data_scope:.data_scope, data_states:.data_states, links:._links, embedded_keys:(._embedded|keys)}",
+    "response-03.out: {id,name,summary,data_scope,defaults,property_groups,property_sets,maps,members,accepted_by,embedded_vocabularies:._embedded.vocabularies,values_count:(._embedded.values|length),first_value:._embedded.values[0]}",
+    "response-03.out: {data_scope, property_sets, property_groups, values:[._embedded.values[]|{id,name,summary,option,value,tier,_links}]}",
+    "response-04.out: {root, traversal, resources_count:(.resources|length), relationships_count:(.relationships|length), schemas_count:(.schemas|length), resource0:.resources[0], relationships:.relationships}",
+    "response-04.out: [paths(scalars) as $p | select((getpath($p)|tostring|test(\"sparse|absence|complete|unknown|Unavailable|NotObserved|NotApplicable\";\"i\"))) | {path:($p|map(tostring)|join(\".\")),value:getpath($p)}] | .[0:60]",
+    "response-05.out: {identity,scope,path,facts,fact_states,relationships,addresses,traversal}",
+    "response-06.out: {id,name,data_scope,property_sets,values:[._embedded.values[]|{id,name,summary,order}],links:._links}",
+    "response-07.out: {identity,scope,facts,fact_states,relationships,traversal}"
+  ],
+  "failed_attempts": [
+    {
+      "request": "vocabulary -S \"C# Style Choices\" --json",
+      "receipt": "response-01.err",
+      "exit": 1,
+      "observed_error": "'vocabulary' has been removed. Use 'explain vocabularies' to list product vocabularies, 'explain vocabularies/<id> --depth 1' for every value, or 'explain vocabularies/<id>/values/<value>' for one value."
+    },
+    {
+      "view": "response-04.out --jq initial structural filter",
+      "error": "null (null) has no keys; corrected with root/schema structure filters"
+    }
+  ],
+  "extra_fetch_reasons": [
+    {
+      "response": "response-04.out",
+      "reason": "The HAL describedby link supplies the explanation schema and map coverage needed to interpret sparse Boolean membership."
+    },
+    {
+      "response": "response-05.out",
+      "reason": "The root resource exposes installed scope and the vocabulary-value relationship observation state and completeness."
+    },
+    {
+      "response": "response-06.out",
+      "reason": "The linked tier vocabulary supplies tier names, descriptions, and its own completeness state."
+    },
+    {
+      "response": "response-07.out",
+      "reason": "An issued individual-choice href checks that sparse non-membership agrees with an explicit false map entry."
+    }
+  ],
+  "uncertainties": [
+    "The declared conflict_group includes the three var-spelling-style choices, while their shared description says the three var categories are independent. I report the declared group as requested but cannot reconcile these statements from the retrieved evidence.",
+    "The root resource traversal is Truncated for Depth 0, although the HAL data_scope and vocabulary-value target relationship both report Complete; the conclusions rely on those complete population indicators."
+  ],
+  "guesses": []
+}

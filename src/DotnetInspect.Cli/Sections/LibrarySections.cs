@@ -847,7 +847,11 @@ public static class LibrarySections
                 metadata.GetPrefetchedImage(),
                 metadata.PortablePdbPath,
                 context.BodyReferenceResolver);
-            return BodyShapesQuery.Execute(source, kind, methodTokens);
+            return BodyShapesQuery.Execute(
+                source,
+                kind,
+                methodTokens,
+                context.Model.BodyShapeSearchLimit);
         }
         catch (CostDeclarationException)
         {

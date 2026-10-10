@@ -1896,6 +1896,41 @@ test("concurrent ordinary calls use independent authority sessions", async () =>
   state.host.dispose();
 });
 
+test("background bindings are not Worker activity", async () => {
+  const fastDiff = deferred<void>();
+  const state = fixture({
+    metadata: {
+      queryLibraryFastDiff: async () => {
+        await fastDiff.promise;
+        return contractViolation({ schemaVersion: 2, kind: "Canceled" });
+      },
+    },
+  });
+  const background = state.client.metadata.queryLibraryFastDiff(
+    "fast-diff-1",
+    {
+      schemaVersion: 2,
+      packageId: "Fixture",
+      currentVersion: "2.0.0",
+      targetVersion: "1.0.0",
+      targetFramework: "net10.0",
+      compileAssetId: "compile:lib/net10.0/Fixture.dll",
+      axes: "ApiAndBody",
+    },
+  );
+  await state.environment.flushAsync();
+
+  assert.equal(state.host.snapshot().activeOperations, 1);
+  assert.equal(state.client.activity.outstanding(), 0);
+  // Idle resolves even though the background operation is still active.
+  await state.client.activity.whenIdle();
+
+  fastDiff.resolve();
+  await background;
+  assert.deepEqual(state.diagnostics, []);
+  state.host.dispose();
+});
+
 test("generated rejection fails visibly without poisoning neighboring calls", async () => {
   const state = fixture({
     catalog: {

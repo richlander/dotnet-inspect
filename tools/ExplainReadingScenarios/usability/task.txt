@@ -1,0 +1,9 @@
+Prepare a dotnet-inspect command querying exact package Microsoft.Azure.SignalR
+for decoded string-literal uses containing https:// in net8.0 implementation
+libraries, with JSON output. Explain exact versus substring matching, operand
+size and normalization, repeated operands, how framework context is supplied,
+whether empty values means arbitrary values accepted, and whether 600 astral
+Unicode characters fit the bound. Do not execute the package query or perform
+network work. Record discovery commands, retrieval bytes, filtered outputs
+actually displayed, unknowns, and guessed syntax. Preserve completeness with
+selected answers.

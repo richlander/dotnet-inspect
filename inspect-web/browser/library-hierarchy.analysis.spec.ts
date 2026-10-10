@@ -120,8 +120,8 @@ async function expectCompactAnalysisHeader(page: Page) {
   ]) {
     const tab = tabs.getByRole("tab", { name, exact: true });
     await tab.scrollIntoViewIfNeeded();
-    // IntersectionObserver can round a fully visible edge by a fraction of a pixel.
-    await expect(tab).toBeInViewport({ ratio: 0.999 });
+    // Firefox can leave one CSS pixel at the viewport edge after scrolling.
+    await expect(tab).toBeInViewport({ ratio: 0.99 });
     expect(await tab.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   }
   const headerBox = await header.boundingBox();

@@ -83,6 +83,7 @@ public sealed class LogicalBinary : IrExpression
 public sealed class Coalesce : IrExpression, IPrimitiveJoin
 {
     TypeRef? _assignmentType;
+    TypeRef? _issuedReferenceAssignmentType;
 
     public Coalesce(IrExpression left, IrExpression right)
     {
@@ -98,7 +99,14 @@ public sealed class Coalesce : IrExpression, IPrimitiveJoin
     public override TypeRef? AssignmentType => _assignmentType;
 
     internal void BindAssignmentType(IReadOnlyDictionary<TypeRef, TypeShape> shapes)
-        => _assignmentType = CoercionRendering.CoalesceAssignmentType(this, shapes);
+        => _assignmentType = _issuedReferenceAssignmentType
+            ?? CoercionRendering.CoalesceAssignmentType(this, shapes);
+
+    internal void BindReferenceAssignmentType(TypeRef type)
+    {
+        _issuedReferenceAssignmentType = type;
+        _assignmentType = type;
+    }
 
     IReadOnlyList<IrExpression> IPrimitiveJoin.CompatibilityArms => [Left, Right];
     IReadOnlyList<IrExpression> IPrimitiveJoin.RenderedArms => [Right];

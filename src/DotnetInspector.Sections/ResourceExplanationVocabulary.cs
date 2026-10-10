@@ -632,6 +632,7 @@ internal static class ResourceExplanationVocabulary
                     TextsFact("values", "Values", 256),
                     TextsFact("examples", "Examples", 256),
                     TextsFact("effects", "Effects", 256),
+                    TextsFact("input-rules", "Input rules", 64),
                 ],
                 [
                     Relationship(
@@ -658,6 +659,7 @@ internal static class ResourceExplanationVocabulary
                     TextFact("summary", "Summary"),
                     TextFact("consumer-kind", "Consumer kind"),
                     TextFact("gesture", "Gesture"),
+                    TextsFact("input-rules", "Input rules", 64),
                     IntegerFact("members", "Members"),
                 ],
                 [

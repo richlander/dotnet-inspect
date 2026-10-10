@@ -239,7 +239,7 @@ public class QueryDiscoveryTests
         string path = vocabulary.GetProperty("resource_path").GetString()!;
         Assert.Equal("vocabularies/csharp.body-kinds", path);
 
-        var explanation = await Run("explain", path, "--json");
+        var explanation = await Run("explain", path, ".contract", "--json");
         Assert.Equal(0, explanation.ExitCode);
         using var explained = JsonDocument.Parse(explanation.Output);
         Assert.Equal(

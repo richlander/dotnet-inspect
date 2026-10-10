@@ -1,0 +1,2 @@
+{"id": 1, "argv": ["explain", "vocabularies", "--json"], "exit": 0, "stdout_bytes": 2637, "stderr_bytes": 0, "stdout_file": "response-01.out", "stderr_file": "response-01.err"}
+{"id": 2, "argv": ["explain", "vocabularies/csharp.style-choices", ".hal", "--json"], "exit": 0, "stdout_bytes": 14828, "stderr_bytes": 0, "stdout_file": "response-02.out", "stderr_file": "response-02.err"}

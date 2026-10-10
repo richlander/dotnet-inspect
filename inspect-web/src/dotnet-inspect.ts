@@ -313,6 +313,15 @@ import {
   type ItemAchievement,
 } from "./item-achievements.ts";
 import { createOperationAuthorityPage } from "./operation-authority.ts";
+import { createBackgroundAnalysisQueue } from "./background-analysis.ts";
+import {
+  bindLibraryFastDiffRetry,
+  createLibraryFastDiff,
+  libraryFastDiffAchievement,
+  libraryFastDiffKey,
+  renderLibraryFastDiffStatus,
+  type LibraryFastDiffBaseline,
+} from "./library-fast-diff.ts";
 import {
   createMetadataInspectionCoordinator,
   type AppExplorerState,
@@ -3512,6 +3521,17 @@ async function deleteManagedRetainedWorkspace(
   render({ synchronizeUrl: false });
 }
 
+// Idle resolves while the last foreground request settles; one macrotask lets
+// that request's own continuation issue follow-up work before idle-gated work
+// is sent. Background operations do not count as activity.
+async function whenForegroundIdle(): Promise<void> {
+  for (;;) {
+    await engineClient.activity.whenIdle();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    if (engineClient.activity.outstanding() === 0) return;
+  }
+}
+
 const keybindings = createWorkbenchKeybindings();
 let keyboardHelpBindings = keybindings.bindingsFor();
 const operationAuthority = createOperationAuthorityPage();
@@ -3591,15 +3611,7 @@ const typeHeat = createTypeHeatCoordinator({
         request.assemblyFileName,
         request.pack,
         request.typeDefinitionId),
-  // Idle resolves while the last request settles; one macrotask lets that
-  // request's own continuation issue follow-up work before heat is sent.
-  whenWorkerIdle: async () => {
-    for (;;) {
-      await engineClient.activity.whenIdle();
-      await new Promise(resolve => setTimeout(resolve, 0));
-      if (engineClient.activity.outstanding() === 0) return;
-    }
-  },
+  whenWorkerIdle: whenForegroundIdle,
   describeError: errorMessage,
   reportOperationDiagnostic: diagnostic => {
     console.error(
@@ -5080,6 +5092,30 @@ const memberBodyDiff = createMemberBodyDiff({
   render: renderPreservingMemberFocus, document, escapeHtml,
   activateType: activateCompareType,
   activateMember: member => activateCompareMember(member.fingerprint!, member.methodToken),
+});
+
+const backgroundAnalysis = createBackgroundAnalysisQueue({
+  whenForegroundIdle,
+  reportError: error => {
+    console.error("Background analysis failure.", error);
+  },
+});
+const libraryFastDiff = createLibraryFastDiff({
+  queue: backgroundAnalysis,
+  operationAuthority,
+  query: (operationId, request) =>
+    engineClient.metadata.queryLibraryFastDiff(operationId, request),
+  cancel: (operationId, reason) => {
+    observeAsync(
+      engineClient.metadata.cancelLibraryFastDiff(operationId, reason),
+      "Canceling Fast Diff");
+  },
+  describeError: errorMessage,
+  reportOperationDiagnostic: diagnostic => {
+    console.error("Fast Diff operation authority failure.", diagnostic);
+    return undefined;
+  },
+  render,
 });
 
 const memberDiffExplorer = createMemberDiffExplorer({
@@ -8110,6 +8146,72 @@ function currentTypeHeatState(): TypeHeatState {
     : { status: "idle" };
 }
 
+// The last-patch Fast Diff baseline for the open Gallery Library, or null
+// until its version inventory names one
+// (inspect-web-background-analysis.md#default-baselines).
+function currentLibraryFastDiffBaseline(): LibraryFastDiffBaseline | null {
+  const pkg = state.package;
+  if (pkg?.source.kind !== "nuget.org"
+    || state.home
+    || state.credits
+    || state.packageQueryOpen
+    || state.packageActivityOpen
+    || !state.engineReady
+    || state.loading
+    || Boolean(state.error)) {
+    return null;
+  }
+  const library = selectedLibrary();
+  if (!library) return null;
+  const target = resolveEffectiveDiffTarget(
+    { kind: "previous" },
+    catalogRequests.packageVersions(pkg),
+  );
+  if (target.kind !== "available") return null;
+  return {
+    packageId: pkg.id,
+    currentVersion: pkg.version,
+    targetVersion: target.version,
+    targetFramework: pkg.activeFramework,
+    compileAssetId: library.id,
+    axes: "ApiAndBody",
+  };
+}
+
+function libraryFastDiffBaselineIsCurrent(baseline: LibraryFastDiffBaseline) {
+  const current = currentLibraryFastDiffBaseline();
+  return current !== null
+    && libraryFastDiffKey(current) === libraryFastDiffKey(baseline);
+}
+
+function scheduleLibraryFastDiff() {
+  backgroundAnalysis.reconcile();
+  const baseline = currentLibraryFastDiffBaseline();
+  if (baseline) {
+    libraryFastDiff.ensure(
+      baseline,
+      () => libraryFastDiffBaselineIsCurrent(baseline));
+  }
+}
+
+function retryLibraryFastDiff() {
+  const baseline = currentLibraryFastDiffBaseline();
+  if (!baseline) return;
+  libraryFastDiff.retry(
+    baseline,
+    () => libraryFastDiffBaselineIsCurrent(baseline));
+  render();
+}
+
+// Outside Library Compare, Type cues come from the last-patch baseline;
+// inside it, from the Compare result for the user's target.
+function libraryFastDiffCueSource() {
+  if (currentCompareSubject() !== null) return null;
+  const baseline = currentLibraryFastDiffBaseline();
+  if (!baseline) return null;
+  return { baseline, entry: libraryFastDiff.entry(baseline) };
+}
+
 function scheduleTypeHeat() {
   if (typeHeatScheduled) return;
   const type = selectedType();
@@ -8949,6 +9051,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     schedulePackageDocumentTitles();
     scheduleTypeHeat();
     scheduleTypeMethodLeverage();
+    scheduleLibraryFastDiff();
     memberDiffExplorer.afterRender(
       document.querySelector<HTMLElement>("#compare-title")
         ?? document.querySelector<HTMLElement>("main h1"),
@@ -10310,6 +10413,10 @@ function renderTypeNavPane(
 ) {
   const definingLibraries = aggregateTypeLibraryLabels();
   const diffPresence = libraryApiDiffPresence(state.libraryApiDiff);
+  const fastDiffCues = libraryFastDiffCueSource();
+  const fastDiffTypes = fastDiffCues?.entry?.status === "ready"
+    ? fastDiffCues.entry.types
+    : null;
   const { definitions, forwarders } =
     accessibilityScopedTypeSelectorDefinitions();
   return renderTypeNav({
@@ -10368,12 +10475,25 @@ function renderTypeNavPane(
     itemAchievements: (item: TypeInventoryRow) => {
       if (isForwardedType(item)) return [];
       const presentation = currentTypeLeveragePresentation(item);
-      return typeLeverageAchievements(presentation?.byType.get(
-        item.definitionId ?? item.id,
-      ) ?? [], diffPresence.typeIdentifiers.has(item.definitionId ?? item.id)
-        ? apiDiffAchievement : null);
+      const identifier = item.definitionId ?? item.id;
+      const diff = fastDiffCues
+        ? libraryFastDiffAchievement(
+            fastDiffTypes?.get(identifier),
+            fastDiffCues.baseline.targetVersion)
+        : diffPresence.typeIdentifiers.has(identifier)
+          ? apiDiffAchievement
+          : null;
+      return typeLeverageAchievements(
+        presentation?.byType.get(identifier) ?? [],
+        diff);
     },
-    statusHtml: platformForwarderInventoryStatus(),
+    statusHtml: platformForwarderInventoryStatus()
+      + (fastDiffCues
+        ? renderLibraryFastDiffStatus(
+            fastDiffCues.entry,
+            fastDiffCues.baseline.targetVersion,
+            escapeHtml)
+        : ""),
   });
 }
 
@@ -14592,6 +14712,10 @@ function bindWorkspaceSubjectEvents() {
   });
 }
 
+function bindLibraryFastDiffEvents() {
+  bindLibraryFastDiffRetry(document, retryLibraryFastDiff);
+}
+
 function bindPlatformForwarderEvents() {
   bindPlatformForwarders(document, {
     retry: () => {
@@ -14697,6 +14821,7 @@ function bindEvents() {
   });
   bindContentFrameEvents();
   bindPlatformForwarderEvents();
+  bindLibraryFastDiffEvents();
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
   if (state.spotlightOpen) spotlight.bind(document, "modal");
 }

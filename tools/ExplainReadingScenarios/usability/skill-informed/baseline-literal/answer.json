@@ -1,0 +1,90 @@
+{
+  "argv": [
+    "package",
+    "query",
+    "Microsoft.Azure.SignalR",
+    "--where",
+    "library-literal=https://",
+    "--tfm",
+    "net8.0",
+    "-S",
+    "Literal Strings",
+    "--json"
+  ],
+  "shell_command": "dnx dotnet-inspect -y -- package query Microsoft.Azure.SignalR --where \"library-literal=https://\" --tfm net8.0 -S \"Literal Strings\" --json",
+  "executed_package_query": false,
+  "interpretation": {
+    "package_selection": "Microsoft.Azure.SignalR is an exact package ID, not a prefix pattern. Without a pinned version, package query selects the latest eligible listed version; no version or result was verified.",
+    "literal_match": "The equals sign supplies the library-literal operand. The registered operation is an ordinal substring search over each decoded string-literal use, so a use containing https:// matches even when the whole literal is longer. Ordinal matching preserves case.",
+    "library_scope": "The filter downloads the package and searches the selected implementation libraries for the exact net8.0 target framework context. This is not a source-text or reference-assembly search claim."
+  },
+  "utf16_bound": {
+    "minimum_code_units": 1,
+    "maximum_code_units": 1024,
+    "astral_characters": 600,
+    "astral_utf16_code_units": 1200,
+    "fits": false,
+    "maximum_all_astral_characters": 512
+  },
+  "normalization_and_repeat_rules": {
+    "normalization": "Preserve the operand exactly, including whitespace, newlines, and case; do not normalize.",
+    "repetition": "Identical repeated library-literal operands collapse to one distinct value; distinct operands are incompatible."
+  },
+  "framework_context_supply": "Supply library-target with --tfm net8.0, not a --where term. The binding requires library-literal and --tfm together and says to use one exact NuGet target framework.",
+  "empty_values_interpretation": "The library-literal values array is empty, but the facet explicitly says any decoded UTF-16 text satisfying the registered constraints is accepted; it is not an allow list. Empty lists or unregistered rules alone would not establish unrestricted acceptance.",
+  "evidence_scope": {
+    "selected_section": "Literal Strings",
+    "format": "JSON",
+    "selection_rationale": "The shipped root skill gives this exact section for the library-literal production command. Selecting it requests literal evidence; no -n, --rows, --columns, or --fields truncates or projects occurrences.",
+    "registered_route": "Package Query returns one completed package-grain document with matches, failures, and completion summary. The selected section is a presentation projection, so no claim is made that it retains the entire unselected document or service diagnostics.",
+    "actual_results": "Unknown: the package query was deliberately not executed."
+  },
+  "issued_path_href_provenance": [
+    {
+      "path": "package-query/query/facets/library-literal",
+      "source": "response-01.out similarity result resource_path; also response-04.out Packages facet resource_path",
+      "used_in": "response-03.out HAL"
+    },
+    {
+      "path": "package-query/bindings/cli",
+      "source": "response-01.out production_bindings.resource_path and response-03.out _links.bindings.href",
+      "used_in": "response-02.out binding"
+    },
+    {
+      "path": "package-query/routes/default",
+      "source": "response-02.out relationships.invokes target address",
+      "used_in": "response-05.out route"
+    },
+    {
+      "path": "package-query",
+      "source": "response-05.out relationships.produces target address",
+      "used_in": "response-06.out document"
+    },
+    {
+      "href": "inspect-resource:/package-query/query/facets/library-target?projection=hal",
+      "source": "response-03.out _links.required-context[0].href",
+      "used_in": "response-07.out HAL"
+    }
+  ],
+  "uncertainties": [
+    "The specific package version, whether the package has any matching implementation libraries or string-literal uses, result count, failures, and completion status are unknown because the query was not run.",
+    "The library-target facet has no registered input_rules of its own. Do not infer additional target-framework acceptance or fallback behavior beyond its summary and the CLI binding.",
+    "The selected Literal Strings JSON schema and whether it includes completion diagnostics are not registered in the inspected explanations; the complete unselected package-query document is separately described."
+  ],
+  "guesses": [],
+  "failures": [
+    "No product request failed. Two discovery requests were accidentally issued concurrently against a sequential trial recorder; both receipts named response-02.out, and response-02.out held the CLI binding. The facet request was rerun sequentially as response-03.out, with no information inferred from the overwritten file."
+  ],
+  "rationale_for_extra_fetches": [
+    "response-02.out CLI binding: confirm syntax, JSON flag, and required framework context.",
+    "response-04.out -Q Packages: verify library-literal is a registered Package Query facet and inspect its example and execution class.",
+    "response-05.out route and response-06.out document: determine result grain and evidence/completion scope.",
+    "response-07.out required-context href: check the exact library-target record and avoid inventing unregistered rules."
+  ],
+  "jq_filters_used": [
+    ".",
+    "{kind: .resource_kind, keys: keys, links: ._links, embedded: ._embedded, resource_path: .resource_path, sections: .sections}",
+    "{path,scope,facts,relationships,fact_states}",
+    "if type==\"object\" then {keys:keys, matches: [.. | objects | select((tostring | test(\"library-literal|Literal Strings\")))]} else . end"
+  ]
+}

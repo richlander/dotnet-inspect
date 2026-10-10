@@ -20,7 +20,14 @@ internal static class PackageQueryCommandCapability
                     "dotnet-inspect CLI",
                     "package query"),
                 PackageQueryCapability.Route,
-                PackageQuery.InspectionTermBindingIdentities);
+                PackageQuery.InspectionTermBindingIdentities,
+                [
+                    "Supply a package ID or PREFIX* as the positional argument after package query.",
+                    "Supply exposed inspection facets through --where key=value.",
+                    "Use --json for structured query result output.",
+                    "Supply library-target through --tfm TFM, not --where. Use one exact NuGet target framework.",
+                    "library-literal and --tfm require each other; neither is valid alone.",
+                ]);
 
     internal static InspectionCapabilityModule Module { get; } =
         new(

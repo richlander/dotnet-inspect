@@ -331,8 +331,11 @@ host-neutral route it uses. Consumers include:
 - an operation-backed section; and
 - another owner-approved product composition that invokes the route.
 
-The binding retains consumer-owned lowering and exposure information. It
-cannot add section, query, effect, or result semantics outside the selected
+The binding retains consumer-owned lowering and exposure information. Ordered
+input rules may describe positional arguments, option lowering, and paired
+input requirements. They are declared by the consumer rather than inferred
+from help or parser objects; an empty list means no rules are registered. The
+binding cannot add section, query, effect, or result semantics outside the selected
 owner-issued route profile.
 
 ### Capability module
