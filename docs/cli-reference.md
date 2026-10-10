@@ -335,8 +335,9 @@ reducing their occurrence counts; `--count` counts the selected view's rows.
 Both views are available on `library`, `type`, and `member`.
 
 Use `--jsonl` for one machine-readable row per match or `--count` for the row
-count. Bodies that cannot be reconstructed at full fidelity are reported on
-stderr rather than mixed into structured output.
+count. Bodies that cannot be reconstructed at full fidelity make the search
+incomplete: the observed rows and count still print, stderr reports how many
+bodies were not searched (`--verbose` lists them), and the command exits 1.
 
 ## Capability inventory
 
