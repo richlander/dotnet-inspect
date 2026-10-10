@@ -1162,6 +1162,37 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
+    public void CheckedInInspectWebCoreApiSurfaceRuleRetiresLowLevelEdges()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "inspect-web-core-api-surface-presentation-"
+                    + "stays-host-neutral");
+
+        Assert.Equal(
+            [DependencyGraphKind.Project, DependencyGraphKind.Assembly],
+            rule.Graphs);
+        Assert.Equal(["DotnetInspect.Web.Core"], rule.Targets);
+        Assert.Equal(
+            [
+                "src/DotnetInspect.Web.Core/"
+                    + "DotnetInspect.Web.Core.csproj",
+            ],
+            rule.ProjectPaths);
+        Assert.Null(rule.AllowOnly);
+        Assert.Equal(
+            ["CSharpText", "ILInspector.Research"],
+            Assert.IsType<string[]>(rule.Deny));
+        Assert.Empty(rule.ExcludeTargets);
+        Assert.Empty(rule.ExcludeProjectPaths);
+        Assert.Empty(rule.Except);
+    }
+
+    [Fact]
     public void CheckedInInspectWebCallGraphRuleMatchesCapabilityPartition()
     {
         string repository = FindRepositoryRoot();
