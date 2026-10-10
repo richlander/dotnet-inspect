@@ -193,6 +193,10 @@ public sealed class LibraryBodyAnalysisExecutionTests
             plan.RequiredFacts.HasFlag(
                 ImplementationMetricFactKind
                     .StructuralInstructionStream));
+        Assert.True(
+            plan.RequiredFacts.HasFlag(
+                ImplementationMetricFactKind
+                    .GeneratedTypeProvenance));
         Assert.False(plan.RequiresLocalSignatureDecode);
         Assert.False(plan.RequiresCanonicalContext);
         Assert.False(

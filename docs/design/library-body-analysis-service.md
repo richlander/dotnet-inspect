@@ -1126,6 +1126,11 @@ An exact Library Metrics query instead issues
 - allocation count; and
 - async-state-machine body attribution.
 
+Async disposition also requires generated-type provenance: runtime-async
+methods inside a `[GeneratedCode]` type or enclosing type remain suppressed
+exactly as they are in the complete-profile route. This prerequisite is a
+metadata classification fact, not a request for complete MethodEvidence.
+
 This request publishes `LibraryStructuralAnalysisResult`; it does not publish
 `MethodImplementationProfile` rows. Research consumes the structural result
 directly and preserves the existing Library Metrics document, compatibility
@@ -1144,10 +1149,10 @@ cross-type relationships. The route does not decode local signatures or build
 contexts, allocation occurrences, safety evidence, or complete profiles.
 
 The implementation-metric plan records
-`StructuralInstructionStream` as the required physical fact and
-`StructuralInstructionScan` as actual work. Stage receipts must show no local
-signature or canonical-context participation. The existing metadata-ordered
-parallel scheduler and ordered aggregation remain unchanged.
+`StructuralInstructionStream` and `GeneratedTypeProvenance` as required
+physical facts and `StructuralInstructionScan` as actual work. Stage receipts
+must show no local-signature or canonical-context participation. The existing
+metadata-ordered parallel scheduler and ordered aggregation remain unchanged.
 
 ### Fusion-payoff admission for profile migration
 

@@ -1,4 +1,8 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
@@ -29,6 +33,70 @@ public sealed class LibraryStructuralReportTests
     {
         AssertFocusedEvidencePreservesCompleteProfileDocument(
             FixtureCatalog.AnalysisLookalike.AssemblyPath());
+    }
+
+    [Fact]
+    public void
+        LibraryStructuralReport_FocusedEvidencePreservesGeneratedRuntimeAsyncDocument()
+    {
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.ResearchNameFamilies.AssemblyPath());
+        SetRuntimeAsyncFlag(
+            image,
+            reader => Assert.Single(
+                reader.MethodDefinitions,
+                handle =>
+                {
+                    MethodDefinition method =
+                        reader.GetMethodDefinition(handle);
+                    if (!reader.StringComparer.Equals(
+                            method.Name,
+                            "Validate"))
+                    {
+                        return false;
+                    }
+                    TypeDefinition type =
+                        reader.GetTypeDefinition(
+                            method.GetDeclaringType());
+                    return reader.StringComparer.Equals(
+                        type.Name,
+                        "MixedValidator");
+                }));
+
+        LibraryBodyAnalysisExecution legacy =
+            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+                "GeneratedRuntimeAsync.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures
+                        .ImplementationProfiles);
+        LibraryBodyAnalysisExecution focused =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "GeneratedRuntimeAsync.dll",
+                [.. image],
+                LibraryBodyAnalysisRequest
+                    .CreateLibraryStructuralReport());
+
+        var legacyDocument =
+            Assert.IsType<
+                LibraryStructuralReportResult.Available>(
+                    LibraryStructuralReport.Execute(legacy))
+                .Document;
+        var focusedDocument =
+            Assert.IsType<
+                LibraryStructuralReportResult.Available>(
+                    LibraryStructuralReport.Execute(focused))
+                .Document;
+
+        Assert.Equivalent(
+            legacyDocument,
+            focusedDocument,
+            strict: true);
+        Assert.DoesNotContain(
+            focused.StructuralMetrics.Bodies,
+            body => body.EvidenceMethod.Name
+                    == "Validate"
+                && body.Async);
     }
 
     static void AssertFocusedEvidencePreservesCompleteProfileDocument(
@@ -62,6 +130,37 @@ public sealed class LibraryStructuralReportTests
             strict: true);
         Assert.True(focused.StructuralMetrics.WasRequested);
         Assert.False(focused.ImplementationProfiles.WasRequested);
+    }
+
+    static void SetRuntimeAsyncFlag(
+        byte[] image,
+        Func<MetadataReader, MethodDefinitionHandle>
+            selectMethod)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataReader reader =
+            peReader.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            selectMethod(reader);
+        int implFlagsOffset =
+            peReader.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(
+                TableIndex.MethodDef)
+            + (MetadataTokens.GetRowNumber(methodHandle) - 1)
+                * reader.GetTableRowSize(
+                    TableIndex.MethodDef)
+            + sizeof(int);
+        ushort implFlags =
+            BinaryPrimitives.ReadUInt16LittleEndian(
+                image.AsSpan(
+                    implFlagsOffset,
+                    sizeof(ushort)));
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(
+                implFlagsOffset,
+                sizeof(ushort)),
+            (ushort)(implFlags | 0x2000));
     }
 
     [Fact]

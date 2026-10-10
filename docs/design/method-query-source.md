@@ -544,9 +544,11 @@ instruction array supplies instruction cardinality, normal-flow branch shape,
 backward-loop ranges, and allocation opcodes; direct invocation resolution
 consumes that same bounded per-method evidence without constructing the
 canonical `BlockGraph` or `ExceptionFlowTopology`. The physical request
-therefore omits local-signature and canonical-context facts entirely. Research
-consumes a focused structural result rather than reconstructing or publishing
-complete implementation profiles.
+therefore omits local-signature and canonical-context facts entirely. Async
+disposition retains the generated-type provenance metadata needed to suppress
+runtime-async methods in generated types without requesting complete
+MethodEvidence. Research consumes a focused structural result rather than
+reconstructing or publishing complete implementation profiles.
 
 The distinction is measured, not aesthetic. A rejected retained
 complete-profile packet removed traversals but improved the exact NativeAOT

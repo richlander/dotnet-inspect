@@ -55,6 +55,7 @@ internal enum ImplementationMetricFactKind
     Safety = 1 << 8,
     DirectCallDiscovery = 1 << 9,
     StructuralInstructionStream = 1 << 10,
+    GeneratedTypeProvenance = 1 << 11,
     All = SourceAttribution
         | ManagedBody
         | LocalSignature
@@ -65,7 +66,8 @@ internal enum ImplementationMetricFactKind
         | BodySignals
         | Safety
         | DirectCallDiscovery
-        | StructuralInstructionStream,
+        | StructuralInstructionStream
+        | GeneratedTypeProvenance,
 }
 
 [Flags]
@@ -304,6 +306,10 @@ internal sealed record ImplementationMetricAnalysisPlan(
         RequiresLocalSignatureDecode
         || RequiresDirectCallDiscovery;
 
+    internal bool RequiresGeneratedTypeProvenance =>
+        RequiredFacts.HasFlag(
+            ImplementationMetricFactKind.GeneratedTypeProvenance);
+
     internal ImplementationMetricKind MetricCausesFor(
         ImplementationMetricWorkStage stage)
     {
@@ -385,6 +391,8 @@ internal sealed record ImplementationMetricAnalysisPlan(
                     | ImplementationMetricFactKind.DirectCalls
                     | ImplementationMetricFactKind
                         .AllocationSignals
+                    | ImplementationMetricFactKind
+                        .GeneratedTypeProvenance
                 : NormalizeRequiredFacts(requested);
         return new(
             requested,
@@ -450,6 +458,12 @@ internal sealed record ImplementationMetricAnalysisPlan(
             ImplementationMetricKind.UnsafePresence))
         {
             facts |= ImplementationMetricFactKind.Safety;
+        }
+        if (metrics.HasFlag(
+            ImplementationMetricKind.Async))
+        {
+            facts |= ImplementationMetricFactKind
+                .GeneratedTypeProvenance;
         }
         return facts;
     }
