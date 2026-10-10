@@ -23,6 +23,14 @@ public sealed class LibraryStructuralReportTests
             FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
     }
 
+    [Fact]
+    public void
+        LibraryStructuralReport_FocusedEvidencePreservesMalformedAsyncDocument()
+    {
+        AssertFocusedEvidencePreservesCompleteProfileDocument(
+            FixtureCatalog.AnalysisLookalike.AssemblyPath());
+    }
+
     static void AssertFocusedEvidencePreservesCompleteProfileDocument(
         string path)
     {

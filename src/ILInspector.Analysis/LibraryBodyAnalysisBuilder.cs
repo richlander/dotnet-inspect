@@ -421,6 +421,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 methodHandle,
                 methodDefinition);
 
+    bool ILibraryMethodAnalysisInfrastructure
+        .HasRejectedAsyncStateMachineAttribute(
+            MethodDefinition methodDefinition) =>
+        _asyncSourceResolver.HasRejectedAsyncStateMachineAttribute(
+            methodDefinition);
+
     AsyncSiblingOpportunityAnalyzer
         ILibraryMethodAnalysisInfrastructure.AsyncSiblingAnalyzer =>
         _asyncSiblingAnalyzer;

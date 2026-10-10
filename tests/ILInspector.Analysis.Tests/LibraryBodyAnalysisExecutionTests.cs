@@ -252,6 +252,33 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
+    public void
+        LibraryStructuralRequest_PreservesMalformedAsyncAttributeDiagnostic()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisLookalike.AssemblyPath(),
+                LibraryBodyAnalysisRequest
+                    .CreateLibraryStructuralReport());
+
+        LibraryStructuralMethodAnalysis body = Assert.Single(
+            execution.StructuralMetrics.Bodies,
+            static body => body.EvidenceMethod.Name
+                == "MalformedAsyncAttributeEvidence");
+        AnalysisDiagnostic diagnostic = Assert.Single(
+            execution.StructuralMetrics.Receipt.Diagnostics,
+            diagnostic => diagnostic.MethodToken
+                == body.EvidenceMethod.MetadataToken);
+
+        Assert.False(body.IsComplete);
+        Assert.Contains(
+            "async state-machine attribute is malformed or ambiguous",
+            diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(diagnostic.Message, body.IncompleteReasons);
+    }
+
+    [Fact]
     public void CompleteProfileRequest_PreservesLegacyProfileResult()
     {
         string path =

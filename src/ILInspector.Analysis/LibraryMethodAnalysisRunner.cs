@@ -128,6 +128,9 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinitionHandle methodHandle,
         MethodDefinition methodDefinition);
 
+    bool HasRejectedAsyncStateMachineAttribute(
+        MethodDefinition methodDefinition);
+
     ImmutableArray<OptimizationOpportunity>
         CollectAsyncSiblingOpportunities(
             MethodBodyAnalysisContext context,
@@ -1699,6 +1702,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                             methodHandle,
                             methodDefinition));
             result.RequiresDeclaredOwner |= requiresDeclaredOwner;
+            Exception? asyncAttributionFailure = null;
             AsyncBodyAttribution? asyncBody = null;
             try
             {
@@ -1721,6 +1725,12 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         && IsRecoverableMethodFailure(ex))
                 {
                     declaredMethod = caller;
+                    if (_infrastructure
+                        .HasRejectedAsyncStateMachineAttribute(
+                            methodDefinition))
+                    {
+                        asyncAttributionFailure = ex;
+                    }
                 }
                 result.DeclaredMethod = declaredMethod;
                 try
@@ -1735,6 +1745,12 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     when (IsRecoverableMethodFailure(ex))
                 {
                     asyncBody = null;
+                    if (_infrastructure
+                        .HasRejectedAsyncStateMachineAttribute(
+                            methodDefinition))
+                    {
+                        asyncAttributionFailure ??= ex;
+                    }
                 }
                 DeclaredOwnerResolution ownerResolution =
                     declaredMethod is null
@@ -1773,8 +1789,11 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))
             {
-                if (!directlySelectedBody)
+                if (!directlySelectedBody
+                    && !plan.ProducesLibraryStructuralReport)
+                {
                     throw;
+                }
                 result.DeclaredMethod = null;
                 result.DeclaredSource = null;
                 result.Diagnostic = new AnalysisDiagnostic(
@@ -1784,6 +1803,28 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         methodHandle),
                     $"{ex.GetType().Name}: {ex.Message}",
                     DeclaringType: caller.DeclaringType);
+            }
+            if (asyncAttributionFailure is not null)
+            {
+                MethodIdentity? diagnosticSource =
+                    result.DeclaredSource is { } declaredSource
+                    && declaredSource.MetadataToken
+                        != caller.MetadataToken
+                        ? declaredSource
+                        : null;
+                result.ImplementationMetricDiagnostic =
+                    new AnalysisDiagnostic(
+                        caller.MetadataToken,
+                        MethodLabel(
+                            typeHandle,
+                            methodHandle),
+                        $"{asyncAttributionFailure.GetType().Name}: "
+                            + asyncAttributionFailure.Message,
+                        SourceMethodToken:
+                            diagnosticSource?.MetadataToken,
+                        DeclaringType: caller.DeclaringType,
+                        SourceDeclaringType:
+                            diagnosticSource?.DeclaringType);
             }
 
             ImplementationMetricAnalysisPlan metricPlan =

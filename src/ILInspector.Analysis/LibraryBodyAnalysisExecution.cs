@@ -755,6 +755,8 @@ public sealed class LibraryBodyAnalysisExecution
                 []);
         }
 
+        LibraryBodyAnalysisReceipt structuralReceipt =
+            receipt with { Diagnostics = metricDiagnostics };
         IReadOnlyDictionary<int, MethodSignals> signals =
             callGraph.MethodSignals;
         Dictionary<int, AnalysisDiagnostic> diagnosticsByToken =
@@ -821,7 +823,7 @@ public sealed class LibraryBodyAnalysisExecution
         ];
 
         return new(
-            receipt,
+            structuralReceipt,
             CreateStructuralCoverage(
                 analysis,
                 bodies,
