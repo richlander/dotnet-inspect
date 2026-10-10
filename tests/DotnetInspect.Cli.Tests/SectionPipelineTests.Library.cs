@@ -1914,6 +1914,7 @@ public partial class SectionPipelineTests
                 SourceAvailabilityQuery.Definition,
                 SourceIntegrityQuery.Definition,
                 SwitchesQuery.Definition,
+                SyncCallsInAsyncDemand.Section,
                 TopLeverageQuery.Definition,
                 TypeForwardersQuery.Definition,
                 UnionTypesQuery.Definition,
