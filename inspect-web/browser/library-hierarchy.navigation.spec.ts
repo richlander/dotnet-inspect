@@ -1815,6 +1815,7 @@ test("Chooser keyboard input does not commit workspace navigation", async ({
 
 for (const [command, dialog] of [
   ["settings", "#settings-dialog"],
+  ["legend", "#legend-dialog"],
   ["keyboard help", "#keyboard-help-dialog"],
 ] as const) {
   test(`an open Chooser regains focus after ${command}`, async ({ page }) => {

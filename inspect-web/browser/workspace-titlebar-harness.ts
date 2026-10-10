@@ -29,6 +29,7 @@ import {
   renderApplicationMenu,
   renderApplicationMenuButton,
   renderKeyboardHelpDialog,
+  renderLegendDialog,
   renderTitleNavigation,
   restoreApplicationMenuFocusIfOwned,
   type ApplicationAction,
@@ -118,7 +119,7 @@ const appRoot: HTMLElement = app;
 const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
-let applicationDialog: "settings" | "keyboard-help" | null = null;
+let applicationDialog: "settings" | "legend" | "keyboard-help" | null = null;
 const params = new URL(location.href).searchParams;
 const longDataBarMode = params.has("long-data-bar");
 const workspaceMode = params.has("workspace");
@@ -975,6 +976,10 @@ app.innerHTML = `
     'id="keyboard-help-backdrop" class="modal-backdrop"',
     'id="keyboard-help-backdrop" class="modal-backdrop" hidden',
   )}
+  ${renderLegendDialog().replace(
+    'id="legend-backdrop" class="modal-backdrop"',
+    'id="legend-backdrop" class="modal-backdrop" hidden',
+  )}
   ${renderCodeEvidenceViewer({
     backdropId: "annotated-source-backdrop",
     backdropClassName: "annotated-modal-backdrop",
@@ -1021,20 +1026,24 @@ let productNavigationBinding =
   bindProductNavigation(appRoot, productNavigationActions);
 
 function setApplicationDialog(
-  next: "settings" | "keyboard-help" | null,
+  next: "settings" | "legend" | "keyboard-help" | null,
 ): void {
   applicationDialog = next;
   const workbench = document.querySelector<HTMLElement>(".workbench");
   const settings = document.querySelector<HTMLElement>("#settings-backdrop");
   const help =
     document.querySelector<HTMLElement>("#keyboard-help-backdrop");
+  const legend = document.querySelector<HTMLElement>("#legend-backdrop");
   if (workbench) workbench.inert = next !== null;
   if (settings) settings.hidden = next !== "settings";
   if (help) help.hidden = next !== "keyboard-help";
+  if (legend) legend.hidden = next !== "legend";
   if (next === "settings") {
     document.querySelector<HTMLElement>("#settings-title")?.focus();
   } else if (next === "keyboard-help") {
     document.querySelector<HTMLElement>("#keyboard-help-title")?.focus();
+  } else if (next === "legend") {
+    document.querySelector<HTMLElement>("#legend-title")?.focus();
   } else {
     document.querySelector<HTMLElement>("#application-menu-button")?.focus();
   }
