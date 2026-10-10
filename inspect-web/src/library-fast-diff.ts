@@ -64,21 +64,23 @@ export function libraryFastDiffKey(baseline: LibraryFastDiffBaseline): string {
   ]);
 }
 
-function isReported(state: BrowserFastDiffState): boolean {
+/** Whether a cue reports the axis: `Changed` or `Indeterminate`. */
+export function fastDiffAxisReported(state: BrowserFastDiffState): boolean {
   return state === "Changed" || state === "Indeterminate";
 }
 
 /**
  * The navigation cue for one Type against one baseline, or null when every
- * compared axis is unchanged.
+ * compared axis is unchanged. A Type's cue is the change glyph whichever axes
+ * are reported; its description names them.
  */
 export function libraryFastDiffAchievement(
   type: BrowserFastDiffType | undefined,
   targetVersion: string,
 ): ItemAchievement | null {
   if (!type) return null;
-  const api = isReported(type.api);
-  const body = isReported(type.body);
+  const api = fastDiffAxisReported(type.api);
+  const body = fastDiffAxisReported(type.body);
   if (!api && !body) return null;
   const axis = (label: string, state: BrowserFastDiffState) =>
     state === "Indeterminate" ? `${label} undecided` : `${label} changed`;
@@ -88,7 +90,7 @@ export function libraryFastDiffAchievement(
   ];
   const text = parts.join(", ");
   return {
-    kind: api ? "api-diff" : "body-diff",
+    kind: "diff",
     description: `${text.charAt(0).toUpperCase()}${text.slice(1)} since ${targetVersion}`,
   };
 }
