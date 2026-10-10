@@ -119,11 +119,11 @@ public class DefiniteAssignmentPassTests
     }
 
     [Fact]
-    public void RealResidualGapStaysBare()
+    public void RealRetiredResidualGapNeedsNoDefault()
     {
-        // Newtonsoft.Json 13.0.4 JsonSerializer.PopulateInternal: a residual
-        // split piece that definite assignment marks read-before-assign. The
-        // pass excludes it, so the declaration stays bare.
+        // Newtonsoft.Json 13.0.4 JsonSerializer.PopulateInternal: bounded
+        // reference testimony now retires the old residual split before
+        // definite assignment, so one assigned carrier needs no default.
         string path = Path.Combine(AppContext.BaseDirectory, "RealAssets", "ReferenceConditional", "Newtonsoft.Json.dll");
         using var metadata = CorpusMetadata.Create([path]);
         using var source = MetadataSource.Open(path, context: metadata);
@@ -133,9 +133,15 @@ public class DefiniteAssignmentPassTests
 
         var readEarly = DefiniteAssignment.Compute(function, ReferenceOwnership.CollectBranchTargets(function), facts: null);
         var gaps = readEarly.Where(index => function.ResidualSlotBindings.ContainsKey(index)).ToList();
-        Assert.NotEmpty(gaps);
-        Assert.All(gaps, gap => Assert.DoesNotContain(gap, function.ZeroInitializedLocals!));
-        Assert.NotNull(CSharpPrinter.Print(function).Output);
+        Assert.Empty(gaps);
+        Assert.DoesNotContain(
+            function.ResidualSlotBindings.Values,
+            static binding => binding.Slot == 2);
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains(
+            "JsonReader S_2 = ((JsonReader)V_6) ?? reader;",
+            output);
+        Assert.DoesNotContain("S_2 = default", output);
     }
 
     [Fact]
