@@ -1,0 +1,101 @@
+{
+  "answer": {
+    "scope": {
+      "vocabulary": "csharp.style-choices",
+      "registered_members": 17,
+      "completeness": "Complete",
+      "boolean_maps": {
+        "byte_divergent": {
+          "cardinality": "exactly-one",
+          "coverage": "complete"
+        },
+        "oracle_endorsed": {
+          "cardinality": "exactly-one",
+          "coverage": "complete"
+        },
+        "corpus_endorsed": {
+          "cardinality": "exactly-one",
+          "coverage": "complete"
+        }
+      }
+    },
+    "matching_choices": [
+      {
+        "id": "wrap-splittable-expressions",
+        "option": "wrap-splittable-expressions",
+        "value": "true",
+        "tier_id": "Formatting",
+        "tier_name": "Formatting",
+        "tier_description": "Layout only — whitespace and line breaks. The code itself is unchanged, and compiles to identical IL.",
+        "endorsement": "corpus"
+      },
+      {
+        "id": "qualify-field-access",
+        "option": "qualify-field-access",
+        "value": "true",
+        "tier_id": "Spelling",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "endorsement": "oracle"
+      },
+      {
+        "id": "qualify-property-access",
+        "option": "qualify-property-access",
+        "value": "true",
+        "tier_id": "Spelling",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "endorsement": "oracle"
+      },
+      {
+        "id": "qualify-method-access",
+        "option": "qualify-method-access",
+        "value": "true",
+        "tier_id": "Spelling",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "endorsement": "oracle"
+      },
+      {
+        "id": "qualify-event-access",
+        "option": "qualify-event-access",
+        "value": "true",
+        "tier_id": "Spelling",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "endorsement": "oracle"
+      }
+    ],
+    "conflict_groups": {
+      "guarded-boolean-return-style": [
+        "guarded-boolean-return-style:conditional-expression",
+        "guarded-boolean-return-style:branchless"
+      ],
+      "var-spelling-style": [
+        "var-spelling-style:var-for-built-in-types",
+        "var-spelling-style:var-when-type-apparent",
+        "var-spelling-style:var-elsewhere"
+      ]
+    },
+    "conflict_group_limit": "These are product-owned vocabulary choice groups, not a general rule for arbitrary configuration keys. In particular, the var choice summary says the three csharp_style_var_* editorconfig categories are independent and may be combined; the vocabulary group must not be used to reject such key combinations. The data do not specify command invocation or enforcement behavior.",
+    "omitted_boolean_interpretation": {
+      "known_choice_complete_data": "For a registered ID in this complete vocabulary, if a declared exactly-one Boolean map has complete coverage and its property set omits the ID, the value is false. This applies only to that declared map and vocabulary scope.",
+      "unknown_id": "No Boolean value follows for an ID outside the registered members, even when the vocabulary is complete; it is not a known choice.",
+      "incomplete_data": "When membership or map coverage is incomplete, omission means unknown rather than false.",
+      "unavailable_property": "An explicitly unavailable property has no usable Boolean value; preserve the unavailable state rather than treating omission as false."
+    },
+    "fetch_requirements": "The style-choice HAL response identifies the linked csharp.style-tiers vocabulary but does not contain tier descriptions. Fetching that vocabulary once supplies the descriptions in its embedded values, with no per-tier fetch. The complete HAL vocabulary data suffice for the requested join and groups; no schema/contract fetch is necessary. A contract fetch was made for verification but did not add required task facts."
+  },
+  "provenance": {
+    "choice_vocabulary": "response-04.out: HAL csharp.style-choices, data_scope, maps, property_sets, property_groups, _embedded.values",
+    "tier_vocabulary": "response-05.out: HAL csharp.style-tiers, data_scope, _embedded.values",
+    "choice_detail": "response-07.out: qualify-field-access map-entries explicitly show false byte_divergent and corpus_endorsed; response-08.out: var member summary and conflict_group",
+    "contract": "response-06.out: linked contract read for verification; traversal marked Truncated due to Depth, not needed for the answer",
+    "discovery": "response-03.out: installed vocabularies collection"
+  },
+  "unrun_command_argv": [],
+  "uncertainties": [
+    "No invocation or enforcement behavior for conflict groups is asserted because the data do not specify it."
+  ],
+  "schema_navigation_friction": "The HAL vocabulary embeds values and groups but does not embed descriptions of linked tier terms, so one linked vocabulary fetch and an ID-to-tier join were needed. Property-set omission requires retaining data_scope and map coverage; filtering to IDs alone would lose the conditions for interpreting false. The linked contract was large and unnecessary for this task. Two exploratory jq filters failed and were corrected. No tool rendering was truncated; the optional contract traversal itself reported depth truncation."
+}

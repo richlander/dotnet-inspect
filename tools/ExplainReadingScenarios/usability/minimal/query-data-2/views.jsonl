@@ -1,0 +1,24 @@
+{"source": "minimal data", "operation": "guide", "file": "view-01.txt", "bytes": 687, "sha256": "4bffdef17500c9c6ab8b35cba5edf91154053f446a140c831e3842a295e6714a"}
+{"source": "response-01.out", "operation": "jq: .", "file": "view-02.txt", "bytes": 155, "sha256": "80b6afca5dfc9b383c31f356d30203036ea65880f38736f14eb615596afac84e"}
+{"source": "response-02.out", "operation": "jq: .", "file": "view-03.txt", "bytes": 1624, "sha256": "b0d007a4288c59fe62414264d81e2cf581aa9f61f9d6ecdc001c22f618d67c60"}
+{"source": "response-03.out", "operation": "jq: .", "file": "view-04.txt", "bytes": 2637, "sha256": "ab370498616a738b5bb3d2127f09d1fa4e8e92102ffdb0cb55b29605792d4d0c"}
+{"source": "response-04.out", "operation": "jq: .results // .", "file": "view-05.txt", "bytes": 13294, "sha256": "dabf8ecf20e5888c695159991057ded03075b913924b1749bd96d772bf1559da"}
+{"source": "response-05.out", "operation": "jq: .results // .", "file": "view-06.txt", "bytes": 716, "sha256": "819a2b7fe04118ed9cdd533acf4a48e2aaf52e02d551185c07fad2736e678804"}
+{"source": "response-06.out", "operation": "jq: .results // .", "file": "view-07.txt", "bytes": 735, "sha256": "50bc254cddcb3349603960e68c388972ed8090452b57a51fdb0782f18f28dcb6"}
+{"source": "response-07.out", "operation": "jq: {path, facts, fact_states, relationships, _links, traversal}", "file": "view-08.txt", "bytes": 255, "sha256": "3e9131b2ca4bf0923997dc415b0292ef6025b24cd0c785829dd0fdcde197a04f"}
+{"source": "response-08.out", "operation": "jq: {path, facts, fact_states, relationships, _links, traversal}", "file": "view-09.txt", "bytes": 1044, "sha256": "f4541cff3dcf37aa79cddb7a816abd3884117d07abde71d25c56ae9210c91a62"}
+{"source": "response-09.out", "operation": "jq: {path, facts, fact_states, relationships, _links, traversal}", "file": "view-10.txt", "bytes": 997, "sha256": "318a34b0744ba4eb841b0a366bc422c6295271200695ba1ae50000e0e33f9578"}
+{"source": "response-10.out", "operation": "jq: {path, facts, fact_states, relationships, _links, traversal}", "file": "view-11.txt", "bytes": 932, "sha256": "9fec88d7014e38b9f316260e90337e3ff9dda70e01ca18f9be2ef9822c0b822d"}
+{"source": "response-11.out", "operation": "jq: {path, facts, fact_states, relationships, _links, traversal}", "file": "view-12.txt", "bytes": 1019, "sha256": "d4091267cba132778500da652571e99181e4ccb3af0f7870d90cf341cf319b0a"}
+{"source": "response-12.out", "operation": "jq: {path, facts, fact_states, relationships, _links, traversal}", "file": "view-13.txt", "bytes": 755, "sha256": "6abffa778cf2e747506b752cceb62d7226f892d8b316fd950d085adc4703ce18"}
+{"source": "response-13.out", "operation": "jq: {path, facts, fact_states, relationships, _links, traversal}", "file": "view-14.txt", "bytes": 7033, "sha256": "990ddc0899327d2d972867a7ba1ccc3cd4fadf8332ba5544270ff0c63b93aa94"}
+{"source": "response-07.out", "operation": "jq error: keys, .data | keys", "file": "view-15.txt", "bytes": 107, "sha256": "77fcc3cfd23a12b4ece28bdea1dcf593ffddcb45c70507f74f82e6df7ad784ba"}
+{"source": "response-07.out", "operation": "jq: keys", "file": "view-16.txt", "bytes": 105, "sha256": "8e96eb592f36ac91cf8c2fbb7963f452ef97cf53f045415ae71ee1a1ab090edb"}
+{"source": "response-07.out", "operation": "jq: {format_version,selection,facet_order,bindings}", "file": "view-17.txt", "bytes": 1638, "sha256": "d0141c0b6ac957325a9958a00a25ab6bf237bd349e7b22e02bda9ab5c66f4b0b"}
+{"source": "response-07.out", "operation": "jq: {facets: [.facets[] | {key, input_rules, operators, values, effects}]}", "file": "view-18.txt", "bytes": 1495, "sha256": "e7882a581b28aa1b5f5646caa47c9852a9c720e420c64a1a33081a319d68d946"}
+{"source": "response-07.out", "operation": "jq: .facets | keys", "file": "view-19.txt", "bytes": 259, "sha256": "d55c87018f6afae4f8a3ed920fdf32254b5f52391db87e0bdd7b97380e9c40af"}
+{"source": "response-07.out", "operation": "jq: .facets | with_entries(select(.key == \"package\" or .key == \"prefix\" or .key == \"library-target\" or .key == \"library-literal\" or .key == \"depends\" or .key == \"dependency-depth\" or .key == \"dependency-target\"))", "file": "view-20.txt", "bytes": 6850, "sha256": "1f1c102ea221b5e3123ec51530b5dbb79e373ba17de787134481b78059a057cf"}
+{"source": "response-14.out", "operation": "jq: {path,facts,relationships,traversal}", "file": "view-21.txt", "bytes": 1812, "sha256": "1eaf394ee7c295ebc66b8dc22cbe128b7165ae0946c3dac291547dc1df3e7821"}
+{"source": "response-15.out", "operation": "jq: {path,facts,relationships,traversal}", "file": "view-22.txt", "bytes": 1018, "sha256": "6d0e03f6a25b742e5f6e81cf0d244809b84662c46d101871027a8453b24ac2d4"}
+{"source": "response-14.out", "operation": "jq: keys", "file": "view-23.txt", "bytes": 116, "sha256": "a64b0c6d0d561cbedac4be70324ea82763fb7e892ac28efade333e20cf641ee1"}
+{"source": "response-15.out", "operation": "jq: keys", "file": "view-24.txt", "bytes": 116, "sha256": "a64b0c6d0d561cbedac4be70324ea82763fb7e892ac28efade333e20cf641ee1"}

@@ -1,0 +1,27 @@
+{
+  "commands_unrun": [
+    {
+      "purpose": "Find Microsoft.Azure.SignalR whose net8.0 implementation-library decoded string-literal use contains https://",
+      "argv": ["dnx", "dotnet-inspect", "-y", "--", "package", "query", "Microsoft.Azure.SignalR", "--where", "library-literal=https://", "--tfm", "net8.0", "--json"]
+    },
+    {
+      "purpose": "Find Microsoft.Azure.SignalR with an exact Newtonsoft.Json dependency at declaration-edge depth 1, 2, or 3 for net8.0",
+      "argv": ["dnx", "dotnet-inspect", "-y", "--", "package", "query", "Microsoft.Azure.SignalR", "--where", "depends=Newtonsoft.Json", "--where", "dependency-depth=3", "--where", "dependency-target=net8.0", "--json"]
+    }
+  ],
+  "rules": {
+    "literal": "library-literal is an eq predicate on decoded UTF-16 text. It matches an ordinal substring of each decoded string-literal use in the selected implementation libraries. Preserve operand whitespace, newlines, case, and all other text without normalization. The accepted length is 1 through 1024 UTF-16 code units. Identical repeats collapse to one operand, while distinct operands are incompatible. An empty listed values array is not an allow list: any text meeting these constraints is accepted. A 600-character astral Unicode operand requires 1200 UTF-16 code units and is rejected. library-literal and --tfm require each other; --tfm supplies one exact target framework and cannot be expressed as --where library-target=... . This predicate requires package-content acquisition and a package-content provider.",
+    "dependency": "Exact depends=Newtonsoft.Json with dependency-depth=3 is the preferred new syntax; eq matches direct dependencies and transitive declaration paths through the selected maximum of three edges. Without depth, exact depends matches direct dependencies only. depends-transitive=Newtonsoft.Json is the legacy spelling and matches only paths of depth 2 through the chosen maximum, so a direct-only dependency does not match it. dependency-depth accepts only 2, 3, or 4, and requires an exact depends predicate or legacy depends-transitive plus an explicit dependency-target TFM. dependency-target=all and depth 1 are invalid for the second command. A starts-with depends predicate remains direct and cannot alone satisfy the depth prerequisite. Repeated exact dependency terms are ANDed and share traversal. The selected facet does not specify further package-ID case or Unicode normalization rules, so none are assumed.",
+    "candidate_vs_rows": "For a Microsoft.Azure.* prefix population, set --take 5 to bound package candidates inspected and -n 2 to limit final result rows, for example argv [\"dnx\",\"dotnet-inspect\",\"-y\",\"--\",\"package\",\"query\",\"Microsoft.Azure.*\",\"--take\",\"5\",\"-n\",\"2\",\"--where\",\"library-literal=https://\",\"--tfm\",\"net8.0\",\"--json\"]. The same bounds can be applied to a prefix dependency-depth query with its three --where predicates. Inspection predicates here admit at most five candidates; the exact package ID in the two main commands admits at most one. -n does not replace --take as the candidate-work bound.",
+    "completeness_and_unavailable_data": "The selected query-facet representations report Complete for the installed contract, and the Package Query route produces a completed document with matches, failures, and a completion summary. These commands were prepared but not run; no package match, absence, selected asset, or traversal outcome is asserted. Package content or nuspec acquisition and other unavailable source data can leave candidates unresolved or failed; inspect the query document's failure and completion information before treating missing matches as proof of absence. The evidence does not give further guarantees about unavailable data."
+  },
+  "provenance": {
+    "guide": "runner guide receipt, assigned .data selector and dnx invocation",
+    "discovery": ["response-02.out", "response-03.out", "response-04.out"],
+    "selected_contracts": ["response-05.out package-query/query .data", "response-06.out library-literal .data", "response-07.out depends .data", "response-08.out depends-transitive .data", "response-09.out dependency-depth .data", "response-10.out dependency-target .data", "response-18.out package .data", "response-19.out prefix .data", "response-20.out library-target .data"],
+    "other_contracts": ["response-11.out CLI binding", "response-12.out route", "response-13.out result document"]
+  },
+  "uncertainties": ["Package-ID normalization and case comparison are not specified by the selected facet facts.", "No commands were executed, so data availability and results for Microsoft.Azure.SignalR are unknown."],
+  "schema_navigation_friction": "Search results use resource_path rather than path, and selected .data responses place the main rule in facts while repeating it in facets and binding metadata. CLI options are described in a separate binding resource. The result document describes failures and completion but does not spell out a stronger unavailable-data inference rule.",
+  "truncated_tool_rendering": "The optional local JSON validation rendering was truncated by its display budget; all recorder product views used for the answer were complete."
+}

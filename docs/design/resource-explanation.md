@@ -1733,6 +1733,14 @@ byte/hash receipts distinguish retrieval from rendered content. This
 diagnostic sample supports a focused reading-guide/discovery experiment, not
 a general format ranking or retirement of the broader skill.
 
+The [minimal-instruction trials](../../tools/ExplainReadingScenarios/usability/minimal/README.md)
+remove table-name, HAL-vocabulary and sparse-property coaching. Two fresh
+participants per task and representation compare unfamiliar direct JSON with
+identified HAL using shared discovery instructions. Their retained answers
+and traces distinguish domain-task correctness from navigation and
+schema-exploration mistakes; this remains diagnostic evidence rather than a
+spontaneous-recognition gate or a general format ranking.
+
 ## Demo scenario
 
 `System.Text.Json@10.0.0` motivates the complete production flow:
