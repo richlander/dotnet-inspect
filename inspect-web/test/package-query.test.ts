@@ -15,6 +15,7 @@ import {
   initialQueryState,
   isLibraryLiteralQuery,
   shouldExecuteQuery,
+  synchronizeDependencyTermEditor,
   synchronizeDependencyTermEdits,
   togglePreset,
   replaceTerm,
@@ -425,7 +426,7 @@ test("dependency reach is query-wide across repeated exact terms", () => {
       ["Contoso.First", "Contoso.Second"]);
 });
 
-test("pending dependency edits follow applied shared reach and target", () => {
+test("pending dependency editors follow applied shared reach and target", () => {
     const first = withDependencyTerm(
       createQueryRequest("Contoso.*"),
       DEPENDS_TERM,
@@ -481,6 +482,19 @@ test("pending dependency edits follow applied shared reach and target", () => {
       dependencyReach: "3",
       dependencyTarget: "net9.0",
     });
+    assert.deepEqual(
+      synchronizeDependencyTermEditor(next, {
+        operator: "eq",
+        value: "Contoso.Pending",
+        dependencyReach: "2",
+        dependencyTarget: "net10.0",
+      }),
+      {
+        operator: "eq",
+        value: "Contoso.Pending",
+        dependencyReach: "3",
+        dependencyTarget: "net9.0",
+      });
 });
 
 test("Ecosystem requests preserve curated identity with 24 initial and 96 maximum matches", () => {

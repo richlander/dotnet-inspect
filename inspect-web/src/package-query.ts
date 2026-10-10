@@ -276,6 +276,17 @@ export function dependencyTarget(request: QueryRequest): string {
     ?? request.targetFramework;
 }
 
+export function synchronizeDependencyTermEditor(
+  request: QueryRequest,
+  editor: QueryTermEditor,
+): QueryTermEditor {
+  return {
+    ...editor,
+    dependencyReach: dependencyReach(request),
+    dependencyTarget: dependencyTarget(request),
+  };
+}
+
 export function withDependencyTerm(
   request: QueryRequest,
   descriptor: QueryTermDescriptor,
@@ -408,18 +419,12 @@ export function synchronizeDependencyTermEdits(
   next: QueryRequest,
   edits: readonly (QueryTermEditor | null)[],
 ): readonly (QueryTermEditor | null)[] {
-  const reach = dependencyReach(next);
-  const target = dependencyTarget(next);
   return next.terms.map(term => {
     const previousIndex = previous.terms.indexOf(term);
     if (previousIndex < 0) return null;
     const edit = edits[previousIndex] ?? null;
     if (!edit || term.descriptor.key !== "depends") return edit;
-    return {
-      ...edit,
-      dependencyReach: reach,
-      dependencyTarget: target,
-    };
+    return synchronizeDependencyTermEditor(next, edit);
   });
 }
 
