@@ -1208,8 +1208,10 @@ simple `-n N` query pushes that semantic head into execution; explicit
 candidate limits and partial failures are reported explicitly. `--count`
 counts the selected matching package rows that the same query would render,
 with the same completion warnings and exit status. A reached candidate bound or
-partial failure therefore yields an observed count, not the scope's total; only
-a search that fails before evaluating any candidate prints no count.
+partial failure therefore yields an observed count, not the scope's total.
+Incompleteness alone never withholds the count: only a search that fails before
+evaluating any candidate prints none, and an unsatisfied strict `--rows` window
+fails as it does for rows.
 
 Package Query output adapts after execution. The default renders `Packages`
 when at least one package matched and `Query Summary` otherwise. The summary
