@@ -89,6 +89,34 @@ to set; the contract suite fixes the slack explicitly per case). Every
 refusal of a bound settles as `ResponseRejected`, the kind every existing
 NuGetFetch bound uses; `InvalidResponse` is reserved for malformed structure.
 
+### Reopening with retained directory evidence
+
+A caller may supply an existing `ZipDirectory` to `OpenArchiveAsync` when its
+own acquisition contract guarantees that it describes the same immutable
+archive at the exact coordinate and authorized source. This is a resource-free
+input, not a retained reader or operation lease. The capability rechecks the
+directory region under the new `ZipReadLimits`, derives the archive length,
+and opens a fresh reader without a DirectoryTail or DirectoryHead transfer.
+A conflicting separately supplied known length fails visibly.
+
+The new reader resolves the source and credentials again and uses the new
+operation's deadline and cancellation. Entry reads retain the existing HTTP
+response, local-header, expanded-size and CRC checks. Existing within-reader
+representation-change refusal remains. Neither a bare package ID/version nor
+an unvalidated directory region authorizes this input: the caller retains its
+existing source-authority binding. Cache policy owns when retained evidence is
+applicable; this capability does not create a cache or choose transfer policy.
+
+The motivating asset is `Newtonsoft.Json@13.0.4`, `net6.0`, whose website
+Summary and later exact Library request currently read the same 65,557-byte
+directory tail twice. The first adopter is the shared Package acquisition
+entry-cache path under [package cache policy](package-cache-policy.md), used
+by CLI and Browser/Wasm. Its independently reviewable successor supplies the
+already validated, authority-scoped cached directory. Focused range tests
+must dispose the first reader, reopen under a new operation without a
+directory request, preserve entry bytes and credentials, and enforce new
+limits and cancellation. This prerequisite alone makes no latency claim.
+
 ### Library placement
 
 The capability is two host-neutral libraries below NuGetFetch and one
