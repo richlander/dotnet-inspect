@@ -169,8 +169,9 @@ internal sealed class PackageQueryVocabulary
                         term.Predicate.Kind == PackageQueryPredicateKind.Package))
                         return maximum == 1;
                     if (terms.Any(term =>
-                            term.Predicate.Kind
-                                == PackageQueryPredicateKind.DependsTransitive)
+                            term.Predicate.Kind is
+                                PackageQueryPredicateKind.DependsTransitive
+                                or PackageQueryPredicateKind.DependencyDepth)
                         && maximum
                             > PackageQuery.MaximumNuspecExpensiveCandidates)
                     {

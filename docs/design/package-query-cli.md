@@ -144,9 +144,9 @@ The production inspection vocabulary is:
 | --- | --- | --- | --- | --- |
 | `dependencies` | `none` or `cross-prefix` | nuspec | nuspec | No declarations, or at least one declaration outside the package's first dot-delimited ID segment |
 | `dependency-target` | `all` or NuGet TFM | nuspec | nuspec | Scope dependency terms to every group or one compatible selected group |
-| `depends` | NuGet package ID or literal prefix | nuspec | nuspec | With `eq`, a direct dependency with the exact package ID; with `starts-with`, a direct dependency whose package ID begins with the prefix in the selected dependency scope |
-| `depends-transitive` | NuGet package ID | nuspec | nuspec-expensive | Source-authorized declared dependency reached at depth 2 through the selected maximum depth |
-| `dependency-depth` | `2`, `3`, or `4` | nuspec | nuspec-expensive | Maximum declaration-edge depth for transitive dependency terms |
+| `depends` | NuGet package ID or literal prefix | nuspec | nuspec | With `eq`, a direct dependency or, when depth is present, source-authorized reachability within that maximum; with `starts-with`, a direct dependency whose package ID begins with the prefix in the selected dependency scope |
+| `depends-transitive` | NuGet package ID | nuspec | nuspec-expensive | Legacy spelling for source-authorized declared dependency reached at depth 2 through the selected maximum depth |
+| `dependency-depth` | `2`, `3`, or `4` | nuspec | nuspec-expensive | Maximum declaration-edge depth for exact `depends` and legacy `depends-transitive` terms |
 | `depends-ecosystem` | canonical ecosystem ID | nuspec | nuspec | Direct dependency belonging to the ecosystem's registered package population |
 | `downloads` | `10k`, `100k`, or `1m` | search metadata | search metadata | Lifetime downloads meet the closed threshold |
 | `license` | `any`, `MIT`, or `OSMF` | nuspec | nuspec | A license declaration exists, or its nuspec metadata identifies the selected license |
@@ -197,7 +197,7 @@ dotnet-inspect package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 
 dotnet-inspect package query Microsoft.Extensions.Http \
-  --where "depends-transitive=Microsoft.Extensions.Primitives" \
+  --where "depends=Microsoft.Extensions.Primitives" \
   --where "dependency-target=net10.0" \
   --where "dependency-depth=2" --take 1
 
@@ -250,11 +250,15 @@ semantic matches enter `PackageQueryDocument.Results`; complete occurrences,
 selected-library context, exact Root reopening, assessments, failures, and
 Summary accounting remain typed content in the same Document.
 
-`depends=<package-id>` uses NuGet package-ID comparison semantics and matches
-one exact direct dependency. Without `dependency-target`, or with
-`dependency-target=all`, dependency predicates inspect every nuspec group.
-`all` is Package Query scope rather than a target-framework identity and is
-distinct from a manifest's real `any` group.
+`depends=<package-id>` uses NuGet package-ID comparison semantics. Without
+`dependency-depth`, it matches one exact direct dependency. With
+`dependency-depth=2|3|4`, it matches a direct or transitive declaration path
+within that maximum edge depth. Traversal requires one exact
+`dependency-target=<tfm>`; `all` is rejected because every traversed manifest
+needs one framework-selection policy. Without traversal and without
+`dependency-target`, or with `dependency-target=all`, dependency predicates
+inspect every nuspec group. `all` is Package Query scope rather than a
+target-framework identity and is distinct from a manifest's real `any` group.
 
 `depends starts-with <prefix>` uses the Source Selection owner's literal
 `PackagePrefixDeclaration` validation and ordinal case-insensitive matching.
@@ -294,27 +298,28 @@ requires at least one `depends`, `depends-ecosystem`, `depends-transitive`, or
 `dependencies` term, applies to all such terms in the query, and does not
 traverse, resolve version ranges, or select package assets.
 
-`depends-transitive=<package-id>` is distinct from `depends`: it matches only
-resolved declaration edges at depth 2 through the explicit
-`dependency-depth=2|3|4` boundary, so a direct-only dependency does not match.
-The term requires one explicit `dependency-target=<tfm>`; `all` is rejected
-because traversal needs one framework-selection policy for every manifest.
-The root and every traversed manifest use the dependency-group owner's
-compatible selection for that requested target. Candidate resolution uses the
-existing source-authorized declared-range query and therefore does not claim
-NuGet restore, lock-file, or asset-selection equivalence.
+`depends-transitive=<package-id>` remains a compatibility spelling. Unlike
+`depends` with depth, it matches only resolved declaration edges at depth 2
+through the explicit `dependency-depth=2|3|4` boundary, so a direct-only
+dependency does not match. New host experiences author `depends` plus depth.
+Both spellings require one explicit `dependency-target=<tfm>`. The root and
+every traversed manifest use the dependency-group owner's compatible selection
+for that requested target. Candidate resolution uses the existing
+source-authorized declared-range query and therefore does not claim NuGet
+restore, lock-file, or asset-selection equivalence.
 
-One transitive query admits at most five package candidates. Within each
+One depth-bounded query admits at most five package candidates. Within each
 candidate it admits at most 32 acquired manifest projections and 128
-declaration resolutions. Repeated transitive terms AND and share one traversal
-of that candidate. A candidate-resolution, manifest-acquisition, projection,
+declaration resolutions. Repeated exact dependency terms AND and share one traversal of that candidate.
+Legacy transitive terms share the same traversal. A candidate-resolution,
+manifest-acquisition, projection,
 or work-budget failure anywhere inside the requested depth makes that
 candidate a visible dependency-traversal failure; partial evidence never
 becomes a semantic match or non-match. Reaching the explicit depth boundary is
 successful because every edge through that boundary is known without
 acquiring endpoint manifests.
 
-Transitive evidence counts matching admitted declaration edges. Each preview
+Traversal evidence counts matching admitted declaration edges. Each preview
 is one deterministic shortest root path constructed from the declared version
 ranges and resolved exact package coordinates for that edge. The shared
 160-character `InertString` display budget applies after construction, so a

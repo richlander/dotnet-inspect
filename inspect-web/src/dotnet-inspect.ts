@@ -703,17 +703,25 @@ import {
   createEcosystemQueryRequest,
   createPackageQueryController,
   createQueryRequest,
+  dependencyReach as selectedDependencyReach,
+  dependencyTarget as selectedDependencyTarget,
   ECOSYSTEM_PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
   initialQueryState,
+  isTraversalDependencyTarget,
   shouldExecuteQuery,
+  synchronizeDependencyTermEditor,
+  synchronizeDependencyTermEdits,
   togglePreset,
   replaceTerm,
   withTerm,
+  withDependencyTerm,
+  withoutDependencyTerm,
   withoutTerm,
   withEditorDraft,
   withSourceSelection,
   withScopeQuery,
   type PackageQueryState,
+  type DependencyReach,
   type QueryPreset,
   type QueryRequest,
   type QuerySourceSelection,
@@ -21002,7 +21010,12 @@ function togglePackageQueryPreset(presetId: string, text: string) {
   }
 
   const current = preparePackageQueryControlRequest(text);
-  submitPackageQueryRequest(togglePreset(current, preset));
+  const request = togglePreset(current, preset);
+  if (preset.key === "dependencies"
+    || preset.key === "dependency-depth") {
+    synchronizePackageQueryDependencyEditors(current, request);
+  }
+  submitPackageQueryRequest(request);
 }
 
 function addPackageQueryTerm(termKey: string, initialValue = "") {
@@ -21019,6 +21032,16 @@ function addPackageQueryTerm(termKey: string, initialValue = "") {
     descriptor,
     operator: descriptor.operators[0] ?? "",
     value: initialValue,
+    ...(descriptor.key === "depends"
+      ? {
+          dependencyReach: selectedDependencyReach(
+            state.packageQueryState.request
+              ?? createQueryRequest(state.packageQueryPrefix)),
+          dependencyTarget: selectedDependencyTarget(
+            state.packageQueryState.request
+              ?? createQueryRequest(state.packageQueryPrefix)),
+        }
+      : {}),
   };
   state.packageQueryNavigationError = "";
   render();
@@ -21027,11 +21050,33 @@ function addPackageQueryTerm(termKey: string, initialValue = "") {
       ?.focus());
 }
 
+function synchronizePackageQueryDependencyDraft(request: QueryRequest) {
+  const draft = state.packageQueryState.termDraft;
+  if (draft?.descriptor.key !== "depends") return;
+  state.packageQueryState.termDraft = {
+    ...draft,
+    ...synchronizeDependencyTermEditor(request, draft),
+  };
+}
+
+function synchronizePackageQueryDependencyEditors(
+  previous: QueryRequest,
+  next: QueryRequest,
+) {
+  state.packageQueryState.termEdits = synchronizeDependencyTermEdits(
+    previous,
+    next,
+    state.packageQueryState.termEdits ?? []);
+  synchronizePackageQueryDependencyDraft(next);
+}
+
 function applyPackageQueryTerm(
   index: number | null,
   operator: string,
   value: string,
   text: string,
+  dependencyReach: DependencyReach = "direct",
+  dependencyTargetValue = "net10.0",
 ) {
   const descriptor = index === null
     ? state.packageQueryState.termDraft?.descriptor
@@ -21044,12 +21089,52 @@ function applyPackageQueryTerm(
   }
 
   const current = preparePackageQueryControlRequest(text);
-  const request = index === null
-    ? withTerm(current, descriptor, operator, value)
-    : replaceTerm(current, index, operator, value);
+  let request: QueryRequest;
+  if (descriptor.key === "depends") {
+    const depthPreset = dependencyReach === "direct"
+      ? null
+      : state.packageQueryPresets.find(preset =>
+          preset.key === "dependency-depth"
+          && preset.value === dependencyReach) ?? null;
+    const targetDescriptor = state.packageQueryTerms.find(
+      term => term.key === "dependency-target") ?? null;
+    if (dependencyReach !== "direct"
+      && (!depthPreset || !targetDescriptor)) {
+      state.packageQueryNavigationError =
+        "Dependency reach controls are unavailable.";
+      render();
+      return;
+    }
+    if (dependencyReach !== "direct"
+      && !isTraversalDependencyTarget(dependencyTargetValue)) {
+      state.packageQueryNavigationError =
+        "Bounded dependency reach requires an exact target framework.";
+      render();
+      return;
+    }
+    request = withDependencyTerm(
+      current,
+      descriptor,
+      index,
+      operator,
+      value,
+      dependencyReach,
+      dependencyTargetValue,
+      depthPreset,
+      targetDescriptor);
+  } else {
+    request = index === null
+      ? withTerm(current, descriptor, operator, value)
+      : replaceTerm(current, index, operator, value);
+  }
+  const changesDependencyContext = descriptor.key === "depends"
+    || descriptor.key === "dependency-target";
+  if (changesDependencyContext) {
+    synchronizePackageQueryDependencyEditors(current, request);
+  }
   if (index === null) {
     state.packageQueryState.termDraft = null;
-  } else {
+  } else if (descriptor.key !== "depends") {
     const edits = [...(state.packageQueryState.termEdits ?? [])];
     edits[index] = null;
     state.packageQueryState.termEdits = edits;
@@ -21059,16 +21144,31 @@ function applyPackageQueryTerm(
 
 function removePackageQueryTerm(index: number, text: string) {
   const current = preparePackageQueryControlRequest(text);
-  state.packageQueryState.termEdits =
-    (state.packageQueryState.termEdits ?? []).filter(
-      (_edit, termIndex) => termIndex !== index);
-  submitPackageQueryRequest(withoutTerm(current, index));
+  const termKey = current.terms[index]?.descriptor.key;
+  const dependency = termKey === "depends";
+  const changesDependencyContext = dependency
+    || termKey === "depends-transitive"
+    || termKey === "depends-ecosystem"
+    || termKey === "dependency-target";
+  const request = dependency
+    ? withoutDependencyTerm(current, index)
+    : withoutTerm(current, index);
+  if (changesDependencyContext) {
+    synchronizePackageQueryDependencyEditors(current, request);
+  } else {
+    state.packageQueryState.termEdits =
+      (state.packageQueryState.termEdits ?? []).filter(
+        (_edit, termIndex) => termIndex !== index);
+  }
+  submitPackageQueryRequest(request);
 }
 
 function editPackageQueryTerm(
   index: number | null,
   operator: string,
   value: string,
+  dependencyReach?: DependencyReach,
+  dependencyTargetValue?: string,
 ) {
   if (index === null) {
     const draft = state.packageQueryState.termDraft;
@@ -21076,12 +21176,23 @@ function editPackageQueryTerm(
       ...draft,
       operator,
       value,
+      ...(dependencyReach === undefined ? {} : { dependencyReach }),
+      ...(dependencyTargetValue === undefined
+        ? {}
+        : { dependencyTarget: dependencyTargetValue }),
     };
     return;
   }
   if (!state.packageQueryState.request?.terms[index]) return;
   const edits = [...(state.packageQueryState.termEdits ?? [])];
-  edits[index] = { operator, value };
+  edits[index] = {
+    operator,
+    value,
+    ...(dependencyReach === undefined ? {} : { dependencyReach }),
+    ...(dependencyTargetValue === undefined
+      ? {}
+      : { dependencyTarget: dependencyTargetValue }),
+  };
   state.packageQueryState.termEdits = edits;
 }
 

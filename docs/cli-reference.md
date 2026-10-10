@@ -1084,14 +1084,15 @@ dotnet-inspect package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 ```
 
-Use `depends-transitive=<package-id>` for source-authorized declared-range
-reachability beyond a direct dependency. It requires one exact
-`dependency-target=<TFM>` and an explicit `dependency-depth=2|3|4`; the
-expensive query is limited to five package candidates:
+Add `dependency-depth=2|3|4` to an exact `depends=<package-id>` term for
+source-authorized declared-range reachability. The match is inclusive: direct
+dependencies and transitive paths within the selected maximum depth qualify.
+It requires one exact `dependency-target=<TFM>`; the expensive query is
+limited to five package candidates:
 
 ```bash
 dotnet-inspect package query Microsoft.Extensions.Http \
-  --where "depends-transitive=Microsoft.Extensions.Primitives" \
+  --where "depends=Microsoft.Extensions.Primitives" \
   --where "dependency-target=net10.0" \
   --where "dependency-depth=2" --take 1
 ```
@@ -1100,8 +1101,9 @@ The result is not a NuGet restore claim. Evidence counts matching declaration
 edges and previews deterministic shortest paths built from declared ranges and
 resolved exact package coordinates. The shared 160-character display budget
 may shorten a preview, so it is not a complete path record or package
-coordinate. A direct-only dependency does not satisfy the transitive term, and
-incomplete traversal remains a visible failure.
+coordinate. The legacy `depends-transitive` spelling remains available when a
+depth-2-or-greater-only match is required. Incomplete traversal remains a
+visible failure.
 
 Use `dependencies=cross-prefix` to find packages with a direct dependency from a
 different first dot-delimited package-ID segment. It uses the same
