@@ -2977,6 +2977,11 @@ artifact-scope and compile-role cases in `BrowserEngineBoundaryTests`.
 gates the real CLI command over a source-scoped cached package, including
 default, explicit, legacy framework spellings, all-framework, and mixed
 surface/implementation selections.
+Its all-framework case, and the `all-frameworks` case of
+`PackageCommand_LocalInspectionSelectionPreservesSupportedShapes`, become
+rejection gates under
+[All-frameworks package discovery](package-tfm-all-discovery.md), because
+`package --library --tfm all` fails before acquisition.
 The verbose artifact-backed route message is emitted only after successful
 shared realization, so the gate covers actual adoption rather than eligibility
 alone. #5917 supplied the bounded compile-role expansion; #5840 preserves that

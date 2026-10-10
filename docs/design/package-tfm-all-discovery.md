@@ -109,6 +109,11 @@ The CLI does not yet meet this contract. Observed on main:
   framework's children document.
 - `-S "Dependency Hierarchy"` fails with an internal exception.
 - `type --package <id> --tfm all` fails after acquisition.
+- `package --library --tfm all` succeeds under the all-framework cases of
+  `PackageCommand_ExplicitTfmPreservesSelectionAndUsesCompatibleArtifactRoles`
+  and `PackageCommand_LocalInspectionSelectionPreservesSupportedShapes`, which
+  [Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md)
+  names as gates.
 - Non-package targets accept `--tfm all` and inspect their single assembly;
   `BodyShapesSectionTests.TfmAll_StaysOutsideTheDeclaration`,
   `LibraryCommand_TfmAll_PlatformRouteRetainsSingleShapeOutput`, and
@@ -120,17 +125,19 @@ The CLI does not yet meet this contract. Observed on main:
   and `package query` returns zero matches.
 
 The adoption under #9833 updates that tool gate's selected-TFM assertions and
-replaces the non-package gates above with rejection gates. It declares the
-projection's QuerySpace producer capabilities for Count and row windows, skips
-the binary-signal scan under `--tfm all`, adds one shared pre-acquisition
-admission check, classifies every `package` section against this table, and
-gates each row. It also retires the IL-reading `--tfm all` code paths and the
-`--tfm all` descriptions and gates in [Integrations](integrations.md),
-[Inspection space](../inspection-space.md), [Assembly inspection
-query](assembly-inspection-query.md), [CLI row
+replaces the non-package and `package --library` gates above with rejection
+gates. It declares the projection's QuerySpace producer capabilities for Count
+and row windows, skips the binary-signal scan under `--tfm all`, adds one
+shared pre-acquisition admission check, classifies every `package` section
+against this table, and gates each row. It also retires the IL-reading `--tfm
+all` code paths and the `--tfm all` descriptions and gates in
+[Integrations](integrations.md), [Inspection space](../inspection-space.md),
+[Assembly inspection query](assembly-inspection-query.md), [CLI row
 selection](cli-row-selection.md), [CLI architecture](../cli-architecture.md),
 [Find search service](find-search-service.md), [Untrusted data threat
-model](untrusted-data-threat-model.md), and [Assembly
-audit](../assembly-audit.md), and the default-request format statements in [CLI
+model](untrusted-data-threat-model.md), [Assembly audit](../assembly-audit.md),
+[Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md),
+and the all-TFM row of [Command transition model](command-transition-model.md),
+and the default-request format statements in [CLI
 reference](../cli-reference.md) and [Primary subject
 views](primary-subject-views.md).
