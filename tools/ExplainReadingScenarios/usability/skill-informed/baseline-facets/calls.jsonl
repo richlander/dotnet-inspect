@@ -1,0 +1,7 @@
+{"id": 1, "argv": ["package", "query", "-Q", "Packages", "--json"], "exit": 0, "stdout_bytes": 7748, "stderr_bytes": 0, "stdout_file": "response-01.out", "stderr_file": "response-01.err"}
+{"id": 2, "argv": ["explain", "package-query/query", ".hal", "--json"], "exit": 0, "stdout_bytes": 16149, "stderr_bytes": 0, "stdout_file": "response-02.out", "stderr_file": "response-02.err"}
+{"id": 3, "argv": ["explain", "inspect-resource:/package-query/query/facets/depends-transitive?projection=hal", "--json"], "exit": 0, "stdout_bytes": 1938, "stderr_bytes": 0, "stdout_file": "response-03.out", "stderr_file": "response-03.err"}
+{"id": 4, "argv": ["explain", "inspect-resource:/package-query/query/facets/dependency-depth?projection=hal", "--json"], "exit": 0, "stdout_bytes": 1849, "stderr_bytes": 0, "stdout_file": "response-04.out", "stderr_file": "response-04.err"}
+{"id": 5, "argv": ["explain", "inspect-resource:/package-query/query/facets/library-literal?projection=hal", "--json"], "exit": 0, "stdout_bytes": 3188, "stderr_bytes": 0, "stdout_file": "response-05.out", "stderr_file": "response-05.err"}
+{"id": 6, "argv": ["explain", "inspect-resource:/package-query/query/facets/library-target?projection=hal", "--json"], "exit": 0, "stdout_bytes": 840, "stderr_bytes": 0, "stdout_file": "response-06.out", "stderr_file": "response-06.err"}
+{"id": 7, "argv": ["explain", "inspect-resource:/package-query/bindings/cli", "--json"], "exit": 0, "stdout_bytes": 7209, "stderr_bytes": 0, "stdout_file": "response-07.out", "stderr_file": "response-07.err"}

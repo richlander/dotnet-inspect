@@ -152,9 +152,14 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         foreach (LoadArgument load in body.Descendants.OfType<LoadArgument>().ToList())
         {
             int parameterIndex = load.Index - (function.Signature.HasThis ? 1 : 0);
-            if (parameterIndex < 0 || parameterIndex >= function.Signature.Parameters.Length)
+            Parameter? parameter = load.Index == 0 && function.Signature.HasThis
+                ? function.ReceiverParameter
+                : parameterIndex >= 0 && parameterIndex < function.Signature.Parameters.Length
+                    ? function.Signature.Parameters[parameterIndex]
+                    : null;
+            if (parameter is null)
                 continue;
-            var bound = new LoadArgument(load.Index, function.Signature.Parameters[parameterIndex])
+            var bound = new LoadArgument(load.Index, parameter)
             {
                 IsDynamic = load.IsDynamic,
                 ArrayElementIsDynamic = load.ArrayElementIsDynamic,

@@ -1,3 +1,4 @@
+using ILInspector.DecompilerHarness;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -9,7 +10,10 @@ namespace ILInspector.Decompiler.Tests;
 /// parameter type or from the other operand of a comparison, and a coalesce
 /// of two disjoint proven references stored to an <c>object</c>-observed
 /// carrier receives the one reference-conversion witness C# needs so it
-/// materializes as <c>object S = ((object)left) ?? right</c>.
+/// materializes as <c>object S = ((object)left) ?? right</c>. A same-block
+/// self-coalesce may also close a narrow reference carrier and begin a widened
+/// carrier when importer-issued facts prove both operands assignable to the
+/// later loads' one target.
 /// </summary>
 [Trait("Area", "Pass")]
 public class ArgumentSinkTestimonyTests
@@ -17,6 +21,7 @@ public class ArgumentSinkTestimonyTests
     static readonly TypeRef Holder = TypeRef.Definition("Synthetic", "Samples", "Holder", ValueTypeHint.ReferenceType);
     static readonly TypeRef Alpha = TypeRef.Definition("Synthetic", "Samples", "Alpha", ValueTypeHint.ReferenceType);
     static readonly TypeRef Beta = TypeRef.Definition("Synthetic", "Samples", "Beta", ValueTypeHint.ReferenceType);
+    static readonly TypeRef BaseReference = TypeRef.Definition("Synthetic", "Samples", "BaseReference", ValueTypeHint.ReferenceType);
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef String = TypeRef.CoreLib("System", "String");
@@ -305,6 +310,216 @@ public class ArgumentSinkTestimonyTests
         Assert.Throws<InvalidOperationException>(() => RunTail(function, slotTargetBindingDone: true));
     }
 
+    [Fact]
+    public void SelfWideningReferenceCoalesceStartsANewCarrier()
+    {
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(
+            0,
+            new LoadArgument(0, "alpha", Alpha)));
+        block.Add(new StoreStackSlot(
+            0,
+            new Coalesce(
+                new LoadStackSlot(0, Alpha),
+                new LoadArgument(1, "beta", Beta))));
+        block.Add(new Return(new LoadStackSlot(0, BaseReference)));
+        var function = Function(
+            BaseReference,
+            block,
+            [
+                new Parameter("alpha", Alpha),
+                new Parameter("beta", Beta),
+            ]);
+        AddSelfWideningReferenceFacts(function);
+
+        new StackSlotLiveRangePass().Run(
+            function,
+            PassContext.None);
+
+        var slots = function.Descendants
+            .OfType<StoreStackSlot>()
+            .Select(static store => store.Slot)
+            .Distinct()
+            .Order()
+            .ToArray();
+        Assert.Equal([0, StoreStackSlot.DupSlotBase], slots);
+
+        new ReferenceSlotTargetBindingPass().Run(
+            function,
+            PassContext.None);
+        var coalesce = Assert.Single(
+            function.Descendants.OfType<Coalesce>());
+        var witness = Assert.IsType<Coerce>(coalesce.Left);
+        Assert.Equal(CoercionKind.ReferenceWitness, witness.Kind);
+        Assert.Equal(BaseReference, witness.Target);
+        Assert.Equal(BaseReference, coalesce.AssignmentType);
+
+        string output = RunTail(
+            function,
+            slotTargetBindingDone: true);
+        Assert.Empty(function.ResidualSlotBindings);
+        Assert.Contains("Alpha S_0 = alpha;", output);
+        Assert.Contains(
+            "BaseReference S_256 = ((BaseReference)S_0) ?? beta;",
+            output);
+        Assert.Contains("return S_256;", output);
+    }
+
+    [Fact]
+    public void SelfCoalesceWithoutImporterWideningStaysOneCarrier()
+    {
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(
+            0,
+            new LoadArgument(0, "alpha", Alpha)));
+        block.Add(new StoreStackSlot(
+            0,
+            new Coalesce(
+                new LoadStackSlot(0, Alpha),
+                new LoadArgument(1, "beta", Beta))));
+        block.Add(new Return(new LoadStackSlot(0, BaseReference)));
+        var function = Function(
+            BaseReference,
+            block,
+            [
+                new Parameter("alpha", Alpha),
+                new Parameter("beta", Beta),
+            ]);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape>
+        {
+            [Alpha] = TypeShape.Reference,
+            [Beta] = TypeShape.Reference,
+            [BaseReference] = TypeShape.Reference,
+        };
+
+        new StackSlotLiveRangePass().Run(
+            function,
+            PassContext.None);
+
+        Assert.All(
+            function.Descendants.OfType<StoreStackSlot>(),
+            static store => Assert.Equal(0, store.Slot));
+        Assert.All(
+            function.Descendants.OfType<LoadStackSlot>(),
+            static load => Assert.Equal(0, load.Slot));
+    }
+
+    [Fact]
+    public void LaterSelfCoalesceReadingTheResultStaysOneCarrier()
+    {
+        var consume = new MethodRef(
+            Holder,
+            "Consume",
+            Void,
+            [BaseReference],
+            HasThis: false);
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(
+            0,
+            new LoadArgument(0, "alpha", Alpha)));
+        block.Add(new StoreStackSlot(
+            0,
+            new Coalesce(
+                new LoadStackSlot(0, Alpha),
+                new LoadArgument(1, "beta", Beta))));
+        block.Add(new ExpressionStatement(new Call(
+            consume,
+            isVirtual: false,
+            [new LoadStackSlot(0, BaseReference)])));
+        block.Add(new StoreStackSlot(
+            0,
+            new Coalesce(
+                new LoadStackSlot(0, BaseReference),
+                new LoadArgument(2, "gamma", Beta))));
+        block.Add(new Return(new LoadStackSlot(0, BaseReference)));
+        var function = Function(
+            BaseReference,
+            block,
+            [
+                new Parameter("alpha", Alpha),
+                new Parameter("beta", Beta),
+                new Parameter("gamma", Beta),
+            ]);
+        AddSelfWideningReferenceFacts(function);
+
+        new StackSlotLiveRangePass().Run(
+            function,
+            PassContext.None);
+
+        AssertOnlySlotZero(function);
+    }
+
+    [Fact]
+    public void SelfWideningReferenceCoalesceInStructuredLoopStaysOneCarrier()
+    {
+        var loopBody = new Block(1);
+        loopBody.Add(new StoreStackSlot(
+            0,
+            new LoadArgument(0, "alpha", Alpha)));
+        loopBody.Add(new StoreStackSlot(
+            0,
+            new Coalesce(
+                new LoadStackSlot(0, Alpha),
+                new LoadArgument(1, "beta", Beta))));
+        loopBody.Add(new Return(new LoadStackSlot(0, BaseReference)));
+        var block = new Block(0);
+        block.Add(new WhileLoop(
+            new LoadArgument(2, "again", Bool),
+            loopBody));
+        block.Add(new Return(new LoadArgument(1, "beta", Beta)));
+        var function = Function(
+            BaseReference,
+            block,
+            [
+                new Parameter("alpha", Alpha),
+                new Parameter("beta", Beta),
+                new Parameter("again", Bool),
+            ]);
+        AddSelfWideningReferenceFacts(function);
+
+        new StackSlotLiveRangePass().Run(
+            function,
+            PassContext.None);
+
+        AssertOnlySlotZero(function);
+    }
+
+    [Fact]
+    public void SelfWideningReferenceCoalesceInStructuredEhStaysOneCarrier()
+    {
+        var tryBlock = new Block(1);
+        tryBlock.Add(new StoreStackSlot(
+            0,
+            new LoadArgument(0, "alpha", Alpha)));
+        tryBlock.Add(new StoreStackSlot(
+            0,
+            new Coalesce(
+                new LoadStackSlot(0, Alpha),
+                new LoadArgument(1, "beta", Beta))));
+        tryBlock.Add(new Return(new LoadStackSlot(0, BaseReference)));
+        var tryBody = new BlockContainer();
+        tryBody.Add(tryBlock);
+        var block = new Block(0);
+        block.Add(new TryFinally(
+            tryBody,
+            new BlockContainer()));
+        block.Add(new Return(new LoadArgument(1, "beta", Beta)));
+        var function = Function(
+            BaseReference,
+            block,
+            [
+                new Parameter("alpha", Alpha),
+                new Parameter("beta", Beta),
+            ]);
+        AddSelfWideningReferenceFacts(function);
+
+        new StackSlotLiveRangePass().Run(
+            function,
+            PassContext.None);
+
+        AssertOnlySlotZero(function);
+    }
+
     [Theory]
     [InlineData("Microsoft.CodeAnalysis.CodeGen.SynthesizedStaticField", "ToString", "object S_1 = ((object)S_256) ?? _type;")]
     [InlineData("Microsoft.CodeAnalysis.CodeGen.DataSectionStringType.DataSectionStringField", "ToString", "object S_1 = ((object)S_256) ?? base.ContainingTypeDefinition;")]
@@ -325,6 +540,56 @@ public class ArgumentSinkTestimonyTests
         Assert.Contains("object S_1", result.Output);
         Assert.DoesNotContain("var S_1", result.Output);
         Assert.DoesNotContain(function.ResidualSlotBindings.Values, static binding => binding.Slot == 1);
+    }
+
+    [Theory]
+    [InlineData("GetAccessorOrPropertyLocation")]
+    [InlineData("GetAccessorOrEventLocation")]
+    public void RealRoslynSelfWideningCoalescesMaterialize(
+        string methodName)
+    {
+        const string typeName =
+            "Microsoft.CodeAnalysis.CSharp.Symbols.SourceMemberContainerTypeSymbol";
+        string assets = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets");
+        string commonPath = Path.Combine(
+            assets,
+            "PrimitiveJoin",
+            "Microsoft.CodeAnalysis.dll");
+        string csharpPath = Path.Combine(
+            assets,
+            "ReferenceCoalesceLiveRange",
+            "Microsoft.CodeAnalysis.CSharp.dll");
+        using var metadata = CorpusMetadata.Create(
+            [commonPath, csharpPath]);
+        using var source = MetadataSource.Open(
+            csharpPath,
+            context: metadata);
+        var function = IrImporter.Import(
+            source,
+            typeName,
+            methodName);
+        Assert.NotNull(function);
+
+        IrPasses.Run(
+            function,
+            IrPasses.Default,
+            PassContext.ForImport(
+                reference => IrImporter.Import(source, reference),
+                source.AreProvablyDisjoint));
+        var result = DecidedPrint.Print(function);
+
+        Assert.DoesNotContain(
+            function.ResidualSlotBindings.Values,
+            static binding => binding.Slot == 0);
+        Assert.Contains(
+            "((Symbol)(",
+            result.Output);
+        Assert.Contains(")) ?? propertySymbol", result.Output);
+        Assert.DoesNotContain(
+            "Symbol S_0_1",
+            result.Output);
     }
 
     [Fact]
@@ -367,6 +632,32 @@ public class ArgumentSinkTestimonyTests
         var block = new Block(0);
         block.Add(statement);
         return block;
+    }
+
+    static void AddSelfWideningReferenceFacts(IrFunction function)
+    {
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape>
+        {
+            [Alpha] = TypeShape.Reference,
+            [Beta] = TypeShape.Reference,
+            [BaseReference] = TypeShape.Reference,
+        };
+        function.ProvenReferenceWidenings =
+            new HashSet<ReferenceWidening>
+            {
+                new(Alpha, BaseReference),
+                new(Beta, BaseReference),
+            };
+    }
+
+    static void AssertOnlySlotZero(IrFunction function)
+    {
+        Assert.All(
+            function.Descendants.OfType<StoreStackSlot>(),
+            static store => Assert.Equal(0, store.Slot));
+        Assert.All(
+            function.Descendants.OfType<LoadStackSlot>(),
+            static load => Assert.Equal(0, load.Slot));
     }
 
     static IrFunction Function(TypeRef returnType, Block block, IReadOnlyList<Parameter> parameters)
