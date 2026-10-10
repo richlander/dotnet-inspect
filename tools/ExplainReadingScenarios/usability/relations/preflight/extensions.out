@@ -1,0 +1,157 @@
+[
+  {
+    "method": "AggregateAsync",
+    "class": "System.Linq.AsyncEnumerable",
+    "extended_type": "System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E",
+    "library": "System.Linq.AsyncEnumerable",
+    "signatures": [
+      "System.Threading.Tasks.ValueTask\u003CTAccumulate\u003E AggregateAsync\u003CTSource, TAccumulate\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E source, TAccumulate seed, System.Func\u003CTAccumulate, TSource, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask\u003CTAccumulate\u003E\u003E func, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.ValueTask\u003CTAccumulate\u003E AggregateAsync\u003CTSource, TAccumulate\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E source, TAccumulate seed, System.Func\u003CTAccumulate, TSource, TAccumulate\u003E func, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.ValueTask\u003CTResult\u003E AggregateAsync\u003CTSource, TAccumulate, TResult\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E source, TAccumulate seed, System.Func\u003CTAccumulate, TSource, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask\u003CTAccumulate\u003E\u003E func, System.Func\u003CTAccumulate, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask\u003CTResult\u003E\u003E resultSelector, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.ValueTask\u003CTResult\u003E AggregateAsync\u003CTSource, TAccumulate, TResult\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E source, TAccumulate seed, System.Func\u003CTAccumulate, TSource, TAccumulate\u003E func, System.Func\u003CTAccumulate, TResult\u003E resultSelector, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.ValueTask\u003CTSource\u003E AggregateAsync\u003CTSource\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E source, System.Func\u003CTSource, TSource, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask\u003CTSource\u003E\u003E func, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.ValueTask\u003CTSource\u003E AggregateAsync\u003CTSource\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E source, System.Func\u003CTSource, TSource, TSource\u003E func, System.Threading.CancellationToken cancellationToken)"
+    ],
+    "overloads": 6,
+    "kind": "method",
+    "source": "runtime",
+    "source_version": "11.0.0-rc.1.26425.128",
+    "reachable_path": ".DeserializeAsyncEnumerable()",
+    "reachable_from_type": "System.Collections.Generic.IAsyncEnumerable\u003CTValue\u003E"
+  },
+  {
+    "method": "AggregateBy",
+    "class": "System.Linq.AsyncEnumerable",
+    "extended_type": "System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E",
+    "library": "System.Linq.AsyncEnumerable",
+    "signatures": [
+      "System.Collections.Generic.IAsyncEnumerable\u003CSystem.Collections.Generic.KeyValuePair\u003CTKey, TAccumulate\u003E\u003E AggregateBy\u003CTSource, TKey, TAccumulate\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E source, System.Func\u003CTSource, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask\u003CTKey\u003E\u003E keySelector, System.Func\u003CTKey, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask\u003CTAccumulate\u003E\u003E seedSelector, System.Func\u003CTAccumulate, TSource, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask\u003CTAccumulate\u003E\u003E func, System.Collections.Generic.IEqualityComparer\u003CTKey\u003E keyComparer)",
+      "System.Collections.Generic.IAsyncEnumerable\u003CSystem.Collections.Generic.KeyValuePair\u003CTKey, TAccumulate\u003E\u003E AggregateBy\u003CTSource, TKey, TAccumulate\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E source, System.Func\u003CTSource, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask\u003CTKey\u003E\u003E keySelector, TAccumulate seed, System.Func\u003CTAccumulate, TSource, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask\u003CTAccumulate\u003E\u003E func, System.Collections.Generic.IEqualityComparer\u003CTKey\u003E keyComparer)",
+      "System.Collections.Generic.IAsyncEnumerable\u003CSystem.Collections.Generic.KeyValuePair\u003CTKey, TAccumulate\u003E\u003E AggregateBy\u003CTSource, TKey, TAccumulate\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E source, System.Func\u003CTSource, TKey\u003E keySelector, System.Func\u003CTKey, TAccumulate\u003E seedSelector, System.Func\u003CTAccumulate, TSource, TAccumulate\u003E func, System.Collections.Generic.IEqualityComparer\u003CTKey\u003E keyComparer)",
+      "System.Collections.Generic.IAsyncEnumerable\u003CSystem.Collections.Generic.KeyValuePair\u003CTKey, TAccumulate\u003E\u003E AggregateBy\u003CTSource, TKey, TAccumulate\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E source, System.Func\u003CTSource, TKey\u003E keySelector, TAccumulate seed, System.Func\u003CTAccumulate, TSource, TAccumulate\u003E func, System.Collections.Generic.IEqualityComparer\u003CTKey\u003E keyComparer)"
+    ],
+    "overloads": 4,
+    "kind": "method",
+    "source": "runtime",
+    "source_version": "11.0.0-rc.1.26425.128",
+    "reachable_path": ".DeserializeAsyncEnumerable()",
+    "reachable_from_type": "System.Collections.Generic.IAsyncEnumerable\u003CTValue\u003E"
+  },
+  {
+    "method": "AllAsync",
+    "class": "System.Linq.AsyncEnumerable",
+    "extended_type": "System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E",
+    "library": "System.Linq.AsyncEnumerable",
+    "signatures": [
+      "System.Threading.Tasks.ValueTask\u003Cbool\u003E AllAsync\u003CTSource\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E source, System.Func\u003CTSource, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask\u003Cbool\u003E\u003E predicate, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.ValueTask\u003Cbool\u003E AllAsync\u003CTSource\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E source, System.Func\u003CTSource, bool\u003E predicate, System.Threading.CancellationToken cancellationToken)"
+    ],
+    "overloads": 2,
+    "kind": "method",
+    "source": "runtime",
+    "source_version": "11.0.0-rc.1.26425.128",
+    "reachable_path": ".DeserializeAsyncEnumerable()",
+    "reachable_from_type": "System.Collections.Generic.IAsyncEnumerable\u003CTValue\u003E"
+  },
+  {
+    "method": "AnyAsync",
+    "class": "System.Linq.AsyncEnumerable",
+    "extended_type": "System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E",
+    "library": "System.Linq.AsyncEnumerable",
+    "signatures": [
+      "System.Threading.Tasks.ValueTask\u003Cbool\u003E AnyAsync\u003CTSource\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E source, System.Func\u003CTSource, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask\u003Cbool\u003E\u003E predicate, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.ValueTask\u003Cbool\u003E AnyAsync\u003CTSource\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E source, System.Func\u003CTSource, bool\u003E predicate, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.ValueTask\u003Cbool\u003E AnyAsync\u003CTSource\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E source, System.Threading.CancellationToken cancellationToken)"
+    ],
+    "overloads": 3,
+    "kind": "method",
+    "source": "runtime",
+    "source_version": "11.0.0-rc.1.26425.128",
+    "reachable_path": ".DeserializeAsyncEnumerable()",
+    "reachable_from_type": "System.Collections.Generic.IAsyncEnumerable\u003CTValue\u003E"
+  },
+  {
+    "method": "Append",
+    "class": "System.Linq.AsyncEnumerable",
+    "extended_type": "System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E",
+    "library": "System.Linq.AsyncEnumerable",
+    "signature": "System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E Append\u003CTSource\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E source, TSource element)",
+    "kind": "method",
+    "source": "runtime",
+    "source_version": "11.0.0-rc.1.26425.128",
+    "reachable_path": ".DeserializeAsyncEnumerable()",
+    "reachable_from_type": "System.Collections.Generic.IAsyncEnumerable\u003CTValue\u003E"
+  },
+  {
+    "method": "AverageAsync",
+    "class": "System.Linq.AsyncEnumerable",
+    "extended_type": "System.Collections.Generic.IAsyncEnumerable\u003CSystem.Decimal\u003E",
+    "library": "System.Linq.AsyncEnumerable",
+    "signatures": [
+      "System.Threading.Tasks.ValueTask\u003CSystem.Decimal\u003E AverageAsync(this System.Collections.Generic.IAsyncEnumerable\u003CSystem.Decimal\u003E source, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.ValueTask\u003CSystem.Nullable\u003CSystem.Decimal\u003E\u003E AverageAsync(this System.Collections.Generic.IAsyncEnumerable\u003CSystem.Nullable\u003CSystem.Decimal\u003E\u003E source, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.ValueTask\u003CSystem.Nullable\u003Cdouble\u003E\u003E AverageAsync(this System.Collections.Generic.IAsyncEnumerable\u003CSystem.Nullable\u003Cdouble\u003E\u003E source, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.ValueTask\u003CSystem.Nullable\u003Cdouble\u003E\u003E AverageAsync(this System.Collections.Generic.IAsyncEnumerable\u003CSystem.Nullable\u003Cint\u003E\u003E source, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.ValueTask\u003CSystem.Nullable\u003Cdouble\u003E\u003E AverageAsync(this System.Collections.Generic.IAsyncEnumerable\u003CSystem.Nullable\u003Clong\u003E\u003E source, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.ValueTask\u003CSystem.Nullable\u003Cfloat\u003E\u003E AverageAsync(this System.Collections.Generic.IAsyncEnumerable\u003CSystem.Nullable\u003Cfloat\u003E\u003E source, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.ValueTask\u003Cdouble\u003E AverageAsync(this System.Collections.Generic.IAsyncEnumerable\u003Cdouble\u003E source, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.ValueTask\u003Cdouble\u003E AverageAsync(this System.Collections.Generic.IAsyncEnumerable\u003Cint\u003E source, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.ValueTask\u003Cdouble\u003E AverageAsync(this System.Collections.Generic.IAsyncEnumerable\u003Clong\u003E source, System.Threading.CancellationToken cancellationToken)",
+      "System.Threading.Tasks.ValueTask\u003Cfloat\u003E AverageAsync(this System.Collections.Generic.IAsyncEnumerable\u003Cfloat\u003E source, System.Threading.CancellationToken cancellationToken)"
+    ],
+    "overloads": 10,
+    "kind": "method",
+    "source": "runtime",
+    "source_version": "11.0.0-rc.1.26425.128",
+    "reachable_path": ".DeserializeAsyncEnumerable()",
+    "reachable_from_type": "System.Collections.Generic.IAsyncEnumerable\u003CTValue\u003E"
+  },
+  {
+    "method": "Cast",
+    "class": "System.Linq.AsyncEnumerable",
+    "extended_type": "System.Collections.Generic.IAsyncEnumerable\u003Cobject\u003E",
+    "library": "System.Linq.AsyncEnumerable",
+    "signature": "System.Collections.Generic.IAsyncEnumerable\u003CTResult\u003E Cast\u003CTResult\u003E(this System.Collections.Generic.IAsyncEnumerable\u003Cobject\u003E source)",
+    "kind": "method",
+    "source": "runtime",
+    "source_version": "11.0.0-rc.1.26425.128",
+    "reachable_path": ".DeserializeAsyncEnumerable()",
+    "reachable_from_type": "System.Collections.Generic.IAsyncEnumerable\u003CTValue\u003E"
+  },
+  {
+    "method": "Chunk",
+    "class": "System.Linq.AsyncEnumerable",
+    "extended_type": "System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E",
+    "library": "System.Linq.AsyncEnumerable",
+    "signature": "System.Collections.Generic.IAsyncEnumerable\u003CTSource[]\u003E Chunk\u003CTSource\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E source, int size)",
+    "kind": "method",
+    "source": "runtime",
+    "source_version": "11.0.0-rc.1.26425.128",
+    "reachable_path": ".DeserializeAsyncEnumerable()",
+    "reachable_from_type": "System.Collections.Generic.IAsyncEnumerable\u003CTValue\u003E"
+  },
+  {
+    "method": "Concat",
+    "class": "System.Linq.AsyncEnumerable",
+    "extended_type": "System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E",
+    "library": "System.Linq.AsyncEnumerable",
+    "signature": "System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E Concat\u003CTSource\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E first, System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E second)",
+    "kind": "method",
+    "source": "runtime",
+    "source_version": "11.0.0-rc.1.26425.128",
+    "reachable_path": ".DeserializeAsyncEnumerable()",
+    "reachable_from_type": "System.Collections.Generic.IAsyncEnumerable\u003CTValue\u003E"
+  },
+  {
+    "method": "ContainsAsync",
+    "class": "System.Linq.AsyncEnumerable",
+    "extended_type": "System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E",
+    "library": "System.Linq.AsyncEnumerable",
+    "signature": "System.Threading.Tasks.ValueTask\u003Cbool\u003E ContainsAsync\u003CTSource\u003E(this System.Collections.Generic.IAsyncEnumerable\u003CTSource\u003E source, TSource value, System.Collections.Generic.IEqualityComparer\u003CTSource\u003E comparer, System.Threading.CancellationToken cancellationToken)",
+    "kind": "method",
+    "source": "runtime",
+    "source_version": "11.0.0-rc.1.26425.128",
+    "reachable_path": ".DeserializeAsyncEnumerable()",
+    "reachable_from_type": "System.Collections.Generic.IAsyncEnumerable\u003CTValue\u003E"
+  }
+]

@@ -1759,6 +1759,15 @@ keeps missing dependency facts reachable. Original and projected bytes, frozen
 feedback, and representation overrides are retained separately. This is a
 production-policy candidate, not shipped behavior or reliable stopping evidence.
 
+The [mainline relationship trials](../../tools/ExplainReadingScenarios/usability/relations/README.md)
+execute bounded Polly package searches and installed-platform JSON extension
+inspections. Both package formats support the answer; HAL repeats locally
+available facets. Extension discovery requires help and exercises neither
+selected format, identifying a coverage boundary rather than a format ranking.
+Frozen evidence separates guidance from inspection bytes and retains search,
+output-selection, and platform qualifications. These diagnostic observations
+change no production behavior or shipped skill guidance.
+
 ## Demo scenario
 
 `System.Text.Json@10.0.0` motivates the complete production flow:
