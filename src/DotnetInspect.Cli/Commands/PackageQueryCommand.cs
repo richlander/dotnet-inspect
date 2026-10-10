@@ -119,13 +119,17 @@ internal static class PackageQueryCommand
                 ? null
                 : new(
                     sourceAuthorization,
-                    token => semanticSettlement.IssueOperationLease(
-                        token,
-                        fetchOptions.RequestTimeout,
-                        semanticBudget!.MaximumDuration),
-                    new PackagePayloadAcquisitionPlan(
-                        semanticStores!.GetStore,
-                        log: context.Logger.Log),
+                    new PackageAssemblySemanticFindExecution(
+                        sourceAuthorization,
+                        new PackagePayloadAcquisitionPlan(
+                            semanticStores!.GetStore,
+                            semanticBudget!.Payload,
+                            log: context.Logger.Log),
+                        token => semanticSettlement.IssueOperationLease(
+                            token,
+                            fetchOptions.RequestTimeout,
+                            semanticBudget.MaximumDuration),
+                        context.Logger.Log),
                     semanticBudget!,
                     new AssemblySemanticQueryProgressSink(
                         context.Logger,
