@@ -97,9 +97,13 @@ inspection's limitations, retaining its physical identity and evidence; an
 inspected unattributed body without evidence hides nothing. Display names and
 `CompilerGeneratedNames` grammar alone never establish an owner.
 
-The attribution owner never associates synchronous iterators, so an iterator
-`MoveNext` or lifted iterator helper, such as `<>m__Finally1`, with evidence is
-such a limitation until that owner associates it.
+On [Assembly Analysis Operation](#execution), synchronous iterators attribute
+like async methods; the current accumulator path still reports their bodies
+as unattributed limitations until it is deleted. The declared iterator
+names its state machine through `IteratorStateMachineAttribute`, and the
+authenticated resolution associates that state machine's `MoveNext`, and every
+lifted body reached only through it, such as a lambda declared in the iterator
+or a `<>m__Finally1` helper, with the iterator method.
 
 A C# extension-block member is emitted twice: an implementation method on the
 enclosing `[Extension]` static class, which carries the source body and the
@@ -225,27 +229,24 @@ The census runs as one focused value producer through
 owner-issued Method Query Source request. It does not run on, wrap, or filter
 the Library Body Analysis aggregate that
 [#8965](https://github.com/richlander/dotnet-inspect/issues/8965) retires, and
-no census consumer adopts that aggregate. The current builder over
-`LibraryBodyAnalysisExecution` remains only until this producer lands, then
-leaves with its last caller.
+no census consumer adopts that aggregate. It uses no Library Body Analysis
+type at all, including the transitional module lookup that the method view
+exposes through that infrastructure; every module-wide input arrives through
+the capabilities below. The accumulator path that builds the census today is
+deleted with that infrastructure, not kept beside the producer.
 
 The producer visits each physical body once and emits a detached per-body
 fact: availability, body roles, explicit-contract calls with their contract
 source, and the lowering exclusions. Its accumulator folds those facts into
-the census in `Complete`, where attribution, exposure, and the image-level
-limitations are joined. It keeps no state across units outside the
+the census in `Complete` through the existing `UnsafeMemberCensusBuilder`
+fold, which already takes detached per-body facts, where attribution,
+exposure, and the image-level limitations are joined. It keeps no state across units outside the
 accumulator.
 
 Attribution of every generated-shaped visited body, whether it entered breadth
 directly or through expansion, comes from the declared-source relation, never
-from the body's name. The relation keeps this document's
-[Attribution](#attribution) rules: a synchronous iterator's execution body,
-and every lifted body reached only through it, such as a lambda declared in
-the iterator or a `<>m__Finally1` helper, is unattributed even though the
-expansion reaches it. The relation therefore carries the state-machine kind
-(classic async, async iterator, or synchronous iterator), and the census maps
-the synchronous-iterator kind and its descendants to unattributed bodies.
-Whether iterators become attributed is a separate change to Attribution.
+from the body's name, and follows this document's
+[Attribution](#attribution) rules, including iterators.
 
 Breadth follows the requested scope:
 
@@ -270,8 +271,8 @@ Every input comes from an owner-issued, receipted capability:
 
 | Input | Owner |
 | --- | --- |
-| Declared-source relation over both breadths, with state-machine kind, unauthenticated candidates, and typed bound outcomes | [#9864](https://github.com/richlander/dotnet-inspect/issues/9864), under [#8577](https://github.com/richlander/dotnet-inspect/issues/8577) |
-| Call-site population: each call's kind and callee reference identity, including an external member's declaring-type origin and decoded signature at the tier platform-contract lookup needs | [#9868](https://github.com/richlander/dotnet-inspect/issues/9868), the Method Query Source Calls layer under [#8577](https://github.com/richlander/dotnet-inspect/issues/8577) |
+| Declared-source relation over both breadths, with unauthenticated candidates and typed bound outcomes | [#9864](https://github.com/richlander/dotnet-inspect/issues/9864), under [#8577](https://github.com/richlander/dotnet-inspect/issues/8577) |
+| Call-site population: each call's kind and callee reference identity, including an external member's declaring-type origin and decoded signature at the tier platform-contract lookup needs, and the same-image RVA status of an `ldsflda` field operand for constant-data span recognition | [#9868](https://github.com/richlander/dotnet-inspect/issues/9868), the Method Query Source Calls layer under [#8577](https://github.com/richlander/dotnet-inspect/issues/8577) |
 | Typed same-module callee resolution | [#8700](https://github.com/richlander/dotnet-inspect/issues/8700) |
 | Module memory-safety rules and the direct or associated caller-unsafe contract of a member or same-image callee | [#9831](https://github.com/richlander/dotnet-inspect/issues/9831) |
 | Semantic MethodDef identity for the finding key | [#9830](https://github.com/richlander/dotnet-inspect/issues/9830) |
@@ -284,8 +285,8 @@ owners and rules; moving them changes where they execute, not what they
 admit. The census publishes the Method Query Source receipt beside its result,
 so a host can show the work it did.
 
-Publishing unauthenticated candidates, state-machine kind, and bound outcomes
-adds receipt and relation data only. Unsafe evidence presence keeps its
+Publishing unauthenticated candidates and bound outcomes adds receipt and
+relation data only. Unsafe evidence presence keeps its
 breadth, answer, and visible failures unchanged.
 
 The census moves only after every row of that table has landed. Until then the
@@ -294,14 +295,17 @@ consumer on the retiring aggregate.
 
 Focused gates for the move:
 
-- the existing `UnsafeMemberFindingsTests` and platform-contract gates pass
-  unchanged against the new producer at Library scope;
+- the `UnsafeMemberFindingsTests` and platform-contract cases run against the
+  new producer at Library scope with today's outcomes, except that iterator
+  evidence now folds into the iterator method;
 - Type and Library scope agree on every finding for types whose generated
   bodies all authenticate, including the
   [#9755](https://github.com/richlander/dotnet-inspect/issues/9755) shapes;
 - a synchronous iterator's `MoveNext`, a lambda declared in an iterator, and
-  a `<>m__Finally1` helper, each with evidence, are unattributed limitations
-  at both Library and Type scope, and no member's finding includes them;
+  a `<>m__Finally1` helper, each with evidence, fold into the iterator method
+  with physical provenance at both Library and Type scope;
+- a generated body in a nested compiler-generated type that no source member
+  claims is an unattributed limitation at both scopes;
 - an expansion bound at Type scope yields an incomplete census with the
   visited prefix's findings and an attribution-bound limitation; and
 - at Type scope, Method Query Source breadth and terminal work stay within the
@@ -344,10 +348,12 @@ This slice is step 2 of 5 for #5254's Unsafe view:
    incomplete census with no findings reports zero observed findings as
    incomplete, never as no unsafe members. This producer supplies the observed
    findings and enumerable limitations that rule needs. Comparison treats each
-   evidence item's physical body and generated name as provenance, so a
-   renumbered closure or state machine alone is not an evidence change;
-   pairing renumbered generated bodies across versions belongs to
-   [#9861](https://github.com/richlander/dotnet-inspect/issues/9861).
+   evidence item's physical body, generated name, and IL offset as
+   provenance, so a renumbered closure or state machine, or iterator state
+   renumbering that shifts offsets through `MoveNext`, is not alone an
+   evidence change; pairing generated bodies across versions belongs to
+   [#9861](https://github.com/richlander/dotnet-inspect/issues/9861) and
+   [#9870](https://github.com/richlander/dotnet-inspect/issues/9870).
 4. Inspect Web Library Analysis Unsafe tab, reworking #9366 onto this census
    and replacing its public-member-only attribution.
 5. Unsafe guidance findings: a focused checker family with its own design.
@@ -363,7 +369,9 @@ Focused Release gates in `UnsafeMemberFindingsTests` cover:
 - `SynchronousIteratorEvidenceIsAnUnattributedLimitation` and
   `LiftedIteratorHelperIsAnUnattributedLimitation`: an iterator `MoveNext` or
   lifted `finally` helper with evidence is a limitation, not a guessed owner
-  or its own finding;
+  or its own finding. [Execution](#execution) replaces these with fold gates
+  when the census moves, because the authenticated resolution now associates
+  iterators;
 - `BodilessDeclarationsDoNotLimitTheCensus`: abstract and `extern`
   `UnsafeAccessor` declarations are no applicable input;
 - `ExtensionMemberIsOneFindingOnItsImplementation`: an extension-block member
