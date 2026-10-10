@@ -34,6 +34,7 @@ before acquisition instead.
 | A category whose expansion contains a failing member | Fails; the category does not drop members. |
 | `package query` | Fails before acquisition, because it evaluates assemblies. |
 | `library`, `type`, `member`, `find`, `extensions`, `diff`, `depends`, `workspace`, or any other command with a package target | Fails before acquisition and names `package <id> --tfm all`. |
+| Any command with a non-package target, such as `--platform`, a local file, or a project | Fails before acquisition and states that `--tfm all` applies only to `package`. |
 
 The `--tfm all` default request returns a discovery projection that this owner
 defines; it is not the Package children document of
@@ -77,11 +78,11 @@ as a framework spelling or falls back to the highest framework.
 ## Non-claims
 
 This owner does not change compile selection or its available-slice inventory;
-it consumes the inventory and orders only its own projection. Which assets are Libraries when a
-package has no compile assets stays with #9833 and
-[Package library scope](package-library-scope.md); under `--tfm all` such a
-package shows the empty state above. It does not change
-`--tfm <TFM>` for a single framework.
+it consumes the inventory and orders only its own projection. Which assets are
+Libraries when a package has no compile assets stays with #9833 and [Package
+library scope](package-library-scope.md); under `--tfm all` such a package
+shows the empty state above. It does not change `--tfm <TFM>` for a single
+framework.
 
 ## Adoption
 
@@ -108,20 +109,28 @@ The CLI does not yet meet this contract. Observed on main:
   framework's children document.
 - `-S "Dependency Hierarchy"` fails with an internal exception.
 - `type --package <id> --tfm all` fails after acquisition.
+- Non-package targets accept `--tfm all` and inspect their single assembly;
+  `BodyShapesSectionTests.TfmAll_StaysOutsideTheDeclaration`,
+  `LibraryCommand_TfmAll_PlatformRouteRetainsSingleShapeOutput`, and
+  `LibraryCommand_TfmAll_LocalFileRetainsSingleShapeOutput` gate that, and
+  [CLI row selection](cli-row-selection.md) records it as a gate row.
 - `library` and `type` recognize `all` at separate sites. Package-mode
   `depends` already fails before acquisition because `all` is not a NuGet
   framework, while type-mode `depends`, `member`, and `workspace` accept it,
   and `package query` returns zero matches.
 
-The adoption under #9833 updates that tool gate's selected-TFM assertions,
-declares the projection's QuerySpace producer capabilities for Count and row
-windows, skips the binary-signal scan under `--tfm all`, adds one shared
-pre-acquisition admission check, classifies every `package` section against
-this table, and gates each row. It also retires the IL-reading `--tfm all` code
-paths and the current-mechanics descriptions in
-[Integrations](integrations.md), [Inspection space](../inspection-space.md),
-[Assembly inspection query](assembly-inspection-query.md), [CLI row
+The adoption under #9833 updates that tool gate's selected-TFM assertions and
+replaces the non-package gates above with rejection gates. It declares the
+projection's QuerySpace producer capabilities for Count and row windows, skips
+the binary-signal scan under `--tfm all`, adds one shared pre-acquisition
+admission check, classifies every `package` section against this table, and
+gates each row. It also retires the IL-reading `--tfm all` code paths and the
+`--tfm all` descriptions and gates in [Integrations](integrations.md),
+[Inspection space](../inspection-space.md), [Assembly inspection
+query](assembly-inspection-query.md), [CLI row
 selection](cli-row-selection.md), [CLI architecture](../cli-architecture.md),
-[Find search service](find-search-service.md), and the default-request format
-statements in [CLI reference](../cli-reference.md) and [Primary subject
+[Find search service](find-search-service.md), [Untrusted data threat
+model](untrusted-data-threat-model.md), and [Assembly
+audit](../assembly-audit.md), and the default-request format statements in [CLI
+reference](../cli-reference.md) and [Primary subject
 views](primary-subject-views.md).
