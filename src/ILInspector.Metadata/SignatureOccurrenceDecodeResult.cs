@@ -38,7 +38,7 @@ public readonly record struct SignatureNamedTypeOccurrence(
     bool Participates,
     SignatureTypeDefinitionOrigin? DefinitionOrigin = null);
 
-/// <summary>The closed outcome of decoding one method, field, or property signature.</summary>
+/// <summary>The closed outcome of decoding one method, field, property, or event declaration.</summary>
 public abstract record SignatureOccurrenceDecodeResult
 {
     private protected SignatureOccurrenceDecodeResult() { }
