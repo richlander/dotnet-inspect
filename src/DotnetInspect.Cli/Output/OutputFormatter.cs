@@ -1471,7 +1471,9 @@ public static class OutputFormatter
             projection,
             inspection,
             writerOptions.IncludeSections,
-            rows);
+            rows,
+            fields,
+            columns);
         ApplyArchitecturalFamilyCounts(
             projection,
             inspection,
@@ -1551,13 +1553,31 @@ public static class OutputFormatter
         CountProjection projection,
         LibraryInspection inspection,
         IReadOnlyCollection<string>? includedSections,
-        RowWindow? rows)
+        RowWindow? rows,
+        string[]? fields = null,
+        string[]? columns = null)
     {
         if (includedSections?.Contains(
                 SectionNames.PerformanceSyncCallsInAsync) == true
             && inspection.SyncCallsInAsyncRows.IsEmpty
             && inspection.SyncCallsInAsyncCount is int count)
         {
+            if (fields is { Length: > 0 }
+                || columns is { Length: > 0 })
+            {
+                DocumentSchema schema = InspectionContext.Default
+                    .GetSchemaInfo<LibraryInspectionView>()!
+                    .ToDocumentSchema();
+                if (!ProjectionMatchesSection(
+                        schema,
+                        SectionNames.PerformanceSyncCallsInAsync,
+                        fields,
+                        columns))
+                {
+                    count = 0;
+                }
+            }
+
             projection.SetRows(
                 SectionNames.PerformanceSyncCallsInAsync,
                 WindowedCount(count, rows));

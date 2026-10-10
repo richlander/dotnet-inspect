@@ -594,6 +594,33 @@ public partial class CommandExecutionTests
         Assert.Equal(rows.Output, scalar.Output);
     }
 
+    [Fact]
+    public async Task PerformanceSyncCallsInAsync_CountHonorsMixedProjection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Top Leverage,Performance: Sync Calls in Async",
+            "--columns",
+            "Member",
+            "--count",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Dictionary<string, int> counts = document.RootElement
+            .EnumerateArray()
+            .ToDictionary(
+                row => row.GetProperty("section").GetString()!,
+                row => row.GetProperty("count").GetInt32());
+        Assert.True(counts[SectionNames.TopLeverage] > 0);
+        Assert.Equal(
+            0,
+            counts[SectionNames.PerformanceSyncCallsInAsync]);
+    }
+
     // ===== Performance sections (kind-scoped decomposition of the library "Performance Triage" monolith) =====
 
     [Fact]

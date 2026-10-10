@@ -66,6 +66,30 @@ public sealed class SyncCallsInAsyncDemandTests
             3,
             projection.SectionCounts[
                 SectionNames.PerformanceSyncCallsInAsync]);
+
+        var projected = new CountProjection();
+        OutputFormatter.ApplySyncCallsInAsyncCount(
+            projected,
+            inspection,
+            [SectionNames.PerformanceSyncCallsInAsync],
+            rows: null,
+            columns: ["Member"]);
+        Assert.Equal(
+            0,
+            projected.SectionCounts[
+                SectionNames.PerformanceSyncCallsInAsync]);
+
+        var nativeProjection = new CountProjection();
+        OutputFormatter.ApplySyncCallsInAsyncCount(
+            nativeProjection,
+            inspection,
+            [SectionNames.PerformanceSyncCallsInAsync],
+            rows: null,
+            columns: ["Caller"]);
+        Assert.Equal(
+            3,
+            nativeProjection.SectionCounts[
+                SectionNames.PerformanceSyncCallsInAsync]);
     }
 
     [Fact]
