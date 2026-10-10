@@ -1447,6 +1447,40 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
+    public void PerformanceTriageRowQuery_RemovesMigratedRowsBeforeTop()
+    {
+        var legacySyncCall = Opp(
+            "LegacySyncCall",
+            inLoop: true,
+            confidence: "high",
+            rootReach: 100,
+            shape: PerformanceKinds.SyncCallsInAsyncShape);
+        var asyncStateMachine = Opp(
+            "AsyncStateMachine",
+            inLoop: false,
+            confidence: "low",
+            rootReach: 1,
+            shape: "async-state-machine");
+        var available = new OptimizationOpportunitiesResult.Available(
+            [legacySyncCall, asyncStateMachine],
+            [],
+            [],
+            []);
+
+        Assert.Equal(
+            [asyncStateMachine],
+            PerformanceTriageRowQuery.Select(
+                available,
+                new PerformanceTriageOptions
+                {
+                    Top = 1,
+                }));
+        Assert.Equal(
+            [legacySyncCall, asyncStateMachine],
+            available.Opportunities);
+    }
+
+    [Fact]
     public void IncludePerformanceOpportunity_DoesNotTreatDisplayCollisionAsGeneratedFramework()
     {
         static TypeRef Exact(
