@@ -45,12 +45,15 @@ one selected compile projection. The projection is a Hierarchy under
   tool), and package-relative `path` cells.
 - Rows group under one framework context node per available slice, ordered by
   `TfmResolver` framework priority, highest first, then by framework name, as
-  compile selection orders its inventory. A slice with an explicit empty
-  group shows its marker and contributes no rows.
+  compile selection orders its inventory. Every candidate in a slice is a
+  row, whatever markers the slice also has. An explicit empty-group marker is
+  itself a row with role `ref` and its archive path `ref/<tfm>/_._`, so a
+  marker-only framework stays visible in every format and in Count.
 - A tool package groups its tool slices, as
   [Package Info tool measurements](package-info-tool-measurements.md) defines
   them, the same way.
-- An empty inventory returns the typed no-Library state with zero rows. A
+- An empty compile and tool inventory returns the typed no-Library state with
+  zero rows. A
   package without compile assets is not searched for other assemblies.
 
 The Tree is its native presentation. Explicit `--tree`, JSON, the service
@@ -58,6 +61,10 @@ envelope, TSV, JSONL, and table output lower the same rows; Count counts them
 and `--rows` windows them. Every row carries its own framework, so following
 it uses `package <id> --tfm <framework> --library <path>`; no row implies a
 `--library` path that the selected default framework would reject.
+
+The projection's producer sits beside the Package children producer and
+declares its own QuerySpace capabilities. Inspect Web has no `--tfm all`
+gesture, so the projection has no Browser/Wasm consumer.
 
 Failures are ordinary visible errors with exit code 1. No route treats `all`
 as a framework spelling or falls back to the highest framework.
