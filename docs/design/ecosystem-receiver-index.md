@@ -207,10 +207,12 @@ Fuzziness is something a user asks for with `*`, never the default.
 ### Resolution
 
 Resolution maps query text to identities in a **definition universe**: the
-definitions of every indexed receiver, every constraint target, and every type
-declared in the selected Libraries. The live command computes the same
-universe from the same census over its scope, so resolution agrees wherever
-the populations agree.
+definitions of every type declared in the selected Libraries, plus every named
+definition that occurs anywhere in an indexed receiver, return, or constraint
+identity, including inside type arguments. Primitive types resolve by their
+C# keyword (`int`) and by their full name (`System.Int32`). The live command
+computes the same universe from the same census over its scope, so resolution
+agrees wherever the populations agree.
 
 1. **Pattern.** Text containing `*` is a glob over definition display names,
    with the namespace optional. It resolves to the matching set of
@@ -221,12 +223,14 @@ the populations agree.
    uppercase letter, and resolves to no definition in the universe.
    Placeholder names are display, not identity, so `IEnumerable<T>` and
    `IEnumerable<TSource>` are the same query.
-3. **Constructed.** When every argument resolves to a type, the query is
-   constructed. Arguments resolve recursively by these same rules, with C#
-   keyword aliases (`int`, `string`) mapping to their primitives. An argument
-   that resolves to nothing fails the query and names the argument, rather
-   than silently becoming a placeholder. A mix of placeholders and concrete
-   arguments is refused as unsupported and named.
+3. **Constructed.** When no argument is a placeholder, the query is
+   constructed. Arguments resolve recursively by these same rules. An
+   argument that resolves to no definition in the universe, such as
+   `DateTime` under `--platform System.Linq`, becomes an **opaque type**: a
+   named type known only by its query text. The answer names every opaque
+   argument, so a misspelling is visible rather than silently answered. A
+   mix of placeholders and concrete arguments is refused as unsupported and
+   named.
 4. **Bare name.** A name with no argument list resolves among definitions of
    that name, namespace optional, preferring an exact-case match:
    - if an arity-0 definition exists, the query is that definition, and the
@@ -274,6 +278,13 @@ declared types before reaching `I`, a `new()`, `unmanaged`, or `notnull`
 constraint, or a constraint that refers to a still-unbound type parameter,
 yields `Unknown`. `Unknown` is never presented as applicable.
 
+An opaque argument binds only to member type parameters. Any constraint on a
+parameter bound to it, including `class` and `struct`, is `Unknown`. It never
+equals a closed receiver's argument, because every closed receiver's
+arguments are in the universe, so such a receiver is `NotApplicable`. A
+declared type with no supertype record in the artifact is treated as a walk
+that leaves the artifact (`Unknown`), never as a type with no supertypes.
+
 A bare type-parameter receiver `TBuilder` is checked the same way, binding
 `TBuilder` to the whole query. A pattern query runs a definition query for
 each resolved definition.
@@ -285,7 +296,7 @@ an `IEnumerable<T>` extension applies to a `List<int>` query, is a
 ### Live command adoption
 
 The live `extensions` command adopts this model through the same host-neutral
-resolver and matcher the lookup uses. Two answers change deliberately:
+resolver and matcher the lookup uses. Three answers change deliberately:
 
 - `extensions IEnumerable` returns only the non-generic receiver's members and
   names `IEnumerable<T>` as a sibling. Today it returns 68 rows over both
@@ -293,6 +304,13 @@ resolver and matcher the lookup uses. Two answers change deliberately:
 - `extensions 'IResourceBuilder<RedisResource>'` returns labeled applicable
   rows and a `NotApplicable` count, instead of every `IResourceBuilder<…>`
   member.
+- A definition query also returns bare type-parameter receivers whose
+  constraints name the definition, such as `AddBlobServiceClient<TBuilder>`
+  for `IAzureClientFactoryBuilder`. This adds rows that are absent today.
+
+Constructed queries whose arguments are outside the scoped Libraries, such as
+`extensions 'IEnumerable<DateTime>' --platform System.Linq`, keep answering:
+the argument is opaque and unconstrained receivers are `Satisfied`.
 
 The CLI reference documents both changes in the step that ships them.
 
@@ -450,7 +468,7 @@ that Ecosystem is missing.
 | Missing is never empty | Fixture population with a rejected package, a Library that fails inspection, an unresolved member, and an empty Library; only the empty Library contributes to a complete-empty answer | PR-fast |
 | Extension facts only | Fixture containing an instance `Add*` method and a classic and C# 14 extension member | PR-fast |
 | Stored members are the census's default admission | Fixture with never-browsable, obsolete, non-public, and hidden-accessor extension members compared with the shared census | PR-fast |
-| Resolution levels | Fixture queries: pattern; arity-0 and arity-1 siblings; placeholder spellings; single-arity bare name; same name in two namespaces; constructed with an unresolvable argument; mixed placeholders | PR-fast |
+| Resolution levels | Fixture queries: pattern; arity-0 and arity-1 siblings; placeholder spellings; single-arity bare name; same name in two namespaces; full primitive name and keyword; constructed with an opaque argument against unconstrained, constrained, and closed receivers; mixed placeholders | PR-fast |
 | Matching labels | Fixture with exact, open-unconstrained, open-constrained satisfied, violated, and undecidable receivers, a closed receiver over another argument, and a constrained and an unconstrained bare type-parameter receiver | PR-fast |
 | Live command and lookup agree | Offline fixture: live `extensions` over fixture packages and lookup over an artifact built from them return equal resolutions, rows, labels, and counts | PR-fast |
 | Checked-in artifact parses and contains every known-answer control | Load each embedded artifact | PR-fast |
@@ -466,7 +484,7 @@ Six steps from this design to observable behavior in both hosts, tracked by
 1. This design.
 2. Receiver query model in the live command: host-neutral extension census,
    resolver, and matcher over qualified identities and constraint facts,
-   adopted by `extensions`, with the two deliberate answer changes documented
+   adopted by `extensions`, with the deliberate answer changes documented
    in the CLI reference.
 3. Artifact: schema, product-owned builder, thin generator, checked-in Aspire
    and Microsoft.Extensions artifacts, and the CLI first adopter:
@@ -492,8 +510,9 @@ authority for unindexed populations and the oracle for the index.
   and constraints whose supertype walk leaves the artifact yield `Unknown`.
   The artifact does not carry Platform type hierarchies.
 - **Non-default modes.** The artifact answers only default admission over the
-  live path's default Library selection. A host that receives `--all` or any
-  other mode that changes admission or Library selection for an Ecosystem
+  live path's default Library selection, with no receiver-set expansion. A
+  host that receives `--all`, `--reachable`, or any other mode that changes
+  admission, Library selection, or the receiver set for an Ecosystem
   uses the live path or reports the mode as unsupported; it never answers
   from the artifact.
 - **Other commands' matching.** `find` and other commands keep `TypeMatcher`
