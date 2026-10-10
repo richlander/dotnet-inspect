@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Reflection;
@@ -143,7 +142,7 @@ public static class FastDiff
         if (body is null)
         {
             var work = new Work();
-            foreach ((string key, MethodDefinitionHandle methodA) in methodsA)
+            foreach ((SymbolKey key, MethodDefinitionHandle methodA) in methodsA)
             {
                 if (methodsB.TryGetValue(key, out MethodDefinitionHandle methodB)
                     && !BodyEqual(a, methodA, b, methodB, work))
@@ -156,10 +155,10 @@ public static class FastDiff
         return (api, body);
     }
 
-    static string? FirstDifference(List<string> before, List<string> after)
+    static string? FirstDifference(List<SymbolKey> before, List<SymbolKey> after)
     {
-        var onlyBefore = before.Except(after, StringComparer.Ordinal).FirstOrDefault();
-        var onlyAfter = after.Except(before, StringComparer.Ordinal).FirstOrDefault();
+        string? onlyBefore = before.Except(after).Select(fact => fact.ToString()).FirstOrDefault();
+        string? onlyAfter = after.Except(before).Select(fact => fact.ToString()).FirstOrDefault();
         return onlyBefore is null && onlyAfter is null
             ? null
             : $"- {onlyBefore}\n+ {onlyAfter}";
@@ -185,6 +184,7 @@ public static class FastDiff
         }
         catch (Exception ex) when (IsMalformed(ex))
         {
+            side.Keys.Reset();
             api = FastDiffState.Indeterminate;
         }
         return new FastDiffTypeState(unit.FullName, api, presence, unit.Identifier);
@@ -206,7 +206,7 @@ public static class FastDiff
             return new FastDiffTypeState(unitA.FullName, api, body, unitA.Identifier);
         try
         {
-            api = a.ApiCensus(unitA).SequenceEqual(b.ApiCensus(unitB), StringComparer.Ordinal)
+            api = a.ApiCensus(unitA).SequenceEqual(b.ApiCensus(unitB))
                 ? FastDiffState.Unchanged
                 : FastDiffState.Changed;
             if (axes is FastDiffAxes.Api)
@@ -217,6 +217,8 @@ public static class FastDiff
         }
         catch (Exception ex) when (IsMalformed(ex))
         {
+            a.Keys.Reset();
+            b.Keys.Reset();
         }
         return new FastDiffTypeState(unitA.FullName, api, body, unitA.Identifier);
     }
@@ -226,17 +228,15 @@ public static class FastDiff
         // A Type visible on either side partitions its facts as visible on
         // both, so a visibility change is an API fact only.
         bool ownerVisible = a.IsVisible(unitA.Owner) || b.IsVisible(unitB.Owner);
-        if (!a.BodyCensus(unitA, ownerVisible, out Dictionary<string, MethodDefinitionHandle> methodsA)
-                .SequenceEqual(
-                    b.BodyCensus(unitB, ownerVisible, out Dictionary<string, MethodDefinitionHandle> methodsB),
-                    StringComparer.Ordinal))
+        if (!a.BodyCensus(unitA, ownerVisible, out Dictionary<SymbolKey, MethodDefinitionHandle> methodsA)
+                .SequenceEqual(b.BodyCensus(unitB, ownerVisible, out Dictionary<SymbolKey, MethodDefinitionHandle> methodsB)))
         {
             return false;
         }
 
         // Equal censuses declare the same non-public members. A public method
         // on one side only is an API fact; its body is not compared.
-        foreach ((string key, MethodDefinitionHandle methodA) in methodsA)
+        foreach ((SymbolKey key, MethodDefinitionHandle methodA) in methodsA)
         {
             if (!methodsB.TryGetValue(key, out MethodDefinitionHandle methodB))
                 continue;
@@ -430,35 +430,6 @@ public static class FastDiff
         _ => throw new BadImageFormatException($"Unknown IL opcode 0x{(int)opCode:X}."),
     };
 
-    static readonly SearchValues<char> KeySeparators = SearchValues.Create("\\./:`#(),<>[]&*! ");
-
-    internal static string EscapeKeyName(string name)
-    {
-        if (name.AsSpan().IndexOfAny(KeySeparators) < 0)
-            return name;
-        var escaped = new System.Text.StringBuilder(name.Length + 8);
-        foreach (char c in name)
-        {
-            if (KeySeparators.Contains(c))
-                escaped.Append('\\');
-            escaped.Append(c);
-        }
-        return escaped.ToString();
-    }
-
-    /// <summary>
-    /// A signature's parameter list, with the vararg sentinel spelled as the
-    /// reserved <c>#...</c> where the required parameters end.
-    /// </summary>
-    internal static string Parameters(MethodSignature<string> signature)
-    {
-        ImmutableArray<string> types = signature.ParameterTypes;
-        int required = signature.RequiredParameterCount;
-        return required >= types.Length
-            ? string.Join(",", types)
-            : string.Join(",", [.. types.Take(required), "#...", .. types.Skip(required)]);
-    }
-
     static bool IsMalformed(Exception ex)
         => ex is BadImageFormatException
             or InvalidOperationException
@@ -469,7 +440,7 @@ public static class FastDiff
     /// <summary>The Type units of one side, read row by row.</summary>
     internal sealed class UnitTable
     {
-        public OrderedDictionary<string, Unit> Units { get; } = new(StringComparer.Ordinal);
+        public OrderedDictionary<SymbolKey, Unit> Units { get; } = [];
 
         public List<(TypeDefinitionHandle Type, TypeDefinitionHandle Owner)> Generated { get; } = [];
 
@@ -497,34 +468,45 @@ public static class FastDiff
     internal sealed class Side
     {
         readonly Guid _mvid;
-        readonly Dictionary<int, string> _keys = [];
+        readonly Dictionary<int, SymbolKey> _keys = [];
         readonly Dictionary<int, string> _displayNames = [];
-        readonly HashSet<string> _duplicateTypeKeys = new(StringComparer.Ordinal);
+        readonly HashSet<SymbolKey> _duplicateTypeKeys = [];
         readonly SignatureKeys _signatures;
         readonly Dictionary<TypeDefinitionHandle, HashSet<MethodDefinitionHandle>> _explicitImplementations = [];
+
+        /// <summary>
+        /// Metadata as stored, without Windows Runtime projection, so every
+        /// name is a <c>#Strings</c> heap entry.
+        /// </summary>
+        const MetadataReaderOptions StoredMetadata = MetadataReaderOptions.None;
 
         public Side(PEReader pe)
         {
             Pe = pe;
-            Md = MetadataFormatAdmission.GetMetadataReader(pe);
+            Md = MetadataFormatAdmission.GetMetadataReader(pe, StoredMetadata);
             _mvid = Md.GetGuid(Md.GetModuleDefinition().Mvid);
+            Keys = new SymbolKey.Builder(new SymbolKey.Utf8Names(pe, Md));
             _signatures = new SignatureKeys(this);
         }
 
+        /// <summary>The only way this side spells a compared key or fact.</summary>
+        public SymbolKey.Builder Keys { get; }
+
         /// <summary>
         /// Rebinds this side to a reader over the same image. Every retained
-        /// fact is a handle or a string, so it stays valid for any reader of
-        /// that image.
+        /// fact is a handle, a key, or a string, so it stays valid for any
+        /// reader of that image.
         /// </summary>
         public void Bind(PEReader pe)
         {
             if (ReferenceEquals(pe, Pe))
                 return;
-            MetadataReader md = MetadataFormatAdmission.GetMetadataReader(pe);
+            MetadataReader md = MetadataFormatAdmission.GetMetadataReader(pe, StoredMetadata);
             if (md.GetGuid(md.GetModuleDefinition().Mvid) != _mvid)
                 throw new InvalidOperationException("A Fast Diff comparison continues over the same images.");
             Pe = pe;
             Md = md;
+            Keys.Names = new SymbolKey.Utf8Names(pe, md);
         }
 
         /// <summary>
@@ -552,7 +534,7 @@ public static class FastDiff
 
         public MetadataReader Md { get; private set; }
 
-        public OrderedDictionary<string, Unit> Units()
+        public OrderedDictionary<SymbolKey, Unit> Units()
         {
             var table = new UnitTable();
             ReadUnits(table, static () => false);
@@ -566,7 +548,7 @@ public static class FastDiff
         /// </summary>
         public bool ReadUnits(UnitTable table, Func<bool> overBudget)
         {
-            OrderedDictionary<string, Unit> units = table.Units;
+            OrderedDictionary<SymbolKey, Unit> units = table.Units;
             List<(TypeDefinitionHandle Type, TypeDefinitionHandle Owner)> generated = table.Generated;
             Span<TypeDefinitionHandle> chain =
                 stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -599,7 +581,14 @@ public static class FastDiff
                     }
                     if (generatedAt < 0)
                     {
-                        string key = TypeKey(handle);
+                        // A name that is not well-formed UTF-8 has no decodable
+                        // spelling to identify it by, like a malformed row.
+                        if (EscapedName(handle) is not { } identifier)
+                        {
+                            AddMalformed(units, handle);
+                            continue;
+                        }
+                        SymbolKey key = TypeKey(handle);
                         if (units.TryGetValue(key, out Unit? existing))
                         {
                             // Two rows that spell one name cannot be told apart, so
@@ -609,8 +598,7 @@ public static class FastDiff
                             AddMalformed(units, handle);
                             continue;
                         }
-                        units[key] = new Unit(
-                            DisplayName(handle), EscapedName(handle), handle, []);
+                        units[key] = new Unit(DisplayName(handle), identifier, handle, []);
                         continue;
                     }
                     if (generatedAt > 0)
@@ -619,6 +607,7 @@ public static class FastDiff
                 catch (Exception ex) when (IsMalformed(ex))
                 {
                     // A name or row that cannot be read affects only its own Type.
+                    Keys.Reset();
                     AddMalformed(units, handle);
                 }
             }
@@ -632,16 +621,19 @@ public static class FastDiff
                 catch (Exception ex) when (IsMalformed(ex))
                 {
                     // The owner's own row is malformed and already reported.
+                    Keys.Reset();
                 }
             }
             generated.Clear();
             return true;
         }
 
-        void AddMalformed(OrderedDictionary<string, Unit> units, TypeDefinitionHandle handle)
+        void AddMalformed(OrderedDictionary<SymbolKey, Unit> units, TypeDefinitionHandle handle)
         {
-            string row = $"!{MetadataTokens.GetToken(handle):X8}";
-            units[row] = new Unit(SafeName(handle), row, handle, [], Malformed: true);
+            int token = MetadataTokens.GetToken(handle);
+            int mark = Keys.Begin();
+            SymbolKey row = Keys.Mark(SymbolPart.Malformed).Int(token).End(mark);
+            units[row] = new Unit(SafeName(handle), $"!{token:X8}", handle, [], Malformed: true);
         }
 
         /// <summary>
@@ -695,101 +687,114 @@ public static class FastDiff
 
         /// <summary>
         /// Facts of visible Types and members that the API diff does not
-        /// present carry this prefix and belong to the Body axis. Custom
-        /// attributes stay API facts: compiler-emitted ones such as nullable
-        /// annotations shape the rendered signatures the API diff compares.
+        /// present open with <see cref="SymbolPart.NonApi"/> and belong to the
+        /// Body axis. Custom attributes stay API facts: compiler-emitted ones
+        /// such as nullable annotations shape the rendered signatures the API
+        /// diff compares.
         /// </summary>
-        const string NonApiFact = "~";
+        static bool IsNonApi(SymbolKey fact) => fact.Kind is SymbolPart.NonApi;
 
-        public List<string> ApiCensus(Unit unit)
+        public List<SymbolKey> ApiCensus(Unit unit)
         {
-            var census = new List<string>();
+            var census = new List<SymbolKey>();
             bool visible = IsVisible(unit.Owner);
-            census.Add(visible ? "visible" : "hidden");
+            int mark = Keys.Begin();
+            census.Add(Keys.Mark(visible ? SymbolPart.Visible : SymbolPart.Hidden).End(mark));
             if (!visible)
                 return census;
-            census.AddRange(VisibleFacts(unit).Where(fact => !fact.StartsWith(NonApiFact, StringComparison.Ordinal)));
-            census.Sort(StringComparer.Ordinal);
+            census.AddRange(VisibleFacts(unit).Where(fact => !IsNonApi(fact)));
+            census.Sort();
             return census;
         }
 
-        List<string> VisibleFacts(Unit unit)
+        List<SymbolKey> VisibleFacts(Unit unit)
         {
-            var facts = new List<string>();
+            var facts = new List<SymbolKey>();
             TypeFacts(facts, unit.Owner);
             MemberFacts(facts, unit.Owner, api: true, out _);
             return facts;
         }
 
-        public List<string> BodyCensus(
+        public List<SymbolKey> BodyCensus(
             Unit unit,
             bool visible,
-            out Dictionary<string, MethodDefinitionHandle> methods)
+            out Dictionary<SymbolKey, MethodDefinitionHandle> methods)
         {
-            var census = new List<string>();
-            methods = new Dictionary<string, MethodDefinitionHandle>(StringComparer.Ordinal);
+            var census = new List<SymbolKey>();
+            methods = [];
             if (!visible)
                 TypeFacts(census, unit.Owner);
             else
-                census.AddRange(VisibleFacts(unit).Where(fact => fact.StartsWith(NonApiFact, StringComparison.Ordinal)));
+                census.AddRange(VisibleFacts(unit).Where(IsNonApi));
             MemberFacts(census, unit.Owner, api: !visible ? null : false, out var ownerMethods);
-            foreach ((string key, MethodDefinitionHandle method) in ownerMethods)
+            foreach ((SymbolKey key, MethodDefinitionHandle method) in ownerMethods)
                 AddMethod(methods, key, method);
             foreach (TypeDefinitionHandle generated in unit.Generated)
             {
                 TypeFacts(census, generated);
                 MemberFacts(census, generated, api: null, out var generatedMethods);
-                foreach ((string key, MethodDefinitionHandle method) in generatedMethods)
+                foreach ((SymbolKey key, MethodDefinitionHandle method) in generatedMethods)
                     AddMethod(methods, key, method);
             }
-            census.Sort(StringComparer.Ordinal);
+            census.Sort();
             return census;
         }
 
         // Two method rows that spell one key, which valid metadata does not
         // allow, cannot be told apart, so the body is not decided.
         static void AddMethod(
-            Dictionary<string, MethodDefinitionHandle> methods,
-            string key,
+            Dictionary<SymbolKey, MethodDefinitionHandle> methods,
+            SymbolKey key,
             MethodDefinitionHandle method)
         {
             if (!methods.TryAdd(key, method))
                 throw new BadImageFormatException($"Two methods share the compared key {key}.");
         }
 
-        void TypeFacts(List<string> census, TypeDefinitionHandle handle)
+        void TypeFacts(List<SymbolKey> census, TypeDefinitionHandle handle)
         {
             TypeDefinition type = Md.GetTypeDefinition(handle);
-            string name = TypeKey(handle);
-            census.Add(
-                $"T {name} {(int)(type.Attributes & ~TypeAttributes.BeforeFieldInit)} "
-                    + (type.BaseType.IsNil ? "" : Key(type.BaseType)));
+            SymbolKey name = TypeKey(handle);
+            int mark = Keys.Begin();
+            Keys.Mark(SymbolPart.TypeFact).Key(name).Int((int)(type.Attributes & ~TypeAttributes.BeforeFieldInit));
+            OptionalKey(type.BaseType);
+            census.Add(Keys.End(mark));
             // beforefieldinit only changes when a static constructor runs.
             if ((type.Attributes & TypeAttributes.BeforeFieldInit) != 0
                 && type.GetMethods().Any(method =>
                     Md.StringComparer.Equals(Md.GetMethodDefinition(method).Name, ".cctor")))
             {
-                census.Add($"{NonApiFact}beforefieldinit {name}");
+                mark = Keys.Begin();
+                census.Add(Keys.Mark(SymbolPart.NonApi).Mark(SymbolPart.BeforeFieldInit).Key(name).End(mark));
             }
             foreach (InterfaceImplementationHandle implementation in type.GetInterfaceImplementations())
             {
                 InterfaceImplementation value = Md.GetInterfaceImplementation(implementation);
-                census.Add($"I {name} {Key(value.Interface)}");
-                Attributes(census, value.GetCustomAttributes(), $"I {name} {Key(value.Interface)}");
+                mark = Keys.Begin();
+                SymbolKey fact = Keys.Mark(SymbolPart.InterfaceFact).Key(name).Key(Key(value.Interface)).End(mark);
+                census.Add(fact);
+                Attributes(census, value.GetCustomAttributes(), fact);
             }
             GenericParameters(census, type.GetGenericParameters(), name);
             Attributes(census, type.GetCustomAttributes(), name);
             // A nested Type inherits its declaring Type's nullable context
             // without an attribute row of its own, and that context shapes
             // the rendered signatures of every member that does not override it.
-            census.Add($"N? {name} {NullabilityReader.GetTypeNullableContext(Md, handle)}");
+            mark = Keys.Begin();
+            census.Add(Keys.Mark(SymbolPart.NullableContext).Key(name)
+                .Int(NullabilityReader.GetTypeNullableContext(Md, handle)).End(mark));
             TypeLayout layout = type.GetLayout();
             if (!layout.IsDefault)
-                census.Add($"L {name} {layout.PackingSize} {layout.Size}");
+            {
+                mark = Keys.Begin();
+                census.Add(Keys.Mark(SymbolPart.Layout).Key(name).Int(layout.PackingSize).Int(layout.Size).End(mark));
+            }
             foreach (MethodImplementationHandle implementation in type.GetMethodImplementations())
             {
                 MethodImplementation value = Md.GetMethodImplementation(implementation);
-                census.Add($"X {name} {Key(value.MethodBody)} {Key(value.MethodDeclaration)}");
+                mark = Keys.Begin();
+                census.Add(Keys.Mark(SymbolPart.MethodImplementation).Key(name)
+                    .Key(Key(value.MethodBody)).Key(Key(value.MethodDeclaration)).End(mark));
             }
         }
 
@@ -798,48 +803,57 @@ public static class FastDiff
         /// and null for every member.
         /// </param>
         void MemberFacts(
-            List<string> census,
+            List<SymbolKey> census,
             TypeDefinitionHandle handle,
             bool? api,
-            out List<(string Key, MethodDefinitionHandle Method)> methods)
+            out List<(SymbolKey Key, MethodDefinitionHandle Method)> methods)
         {
             TypeDefinition type = Md.GetTypeDefinition(handle);
-            string name = TypeKey(handle);
+            SymbolKey name = TypeKey(handle);
             methods = [];
             foreach (FieldDefinitionHandle fieldHandle in type.GetFields())
             {
                 FieldDefinition field = Md.GetFieldDefinition(fieldHandle);
                 if (api is { } wanted && IsVisible(field) != wanted)
                     continue;
-                string key = Key(fieldHandle);
-                census.Add($"F {key} {(int)field.Attributes} {Constant(field.GetDefaultValue())} {field.GetOffset()}");
+                SymbolKey key = Key(fieldHandle);
+                int mark = Keys.Begin();
+                Keys.Mark(SymbolPart.FieldFact).Key(key).Int((int)field.Attributes);
+                Constant(field.GetDefaultValue());
+                census.Add(Keys.Int(field.GetOffset()).End(mark));
                 Attributes(census, field.GetCustomAttributes(), key);
             }
             foreach (MethodDefinitionHandle methodHandle in type.GetMethods())
             {
                 MethodDefinition method = Md.GetMethodDefinition(methodHandle);
-                string key = Key(methodHandle);
+                SymbolKey key = Key(methodHandle);
                 methods.Add((key, methodHandle));
                 if (api is { } wanted && IsVisible(methodHandle, method) != wanted)
                     continue;
-                census.Add($"M {key} {(int)method.Attributes} {(int)method.ImplAttributes}");
+                int mark = Keys.Begin();
+                census.Add(Keys.Mark(SymbolPart.MethodFact).Key(key)
+                    .Int((int)method.Attributes).Int((int)method.ImplAttributes).End(mark));
                 GenericParameters(census, method.GetGenericParameters(), key);
                 Attributes(census, method.GetCustomAttributes(), key);
                 foreach (ParameterHandle parameterHandle in method.GetParameters())
                 {
                     Parameter parameter = Md.GetParameter(parameterHandle);
-                    string parameterKey = $"{key}#{parameter.SequenceNumber}";
-                    census.Add(
-                        $"A {parameterKey} {KeyName(parameter.Name)} {(int)parameter.Attributes} "
-                            + Constant(parameter.GetDefaultValue()));
+                    mark = Keys.Begin();
+                    SymbolKey parameterKey = Keys.Mark(SymbolPart.Parameter).Key(key)
+                        .Int(parameter.SequenceNumber).End(mark);
+                    mark = Keys.Begin();
+                    Keys.Mark(SymbolPart.ParameterFact).Key(parameterKey)
+                        .Name(parameter.Name).Int((int)parameter.Attributes);
+                    Constant(parameter.GetDefaultValue());
+                    census.Add(Keys.End(mark));
                     Attributes(census, parameter.GetCustomAttributes(), parameterKey);
                 }
                 MethodImport import = method.GetImport();
                 if (!import.Module.IsNil)
                 {
-                    census.Add(
-                        $"N {key} {KeyName(import.Name)} "
-                            + $"{KeyName(Md.GetModuleReference(import.Module).Name)} {(int)import.Attributes}");
+                    mark = Keys.Begin();
+                    census.Add(Keys.Mark(SymbolPart.Import).Key(key).Name(import.Name)
+                        .Name(Md.GetModuleReference(import.Module).Name).Int((int)import.Attributes).End(mark));
                 }
             }
             foreach (PropertyDefinitionHandle propertyHandle in type.GetProperties())
@@ -851,11 +865,13 @@ public static class FastDiff
                 {
                     continue;
                 }
-                string key =
-                    $"{name}::{KeyName(property.Name)}:{PropertySignature(property)}";
-                census.Add(
-                    $"P {key} {(int)property.Attributes} {Constant(property.GetDefaultValue())} "
-                        + $"{AccessorKey(accessors.Getter)} {AccessorKey(accessors.Setter)}");
+                SymbolKey key = PropertyKey(name, property);
+                int mark = Keys.Begin();
+                Keys.Mark(SymbolPart.PropertyFact).Key(key).Int((int)property.Attributes);
+                Constant(property.GetDefaultValue());
+                Accessor(accessors.Getter);
+                Accessor(accessors.Setter);
+                census.Add(Keys.End(mark));
                 Attributes(census, property.GetCustomAttributes(), key);
             }
             foreach (EventDefinitionHandle eventHandle in type.GetEvents())
@@ -867,12 +883,16 @@ public static class FastDiff
                 {
                     continue;
                 }
-                // An unescaped '!' cannot occur in an escaped name, so an event never
-                // spells the key of its backing field.
-                string key = $"{name}::{KeyName(value.Name)}!event:{Key(value.Type)}";
-                census.Add(
-                    $"E {key} {(int)value.Attributes} {AccessorKey(accessors.Adder)} "
-                        + $"{AccessorKey(accessors.Remover)} {AccessorKey(accessors.Raiser)}");
+                // The Event marker keeps an event from spelling the key of its backing field.
+                SymbolKey eventType = Key(value.Type);
+                int mark = Keys.Begin();
+                SymbolKey key = Keys.Mark(SymbolPart.Event).Key(name).Name(value.Name).Key(eventType).End(mark);
+                mark = Keys.Begin();
+                Keys.Mark(SymbolPart.EventFact).Key(key).Int((int)value.Attributes);
+                Accessor(accessors.Adder);
+                Accessor(accessors.Remover);
+                Accessor(accessors.Raiser);
+                census.Add(Keys.End(mark));
                 Attributes(census, value.GetCustomAttributes(), key);
             }
         }
@@ -890,65 +910,119 @@ public static class FastDiff
             return false;
         }
 
-        string AccessorKey(MethodDefinitionHandle accessor)
-            => accessor.IsNil ? "-" : Key(accessor);
+        void Accessor(MethodDefinitionHandle accessor) => OptionalKey(accessor);
 
-        void GenericParameters(List<string> census, GenericParameterHandleCollection parameters, string owner)
+        /// <summary>Writes the key of <paramref name="handle"/>, or <see cref="SymbolPart.Absent"/>.</summary>
+        void OptionalKey(EntityHandle handle)
+        {
+            if (handle.IsNil)
+            {
+                Keys.Mark(SymbolPart.Absent);
+                return;
+            }
+            SymbolKey key = Key(handle);
+            Keys.Key(key);
+        }
+
+        void GenericParameters(List<SymbolKey> census, GenericParameterHandleCollection parameters, SymbolKey owner)
         {
             foreach (GenericParameterHandle handle in parameters)
             {
                 GenericParameter parameter = Md.GetGenericParameter(handle);
-                string key = $"{owner}<{parameter.Index}";
-                census.Add($"G {key} {KeyName(parameter.Name)} {(int)parameter.Attributes}");
+                int mark = Keys.Begin();
+                SymbolKey key = Keys.Mark(SymbolPart.GenericParameter).Key(owner).Int(parameter.Index).End(mark);
+                mark = Keys.Begin();
+                census.Add(Keys.Mark(SymbolPart.GenericParameterFact).Key(key)
+                    .Name(parameter.Name).Int((int)parameter.Attributes).End(mark));
                 foreach (GenericParameterConstraintHandle constraintHandle in parameter.GetConstraints())
                 {
                     GenericParameterConstraint constraint = Md.GetGenericParameterConstraint(constraintHandle);
-                    census.Add($"C {key} {Key(constraint.Type)}");
-                    Attributes(census, constraint.GetCustomAttributes(), $"C {key} {Key(constraint.Type)}");
+                    SymbolKey constraintType = Key(constraint.Type);
+                    mark = Keys.Begin();
+                    SymbolKey fact = Keys.Mark(SymbolPart.Constraint).Key(key).Key(constraintType).End(mark);
+                    census.Add(fact);
+                    Attributes(census, constraint.GetCustomAttributes(), fact);
                 }
                 Attributes(census, parameter.GetCustomAttributes(), key);
             }
         }
 
-        void Attributes(List<string> census, CustomAttributeHandleCollection attributes, string owner)
+        void Attributes(List<SymbolKey> census, CustomAttributeHandleCollection attributes, SymbolKey owner)
         {
             foreach (CustomAttributeHandle handle in attributes)
             {
                 CustomAttribute attribute = Md.GetCustomAttribute(handle);
-                census.Add(
-                    $"@ {owner} {Key(attribute.Constructor)} "
-                        + Convert.ToHexString(Md.GetBlobBytes(attribute.Value)));
+                SymbolKey constructor = Key(attribute.Constructor);
+                int mark = Keys.Begin();
+                Keys.Mark(SymbolPart.Attribute).Key(owner).Key(constructor);
+                Blob(attribute.Value);
+                census.Add(Keys.End(mark));
             }
         }
 
-        string Constant(ConstantHandle handle)
+        /// <summary>Writes a constant's Type code and value, or <see cref="SymbolPart.Absent"/>.</summary>
+        void Constant(ConstantHandle handle)
         {
             if (handle.IsNil)
-                return "-";
+            {
+                Keys.Mark(SymbolPart.Absent);
+                return;
+            }
             Constant constant = Md.GetConstant(handle);
-            return $"{(int)constant.TypeCode}:{Convert.ToHexString(Md.GetBlobBytes(constant.Value))}";
+            Keys.Mark(SymbolPart.Constant).Int((int)constant.TypeCode);
+            Blob(constant.Value);
         }
 
-        string PropertySignature(PropertyDefinition property)
+        void Blob(BlobHandle handle)
+        {
+            BlobReader reader = Md.GetBlobReader(handle);
+            Keys.Blob(reader);
+        }
+
+        SymbolKey PropertyKey(SymbolKey type, PropertyDefinition property)
         {
             Guard(property.Signature, SignatureBlobGuard.Kind.Property);
-            MethodSignature<string> signature = property.DecodeSignature(_signatures, null);
-            return $"{signature.Header.IsInstance}({string.Join(",", signature.ParameterTypes)})[{signature.ReturnType}]";
+            MethodSignature<SymbolKey> signature = property.DecodeSignature(_signatures, null);
+            int mark = Keys.Begin();
+            Keys.Mark(SymbolPart.Property).Key(type).Name(property.Name).Int(signature.Header.IsInstance ? 1 : 0);
+            Signature(signature);
+            return Keys.End(mark);
         }
 
         /// <summary>
-        /// A metadata name as it appears in a compared key, with every
-        /// character the key grammar uses as a separator escaped, so distinct
-        /// names never spell the same key.
+        /// Writes a signature's parameters and return Type, with
+        /// <see cref="SymbolPart.Vararg"/> where the required parameters end.
         /// </summary>
-        string KeyName(StringHandle handle) => EscapeKeyName(Md.GetString(handle));
+        public void Signature(MethodSignature<SymbolKey> signature)
+        {
+            ImmutableArray<SymbolKey> types = signature.ParameterTypes;
+            for (int i = 0; i < types.Length; i++)
+            {
+                if (i == signature.RequiredParameterCount)
+                    Keys.Mark(SymbolPart.Vararg);
+                Keys.Key(types[i]);
+            }
+            Keys.Mark(SymbolPart.Return).Key(signature.ReturnType);
+        }
 
-        /// <summary>The symbolic name of a Type, with <c>/</c> between nested names.</summary>
-        public string TypeKey(TypeDefinitionHandle handle)
+        /// <summary>The symbolic name of a Type: its namespace and each name of its declaring chain.</summary>
+        public SymbolKey TypeKey(TypeDefinitionHandle handle)
         {
             int token = MetadataTokens.GetToken(handle);
-            if (!_keys.TryGetValue(token, out string? key))
-                _keys[token] = key = DefinitionName(handle, '/', KeyName);
+            if (_keys.TryGetValue(token, out SymbolKey key))
+                return key;
+            Span<TypeDefinitionHandle> chain =
+                stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!TryDeclaringChain(handle, chain, out int length))
+                throw new BadImageFormatException("The Type has an invalid declaring chain.");
+            int mark = Keys.Begin();
+            Keys.Mark(SymbolPart.Type);
+            TypeDefinition root = Md.GetTypeDefinition(chain[0]);
+            if (!root.Namespace.IsNil)
+                Keys.Mark(SymbolPart.Namespace).Name(root.Namespace);
+            for (int i = 0; i < length; i++)
+                Keys.Name(Md.GetTypeDefinition(chain[i]).Name);
+            _keys[token] = key = Keys.End(mark);
             return key;
         }
 
@@ -956,30 +1030,50 @@ public static class FastDiff
         {
             int token = MetadataTokens.GetToken(handle);
             if (!_displayNames.TryGetValue(token, out string? name))
-                _displayNames[token] = name = DefinitionName(handle, '.', Md.GetString);
+                _displayNames[token] = name = DefinitionName(handle);
             return name;
         }
 
-        /// <summary>The injective escaped name of a Type.</summary>
-        string EscapedName(TypeDefinitionHandle handle)
+        /// <summary>
+        /// The injective escaped name of a Type, or null when its namespace or
+        /// a name in its declaring chain is not well-formed UTF-8, whose
+        /// decoded spelling would not be injective.
+        /// </summary>
+        string? EscapedName(TypeDefinitionHandle handle)
         {
             Span<TypeDefinitionHandle> chain =
                 stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
             if (!TryDeclaringChain(handle, chain, out int length))
                 throw new BadImageFormatException("The Type has an invalid declaring chain.");
             TypeDefinition root = Md.GetTypeDefinition(chain[0]);
+            string? space = root.Namespace.IsNil ? "" : Decoded(root.Namespace);
             var segments = ImmutableArray.CreateBuilder<string>(length);
             for (int i = 0; i < length; i++)
-                segments.Add(Md.GetString(Md.GetTypeDefinition(chain[i]).Name));
-            return MetadataTypeDefinitionName.Create(
-                    root.Namespace.IsNil ? "" : Md.GetString(root.Namespace),
-                    segments.MoveToImmutable())
+            {
+                if (Decoded(Md.GetTypeDefinition(chain[i]).Name) is not { } segment)
+                    return null;
+                segments.Add(segment);
+            }
+            if (space is null)
+                return null;
+            return MetadataTypeDefinitionName.Create(space, segments.MoveToImmutable())
                 is MetadataTypeDefinitionNameResult.Valid { Name: var name }
                 ? name.ToEscapedFullName()
                 : throw new BadImageFormatException("The Type name cannot be represented.");
         }
 
-        string DefinitionName(TypeDefinitionHandle handle, char nestedSeparator, Func<StringHandle, string> read)
+        /// <summary>
+        /// A name decoded, or null when its stored bytes are not well-formed
+        /// UTF-8. Only a decoded name holding U+FFFD needs its bytes checked.
+        /// </summary>
+        string? Decoded(StringHandle handle)
+        {
+            string name = Md.GetString(handle);
+            return name.Contains('\uFFFD') && !Keys.Names.IsWellFormed(handle) ? null : name;
+        }
+
+        /// <summary>The display name of a Type, with <c>.</c> between nested names.</summary>
+        string DefinitionName(TypeDefinitionHandle handle)
         {
             Span<TypeDefinitionHandle> chain =
                 stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -988,12 +1082,12 @@ public static class FastDiff
             TypeDefinition root = Md.GetTypeDefinition(chain[0]);
             var name = new System.Text.StringBuilder();
             if (!root.Namespace.IsNil)
-                name.Append(read(root.Namespace)).Append('.');
+                name.Append(Md.GetString(root.Namespace)).Append('.');
             for (int i = 0; i < length; i++)
             {
                 if (i > 0)
-                    name.Append(nestedSeparator);
-                name.Append(read(Md.GetTypeDefinition(chain[i]).Name));
+                    name.Append('.');
+                name.Append(Md.GetString(Md.GetTypeDefinition(chain[i]).Name));
             }
             return name.ToString();
         }
@@ -1005,7 +1099,7 @@ public static class FastDiff
         /// ECMA-335 lets share a name and signature, cannot say which
         /// declaration it names, so the referring fact is not decided.
         /// </summary>
-        public string ReferenceKey(EntityHandle handle)
+        public SymbolKey ReferenceKey(EntityHandle handle)
         {
             switch (handle.Kind)
             {
@@ -1039,10 +1133,10 @@ public static class FastDiff
         }
 
         /// <summary>The symbolic name of a metadata entity, resolved once per side.</summary>
-        public string Key(EntityHandle handle)
+        public SymbolKey Key(EntityHandle handle)
         {
             int token = MetadataTokens.GetToken(handle);
-            if (_keys.TryGetValue(token, out string? key))
+            if (_keys.TryGetValue(token, out SymbolKey key))
                 return key;
             key = handle.Kind switch
             {
@@ -1071,7 +1165,7 @@ public static class FastDiff
                 throw new BadImageFormatException("The signature blob is too deep to decode.");
         }
 
-        string TypeSpecificationKey(TypeSpecificationHandle handle)
+        SymbolKey TypeSpecificationKey(TypeSpecificationHandle handle)
         {
             if (!TypeSpecGuard.TryEnter(Md, handle, out TypeSpecGuard.Scope scope))
                 throw new BadImageFormatException("The Type specification exceeds the decode budget.");
@@ -1083,7 +1177,12 @@ public static class FastDiff
             }
         }
 
-        string TypeReferenceKey(TypeReferenceHandle handle)
+        /// <summary>
+        /// The symbolic name of a referenced Type, spelled as the key of a
+        /// definition of that name, so a reference and a definition compare
+        /// by name rather than by assembly.
+        /// </summary>
+        SymbolKey TypeReferenceKey(TypeReferenceHandle handle)
         {
             Span<TypeReferenceHandle> chain =
                 stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -1094,110 +1193,183 @@ public static class FastDiff
                 throw new BadImageFormatException(
                     rejection?.Detail ?? "The Type reference has an invalid resolution-scope chain.");
             }
+            int mark = Keys.Begin();
+            Keys.Mark(SymbolPart.Type);
             TypeReference root = Md.GetTypeReference(chain[0]);
-            var name = new System.Text.StringBuilder();
             if (!root.Namespace.IsNil)
-                name.Append(KeyName(root.Namespace)).Append('.');
+                Keys.Mark(SymbolPart.Namespace).Name(root.Namespace);
             for (int i = 0; i < length; i++)
-            {
-                if (i > 0)
-                    name.Append('/');
-                name.Append(KeyName(Md.GetTypeReference(chain[i]).Name));
-            }
-            return name.ToString();
+                Keys.Name(Md.GetTypeReference(chain[i]).Name);
+            return Keys.End(mark);
         }
 
-        string MethodKey(MethodDefinitionHandle handle)
+        SymbolKey MethodKey(MethodDefinitionHandle handle)
         {
             MethodDefinition method = Md.GetMethodDefinition(handle);
             Guard(method.Signature, SignatureBlobGuard.Kind.Method);
-            MethodSignature<string> signature = method.DecodeSignature(_signatures, null);
-            return $"{TypeKey(method.GetDeclaringType())}::{KeyName(method.Name)}"
-                + $"`{signature.GenericParameterCount}#{signature.Header.RawValue}"
-                + $"({Parameters(signature)})[{signature.ReturnType}]";
+            MethodSignature<SymbolKey> signature = method.DecodeSignature(_signatures, null);
+            return MethodKey(TypeKey(method.GetDeclaringType()), method.Name, signature);
         }
 
-        string FieldKey(FieldDefinitionHandle handle)
+        SymbolKey MethodKey(SymbolKey parent, StringHandle name, MethodSignature<SymbolKey> signature)
+        {
+            int mark = Keys.Begin();
+            Keys.Mark(SymbolPart.Method).Key(parent).Name(name)
+                .Int(signature.GenericParameterCount).Int(signature.Header.RawValue);
+            Signature(signature);
+            return Keys.End(mark);
+        }
+
+        SymbolKey FieldKey(FieldDefinitionHandle handle)
         {
             FieldDefinition field = Md.GetFieldDefinition(handle);
             Guard(field.Signature, SignatureBlobGuard.Kind.Field);
-            return $"{TypeKey(field.GetDeclaringType())}::{KeyName(field.Name)}:"
-                + field.DecodeSignature(_signatures, null);
+            return FieldKey(TypeKey(field.GetDeclaringType()), field.Name, field.DecodeSignature(_signatures, null));
         }
 
-        string MemberReferenceKey(MemberReferenceHandle handle)
+        SymbolKey FieldKey(SymbolKey parent, StringHandle name, SymbolKey type)
+        {
+            int mark = Keys.Begin();
+            return Keys.Mark(SymbolPart.Field).Key(parent).Name(name).Key(type).End(mark);
+        }
+
+        SymbolKey MemberReferenceKey(MemberReferenceHandle handle)
         {
             MemberReference member = Md.GetMemberReference(handle);
-            string parent = ReferenceKey(member.Parent);
+            SymbolKey parent = ReferenceKey(member.Parent);
             if (member.GetKind() == MemberReferenceKind.Field)
             {
                 Guard(member.Signature, SignatureBlobGuard.Kind.Field);
-                return $"{parent}::{KeyName(member.Name)}:{member.DecodeFieldSignature(_signatures, null)}";
+                return FieldKey(parent, member.Name, member.DecodeFieldSignature(_signatures, null));
             }
             Guard(member.Signature, SignatureBlobGuard.Kind.Method);
-            MethodSignature<string> signature = member.DecodeMethodSignature(_signatures, null);
-            return $"{parent}::{KeyName(member.Name)}`{signature.GenericParameterCount}#{signature.Header.RawValue}"
-                + $"({Parameters(signature)})[{signature.ReturnType}]";
+            return MethodKey(parent, member.Name, member.DecodeMethodSignature(_signatures, null));
         }
 
-        string MethodSpecificationKey(MethodSpecificationHandle handle)
+        SymbolKey MethodSpecificationKey(MethodSpecificationHandle handle)
         {
             MethodSpecification specification = Md.GetMethodSpecification(handle);
             Guard(specification.Signature, SignatureBlobGuard.Kind.MethodSpecification);
-            return ReferenceKey(specification.Method)
-                + "<" + string.Join(",", specification.DecodeSignature(_signatures, null)) + ">";
+            SymbolKey method = ReferenceKey(specification.Method);
+            ImmutableArray<SymbolKey> arguments = specification.DecodeSignature(_signatures, null);
+            int mark = Keys.Begin();
+            Keys.Mark(SymbolPart.MethodSpecification).Key(method);
+            foreach (SymbolKey argument in arguments)
+                Keys.Key(argument);
+            return Keys.End(mark);
         }
 
-        string StandaloneKey(StandaloneSignatureHandle handle)
+        SymbolKey StandaloneKey(StandaloneSignatureHandle handle)
         {
             StandaloneSignature signature = Md.GetStandaloneSignature(handle);
+            int mark;
             if (signature.GetKind() == StandaloneSignatureKind.LocalVariables)
             {
                 Guard(signature.Signature, SignatureBlobGuard.Kind.LocalVariables);
-                return "L(" + string.Join(",", signature.DecodeLocalSignature(_signatures, null)) + ")";
+                ImmutableArray<SymbolKey> locals = signature.DecodeLocalSignature(_signatures, null);
+                mark = Keys.Begin();
+                Keys.Mark(SymbolPart.LocalSignature);
+                foreach (SymbolKey local in locals)
+                    Keys.Key(local);
+                return Keys.End(mark);
             }
             Guard(signature.Signature, SignatureBlobGuard.Kind.StandaloneMethod);
-            MethodSignature<string> method = signature.DecodeMethodSignature(_signatures, null);
-            return $"S{method.Header.RawValue}({Parameters(method)})[{method.ReturnType}]";
+            MethodSignature<SymbolKey> method = signature.DecodeMethodSignature(_signatures, null);
+            mark = Keys.Begin();
+            Keys.Mark(SymbolPart.StandaloneSignature).Int(method.Header.RawValue);
+            Signature(method);
+            return Keys.End(mark);
         }
     }
 
-    sealed class SignatureKeys(Side side) : ISignatureTypeProvider<string, object?>
+    sealed class SignatureKeys(Side side) : ISignatureTypeProvider<SymbolKey, object?>
     {
-        public string GetArrayType(string elementType, ArrayShape shape)
-            => $"{elementType}[{shape.Rank}:{string.Join(",", shape.Sizes)}:{string.Join(",", shape.LowerBounds)}]";
-        public string GetByReferenceType(string elementType) => elementType + "&";
-        public string GetFunctionPointerType(MethodSignature<string> signature)
-            => $"#fnptr{signature.Header.RawValue}({Parameters(signature)})[{signature.ReturnType}]";
-        public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
-            => genericType + "<" + string.Join(",", typeArguments) + ">";
-        public string GetGenericMethodParameter(object? genericContext, int index) => "!!" + index;
-        public string GetGenericTypeParameter(object? genericContext, int index) => "!" + index;
-        public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired)
-            => unmodifiedType + (isRequired ? " modreq(" : " modopt(") + modifier + ")";
-        public string GetPinnedType(string elementType) => elementType + " pinned";
-        public string GetPointerType(string elementType) => elementType + "*";
-        // A leading '#' is escaped in every name, so no Type spells a primitive.
-        static readonly string[] PrimitiveKeys = CreatePrimitiveKeys();
+        readonly SymbolKey[] _primitives = new SymbolKey[256];
 
-        static string[] CreatePrimitiveKeys()
+        SymbolKey.Builder Keys => side.Keys;
+
+        public SymbolKey GetArrayType(SymbolKey elementType, ArrayShape shape)
         {
-            var keys = new string[256];
-            foreach (PrimitiveTypeCode code in Enum.GetValues<PrimitiveTypeCode>())
-                keys[(byte)code] = "#" + code;
-            return keys;
+            int mark = Keys.Begin();
+            Keys.Mark(SymbolPart.Array).Key(elementType).Int(shape.Rank).Int(shape.Sizes.Length);
+            foreach (int size in shape.Sizes)
+                Keys.Int(size);
+            Keys.Int(shape.LowerBounds.Length);
+            foreach (int bound in shape.LowerBounds)
+                Keys.Int(bound);
+            return Keys.End(mark);
         }
 
-        public string GetPrimitiveType(PrimitiveTypeCode typeCode)
-            => PrimitiveKeys[(byte)typeCode] ?? "#" + typeCode;
-        public string GetSZArrayType(string elementType) => elementType + "[]";
-        public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
+        public SymbolKey GetByReferenceType(SymbolKey elementType) => Wrap(SymbolPart.ByReference, elementType);
+
+        public SymbolKey GetFunctionPointerType(MethodSignature<SymbolKey> signature)
+        {
+            int mark = Keys.Begin();
+            Keys.Mark(SymbolPart.FunctionPointer).Int(signature.Header.RawValue);
+            side.Signature(signature);
+            return Keys.End(mark);
+        }
+
+        public SymbolKey GetGenericInstantiation(SymbolKey genericType, ImmutableArray<SymbolKey> typeArguments)
+        {
+            int mark = Keys.Begin();
+            Keys.Mark(SymbolPart.GenericInstance).Key(genericType);
+            foreach (SymbolKey argument in typeArguments)
+                Keys.Key(argument);
+            return Keys.End(mark);
+        }
+
+        public SymbolKey GetGenericMethodParameter(object? genericContext, int index)
+        {
+            int mark = Keys.Begin();
+            return Keys.Mark(SymbolPart.MethodParameter).Int(index).End(mark);
+        }
+
+        public SymbolKey GetGenericTypeParameter(object? genericContext, int index)
+        {
+            int mark = Keys.Begin();
+            return Keys.Mark(SymbolPart.TypeParameter).Int(index).End(mark);
+        }
+
+        public SymbolKey GetModifiedType(SymbolKey modifier, SymbolKey unmodifiedType, bool isRequired)
+        {
+            int mark = Keys.Begin();
+            return Keys.Mark(isRequired ? SymbolPart.RequiredModifier : SymbolPart.OptionalModifier)
+                .Key(modifier).Key(unmodifiedType).End(mark);
+        }
+
+        public SymbolKey GetPinnedType(SymbolKey elementType) => Wrap(SymbolPart.Pinned, elementType);
+
+        public SymbolKey GetPointerType(SymbolKey elementType) => Wrap(SymbolPart.Pointer, elementType);
+
+        public SymbolKey GetPrimitiveType(PrimitiveTypeCode typeCode)
+        {
+            ref SymbolKey key = ref _primitives[(byte)typeCode];
+            if (key.IsDefault)
+            {
+                int mark = Keys.Begin();
+                key = Keys.Mark(SymbolPart.Primitive).Int((byte)typeCode).End(mark);
+            }
+            return key;
+        }
+
+        public SymbolKey GetSZArrayType(SymbolKey elementType) => Wrap(SymbolPart.SZArray, elementType);
+
+        public SymbolKey GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
             => side.ReferenceKey(handle);
-        public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
+
+        public SymbolKey GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
             => side.Key(handle);
-        public string GetTypeFromSpecification(
+
+        public SymbolKey GetTypeFromSpecification(
             MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
             => side.Key(handle);
+
+        SymbolKey Wrap(SymbolPart part, SymbolKey elementType)
+        {
+            int mark = Keys.Begin();
+            return Keys.Mark(part).Key(elementType).End(mark);
+        }
     }
 }
 
@@ -1208,7 +1380,7 @@ public static class FastDiff
 /// <remarks>
 /// Each step takes readers over the same two images and stops at the first
 /// Type row or compared Type after its budget elapses, having made progress
-/// on at least one. The retained state holds handles and strings, never a
+/// on at least one. The retained state holds handles, keys, and strings, never a
 /// reader, so a host can re-enter its image callbacks for every step.
 /// Cancellation is observed at the same boundaries and leaves the comparison
 /// resumable; any other exception leaves it unusable.
@@ -1280,8 +1452,8 @@ public sealed class FastDiffComparison(FastDiffAxes axes = FastDiffAxes.ApiAndBo
         if (!_readB && !(_readB = _b.ReadUnits(_unitsB, OverBudget)))
             return false;
 
-        OrderedDictionary<string, FastDiff.Unit> unitsA = _unitsA.Units;
-        OrderedDictionary<string, FastDiff.Unit> unitsB = _unitsB.Units;
+        OrderedDictionary<SymbolKey, FastDiff.Unit> unitsA = _unitsA.Units;
+        OrderedDictionary<SymbolKey, FastDiff.Unit> unitsB = _unitsB.Units;
         _onlyB ??= [.. unitsB.Where(pair => !unitsA.ContainsKey(pair.Key)).Select(pair => pair.Value)];
         int total = unitsA.Count + _onlyB.Count;
         for (; _next < total; _next++)
@@ -1290,7 +1462,7 @@ public sealed class FastDiffComparison(FastDiffAxes axes = FastDiffAxes.ApiAndBo
                 return false;
             if (_next < unitsA.Count)
             {
-                (string key, FastDiff.Unit unitA) = unitsA.GetAt(_next);
+                (SymbolKey key, FastDiff.Unit unitA) = unitsA.GetAt(_next);
                 _states.Add(unitsB.TryGetValue(key, out FastDiff.Unit? unitB)
                     ? FastDiff.CompareUnit(_a, unitA, _b, unitB, Axes, _work)
                     : FastDiff.OneSided(_a, unitA, Axes));
