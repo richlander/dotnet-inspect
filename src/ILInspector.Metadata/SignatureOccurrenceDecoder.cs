@@ -14,7 +14,8 @@ public static class SignatureOccurrenceDecoder
         PEReader image,
         EntityHandle member,
         SignatureOccurrenceMetrics? metrics,
-        SignatureOccurrenceLimits? limits = null)
+        SignatureOccurrenceLimits? limits = null,
+        MetadataOperationContext? operation = null)
     {
         ArgumentNullException.ThrowIfNull(image);
         if (member.IsNil || member.Kind is not (
@@ -42,7 +43,10 @@ public static class SignatureOccurrenceDecoder
         try
         {
             var reader = ReadMetadata(image);
-            var budget = new SignatureOccurrenceWorkBudget(effectiveLimits, metrics);
+            var budget = new SignatureOccurrenceWorkBudget(
+                effectiveLimits,
+                metrics,
+                operation);
             var provider = new SignatureOccurrenceProvider(image, budget);
             var occurrences = member.Kind switch
             {

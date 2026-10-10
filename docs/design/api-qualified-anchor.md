@@ -2,9 +2,17 @@
 
 ## Status and ownership
 
-**Design only; no implementation or production adoption is claimed.**
+**The Metadata primitive and bounded issuer are implemented. No
+correspondence, diff, CLI, or Browser/Wasm adoption is claimed.**
 [`ILInspector.Metadata`](../overview.md) owns this focused anchor contract,
 tracked by [#9827](https://github.com/richlander/dotnet-inspect/issues/9827).
+
+`MetadataDeclarationSession.PostApiQualifiedAnchor` issues format `V1` from an
+MVID-bound `MetadataDeclarationLocation`. Local names resolve through the
+session's bounded exact-TypeDef index; external names require an
+`IApiQualifiedTypeDefinitionResolver` supplied by the acquisition owner.
+Issuance returns `Complete`, `Refused`, or `Failed` and never emits a partial
+anchor.
 
 The one claim is:
 
@@ -382,7 +390,7 @@ outcome rather than flattening it into one display string.
 capability slices:
 
 1. this focused design;
-2. Metadata primitive and bounded issuance;
+2. Metadata primitive and bounded issuance (implemented);
 3. exact-correspondence adoption;
 4. diff adoption;
 5. one CLI production consumer; and
@@ -399,18 +407,17 @@ addresses only for the selected image.
 
 ## Required implementation evidence
 
-The implementation slice must name each claimed property and its Release gate.
-At minimum:
+The Metadata substrate claims the following Release gates:
 
-| Gate | Required evidence |
-| --- | --- |
-| Ref/runtime parity | Independently compiled reference and implementation images issue equal anchors for unchanged declarations despite reordered MethodDefs; destination addresses remain image-local |
-| Version parity | Independently compiled `A`/`A'` images issue equal anchors across MVID, token, row-order, assembly-version, and generic-parameter-name changes |
-| Retained discriminator boundaries | Nearby declarations differ for kind, raw name, staticness, generic arity, return-only shape, parameter shape, required modifiers, array kind/rank, function-pointer header, and named-type family |
-| Deliberate erasures | Accessibility, defaults, generic-parameter names, body, documentation, and assembly version changes leave qualified anchors equal |
-| Complete issuance | Malformed, unresolved, ambiguous, over-budget, and module-scoped inputs return typed non-success rather than a partial anchor |
-| Anchor compatibility | The Member arm projects the same `MemberAnchor` as current Metadata identity for representative ordinary, conversion, constructor, property, field, event, explicit-interface, and extension declarations |
-| Real asset | `Microsoft.Extensions.Configuration@10.0.10` resolves the `Load()` runtime declaration without ordinal reuse; `System.Text.Json` version pairs retain unchanged methods across row churn |
+| Gate | Evidence | Release gate |
+| --- | --- | --- |
+| Ref/runtime parity | Independently compiled reference and implementation images issue equal anchors for unchanged declarations despite reordered MethodDefs; addresses remain image-local | `RefAndImplementationMethod_ShareOneAnchorAtDifferentLocations` |
+| Version parity | Independently compiled `A`/`A'` images issue equal anchors across MVID, token, row-order, assembly-version, and generic-parameter-name changes | `TypeAnchor_ErasesImageAndVersionLocalFacts`; `MemberAnchor_MatchesAcrossVersionAndRowOrder` |
+| Retained discriminator boundaries | Kind, raw name, staticness, generic arity, return and parameter shape, required modifiers, arrays, function pointers, and named-type family remain distinguishing | `MemberAnchor_RetainsDesignedDiscriminators`; `ModelEquality_RetainsKindNameArityModifiersAndNamedFamily` |
+| Deliberate erasures | Accessibility, attributes, defaults, generic names and constraints, accessor availability, body, parameter names, and assembly version do not enter equality | `MemberAnchor_ErasesNonShapeDeclarationDetails`; `TypeAnchor_ErasesGenericConstraints`; `MemberAnchor_MatchesAcrossVersionAndRowOrder` |
+| Complete issuance | Malformed, unresolved, ambiguous, over-budget, module-scoped, and resolverless inputs return typed non-success rather than a partial anchor | `MalformedFieldSignature_FailsWithoutDegradedAnchor`; `NonPortableNamedType_DoesNotProduceDegradedSuccess`; `AmbiguousLocalTypeName_IsRefused`; `ExhaustedStructuredWorkBudget_FailsWithoutDegradedAnchor`; `ExternalNamedType_RequiresOwnerAuthorizedResolution` |
+| Anchor compatibility | Member issuance preserves current Metadata `MemberAnchor` identity for ordinary, conversion, constructor, property, field, event, explicit-interface, and extension declarations | `MemberAnchor_MatchesAcrossVersionAndRowOrder`; `CompanionAnchor_MatchesCurrentIdentityForSpecialMethods`; `CompanionAnchor_MatchesCurrentConversionIdentity` |
+| Real assets | Configuration 10.0.10 ref/lib `Load(Stream)` and System.Text.Json 9/10 `MakeReadOnly()` issue equal anchors without ordinal or token reuse | `ConfigurationReferenceAndImplementation_LoadShareOneAnchor`; `SystemTextJsonVersionPair_SharesMethodAnchor` |
 
 The Web implementation-only scenario and diff changed-signature scenarios are
 consumer-owned gates in their adoption slices. A Metadata gate alone does not
