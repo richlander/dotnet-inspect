@@ -35,13 +35,13 @@ request-wide sequence keys.
 The source-outcome slice in
 [#8139](https://github.com/richlander/dotnet-inspect/issues/8139) binds one
 opaque owner-issued disposition/completion-evidence pair and the independent
-Rows-usability and Count-sufficiency decisions to every participating row set.
-Only Rows-usable sets enter residual cohorts. Rows retain selected values or a
-source-only outcome in declaration order; any Count-insufficient source
+Rows-usability and completeness facts to every participating row set. Only
+Rows-usable sets enter residual cohorts. Rows retain selected values or a
+source-only outcome in declaration order. Count follows
+[Incomplete evaluation](#incomplete-evaluation): an incomplete Rows-usable set
+enters residual Count and contributes an observed entry with its evidence,
+while any Rows-unavailable source without an accepted exact cardinality
 returns every source outcome before residual execution and no cardinality.
-That slice predates [Incomplete evaluation](#incomplete-evaluation): it still
-refuses Count for a Rows-usable incomplete set rather than reporting the
-observed cardinality with its incompleteness evidence.
 
 Projection, the complete Sections resolution-failure algebra, multiple
 association instances, accepted upstream Count without a row handoff, and

@@ -801,7 +801,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             }
             string producerKey = client.Source.Producer.Key;
             RangedPackageContent directory =
-                RangedPackageContent.CreateDirectory(entries, producerKey, reader.Directory.ArchiveLength);
+                RangedPackageContent.CreateDirectory(entries, producerKey, reader.Directory.ArchiveLength,
+                    PackageArchiveDirectories.FromPaths(reader.Directory.Entries.Select(entry => entry.Name)));
             PackageRangedPlan plan = PackageEntryBlocks.PlanSelection(
                 reader.Directory,
                 rangedRead.SelectEntries(directory)
@@ -1025,7 +1026,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         }
 
         RangedPackageContent directoryView =
-            RangedPackageContent.CreateDirectory(entries, producerKey, directory.ArchiveLength);
+            RangedPackageContent.CreateDirectory(entries, producerKey, directory.ArchiveLength,
+                PackageArchiveDirectories.FromPaths(directory.Entries.Select(entry => entry.Name)));
         // An anchor requires its whole aligned block: a block is present when
         // all of its entries are, so a warm read naming a neighbour in a
         // cached block makes no request.
