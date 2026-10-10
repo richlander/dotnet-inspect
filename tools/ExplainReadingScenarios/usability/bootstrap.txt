@@ -1,0 +1,7 @@
+Start with explain package-query/query .hal --json and save the response locally.
+HAL uses _embedded for included resources and _links for navigation. Inspect the
+embedded resources before fetching links. Follow emitted hrefs unchanged with
+explain "$href" --json. Use jq before displaying output; retain completeness
+beside selected answers. describedby is explanation schema for client development.
+For query preparation, inspect the relevant facet and embedded consumer binding.
+If required meaning is unregistered, report the gap.

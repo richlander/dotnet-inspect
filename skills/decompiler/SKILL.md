@@ -66,7 +66,7 @@ or `ElementAccessExpression`, not an IR class name or text pattern. Discover
 the IDs instead of guessing them:
 
 ```bash
-dnx dotnet-inspect -y -- vocabulary -S "C# Body Kinds"
+dnx dotnet-inspect -y -- explain vocabularies/csharp.body-kinds .hal --json
 dnx dotnet-inspect -y -- library MyLib.dll \
   --where "Kind=ObjectCreationExpression" --jsonl
 dnx dotnet-inspect -y -- library System.Text.Json \

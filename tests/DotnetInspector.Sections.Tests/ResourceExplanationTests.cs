@@ -566,6 +566,19 @@ public class ResourceExplanationTests
                     relationshipLimit: 1))
                 .Content;
 
+        JsonElement compact = ResourceExplanationDataProjection.Create(document,
+            static path => "inspect-resource:/" + path.Value);
+        Assert.Equal("record", compact.GetProperty("facts").GetProperty("record")
+            .GetProperty("value").GetString());
+        Assert.Equal("value", compact.GetProperty("facts").GetProperty("choice")
+            .GetProperty("case").GetString());
+        Assert.Equal("choice", compact.GetProperty("facts").GetProperty("choice")
+            .GetProperty("value").GetString());
+        Assert.Equal("Available", compact.GetProperty("relationships").GetProperty("target")
+            .GetProperty("state").GetString());
+        Assert.Empty(compact.GetProperty("relationships").GetProperty("target")
+            .GetProperty("targets").EnumerateArray());
+
         Assert.Equal(13, document.Traversal.EmittedSchemaDeclarationCount);
         Assert.Throws<InvalidOperationException>(() =>
             catalog.Explain(

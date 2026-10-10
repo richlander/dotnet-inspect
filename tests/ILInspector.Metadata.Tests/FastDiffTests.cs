@@ -180,10 +180,66 @@ public sealed class FastDiffTests
         return ApiSurfaceExtractor.Extract(reader, ApiSurfaceExtractionScope.Public);
     }
 
+    [Fact]
+    public void Steps_ResumeToTheWholeResult()
+    {
+        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        FastDiffResult whole = Compare(pair);
+        var comparison = new FastDiffComparison();
+
+        // A zero budget still advances one row or Type per step; each step
+        // gets fresh readers over the same images, as a host's callbacks do.
+        int steps = 0;
+        bool complete = false;
+        while (!complete)
+        {
+            using var before = new PEReader(File.OpenRead(pair.OldAssemblyPath()));
+            using var after = new PEReader(File.OpenRead(pair.NewAssemblyPath()));
+            complete = comparison.Step(before, after, TimeSpan.Zero, TestContext.Current.CancellationToken);
+            steps++;
+        }
+
+        Assert.True(steps > whole.Types.Length);
+        Assert.Equal(whole.Types, comparison.Result!.Types);
+        Assert.Equal(whole.Receipt, comparison.Result.Receipt);
+    }
+
+    [Fact]
+    public void Steps_RejectADifferentImage()
+    {
+        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        var comparison = new FastDiffComparison();
+        using var before = new PEReader(File.OpenRead(pair.OldAssemblyPath()));
+        using var after = new PEReader(File.OpenRead(pair.NewAssemblyPath()));
+        Assert.False(comparison.Step(before, after, TimeSpan.Zero, TestContext.Current.CancellationToken));
+
+        Assert.Throws<InvalidOperationException>(
+            () => comparison.Step(after, before, TimeSpan.Zero, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void ApiAxis_LeavesBodiesUncompared()
+    {
+        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        FastDiffResult whole = Compare(pair);
+        using var before = new PEReader(File.OpenRead(pair.OldAssemblyPath()));
+        using var after = new PEReader(File.OpenRead(pair.NewAssemblyPath()));
+
+        FastDiffResult api = FastDiff.Compare(
+            before, after, FastDiffAxes.Api, TestContext.Current.CancellationToken);
+
+        Assert.All(api.Types, type => Assert.Equal(FastDiffState.NotCompared, type.Body));
+        Assert.Equal(0, api.Receipt.BodiesCompared);
+        Assert.Equal(
+            whole.Types.Select(type => (type.Identifier, type.Api)),
+            api.Types.Select(type => (type.Identifier, type.Api)));
+    }
+
     static FastDiffResult Compare(FixturePair pair)
     {
         using var before = new PEReader(File.OpenRead(pair.OldAssemblyPath()));
         using var after = new PEReader(File.OpenRead(pair.NewAssemblyPath()));
-        return FastDiff.Compare(before, after);
+        return FastDiff.Compare(
+            before, after, FastDiffAxes.ApiAndBody, TestContext.Current.CancellationToken);
     }
 }
