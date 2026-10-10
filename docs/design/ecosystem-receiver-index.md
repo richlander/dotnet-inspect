@@ -13,15 +13,14 @@ to observable behavior in the CLI and Inspect Web.
 
 > For one Ecosystem's declared package-prefix population, enumerated and
 > pinned to exact package coordinates at generation, a checked-in
-> deterministic artifact records every public extension member that Metadata
-> reports for the selected Libraries of each pinned package, with its
-> hidden and obsolete facts, keyed by Metadata receiver type identity, together
-> with a complete coverage record. For every receiver identity, the artifact's
-> members equal Metadata's extension-member observations with that receiver
-> identity over the pinned coordinates. For any receiver query and admission
-> mode, a lookup returns the members the live reverse extension question
-> returns over the same pinned coordinates, and a host answers it without
-> acquiring packages.
+> deterministic artifact records the extension members that the live
+> reverse extension census admits by default for the selected Libraries of
+> each pinned package, keyed by Metadata receiver type identity, together with
+> a complete coverage record. For every receiver identity, the artifact's
+> members equal that census's default output with that receiver identity over
+> the pinned coordinates. For any receiver query, a lookup returns the members
+> the live reverse extension question returns by default over the same pinned
+> coordinates, and a host answers it without acquiring packages.
 
 This owner defines:
 
@@ -41,16 +40,19 @@ This owner defines:
 It does not define:
 
 - extension-member decoding, member anchors, receiver and return type
-  identity, or the hidden and obsolete admission rule, which remain with
-  Metadata (`metadata.extension-member` observations,
+  identity, signature text, or the admission rule for accessibility, hidden,
+  and obsolete members, which remain with Metadata
+  (`metadata.extension-member` observations,
   `MetadataExtensionRelationEvidence`, and `ExtensionMethodScanner`);
 - how a receiver query string matches a receiver type, which remains with
-  Metadata's `TypeMatcher`;
+  Metadata's `TypeMatcher` applied to the live path's normalized receiver
+  text;
 - package-prefix enumeration, paging, or completion, which remain with
   `PackagePrefixDeclaration` and NuGetFetch's prefix search;
-- Library selection within a package, which remains with
-  `TfmSelector.SelectHighestAssembliesFromPackage`, the selection the live
-  `extensions` path uses;
+- Library selection within a package, which remains with the live path's
+  package assembly selection in `AssemblySetResolver`
+  (`TfmSelector.SelectHighestAssembliesFromPackage` plus its exclusion of
+  `runtimes/` assemblies);
 - Ecosystem membership, lineage, or prefix declarations, which remain with
   [Static Ecosystem Packs](ecosystem-packs.md);
 - receiver applicability through the type hierarchy or generic constraints
@@ -143,11 +145,17 @@ Each case below must have a fixture or recorded probe before implementation.
   returns every `IResourceBuilder<…>` member, as the live question does, with
   no constraint filtering. That result is equivalent, not applicable; the
   difference is a declared [non-claim](#non-claims).
-- **Hidden and obsolete members.** By default the live question drops
-  members marked never-browsable or obsolete and admits them under `--all`.
-  The artifact records every public extension member with both facts, so one
-  artifact answers both admission modes, and the default lookup matches the
-  default live result.
+- **Admission is Metadata's, and only the default is indexed.** By default
+  the live question admits public extension methods, including public methods
+  on a non-public extension class, and drops never-browsable and obsolete
+  members; a hidden declaring type removes all its members, and hidden
+  accessors change property signature text. `--all` also admits non-public
+  members: on `dotnet-inspect 0.27.0+a38bbc6`,
+  `extensions 'IEnumerable<T>' --platform System.Linq --count` returns 68 by
+  default and 77 with `--all`. Metadata issues no per-member admission facts,
+  so the artifact stores the census's default output, members and signature
+  text as admitted, rather than re-deriving admission. The `--all` mode is a
+  [non-claim](#non-claims).
 - **Name heuristics are not extension facts.** A row-shape guess (declaring
   type ending in `Extensions`, or first parameter type) admits
   `DistributedApplicationBuilder.AddResource<T>(T resource)`, which is an
@@ -180,9 +188,10 @@ One artifact per Ecosystem prefix declaration. It contains:
   bound it reached.
 - **Members.** For each admitted extension member: canonical receiver type
   identity and receiver kind (named type, open generic, or type parameter),
-  member anchor, member kind (method or property), declaring type, return
-  type identity, the hidden and obsolete facts, and the package and Library
-  coordinate that contributes it.
+  the live path's normalized receiver text, member anchor, member kind
+  (method or property), signature text as admitted, declaring type, return
+  type identity, and the package and Library coordinate that contributes
+  it.
 
 Invariants:
 
@@ -203,18 +212,19 @@ Invariants:
 
 ## Lookup semantics
 
-A lookup takes one Ecosystem artifact, one receiver query, and one admission
-mode (default or all), and returns:
+A lookup takes one Ecosystem artifact and one receiver query, and returns:
 
-- every admitted member whose receiver key Metadata's `TypeMatcher` matches
-  against the query, in canonical order;
+- every member whose normalized receiver text Metadata's `TypeMatcher`
+  matches against the normalized query, exactly as the live path matches, in
+  canonical order;
 - the type-parameter receivers in the artifact that the query did not match,
   reported as unresolved for this lookup;
 - the artifact's pinned coordinates and coverage, so a consumer can state
   "as of" and "partial"; and
-- an empty member set only as a complete-empty answer when enumeration
-  completed and no package was rejected; otherwise the empty set carries the
-  coverage gap.
+- an empty member set only as a complete-empty answer when the coverage
+  record has no gap: enumeration completed, no package was rejected, and no
+  selected Library failed inspection. Otherwise the empty set carries the
+  gap.
 
 Lookup performs no acquisition and no network access. Checking pinned
 versions against current nuget.org versions is a separate, explicit,
@@ -226,15 +236,15 @@ Equivalence has two levels, each with its own oracle.
 
 - **Content.** For every receiver identity, the artifact's members equal the
   typed per-assembly extension census the live path computes over the same
-  pinned coordinates, compared by member anchor, receiver identity, return
-  type identity, declaring type, and the hidden and obsolete facts. The
-  live `extensions` output cannot serve here: it carries no anchor or return
-  type and collapses overloads by display name.
-- **Lookup.** For any receiver query and admission mode, the lookup's members,
-  collapsed by the live path's overload grouping, equal the live
+  pinned coordinates in default admission, compared by member anchor,
+  receiver identity, return type identity, declaring type, and signature
+  text. The live `extensions` output cannot serve here: it carries no anchor
+  or return type and collapses overloads by display name.
+- **Lookup.** For any receiver query, the lookup's members, collapsed by the
+  live path's overload grouping, equal the default live
   `extensions <query> --package-prefix <prefix>` result over the same pinned
-  coordinates, with `--all` for the all mode. This level checks that the
-  lookup applies the same matcher and admission rule.
+  coordinates. This level checks that the lookup applies the same matcher to
+  the same receiver text.
 
 Both levels require one shared composition. The live path's per-assembly
 census is CLI-internal today. Step 2 moves it to a host-neutral layer that the
@@ -265,14 +275,14 @@ that Ecosystem is missing.
 | Property | Gate | Lane |
 | --- | --- | --- |
 | Deterministic serialization | Build twice from fixture assemblies and compare bytes | PR-fast |
-| Missing is never empty | Fixture population with a rejected package and an empty Library | PR-fast |
+| Missing is never empty | Fixture population with a rejected package, a Library that fails inspection, and an empty Library; only the empty Library contributes to a complete-empty answer | PR-fast |
 | Extension facts only | Fixture containing an instance `Add*` method and a classic and C# 14 extension member | PR-fast |
-| Hidden and obsolete facts recorded; default lookup excludes them, all mode admits them | Fixture with never-browsable and obsolete extension members | PR-fast |
+| Stored members are the census's default admission | Fixture with never-browsable, obsolete, non-public, and hidden-accessor extension members compared with the shared census | PR-fast |
 | Lookup applies Metadata's matcher | Fixture lookups for open, closed, short-name, and differently cased receiver queries against keys built from the same fixture | PR-fast |
 | Type-parameter receivers are unresolved, not misfiled | Fixture with a constrained `TBuilder` receiver | PR-fast |
 | Checked-in artifact parses and contains every known-answer control | Load each embedded artifact | PR-fast |
 | Content equals the live census over pinned coordinates | Recompute the shared census for each pinned coordinate and compare typed identities | Slow, network; daily |
-| Lookup equals live `extensions` over pinned coordinates | Default and `--all` lookups for each indexed receiver compared with live collapsed rows | Slow, network; daily |
+| Lookup equals live `extensions` over pinned coordinates | Default lookups for each indexed receiver compared with live collapsed rows | Slow, network; daily |
 | Work reduction in each host | Exact NativeAOT base/head comparison of the live and indexed paths, with result cardinality and content | Adoption PRs |
 
 ## Adoption sequence
@@ -304,6 +314,11 @@ authority for unindexed populations and the oracle for the index.
   question's matcher, which is broader than applicability; a lookup result is
   a candidate set, not an applicability judgment. Constraint facts belong to
   Metadata and are a prerequisite, not part of this claim.
+- **`--all` admission.** The artifact does not answer the live `--all` mode,
+  which admits non-public members. A host that receives that mode for an
+  Ecosystem uses the live path or reports the mode as unsupported; it never
+  answers from the artifact. Indexing it would need per-member admission facts
+  from Metadata first.
 - **Populations beyond declared prefixes.** Extenders outside every Ecosystem
   prefix are not indexed. Lookups state the indexed population; they do not
   imply global completeness.
