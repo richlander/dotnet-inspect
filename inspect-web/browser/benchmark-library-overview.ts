@@ -1,5 +1,5 @@
 // Measures the page-owned production Worker and Cache Storage path, with JSON parity.
-// Usage: node browser/benchmark-library-overview.ts <before-url> <after-url> <output-dir> [samples]
+// Usage: node browser/benchmark-library-overview.ts <before-url> <after-url> <output-dir> [samples] [before-shared-demand]
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -7,10 +7,11 @@ import { resolve } from "node:path";
 import { firefox } from "@playwright/test";
 import type { PublishedRuntimeBenchmarkBridge } from "../src/published-runtime-benchmark-bridge.ts";
 
-const [beforeUrl, afterUrl, outputDirectory, sampleText = "7"] = process.argv.slice(2);
+const [beforeUrl, afterUrl, outputDirectory, sampleText = "7", baselineMode] = process.argv.slice(2);
 if (!beforeUrl || !afterUrl || !outputDirectory) {
-  throw new Error("Usage: benchmark-library-overview.ts <before-url> <after-url> <output-dir> [samples]");
+  throw new Error("Usage: benchmark-library-overview.ts <before-url> <after-url> <output-dir> [samples] [before-shared-demand]");
 }
+assert.ok(baselineMode === undefined || baselineMode === "before-shared-demand");
 const samples = Number(sampleText);
 assert.ok(Number.isSafeInteger(samples) && samples > 0);
 const output = resolve(outputDirectory);
@@ -22,6 +23,17 @@ const assets = [
   { id: "Newtonsoft.Json", version: "13.0.4", framework: "net6.0", library: null },
   { id: "Dapper", version: "2.1.66", framework: "net8.0", library: null },
 ] as const;
+interface OverviewMeasurement {
+  resultJson: string;
+  library: string;
+  summaryMilliseconds: number;
+  libraryMilliseconds: number;
+  totalMilliseconds: number;
+  apiAvailable: boolean;
+  apiComplete: boolean;
+  apiProjectionLimited: boolean;
+  stats: Awaited<ReturnType<PublishedRuntimeBenchmarkBridge["package"]["packageCacheStats"]>>;
+}
 const browser = await firefox.launch({ headless: true });
 const rows: object[] = [];
 try {
@@ -55,7 +67,7 @@ try {
           for (const cache of ["cold", "warm"]) {
             const requestStart = requests.length;
             const started = performance.now();
-            const result = await page.evaluate(async ({ asset: coordinate, shared }) => {
+            const result: OverviewMeasurement = await page.evaluate<OverviewMeasurement, { asset: (typeof assets)[number]; shared: boolean }>(async ({ asset: coordinate, shared }: { asset: (typeof assets)[number]; shared: boolean }) => {
               const client: PublishedRuntimeBenchmarkBridge = window.__inspectWebRuntimeBenchmark!;
               const totalStart = performance.now();
               const summary = await client.package.queryPackageSummary(coordinate.id, coordinate.version, coordinate.framework);
@@ -91,7 +103,7 @@ try {
                   && apiResult.content.failures.every(failure => failure.kind === 7),
                 stats: await client.package.packageCacheStats(),
               };
-            }, { asset, shared: label === "after" });
+            }, { asset, shared: label === "after" || baselineMode === "before-shared-demand" });
             const wallMilliseconds = performance.now() - started;
             const hash = createHash("sha256").update(result.resultJson).digest("hex");
             const reference = parity.get(cache);

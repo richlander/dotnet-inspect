@@ -15,40 +15,6 @@ namespace DotnetInspector.Services.Tests;
 /// </summary>
 public sealed partial class PackageRangedRealizationTests
 {
-    [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public async Task SemanticFileList_DirectoryFactsRetainEmptyFolders(
-        bool complete, bool filesystem)
-    {
-        using var bytes = new MemoryStream();
-        bytes.Write(ReadPclStorage());
-        using (var zip = new ZipArchive(bytes, ZipArchiveMode.Update, leaveOpen: true))
-            zip.CreateEntry("lib/net99.0/");
-        byte[] archive = bytes.ToArray();
-        var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
-        await using RangedEnvironment environment = RangedEnvironment.Create(server);
-        using var disk = new TemporaryFileSystemPackageStore();
-        IPackageStore store = filesystem ? disk : new InMemoryPackageStore();
-        var query = PackageHouseContentQuery.PackageFileList(includeDirectories: true);
-        for (int invocation = 0; invocation < 2; invocation++)
-        {
-            var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
-                await environment.AcquireContentAsync(store, query,
-                    sizeCut: complete ? archive.Length : 0));
-            var list = acquired.Result.Evidence.FileList!;
-            Assert.Contains("lib/net99.0", list.Directories!);
-            Assert.Contains("lib/net45", list.Directories!);
-            Assert.DoesNotContain(list.Entries, entry => entry.Path.EndsWith('/'));
-            Assert.Empty(acquired.Payload.Content.EnumerateEntries());
-            Assert.Contains("net99.0", TfmSelector.GetPackageFrameworkFolders(list.Directories!));
-        }
-        // The first non-range request probes size; ranged acquisition abandons its body.
-        Assert.Equal(1, server.FullRequests);
-        Assert.Equal(complete ? 0 : 1, server.RangedRequests);
-    }
-
     // PR-fast: pinned real multi-Library archive; both host-neutral acquisition paths.
     [Theory]
     [InlineData(false, "PCLStorage")]
@@ -126,6 +92,40 @@ public sealed partial class PackageRangedRealizationTests
             Assert.False(content.IsMaterialized("lib/net45/PCLStorage.dll"));
             Assert.False(content.IsMaterialized("lib/net45/PCLStorage.xml"));
         }
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task SemanticFileList_DirectoryFactsRetainEmptyFolders(
+        bool complete, bool filesystem)
+    {
+        using var bytes = new MemoryStream();
+        bytes.Write(ReadPclStorage());
+        using (var zip = new ZipArchive(bytes, ZipArchiveMode.Update, leaveOpen: true))
+            zip.CreateEntry("lib/net99.0/");
+        byte[] archive = bytes.ToArray();
+        var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        using var disk = new TemporaryFileSystemPackageStore();
+        IPackageStore store = filesystem ? disk : new InMemoryPackageStore();
+        var query = PackageHouseContentQuery.PackageFileList(includeDirectories: true);
+        for (int invocation = 0; invocation < 2; invocation++)
+        {
+            var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+                await environment.AcquireContentAsync(store, query,
+                    sizeCut: complete ? archive.Length : 0));
+            var list = acquired.Result.Evidence.FileList!;
+            Assert.Contains("lib/net99.0", list.Directories!);
+            Assert.Contains("lib/net45", list.Directories!);
+            Assert.DoesNotContain(list.Entries, entry => entry.Path.EndsWith('/'));
+            Assert.Empty(acquired.Payload.Content.EnumerateEntries());
+            Assert.Contains("net99.0", TfmSelector.GetPackageFrameworkFolders(list.Directories!));
+        }
+        // The first non-range request probes size; ranged acquisition abandons its body.
+        Assert.Equal(1, server.FullRequests);
+        Assert.Equal(complete ? 0 : 1, server.RangedRequests);
     }
 
     [Fact]

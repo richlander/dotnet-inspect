@@ -248,6 +248,8 @@ public sealed partial class BrowserEngineBoundaryTests
     [InlineData("net99.0")]
     public async Task PackageInventory_RangePreservesSelectionWithoutLibraryBodies(string target)
     {
+        // Exercise the configured entry-store branch used by the website.
+        PrepareExactPlatformPersistence();
         string id = $"summary.inventory.{Guid.NewGuid():N}";
         byte[] assembly = File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
         byte[] other = File.ReadAllBytes(typeof(PackageExports).Assembly.Location);
@@ -289,12 +291,16 @@ public sealed partial class BrowserEngineBoundaryTests
 
         // Later inspection must request content; directory-only authority cannot
         // replace a Library realization, even when the coordinate matches.
+        int rangesBeforeLibrary = handler.RangedPackageResponses;
         await using var selected = await BrowserPackageWorkspace.OpenMetadataScopeAsync(
             id, "1.0.0", target, inventory.Coordinate.DefaultAsset.Id, source,
             TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         RangedPackageContent selectedContent = Assert.IsType<RangedPackageContent>(
             selected.Scope.Coordinates[0].Package.Content);
         Assert.True(selectedContent.IsMaterialized($"lib/net11.0/{id}.dll"));
+        Assert.Equal(rangesBeforeLibrary + (string.IsNullOrEmpty(target) ? 1 : 2),
+            handler.RangedPackageResponses);
+        Assert.Equal(1, handler.OrdinaryPackageResponses);
     }
 
     [Theory]
