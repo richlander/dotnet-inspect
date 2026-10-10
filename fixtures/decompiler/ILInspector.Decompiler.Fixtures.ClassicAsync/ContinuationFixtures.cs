@@ -40,5 +40,19 @@ public sealed class ContinuationFixtures
         if (!first && !second) return;
         await Work();
     }
+    public async Task ReferenceGuardedAwait()
+    {
+        if (_first is null && _second is null) return;
+        await Work();
+    }
+    public async ValueTask CompoundReceiverCleanup()
+    {
+        if (_first is null && _second is null) return;
+        await WorkToken(default).ConfigureAwait(false);
+        Cleanup();
+        _first = null;
+        _second = null;
+    }
+    public Task WorkToken(System.Threading.CancellationToken token) => Task.CompletedTask;
     public Task Work() => Task.CompletedTask;
 }
