@@ -71,11 +71,13 @@ A key is a non-empty sequence of parts. Every part begins with one tag byte.
 | `0x03` | Key | LEB128 length, then a nested key's bytes |
 | `0x04` | Blob | LEB128 length, then that many raw bytes |
 | `0x05` | Ref | LEB128 interned ID; in-process profile only |
-| `0x06`–`0x0F` | Reserved for this owner | Never written by a domain |
+| `0x06` | Persisted header | Format version, domain ID, and domain version, each LEB128; persisted profile only, first part only |
+| `0x07`–`0x0F` | Reserved for this owner | Never written |
 | `0x10`–`0xFF` | Domain marker | Nothing; the tag is the whole part |
 
 Each part therefore decodes one way only, and a key decodes into exactly one
-part sequence. No name is scanned, escaped, or normalized, whatever bytes it
+part sequence. The builder writes every integer and length in shortest-form
+LEB128, so one part sequence also encodes to exactly one byte string. No name is scanned, escaped, or normalized, whatever bytes it
 contains. Comparison is ordinal over the bytes, and ordering is
 `SequenceCompareTo`, so order is a function of the parts alone.
 
@@ -125,11 +127,21 @@ contain `Ref` parts from an interning table. Fast Diff's keys are in-process.
 
 ### Persisted
 
-A persisted key carries a header before its first part:
+A persisted key begins with a header part, tag `0x06`, which only this owner
+writes:
 
 ```text
-0x50 'P'   format version (LEB128)   domain ID (LEB128)   domain version (LEB128)
+0x06   format version (LEB128)   domain ID (LEB128)   domain version (LEB128)
 ```
+
+Persisted keys are their own type, `PersistedSymbolKey<TDomain>`, separate
+from the in-process `SymbolKey<TDomain>`. The two types cannot be compared or
+mixed. Because the header tag is outside the domain-marker range, the bytes
+of a persisted key can never also be the bytes of an in-process key. A
+consumer that matches a key built in-process against a persisted one converts
+it to the persisted profile and compares there; converting a persisted key
+back strips and checks its header. `Kind` on a persisted key returns the
+first marker after the header.
 
 - **Format version** is this owner's grammar version. This document defines
   version 1.
@@ -143,14 +155,23 @@ A persisted key never contains a `Ref` part. Converting an in-process key
 expands every reference from its table, or refuses when the table is not
 available.
 
-Reading a persisted key validates it completely before any use: the header
-matches the expected domain and a supported version, every tag is defined,
-every length lies within the remaining bytes, nested keys validate
-recursively, no bytes trail the last part, and the total length and nesting
-depth are within this owner's fixed bounds. A key that fails validation is a
-typed refusal, never a partially read key. Validation inspects structure only.
-It does not check that names are well-formed UTF-8, because ill-formed names
-are identities.
+Reading a persisted key validates it completely before any use:
+
+- the first part is the header, and it names the expected domain and a
+  supported format and domain version;
+- every later tag is Int, Name, Key, or Blob, or a marker value that the
+  expected domain's enum declares; a `Ref`, a second header, or a reserved
+  tag is refused;
+- every integer and length is shortest-form LEB128 within 64 bits, and every
+  length fits a 32-bit signed integer;
+- every length lies within the remaining bytes, and nested keys validate
+  recursively;
+- no bytes trail the last part; and
+- the total length and nesting depth are within this owner's fixed bounds.
+
+A key that fails validation is a typed refusal, never a partially read key.
+Validation inspects structure only. It does not check that names are
+well-formed UTF-8, because ill-formed names are identities.
 
 Persisted keys are byte-defined: integers are LEB128, and no part depends on
 endianness, culture, or runtime. The same parts produce the same bytes under
@@ -170,7 +191,11 @@ An interning table maps keys of one domain to dense integer IDs within one
 scope, such as one comparison or one response. Lookup takes a byte span
 through an alternate lookup, so a candidate key is not allocated to find an
 existing ID. Equal keys receive equal IDs, so a key that nests other keys by
-`Ref` remains injective within that table.
+`Ref` remains injective within that table: two `Ref`-bearing keys from one
+table are equal exactly when their expansions are equal, provided the domain
+always writes the same position in the same form, either `Ref` or `Key`. A
+`Ref` form is never byte-equal to its `Key` form, and a domain does not mix
+the two for one position.
 
 An ID is meaningful only within its table. Keys that contain `Ref` parts are
 bound to the table that issued them; comparing them across tables is a misuse
@@ -198,9 +223,10 @@ form are the exchange currency between the hosts and checked-in artifacts.
 | Lone surrogates refused | UTF-16 text with a lone surrogate is refused | PR-fast |
 | Domain separation | Keys of two domains do not compile as comparable; an invalid domain enum is rejected at first use | PR-fast |
 | Persisted round trip | Every Type and member key of System.Private.CoreLib persisted, converted to text, read back, and compared | PR-fast |
-| Persisted validation | Truncated, trailing, wrong-domain, unknown-version, unknown-tag, `Ref`-bearing, over-deep, and over-long keys are each refused | PR-fast |
+| Persisted validation | Truncated, trailing, wrong-domain, unknown-version, undeclared-marker, `Ref`-bearing, non-shortest LEB128, over-64-bit integer, over-`int` length, over-deep, and over-long keys are each refused | PR-fast |
+| Profile separation | In-process and persisted keys do not compile as comparable; converting a key to the persisted profile and back yields the same in-process key | PR-fast |
 | Host parity | Persisted keys built under Browser/Wasm equal those built under NativeAOT for the same input | Inspect Web managed API tests |
-| Interning | Equal keys share an ID; `Ref`-nested keys compare as their expansions within one table | PR-fast |
+| Interning | Equal keys share an ID; two `Ref`-bearing keys from one table are equal exactly when their expansions are equal | PR-fast |
 | Fast Diff unchanged | Fast Diff's identity and oracle gates pass unchanged, and NativeAOT base/head on the #9898 pairs shows no regression | Adoption PR |
 
 ## Adoption sequence
