@@ -9,7 +9,7 @@ using ILInspector.Research;
 
 namespace DotnetInspector.Presentation;
 
-public sealed record ApiTypeSurfacePresentation(
+public readonly record struct ApiTypeSurfacePresentation(
     string DefinitionId,
     string QueryId,
     string MetadataId,
@@ -23,19 +23,22 @@ public sealed record ApiTypeSurfacePresentation(
     string AccessibilityId,
     string Signature);
 
-public sealed record ApiParameterSurfacePresentation(
+public readonly record struct ApiParameterSurfacePresentation(
     string Name,
     string Type,
     string? Modifier,
     bool HasDefault,
-    string? DefaultValue);
+    string? DefaultValue,
+    string? Description);
 
-public sealed record ApiMemberBodySelectorPresentation(
+public readonly record struct ApiMemberBodySelectorPresentation(
     int Token,
     string MemberName,
     string SelectorKey);
 
-public sealed record ApiMemberSurfacePresentation(
+public readonly record struct ApiMemberSurfacePresentation<
+    TParameter,
+    TBodySelector>(
     string Name,
     string Kind,
     string Signature,
@@ -51,7 +54,7 @@ public sealed record ApiMemberSurfacePresentation(
     int? MetadataToken,
     int? DeclarationMetadataToken,
     string? ReturnType,
-    ImmutableArray<ApiParameterSurfacePresentation> Parameters,
+    ImmutableArray<TParameter> Parameters,
     string? DocumentationId,
     string StableSelector,
     string AnchorDigest,
@@ -59,7 +62,7 @@ public sealed record ApiMemberSurfacePresentation(
     string AnchorTypeFullName,
     string? DeclaringTypeDefinitionId,
     string GraphSelectorKey,
-    ImmutableArray<ApiMemberBodySelectorPresentation> BodySelectors);
+    ImmutableArray<TBodySelector> BodySelectors);
 
 /// <summary>
 /// Projects Metadata-owned API declarations into detached presentation facts
@@ -107,12 +110,19 @@ public static class ApiSurfacePresentation
             signature);
     }
 
-    public static ApiMemberSurfacePresentation Member(
+    public static ApiMemberSurfacePresentation<TParameter, TBodySelector>
+        Member<TParameter, TBodySelector>(
         ApiType type,
-        ApiMember member)
+        ApiMember member,
+        Func<ApiParameterSurfacePresentation, TParameter>
+            parameterProjection,
+        Func<ApiMemberBodySelectorPresentation, TBodySelector>
+            bodySelectorProjection)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(member);
+        ArgumentNullException.ThrowIfNull(parameterProjection);
+        ArgumentNullException.ThrowIfNull(bodySelectorProjection);
 
         MemberAnchor anchor =
             ApiMemberIdentity.GetMemberAnchor(type, member);
@@ -137,13 +147,15 @@ public static class ApiSurfacePresentation
             member.SignatureModel?.ReturnType ?? member.ReturnType,
             [
                 .. (member.SignatureModel?.Parameters ?? []).Select(
-                    static parameter =>
-                        new ApiParameterSurfacePresentation(
+                    parameter =>
+                        parameterProjection(
+                            new ApiParameterSurfacePresentation(
                             parameter.Name,
                             parameter.Type,
                             parameter.Modifier,
                             parameter.HasDefault,
-                            parameter.DefaultValueText)),
+                            parameter.DefaultValueText,
+                            Description: null))),
             ],
             DocumentationId(type, member),
             anchor.StableSelector,
@@ -155,11 +167,12 @@ public static class ApiSurfacePresentation
             [
                 .. CallGraphMemberResolver
                     .CreateBodySelectors(type, member)
-                    .Select(static selector =>
-                        new ApiMemberBodySelectorPresentation(
-                            selector.BodyToken,
-                            selector.MemberName,
-                            selector.SelectorKey)),
+                    .Select(selector =>
+                        bodySelectorProjection(
+                            new ApiMemberBodySelectorPresentation(
+                                selector.BodyToken,
+                                selector.MemberName,
+                                selector.SelectorKey))),
             ]);
     }
 

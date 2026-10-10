@@ -84,8 +84,14 @@ public class ApiSurfacePresentationTests
             },
         };
 
-        ApiMemberSurfacePresentation presentation =
-            ApiSurfacePresentation.Member(type, member);
+        ApiMemberSurfacePresentation<
+            ApiParameterSurfacePresentation,
+            ApiMemberBodySelectorPresentation> presentation =
+                ApiSurfacePresentation.Member(
+                    type,
+                    member,
+                    static parameter => parameter,
+                    static selector => selector);
 
         Assert.Equal("protected", presentation.Accessibility);
         Assert.True(presentation.IsStatic);

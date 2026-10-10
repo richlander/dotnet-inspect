@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace DotnetInspect.Web;
 
 /// <summary>
@@ -80,7 +82,7 @@ internal sealed record BrowserMemberSurfaceInfo(
     int? MetadataToken,
     int? DeclarationMetadataToken,
     string? ReturnType,
-    BrowserParameterSurfaceInfo[] Parameters,
+    ImmutableArray<BrowserParameterSurfaceInfo> Parameters,
     string? DocumentationId,
     string? Summary,
     string? Returns,
@@ -91,9 +93,9 @@ internal sealed record BrowserMemberSurfaceInfo(
     string AnchorTypeFullName,
     string? DeclaringTypeDefinitionId,
     string GraphSelectorKey,
-    BrowserMemberBodySelectorInfo[] BodySelectors);
+    ImmutableArray<BrowserMemberBodySelectorInfo> BodySelectors);
 
-internal sealed record BrowserParameterSurfaceInfo(
+internal readonly record struct BrowserParameterSurfaceInfo(
     string Name,
     string Type,
     string? Modifier,
@@ -105,7 +107,7 @@ internal sealed record BrowserExceptionSurfaceInfo(
     string Type,
     string Description);
 
-internal sealed record BrowserMemberBodySelectorInfo(
+internal readonly record struct BrowserMemberBodySelectorInfo(
     int Token,
     string MemberName,
     string SelectorKey);

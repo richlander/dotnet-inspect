@@ -403,8 +403,25 @@ internal static class BrowserSurfaceProjection
         BrowserSurfaceTextBudget? textBudget = null)
     {
         textBudget?.EnsureCanProject(type, member);
-        ApiMemberSurfacePresentation presentation =
-            ApiSurfacePresentation.Member(type, member);
+        ApiMemberSurfacePresentation<
+            BrowserParameterSurfaceInfo,
+            BrowserMemberBodySelectorInfo> presentation =
+                ApiSurfacePresentation.Member(
+                    type,
+                    member,
+                    static parameter =>
+                        new BrowserParameterSurfaceInfo(
+                            parameter.Name,
+                            parameter.Type,
+                            parameter.Modifier,
+                            parameter.HasDefault,
+                            parameter.DefaultValue,
+                            parameter.Description),
+                    static selector =>
+                        new BrowserMemberBodySelectorInfo(
+                            selector.Token,
+                            selector.MemberName,
+                            selector.SelectorKey));
         var projected = new BrowserMemberSurfaceInfo(
             presentation.Name,
             presentation.Kind,
@@ -421,16 +438,7 @@ internal static class BrowserSurfaceProjection
             presentation.MetadataToken,
             presentation.DeclarationMetadataToken,
             presentation.ReturnType,
-            [
-                .. presentation.Parameters.Select(
-                    parameter => new BrowserParameterSurfaceInfo(
-                        parameter.Name,
-                        parameter.Type,
-                        parameter.Modifier,
-                        parameter.HasDefault,
-                        parameter.DefaultValue,
-                        null)),
-            ],
+            presentation.Parameters,
             presentation.DocumentationId,
             null,
             null,
@@ -441,13 +449,7 @@ internal static class BrowserSurfaceProjection
             presentation.AnchorTypeFullName,
             presentation.DeclaringTypeDefinitionId,
             presentation.GraphSelectorKey,
-            [
-                .. presentation.BodySelectors
-                    .Select(selector => new BrowserMemberBodySelectorInfo(
-                        selector.Token,
-                        selector.MemberName,
-                        selector.SelectorKey)),
-            ]);
+            presentation.BodySelectors);
         textBudget?.Retain(projected);
         return projected;
     }
@@ -580,7 +582,8 @@ internal static class BrowserSurfaceProjection
             Retain(member.AnchorTypeFullName);
             Retain(member.DeclaringTypeDefinitionId);
             Retain(member.GraphSelectorKey);
-            foreach (BrowserParameterSurfaceInfo parameter in member.Parameters)
+            foreach (BrowserParameterSurfaceInfo parameter
+                in member.Parameters)
             {
                 Retain(parameter.Name);
                 Retain(parameter.Type);
@@ -593,7 +596,8 @@ internal static class BrowserSurfaceProjection
                 Retain(exception.Type);
                 Retain(exception.Description);
             }
-            foreach (BrowserMemberBodySelectorInfo selector in member.BodySelectors)
+            foreach (BrowserMemberBodySelectorInfo selector
+                in member.BodySelectors)
             {
                 Retain(selector.MemberName);
                 Retain(selector.SelectorKey);
