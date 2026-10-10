@@ -62,6 +62,9 @@ not, as `--all` would:
 - the metadata of non-public members; and
 - `beforefieldinit`, when the Type has a static constructor.
 
+An opcode that ECMA-335 does not define cannot be stepped over safely, so it
+makes the Body axis `Indeterminate` rather than comparing as equal.
+
 Neither axis's facts are configurable. A caller can ask for the API axis
 alone; every Body state is then `NotCompared` and no IL is read. A public member present on one side only is an
 API fact; its body is not compared. A Type public on either side partitions
@@ -85,6 +88,30 @@ resolved once per side and memoized. They never compare by token number or
 referenced assembly identity, so a renumbered or retargeted reference in an
 operand or signature is not a difference. Custom attribute and constant
 values are compared as raw blob bytes (see [Observability](#observability)).
+
+Symbolic names are injective. Every name read from metadata (namespace, Type,
+member, parameter, and import) has each character the key grammar uses as a
+separator escaped before it enters a key, so a top-level Type named `A/B`, a
+Type `B` nested in `A`, a Type `A.B` in namespace `N`, and a Type `B` in
+namespace `N.A` never share a key, and neither do member names that contain
+`::` or signature punctuation. A primitive Type is spelled with a leading `#`,
+which every name escapes, so `int` and a global Type named `Int32` stay
+distinct. Every signature key closes its return Type, so a pointer, byref, or
+modifier suffix and a method instantiation's arguments cannot be read as part
+of it: `delegate*<void*>` and `delegate*<void>*` are distinct. An event's key
+carries a reserved marker, so a field-like event and its backing field, which
+share a name and Type, never share a key. A method signature key keeps its
+full header and marks a vararg sentinel with the reserved `#...`, so call
+sites of two vararg overloads that pass the same argument Types stay distinct.
+Rows that still spell one key are never told apart by guessing. Two Type rows
+of one name, which valid metadata does not allow, and two method rows of one
+Type and its generated code, are `Indeterminate` rather than one replacing the
+other, and so is any fact that refers to one of those Type rows or to a
+compiler-controlled (`PrivateScope`) method or field, which ECMA-335 lets
+share a name and signature. Other member rows of one Type that share a name
+and signature are invalid metadata outside Roslyn fidelity. A reference to
+them compares by the shared key, a contained wrong answer rather than a
+decoded one.
 
 Compiler-generated nested Types (state machines, closures, local-function
 holders, and Types nested beneath them) belong to their nearest declared
@@ -152,6 +179,17 @@ adoption is
   pairs; and
 - Body soundness: every declared owner of a body that canonical IL comparison
   reports changed is not Body `Unchanged`, over the same fixture pairs.
+
+`FastDiffIdentityTests` gates identity and decoding by outcome, over generated
+image pairs compared whole and stepped: a nested Type's body change beside a
+top-level Type whose name spells the same path, a namespace and a dotted Type
+name that display alike, a caller switching between two callees whose
+unescaped keys collide, a primitive and a global Type of one name, a function
+pointer returning a pointer and a pointer to a function pointer, an attribute
+moved from a backing field to its event, a switch between external vararg
+overloads, duplicate Type names and duplicate generated Type names, a caller
+switching between two compiler-controlled methods or between methods of two
+Type rows of one name, and undefined one-byte and two-byte opcodes.
 
 Stepping and the API axis are gated by outcome: a comparison stepped at
 every row and Type boundary, with fresh readers per step, equals the whole
