@@ -98,7 +98,8 @@ public partial class FindCommand
             bool progressive =
                 tsv is not null
                 && (rowSelection is null
-                    || options.Ecosystems is not null);
+                    || options.Ecosystems is not null
+                        && options.Limit is not null);
             int streamedTypes = 0;
             int streamedMembers = 0;
             if (progressive && options.Ecosystems is null)
@@ -411,6 +412,7 @@ public partial class FindCommand
         FindSearchCompletion completion = FindSearchCompletion.Exhausted;
         using var session = CreateEcosystemSession(
             options, patterns, context, tsv, layers,
+            options.Tsv || options.Jsonl,
             types, members, unansweredPatterns,
             count => acceptedMemberCount += count,
             (hasFailures, isIncomplete) =>
@@ -467,8 +469,11 @@ public partial class FindCommand
                             context.Logger,
                             context.HttpClient, token, platform,
                             explicitWorkspace);
-                    string memberAttribution = CoreAttribution(layer, layers,
-                        id.Value, tsv is not null);
+                    string memberAttribution = CoreAttribution(
+                        layer,
+                        layers,
+                        id.Value,
+                        options.Tsv || options.Jsonl);
                     MemberFindResult[] rows =
                     [
                         .. found.Rows.Select(row => row with
@@ -493,8 +498,11 @@ public partial class FindCommand
                         context.HttpClient, token, platform,
                         explicitWorkspace);
                 List<MemberFindResult> band = foundMembers?.Rows ?? [];
-                string attribution = CoreAttribution(layer, layers, id.Value,
-                    tsv is not null);
+                string attribution = CoreAttribution(
+                    layer,
+                    layers,
+                    id.Value,
+                    options.Tsv || options.Jsonl);
                 MemberFindResult[] attributedMembers =
                 [
                     .. band.Select(row => row with { Ecosystem = attribution }),
@@ -629,6 +637,7 @@ public partial class FindCommand
             EcosystemPackId Id,
             WorkspaceEcosystemRegistrationDeclaration Declaration,
             bool Platform)> layers,
+        bool demandPrefixes,
         List<TypeFindResult> types,
         List<MemberFindResult> members,
         HashSet<string> unansweredPatterns,
@@ -641,7 +650,11 @@ public partial class FindCommand
             CancellationToken, Task<EcosystemFindBlock<LayeredSearchBlock>>> candidate)
     {
         EcosystemFindSearchRequest request =
-            CreateEcosystemRequest(options, patterns, layers, writer is not null);
+            CreateEcosystemRequest(
+                options,
+                patterns,
+                layers,
+                demandPrefixes);
         return new(request, bounded,
             (prefix, remaining, token) =>
                 EnumeratePrefixAsync(prefix, remaining, context, token),
@@ -693,7 +706,7 @@ public partial class FindCommand
             {
                 LayeredSearchBlock content = source.Content;
                 string ecosystem = CoreAttribution(layer, layers,
-                    layer.Registration.Id.Value, writer is not null);
+                    layer.Registration.Id.Value, demandPrefixes);
                 TypeFindResult[] reusedTypes =
                 [
                     .. content.Types.Select(row => row with

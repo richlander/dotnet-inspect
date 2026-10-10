@@ -124,6 +124,25 @@ public class FindProgressiveTsvTests
     }
 
     [Theory]
+    [InlineData("--tsv", 2)]
+    [InlineData("--jsonl", 1)]
+    public async Task EcosystemSelectionPublishesOnlyTheSelectedWindow(
+        string format,
+        int expectedLines)
+    {
+        var result = await Run(
+            "find", "System.*",
+            "--ecosystem", "runtime",
+            "--rows", "2..2",
+            format);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(
+            expectedLines,
+            result.Output.TrimEnd('\n').Split('\n').Length);
+    }
+
+    [Theory]
     [InlineData("--markdown", "## Results")]
     [InlineData("--json", "\"type\"")]
     public async Task ExplicitFormatsRetainTheirExistingShape(string format, string expected)
