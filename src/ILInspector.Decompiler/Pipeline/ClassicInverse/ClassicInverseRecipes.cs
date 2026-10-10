@@ -822,10 +822,80 @@ internal static class ClassicInverseRecipes
         if (rewritten is not ExpressionStatement output)
             return null;
 
+        // Only a flat continuation suffix belongs to this recipe. The raw
+        // import must contain the same ordered statement roots before its sole
+        // completion leave; the accountant still proves their values/effects.
+        if (statement.Parent is not Block continuation
+            || continuation.Children.Count == 0
+            || !ReferenceEquals(continuation.Children[0], statement))
+            return null;
+        var suffix = new List<IrNode>();
+        foreach (IrNode node in continuation.Children)
+        {
+            if (!budget.Charge())
+                return null;
+            if (node is not ExpressionStatement and not StoreField)
+                return null;
+            suffix.Add(node);
+        }
+        if (!ProvesContinuationSuffix(rawExecution, continuation, suffix, budget))
+            return null;
         candidate.Statements.Add(output);
-        candidate.Statements.Add(new Return(null));
         candidate.Claim(statement, output, ClassicInverseRealizationRule.Statement);
+        for (int i = 1; i < suffix.Count; i++)
+        {
+            if (!budget.Charge())
+                return null;
+            IrNode? tail = rewriter.Rewrite(suffix[i]);
+            if (tail is null)
+                return null;
+            candidate.Statements.Add(tail);
+            candidate.Claim(suffix[i], tail, ClassicInverseRealizationRule.Statement);
+        }
+        candidate.Statements.Add(new Return(null));
         return candidate;
+    }
+
+    static bool ProvesContinuationSuffix(
+        IrFunction raw,
+        Block planningBlock,
+        IReadOnlyList<IrNode> suffix,
+        ClassicInverseBudget budget)
+    {
+        Block? rawBlock = null;
+        foreach (IrNode node in raw.Body.Descendants)
+        {
+            if (!budget.Charge())
+                return false;
+            if (node is Block block && block.StartOffset == planningBlock.StartOffset)
+            {
+                if (rawBlock is not null)
+                    return false;
+                rawBlock = block;
+            }
+        }
+        if (rawBlock is null || rawBlock.Children.Count != suffix.Count + 1
+            || rawBlock.Children[^1] is not Leave)
+            return false;
+        for (int i = 0; i < suffix.Count; i++)
+        {
+            if (!budget.Charge())
+                return false;
+            IrNode imported = rawBlock.Children[i];
+            IrNode planned = suffix[i];
+            static int Offset(IrNode node) => node is ExpressionStatement expression
+                ? expression.Expression.SourceOffset : node.SourceOffset;
+            if (imported.GetType() != planned.GetType()
+                || Offset(imported) < 0 || Offset(imported) != Offset(planned))
+                return false;
+            if (imported is StoreField rawStore && planned is StoreField planningStore
+                && (rawStore.Field != planningStore.Field
+                    || rawStore.IsVolatile != planningStore.IsVolatile
+                    || rawStore.HasInstance != planningStore.HasInstance
+                    || rawStore.UpdateKind != planningStore.UpdateKind))
+                return false;
+        }
+        return true;
     }
 
     // ---- Recipe: two sequential awaits, then one statement ---------------
