@@ -253,6 +253,52 @@ public abstract record MemorySafetyMemberContractResult(
 }
 
 /// <summary>
+/// The role a MethodSemantics row gives an accessor of a property or event.
+/// </summary>
+public enum MemorySafetyAccessorRole
+{
+    PropertyGetter,
+    PropertySetter,
+    PropertyOther,
+    EventAdder,
+    EventRemover,
+    EventRaiser,
+    EventOther,
+}
+
+/// <summary>
+/// The property or event through which a MethodDef may inherit a caller
+/// contract, as the accessor projection established it.
+/// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(MemorySafetyAccessorAssociationResult.None), "none")]
+[JsonDerivedType(typeof(MemorySafetyAccessorAssociationResult.Associated), "associated")]
+[JsonDerivedType(typeof(MemorySafetyAccessorAssociationResult.Ambiguous), "ambiguous")]
+[JsonDerivedType(typeof(MemorySafetyAccessorAssociationResult.Unavailable), "unavailable")]
+public abstract record MemorySafetyAccessorAssociationResult
+{
+    MemorySafetyAccessorAssociationResult()
+    {
+    }
+
+    /// <summary>The complete projection names no property or event for the method.</summary>
+    public sealed record None : MemorySafetyAccessorAssociationResult;
+
+    /// <summary>The one property or event, and the accessor's role in it.</summary>
+    public sealed record Associated(
+        int MemberToken,
+        MemorySafetyAccessorRole Role)
+        : MemorySafetyAccessorAssociationResult;
+
+    /// <summary>The method is an accessor of more than one property or event.</summary>
+    public sealed record Ambiguous : MemorySafetyAccessorAssociationResult;
+
+    /// <summary>The projection, or the method handle, cannot establish an association.</summary>
+    public sealed record Unavailable(MemorySafetyMetadataFailure Failure)
+        : MemorySafetyAccessorAssociationResult;
+}
+
+/// <summary>
 /// Derives memory-safety module rules and member caller contracts from one
 /// metadata reader. Consumers retain ownership of body analysis, source
 /// reconstruction, project policy, and presentation.
@@ -274,9 +320,10 @@ public sealed class MemorySafetyMetadataIndex
     readonly int _eventRowCount;
     readonly int _attributeRowBudget;
     readonly int _nameWorkBudget;
-    readonly IReadOnlyDictionary<int, EntityHandle> _associatedContracts;
+    readonly IReadOnlyDictionary<int, AccessorAssociation> _associatedContracts;
     readonly IReadOnlySet<int> _ambiguousAssociations;
     readonly bool _associationsIncomplete;
+    readonly MemorySafetyMetadataWorkRecorder? _work;
 
     MemorySafetyMetadataIndex(
         MetadataReader reader,
@@ -287,10 +334,11 @@ public sealed class MemorySafetyMetadataIndex
         int attributeRowBudget,
         int nameWorkBudget,
         MemorySafetyRulesResult rules,
-        IReadOnlyDictionary<int, EntityHandle> associatedContracts,
+        IReadOnlyDictionary<int, AccessorAssociation> associatedContracts,
         IReadOnlySet<int> ambiguousAssociations,
         MemorySafetyMetadataFailure? associationFailure,
-        bool associationsIncomplete)
+        bool associationsIncomplete,
+        MemorySafetyMetadataWorkRecorder? work)
     {
         _reader = reader;
         _methodRowCount = methodRowCount;
@@ -304,11 +352,25 @@ public sealed class MemorySafetyMetadataIndex
         _ambiguousAssociations = ambiguousAssociations;
         AssociationFailure = associationFailure;
         _associationsIncomplete = associationsIncomplete;
+        _work = work;
+        ConstructionWork = work?.Snapshot();
     }
 
     public MemorySafetyRulesResult Rules { get; }
 
     public MemorySafetyMetadataFailure? AssociationFailure { get; }
+
+    /// <summary>
+    /// The work construction read, or null when the index was created without
+    /// receipting.
+    /// </summary>
+    public MemorySafetyMetadataWork? ConstructionWork { get; }
+
+    /// <summary>
+    /// The work read so far, construction included, or null when the index was
+    /// created without receipting.
+    /// </summary>
+    public MemorySafetyMetadataWork? RecordedWork => _work?.Snapshot();
 
     public static MemorySafetyMetadataIndex Create(MetadataReader reader)
         => Create(
@@ -316,6 +378,20 @@ public sealed class MemorySafetyMetadataIndex
             MetadataSafetyPolicy.MaxMemorySafetyAssociationRows,
             MetadataSafetyPolicy.MaxMemorySafetyAttributeRows,
             MetadataSafetyPolicy.MaxMemorySafetyNameWorkChars);
+
+    /// <summary>
+    /// Creates an index that receipts the metadata work its construction and
+    /// every later query read, under the same budgets and semantics as
+    /// <see cref="Create(MetadataReader)"/>.
+    /// </summary>
+    public static MemorySafetyMetadataIndex CreateReceipted(
+        MetadataReader reader)
+        => Create(
+            reader,
+            MetadataSafetyPolicy.MaxMemorySafetyAssociationRows,
+            MetadataSafetyPolicy.MaxMemorySafetyAttributeRows,
+            MetadataSafetyPolicy.MaxMemorySafetyNameWorkChars,
+            new MemorySafetyMetadataWorkRecorder());
 
     internal static MemorySafetyMetadataIndex Create(
         MetadataReader reader,
@@ -331,7 +407,8 @@ public sealed class MemorySafetyMetadataIndex
         MetadataReader reader,
         int associationRowBudget,
         int attributeRowBudget,
-        int nameWorkBudget)
+        int nameWorkBudget,
+        MemorySafetyMetadataWorkRecorder? work = null)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
@@ -355,22 +432,25 @@ public sealed class MemorySafetyMetadataIndex
             eventRows = reader.GetTableRowCount(TableIndex.Event);
             methodSemanticsRows =
                 reader.GetTableRowCount(TableIndex.MethodSemantics);
-            if (!CustomAttributeParentsAreOrdered(reader))
+            if (!CustomAttributeParentsAreOrdered(reader, work))
             {
                 return Failed(
                     reader,
                     attributeRowBudget,
                     nameWorkBudget,
+                    work,
                     MemorySafetyMetadataFailureKind.Malformed,
                     "The CustomAttribute table is not sorted by parent, so attribute owner lookups cannot observe every row.");
             }
 
-            if (FindUnobservableProjection(reader) is { } projectionDefect)
+            if (FindUnobservableProjection(reader, work)
+                is { } projectionDefect)
             {
                 return Failed(
                     reader,
                     attributeRowBudget,
                     nameWorkBudget,
+                    work,
                     MemorySafetyMetadataFailureKind.Malformed,
                     projectionDefect);
             }
@@ -378,7 +458,8 @@ public sealed class MemorySafetyMetadataIndex
             rules = ReadRules(
                 reader,
                 attributeRowBudget,
-                nameWorkBudget);
+                nameWorkBudget,
+                work);
         }
         catch (MetadataBudgetException)
         {
@@ -386,6 +467,7 @@ public sealed class MemorySafetyMetadataIndex
                 reader,
                 attributeRowBudget,
                 nameWorkBudget,
+                work,
                 MemorySafetyMetadataFailureKind.BudgetExceeded,
                 "Memory-safety module metadata exceeded its scan budget.");
         }
@@ -399,11 +481,12 @@ public sealed class MemorySafetyMetadataIndex
                 reader,
                 attributeRowBudget,
                 nameWorkBudget,
+                work,
                 MemorySafetyMetadataFailureKind.Malformed,
                 "Memory-safety module metadata could not be read.");
         }
 
-        var associatedContracts = new Dictionary<int, EntityHandle>();
+        var associatedContracts = new Dictionary<int, AccessorAssociation>();
         var ambiguousAssociations = new HashSet<int>();
         MemorySafetyMetadataFailure? associationFailure = null;
         bool associationsIncomplete = false;
@@ -420,6 +503,7 @@ public sealed class MemorySafetyMetadataIndex
                     associationRowBudget,
                     associatedContracts,
                     ambiguousAssociations,
+                    work,
                     out bool hasMalformedRows,
                     out bool projectionIsIncomplete);
                 if (projectionIsIncomplete)
@@ -477,7 +561,8 @@ public sealed class MemorySafetyMetadataIndex
             associatedContracts,
             ambiguousAssociations,
             associationFailure,
-            associationsIncomplete);
+            associationsIncomplete,
+            work);
     }
 
     public MemorySafetyMemberContractResult GetMemberContract(
@@ -512,6 +597,50 @@ public sealed class MemorySafetyMetadataIndex
                 member,
                 availableRules.State),
         };
+    }
+
+    /// <summary>
+    /// The accessor association of <paramref name="method"/>, from the same
+    /// projection <see cref="GetMemberContract"/> inherits through. It reads
+    /// no further metadata.
+    /// </summary>
+    public MemorySafetyAccessorAssociationResult GetAccessorAssociation(
+        MethodDefinitionHandle method)
+    {
+        int row = method.IsNil ? 0 : MetadataTokens.GetRowNumber(method);
+        if (row <= 0 || row > _methodRowCount)
+        {
+            return new MemorySafetyAccessorAssociationResult.Unavailable(
+                new(
+                    MemorySafetyMetadataFailureKind.Malformed,
+                    "The method handle is nil or out of range."));
+        }
+
+        if (Rules is MemorySafetyRulesResult.Unavailable unavailableRules)
+        {
+            return new MemorySafetyAccessorAssociationResult.Unavailable(
+                unavailableRules.Failure);
+        }
+
+        int token = MetadataTokens.GetToken(method);
+        if (_ambiguousAssociations.Contains(token))
+            return new MemorySafetyAccessorAssociationResult.Ambiguous();
+        if (_associatedContracts.TryGetValue(
+                token,
+                out AccessorAssociation association))
+        {
+            return new MemorySafetyAccessorAssociationResult.Associated(
+                MetadataTokens.GetToken(association.Member),
+                association.Role);
+        }
+
+        return _associationsIncomplete
+            ? new MemorySafetyAccessorAssociationResult.Unavailable(
+                AssociationFailure
+                ?? new(
+                    MemorySafetyMetadataFailureKind.Malformed,
+                    "Memory-safety accessor associations are unavailable."))
+            : new MemorySafetyAccessorAssociationResult.None();
     }
 
     MemorySafetyMemberContractResult GetLegacyCompatibleContract(
@@ -606,8 +735,11 @@ public sealed class MemorySafetyMetadataIndex
                     "The accessor is associated with more than one property or event.");
             }
 
-            if (_associatedContracts.TryGetValue(token, out associated))
+            if (_associatedContracts.TryGetValue(
+                    token,
+                    out AccessorAssociation association))
             {
+                associated = association.Member;
                 associatedAttributes = ReadRequiresUnsafeAttributes(
                     GetCustomAttributes(associated));
             }
@@ -704,12 +836,14 @@ public sealed class MemorySafetyMetadataIndex
         int token = MetadataTokens.GetToken(member);
         if (_ambiguousAssociations.Contains(token))
             return (AttributeReadResult.Unavailable, default);
-        if (_associatedContracts.TryGetValue(token, out EntityHandle associated))
+        if (_associatedContracts.TryGetValue(
+                token,
+                out AccessorAssociation association))
         {
             return (
                 ReadRequiresUnsafeAttributes(
-                    GetCustomAttributes(associated)),
-                associated);
+                    GetCustomAttributes(association.Member)),
+                association.Member);
         }
 
         return _associationsIncomplete
@@ -722,7 +856,7 @@ public sealed class MemorySafetyMetadataIndex
         try
         {
             return new(
-                PointerDetector.DecodeMember(_reader, member),
+                PointerDetector.DecodeMember(_reader, member, _work),
                 member.Kind == HandleKind.FieldDefinition
                     ? ReadFixedBufferEvidence(
                         _reader.GetFieldDefinition((FieldDefinitionHandle)member))
@@ -746,12 +880,13 @@ public sealed class MemorySafetyMetadataIndex
         try
         {
             var nameBudget =
-                new MetadataNameWorkBudget(_nameWorkBudget);
+                new MetadataNameWorkBudget(_nameWorkBudget, _work);
             fixedBuffer = FixedBufferMetadata.Read(
                 _reader,
                 field.GetCustomAttributes(),
                 _attributeRowBudget,
-                nameBudget.Observe);
+                nameBudget.Observe,
+                _work is null ? null : ObserveMemberAttributeRow);
         }
         catch (MetadataBudgetException)
         {
@@ -775,11 +910,12 @@ public sealed class MemorySafetyMetadataIndex
         if (attributes.Count > _attributeRowBudget)
             return AttributeReadResult.BudgetExceeded;
 
-        var nameBudget = new MetadataNameWorkBudget(_nameWorkBudget);
+        var nameBudget = new MetadataNameWorkBudget(_nameWorkBudget, _work);
         int validRows = 0;
         bool malformed = false;
         foreach (CustomAttributeHandle handle in attributes)
         {
+            ObserveMemberAttributeRow();
             try
             {
                 CustomAttribute attribute =
@@ -843,6 +979,12 @@ public sealed class MemorySafetyMetadataIndex
             Failure: null);
     }
 
+    void ObserveMemberAttributeRow()
+    {
+        if (_work is not null)
+            _work.MemberAttributeRows++;
+    }
+
     CustomAttributeHandleCollection GetCustomAttributes(
         EntityHandle member)
         => member.Kind switch
@@ -903,7 +1045,8 @@ public sealed class MemorySafetyMetadataIndex
     static MemorySafetyRulesResult ReadRules(
         MetadataReader reader,
         int attributeRowBudget,
-        int nameWorkBudget)
+        int nameWorkBudget,
+        MemorySafetyMetadataWorkRecorder? work)
     {
         CustomAttributeHandleCollection attributes =
             reader.GetModuleDefinition().GetCustomAttributes();
@@ -912,12 +1055,14 @@ public sealed class MemorySafetyMetadataIndex
 
         var observations =
             ImmutableArray.CreateBuilder<MemorySafetyRulesObservation>();
-        var nameBudget = new MetadataNameWorkBudget(nameWorkBudget);
+        var nameBudget = new MetadataNameWorkBudget(nameWorkBudget, work);
         bool malformed = false;
         try
         {
             foreach (CustomAttributeHandle handle in attributes)
             {
+                if (work is not null)
+                    work.ModuleAttributeRows++;
                 CustomAttribute attribute =
                     reader.GetCustomAttribute(handle);
                 string? name = AttributeReader.GetAttributeTypeName(
@@ -1072,7 +1217,9 @@ public sealed class MemorySafetyMetadataIndex
     /// that reads physical rows against the search that must agree with it, and
     /// accounts the reachable rows against the physical row count.
     /// </remarks>
-    static string? FindUnobservableProjection(MetadataReader reader)
+    static string? FindUnobservableProjection(
+        MetadataReader reader,
+        MemorySafetyMetadataWorkRecorder? work)
     {
         long rows = (long)reader.GetTableRowCount(TableIndex.TypeDef)
             + reader.GetTableRowCount(TableIndex.MethodDef)
@@ -1088,11 +1235,15 @@ public sealed class MemorySafetyMetadataIndex
         int reachableEvents = 0;
         foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
         {
+            if (work is not null)
+                work.IntegrityTypeDefRows++;
             TypeDefinition type = reader.GetTypeDefinition(handle);
 
             foreach (TypeDefinitionHandle nested in type.GetNestedTypes())
             {
                 reachableNested++;
+                if (work is not null)
+                    work.IntegrityNestedClassRows++;
                 if (reader.GetTypeDefinition(nested).GetDeclaringType()
                     != handle)
                 {
@@ -1103,6 +1254,8 @@ public sealed class MemorySafetyMetadataIndex
             foreach (MethodDefinitionHandle method in type.GetMethods())
             {
                 reachableMethods++;
+                if (work is not null)
+                    work.IntegrityMethodDefRows++;
                 if (reader.GetMethodDefinition(method).GetDeclaringType()
                     != handle)
                 {
@@ -1113,6 +1266,8 @@ public sealed class MemorySafetyMetadataIndex
             foreach (PropertyDefinitionHandle property in type.GetProperties())
             {
                 reachableProperties++;
+                if (work is not null)
+                    work.IntegrityPropertyRows++;
                 if (reader.GetPropertyDefinition(property).GetDeclaringType()
                     != handle)
                 {
@@ -1123,6 +1278,8 @@ public sealed class MemorySafetyMetadataIndex
             foreach (EventDefinitionHandle @event in type.GetEvents())
             {
                 reachableEvents++;
+                if (work is not null)
+                    work.IntegrityEventRows++;
                 if (reader.GetEventDefinition(@event).GetDeclaringType()
                     != handle)
                 {
@@ -1143,7 +1300,9 @@ public sealed class MemorySafetyMetadataIndex
         return null;
     }
 
-    static bool CustomAttributeParentsAreOrdered(MetadataReader reader)
+    static bool CustomAttributeParentsAreOrdered(
+        MetadataReader reader,
+        MemorySafetyMetadataWorkRecorder? work)
     {
         if (reader.GetTableRowCount(TableIndex.CustomAttribute)
             > MetadataSafetyPolicy.MaxMemorySafetyCustomAttributeOrderRows)
@@ -1154,6 +1313,8 @@ public sealed class MemorySafetyMetadataIndex
         int previous = -1;
         foreach (CustomAttributeHandle handle in reader.CustomAttributes)
         {
+            if (work is not null)
+                work.CustomAttributeOrderRows++;
             EntityHandle parent = reader.GetCustomAttribute(handle).Parent;
             int coded;
             try
@@ -1180,8 +1341,9 @@ public sealed class MemorySafetyMetadataIndex
         int eventRowCount,
         int methodSemanticsRowCount,
         int rowBudget,
-        Dictionary<int, EntityHandle> associations,
+        Dictionary<int, AccessorAssociation> associations,
         HashSet<int> ambiguous,
+        MemorySafetyMetadataWorkRecorder? work,
         out bool hasMalformedRows,
         out bool isIncomplete)
     {
@@ -1196,6 +1358,8 @@ public sealed class MemorySafetyMetadataIndex
         foreach (PropertyDefinitionHandle propertyHandle
             in reader.PropertyDefinitions)
         {
+            if (work is not null)
+                work.AssociationPropertyRows++;
             PropertyDefinition property =
                 reader.GetPropertyDefinition(propertyHandle);
             TypeDefinitionHandle propertyOwner = property.GetDeclaringType();
@@ -1205,10 +1369,11 @@ public sealed class MemorySafetyMetadataIndex
                 accessors.Getter,
                 propertyHandle,
                 propertyOwner,
-                AccessorRole.PropertyGetter,
+                MemorySafetyAccessorRole.PropertyGetter,
                 methodRowCount,
                 associations,
                 ambiguous,
+                work,
                 ref hasMalformedRows,
                 ref projectedRows);
             AddAssociation(
@@ -1216,10 +1381,11 @@ public sealed class MemorySafetyMetadataIndex
                 accessors.Setter,
                 propertyHandle,
                 propertyOwner,
-                AccessorRole.PropertySetter,
+                MemorySafetyAccessorRole.PropertySetter,
                 methodRowCount,
                 associations,
                 ambiguous,
+                work,
                 ref hasMalformedRows,
                 ref projectedRows);
             foreach (MethodDefinitionHandle other in accessors.Others)
@@ -1229,10 +1395,11 @@ public sealed class MemorySafetyMetadataIndex
                     other,
                     propertyHandle,
                     propertyOwner,
-                    AccessorRole.Other,
+                    MemorySafetyAccessorRole.PropertyOther,
                     methodRowCount,
                     associations,
                     ambiguous,
+                    work,
                     ref hasMalformedRows,
                     ref projectedRows);
             }
@@ -1241,6 +1408,8 @@ public sealed class MemorySafetyMetadataIndex
         foreach (EventDefinitionHandle eventHandle
             in reader.EventDefinitions)
         {
+            if (work is not null)
+                work.AssociationEventRows++;
             EventDefinition eventDefinition =
                 reader.GetEventDefinition(eventHandle);
             TypeDefinitionHandle eventOwner =
@@ -1251,10 +1420,11 @@ public sealed class MemorySafetyMetadataIndex
                 accessors.Adder,
                 eventHandle,
                 eventOwner,
-                AccessorRole.EventAdder,
+                MemorySafetyAccessorRole.EventAdder,
                 methodRowCount,
                 associations,
                 ambiguous,
+                work,
                 ref hasMalformedRows,
                 ref projectedRows);
             AddAssociation(
@@ -1262,10 +1432,11 @@ public sealed class MemorySafetyMetadataIndex
                 accessors.Remover,
                 eventHandle,
                 eventOwner,
-                AccessorRole.EventRemover,
+                MemorySafetyAccessorRole.EventRemover,
                 methodRowCount,
                 associations,
                 ambiguous,
+                work,
                 ref hasMalformedRows,
                 ref projectedRows);
             AddAssociation(
@@ -1273,10 +1444,11 @@ public sealed class MemorySafetyMetadataIndex
                 accessors.Raiser,
                 eventHandle,
                 eventOwner,
-                AccessorRole.Other,
+                MemorySafetyAccessorRole.EventRaiser,
                 methodRowCount,
                 associations,
                 ambiguous,
+                work,
                 ref hasMalformedRows,
                 ref projectedRows);
             foreach (MethodDefinitionHandle other in accessors.Others)
@@ -1286,10 +1458,11 @@ public sealed class MemorySafetyMetadataIndex
                     other,
                     eventHandle,
                     eventOwner,
-                    AccessorRole.Other,
+                    MemorySafetyAccessorRole.EventOther,
                     methodRowCount,
                     associations,
                     ambiguous,
+                    work,
                     ref hasMalformedRows,
                     ref projectedRows);
             }
@@ -1302,19 +1475,6 @@ public sealed class MemorySafetyMetadataIndex
         // accounting against the physical MethodSemantics table proves the
         // association map observed the whole table.
         isIncomplete = projectedRows != methodSemanticsRowCount;
-    }
-
-    /// <summary>
-    /// The semantic role a MethodSemantics row assigns to an accessor, used to
-    /// apply the ECMA-335 II.22.28 shape constraint for that role.
-    /// </summary>
-    enum AccessorRole
-    {
-        PropertyGetter,
-        PropertySetter,
-        EventAdder,
-        EventRemover,
-        Other,
     }
 
     /// <summary>
@@ -1340,16 +1500,19 @@ public sealed class MemorySafetyMetadataIndex
         MetadataReader reader,
         MethodDefinitionHandle method,
         EntityHandle associated,
-        AccessorRole role)
+        MemorySafetyAccessorRole role,
+        MemorySafetyMetadataWorkRecorder? work)
     {
         MethodDefinition definition = reader.GetMethodDefinition(method);
         if ((definition.Attributes & MethodAttributes.SpecialName) == 0)
             return true;
 
-        if (role is AccessorRole.Other)
+        if (role is MemorySafetyAccessorRole.PropertyOther
+            or MemorySafetyAccessorRole.EventRaiser
+            or MemorySafetyAccessorRole.EventOther)
             return false;
 
-        if (TryReadParameterCount(reader, definition.Signature)
+        if (TryReadParameterCount(reader, definition.Signature, work)
             is not { } parameters)
         {
             return false;
@@ -1357,14 +1520,14 @@ public sealed class MemorySafetyMetadataIndex
 
         return role switch
         {
-            AccessorRole.EventAdder or AccessorRole.EventRemover =>
+            MemorySafetyAccessorRole.EventAdder or MemorySafetyAccessorRole.EventRemover =>
                 parameters != 1,
-            AccessorRole.PropertyGetter =>
-                TryReadPropertyIndexCount(reader, associated)
+            MemorySafetyAccessorRole.PropertyGetter =>
+                TryReadPropertyIndexCount(reader, associated, work)
                     is { } getterIndexes
                     && parameters != getterIndexes,
-            AccessorRole.PropertySetter =>
-                TryReadPropertyIndexCount(reader, associated)
+            MemorySafetyAccessorRole.PropertySetter =>
+                TryReadPropertyIndexCount(reader, associated, work)
                     is { } setterIndexes
                     && parameters != setterIndexes + 1,
             _ => false,
@@ -1378,7 +1541,8 @@ public sealed class MemorySafetyMetadataIndex
     /// </summary>
     static int? TryReadPropertyIndexCount(
         MetadataReader reader,
-        EntityHandle associated)
+        EntityHandle associated,
+        MemorySafetyMetadataWorkRecorder? work)
     {
         if (associated.Kind is not HandleKind.PropertyDefinition)
             return null;
@@ -1388,11 +1552,18 @@ public sealed class MemorySafetyMetadataIndex
             PropertyDefinition property = reader.GetPropertyDefinition(
                 (PropertyDefinitionHandle)associated);
             BlobReader blob = reader.GetBlobReader(property.Signature);
-            SignatureHeader header = blob.ReadSignatureHeader();
-            if (header.Kind is not SignatureKind.Property)
-                return null;
+            try
+            {
+                SignatureHeader header = blob.ReadSignatureHeader();
+                if (header.Kind is not SignatureKind.Property)
+                    return null;
 
-            return blob.ReadCompressedInteger();
+                return blob.ReadCompressedInteger();
+            }
+            finally
+            {
+                work?.ObserveSignatureBytes(blob.Offset);
+            }
         }
         catch (BadImageFormatException)
         {
@@ -1406,17 +1577,25 @@ public sealed class MemorySafetyMetadataIndex
     /// </summary>
     static int? TryReadParameterCount(
         MetadataReader reader,
-        BlobHandle signature)
+        BlobHandle signature,
+        MemorySafetyMetadataWorkRecorder? work)
     {
         try
         {
             BlobReader blob = reader.GetBlobReader(signature);
-            SignatureHeader header = blob.ReadSignatureHeader();
-            if (header.Kind != SignatureKind.Method)
-                return null;
-            if (header.IsGeneric)
-                _ = blob.ReadCompressedInteger();
-            return blob.ReadCompressedInteger();
+            try
+            {
+                SignatureHeader header = blob.ReadSignatureHeader();
+                if (header.Kind != SignatureKind.Method)
+                    return null;
+                if (header.IsGeneric)
+                    _ = blob.ReadCompressedInteger();
+                return blob.ReadCompressedInteger();
+            }
+            finally
+            {
+                work?.ObserveSignatureBytes(blob.Offset);
+            }
         }
         catch (BadImageFormatException)
         {
@@ -1429,10 +1608,11 @@ public sealed class MemorySafetyMetadataIndex
         MethodDefinitionHandle method,
         EntityHandle associated,
         TypeDefinitionHandle owner,
-        AccessorRole role,
+        MemorySafetyAccessorRole role,
         int methodRowCount,
-        Dictionary<int, EntityHandle> associations,
+        Dictionary<int, AccessorAssociation> associations,
         HashSet<int> ambiguous,
+        MemorySafetyMetadataWorkRecorder? work,
         ref bool hasMalformedRows,
         ref int projectedRows)
     {
@@ -1440,6 +1620,8 @@ public sealed class MemorySafetyMetadataIndex
             return;
 
         projectedRows++;
+        if (work is not null)
+            work.AssociationMethodSemanticsRows++;
         int row = MetadataTokens.GetRowNumber(method);
         if (row <= 0 || row > methodRowCount)
         {
@@ -1463,7 +1645,7 @@ public sealed class MemorySafetyMetadataIndex
         // not that the named member can be this accessor. A row naming an
         // ordinary method still projects, so the relationship itself is
         // validated before any contract inherits through it (R3).
-        if (AccessorShapeIsInvalid(reader, method, associated, role))
+        if (AccessorShapeIsInvalid(reader, method, associated, role, work))
         {
             hasMalformedRows = true;
             return;
@@ -1472,21 +1654,27 @@ public sealed class MemorySafetyMetadataIndex
         int token = MetadataTokens.GetToken(method);
         if (ambiguous.Contains(token))
             return;
-        if (associations.TryGetValue(token, out EntityHandle existing)
-            && existing != associated)
+        if (associations.TryGetValue(token, out AccessorAssociation existing))
         {
-            associations.Remove(token);
-            ambiguous.Add(token);
+            if (existing.Member != associated)
+            {
+                associations.Remove(token);
+                ambiguous.Add(token);
+            }
+
+            // One member naming the accessor in two roles keeps the first
+            // role in projection order; the contract carrier is the same.
             return;
         }
 
-        associations[token] = associated;
+        associations[token] = new(associated, role);
     }
 
     static MemorySafetyMetadataIndex Failed(
         MetadataReader reader,
         int attributeRowBudget,
         int nameWorkBudget,
+        MemorySafetyMetadataWorkRecorder? work,
         MemorySafetyMetadataFailureKind kind,
         string detail)
     {
@@ -1517,10 +1705,11 @@ public sealed class MemorySafetyMetadataIndex
             attributeRowBudget,
             nameWorkBudget,
             new MemorySafetyRulesResult.Unavailable(failure, []),
-            new Dictionary<int, EntityHandle>(),
+            new Dictionary<int, AccessorAssociation>(),
             new HashSet<int>(),
             associationFailure: null,
-            associationsIncomplete: false);
+            associationsIncomplete: false,
+            work);
     }
 
     readonly record struct PointerReadResult(
@@ -1556,7 +1745,13 @@ public sealed class MemorySafetyMetadataIndex
                     "RequiresUnsafeAttribute metadata exceeded its scan budget."));
     }
 
-    sealed class MetadataNameWorkBudget(int remaining)
+    readonly record struct AccessorAssociation(
+        EntityHandle Member,
+        MemorySafetyAccessorRole Role);
+
+    sealed class MetadataNameWorkBudget(
+        int remaining,
+        MemorySafetyMetadataWorkRecorder? work)
     {
         int _remaining = remaining;
 
@@ -1565,6 +1760,8 @@ public sealed class MemorySafetyMetadataIndex
             if (characters < 0 || characters > _remaining)
                 throw new MetadataBudgetException();
             _remaining -= characters;
+            if (work is not null)
+                work.NameCharacters += characters;
         }
     }
 

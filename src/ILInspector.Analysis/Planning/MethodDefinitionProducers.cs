@@ -69,6 +69,13 @@ public enum MethodDefinitionLayers
     /// access carries it.
     /// </summary>
     ReferenceBinding = 512,
+
+    /// <summary>
+    /// Memory-safety contract support: module rules and the direct or
+    /// associated caller contract of a same-image member, with its receipted
+    /// metadata work. It does not imply <see cref="ModuleLookup"/>.
+    /// </summary>
+    MemorySafetyContracts = 1024,
 }
 
 /// <summary>
@@ -363,7 +370,8 @@ public readonly ref struct MethodDefinitionView
     const MethodDefinitionLayers DomainLayers =
         MethodDefinitionLayers.Body
         | MethodDefinitionLayers.ModuleLookup
-        | MethodDefinitionLayers.ReferenceBinding;
+        | MethodDefinitionLayers.ReferenceBinding
+        | MethodDefinitionLayers.MemorySafetyContracts;
 
     readonly ref MethodDefinitionUnit _unit;
     readonly MethodDefinitionExecution.ProducerState? _producer;
@@ -563,6 +571,64 @@ public readonly ref struct MethodDefinitionView
             _unit.RecordLookupUse();
             return _unit.Lookup;
         }
+    }
+
+    /// <summary>The module memory-safety rules, through the declared contract support.</summary>
+    internal MemorySafetyRulesResult GetMemorySafetyRules()
+    {
+        MemorySafetyContractLookup lookup =
+            BeginMemorySafetyQuery(out MemorySafetyMetadataWork before);
+        MemorySafetyRulesResult rules = lookup.Rules;
+        _unit.EndMemorySafetyQuery(lookup, before);
+        return rules;
+    }
+
+    /// <summary>
+    /// The direct or associated caller contract of a same-image definition,
+    /// through the declared contract support.
+    /// </summary>
+    internal MemorySafetyMemberContractResult GetMemorySafetyContract(
+        EntityHandle member)
+    {
+        MemorySafetyContractLookup lookup =
+            BeginMemorySafetyQuery(out MemorySafetyMetadataWork before);
+        MemorySafetyMemberContractResult contract =
+            lookup.GetMemberContract(member);
+        _unit.EndMemorySafetyQuery(lookup, before);
+        return contract;
+    }
+
+    /// <summary>
+    /// A same-image MethodDef's caller contract and accessor association,
+    /// through the declared contract support.
+    /// </summary>
+    internal MemorySafetyMethodContract GetMemorySafetyMethodContract(
+        MethodDefinitionHandle method)
+    {
+        MemorySafetyContractLookup lookup =
+            BeginMemorySafetyQuery(out MemorySafetyMetadataWork before);
+        MemorySafetyMethodContract contract =
+            lookup.GetMethodContract(method);
+        _unit.EndMemorySafetyQuery(lookup, before);
+        return contract;
+    }
+
+    MemorySafetyContractLookup BeginMemorySafetyQuery(
+        out MemorySafetyMetadataWork before)
+    {
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasMemorySafetyLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare "
+                + "memory-safety contract support.");
+        }
+
+        producer.CountUnit(
+            ref producer.LastMemorySafetyUnit,
+            Token,
+            ref producer.MemorySafetyUses);
+        return _unit.BeginMemorySafetyQuery(out before);
     }
 
     /// <summary>Whether the unit has a managed IL body to acquire.</summary>
@@ -796,6 +862,7 @@ internal struct MethodDefinitionUnit(
         retainResolvedInstructionDetail;
     MethodDefinitionSourceCoverageBuilder? _requestSourceCoverage;
     LibraryMethodAnalysisRunner? _lookup;
+    MemorySafetyContractSupport? _memorySafety;
     MethodRowGate? _gate;
     bool _positionsRequestOnMove;
     MethodBodyBlock? _body;
@@ -845,6 +912,7 @@ internal struct MethodDefinitionUnit(
     public void SelectRequest(
         MethodRowGate gate,
         LibraryMethodAnalysisRunner? lookup,
+        MemorySafetyContractSupport? memorySafety,
         MethodDefinitionSourceCoverageBuilder sourceCoverage,
         int ordinal)
     {
@@ -852,6 +920,7 @@ internal struct MethodDefinitionUnit(
         ArgumentNullException.ThrowIfNull(sourceCoverage);
         _gate = gate;
         _lookup = lookup;
+        _memorySafety = memorySafety;
         _requestSourceCoverage = sourceCoverage;
         Ordinal = ordinal;
         gate.MoveTo(
@@ -947,6 +1016,53 @@ internal struct MethodDefinitionUnit(
                 "Unknown Metadata method-body result."),
         };
         return _bodyData;
+    }
+
+    /// <summary>
+    /// Acquires the declared contract support, recording construction for the
+    /// physical source once and for the request whose query created it.
+    /// </summary>
+    public readonly MemorySafetyContractLookup BeginMemorySafetyQuery(
+        out MemorySafetyMetadataWork before)
+    {
+        MemorySafetyContractSupport support =
+            _memorySafety ?? throw new InvalidOperationException(
+                "Memory-safety contract support was not declared by any "
+                + "planned producer.");
+        MemorySafetyContractLookup lookup =
+            support.Acquire(out bool constructed);
+        if (constructed)
+        {
+            _physicalSourceCoverage.RecordMemorySafetyConstruction(
+                lookup.ConstructionWork);
+            if (!ReferenceEquals(
+                    _requestSourceCoverage,
+                    _physicalSourceCoverage))
+            {
+                _requestSourceCoverage?.RecordMemorySafetyConstruction(
+                    lookup.ConstructionWork);
+            }
+        }
+
+        before = lookup.RecordedWork;
+        return lookup;
+    }
+
+    /// <summary>Records one query's work for the physical source and the request.</summary>
+    public readonly void EndMemorySafetyQuery(
+        MemorySafetyContractLookup lookup,
+        MemorySafetyMetadataWork before)
+    {
+        MemorySafetyMetadataWork work = lookup.RecordedWork.Since(before);
+        _physicalSourceCoverage.RecordMemorySafetyQuery(MethodHandle, work);
+        if (!ReferenceEquals(
+                _requestSourceCoverage,
+                _physicalSourceCoverage))
+        {
+            _requestSourceCoverage?.RecordMemorySafetyQuery(
+                MethodHandle,
+                work);
+        }
     }
 
     public readonly void RecordLookupUse()
