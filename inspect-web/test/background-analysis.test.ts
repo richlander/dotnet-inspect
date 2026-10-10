@@ -144,6 +144,26 @@ test("a running task the reader has left is canceled", async () => {
   next.finish();
 });
 
+test("a reader who returns before a cancellation settles queues the task again", async () => {
+  const { queue } = queueWith();
+  const started: string[] = [];
+  const first = probe("baseline", "library-baseline", started);
+  const again = probe("baseline", "library-baseline", started);
+
+  queue.enqueue(first.task);
+  await settle();
+  first.relevant = false;
+  queue.reconcile();
+  assert.equal(first.canceled, true);
+
+  // The reader returns while the canceled run is still settling.
+  queue.enqueue(again.task);
+  await settle();
+
+  assert.deepEqual(started, ["baseline", "baseline"]);
+  again.finish();
+});
+
 test("a key that is queued or running is not queued again", async () => {
   const { queue } = queueWith();
   const started: string[] = [];

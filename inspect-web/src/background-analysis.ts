@@ -49,7 +49,11 @@ export function createBackgroundAnalysisQueue(
 ): BackgroundAnalysisQueue {
   let sequence = 0;
   const queued: Array<{ task: BackgroundAnalysisTask; sequence: number }> = [];
-  let running: { task: BackgroundAnalysisTask; run: BackgroundAnalysisRun } | null = null;
+  let running: {
+    task: BackgroundAnalysisTask;
+    run: BackgroundAnalysisRun;
+    canceled: boolean;
+  } | null = null;
   let pumping = false;
 
   const next = () => {
@@ -94,7 +98,7 @@ export function createBackgroundAnalysisQueue(
         if (task === null) return;
         try {
           const run = task.start();
-          running = { task, run };
+          running = { task, run, canceled: false };
           await run.settled;
         } catch (error: unknown) {
           dependencies.reportError(error);
@@ -109,7 +113,9 @@ export function createBackgroundAnalysisQueue(
 
   return {
     enqueue(task) {
-      if (running?.task.key === task.key
+      // A run reconciliation canceled no longer holds its key, so a reader
+      // who returns before the cancellation settles queues the task again.
+      if ((running?.task.key === task.key && !running.canceled)
         || queued.some(entry => entry.task.key === task.key)) {
         return;
       }
@@ -118,7 +124,10 @@ export function createBackgroundAnalysisQueue(
     },
     reconcile() {
       dropIrrelevant();
-      if (running && !running.task.isRelevant()) running.run.cancel();
+      if (running && !running.canceled && !running.task.isRelevant()) {
+        running.canceled = true;
+        running.run.cancel();
+      }
     },
     get pending() {
       return queued.length + (running ? 1 : 0);
