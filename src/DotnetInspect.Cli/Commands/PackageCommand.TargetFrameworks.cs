@@ -40,11 +40,11 @@ public partial class PackageCommand
             DotnetInspector.Packages.PackageExtractor.TryNormalizePackageVersion(target.Version, out string version)
                 ? await composition.AcquireContentAsync(
                     PackageSourceCoordinate.Create(target.PackageName, version), query,
-                    stores.GetStore, options.SourceOptions, context.Logger.Log, rangedSizeCut: 0).ConfigureAwait(false)
+                    stores.GetStore, options.SourceOptions, context.Logger.Log).ConfigureAwait(false)
                 : await composition.AcquireSelectedContentAsync(
                     target.PackageName, target.Version.Length > 0 ? target.Version : null,
                     query, stores.GetStore, options.SourceOptions, context.Logger.Log,
-                    options.IncludePrerelease, rangedSizeCut: 0).ConfigureAwait(false);
+                    options.IncludePrerelease).ConfigureAwait(false);
         if (settlement is not PackageHouseSettlement.Acquired acquired)
         {
             string reason = settlement.Result switch

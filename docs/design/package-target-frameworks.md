@@ -38,8 +38,11 @@ Count observes the selected rows. Rendered-line clipping remains explicit.
 Online native Rows and Count consume optional directory evidence from a
 package-wide PackageHouse File List query. Exact pins and version-selected
 requests use the existing source authorization and version settlement.
-Directory-only acquisition selects no entry bodies and does not extract a
-package when the source supports ranged access. File paths and explicit empty
+Directory-only acquisition follows the shared
+[package cache policy](package-cache-policy.md): archives at or under its size
+cut are acquired complete; larger archives use supported ranged access without
+selecting entry bodies or extracting the package. This command does not override
+the shared size cut. File paths and explicit empty
 directory entries both contribute logical directory facts. The normal package
 collector and archive collector share ordering and folder projection.
 
@@ -50,8 +53,8 @@ missing retained directory evidence also uses established inspection.
 
 This remains a reference row-shaping slice: QuerySpace owns semantic selection
 after the validated directory is admitted. The complete central directory must
-be validated before deriving the population. No archive-body expansion is
-needed for eligible directory-only terminals.
+be validated before deriving the population. The ranged directory path needs
+no archive-body expansion.
 
 The retired standalone lens derived frameworks from DLL paths under the
 preferred tools/ref/lib asset directory. Its bare lines and root JSON array
