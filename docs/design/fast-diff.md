@@ -4,7 +4,8 @@
 
 This document owns **Fast Diff**: one pass over a Library image pair that
 decides, for every Type, whether its API and its implementation differ,
-without building either complete diff. It is tracked by
+without building either complete diff, and the narrower
+[Type and Member levels](#levels) beneath it. It is tracked by
 [#9716](https://github.com/richlander/dotnet-inspect/issues/9716) and
 supersedes the earlier body-free, presence-only design proposed in #9717.
 
@@ -235,6 +236,81 @@ large Library needs it.
 The comparison itself accounts for more than 99% of each call; the interpreter
 costs roughly 15x relative to NativeAOT.
 
+## Levels
+
+Fast Diff answers at three levels, each scoped to what its view shows. Each
+level is sound for the level above it, so a cue never points to a view that
+shows nothing.
+
+| Level | Question | Answer per row |
+| --- | --- | --- |
+| Library | Which Types differ? | API exists, Body exists |
+| Type | Which Members of this Type differ? | API (signature diff), Body exists |
+| Member | How does this Member differ? | Complete API and body diff |
+
+### Library
+
+The [contract](#contract) above: every Type, with each axis stopped at its
+first difference.
+
+### Type
+
+> **Claim.** For one Type in one Library image pair, the Type level returns,
+> for every Member declared on either side, an **API** state and a **Body**
+> state, and one **residual** state per axis for the Type's facts that belong
+> to no single Member. The Member states and the residual partition the
+> Type's facts, so a Type axis is `Unchanged` at the Library level exactly
+> when that axis is `Unchanged` for every Member and for the residual.
+
+- **API** compares the Member's own Public API facts from the [API
+  axis](#axes): signature, flags, parameters, constants, and custom
+  attributes, completely rather than to a first difference. A Member present
+  on one side only is API `Changed`.
+- **Body** is an existence check over the Member's own IL and the IL of
+  generated code it owns, stopping at the first difference. Accessors belong
+  to their property or event.
+- **Residual** holds the Type's declaration facts (flags, base Type,
+  interfaces, generic parameters, and attributes) on the API axis, and on the
+  Body axis `beforefieldinit` and generated code with no single owner.
+
+Generated code (lambdas, local functions, iterators, and async state machines)
+belongs to a Member only when the shared lifted-owner resolution in
+`ILInspector.Analysis` names exactly one owner, as it does for the targeted
+walk ([#9745](https://github.com/richlander/dotnet-inspect/issues/9745)). A
+change in generated code shared by several Members, or whose owner is
+ambiguous, is a residual Body change. It is never assigned to a guessed
+Member.
+
+Each Member is reported by the fingerprint of its After-side Public API
+anchor, the identity the Members list already carries, and a removed Member
+by its Before-side fingerprint. The query resolves those anchors over the
+selected Type's declarations only, through `MemberTargetResolver`, as exact
+Member lookup does
+([#9739](https://github.com/richlander/dotnet-inspect/issues/9739)); it never
+builds the Library's API surface. A non-public Member has no API facts and
+reports Body only.
+
+The query runs in [steps](#steps) that end at Member boundaries. It lives in
+`DotnetInspector.Queries`, beside `AssemblyContextFastDiffQuery`, because
+owner resolution and anchors come from layers above `ILInspector.Metadata`;
+the per-Member fact partition itself stays in `FastDiff`.
+
+Gates: for the fixture pairs, the Type-level states agree with the Library
+level per the partition claim; every Member the complete Public API diff
+reports changed is not API `Unchanged`; and every owner of a body that
+canonical IL comparison reports changed is Body `Changed` or `Indeterminate`,
+or the change is a residual Body change. `eng/measure-fast-diff.cs` reports
+NativeAOT time per Type for the largest changed Types of each measured pair.
+
+### Member
+
+The Member level is the complete API and body diff of one Member, which
+[Library API Diff](inspect-web-library-api-diff.md) and
+[Member Body Diff](inspect-web-member-body-diff.md) own. Entered from a Type
+or Member cue, it resolves that one Member in each image over its Type's
+declarations and diffs only that Member. It does not build the Library-wide
+Member Body inventory, which remains Library Compare's view.
+
 ## Adoption
 
 1. **Producer** (#9798): `FastDiff.Compare`, its gates, and the measurement
@@ -252,8 +328,14 @@ costs roughly 15x relative to NativeAOT.
 6. **Caching:** retain results per exact endpoint pair in the Worker and in
    persistent storage keyed by the build commit, per
    [#9793](https://github.com/richlander/dotnet-inspect/issues/9793).
-7. **Member states:** per-Member states for an opened Type.
-8. **CLI:** expose the same producer through `diff`.
+7. **Type level:** per-Member states and the residual for one Type, with
+   NativeAOT numbers, through a Worker export. Member cues for the Type on
+   screen then come from it: the API Member glyph, the implementation Member
+   glyph, or the change glyph for both. This replaces the Type-surface
+   Library API Diff that places API Member cues today, which computes the
+   whole Library's API diff.
+8. **Member level:** a targeted diff of one Member, entered from a cue.
+9. **CLI:** expose the same producer through `diff`.
 
 By default, each Library page computes Fast Diff in the background after it
 first loads, against two baselines: `ApiAndBody` against the last patch
@@ -267,7 +349,8 @@ selection belong to the background analysis design that adopts this export.
 
 - Fast Diff does not define API semantics, canonical IL, or correspondence; it
   is sound against the owners of those.
-- It does not report which change was found, counts, classifications, or text.
+- It does not report which change was found, counts, classifications, or text;
+  the Member level's complete diff does.
 - It does not replace Public API Diff or Member Body Diff; they remain the
   complete views.
 - It reports Type definitions only. Type forwarders and assembly-level
