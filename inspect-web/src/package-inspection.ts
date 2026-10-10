@@ -27,6 +27,7 @@ import type {
   AppPackage,
   AppTypeSurface,
 } from "./package-acquisition.ts";
+import { createAppTypeSurface } from "./package-acquisition.ts";
 import type {
   LibraryMetricsRelationshipState,
 } from "./library-metrics.ts";
@@ -42,6 +43,27 @@ export interface ResolvedPackagePerformanceMember {
   member: AppMemberSurface;
 }
 
+export function resolvePackagePerformanceType(
+  packageModel: AppPackage,
+  performanceMember: Pick<
+    BrowserPerformanceMember,
+    "assembly" | "typeId"
+  >,
+): AppTypeSurface | null {
+  return packageModel.types.find(candidate =>
+    candidate.assembly === performanceMember.assembly
+    && candidate.definitionId === performanceMember.typeId) ?? null;
+}
+
+export function projectPackagePerformanceType(
+  performanceMember: BrowserPerformanceMember,
+): AppTypeSurface {
+  return createAppTypeSurface({
+    ...performanceMember.declaringType,
+    api: [],
+  });
+}
+
 export function resolvePackagePerformanceMember(
   packageModel: AppPackage,
   performanceMember: Pick<
@@ -49,9 +71,7 @@ export function resolvePackagePerformanceMember(
     "assembly" | "typeId" | "stableSelector"
   >,
 ): ResolvedPackagePerformanceMember | null {
-  const type = packageModel.types.find(candidate =>
-    candidate.assembly === performanceMember.assembly
-    && candidate.definitionId === performanceMember.typeId);
+  const type = resolvePackagePerformanceType(packageModel, performanceMember);
   const member = type?.api.find(candidate =>
     candidate.stableSelector === performanceMember.stableSelector);
   return type && member ? { type, member } : null;

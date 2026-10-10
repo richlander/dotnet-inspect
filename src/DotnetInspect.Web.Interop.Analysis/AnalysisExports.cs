@@ -621,7 +621,7 @@ public static partial class AnalysisExports
     /// <see cref="QueryPackagePerformance"/>, one durable Item event per
     /// member in the existing ranked, capped order, instead of returning the
     /// complete array in one round trip. The underlying computation,
-    /// ranking, navigable-surface filtering, and triage cap are unchanged;
+    /// ranking, all-accessibility navigable-Type filtering, and triage cap are unchanged;
     /// see docs/design/streaming-library-performance-analysis.md.
     /// </summary>
     [JSExport]
@@ -1857,10 +1857,6 @@ public static partial class AnalysisExports
             scope.UseMetadataParticipant(
                 participant,
                 AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant);
-        // The ranking only publishes members the site can navigate to, which is the same
-        // browsable surface the package facade renders. The projection is DTO-neutral shared
-        // mechanics in DotnetInspect.Web.Core; this facade never reaches for a sibling's wire
-        // record to decide what is navigable.
         BrowserWorkspaceParticipant? surfaceParticipant =
             scope.TryGetSurfaceParticipant(participant);
         BrowserSurfaceProjection.Surface? surface = surfaceParticipant is null
@@ -1868,19 +1864,6 @@ public static partial class AnalysisExports
             : BrowserPackageSurfaceProjection.ProjectParticipantSurface(
                 scope,
                 surfaceParticipant);
-        HashSet<(
-            string Assembly,
-            string Type,
-            string Selector)> navigableMembers =
-        [
-            .. (surface?.Types ?? [])
-                .SelectMany(type =>
-                type.Api.Select(member => (
-                    type.Assembly,
-                    type.DefinitionId,
-                    member.StableSelector))),
-        ];
-
         var failures = new List<string>();
         if (!string.IsNullOrWhiteSpace(surface?.InspectionError))
             failures.Add($"API surface: {surface.InspectionError}");
@@ -1930,8 +1913,7 @@ public static partial class AnalysisExports
                 PerformanceMembers(
                     result,
                     participants,
-                    scope,
-                    navigableMembers),
+                    scope),
                 failures);
 
         return new BrowserPackagePerformance(
@@ -1947,17 +1929,13 @@ public static partial class AnalysisExports
     static IEnumerable<BrowserPerformanceMember> PerformanceMembers(
         AssemblyContextOptimizationOpportunitiesResult result,
         ImmutableArray<BrowserWorkspaceParticipant> participants,
-        BrowserInspectionScope scope,
-        HashSet<(
-            string Assembly,
-            string Type,
-            string Selector)> navigableMembers)
+        BrowserInspectionScope scope)
     {
         var implementationSurfaces = new Dictionary<BrowserWorkspaceParticipant, ApiSurface?>();
         foreach (AssemblyContextOptimizationOpportunityMember member
             in result.RankedMembers)
         {
-            if (member.Member.PublicMember is not { } publicMember)
+            if (member.Member.Member is not { } surfaceMember)
                 continue;
 
             BrowserWorkspaceParticipant analysisParticipant =
@@ -1967,39 +1945,42 @@ public static partial class AnalysisExports
                         member.Subject.Registration));
             BrowserWorkspaceParticipant? surfaceParticipant =
                 scope.TryGetSurfaceParticipant(analysisParticipant);
-            if (surfaceParticipant is null
-                || !navigableMembers.Contains((
-                    surfaceParticipant.Asset.AssemblyName,
-                    publicMember.Type,
-                    publicMember.StableSelector)))
-            {
+            if (surfaceParticipant is null)
                 continue;
-            }
 
             if (!implementationSurfaces.TryGetValue(analysisParticipant, out ApiSurface? implementationSurface))
             {
                 AssemblyContextApiSurfaceResult surfaces =
                     scope.UseMetadataParticipant(analysisParticipant,
                         (group, participant) => AssemblyContextApiSurfaceQuery.ExecuteBounded(
-                            group, ApiSurfaceScope.PublicWithNonPublicTypes,
+                            group, ApiSurfaceScope.IncludeAll,
                             BrowserApiSurfacePolicy.Limits, [participant]));
                 AssemblyContextEntry<AssemblyApiSurface> entry = surfaces.Assemblies.Assemblies.Single();
                 implementationSurface =
                     (entry as AssemblyContextEntry<AssemblyApiSurface>.Available)?.Value.Surface;
                 implementationSurfaces.Add(analysisParticipant, implementationSurface);
             }
+            BrowserTypeSurfaceInfo projectedType =
+                BrowserSurfaceProjection.Type(
+                    surfaceMember.DeclaringType,
+                    surfaceParticipant.Asset.AssemblyName,
+                    surfaceParticipant.Asset.Id,
+                    surfaceParticipant.Assembly.Identity.Name,
+                    qualifyId: true,
+                    selectedMembers: []);
             yield return new BrowserPerformanceMember(
                 surfaceParticipant.Asset.AssemblyName,
-                publicMember.Type,
-                publicMember.Member,
-                publicMember.StableSelector,
-                [.. publicMember.BodyTokens],
+                surfaceMember.Type,
+                surfaceMember.Member,
+                surfaceMember.StableSelector,
+                [.. surfaceMember.BodyTokens],
                 member.Member.Ranking.Opportunities.Length,
                 member.Member.Ranking.InLoopCount,
                 [.. member.Member.Ranking.Shapes],
                 member.Member.Ranking.Confidence,
-                PerformanceBodyTargets(implementationSurface, publicMember.Type,
-                    publicMember.StableSelector, publicMember.BodyTokens,
+                BrowserAnalysisWireProjection.Project(projectedType),
+                PerformanceBodyTargets(implementationSurface, surfaceMember.Type,
+                    surfaceMember.StableSelector, surfaceMember.BodyTokens,
                     member.Member.Ranking.Opportunities));
         }
     }
@@ -2052,7 +2033,7 @@ public static partial class AnalysisExports
             {
                 failures.Add(
                     $"Performance ranking truncated after the top "
-                    + $"{MemberLimit} navigable public members.");
+                    + $"{MemberLimit} navigable members.");
                 break;
             }
 

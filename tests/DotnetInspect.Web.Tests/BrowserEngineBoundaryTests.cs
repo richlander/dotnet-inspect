@@ -60,6 +60,10 @@ public sealed partial class BrowserEngineBoundaryTests
 
     public static object PerformanceBoxingProbe(int value) => value;
 
+    [System.ComponentModel.EditorBrowsable(
+        System.ComponentModel.EditorBrowsableState.Never)]
+    private static object PerformancePrivateBoxingProbe(int value) => value;
+
     public static int PerformanceNoAllocationProbe(int value) => value;
 
     public static int InvocationDestinationProbe(int value) =>
@@ -255,6 +259,26 @@ public sealed partial class BrowserEngineBoundaryTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildSurfaceImageWithType(
+        AssemblyName identity,
+        string typeFullName)
+    {
+        var assemblyBuilder = new PersistedAssemblyBuilder(
+            identity,
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assemblyBuilder.DefineDynamicModule(identity.Name!);
+        TypeBuilder type = module.DefineType(
+            typeFullName,
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed);
+        type.DefineDefaultConstructor(MethodAttributes.Public);
+        type.CreateType();
+
+        using var stream = new MemoryStream();
+        assemblyBuilder.Save(stream);
+        return stream.ToArray();
     }
 
     static WorkspacePlan CreateStjPlan(

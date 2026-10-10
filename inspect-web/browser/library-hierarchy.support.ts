@@ -1496,7 +1496,11 @@ async function installFacades(
             id, version, framework, assembly, typeIdentity, memberName,
             selectorKey, metadataToken, implementationMember,
           ]);
-        const type = surfaceFor(id, version, framework).types.find(item =>
+        const memberSurface = implementationMember
+          ? implementationPerformanceSurface(
+              surfaceFor(id, version, framework))
+          : surfaceFor(id, version, framework);
+        const type = memberSurface.types.find(item =>
           item.definitionId === typeIdentity || item.queryId === typeIdentity);
         const member = type?.api.find(item =>
           item.name === memberName
@@ -1514,6 +1518,29 @@ async function installFacades(
               unavailable: "The selected declaration is unavailable.",
               compatibility: false,
             };
+      }
+      function implementationPerformanceSurface(surface) {
+        const source = surface.types.find(type =>
+          type.api.some(member => member.name === "PrivateWork"));
+        const implementationMembers = source?.api.filter(member =>
+          member.name === "PrivateWork" || member.name === "OtherWork");
+        if (!source || !implementationMembers?.length) return surface;
+        const implementationType = {
+          ...source,
+          id: source.assemblyId + ":Example.ImplementationOnlyWorker",
+          definitionId: "Example.ImplementationOnlyWorker",
+          queryId: "Example.ImplementationOnlyWorker",
+          metadataId: "Example.ImplementationOnlyWorker",
+          name: "ImplementationOnlyWorker",
+          displayName: "ImplementationOnlyWorker",
+          members: implementationMembers.length,
+          signature: "public sealed class ImplementationOnlyWorker",
+          api: implementationMembers,
+        };
+        return {
+          ...surface,
+          types: [...surface.types, implementationType],
+        };
       }
       function typeMemberPopulation(
         surface, typeIdentity, spelling, accessibility) {
@@ -1668,6 +1695,21 @@ async function installFacades(
           spelling,
           accessibility);
       }
+      export async function queryPerformanceTypeMemberPopulation(
+        id, version, framework, assembly, typeIdentity, spelling, accessibility) {
+        document.documentElement.dataset.performanceTypeMemberPopulationRequest =
+          JSON.stringify([
+            id, version, framework, assembly, typeIdentity, spelling,
+            accessibility,
+          ]);
+        await waitForTypeMemberPopulationGate();
+        return typeMemberPopulation(
+          implementationPerformanceSurface(
+            surfaceFor(id, version, framework)),
+          typeIdentity,
+          spelling,
+          accessibility);
+      }
       export async function queryPlatformTypeMemberPopulation(
         framework, version, assembly, pack, typeIdentity, spelling, accessibility) {
         document.documentElement.dataset.platformTypeMemberPopulationRequest =
@@ -1682,6 +1724,22 @@ async function installFacades(
           spelling,
           accessibility);
       }
+      export async function queryPlatformPerformanceTypeMemberPopulation(
+        framework, version, assembly, pack, typeIdentity, spelling, accessibility) {
+        document.documentElement.dataset
+          .platformPerformanceTypeMemberPopulationRequest =
+            JSON.stringify([
+              framework, version, assembly, pack, typeIdentity, spelling,
+              accessibility,
+            ]);
+        await waitForTypeMemberPopulationGate();
+        return typeMemberPopulation(
+          implementationPerformanceSurface(
+            surfaceFor("Microsoft.NETCore.App", version, framework)),
+          typeIdentity,
+          spelling,
+          accessibility);
+      }
       export async function queryUploadedLibraryTypeMemberPopulation(
         declaredName, content, typeIdentity, spelling, accessibility) {
         document.documentElement.dataset.uploadedTypeMemberPopulationRequest =
@@ -1692,6 +1750,21 @@ async function installFacades(
         await waitForTypeMemberPopulationGate();
         return typeMemberPopulation(
           surfaces[0],
+          typeIdentity,
+          spelling,
+          accessibility);
+      }
+      export async function queryUploadedLibraryPerformanceTypeMemberPopulation(
+        declaredName, content, typeIdentity, spelling, accessibility) {
+        document.documentElement.dataset
+          .uploadedPerformanceTypeMemberPopulationRequest =
+            JSON.stringify([
+              declaredName, content.length, typeIdentity, spelling,
+              accessibility,
+            ]);
+        await waitForTypeMemberPopulationGate();
+        return typeMemberPopulation(
+          implementationPerformanceSurface(surfaces[0]),
           typeIdentity,
           spelling,
           accessibility);
@@ -2780,30 +2853,76 @@ async function installFacades(
         return opportunitiesFor(
           surface.package, surface, selected, version, framework, selected.id);
       }
+      function implementationPerformanceSurface(surface) {
+        const source = surface.types.find(type =>
+          type.api.some(member => member.name === "PrivateWork"));
+        const implementationMembers = source?.api.filter(member =>
+          member.name === "PrivateWork" || member.name === "OtherWork");
+        if (!source || !implementationMembers?.length) return surface;
+        const implementationType = {
+          ...source,
+          id: source.assemblyId + ":Example.ImplementationOnlyWorker",
+          definitionId: "Example.ImplementationOnlyWorker",
+          queryId: "Example.ImplementationOnlyWorker",
+          metadataId: "Example.ImplementationOnlyWorker",
+          name: "ImplementationOnlyWorker",
+          displayName: "ImplementationOnlyWorker",
+          members: implementationMembers.length,
+          signature: "public sealed class ImplementationOnlyWorker",
+          api: implementationMembers,
+        };
+        return {
+          ...surface,
+          types: [...surface.types, implementationType],
+        };
+      }
       async function performanceFor(surface, selected, version, framework, requestKey) {
         const selectedType = surface.types.find(item => item.assemblyId === selected.id);
         if (!selectedType) throw new Error("Library has no projected type: " + selected.asset);
+        const privateType =
+          implementationPerformanceSurface(surface).types.find(type =>
+            type.definitionId === "Example.ImplementationOnlyWorker");
         const scenario = ${JSON.stringify(analysis)};
         if (scenario === "deferred") {
           await new Promise(resolve => document.addEventListener(
             "fixture-analysis-ready:" + requestKey, resolve, { once: true }));
         }
         if (scenario === "query-error") throw new Error("Analysis query unavailable.");
-        const member = (memberName, opportunityCount, inLoopCount, shapes, confidence) => ({
-          assembly: selected.name + ".dll",
-          typeId: selectedType.definitionId,
+        const memberToken = memberName => memberName === "Run"
+          ? 100663297 : memberName === "Write" ? 100663298 : 100663299;
+        const member = (
           memberName,
-          stableSelector: "Run",
-          bodyTokens: [100663297],
-          bodyTargets: [{ typeId: selectedType.definitionId, memberName, selectorKey: "Run", methodToken: 100663297, issueOffsets: null }],
           opportunityCount,
           inLoopCount,
           shapes,
-          confidence
-        });
+          confidence,
+          declaringType = selectedType,
+        ) => {
+          const { api: _, ...declaringTypeSurface } = declaringType;
+          return {
+            assembly: selected.name + ".dll",
+            typeId: declaringType.definitionId,
+            memberName,
+            stableSelector: memberName,
+            bodyTokens: [memberToken(memberName)],
+            bodyTargets: [{ typeId: declaringType.definitionId, memberName, selectorKey: memberName, methodToken: memberToken(memberName), issueOffsets: null }],
+            opportunityCount,
+            inLoopCount,
+            shapes,
+            confidence,
+            declaringType: declaringTypeSurface,
+          };
+        };
         const members = scenario === "empty" || scenario === "partial-empty" ? [] : [
           member("Run", 3, 1, ["box-value-type", "string-concat"], "high"),
-          member("Write", 1, 0, ["array-allocation"], "medium")
+          member("Write", 1, 0, ["array-allocation"], "medium"),
+          member(
+            "PrivateWork",
+            2,
+            0,
+            ["box-value-type"],
+            "high",
+            privateType ?? selectedType)
         ];
         if (scenario === "long") {
           members.splice(0, members.length, ...Array.from({ length: 80 }, (_, index) =>
@@ -2818,8 +2937,8 @@ async function installFacades(
         return {
           members,
           inspectionError: partial ? "A method body could not be analyzed." : null,
-          nonPublicOpportunities: 2,
-          totalOpportunities: members.reduce((total, item) => total + item.opportunityCount, 0) + 2,
+          nonPublicOpportunities: members.some(item => item.memberName === "PrivateWork") ? 2 : 0,
+          totalOpportunities: members.reduce((total, item) => total + item.opportunityCount, 0),
           compileLibrary: surface.compileLibrary
         };
       }

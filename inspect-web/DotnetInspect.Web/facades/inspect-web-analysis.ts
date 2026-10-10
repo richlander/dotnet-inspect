@@ -832,6 +832,7 @@ export interface BrowserPerformanceMember {
   readonly inLoopCount: number;
   readonly shapes: ReadonlyArray<string>;
   readonly confidence: string;
+  readonly declaringType: BrowserPerformanceTypeSurface;
   readonly bodyTargets: ReadonlyArray<BrowserPerformanceBodyTarget> | null;
 }
 
@@ -845,6 +846,27 @@ export interface BrowserPerformanceOpportunity {
   readonly caveat: string | null;
   readonly finding: string | null;
   readonly provenance: string;
+}
+
+export interface BrowserPerformanceTypeSurface {
+  readonly id: string;
+  readonly definitionId: string;
+  readonly queryId: string;
+  readonly metadataId: string;
+  readonly name: string;
+  readonly displayName: string;
+  readonly namespace: string;
+  readonly kind: string;
+  readonly kindFacetId: string;
+  readonly traitFacetIds: ReadonlyArray<string>;
+  readonly accessibility: string;
+  readonly accessibilityId: string;
+  readonly assembly: string;
+  readonly assemblyId: string;
+  readonly assemblyName: string;
+  readonly members: number;
+  readonly signature: string;
+  readonly platformPack: string | null;
 }
 
 export interface BrowserResourceTriage {

@@ -147,7 +147,7 @@ classification; see
 [Prerequisite](#prerequisite-per-member-compute-observability). This design's
 Item-publication phase does not need that signal: it activates only after the
 existing synchronous call returns its complete, unrestricted ranking and the
-existing Browser projection (navigable-surface filtering, then
+existing Browser projection (all-accessibility navigable-Type filtering, then
 `ApplyPerformanceMemberLimit`) resolves that ranking into the final,
 navigable, capped array, and streams that known array's rows instead of
 returning them as one array. When a future per-member signal exists, the same
@@ -178,7 +178,7 @@ AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(...)
            yield Progress(visited, total, best-effort preview)
              [advisory, replaceable; never a durable Item]
   -> existing Browser projection (PackagePerformanceAsync, unchanged):
-       navigable-surface filtering, then ApplyPerformanceMemberLimit
+       all-accessibility navigable-Type filtering, then ApplyPerformanceMemberLimit
        -> the existing final, navigable, ranked, 200-member-capped
           BrowserPerformanceMember[] — this design does not move, skip, or
           duplicate this step; it only changes what happens to its output
@@ -199,7 +199,8 @@ AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(...)
        re-derive totals from the admitted Item rows
 ```
 
-The navigable-surface filter and `ApplyPerformanceMemberLimit` cap run exactly
+The all-accessibility navigable-Type filter and `ApplyPerformanceMemberLimit`
+cap run exactly
 where they run today, between the synchronous query result and the array
 `PackagePerformanceAsync` currently returns in one piece. This design only
 replaces that one-piece return with the cooperative publication wrapper
@@ -336,7 +337,8 @@ This design does not:
 
 - change `AssemblyContextOptimizationOpportunitiesQuery`'s member population,
   ranking, or confidence classification, or `PackagePerformanceAsync`'s
-  existing navigable-surface filtering and `ApplyPerformanceMemberLimit`
+  existing all-accessibility navigable-Type filtering and
+  `ApplyPerformanceMemberLimit`
   triage cap — the Item list and Completed accounting are exactly today's
   existing computed values, produced by those same existing owners in their
   existing order;
@@ -375,7 +377,8 @@ implementation must show:
 - an automated test that, for an assembly whose final ranked list has more
   than one member, the publication wrapper emits one Item event per member in
   exactly the final list's order, set, and count, for an input with more than
-  200 navigable public results (exercising `ApplyPerformanceMemberLimit`
+  200 navigable all-accessibility results (exercising
+  `ApplyPerformanceMemberLimit`
   truncation) and for an input below that cap;
 - an automated test that Completed's `NonPublicOpportunities` and
   `TotalOpportunities` values are bit-for-bit identical, for the same input,
