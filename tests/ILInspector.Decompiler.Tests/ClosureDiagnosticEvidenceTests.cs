@@ -117,6 +117,28 @@ public class ClosureDiagnosticEvidenceTests
     }
 
     [Fact]
+    public void Extract_AttributeArgumentTypeKeepsItsSourceSpelling()
+    {
+        var tree = CSharpSyntaxTree.ParseText(
+            "[Root.Existing(typeof(MissingAttribute))] class C {} "
+                + "namespace Root { public class Existing : System.Attribute { public Existing(System.Type type) {} } }",
+            cancellationToken: TestContext.Current.CancellationToken);
+        var compilation = CSharpCompilation.Create(
+            "closure-diagnostic-evidence",
+            [tree],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var semanticModel = compilation.GetSemanticModel(tree);
+
+        var reference = Assert.Single(
+            compilation.GetDiagnostics(TestContext.Current.CancellationToken)
+                .Where(candidate => candidate.Id == "CS0246")
+                .Select(diagnostic => ClosureDiagnosticEvidence.Extract(diagnostic, semanticModel)));
+
+        Assert.Equal("MissingAttribute", reference!.Name);
+    }
+
+    [Fact]
     public void Extract_ReturnsNullForSupportedDiagnosticWithoutSourceLocation()
     {
         var tree = CSharpSyntaxTree.ParseText(

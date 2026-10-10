@@ -68,7 +68,7 @@ internal static class ClosureDiagnosticEvidence
 
         string name = simpleName.Identifier.ValueText;
         if (diagnostic.Id is "CS0246" or "CS0234"
-            && NamesAttributeSuffixedSpelling(diagnostic, simpleName, name))
+            && NamesAttributeSuffixedSpelling(diagnostic, name))
         {
             name += "Attribute";
         }
@@ -98,26 +98,13 @@ internal static class ClosureDiagnosticEvidence
     /// spelling it tried. The syntax carries only <c>X</c>, so the diagnostic whose
     /// reported name (its first quoted argument, ignoring a generic <c>&lt;…&gt;</c>
     /// suffix) is <c>XAttribute</c> must look that spelling up; otherwise closure growth
-    /// searches for a type metadata never defines and stalls. Only the reported-name
-    /// argument decides: a namespace argument named <c>XAttribute</c> does not, and a
-    /// name already ending in <c>Attribute</c> follows the same rule as any other.
+    /// searches for a type metadata never defines and stalls. The reported name alone
+    /// decides: Roslyn tries the suffix only during attribute lookup, a namespace
+    /// argument named <c>XAttribute</c> does not count, and a name already ending in
+    /// <c>Attribute</c> follows the same rule as any other.
     /// </summary>
-    static bool NamesAttributeSuffixedSpelling(
-        Diagnostic diagnostic,
-        SimpleNameSyntax simpleName,
-        string name)
-    {
-        var attribute = simpleName.Ancestors().OfType<AttributeSyntax>().FirstOrDefault();
-        bool isAttributeName = attribute?.Name switch
-        {
-            SimpleNameSyntax direct => direct == simpleName,
-            QualifiedNameSyntax qualified => qualified.Right == simpleName,
-            AliasQualifiedNameSyntax aliased => aliased.Name == simpleName,
-            _ => false,
-        };
-        return isAttributeName
-            && ReportedName(diagnostic) == $"{name}Attribute";
-    }
+    static bool NamesAttributeSuffixedSpelling(Diagnostic diagnostic, string name)
+        => ReportedName(diagnostic) == $"{name}Attribute";
 
     // CS0246 and CS0234 report the missing name as their first quoted argument
     // ("'{0}' could not be found", "'{0}' does not exist in the namespace '{1}'").
