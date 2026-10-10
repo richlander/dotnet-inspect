@@ -407,25 +407,29 @@ service-owned types, evidence-enabled entry point, and serializers remain
 configuration-neutral so their semantics can be gated in Release; the Debug
 host registration and delivery path do not.
 
-### Agent workflow for acquisition and performance investigations
+### Agent workflow for network-related commands
 
-Before explaining a download flow, attributing a performance difference, or
-proposing an acquisition optimization, inspect the existing owner-issued
-evidence for the operation. Do not wait for the user to request an evidence
-envelope. Timings show the outcome; evidence distinguishes whether the intended
-demand, selected input and acquisition path actually ran.
+When investigating a network-related command, use its evidence envelope before
+explaining downloads, attributing a performance difference, or proposing an
+acquisition optimization. Do not wait for the operator to request it. Timings
+show the outcome; the envelope distinguishes whether the intended demand,
+selected input and acquisition path actually ran. This workflow and its
+side-quest approval requirement apply only to network-related commands.
 
 1. Name the question and find the applicable evidence type and owning design.
    For network acquisition, start with the
    [package transfer receipts](design/package-transfer-receipt.md); for excess
    work, inspect available query demand and execution evidence. Reuse existing
    evidence before adding instrumentation.
-2. Discover whether the resolved operation advertises a Debug evidence gesture
-   and capture its envelope when supported. If the host does not deliver it,
-   state that limitation and inspect configuration-neutral owner receipts
-   through an existing service or test harness when available. Distinguish
-   those receipts from a host-delivered envelope. Browser request traces may
-   corroborate transport behavior but cannot supply every receipt field.
+2. Invoke a Debug build and discover whether the resolved command advertises
+   its evidence gesture. Capture and inspect the envelope when supported.
+   Absence in a Release build does not establish missing command capability.
+   If the command lacks evidence-envelope support, ask the operator whether a
+   side quest to add it for better network diagnostics is approved. Describe
+   the missing diagnostics and proposed scope; do not start that side quest
+   without approval. Existing service receipts and browser request traces may
+   support independent investigation while awaiting the answer, but do not
+   substitute them for command evidence-envelope support or skip the question.
 3. Match evidence to the measured scenario before comparing it: code revision,
    authorized source, exact package version, selected framework and Library,
    requested sections or terminal, and cold/warm cache state. Check the actual
