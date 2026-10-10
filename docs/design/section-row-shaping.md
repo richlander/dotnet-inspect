@@ -454,8 +454,10 @@ request set it:
   the request. The wider scope beyond the bound is outside the question, not
   missing evidence.
 - A default or operational ceiling, provider or page limit, deadline, or other
-  constraint the request did not set is not part of the question. Reaching one
-  leaves the request incomplete.
+  constraint the request did not set is not part of the question. It leaves
+  the request incomplete when it stops evaluation before the requested scope
+  is exhausted. A ceiling reached with nothing left to evaluate constrains
+  nothing.
 
 ### Incomplete evaluation
 
