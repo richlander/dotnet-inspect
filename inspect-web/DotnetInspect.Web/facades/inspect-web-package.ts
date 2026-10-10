@@ -992,6 +992,9 @@ export interface BrowserPackageQueryPresetDescriptor {
   readonly replacementGroupId: string | null;
   readonly displayGroupId: string | null;
   readonly displayGroupLabel: string | null;
+  readonly categoryId: string;
+  readonly categoryLabel: string;
+  readonly categoryOrder: number;
 }
 
 export interface BrowserPackageQueryProgress {
@@ -1044,6 +1047,14 @@ export interface BrowserPackageQueryTermDescriptor {
   readonly valueKind: string;
   readonly example: string;
   readonly multiline: boolean;
+  readonly allowsCustomValue: boolean;
+  readonly options: ReadonlyArray<BrowserPackageQueryTermOptionDescriptor>;
+}
+
+export interface BrowserPackageQueryTermOptionDescriptor {
+  readonly value: string;
+  readonly label: string;
+  readonly summary: string;
 }
 
 export interface BrowserPackageRootLoadResult {
@@ -2331,4 +2342,3 @@ export function searchTypes(query: string, candidatesJson: ReadonlyArray<Browser
   const $parsed: unknown = JSON.parse($result);
   return $parsed as ReadonlyArray<BrowserTypeSearchHit>;
 }
-

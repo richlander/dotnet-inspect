@@ -56,6 +56,9 @@ const NUSPEC_FACET: QueryPreset = {
   label: "embedded README",
   tier: "nuspec",
   executionClass: "nuspec",
+  categoryId: "package-metadata",
+  categoryLabel: "Package metadata",
+  categoryOrder: 100,
 };
 const DOWNLOAD_FACET: QueryPreset = {
   id: "downloads:eq:1m",
@@ -65,44 +68,22 @@ const DOWNLOAD_FACET: QueryPreset = {
   label: "1M+ downloads",
   tier: "search-metadata",
   executionClass: "search-metadata",
+  categoryId: "package-metadata",
+  categoryLabel: "Package metadata",
+  categoryOrder: 100,
 };
-const TOOL_FACETS: readonly QueryPreset[] = [
-  {
-    id: "tool:eq:true",
-    key: "tool",
-    operator: "eq",
-    value: "true",
-    label: ".NET Tool",
-    tier: "nuspec",
-    executionClass: "nuspec",
-    displayGroupId: "package.query.display.dotnet-tool",
-    displayGroupLabel: ".NET tool format",
-  },
-  {
-    id: "tool-format:eq:v1",
-    key: "tool-format",
-    operator: "eq",
-    value: "v1",
-    label: "v1",
-    tier: "package-content",
-    executionClass: "package-content",
-    selectionGroupId: "tool-format",
-    displayGroupId: "package.query.display.dotnet-tool",
-    displayGroupLabel: ".NET tool format",
-  },
-  {
-    id: "tool-format:eq:v2",
-    key: "tool-format",
-    operator: "eq",
-    value: "v2",
-    label: "v2",
-    tier: "package-content",
-    executionClass: "package-content",
-    selectionGroupId: "tool-format",
-    displayGroupId: "package.query.display.dotnet-tool",
-    displayGroupLabel: ".NET tool format",
-  },
-];
+const TOOL_FACET: QueryPreset = {
+  id: "tool:eq:true",
+  key: "tool",
+  operator: "eq",
+  value: "true",
+  label: ".NET Tool",
+  tier: "nuspec",
+  executionClass: "nuspec",
+  categoryId: "package-metadata",
+  categoryLabel: "Package metadata",
+  categoryOrder: 100,
+};
 const SKILL_FACET: QueryPreset = {
   id: "skill:eq:true",
   key: "skill",
@@ -111,11 +92,27 @@ const SKILL_FACET: QueryPreset = {
   label: "embedded SKILL.md",
   tier: "package-content",
   executionClass: "package-content",
+  categoryId: "package-contents",
+  categoryLabel: "Package contents",
+  categoryOrder: 300,
+};
+const DEPENDENCY_FACET: QueryPreset = {
+  id: "dependencies:eq:cross-prefix",
+  key: "dependencies",
+  operator: "eq",
+  value: "cross-prefix",
+  label: "cross-prefix dependency",
+  tier: "nuspec",
+  executionClass: "nuspec",
+  categoryId: "dependencies",
+  categoryLabel: "Dependencies",
+  categoryOrder: 200,
 };
 const FACETS: readonly QueryPreset[] = [
   NUSPEC_FACET,
-  ...TOOL_FACETS,
+  TOOL_FACET,
   DOWNLOAD_FACET,
+  DEPENDENCY_FACET,
   SKILL_FACET,
 ];
 const DEPENDS_TERM: QueryTermDescriptor = {
@@ -136,6 +133,34 @@ const DEPENDENCY_TARGET_TERM: QueryTermDescriptor = {
   label: "Dependency target",
   operators: ["eq"],
   example: "net10.0",
+  allowsCustomValue: true,
+  options: [
+    {
+      value: "net10.0",
+      label: "net10.0",
+      summary: "Use the exact NuGet target framework 'net10.0'.",
+    },
+    {
+      value: "net8.0",
+      label: "net8.0",
+      summary: "Use the exact NuGet target framework 'net8.0'.",
+    },
+  ],
+};
+const DEPENDS_ECOSYSTEM_TERM: QueryTermDescriptor = {
+  ...DEPENDS_TERM,
+  key: "depends-ecosystem",
+  label: "Depends on ecosystem",
+  operators: ["eq"],
+  example: "ecosystem.aspire",
+  allowsCustomValue: false,
+  options: [
+    {
+      value: "ecosystem.aspire",
+      label: ".NET Aspire",
+      summary: "The .NET Aspire ecosystem.",
+    },
+  ],
 };
 const TRANSITIVE_DEPENDS_TERM: QueryTermDescriptor = {
   ...DEPENDS_TERM,
@@ -164,10 +189,37 @@ const LIBRARY_LITERAL_TERM: QueryTermDescriptor = {
   example: "Microsoft.Extensions.",
   multiline: true,
 };
+const TOOL_FORMAT_TERM: QueryTermDescriptor = {
+  key: "tool-format",
+  label: "DotnetCliTool",
+  summary: "Matches the DotnetCliTool format version.",
+  weight: 510,
+  tier: "package-content",
+  executionClass: "package-content",
+  operators: ["eq"],
+  valueKind: "closed value",
+  example: "v2",
+  multiline: false,
+  allowsCustomValue: false,
+  options: [
+    {
+      value: "v1",
+      label: "v1",
+      summary: "Portable DotnetCliTool format.",
+    },
+    {
+      value: "v2",
+      label: "v2",
+      summary: "RID-specific DotnetCliTool format.",
+    },
+  ],
+};
 const TERMS: readonly QueryTermDescriptor[] = [
   DEPENDS_TERM,
   DEPENDENCY_TARGET_TERM,
+  DEPENDS_ECOSYSTEM_TERM,
   TRANSITIVE_DEPENDS_TERM,
+  TOOL_FORMAT_TERM,
   LIBRARY_LITERAL_TERM,
 ];
 
@@ -498,7 +550,7 @@ test("library-literal result footer discloses an incomplete population", () => {
     /1 matching package · 1 occurrence · source page limit reached; operation incomplete/);
 });
 
-test("active terms render above the product-issued available-term palette", () => {
+test("active value queries render above the query-by-value palette", () => {
   const request = withTerm(
     withTerm(
       createQueryRequest("Microsoft.*"),
@@ -518,8 +570,8 @@ test("active terms render above the product-issued available-term palette", () =
     escapeHtml,
   });
 
-  assert.ok(html.indexOf("<h2 id=\"query-active-terms-heading\">Active terms</h2>")
-    < html.indexOf("<h2 id=\"query-available-terms-heading\">Available terms</h2>"));
+  assert.ok(html.indexOf("<h2 id=\"query-active-terms-heading\">Active value queries</h2>")
+    < html.indexOf("<h2 id=\"query-available-terms-heading\">Query by value</h2>"));
   assert.match(html, /data-query-term-form="0"/);
   assert.match(html, /data-query-term-form="1"/);
   assert.match(html, /value="Microsoft\.Extensions\.Hosting"/);
@@ -527,6 +579,8 @@ test("active terms render above the product-issued available-term palette", () =
   assert.match(html, /data-query-term-add="depends"/);
   assert.match(html, /Add Direct dependency/);
   assert.match(html, /Add Dependency target/);
+  assert.match(html, /Add Depends on ecosystem/);
+  assert.match(html, /Add DotnetCliTool/);
   assert.doesNotMatch(html, /Add Transitively depends on package/);
 });
 
@@ -1013,30 +1067,91 @@ test("preset buttons expose pressed state without shipping promoted placeholders
   assert.doesNotMatch(html, /promoted|Deepen/);
 });
 
-test("tool format presets render as one independently selectable segmented control", () => {
+test("tool fact and DotnetCliTool format render in distinct control sections", () => {
   const state: PackageQueryState = {
-    request: withPreset(
+    request: withTerm(
       createQueryRequest("Microsoft."),
-      TOOL_FACETS[2]!),
+      TOOL_FORMAT_TERM,
+      "eq",
+      "v2"),
     outcome: appendRows(emptyOutcome(), [row("A")]),
   };
 
   const html = renderPackageQueryView({
     state,
     availablePresets: FACETS,
+    availableTerms: TERMS,
     escapeHtml,
   });
 
   assert.match(
     html,
-    /class="query-preset-group"[\s\S]*role="group"[\s\S]*aria-label="\.NET tool format"/);
+    /data-query-preset="tool:eq:true"[\s\S]*>\s*\.NET Tool\s*<\/button>/);
+  assert.doesNotMatch(html, /data-query-preset="tool-format:/);
+  assert.match(html, /data-query-term-add="tool-format"/);
   assert.match(
     html,
-    /data-query-preset="tool:eq:true"[\s\S]*>\s*\.NET Tool\s*<\/button>[\s\S]*data-query-preset="tool-format:eq:v1"[\s\S]*>\s*v1\s*<\/button>[\s\S]*data-query-preset="tool-format:eq:v2"[\s\S]*aria-pressed="true"[\s\S]*>\s*v2\s*<\/button>/);
+    /aria-label="DotnetCliTool"[\s\S]*<select[\s\S]*value="v1"[\s\S]*value="v2"[\s\S]*selected/);
   assert.match(html, />\s*embedded SKILL\.md\s*<\/button>/);
   assert.match(
     html,
     /Content facts download up to 20 candidate package archives/);
+});
+
+test("inspection facts are grouped in product order", () => {
+  const html = renderPackageQueryView({
+    state: initialQueryState(),
+    availablePresets: FACETS,
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+
+  const metadata = html.indexOf(">Package metadata</h3>");
+  const dependencies = html.indexOf(">Dependencies</h3>");
+  const contents = html.indexOf(">Package contents</h3>");
+  assert.ok(metadata >= 0);
+  assert.ok(metadata < dependencies);
+  assert.ok(dependencies < contents);
+});
+
+test("ecosystem and target framework value queries offer dropdown choices", () => {
+  const ecosystemHtml = renderPackageQueryView({
+    state: {
+      request: createQueryRequest("Microsoft.*"),
+      outcome: emptyOutcome(),
+      termDraft: {
+        descriptor: DEPENDS_ECOSYSTEM_TERM,
+        operator: "eq",
+        value: "",
+      },
+      termEdits: [],
+    },
+    availablePresets: FACETS,
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+  assert.match(
+    ecosystemHtml,
+    /aria-label="Depends on ecosystem"[\s\S]*<select[\s\S]*ecosystem\.aspire[\s\S]*\.NET Aspire/);
+
+  const targetHtml = renderPackageQueryView({
+    state: {
+      request: createQueryRequest("Microsoft.*"),
+      outcome: emptyOutcome(),
+      termDraft: {
+        descriptor: DEPENDENCY_TARGET_TERM,
+        operator: "eq",
+        value: "net10.0",
+      },
+      termEdits: [],
+    },
+    availablePresets: FACETS,
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+  assert.match(
+    targetHtml,
+    /list="package-query-term-draft-options"[\s\S]*<datalist id="package-query-term-draft-options">[\s\S]*net10\.0[\s\S]*net8\.0/);
 });
 
 test("preset markup classes have matching Package Query style selectors", () => {
@@ -1048,7 +1163,8 @@ test("preset markup classes have matching Package Query style selectors", () => 
 
   for (const className of [
     "query-preset",
-    "query-preset-group",
+    "query-preset-category",
+    "query-preset-category-items",
     "query-preset-rail",
     "query-preset-disclosure",
   ]) {

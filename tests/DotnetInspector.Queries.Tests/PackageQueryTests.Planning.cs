@@ -109,13 +109,10 @@ public partial class PackageQueryTests
             term => term.Key == PackageQuery.ToolFormatTermKey);
         Assert.True(toolFormat.CombinesWithinSelectionGroup);
         Assert.Equal(
-            PackageQuery.ToolReplacementGroupId,
-            toolFormat.ReplacementGroupId);
-        Assert.Equal(PackageQuery.ToolDisplayGroupId, toolFormat.DisplayGroupId);
-        Assert.Equal(
-            PackageQuery.ToolReplacementGroupId,
-            PackageQuery.Terms.Single(term =>
-                term.Key == PackageQuery.ToolTermKey).ReplacementGroupId);
+            "DotnetCliTool",
+            toolFormat.Label);
+        Assert.Null(toolFormat.ReplacementGroupId);
+        Assert.Null(toolFormat.DisplayGroupId);
         Assert.Equal(["v1", "v2"], toolFormat.Options.Select(option => option.Value));
         Assert.Equal(
             "downloads",

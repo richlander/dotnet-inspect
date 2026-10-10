@@ -1567,11 +1567,17 @@ test.describe("Package Query website over real Wasm", () => {
     await page.goto("/query");
     const input = page.locator("#package-query-prefix");
     await expect(input).toBeVisible({ timeout: 120_000 });
-    const toolFormatPreset = page.locator(
-      '[data-query-preset="tool-format:eq:v2"]',
+    await page.locator('[data-query-term-add="tool-format"]').click();
+    const toolFormat = page.locator(
+      '[data-query-term-form="draft"] [data-query-term-value]',
     );
-    await toolFormatPreset.click();
-    await expect(toolFormatPreset).toHaveAttribute("aria-pressed", "true");
+    await toolFormat.selectOption("v2");
+    await page.locator(
+      '[data-query-term-form="draft"] button[type="submit"]',
+    ).click();
+    await expect(page.locator(
+      '[data-query-term-form="0"] [data-query-term-value]',
+    )).toHaveValue("v2");
     await expect(page.locator(".query-preset-disclosure", {
       hasText: "Candidate bound K:",
     }))

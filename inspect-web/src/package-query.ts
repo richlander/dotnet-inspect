@@ -32,6 +32,15 @@ export interface QueryPreset {
   replacementGroupId?: string | null;
   displayGroupId?: string | null;
   displayGroupLabel?: string | null;
+  categoryId?: string;
+  categoryLabel?: string;
+  categoryOrder?: number;
+}
+
+export interface QueryTermOption {
+  value: string;
+  label: string;
+  summary: string;
 }
 
 /** One product-issued operand-bearing package-query term descriptor. */
@@ -46,6 +55,8 @@ export interface QueryTermDescriptor {
   valueKind: string;
   example: string;
   multiline: boolean;
+  allowsCustomValue?: boolean;
+  options?: readonly QueryTermOption[];
 }
 
 export type DependencyReach = "direct" | "2" | "3" | "4";
