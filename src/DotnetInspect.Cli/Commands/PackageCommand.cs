@@ -1165,6 +1165,11 @@ public partial class PackageCommand
             version.Length > 0 ? $"package {packageName}@{version}" : $"package {packageName}",
             "package inspect");
 
+        if (preResolved is null
+            && await TryExecuteArchiveTargetFrameworksAsync(target, options, context, pipeline)
+                .ConfigureAwait(false) is { } tfmExitCode)
+            return tfmExitCode;
+
         int? packageFileInventoryExitCode =
             preResolved is null
                 ? await TryExecutePackageFileInventoryAsync(
