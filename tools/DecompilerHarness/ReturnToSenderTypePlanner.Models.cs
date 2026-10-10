@@ -448,7 +448,15 @@ internal sealed record ProductTargetBody(
     bool RequiresUnsafeModifier = false,
     DecompilationFidelity Fidelity = DecompilationFidelity.Full,
     bool UsesAutomaticGetterBody = false,
-    string? SingleLineExpression = null);
+    string? SingleLineExpression = null)
+{
+    /// <summary>
+    /// The product's lifted constructor field initializers
+    /// (<see cref="DecompilerResult.FieldInitializers"/>): stores that precede the
+    /// base call, which C# spells on the field declaration rather than in the body.
+    /// </summary>
+    public IReadOnlyList<(string Field, string Value)> FieldInitializers { get; init; } = [];
+}
 
 internal sealed class CompileBackSourceUnavailableException(string message)
     : InvalidOperationException(message)
