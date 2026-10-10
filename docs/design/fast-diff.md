@@ -265,19 +265,24 @@ first difference.
 The partition is defined by ownership of the Library level's own census
 facts, not by a separate list, so the two levels cannot disagree:
 
-1. **Every census fact has one owner.** A fact belongs to the Member whose
-   declaration row it describes: the method, field, property, or event row,
-   and that row's parameters, constants, imports, generic parameters, and
-   attributes. Accessors and an auto-property's backing field belong to
-   their property or event. Facts of generated code belong to its owner, as
-   below. Every other fact (the Type's own row, base Type, interfaces,
-   generic parameters, attributes, layout, nullable context, MethodImpl rows,
-   and `beforefieldinit`) belongs to the residual.
+1. **Every census fact has one owner, grouped as the API surface groups
+   Members.** A fact belongs to the Member whose declaration row it
+   describes: the method, field, property, or event row, and that row's
+   parameters, constants, imports, generic parameters, and attributes.
+   Accessors, an auto-property's backing field, and a field-like event's
+   backing field belong to their property or event. An enum's `value__`
+   field carries the underlying Type, a Type fact, so it belongs to the
+   residual. Any other row the API surface does not list as a Member, such
+   as a `<`-named method or field, belongs to its generated-code owner, as
+   below, or otherwise to the residual. Every other fact (the Type's own
+   row, base Type, interfaces, generic parameters, attributes, layout,
+   nullable context, MethodImpl rows, and `beforefieldinit`) belongs to the
+   residual.
 2. **A fact keeps the axis the census gives it.** A Member's or the
    residual's state on an axis is `Changed` when any fact it owns on that
-   axis differs, including a fact present on one side only. So a public
-   Member's own facts are API facts and a non-public Member's are Body
-   facts; public means visible as the census decides it, which includes
+   axis differs, including a fact present on one side only. So the own
+   facts of a public Member of a public Type are API facts, and those of a
+   non-public Member, or of any Member of a non-public Type, are Body facts; public means visible as the census decides it, which includes
    explicit interface implementations. A public property with a non-public
    setter therefore has API facts from the property row and getter and Body
    facts from the setter.
@@ -321,7 +326,8 @@ partition itself stays in `FastDiff`.
 
 Gates: for the fixture pairs, the Type-level states agree with the Library
 level per the partition claim, including an added public method, an added
-public property with a private setter, an attribute added to an internal
+public property with a private setter, an enum underlying-type change, a
+`[field:]` attribute on a field-like event, an attribute added to an internal
 method, a base Type change on an internal Type, and a nested Type whose
 inherited nullable context changed; every Member the complete Public API diff
 reports changed is not API `Unchanged`; and every owner of a body that
