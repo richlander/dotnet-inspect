@@ -702,11 +702,9 @@ public partial class CommandExecutionTests
             "Performance: Async",
             "--markdown");
 
-        Assert.Equal(1, exit);
-        AssertOnlyPerformanceAnalysisWarnings(
-            error,
-            "This section (Performance: Async) produced no output.");
-        Assert.Empty(output);
+        Assert.Equal(0, exit);
+        AssertOnlyPerformanceAnalysisWarnings(error);
+        Assert.Contains("SearchByPrefixPagesAsync", output);
         Assert.DoesNotContain("CallsSyncSiblingFromAsync", output);
         Assert.DoesNotContain("CallsFileReadLinesFromAsync", output);
     }
