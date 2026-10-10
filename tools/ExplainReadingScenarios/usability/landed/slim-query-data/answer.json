@@ -1,0 +1,25 @@
+{
+  "commands": {
+    "A": ["dnx", "dotnet-inspect", "-y", "--", "package", "query", "Microsoft.Azure.SignalR", "--where", "library-literal=https://", "--tfm", "net8.0", "--json"],
+    "B": ["dnx", "dotnet-inspect", "-y", "--", "package", "query", "Microsoft.Azure.SignalR", "--where", "depends=Newtonsoft.Json", "--where", "dependency-depth=3", "--where", "dependency-target=net8.0", "--json"]
+  },
+  "explanations": {
+    "A": "The positional input selects one exact NuGet package ID. The library-literal equality operand is decoded UTF-16 text; https:// is preserved verbatim and matched as an ordinal substring of each decoded string-literal use in implementation libraries selected for the exact --tfm net8.0 target. The library-literal predicate and --tfm require each other. This downloads package content and requires a package-content provider. Identical repeated literal operands collapse; distinct operands are incompatible. The operand length is 1..1024 UTF-16 code units, so 600 astral Unicode characters take 1200 units and are rejected. The empty listed values are not an allow list; acceptance comes from the explicit input rules, not the empty list.",
+    "B": "An exact depends=Newtonsoft.Json predicate with dependency-depth=3 uses the preferred reachability spelling: it can match direct declaration edges at depth 1 or transitive declaration paths at depth 2 or 3. The legacy depends-transitive=Newtonsoft.Json spelling would match only depths 2 through 3 and would exclude a direct-only hit. dependency-depth accepts exactly 2, 3, or 4 as the selected maximum, so depth 1 is invalid; dependency-target=all is invalid with traversal. An explicit dependency-target=net8.0 is required, and the depth facet requires an exact depends predicate or legacy depends-transitive predicate. Repeated exact predicates AND and share traversal. This uses nuspec/dependency metadata; command preparation does not establish an actual dependency match.",
+    "candidate_vs_rows": "For a Microsoft.Azure.* population with either inspection predicate, put 'Microsoft.Azure.*' in the positional slot, add --take 5 to bound package candidates examined (the maximum admitted for these predicates), and add -n 2 to request at most two final result rows. -n 2 does not bound candidate inspection work; --take does. A five-candidate bound also limits the completeness of conclusions about the full prefix population.",
+    "completeness": "The selected query-space data reports Complete selection and no unavailable fact states for the cited facets and binding. A prepared command is not execution evidence. Actual matches, failures, package content availability, and completion status for Microsoft.Azure.SignalR or a prefix population remain unknown until execution; the Package Query document is described as containing matches, failures, and a completion summary. No case folding or additional package-ID/TFM normalization rule is claimed beyond the provided facts."
+  },
+  "evidence": [
+    {"response_id": 10, "path": "package-query/query", "use": "discovered query-space path; search was truncated"},
+    {"response_id": 11, "path": "package-query/query", "representation": ".data --json", "use": "Complete selection, relevant facets, requires closure, input rules, binding and exposure"},
+    {"response_id": 15, "path": "package-query/bindings/cli", "use": "positional package or PREFIX*, --where, --tfm, --take, -n, --json gestures"},
+    {"response_id": 13, "path": "package-query", "use": "result document includes matches, failures, completion summary"},
+    {"response_id": 14, "path": "package-query/routes/default", "use": "package-grain query result"}
+  ],
+  "uncertainties": [
+    "No inspection was executed, so actual hit or absence for either predicate is unknown.",
+    "The provided facts do not specify package ID or TFM case normalization; no further behavior is inferred.",
+    "The five-candidate prefix example can leave additional prefix matches unexamined."
+  ],
+  "qualitative_friction": "Broad natural-language similarity searches returned no matches; short canonical-key searches found the facets, and a separate query search exposed the shared query-space path. The direct data selection was compact enough to filter by facet and binding, but getting CLI gestures required noticing the binding rather than deriving syntax from facet names."
+}

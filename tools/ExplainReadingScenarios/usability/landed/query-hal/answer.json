@@ -1,0 +1,35 @@
+{
+  "task": "Prepare unrun Package Query commands for Microsoft.Azure.SignalR",
+  "commands": {
+    "A_literal": ["dnx", "dotnet-inspect", "-y", "--", "package", "query", "Microsoft.Azure.SignalR", "--where", "library-literal=https://", "--tfm", "net8.0", "--json"],
+    "B_dependency": ["dnx", "dotnet-inspect", "-y", "--", "package", "query", "Microsoft.Azure.SignalR", "--where", "depends=Newtonsoft.Json", "--where", "dependency-depth=3", "--where", "dependency-target=net8.0", "--json"]
+  },
+  "explanations": {
+    "prerequisites_and_binding": "Use dnx dotnet-inspect -y -- as the launcher. Package Query takes an exact package ID or literal PREFIX* positional input, exposed terms via --where key=value, and --json for structured results. library-literal and --tfm require each other: the CLI authors library-target from --tfm, so supply one exact NuGet TFM net8.0 rather than --where library-target=net8.0. Dependency traversal requires exact depends=Newtonsoft.Json, explicit dependency-target=net8.0, and dependency-depth=3.",
+    "literal_matching": "The implementation-library facet downloads package content and searches decoded string-literal uses across the selected implementation libraries. The operand https:// is preserved exactly, including case and punctuation; no normalization occurs. Matching is an ordinal substring of each decoded string-literal use, not URL equivalence. One distinct operand is allowed: identical repeated operands collapse, distinct operands conflict. Accepted length is 1..1024 UTF-16 code units; 600 astral Unicode characters require 1200 UTF-16 code units and are rejected. The empty listed values array is not an allow list and does not mean unrestricted acceptance; the length and single-operand rules govern.",
+    "dependency_matching": "Exact depends plus depth 3 matches a direct declaration or source-authorized declaration reachability within at most three edges under the net8.0-selected compatible nuspec group. It is not a NuGet restore graph. The legacy depends-transitive=Newtonsoft.Json spelling, with the same explicit target and depth, accepts only depth 2 through 3 and excludes direct-only hits. Accepted dependency-depth values are 2, 3, and 4; 1 is invalid. dependency-target=all is valid for ordinary direct dependency predicates but is invalid with dependency-depth or depends-transitive. An exact depends term is required for the preferred depth query; a starts-with term alone cannot enable depth.",
+    "prefix_work_bounds": "To replace Microsoft.Azure.SignalR with the literal package-ID prefix Microsoft.Azure.*, keep either filter set and add --take 5 -n 2 before --json. --take 5 caps candidates evaluated for these expensive predicates; -n 2 selects at most two matched package result rows afterward and is not a replacement for the candidate bound. Five is the maximum admitted candidates for these facets; an exact package input admits at most one. A bound reached before all matching candidates are evaluated does not prove there are no further matches.",
+    "completion_and_unavailable_data": "Treat returned matches as evidence within the reported candidate and source scope. Candidate-bound exhaustion, acquisition/evaluation failures, missing or incomplete dependency traversal, or unavailable package/implementation data limit completeness and must remain visible. A missing result alone does not prove absence across unvisited or unavailable candidates. Unprojected --json retains structured package rows and query completion/failure evidence; package query Share is currently non-projectable. Do not infer a result count or claim this exact package matches without running either command."
+  },
+  "evidence": [
+    {"response": "response-02.out", "path": "similarity discovery: package-query/query/facets/library-literal", "supports": "Discovered literal facet and CLI binding"},
+    {"response": "response-03.out", "path": "similarity discovery: package-query/query/facets/dependency-depth, package-query/query/facets/depends, package-query/query/facets/depends-transitive", "supports": "Discovered dependency facets"},
+    {"response": "response-04.out", "path": "package-query/query/facets/library-literal .hal", "supports": "Decoded literal matching, UTF-16 length, exact text, single operand, required library target, CLI --tfm and --json gestures"},
+    {"response": "response-05.out", "path": "package-query/query/facets/dependency-depth .hal", "supports": "Depth values 2/3/4, maximum edges, required exact target, candidate limit"},
+    {"response": "response-06.out", "path": "package-query/query/facets/depends .hal", "supports": "Direct versus depth traversal for exact dependency and starts-with behavior"},
+    {"response": "response-08.out", "path": "package-query/query/facets/depends-transitive .hal", "supports": "Legacy depth-2-or-greater-only behavior"},
+    {"response": "response-09.out", "path": "package-query/query .hal", "supports": "Complete selected query-space dataset and CLI candidate/row gestures"},
+    {"response": "response-10.out", "path": "package-query", "supports": "Document includes matches, failures, and completion summary"},
+    {"response": "response-12.out", "path": "package-query/bindings/cli", "supports": "Binding input rules"},
+    {"response": "guide", "path": "dotnet-inspect and dotnet-inspect-query guides", "supports": "Launcher, latest eligible exact package behavior, prefix semantics, query JSON and completion caveats"}
+  ],
+  "uncertainties": [
+    "The commands were deliberately not executed; no claim is made about actual matches, chosen package version, selected assets, or whether acquisition will succeed.",
+    "The HAL facet data does not itself enumerate every runtime failure or exact output field; the completion caveat is based on the assigned guide and document summary."
+  ],
+  "qualitative_friction": [
+    "Similarity discovery found the right paths, but a broad 'package query' search returned 19 resources and required filtering.",
+    "The first filtered HAL view omitted the root facet, so I had to read it again; the root-versus-embedded split is easy to overlook.",
+    "Empty values on open-text facets initially looks ambiguous; the literal facet explicitly resolves it with length and operand rules."
+  ]
+}
