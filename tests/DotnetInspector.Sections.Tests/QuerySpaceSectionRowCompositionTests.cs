@@ -908,7 +908,7 @@ public sealed class QuerySpaceSectionRowCompositionTests
     }
 
     [Fact]
-    public void IncompleteCompanionCountsBesideExactSourceCount()
+    public void IncompleteRowsAndCountReportOneObservation_AfterShapingBesideExactCount()
     {
         QuerySpaceRowScopeBinding<ScoreRow> queryScope =
             CreateQueryScope(CreateRowVocabulary());
@@ -963,6 +963,19 @@ public sealed class QuerySpaceSectionRowCompositionTests
             new SectionQuerySpaceRowScopeBinding<ScoreRow>(
                 queryScope,
                 schema);
+        // The predicate keeps two of the three supplied rows, so a Count of
+        // the unshaped handoff would report 3 rather than the shaped 2.
+        PortableQueryIntent rowIntent =
+            PortableQueryIntent.Create(
+                [
+                    new(
+                        "score",
+                        PortableQueryOperator.AtLeast,
+                        "2"),
+                ],
+                [],
+                [],
+                []);
 
         QuerySpaceSectionSourceRowResolutionResult<
             Projection,
@@ -973,7 +986,7 @@ public sealed class QuerySpaceSectionRowCompositionTests
                     CreateRequest(
                         querySpace,
                         queryScope,
-                        PortableQueryIntent.Empty,
+                        rowIntent,
                         QuerySpaceTerminalRequirement.Count),
                     declarations,
                     sources,
@@ -991,7 +1004,7 @@ public sealed class QuerySpaceSectionRowCompositionTests
             ["left", "right"],
             completed.Counts.Select(static count => count.Identity));
         Assert.Equal(
-            [7, 3],
+            [7, 2],
             completed.Counts.Select(static count => count.Value));
         Assert.Equal(
             [true, false],
@@ -999,6 +1012,9 @@ public sealed class QuerySpaceSectionRowCompositionTests
         Assert.Same(
             exactReceipt,
             completed.Sources[0].Evidence.Completion);
+        Assert.Equal(
+            SourceDisposition.Partial,
+            completed.Sources[1].Evidence.Disposition);
         Assert.Same(
             partialReceipt,
             completed.Sources[1].Evidence.Completion);
@@ -1012,7 +1028,7 @@ public sealed class QuerySpaceSectionRowCompositionTests
                     CreateRequest(
                         querySpace,
                         queryScope,
-                        PortableQueryIntent.Empty,
+                        rowIntent,
                         QuerySpaceTerminalRequirement.Rows),
                     declarations,
                     sources,
@@ -1026,8 +1042,14 @@ public sealed class QuerySpaceSectionRowCompositionTests
                     rowsResolution.Request!);
         Assert.True(rows.IsSuccess);
         Assert.Equal(
+            [2, 3],
+            rows.Rebind(Projection.Empty).Right);
+        Assert.Equal(
             completed.Counts[1].Value,
             rows.Rebind(Projection.Empty).Right.Count);
+        Assert.Same(
+            completed.Sources[1].Evidence,
+            rows.RowSets[1].Source.Evidence);
     }
 
     [Fact]
