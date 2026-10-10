@@ -191,6 +191,77 @@ public sealed class FastDiffIdentityTests
     const int FunctionPointerToVoidPointer = -2;
     const int PointerToFunctionPointer = -3;
 
+    [Fact]
+    public void IllFormedNamesThatDecodeAlike_AreDistinct()
+    {
+        // Both names decode to U+FFFD U+FFFD X; their stored bytes differ.
+        TypeSpec[] types = [new("N", "C", null, ReturnOne, ["M", "QQX"])];
+        FastDiffResult result = CompareImages(
+            Patch(Image(types), "QQX"u8, [0xFF, 0xFE, (byte)'X']),
+            Patch(Image(types), "QQX"u8, [0xFE, 0xFF, (byte)'X']));
+
+        Assert.Equal(FastDiffState.Changed, Single(result, "N.C").Api);
+    }
+
+    [Fact]
+    public void IllFormedTypeNamesThatDecodeAlike_AreDistinctRows()
+    {
+        // Both Type names decode to N.U+FFFD U+FFFD X; their stored bytes differ.
+        byte[] image = Patch(
+            Patch(Image([new("N", "QQX", null, ReturnOne), new("N", "QQY", null, ReturnOne)]),
+                "QQX"u8, [0xFF, 0xFE, (byte)'X']),
+            "QQY"u8, [0xFE, 0xFF, (byte)'X']);
+        FastDiffResult result = CompareImages(image, image);
+
+        Assert.Equal(2, result.Types.Count(type => type.FullName == "N.\uFFFD\uFFFDX"));
+        Assert.Equal(result.Types.Length, result.Types.Select(type => type.Identifier).Distinct().Count());
+        Assert.All(
+            result.Types.Where(type => type.FullName == "N.\uFFFD\uFFFDX"),
+            type => Assert.Equal((FastDiffState.Indeterminate, FastDiffState.Indeterminate), (type.Api, type.Body)));
+    }
+
+    [Fact]
+    public void IllFormedTypeNameChangedBetweenVersions_IsOneIndeterminateRow()
+    {
+        TypeSpec[] types = [new("N", "QQX", null, ReturnOne)];
+        FastDiffResult result = CompareImages(
+            Patch(Image(types), "QQX"u8, [0xFF, 0xFE, (byte)'X']),
+            Patch(Image(types), "QQX"u8, [0xFE, 0xFF, (byte)'X']));
+
+        FastDiffTypeState type = Single(result, "N.\uFFFD\uFFFDX");
+        Assert.Equal((FastDiffState.Indeterminate, FastDiffState.Indeterminate), (type.Api, type.Body));
+    }
+
+    [Fact]
+    public void StoredNames_AreTheUtf8OfTheDecodedNames()
+    {
+        using var pe = new PEReader(File.OpenRead(typeof(object).Assembly.Location));
+        MetadataReader md = pe.GetMetadataReader(MetadataReaderOptions.None);
+        var names = new SymbolKey.Utf8Names(pe, md);
+        IEnumerable<StringHandle> handles = md.TypeDefinitions
+            .SelectMany(type => (StringHandle[])[md.GetTypeDefinition(type).Namespace, md.GetTypeDefinition(type).Name])
+            .Concat(md.MethodDefinitions.Select(method => md.GetMethodDefinition(method).Name))
+            .Concat(md.FieldDefinitions.Select(field => md.GetFieldDefinition(field).Name));
+        int compared = 0;
+        foreach (StringHandle handle in handles)
+        {
+            int length = names.Length(handle);
+            byte[] stored = new byte[length];
+            names.Copy(handle, stored, 0, length);
+            Assert.Equal(System.Text.Encoding.UTF8.GetBytes(md.GetString(handle)), stored);
+            compared++;
+        }
+        Assert.True(compared > 10_000);
+    }
+
+    static byte[] Patch(byte[] image, ReadOnlySpan<byte> marker, byte[] replacement)
+    {
+        int index = image.AsSpan().IndexOf(marker);
+        Assert.True(index >= 0 && image.AsSpan(index + 1).IndexOf(marker) < 0);
+        replacement.CopyTo(image, index);
+        return image;
+    }
+
     static FastDiffTypeState Single(FastDiffResult result, string fullName)
         => Assert.Single(result.Types, type => type.FullName == fullName);
 
@@ -213,9 +284,10 @@ public sealed class FastDiffIdentityTests
         bool PrivateScope = false);
 
     static FastDiffResult Compare(TypeSpec[] before, TypeSpec[] after)
+        => CompareImages(Image(before), Image(after));
+
+    static FastDiffResult CompareImages(byte[] beforeImage, byte[] afterImage)
     {
-        byte[] beforeImage = Image(before);
-        byte[] afterImage = Image(after);
         using var beforeReader = new PEReader(new MemoryStream(beforeImage, writable: false));
         using var afterReader = new PEReader(new MemoryStream(afterImage, writable: false));
         FastDiffResult whole = FastDiff.Compare(beforeReader, afterReader);
