@@ -741,6 +741,16 @@ retains physical endpoint association and typed non-success; it does not
 strengthen `MemberAnchor`, `MemberSignatureShape`, or catalog definition
 equality. Library pairing and Navigation adoption remain separate prerequisites.
 
+The target [portable API declaration currency](portable-api-declaration-currency.md)
+adds a detached, structured single-image projection for high-fidelity
+reference/implementation and version-pair comparison. Equal currency
+establishes equal projected declaration shape under one currency version;
+inequality does not establish different lineage or removal. The currency keeps
+`MemberAnchor` as its user-facing compatibility projection and keeps physical
+addresses outside portable equality. Correspondence and diff owners may consume
+the structured evidence, but retain their pair-scoped outcomes and matching
+policies.
+
 ### Conversion ownership
 
 Conversions are operations with an owner, not implicit casts:
@@ -770,6 +780,7 @@ Conversions are operations with an owner, not implicit casts:
 | MethodDef signature | `MemberSignatureShapeResult` | Metadata decodes with SRM and projects positional generics, arrays, pointers, nullable/tuple shapes, and function pointers into the shared leaf model |
 | Target plus candidate signature shapes | `MemberSignatureCorrespondence<T>` | `CSharpText.MemberSignatureShapeMatcher` returns unique, ambiguous, or unavailable; one unavailable candidate prevents a false unique result |
 | `ApiMember` | `MemberAnchor` | `ApiMemberIdentity` owns canonical signature and digest construction |
+| Admitted API declaration and owner-authorized named-type resolution | `ApiDeclarationCurrency` | Metadata projects a complete detached Type-or-Member value under the portable currency profile; physical addresses remain associated with the issuing image |
 | `MemberTargetSelector` | `ResolvedMemberTarget` | `MemberTargetResolver` returns the anchor, API handle, body target, or typed diagnostic |
 | `ResolvedMemberTarget` / `MethodIdentity` | Research subject | `ResearchMemberIdentity` owns API-to-body aliasing |
 
