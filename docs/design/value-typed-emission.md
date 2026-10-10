@@ -1291,10 +1291,24 @@ change (instance 3); no claim that the frozen policy is a correctness proof.
 
 Which up-front locals keep `= default` is decided before printing, not by the
 writer (#2095). The analysis is the conservative structured definite-assignment
-walk in `DefiniteAssignment` (the `#631` flow walk), unchanged: it yields the
+walk in `DefiniteAssignment` (the `#631` flow walk): it yields the
 locals that may be read before they are definitely assigned and gives up —
 marking every local — on control flow it does not model, so it can only keep a
 redundant initializer, never drop a required one.
+
+Short-circuit conditions carry separate definitely-assigned sets for their
+true and false outcomes. Only metadata-verified `out` arguments establish
+assignment; a skipped call, an input reference, or an unknown ref kind cannot.
+A branch body consumes its outcome's set, and only paths that reach the normal
+continuation participate in its join. Unsupported control flow retains the
+conservative fallback. `ShortCircuitDefiniteAssignmentTests` gates both
+outcomes, returning guards, nested short-circuit reads, and close declines.
+The motivating real witness is `dotnet-inspect.any` 0.14.0,
+`ILInspector.Decompiler.Pipeline.TypeRef::DisplayName`: the previous projection
+added `string keyword = default` before a guarded `TryGetValue`, introducing
+an `ldnull stloc` pair absent from the original. The pinned witness and a
+compiler-produced returning-guard sample retain durable regression coverage;
+Issue #9931 owns the focused slice; #9929 records the remaining fidelity families.
 
 `DefiniteAssignmentPass` runs last in the emission tail, after residual storage
 binding and every statement-rewriting pass, and issues
@@ -1323,10 +1337,11 @@ depend on it. Two pre-existing analysis limits are unchanged: a lambda that
 shares its enclosing scope has no separate decision, and a local bound by an
 `is` pattern counts as read before assignment.
 
-On the pinned 14-assembly, 89,065-method corpus the decision reaches 10,077
-methods (42,822 up-front declarations): 7,392 declarations in 1,781 methods
-keep `= default`, 35,309 declare bare, and the residual exclusion changes 121
-declarations in 73 methods; the analysis gives up in 474 methods. Computed at
+At the Instance 3 introduction, the pinned 14-assembly, 89,065-method corpus
+decision reached 10,077 methods (42,822 up-front declarations): 7,392
+declarations in 1,781 methods kept `= default`, 35,309 declared bare, and the
+residual exclusion changed 121 declarations in 73 methods; the analysis gave
+up in 474 methods. Computed at
 the host's tail, all 594 analysed nested bodies match what the writer computed
 at print time. `DefiniteAssignmentPassTests` gates the host set, the residual
 exclusion (synthetic and Newtonsoft.Json 13.0.4
