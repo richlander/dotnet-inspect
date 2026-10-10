@@ -51,6 +51,7 @@ test("the empty command scope offers the root command grammar", () => {
       "clear",
       "share",
       "settings",
+      "legend",
       "keyboard help",
     ],
   );
@@ -200,6 +201,7 @@ test("trailing whitespace preserves completed command arguments", () => {
     ["clear ", "clear"],
     ["share ", "share"],
     ["settings ", "settings"],
+    ["legend ", "legend"],
     ["keyboard help ", "keyboard help"],
   ];
   for (const [command, expected] of executableCommands) {
@@ -216,6 +218,7 @@ test("trailing whitespace preserves completed command arguments", () => {
     "diagnostics extra",
     "share share ",
     "settings settings ",
+    "legend legend ",
     "keyboard help extra ",
     "bogus clear",
     "bogus ",

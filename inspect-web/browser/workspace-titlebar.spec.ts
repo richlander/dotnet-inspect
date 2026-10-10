@@ -1741,6 +1741,7 @@ test("the Application menu owns global actions and modal focus return", async ({
   await expect(items).toHaveText([
     "Share",
     "Settings",
+    "Legend",
     "Keyboard help",
   ]);
   await expect(items.first()).toBeFocused();
@@ -1802,6 +1803,16 @@ test("the Application menu owns global actions and modal focus return", async ({
     "data-drill-in",
     "true");
   await page.locator("#keyboard-help-close").click();
+  await expect(button).toBeFocused();
+
+  await button.click();
+  await page.getByRole("menuitem", { name: "Legend" }).click();
+  await expect(page.getByRole("dialog", { name: "Legend" })).toBeVisible();
+  await expect(page.locator("#legend-title")).toBeFocused();
+  await expect(page.getByText("Changed Type", { exact: true })).toBeVisible();
+  await expect(page.getByText("Implementation Hub", { exact: true }))
+    .toBeVisible();
+  await page.locator("#legend-close").click();
   await expect(button).toBeFocused();
   await page.locator("#inspector-panel").evaluate(element =>
     element.setAttribute("tabindex", "-1"));
