@@ -548,8 +548,8 @@ public sealed class BrowserPackageQueryOperationsTests
             Assert.False(string.IsNullOrWhiteSpace(actual.CategoryLabel));
             Assert.True(actual.CategoryOrder > 0);
             Assert.Equal(
-                ExpectedWorkspaceLens(term.Key),
-                actual.WorkspaceLens);
+                ExpectedRelatedOperations(term.Key),
+                actual.RelatedOperations);
             Assert.Equal(
                 BrowserTier(term.Tier),
                 actual.Tier);
@@ -598,8 +598,8 @@ public sealed class BrowserPackageQueryOperationsTests
                 expected.ReplacementGroupId,
                 actual.ReplacementGroupId);
             Assert.Equal(
-                ExpectedWorkspaceLens(expected.Key),
-                actual.WorkspaceLens);
+                ExpectedRelatedOperations(expected.Key),
+                actual.RelatedOperations);
             Assert.Equal(
                 (expected.ControlKind
                     is PackageQueryTermControlKind.Input
@@ -1298,19 +1298,10 @@ public sealed class BrowserPackageQueryOperationsTests
             BrowserPackageJsonContext.Default.BrowserPackageQueryCatalog);
 
         Assert.NotNull(catalog);
-        Assert.Equal(
-            BrowserPackageQueryOperations.Catalog().Presets,
-            catalog.Presets);
-        BrowserPackageQueryTermDescriptor[] expectedTerms =
-            BrowserPackageQueryOperations.Catalog().Terms;
-        Assert.Equal(expectedTerms.Length, catalog.Terms.Length);
-        for (int index = 0; index < expectedTerms.Length; index++)
-        {
-            Assert.Equal(expectedTerms[index].Key, catalog.Terms[index].Key);
-            Assert.Equal(
-                expectedTerms[index].Operators,
-                catalog.Terms[index].Operators);
-        }
+        Assert.Equivalent(
+            BrowserPackageQueryOperations.Catalog(),
+            catalog,
+            strict: true);
     }
 
     [Fact]
@@ -2047,7 +2038,7 @@ public sealed class BrowserPackageQueryOperationsTests
                 TestContext.Current.CancellationToken));
     }
 
-    static BrowserPackageQueryWorkspaceLens? ExpectedWorkspaceLens(
+    static string[] ExpectedRelatedOperations(
         string key) =>
         key switch
         {
@@ -2057,8 +2048,11 @@ public sealed class BrowserPackageQueryOperationsTests
                 or PackageQuery.DependsTermKey
                 or PackageQuery.DependsTransitiveTermKey
                 or PackageQuery.DependsEcosystemTermKey =>
-                BrowserPackageQueryWorkspaceLens.Dependencies,
-            _ => null,
+                [
+                    PackageRelatedOperationAffordances
+                        .InspectDependencies.Id.Value,
+                ],
+            _ => [],
         };
 
     static BrowserPackageQueryAcquisitionTier BrowserTier(
