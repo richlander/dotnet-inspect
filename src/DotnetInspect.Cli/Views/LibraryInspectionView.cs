@@ -1746,7 +1746,20 @@ public class LibraryInspectionView
                     : LibraryViewText.Field(opportunity.Weight),
                 LibraryViewText.Field(
                     LibraryMetadataService.TriagePriority(opportunity)),
-                LibraryViewText.Field(opportunity.Confidence)));
+                LibraryViewText.Field(opportunity.Confidence),
+                null,
+                null,
+                null,
+                null));
+        }
+        if (selectedSections.Contains(
+                SectionNames.PerformanceSyncCallsInAsync)
+            && _data.SyncCallsInAsyncSummaries is { } syncCalls)
+        {
+            rows.AddRange(
+                syncCalls.Select(
+                    static row =>
+                        PerformanceGroupRow.FromSyncCall(row)));
         }
         return rows;
     }
@@ -1782,6 +1795,27 @@ public class LibraryInspectionView
     [MarkoutIgnore] public bool HasPerformanceAsync => PerformanceAsyncSection is not null;
     [MarkoutSection(Name = SectionNames.PerformanceAsync, ShowWhenProperty = nameof(HasPerformanceAsync))]
     public List<PerformanceRow>? PerformanceAsyncSection => PerformanceRowsFor(SectionNames.PerformanceAsync);
+
+    [MarkoutIgnore]
+    public bool HasPerformanceSyncCallsInAsync =>
+        PerformanceSyncCallsInAsyncSection is not null;
+
+    [MarkoutSection(
+        Name = SectionNames.PerformanceSyncCallsInAsync,
+        ShowWhenProperty = nameof(HasPerformanceSyncCallsInAsync))]
+    public List<SyncCallInAsyncRow>? PerformanceSyncCallsInAsyncSection =>
+        _data.SyncCallsInAsyncSummaries?
+            .Select(static row => new SyncCallInAsyncRow(
+                MarkoutInline.CodeText(
+                    LibraryViewText.Field(row.Caller)),
+                MarkoutInline.CodeText(
+                    LibraryViewText.Field(row.Callee)),
+                MarkoutInline.CodeText(
+                    LibraryViewText.Field(row.Alternative)),
+                LibraryViewText.Field(row.PairKind)))
+            .ToList() is { Count: > 0 } rows
+                ? rows
+                : null;
 
     [MarkoutIgnore] public bool HasPerformanceOther => PerformanceOtherSection is not null;
     [MarkoutSection(Name = SectionNames.PerformanceOther, ShowWhenProperty = nameof(HasPerformanceOther))]
@@ -2681,6 +2715,35 @@ public record PerformanceRow(
 }
 
 [MarkoutSerializable]
+public sealed record SyncCallInAsyncRow(
+    InertString CallerText,
+    InertString CalleeText,
+    InertString AlternativeText,
+    InertString PairKindText)
+{
+    [MarkoutIgnore, JsonIgnore]
+    public InertString CallerText { get; init; } = CallerText;
+
+    public string Caller => CallerText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString CalleeText { get; init; } = CalleeText;
+
+    public string Callee => CalleeText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString AlternativeText { get; init; } =
+        AlternativeText;
+
+    public string Alternative => AlternativeText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString PairKindText { get; init; } = PairKindText;
+
+    public string PairKind => PairKindText.ToString();
+}
+
+[MarkoutSerializable]
 public record LibraryMetricRow(
     string Category,
     string Measure,
@@ -2801,7 +2864,11 @@ public record PerformanceGroupRow(
     InertString ReachText,
     InertString? WeightText,
     InertString PriorityText,
-    InertString ConfidenceText)
+    InertString ConfidenceText,
+    InertString? CallerText,
+    InertString? CalleeText,
+    InertString? AlternativeText,
+    InertString? PairKindText)
 {
     public PerformanceGroupRow(
         string kind,
@@ -2824,9 +2891,33 @@ public record PerformanceGroupRow(
             LibraryViewText.Field(reach),
             weight is null ? null : LibraryViewText.Field(weight),
             LibraryViewText.Field(priority),
-            LibraryViewText.Field(confidence))
+            LibraryViewText.Field(confidence),
+            null,
+            null,
+            null,
+            null)
     {
     }
+
+    public static PerformanceGroupRow FromSyncCall(
+        SyncCallInAsyncSummary row) =>
+        new(
+            LibraryViewText.Field("Sync Calls in Async"),
+            LibraryViewText.Field(""),
+            LibraryViewText.Field(""),
+            null,
+            null,
+            LibraryViewText.Field(""),
+            null,
+            LibraryViewText.Field(""),
+            LibraryViewText.Field(""),
+            MarkoutInline.CodeText(
+                LibraryViewText.Field(row.Caller)),
+            MarkoutInline.CodeText(
+                LibraryViewText.Field(row.Callee)),
+            MarkoutInline.CodeText(
+                LibraryViewText.Field(row.Alternative)),
+            LibraryViewText.Field(row.PairKind));
 
     [MarkoutIgnore, JsonIgnore]
     public InertString KindText { get; init; } = KindText;
@@ -2872,9 +2963,35 @@ public record PerformanceGroupRow(
     public string Priority => PriorityText.ToString();
 
     [MarkoutIgnore, JsonIgnore]
-    public InertString ConfidenceText { get; init; } = ConfidenceText;
+    public InertString ConfidenceText { get; init; } =
+        ConfidenceText;
 
     public string Confidence => ConfidenceText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? CallerText { get; init; } = CallerText;
+
+    [MarkoutSkipNull]
+    public string? Caller => CallerText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? CalleeText { get; init; } = CalleeText;
+
+    [MarkoutSkipNull]
+    public string? Callee => CalleeText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? AlternativeText { get; init; } =
+        AlternativeText;
+
+    [MarkoutSkipNull]
+    public string? Alternative => AlternativeText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? PairKindText { get; init; } = PairKindText;
+
+    [MarkoutSkipNull]
+    public string? PairKind => PairKindText?.ToString();
 }
 
 /// <summary>

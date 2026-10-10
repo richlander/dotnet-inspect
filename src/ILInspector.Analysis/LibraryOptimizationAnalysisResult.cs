@@ -701,7 +701,8 @@ public sealed class LibraryOptimizationAnalysisResult
         foreach (OptimizationOpportunity opportunity in
             _rawOpportunities)
         {
-            yield return opportunity;
+            if (opportunity.Shape != "sync-call-in-async")
+                yield return opportunity;
         }
 
         if (!_allocationOpportunitiesComputed)

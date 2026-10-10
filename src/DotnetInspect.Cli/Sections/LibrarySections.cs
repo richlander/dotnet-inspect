@@ -189,6 +189,9 @@ public static class LibrarySections
             .Add<PerformanceAsync>(
                 OptimizationOpportunitiesQuery.Definition,
                 HasMethodBodies)
+            .Add<PerformanceSyncCallsInAsync>(
+                SyncCallsInAsyncDemand.Section,
+                HasMethodBodies)
             .Add<PerformanceOther>(
                 OptimizationOpportunitiesQuery.Definition,
                 HasMethodBodies)
@@ -228,7 +231,12 @@ public static class LibrarySections
                 SectionNames.IdentifierConfusion,
                 SectionNames.Symbols)
             .AddCategory(SectionCategoryNames.Performance,
-                [.. PerformanceKinds.Sections, SectionNames.ArrayPoolEscapes, SectionNames.TopLeverage])
+                [
+                    .. PerformanceKinds.Sections,
+                    SectionNames.PerformanceSyncCallsInAsync,
+                    SectionNames.ArrayPoolEscapes,
+                    SectionNames.TopLeverage,
+                ])
             .AddCategory(SectionCategoryNames.SourceLink,
                 SectionNames.SourceLinkFiles,
                 SectionNames.SourceLinkDiagnostics,
@@ -327,6 +335,8 @@ public static class LibrarySections
                 ctx.MethodClassification(MethodClassificationDemand.PInvokeMethods))
             .Add(MethodClassificationDemand.ModelCounts, static ctx =>
                 ctx.MethodClassification(MethodClassificationDemand.ModelCounts))
+            .Add(SyncCallsInAsyncDemand.Section, static ctx =>
+                ctx.SyncCallsInAsync())
             .Add(CustomAttributesQuery.Definition, ctx =>
                 ctx.Scan(
                     CustomAttributesQuery.Execute,
@@ -1513,6 +1523,22 @@ public static class LibrarySections
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceAsync);
+    }
+
+    public sealed class PerformanceSyncCallsInAsync
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name =>
+            SectionNames.PerformanceSyncCallsInAsync;
+        public static SectionShape? Shape => SectionShape.Table;
+        public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static bool CanRender(LibraryInspection model)
+            => model.SyncCallsInAsyncFailure is null
+                && (model.SyncCallsInAsyncPresence
+                    ?? model.SyncCallsInAsyncCount > 0
+                    || model.SyncCallsInAsyncRows.Length > 0);
     }
 
     public sealed class PerformanceOther : ISectionDescriptor<LibraryInspection>

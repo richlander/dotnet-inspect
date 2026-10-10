@@ -1291,11 +1291,15 @@ public partial class LibraryBodyIndexTests
         var index = BodyAnalysisTestExecution.Open(
             typeof(OptimizationOpportunityFixtures).Assembly.Location);
         ImmutableArray<OptimizationOpportunity> expected =
-            OptimizationOpportunityRowSpace.PerformanceCandidates(
-                index.Optimization.Opportunities,
-                [],
-                index.Optimization.GeneratedFrameworkTypes,
-                includeAllocationFanout: false);
+        [
+            .. OptimizationOpportunityRowSpace.PerformanceCandidates(
+                    index.Optimization.Opportunities,
+                    [],
+                    index.Optimization.GeneratedFrameworkTypes,
+                    includeAllocationFanout: false)
+                .Where(static opportunity =>
+                    opportunity.Shape != "sync-call-in-async"),
+        ];
 
         OptimizationOpportunityCounts actual =
             index.Optimization.CountPerformanceCandidates();

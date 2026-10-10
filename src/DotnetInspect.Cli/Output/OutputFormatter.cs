@@ -1455,6 +1455,11 @@ public static class OutputFormatter
                 count);
         }
         ApplyClassificationCounts(projection, inspection, writerOptions.IncludeSections, rows);
+        ApplySyncCallsInAsyncCount(
+            projection,
+            inspection,
+            writerOptions.IncludeSections,
+            rows);
         ApplyArchitecturalFamilyCounts(
             projection,
             inspection,
@@ -1527,6 +1532,23 @@ public static class OutputFormatter
             && inspection.PInvokeMethodCount is int pInvokeCount)
         {
             projection.SetRows(SectionNames.PInvokeMethods, WindowedCount(pInvokeCount, rows));
+        }
+    }
+
+    internal static void ApplySyncCallsInAsyncCount(
+        CountProjection projection,
+        LibraryInspection inspection,
+        IReadOnlyCollection<string>? includedSections,
+        RowWindow? rows)
+    {
+        if (includedSections?.Contains(
+                SectionNames.PerformanceSyncCallsInAsync) == true
+            && inspection.SyncCallsInAsyncRows.IsEmpty
+            && inspection.SyncCallsInAsyncCount is int count)
+        {
+            projection.SetRows(
+                SectionNames.PerformanceSyncCallsInAsync,
+                WindowedCount(count, rows));
         }
     }
 

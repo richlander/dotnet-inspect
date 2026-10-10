@@ -73,7 +73,7 @@ public partial class CommandExecutionTests
             "--json");
 
         Assert.Equal(0, exit);
-        AssertOnlyPerformanceAnalysisWarnings(error);
+        Assert.Empty(error);
         Assert.Contains("\"shape\": \"allocation-fanout\"", output);
         Assert.Contains("\"provenance\": \"aggregate\"", output);
         Assert.Contains("\"direct_sites\": 1", output);
@@ -644,24 +644,102 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PerformanceAsync_FindsSyncCallsWithAsyncSiblings()
+    public async Task PerformanceSyncCallsInAsync_FindsAsyncSiblings()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance: Sync Calls in Async",
+            "--markdown");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "## Performance: Sync Calls in Async",
+            output);
+        Assert.Contains("| Caller | Callee | Alternative | Pair Kind |", output);
+        Assert.Contains("CallsSyncSiblingFromAsync", output);
+        Assert.Contains("ReadValueAsync", output);
+        Assert.Contains("CallsFileReadLinesFromAsync", output);
+        Assert.Contains("System.IO.File.ReadLinesAsync", output);
+    }
+
+    [Fact]
+    public async Task PerformanceAsync_ExcludesSyncCallsWithAsyncSiblings()
     {
         var (exit, output, error) = await RunAppAsync(
             "library",
             TestAssemblyPath,
             "-S",
             "Performance: Async",
-            "--triage-shape",
-            "sync-call-in-async",
             "--markdown");
 
+        Assert.Equal(1, exit);
+        AssertOnlyPerformanceAnalysisWarnings(
+            error,
+            "This section (Performance: Async) produced no output.");
+        Assert.Empty(output);
+        Assert.DoesNotContain("CallsSyncSiblingFromAsync", output);
+        Assert.DoesNotContain("CallsFileReadLinesFromAsync", output);
+    }
+
+    [Fact]
+    public async Task PerformanceSyncCallsInAsync_CountUsesScalarClosing()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance: Sync Calls in Async",
+            "--count");
+
         Assert.Equal(0, exit);
-        AssertOnlyPerformanceAnalysisWarnings(error);
-        Assert.Contains("## Performance: Async", output);
+        Assert.Empty(error);
+        Assert.True(int.Parse(output.Trim()) > 0);
+        Assert.DoesNotContain("CallsSyncSiblingFromAsync", output);
+    }
+
+    [Fact]
+    public async Task PerformanceSyncCallsInAsync_JsonUsesPerformanceProjection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance: Sync Calls in Async",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output.Trim());
+        JsonElement rows = document.RootElement
+            .GetProperty("performance")
+            .GetProperty("sync_calls_in_async");
+        Assert.True(rows.GetArrayLength() > 0);
+        JsonElement row = rows[0];
+        Assert.True(row.TryGetProperty("caller", out _));
+        Assert.True(row.TryGetProperty("callee", out _));
+        Assert.True(row.TryGetProperty("alternative", out _));
+        Assert.True(row.TryGetProperty("pair_kind", out _));
+    }
+
+    [Fact]
+    public async Task PerformanceSyncCallsInAsync_TsvHasDedicatedColumns()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance: Sync Calls in Async",
+            "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith(
+            "caller\tcallee\talternative\tpair_kind",
+            output);
         Assert.Contains("CallsSyncSiblingFromAsync", output);
-        Assert.Contains("ReadValueAsync", output);
-        Assert.Contains("CallsFileReadLinesFromAsync", output);
-        Assert.Contains("System.IO.File::ReadLinesAsync", output);
     }
 
     [Fact]
@@ -811,10 +889,28 @@ public partial class CommandExecutionTests
         var headerCount = lines.Count(line => line.StartsWith("kind\t", StringComparison.Ordinal));
         Assert.Equal(1, headerCount);
         Assert.StartsWith("kind\tmember\t", lines[0]);
-        // Rows from more than one kind are present and labeled (e.g. Boxing and Arrays).
+        // Legacy and query-backed row shapes share one labeled table.
         var kinds = lines.Skip(1).Select(l => l.Split('\t')[0]).Distinct().ToList();
         Assert.Contains("Boxing", kinds);
         Assert.Contains("Arrays", kinds);
+        Assert.Contains("Sync Calls in Async", kinds);
+        string[][] syncCalls =
+            [
+                .. lines.Skip(1)
+                .Select(line => line.Split('\t'))
+                .Where(fields =>
+                    fields[0] == "Sync Calls in Async"),
+            ];
+        Assert.NotEmpty(syncCalls);
+        Assert.All(
+            syncCalls,
+            syncCall =>
+            {
+                Assert.NotEmpty(syncCall[9]);
+                Assert.NotEmpty(syncCall[10]);
+                Assert.NotEmpty(syncCall[11]);
+                Assert.NotEmpty(syncCall[12]);
+            });
     }
 
     [Fact]

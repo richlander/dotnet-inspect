@@ -84,7 +84,9 @@ public class PerformanceKindsTests
         };
         PerformanceProjection projection = Assert.IsType<
             PerformanceProjection>(
-                PerformanceProjection.FromOpportunities([row]));
+                PerformanceProjection.FromFindings(
+                    [row],
+                    syncCallsInAsync: null));
 
         Assert.Equal([row], projection.Strings);
         Assert.Null(projection.Other);
