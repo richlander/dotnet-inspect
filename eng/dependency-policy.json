@@ -65,10 +65,39 @@
       ]
     },
     {
-      "id": "inspect-web-core-api-surface-presentation-stays-host-neutral",
-      "source": "docs/design/api-surface-presentation.md#host-boundary; composition tracker #8779",
+      "id": "inspect-web-core-project-dependencies-stay-within-host-composition-ratchet",
+      "source": "docs/design/inspect-web-jsexport-partitioning.md#boundaries; docs/design/inspection-layers.md#current-migration-state; composition tracker #8779",
       "graphs": [
-        "project",
+        "project"
+      ],
+      "targets": [
+        "DotnetInspect.Web.Core"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web.Core/DotnetInspect.Web.Core.csproj"
+      ],
+      "allowOnly": [
+        "DotnetInspector.Libraries",
+        "DotnetInspector.PackageQueries",
+        "DotnetInspector.Packages",
+        "DotnetInspector.PlatformHouse.Packages",
+        "DotnetInspector.PlatformQueries",
+        "DotnetInspector.Presentation",
+        "DotnetInspector.Queries",
+        "DotnetInspector.ResearchQueries",
+        "DotnetInspector.Sections",
+        "DotnetInspector.Services",
+        "DotnetInspector.SourceHouse",
+        "ILInspector.Analysis",
+        "ILInspector.CallGraph",
+        "ILInspector.Metadata",
+        "NuGetFetch"
+      ]
+    },
+    {
+      "id": "inspect-web-core-assembly-dependencies-stay-within-host-composition-ratchet",
+      "source": "docs/design/inspect-web-jsexport-partitioning.md#boundaries; docs/design/inspection-layers.md#current-migration-state; composition tracker #8779",
+      "graphs": [
         "assembly"
       ],
       "targets": [
@@ -77,9 +106,35 @@
       "projectPaths": [
         "src/DotnetInspect.Web.Core/DotnetInspect.Web.Core.csproj"
       ],
-      "deny": [
-        "CSharpText",
-        "ILInspector.Research"
+      "allowOnly": [
+        "$platform",
+        "DotnetInspector.DocumentationHouse.Contracts",
+        "DotnetInspector.Libraries",
+        "DotnetInspector.PackageQueries",
+        "DotnetInspector.Packages",
+        "DotnetInspector.PlatformHouse",
+        "DotnetInspector.PlatformHouse.Packages",
+        "DotnetInspector.PlatformQueries",
+        "DotnetInspector.Platforms",
+        "DotnetInspector.Presentation",
+        "DotnetInspector.Queries",
+        "DotnetInspector.ResearchQueries",
+        "DotnetInspector.Sections",
+        "DotnetInspector.Services",
+        "DotnetInspector.SourceHouse",
+        "DotnetInspector.SourceSelection",
+        "ILInspector.Analysis",
+        "ILInspector.CallGraph",
+        "ILInspector.Metadata",
+        "InertText",
+        "Inspector.Artifacts",
+        "Inspector.Artifacts.Workspaces",
+        "Inspector.Graph",
+        "NuGet.Frameworks",
+        "NuGet.Versioning",
+        "NuGetFetch",
+        "QuerySpace.Primitives",
+        "ZipFetch"
       ]
     },
     {
