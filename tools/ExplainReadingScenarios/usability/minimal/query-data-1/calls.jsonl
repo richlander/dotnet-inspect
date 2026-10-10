@@ -1,0 +1,20 @@
+{"id": 1, "argv": ["explain", "literal dependency package query", "--json"], "exit": 0, "stdout_bytes": 171, "stderr_bytes": 0, "stdout_file": "response-01.out", "stderr_file": "response-01.err"}
+{"id": 2, "argv": ["explain", "query", "--json"], "exit": 0, "stdout_bytes": 13281, "stderr_bytes": 0, "stdout_file": "response-02.out", "stderr_file": "response-02.err"}
+{"id": 3, "argv": ["explain", "literals", "--json"], "exit": 0, "stdout_bytes": 864, "stderr_bytes": 0, "stdout_file": "response-03.out", "stderr_file": "response-03.err"}
+{"id": 4, "argv": ["explain", "dependency", "--json"], "exit": 0, "stdout_bytes": 4445, "stderr_bytes": 0, "stdout_file": "response-04.out", "stderr_file": "response-04.err"}
+{"id": 5, "argv": ["explain", "package-query/query", ".data", "--json"], "exit": 0, "stdout_bytes": 17761, "stderr_bytes": 0, "stdout_file": "response-05.out", "stderr_file": "response-05.err"}
+{"id": 6, "argv": ["explain", "package-query/query/facets/library-literal", ".data", "--json"], "exit": 0, "stdout_bytes": 4471, "stderr_bytes": 0, "stdout_file": "response-06.out", "stderr_file": "response-06.err"}
+{"id": 7, "argv": ["explain", "package-query/query/facets/depends", ".data", "--json"], "exit": 0, "stdout_bytes": 3572, "stderr_bytes": 0, "stdout_file": "response-07.out", "stderr_file": "response-07.err"}
+{"id": 8, "argv": ["explain", "package-query/query/facets/depends-transitive", ".data", "--json"], "exit": 0, "stdout_bytes": 5914, "stderr_bytes": 0, "stdout_file": "response-08.out", "stderr_file": "response-08.err"}
+{"id": 9, "argv": ["explain", "package-query/query/facets/dependency-depth", ".data", "--json"], "exit": 0, "stdout_bytes": 4730, "stderr_bytes": 0, "stdout_file": "response-09.out", "stderr_file": "response-09.err"}
+{"id": 10, "argv": ["explain", "package-query/query/facets/dependency-target", ".data", "--json"], "exit": 0, "stdout_bytes": 3138, "stderr_bytes": 0, "stdout_file": "response-10.out", "stderr_file": "response-10.err"}
+{"id": 11, "argv": ["explain", "package-query/bindings/cli", "--json"], "exit": 0, "stdout_bytes": 7356, "stderr_bytes": 0, "stdout_file": "response-11.out", "stderr_file": "response-11.err"}
+{"id": 12, "argv": ["explain", "package-query/routes/default", "--json"], "exit": 0, "stdout_bytes": 2431, "stderr_bytes": 0, "stdout_file": "response-12.out", "stderr_file": "response-12.err"}
+{"id": 13, "argv": ["explain", "package-query", "--json"], "exit": 0, "stdout_bytes": 1474, "stderr_bytes": 0, "stdout_file": "response-13.out", "stderr_file": "response-13.err"}
+{"id": 14, "argv": ["explain", "completeness", "--json"], "exit": 0, "stdout_bytes": 1470, "stderr_bytes": 0, "stdout_file": "response-14.out", "stderr_file": "response-14.err"}
+{"id": 15, "argv": ["explain", "unavailable", "--json"], "exit": 0, "stdout_bytes": 150, "stderr_bytes": 0, "stdout_file": "response-15.out", "stderr_file": "response-15.err"}
+{"id": 16, "argv": ["explain", "NuGet package ID", "--json"], "exit": 0, "stdout_bytes": 155, "stderr_bytes": 0, "stdout_file": "response-16.out", "stderr_file": "response-16.err"}
+{"id": 17, "argv": ["explain", "vocabularies", "--json"], "exit": 0, "stdout_bytes": 2637, "stderr_bytes": 0, "stdout_file": "response-17.out", "stderr_file": "response-17.err"}
+{"id": 18, "argv": ["explain", "package-query/query/facets/package", ".data", "--json"], "exit": 0, "stdout_bytes": 1274, "stderr_bytes": 0, "stdout_file": "response-18.out", "stderr_file": "response-18.err"}
+{"id": 19, "argv": ["explain", "package-query/query/facets/prefix", ".data", "--json"], "exit": 0, "stdout_bytes": 1342, "stderr_bytes": 0, "stdout_file": "response-19.out", "stderr_file": "response-19.err"}
+{"id": 20, "argv": ["explain", "package-query/query/facets/library-target", ".data", "--json"], "exit": 0, "stdout_bytes": 1520, "stderr_bytes": 0, "stdout_file": "response-20.out", "stderr_file": "response-20.err"}

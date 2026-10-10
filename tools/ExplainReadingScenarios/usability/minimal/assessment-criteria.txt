@@ -1,0 +1,36 @@
+Fixed before dispatch. Assess each participant's answer and cited observations
+manually against the pinned registered data and independent selected probes.
+Do not infer success from byte counts, self-reported familiarity, or replay.
+
+Query obligations:
+- Both unrun commands express the requested literal/framework and preferred
+  dependency/declaration-depth/target tasks with JSON output.
+- Literal matching, preservation/normalization, repeated operands and UTF-16
+  bounds are correct, including the astral-character neighbor.
+- Required gestures, allowed depths and target restrictions are correct.
+- Preferred and legacy dependency semantics distinguish direct hits and
+  declaration reachability from restore-graph claims.
+- Candidate work and final row limits are distinguished.
+- Empty values do not imply unrestricted acceptance; missing/unavailable or
+  incomplete evidence and unexecuted package results remain qualified.
+
+Style obligations:
+- Exact endorsed, byte-preserving membership; option/value and local tier
+  names/descriptions; both declared conflict groups and their members.
+- Group metadata does not imply arbitrary configuration-key behavior.
+- Omission interpretation distinguishes known available complete observations
+  from unknown IDs, incomplete scopes and unavailable properties.
+- Filtered evidence preserves applicable scope/member states; fetch-necessity
+  claims agree with saved related data.
+
+Record each obligation as satisfied, partial or incorrect, with response/view
+provenance and concrete omissions. Separate valid uncertainty from an invented
+rule and from completing the requested task. A qualified partial answer is
+not automatically full task success.
+
+Record trace evidence for key/type probes, guessed filters, jq errors, href
+following, contract requests, repeated payload retrieval and already-local
+resource fetches. These behaviors are diagnostic, not a complete measure of
+reasoning effort. Count exact requests and UTF-8 retrieved/emitted bytes,
+including failures and repeated views; keep guide emissions separate. No
+token, latency, causal format-ranking or whole-skill-retirement inference.

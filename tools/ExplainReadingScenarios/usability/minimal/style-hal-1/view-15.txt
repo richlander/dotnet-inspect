@@ -1,0 +1,1 @@
+jq: error (at /private/tmp/explain-minimal-trials/style-hal-1/response-06.out:3225): Cannot iterate over null (null)
