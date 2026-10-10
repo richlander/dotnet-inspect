@@ -61,9 +61,8 @@ public partial class PackageCommand
             CommandError.Write($"Could not acquire framework directory for {target.PackageName}.", reason);
             return 1;
         }
-        var files = acquired.Result.Evidence.FileList
-            ?? throw new InvalidOperationException("Directory acquisition requires File List evidence.");
-        if (files.Directories is null
+        var files = acquired.Result.Evidence.FileList;
+        if (files?.Directories is null
             || MayRequireLegacyToolWrapperHandling(files.Entries.Select(entry => entry.Path)))
             return null;
         var result = new InspectionResult
