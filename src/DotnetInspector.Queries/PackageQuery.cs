@@ -984,6 +984,11 @@ public static partial class PackageQuery
         {
             SelectionGroupId =
                 PackageQueryVocabulary.DependencyTargetFamily,
+            InputRules =
+            [
+                "Requires at least one depends, depends-transitive, depends-ecosystem, or dependencies term; applies to all dependency predicates in the query.",
+                "Dependency traversal requires an explicit dependency-target=<tfm>; all is not accepted with dependency-depth or depends-transitive.",
+            ],
         },
         new(
             DependsTermKey,
@@ -996,7 +1001,14 @@ public static partial class PackageQuery
             "NuGet package ID or prefix",
             "Microsoft.Extensions.DependencyInjection",
             PackageQueryTermRole.Inspection,
-            PackageQueryTermControlKind.Input),
+            PackageQueryTermControlKind.Input)
+        {
+            InputRules =
+            [
+                "Without dependency-depth, eq matches direct dependencies and starts-with matches direct package-ID prefixes. With dependency-depth=2, 3, or 4, eq matches direct or transitive declaration paths through that maximum; starts-with remains direct. A starts-with predicate alone cannot admit depth.",
+                $"With dependency-depth, supply an explicit dependency-target=<tfm>, not all, and admit at most {MaximumNuspecExpensiveCandidates} package candidates; an exact package input admits one. Repeated exact terms AND and share traversal.",
+            ],
+        },
         new(
             DependsEcosystemTermKey,
             "depends on ecosystem",
@@ -1020,7 +1032,15 @@ public static partial class PackageQuery
             "NuGet package ID",
             "Microsoft.Extensions.Primitives",
             PackageQueryTermRole.Inspection,
-            PackageQueryTermControlKind.Input),
+            PackageQueryTermControlKind.Input)
+        {
+            InputRules =
+            [
+                "Requires an explicit dependency-target=<tfm> and dependency-depth=2, 3, or 4; all is not accepted as the target.",
+                "Matches declaration edges at depth 2 through the selected maximum depth; direct-only dependencies do not match. Repeated terms AND and share traversal.",
+                $"Admits at most {MaximumNuspecExpensiveCandidates} package candidates; an exact package input admits one. Set the candidate bound explicitly for a prefix or ecosystem population.",
+            ],
+        },
         new(
             DependencyDepthTermKey,
             "dependency depth",
@@ -1035,6 +1055,12 @@ public static partial class PackageQuery
             PackageQueryTermControlKind.Choice)
         {
             SelectionGroupId = PackageQueryVocabulary.DependencyDepthFamily,
+            InputRules =
+            [
+                "Requires an explicit dependency-target=<tfm> and at least one exact depends (eq) or legacy depends-transitive term. A starts-with predicate alone cannot satisfy this requirement; all is not accepted as the target.",
+                "Selects the maximum declaration-edge depth, not the result row limit. Prefer exact depends plus depth for new queries; depends-transitive remains the depth-2-or-greater legacy spelling.",
+                $"Admits at most {MaximumNuspecExpensiveCandidates} package candidates; an exact package input admits one. Set the candidate bound explicitly for a prefix or ecosystem population.",
+            ],
             Options =
             [
                 new("2", "Depth 2", "Traverse through two declaration edges."),
