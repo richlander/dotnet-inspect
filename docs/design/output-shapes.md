@@ -714,13 +714,10 @@ The proposed `--envelope` is a separate
 [service-output selector](#content-shapes-and-service-envelopes), not another
 content-shape or presentation modifier.
 
-`--tfm all` is package discovery, owned by
-[Package file inventory](package-file-inventory.md#selected-entry-set): it
-selects every framework and lists archive content by path without acquiring
-assembly metadata. It is valid only on `package` discovery. `library ...
---tfm all` and `package ... --library --tfm all` inspect assemblies, so they
-fail before acquisition and name `package <id> --tfm all` as the discovery
-route; they never select one Library from several frameworks.
+`--tfm all` is package discovery under
+[Compile selection](package-asset-selection-correspondence.md#all-frameworks-discovery):
+it selects no compile projection, and requests that inspect assemblies fail
+before acquisition rather than select one Library from several frameworks.
 
 For unreduced output, shape cardinality is evaluated after both section and
 subject selection. `--table`, `--tsv`, and `--jsonl` require exactly one table

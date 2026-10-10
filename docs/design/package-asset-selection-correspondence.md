@@ -58,6 +58,27 @@ Navigation or its
 request. `DefaultAsset` matches file stems in selection order, while First
 Library matches owner-issued assembly names in Library order.
 
+### All-frameworks discovery
+
+`--tfm all` is not a target request. It is package discovery in the manner of a
+package explorer: it asks for the complete available-slice inventory and the
+package's archive entries, selects no compile projection, and never acquires
+assembly metadata. Package's default Library hierarchy under `--tfm all` shows
+every available slice in the inventory's deterministic order, each with its
+`ref` and `lib` candidates by path and its explicit empty-group marker, instead
+of one selected slice. [Package file inventory](package-file-inventory.md)
+Files apply no target predicate, and other sections that read only archive
+entries or package metadata are admitted unchanged.
+
+A request that consumes a selected compile projection or reads an assembly has
+no slice to consume, so it fails before acquisition with `all` in the
+target-context validation and names `package <id> --tfm all` as the discovery
+route. That covers `library`, `type`, and `member` package targets,
+`package --library`, and `package` sections whose producers read assemblies,
+PDBs, or selected-slice measurements, such as SourceLink, Signals, and the
+selected-framework facts of Package Info. None of them selects one Library or
+slice from several frameworks.
+
 ## Comparison counterparts
 
 An ordered package-version comparison retains the exact selected current

@@ -345,11 +345,14 @@ probes. When compile selection returns `NoCompileAssets`, and under
 `--tfm all`, the CLI's package Library routes search the extracted archive
 through `TfmSelector` instead of consuming a role population; #9833 records
 each route. `--tfm all` is package discovery under
-[Package file inventory](package-file-inventory.md#selected-entry-set), so
-its Library routes are retired rather than repopulated: #9833 makes
-`library ... --tfm all` and `package ... --library --tfm all` fail before
-acquisition, and makes Package's default Library hierarchy honor
-`--tfm all`, which it currently ignores in favor of the selected framework.
+[Compile selection](package-asset-selection-correspondence.md#all-frameworks-discovery),
+so its Library routes are retired rather than repopulated. #9833 adopts that
+rule: `library`, `type`, and `member` package targets,
+`package --library`, and assembly-reading `package` sections such as
+SourceLink, Signals, and Package Info's selected-framework facts fail before
+acquisition, and Package's default Library hierarchy shows every available
+slice, where it currently ignores `--tfm all` in favor of the selected
+framework.
 Observed results
 include a runtime pack yielding its implementation assemblies, an analyzer
 package its analyzers, a framework-less root `lib/` package its root

@@ -233,7 +233,8 @@ The pattern stages through focused owners rather than sweeping every section:
    and aggregate routes: single-Library `Library Info` rejects Count and Rows
    before acquisition, while all-libraries `Library Info` remains an
    independently declared library-row inventory. `--tfm all` is package
-   discovery under [Package file inventory](package-file-inventory.md#selected-entry-set),
+   discovery under
+   [Compile selection](package-asset-selection-correspondence.md#all-frameworks-discovery),
    so it never reaches a Library section; Library routes reject it.
    Aggregate detailed Discovery is initially limited to `Library Info`, whose
    supported formats and Rows/Count terminals are known.
