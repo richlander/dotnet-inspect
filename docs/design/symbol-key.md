@@ -1,0 +1,254 @@
+# Symbol Key
+
+## Status and owner
+
+Proposed focused design for
+[#9918](https://github.com/richlander/dotnet-inspect/issues/9918). Nothing in
+this document is implemented beyond the Fast Diff-private `SymbolKey` that
+[#9898](https://github.com/richlander/dotnet-inspect/pull/9898) introduced.
+The adoption sequence below is the counted path to shared use in the CLI and
+Browser/Wasm hosts.
+
+**Symbol Key** is a host-neutral Metadata primitive. It owns this exact
+claim:
+
+> A Symbol Key is a byte string that only its builder can make, written as a
+> sequence of self-delimiting parts. Two keys of one key domain are equal
+> exactly when they were built from the same parts. Names are carried as
+> UTF-8 bytes without decoding, so names that differ only in ill-formed
+> sequences stay distinct. A persisted key is versioned, validated when read,
+> and byte-identical across builds, platforms, and hosts for the same parts.
+
+This owner defines:
+
+- the part grammar: payload parts, the marker range, and their encoding;
+- the builder, its name sources, and nesting;
+- key domains and the compile-time separation between them;
+- the in-process and persisted profiles, including the persisted header,
+  validation, and text form; and
+- scoped interning.
+
+It does not define:
+
+- any domain's marker vocabulary or what its keys identify, which remain with
+  each consuming owner (for example, the [Identity](fast-diff.md#identity)
+  section of Fast Diff);
+- display text for names, which remains with
+  [Inert Text](inert-text.md) and its UTF-8 entry point
+  ([#9917](https://github.com/richlander/dotnet-inspect/issues/9917));
+- structured API identity, which remains with
+  [API Qualified Anchor](api-qualified-anchor.md); or
+- work budgets for building keys over untrusted images, which remain with
+  each producer, as Fast Diff's do.
+
+## Why
+
+Fast Diff's keys proved the technique. Making keys injective by construction,
+rather than by escaping, made Fast Diff 20% to 30% faster on NativeAOT across
+its six pinned pairs, and keeping names as stored bytes fixed a U+FFFD
+collision. The key, its builder, and its `#Strings` name reader are `internal`
+to Fast Diff.
+
+Three planned consumers need the same thing, and each would otherwise grow a
+private copy:
+
+| Consumer | Needs |
+| --- | --- |
+| [API Qualified Anchor](api-qualified-anchor.md) ([#9907](https://github.com/richlander/dotnet-inspect/issues/9907)) | An encoded type or member identity, with typed records as a view; byte-exact name equality |
+| [Ecosystem Receiver Index](ecosystem-receiver-index.md) | Persisted receiver and member keys in a checked-in artifact; the named lever if the artifact misses its [size goal](ecosystem-receiver-index.md#performance-goals) |
+| Fast Diff step 5 | One interning table shared by both sides of a comparison |
+| The C#/TypeScript boundary ([#9917](https://github.com/richlander/dotnet-inspect/issues/9917)) | An opaque key that TypeScript stores, compares, and passes back without decoding |
+
+## Part grammar
+
+A key is a non-empty sequence of parts. Every part begins with one tag byte.
+
+| Tag | Part | Encoding after the tag |
+| --- | --- | --- |
+| `0x00` | Reserved | Never written |
+| `0x01` | Int | Zig-zag signed LEB128 variable-length integer |
+| `0x02` | Name | LEB128 length, then that many UTF-8 bytes, stored as given |
+| `0x03` | Key | LEB128 length, then a nested key's bytes |
+| `0x04` | Blob | LEB128 length, then that many raw bytes |
+| `0x05` | Ref | LEB128 interned ID; in-process profile only |
+| `0x06`–`0x0F` | Reserved for this owner | Never written by a domain |
+| `0x10`–`0xFF` | Domain marker | Nothing; the tag is the whole part |
+
+Each part therefore decodes one way only, and a key decodes into exactly one
+part sequence. No name is scanned, escaped, or normalized, whatever bytes it
+contains. Comparison is ordinal over the bytes, and ordering is
+`SequenceCompareTo`, so order is a function of the parts alone.
+
+## Key domains
+
+A **key domain** is one consumer's marker vocabulary: a byte-backed enum
+whose values lie in the domain-marker range. Keys are typed by domain,
+`SymbolKey<TDomain>`, and a builder is typed by the domain it writes. Keys of
+different domains are different types and cannot be compared, mixed in one
+collection, or nested in each other without an explicit conversion. Two
+domains can therefore reuse marker values freely.
+
+A domain declares its vocabulary once. Validating a domain type, when it is
+first used, rejects an enum that is not byte-backed or that defines a value
+below `0x10`.
+
+The first marker of a key conventionally names the key's shape (`Type`,
+`Method`, `Field`), and `Kind` returns it.
+
+## Builder
+
+The builder writes parts into one reused buffer. Builds nest: a key begun
+while another is open is written above it and removed when it ends, so
+building a nested key allocates only the finished key.
+
+Names enter through three sources:
+
+| Source | Behavior |
+| --- | --- |
+| A `#Strings` handle | Copies the stored bytes from the heap without decoding or Windows Runtime projection; a name offset outside the heap, or an unterminated entry, is malformed and throws `BadImageFormatException` |
+| UTF-8 bytes | Copies the bytes as given |
+| UTF-16 text | Encodes well-formed text to UTF-8; text that contains a lone surrogate is refused, because it has no UTF-8 spelling and a replacement would collide |
+
+The UTF-16 source exists so a consumer can compare user input with stored
+names by encoding the query, never by decoding storage. A name built from
+`#Strings` and one built from the same well-formed text are the same part.
+
+Blobs are copied from a `BlobReader` without an intermediate array.
+
+## Profiles
+
+### In-process
+
+The in-process profile is the default. Its keys are valid within one process
+and one build. A domain may change its markers between builds, and keys may
+contain `Ref` parts from an interning table. Fast Diff's keys are in-process.
+
+### Persisted
+
+A persisted key carries a header before its first part:
+
+```text
+0x50 'P'   format version (LEB128)   domain ID (LEB128)   domain version (LEB128)
+```
+
+- **Format version** is this owner's grammar version. This document defines
+  version 1.
+- **Domain ID** is assigned in a closed registry that this owner keeps. A
+  domain that persists keys registers once; its ID is never reused.
+- **Domain version** is the consuming owner's vocabulary version. A change in
+  the meaning of any marker or part order increments it. An existing key's
+  meaning never changes.
+
+A persisted key never contains a `Ref` part. Converting an in-process key
+expands every reference from its table, or refuses when the table is not
+available.
+
+Reading a persisted key validates it completely before any use: the header
+matches the expected domain and a supported version, every tag is defined,
+every length lies within the remaining bytes, nested keys validate
+recursively, no bytes trail the last part, and the total length and nesting
+depth are within this owner's fixed bounds. A key that fails validation is a
+typed refusal, never a partially read key. Validation inspects structure only.
+It does not check that names are well-formed UTF-8, because ill-formed names
+are identities.
+
+Persisted keys are byte-defined: integers are LEB128, and no part depends on
+endianness, culture, or runtime. The same parts produce the same bytes under
+NativeAOT and Browser/Wasm.
+
+### Text form
+
+A persisted key crosses JSON and the C#/TypeScript boundary as unpadded
+base64url text of its bytes. TypeScript treats the text as opaque. It
+compares and stores it, and passes it back, but never decodes it, and never
+renders it. Display text travels beside the key, contained by
+[Inert Text](inert-text.md).
+
+## Interning
+
+An interning table maps keys of one domain to dense integer IDs within one
+scope, such as one comparison or one response. Lookup takes a byte span
+through an alternate lookup, so a candidate key is not allocated to find an
+existing ID. Equal keys receive equal IDs, so a key that nests other keys by
+`Ref` remains injective within that table.
+
+An ID is meaningful only within its table. Keys that contain `Ref` parts are
+bound to the table that issued them; comparing them across tables is a misuse
+that the table owner prevents by scope, and persisting them is refused.
+
+## Diagnostics
+
+A key renders a diagnostic spelling of its parts for test failures and
+logs. The rendering is never compared, parsed, or presented as product text.
+Product display of names goes through [Inert Text](inert-text.md).
+
+## Hosts
+
+The primitive is pure managed code over System.Reflection.Metadata, so it
+runs unchanged under NativeAOT and Browser/Wasm. Fast Diff already runs its
+keys in both hosts through its Browser export. Persisted keys and their text
+form are the exchange currency between the hosts and checked-in artifacts.
+
+## Evidence and gates
+
+| Property | Gate | Lane |
+| --- | --- | --- |
+| Injectivity | Generated part sequences, including names with separators, empty names, ill-formed UTF-8, and nested keys, map to distinct bytes exactly when the sequences differ | PR-fast |
+| Name sources agree | For every Type, method, and field name in System.Private.CoreLib, the `#Strings`, UTF-8, and UTF-16 sources write the same part | PR-fast |
+| Lone surrogates refused | UTF-16 text with a lone surrogate is refused | PR-fast |
+| Domain separation | Keys of two domains do not compile as comparable; an invalid domain enum is rejected at first use | PR-fast |
+| Persisted round trip | Every Type and member key of System.Private.CoreLib persisted, converted to text, read back, and compared | PR-fast |
+| Persisted validation | Truncated, trailing, wrong-domain, unknown-version, unknown-tag, `Ref`-bearing, over-deep, and over-long keys are each refused | PR-fast |
+| Host parity | Persisted keys built under Browser/Wasm equal those built under NativeAOT for the same input | Inspect Web managed API tests |
+| Interning | Equal keys share an ID; `Ref`-nested keys compare as their expansions within one table | PR-fast |
+| Fast Diff unchanged | Fast Diff's identity and oracle gates pass unchanged, and NativeAOT base/head on the #9898 pairs shows no regression | Adoption PR |
+
+## Adoption sequence
+
+Five steps, tracked by
+[#9918](https://github.com/richlander/dotnet-inspect/issues/9918):
+
+1. This design.
+2. **Shared primitive, Fast Diff adopts.** Move the key, builder, and
+   `#Strings` reader into `ILInspector.MetadataPrimitives` with the domain
+   split and the UTF-8 and UTF-16 name sources. Fast Diff's `SymbolPart`
+   becomes its domain. Fast Diff's private copy is deleted in the same step,
+   with NativeAOT parity measured.
+3. **Persisted profile and text form.** Header, registry, validation, and
+   base64url. The first adopter is whichever of the encoded API qualified
+   anchor ([#9907](https://github.com/richlander/dotnet-inspect/issues/9907))
+   or the receiver index artifact
+   ([#9889](https://github.com/richlander/dotnet-inspect/issues/9889) step 3)
+   lands first; that adoption PR registers its domain.
+4. **Interning.** The span-keyed table and `Ref` part, adopted by Fast Diff
+   step 5.
+5. **Browser exchange.** The first Inspect Web consumer that passes a key to
+   TypeScript and back adopts the text form, with the host-parity gate.
+
+The Fast Diff-private implementation is retired in step 2. No other private
+copy exists.
+
+## Non-claims
+
+- **Name well-formedness.** A key never decides whether a name is valid. A
+  consumer that needs a decodable name, as Fast Diff does for Types,
+  checks it under its own contract.
+- **Cross-domain meaning.** Two domains' keys are never comparable, even when
+  their bytes are equal.
+- **Compression.** Keys are compact by construction but are not compressed.
+  Artifact compression belongs to the artifact's host.
+- **Cryptographic identity.** A key is not a hash or a signature and makes no
+  collision-resistance or tamper claim beyond injectivity of its parts.
+
+## Alternatives not selected
+
+- **Escaped strings.** #9860 made keys injective by escaping separators. It
+  was correct but 3.4% to 7.2% slower, and it decoded names to UTF-16 first.
+- **Keep it private to Fast Diff.** Each consumer would copy the grammar and
+  the `#Strings` reader, and their injectivity and validation would drift.
+- **A general serializer, such as MessagePack or CBOR.** A self-describing
+  format admits several encodings of one value unless canonicalized, needs a
+  dependency on the product path, and decodes names to strings. The key needs
+  one encoding per part sequence and byte-exact names.
+- **Hash keys.** A fixed-size hash is smaller but can collide, and
+  injectivity is the claim.
