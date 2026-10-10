@@ -395,7 +395,14 @@ public static class DiffHistoryJsonOutput
             SectionCountOutcome<
                 DiffHistoryCountCohort,
                 DiffHistoryChangedVersionCountEvidence>.Completed completed =>
-                new("completed", completed.Counts, null, null, null, null, null),
+                new(
+                    "completed",
+                    completed.Counts,
+                    completed.Sources.Count == 0 ? null : completed.Sources,
+                    null,
+                    null,
+                    null,
+                    null),
             SectionCountOutcome<
                 DiffHistoryCountCohort,
                 DiffHistoryChangedVersionCountEvidence>.SourceForCount source =>
