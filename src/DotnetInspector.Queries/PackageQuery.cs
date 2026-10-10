@@ -1007,7 +1007,7 @@ public static partial class PackageQuery
         {
             InputRules =
             [
-                "Without dependency-depth, eq matches direct dependencies and starts-with matches direct package-ID prefixes. With dependency-depth=2, 3, or 4, eq matches direct or transitive declaration paths through that maximum; starts-with remains direct.",
+                "Without dependency-depth, eq matches direct dependencies and starts-with matches direct package-ID prefixes. With dependency-depth=2, 3, or 4, eq matches direct or transitive declaration paths through that maximum; starts-with remains direct. A starts-with predicate alone cannot admit depth.",
                 $"With dependency-depth, supply an explicit dependency-target=<tfm>, not all, and admit at most {MaximumNuspecExpensiveCandidates} package candidates; an exact package input admits one. Repeated exact terms AND and share traversal.",
             ],
         },

@@ -3,21 +3,24 @@
     "completeness": "Complete"
   },
   "facet": {
-    "key": "depends-transitive",
-    "summary": "Legacy spelling for source-authorized dependency reachability at depth 2 or greater.",
-    "value_kind": "NuGet package ID",
+    "key": "dependency-depth",
+    "summary": "Extends exact depends terms through the selected maximum declaration-edge depth.",
+    "value_kind": "closed value",
     "operators": [
       "eq"
     ],
-    "values": [],
+    "values": [
+      "2",
+      "3",
+      "4"
+    ],
     "input_rules": [
-      "Requires an explicit dependency-target=<tfm> and dependency-depth=2, 3, or 4; all is not accepted as the target.",
-      "Matches declaration edges at depth 2 through the selected maximum depth; direct-only dependencies do not match. Repeated terms AND and share traversal.",
+      "Requires an explicit dependency-target=<tfm> and at least one exact depends (eq) or legacy depends-transitive term. A starts-with predicate alone cannot satisfy this requirement; all is not accepted as the target.",
+      "Selects the maximum declaration-edge depth, not the result row limit. Prefer exact depends plus depth for new queries; depends-transitive remains the depth-2-or-greater legacy spelling.",
       "Admits at most 5 package candidates; an exact package input admits one. Set the candidate bound explicitly for a prefix or ecosystem population."
     ],
     "requires": [
-      "dependency-target",
-      "dependency-depth"
+      "dependency-target"
     ]
   },
   "context": [
@@ -37,30 +40,6 @@
         "Dependency traversal requires an explicit dependency-target=<tfm>; all is not accepted with dependency-depth or depends-transitive."
       ],
       "requires": []
-    },
-    {
-      "key": "dependency-depth",
-      "summary": "Extends exact depends terms through the selected maximum declaration-edge depth.",
-      "value_kind": "closed value",
-      "operators": [
-        "eq"
-      ],
-      "values": [
-        "2",
-        "3",
-        "4"
-      ],
-      "examples": [
-        "2"
-      ],
-      "input_rules": [
-        "Requires an explicit dependency-target=<tfm> and at least one exact depends (eq) or legacy depends-transitive term. A starts-with predicate alone cannot satisfy this requirement; all is not accepted as the target.",
-        "Selects the maximum declaration-edge depth, not the result row limit. Prefer exact depends plus depth for new queries; depends-transitive remains the depth-2-or-greater legacy spelling.",
-        "Admits at most 5 package candidates; an exact package input admits one. Set the candidate bound explicitly for a prefix or ecosystem population."
-      ],
-      "requires": [
-        "dependency-target"
-      ]
     }
   ],
   "bindings": [
@@ -76,7 +55,6 @@
       ],
       "exposed_facets": [
         "dependency-target",
-        "depends-transitive",
         "dependency-depth"
       ]
     }

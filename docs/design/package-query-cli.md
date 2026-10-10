@@ -327,10 +327,18 @@ The motivating source asset is
 declarations expose no input rules for those facets. This mismatch prevents
 an agent from preparing the existing transitive scenario below using explain
 alone. Durable evidence pairs selected CLI projection tests with the existing
-`PlanInput_TransitiveDependencyRequiresExactTargetAndDepth` validation gate;
+`PlanInput_DependencyTraversalRequiresExactTargetAndDepth` validation gate;
 the worked jq demo retains both projections and their identical preparation
 answer. These tests are PR-fast catalog and planning checks, with no package
 acquisition.
+
+The integration with [#9811](https://github.com/richlander/dotnet-inspect/pull/9811)
+keeps depth's alternative predicate requirement in input rules and registers
+only its mandatory framework target as required context. Exact `depends`
+records its optional depth behavior without requiring traversal for a direct
+query. Selected CLI gates cover both spellings at every listed depth and the
+neighboring direct-only case; the jq demo retains depth preparation in both
+formats. No execution semantics are changed by these registrations.
 
 One depth-bounded query admits at most five package candidates. Within each
 candidate it admits at most 32 acquired manifest projections and 128

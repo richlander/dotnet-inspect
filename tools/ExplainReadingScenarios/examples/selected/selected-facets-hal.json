@@ -200,7 +200,7 @@
         ],
         "input_rules": [
           "Requires at least one depends, depends-transitive, depends-ecosystem, or dependencies term; applies to all dependency predicates in the query.",
-          "depends-transitive requires an explicit dependency-target=<tfm>; all is not accepted for traversal."
+          "Dependency traversal requires an explicit dependency-target=<tfm>; all is not accepted with dependency-depth or depends-transitive."
         ],
         "values": [],
         "id": "package-query.term.dependency-target",
@@ -209,7 +209,7 @@
       {
         "kind": "query-facet",
         "name": "depends on package",
-        "summary": "Matches a direct dependency by exact package ID or literal package-ID prefix.",
+        "summary": "Matches a direct dependency, or exact package reachability through dependency-depth.",
         "_links": {
           "self": {
             "href": "inspect-resource:/package-query/query/facets/depends?projection=hal",
@@ -236,7 +236,10 @@
         "effects": [
           "AcquisitionTier: nuspec"
         ],
-        "input_rules": [],
+        "input_rules": [
+          "Without dependency-depth, eq matches direct dependencies and starts-with matches direct package-ID prefixes. With dependency-depth=2, 3, or 4, eq matches direct or transitive declaration paths through that maximum; starts-with remains direct. A starts-with predicate alone cannot admit depth.",
+          "With dependency-depth, supply an explicit dependency-target=<tfm>, not all, and admit at most 5 package candidates; an exact package input admits one. Repeated exact terms AND and share traversal."
+        ],
         "values": [],
         "id": "package-query.term.depends",
         "requires": []
@@ -278,7 +281,7 @@
       {
         "kind": "query-facet",
         "name": "transitively depends on package",
-        "summary": "Matches a source-authorized declared dependency reached at depth 2 or greater.",
+        "summary": "Legacy spelling for source-authorized dependency reachability at depth 2 or greater.",
         "_links": {
           "self": {
             "href": "inspect-resource:/package-query/query/facets/depends-transitive?projection=hal",
@@ -331,7 +334,7 @@
       {
         "kind": "query-facet",
         "name": "dependency depth",
-        "summary": "Bounds transitive dependency traversal to the selected maximum depth.",
+        "summary": "Extends exact depends terms through the selected maximum declaration-edge depth.",
         "_links": {
           "self": {
             "href": "inspect-resource:/package-query/query/facets/dependency-depth?projection=hal",
@@ -340,8 +343,8 @@
           },
           "required-context": [
             {
-              "href": "inspect-resource:/package-query/query/facets/depends-transitive?projection=hal",
-              "title": "transitively depends on package",
+              "href": "inspect-resource:/package-query/query/facets/dependency-target?projection=hal",
+              "title": "dependency target",
               "type": "application/hal+json"
             }
           ],
@@ -365,7 +368,9 @@
           "AcquisitionTier: nuspec"
         ],
         "input_rules": [
-          "Requires at least one depends-transitive term; selects the maximum declaration-edge depth, not the result row limit."
+          "Requires an explicit dependency-target=<tfm> and at least one exact depends (eq) or legacy depends-transitive term. A starts-with predicate alone cannot satisfy this requirement; all is not accepted as the target.",
+          "Selects the maximum declaration-edge depth, not the result row limit. Prefer exact depends plus depth for new queries; depends-transitive remains the depth-2-or-greater legacy spelling.",
+          "Admits at most 5 package candidates; an exact package input admits one. Set the candidate bound explicitly for a prefix or ecosystem population."
         ],
         "values": [
           "2",
@@ -374,7 +379,7 @@
         ],
         "id": "package-query.term.dependency-depth",
         "requires": [
-          "depends-transitive"
+          "dependency-target"
         ]
       },
       {

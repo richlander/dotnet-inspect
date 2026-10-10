@@ -1,15 +1,15 @@
 {
   "kind": "query-facet",
-  "name": "transitively depends on package",
-  "summary": "Legacy spelling for source-authorized dependency reachability at depth 2 or greater.",
+  "name": "dependency depth",
+  "summary": "Extends exact depends terms through the selected maximum declaration-edge depth.",
   "_links": {
     "self": {
-      "href": "inspect-resource:/package-query/query/facets/depends-transitive?projection=hal",
-      "title": "transitively depends on package",
+      "href": "inspect-resource:/package-query/query/facets/dependency-depth?projection=hal",
+      "title": "dependency depth",
       "type": "application/hal+json"
     },
     "describedby": {
-      "href": "inspect-resource:/package-query/query/facets/depends-transitive?projection=contract",
+      "href": "inspect-resource:/package-query/query/facets/dependency-depth?projection=contract",
       "title": "Explanation schema for client development",
       "type": "application/json"
     },
@@ -17,11 +17,6 @@
       {
         "href": "inspect-resource:/package-query/query/facets/dependency-target?projection=hal",
         "title": "dependency target",
-        "type": "application/hal+json"
-      },
-      {
-        "href": "inspect-resource:/package-query/query/facets/dependency-depth?projection=hal",
-        "title": "dependency depth",
         "type": "application/hal+json"
       }
     ],
@@ -33,27 +28,30 @@
       }
     ]
   },
-  "key": "depends-transitive",
+  "key": "dependency-depth",
   "operators": [
     "eq"
   ],
-  "value_kind": "NuGet package ID",
+  "value_kind": "closed value",
   "examples": [
-    "Microsoft.Extensions.Primitives"
+    "2"
   ],
   "effects": [
     "AcquisitionTier: nuspec"
   ],
   "input_rules": [
-    "Requires an explicit dependency-target=<tfm> and dependency-depth=2, 3, or 4; all is not accepted as the target.",
-    "Matches declaration edges at depth 2 through the selected maximum depth; direct-only dependencies do not match. Repeated terms AND and share traversal.",
+    "Requires an explicit dependency-target=<tfm> and at least one exact depends (eq) or legacy depends-transitive term. A starts-with predicate alone cannot satisfy this requirement; all is not accepted as the target.",
+    "Selects the maximum declaration-edge depth, not the result row limit. Prefer exact depends plus depth for new queries; depends-transitive remains the depth-2-or-greater legacy spelling.",
     "Admits at most 5 package candidates; an exact package input admits one. Set the candidate bound explicitly for a prefix or ecosystem population."
   ],
-  "values": [],
-  "id": "package-query.term.depends-transitive",
+  "values": [
+    "2",
+    "3",
+    "4"
+  ],
+  "id": "package-query.term.dependency-depth",
   "requires": [
-    "dependency-target",
-    "dependency-depth"
+    "dependency-target"
   ],
   "data_scope": {
     "completeness": "Complete"
@@ -96,57 +94,6 @@
         "values": [],
         "id": "package-query.term.dependency-target",
         "requires": []
-      },
-      {
-        "kind": "query-facet",
-        "name": "dependency depth",
-        "summary": "Extends exact depends terms through the selected maximum declaration-edge depth.",
-        "_links": {
-          "self": {
-            "href": "inspect-resource:/package-query/query/facets/dependency-depth?projection=hal",
-            "title": "dependency depth",
-            "type": "application/hal+json"
-          },
-          "required-context": [
-            {
-              "href": "inspect-resource:/package-query/query/facets/dependency-target?projection=hal",
-              "title": "dependency target",
-              "type": "application/hal+json"
-            }
-          ],
-          "bindings": [
-            {
-              "href": "inspect-resource:/package-query/bindings/cli",
-              "title": "dotnet-inspect CLI",
-              "type": "application/json"
-            }
-          ]
-        },
-        "key": "dependency-depth",
-        "operators": [
-          "eq"
-        ],
-        "value_kind": "closed value",
-        "examples": [
-          "2"
-        ],
-        "effects": [
-          "AcquisitionTier: nuspec"
-        ],
-        "input_rules": [
-          "Requires an explicit dependency-target=<tfm> and at least one exact depends (eq) or legacy depends-transitive term. A starts-with predicate alone cannot satisfy this requirement; all is not accepted as the target.",
-          "Selects the maximum declaration-edge depth, not the result row limit. Prefer exact depends plus depth for new queries; depends-transitive remains the depth-2-or-greater legacy spelling.",
-          "Admits at most 5 package candidates; an exact package input admits one. Set the candidate bound explicitly for a prefix or ecosystem population."
-        ],
-        "values": [
-          "2",
-          "3",
-          "4"
-        ],
-        "id": "package-query.term.dependency-depth",
-        "requires": [
-          "dependency-target"
-        ]
       }
     ],
     "bindings": [
@@ -164,11 +111,6 @@
             {
               "href": "inspect-resource:/package-query/query/facets/dependency-target?projection=hal",
               "title": "dependency target",
-              "type": "application/hal+json"
-            },
-            {
-              "href": "inspect-resource:/package-query/query/facets/depends-transitive?projection=hal",
-              "title": "transitively depends on package",
               "type": "application/hal+json"
             },
             {
@@ -192,7 +134,6 @@
         "id": "dotnet-inspect.cli/package-query",
         "exposed_facets": [
           "dependency-target",
-          "depends-transitive",
           "dependency-depth"
         ]
       }
