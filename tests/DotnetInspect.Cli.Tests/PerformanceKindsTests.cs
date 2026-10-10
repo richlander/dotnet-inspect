@@ -93,6 +93,35 @@ public class PerformanceKindsTests
     }
 
     [Fact]
+    public void PerformanceProjection_ExcludesLegacySyncCallRows()
+    {
+        var legacy = new OptimizationOpportunitySummary
+        {
+            Shape = "sync-call-in-async",
+        };
+        var syncCall = new SyncCallInAsyncSummary
+        {
+            Caller = "Caller",
+            Callee = "Callee",
+            Alternative = "Alternative",
+            PairKind = "Operation",
+        };
+
+        PerformanceProjection projection = Assert.IsType<
+            PerformanceProjection>(
+                PerformanceProjection.FromFindings(
+                    [legacy],
+                    [syncCall]));
+
+        Assert.Null(projection.Async);
+        Assert.Equal([syncCall], projection.SyncCallsInAsync);
+        Assert.Null(
+            PerformanceProjection.FromFindings(
+                [legacy],
+                syncCallsInAsync: null));
+    }
+
+    [Fact]
     public void StructuredKey_HasNoAmpersand_SoJsonAndMarkdownMatch()
     {
         // The closures section name intentionally drops "&" (markout HTML-escapes it); the JSON key

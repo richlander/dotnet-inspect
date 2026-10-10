@@ -725,6 +725,35 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PerformanceJson_ExcludesLegacySyncCallsFromAsync()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "@Performance",
+            "--json");
+
+        Assert.Equal(0, exit);
+        AssertOnlyPerformanceAnalysisWarnings(error);
+        using var document = JsonDocument.Parse(output.Trim());
+        JsonElement performance =
+            document.RootElement.GetProperty("performance");
+        Assert.True(
+            performance.GetProperty("sync_calls_in_async")
+                .GetArrayLength() > 0);
+        if (performance.TryGetProperty(
+                "async",
+                out JsonElement asyncRows))
+        {
+            Assert.DoesNotContain(
+                asyncRows.EnumerateArray(),
+                row => row.GetProperty("shape").GetString()
+                    == "sync-call-in-async");
+        }
+    }
+
+    [Fact]
     public async Task PerformanceSyncCallsInAsync_TsvHasDedicatedColumns()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -911,6 +940,35 @@ public partial class CommandExecutionTests
                 Assert.NotEmpty(syncCall[11]);
                 Assert.NotEmpty(syncCall[12]);
             });
+    }
+
+    [Fact]
+    public async Task PerformanceGroup_OneEffectiveKindRetainsUnionSchema()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance:*",
+            "--triage-shape",
+            "sync-call-in-async",
+            "--tsv");
+
+        Assert.Equal(0, exit);
+        AssertOnlyPerformanceAnalysisWarnings(error);
+        string[] lines = output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries);
+        Assert.StartsWith(
+            "kind\tmember\tevidence\tallocation\tloop\treach\tweight"
+                + "\tpriority\tconfidence\tcaller\tcallee\talternative"
+                + "\tpair_kind",
+            lines[0]);
+        Assert.All(
+            lines.Skip(1),
+            line => Assert.StartsWith(
+                "Sync Calls in Async\t",
+                line));
     }
 
     [Fact]

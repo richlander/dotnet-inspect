@@ -1888,7 +1888,10 @@ public sealed class PerformanceProjection
         List<OptimizationOpportunitySummary>? opportunities,
         List<SyncCallInAsyncSummary>? syncCallsInAsync)
     {
-        if (opportunities is not { Count: > 0 }
+        bool hasOptimizationOpportunities =
+            opportunities?.Any(static opportunity =>
+                opportunity.Shape != "sync-call-in-async") == true;
+        if (!hasOptimizationOpportunities
             && syncCallsInAsync is not { Count: > 0 })
         {
             return null;
@@ -1902,6 +1905,9 @@ public sealed class PerformanceProjection
         {
             foreach (var opportunity in opportunities)
             {
+                if (opportunity.Shape == "sync-call-in-async")
+                    continue;
+
                 var bucket =
                     PerformanceKinds.SectionForShape(opportunity.Shape)
                     switch

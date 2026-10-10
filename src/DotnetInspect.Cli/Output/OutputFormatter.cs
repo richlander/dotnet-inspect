@@ -865,10 +865,21 @@ public static class OutputFormatter
             return;
         }
 
-        if (writerOpts.IncludeSections is { Count: > 1 }
-            && Sections.PerformanceKinds.AllShareCommonView(writerOpts.IncludeSections))
+        bool performanceGroupRequested =
+            options.IncludeSections is { Count: > 1 } requestedSections
+            && Sections.PerformanceKinds.AllShareCommonView(
+                requestedSections);
+        bool multiplePerformanceSectionsEffective =
+            writerOpts.IncludeSections is { Count: > 1 } effectiveSections
+            && Sections.PerformanceKinds.AllShareCommonView(
+                effectiveSections);
+        if (performanceGroupRequested
+            || multiplePerformanceSectionsEffective)
         {
-            var groupRows = auditView.PerformanceGroupRows(writerOpts.IncludeSections);
+            var groupRows = auditView.PerformanceGroupRows(
+                writerOpts.IncludeSections
+                    ?? options.IncludeSections
+                    ?? []);
             var groupView = new PerformanceGroupView(groupRows);
             var groupOpts = ConfigureTableWriterOptions(
                 new MarkoutWriterOptions { Projection = writerOpts.Projection }, options.Tsv, options.Jsonl);
