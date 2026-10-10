@@ -96,8 +96,11 @@ packages.
 Outside Library Compare, the Type navigation marks each Type that the
 last-patch baseline reports with an axis `Changed` or `Indeterminate`:
 **API differences** when the API axis is not `Unchanged`, otherwise
-**implementation differences**. The cue names the baseline version, and an
-`Indeterminate` axis is described as undecided rather than changed. Inside
+**implementation differences**. Both glyphs sit between comparison chevrons:
+a lollipop, the provided-interface mark, for API, and `IL` for
+implementation. Library Compare's API cue uses the same lollipop glyph. The
+cue names the baseline version, and an `Indeterminate` axis is described as
+undecided rather than changed. Inside
 Library Compare, cues come from the Compare result for the user's target, as
 before.
 

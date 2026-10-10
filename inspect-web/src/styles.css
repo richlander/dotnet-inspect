@@ -1272,12 +1272,16 @@ kbd {
   --item-achievement-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='2.5' cy='4' r='1'/%3E%3Ccircle cx='2.5' cy='8' r='1'/%3E%3Ccircle cx='2.5' cy='12' r='1'/%3E%3Cpath d='M3.5 4c2.7 0 4.2 1 5.6 2'/%3E%3Cpath d='M3.5 8h5'/%3E%3Cpath d='M3.5 12c2.7 0 4.2-1 5.6-2'/%3E%3Cpath d='m8.45 5.25.75.9.1-1.1'/%3E%3Cpath d='m8 7.35.95.65-.95.65'/%3E%3Cpath d='m8.45 10.75.75-.9.1 1.1'/%3E%3Cpath d='M11.2 5.4h1.6l.25.8.8.35.75-.4.8.8-.4.75.35.8.8.25v1.1l-.8.25-.35.8.4.75-.8.8-.75-.4-.8.35-.25.8h-1.6l-.25-.8-.8-.35-.75.4-.8-.8.4-.75-.35-.8-.8-.25v-1.1l.8-.25.35-.8-.4-.75.8-.8.75.4.8-.35z'/%3E%3Ccircle cx='12' cy='8.8' r='1.15'/%3E%3C/svg%3E");
   color: var(--hub-strip);
 }
-.item-achievement-glyph.api-diff,
-.item-achievement-glyph.body-diff {
-  --item-achievement-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 5h10'/%3E%3Cpath d='m9.5 2.5 2.5 2.5-2.5 2.5'/%3E%3Cpath d='M14 11H4'/%3E%3Cpath d='m6.5 8.5-2.5 2.5 2.5 2.5'/%3E%3C/svg%3E");
+/* Change cues: a lollipop (provided API) or IL (instructions) between
+   comparison chevrons. */
+.item-achievement-glyph.api-diff {
+  --item-achievement-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 5.5-2 2.5 2 2.5'/%3E%3Cpath d='m13 5.5 2 2.5-2 2.5'/%3E%3Ccircle cx='8' cy='5.5' r='1.6'/%3E%3Cpath d='M8 7.1v4.9'/%3E%3C/svg%3E");
   color: var(--purple);
 }
-.item-achievement-glyph.body-diff { color: var(--blue); }
+.item-achievement-glyph.body-diff {
+  --item-achievement-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 5.5-2 2.5 2 2.5'/%3E%3Cpath d='m13 5.5 2 2.5-2 2.5'/%3E%3Cpath d='M4.75 5.5h2.25M5.875 5.5v5M4.75 10.5h2.25'/%3E%3Cpath d='M8.75 5.5v5h2.5'/%3E%3C/svg%3E");
+  color: var(--blue);
+}
 .nav-back-row {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr) auto;
