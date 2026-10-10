@@ -282,6 +282,10 @@ public static class SectionNames
     /// <summary>Async state-machine performance findings.</summary>
     public const string PerformanceAsync = "Performance: Async";
 
+    /// <summary>Synchronous calls in async methods with callable async siblings.</summary>
+    public const string PerformanceSyncCallsInAsync =
+        "Performance: Sync Calls in Async";
+
     /// <summary>Catch-all for performance findings whose shape has no dedicated section (keeps the scan non-lossy).</summary>
     public const string PerformanceOther = "Performance: Other";
 

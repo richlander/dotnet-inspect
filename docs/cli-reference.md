@@ -545,7 +545,9 @@ and signal sets may change between releases.
 Use `library -S @Performance` for a whole-assembly triage pass, `Top Leverage`
 for ranking, `Resource Triage` for exception-path pool-churn candidates, and
 `Call Graph` to drill one selected member. The performance skill covers the full
-workflow in more depth.
+workflow in more depth. `Performance: Sync Calls in Async` finds synchronous
+calls made by async methods when the declaring type offers a callable async
+sibling, including `Dispose`/`DisposeAsync` pairs.
 
 ```bash
 dotnet-inspect library System.Text.Json -S @Performance
@@ -553,6 +555,7 @@ dotnet-inspect library System.Text.Json -S "Library Metrics"
 dotnet-inspect library System.Text.Json -S @Performance --count
 dotnet-inspect library System.Text.Json -S "Performance: Boxing" --json
 dotnet-inspect library System.Text.Json -S "Performance: Strings" --json
+dotnet-inspect library System.Text.Json -S "Performance: Sync Calls in Async"
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
 ```
 
