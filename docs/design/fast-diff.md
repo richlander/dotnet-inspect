@@ -94,9 +94,11 @@ member, parameter, and import) has each character the key grammar uses as a
 separator escaped before it enters a key, so a top-level Type named `A/B`, a
 Type `B` nested in `A`, a Type `A.B` in namespace `N`, and a Type `B` in
 namespace `N.A` never share a key, and neither do member names that contain
-`::` or signature punctuation. Two Type rows that still spell one key, which
-valid metadata does not allow, are both `Indeterminate` rather than one
-replacing the other.
+`::` or signature punctuation. A primitive Type is spelled with a leading
+`#`, which every name escapes, so `int` and a global Type named `Int32` stay
+distinct. Two Type rows, or two method rows of one Type and its generated
+code, that still spell one key, which valid metadata does not allow, are
+`Indeterminate` rather than one replacing the other.
 
 Compiler-generated nested Types (state machines, closures, local-function
 holders, and Types nested beneath them) belong to their nearest declared
@@ -169,7 +171,8 @@ adoption is
 generated image pairs compared whole and stepped: a nested Type's body
 change beside a top-level Type whose name spells the same path, a namespace
 and a dotted Type name that display alike, a caller switching between two
-callees whose unescaped keys collide, duplicate Type names, and undefined
+callees whose unescaped keys collide, a primitive and a global Type of one
+name, duplicate Type names and duplicate generated Type names, and undefined
 one-byte and two-byte opcodes.
 
 Stepping and the API axis are gated by outcome: a comparison stepped at

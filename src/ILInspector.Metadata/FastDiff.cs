@@ -719,16 +719,27 @@ public static class FastDiff
                 census.AddRange(VisibleFacts(unit).Where(fact => fact.StartsWith(NonApiFact, StringComparison.Ordinal)));
             MemberFacts(census, unit.Owner, api: !visible ? null : false, out var ownerMethods);
             foreach ((string key, MethodDefinitionHandle method) in ownerMethods)
-                methods[key] = method;
+                AddMethod(methods, key, method);
             foreach (TypeDefinitionHandle generated in unit.Generated)
             {
                 TypeFacts(census, generated);
                 MemberFacts(census, generated, api: null, out var generatedMethods);
                 foreach ((string key, MethodDefinitionHandle method) in generatedMethods)
-                    methods[key] = method;
+                    AddMethod(methods, key, method);
             }
             census.Sort(StringComparer.Ordinal);
             return census;
+        }
+
+        // Two method rows that spell one key, which valid metadata does not
+        // allow, cannot be told apart, so the body is not decided.
+        static void AddMethod(
+            Dictionary<string, MethodDefinitionHandle> methods,
+            string key,
+            MethodDefinitionHandle method)
+        {
+            if (!methods.TryAdd(key, method))
+                throw new BadImageFormatException($"Two methods share the compared key {key}.");
         }
 
         void TypeFacts(List<string> census, TypeDefinitionHandle handle)
@@ -1109,7 +1120,8 @@ public static class FastDiff
             => unmodifiedType + (isRequired ? " modreq(" : " modopt(") + modifier + ")";
         public string GetPinnedType(string elementType) => elementType + " pinned";
         public string GetPointerType(string elementType) => elementType + "*";
-        public string GetPrimitiveType(PrimitiveTypeCode typeCode) => typeCode.ToString();
+        // A leading '#' is escaped in every name, so no Type spells a primitive.
+        public string GetPrimitiveType(PrimitiveTypeCode typeCode) => "#" + typeCode;
         public string GetSZArrayType(string elementType) => elementType + "[]";
         public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
             => side.TypeKey(handle);

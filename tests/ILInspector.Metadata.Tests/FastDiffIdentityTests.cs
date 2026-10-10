@@ -55,6 +55,30 @@ public sealed class FastDiffIdentityTests
     }
 
     [Fact]
+    public void PrimitiveAndGlobalTypeOfOneName_AreDistinct()
+    {
+        // M(int) and M(global::Int32) are different public signatures.
+        FastDiffResult result = Compare(
+            [new(null, "Int32", null, ReturnOne), new("N", "C", null, ReturnOne, Parameter: Int32Primitive)],
+            [new(null, "Int32", null, ReturnOne), new("N", "C", null, ReturnOne, Parameter: 0)]);
+
+        Assert.Equal(FastDiffState.Changed, Single(result, "N.C").Api);
+    }
+
+    [Fact]
+    public void DuplicateGeneratedTypeNames_AreIndeterminate()
+    {
+        // Two nested <>c rows spell one key, so neither lambda body can be
+        // told apart from the other.
+        TypeSpec owner = new("N", "C", null, ReturnOne);
+        FastDiffResult result = Compare(
+            [owner, new(null, "<>c", 0, ReturnOne, ["<M>b__0_0"]), new(null, "<>c", 0, ReturnOne, ["<M>b__0_0"])],
+            [owner, new(null, "<>c", 0, ReturnTwo, ["<M>b__0_0"]), new(null, "<>c", 0, ReturnOne, ["<M>b__0_0"])]);
+
+        Assert.Equal(FastDiffState.Indeterminate, Single(result, "N.C").Body);
+    }
+
+    [Fact]
     public void DuplicateTypeNames_AreIndeterminate()
     {
         FastDiffResult result = Compare(
@@ -93,19 +117,23 @@ public sealed class FastDiffIdentityTests
         Assert.Equal(FastDiffState.Indeterminate, Single(result, "N.C").Body);
     }
 
+    const int Int32Primitive = -1;
+
     static FastDiffTypeState Single(FastDiffResult result, string fullName)
         => Assert.Single(result.Types, type => type.FullName == fullName);
 
     /// <summary>
     /// One Type declaration: a namespace, a name, the index of its declaring
-    /// Type, and the IL of each of its public static void methods.
+    /// Type, and the IL of each of its public static void methods, which take
+    /// no parameter, an <c>int</c>, or an instance of an earlier Type.
     /// </summary>
     sealed record TypeSpec(
         string? Namespace,
         string Name,
         int? DeclaringType,
         byte[] Body,
-        string[]? Methods = null);
+        string[]? Methods = null,
+        int? Parameter = null);
 
     static FastDiffResult Compare(TypeSpec[] before, TypeSpec[] after)
     {
@@ -172,6 +200,25 @@ public sealed class FastDiffIdentityTests
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(nextMethod)));
+            BlobHandle methodSignature = voidSignature;
+            if (type.Parameter is int parameter)
+            {
+                var parameterSignature = new BlobBuilder();
+                new BlobEncoder(parameterSignature)
+                    .MethodSignature()
+                    .Parameters(
+                        1,
+                        returnType => returnType.Void(),
+                        parameters =>
+                        {
+                            SignatureTypeEncoder encoder = parameters.AddParameter().Type();
+                            if (parameter == Int32Primitive)
+                                encoder.Int32();
+                            else
+                                encoder.Type(handles[parameter], isValueType: false);
+                        });
+                methodSignature = metadata.GetOrAddBlob(parameterSignature);
+            }
             for (int i = 0; i < methods.Length; i++)
             {
                 var code = new InstructionEncoder(new BlobBuilder());
@@ -180,7 +227,7 @@ public sealed class FastDiffIdentityTests
                     MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
                     MethodImplAttributes.IL,
                     metadata.GetOrAddString(methods[i]),
-                    voidSignature,
+                    methodSignature,
                     bodies.AddMethodBody(code),
                     default);
                 nextMethod++;
