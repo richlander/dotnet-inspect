@@ -9387,7 +9387,9 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   }
   if (scope() === "platform") {
     renderPlatformView();
-    if (scopeBarFocus) restoreScopeBarFocus(document, scopeBarFocus);
+    if (state.legend || state.keyboardHelp) {
+      focusApplicationReferenceHeading();
+    } else if (scopeBarFocus) restoreScopeBarFocus(document, scopeBarFocus);
     else if (applicationMenuHadFocus) focusApplicationMenuButton(document);
     else if (workbenchSearchHadFocus) focusWorkbenchSearch(document);
     else if (levelOneHeadingHadFocus) focusLevelOneHeading();
