@@ -330,7 +330,8 @@ Exact-member work is split across focused owners:
 | Typed same-module callee resolution | [#8700](https://github.com/richlander/dotnet-inspect/issues/8700) |
 | Bounded semantic MethodDef identity | [#9830](https://github.com/richlander/dotnet-inspect/issues/9830) |
 | Receipted memory-safety contract and accessor association support | [#9831](https://github.com/richlander/dotnet-inspect/issues/9831) |
-| Generated-owner relation over all-definition breadth and unauthenticated generated candidates | [#9864](https://github.com/richlander/dotnet-inspect/issues/9864) |
+| Declared-source relation over all-definition and exact-type breadth | [#9864](https://github.com/richlander/dotnet-inspect/issues/9864) |
+| Method Query Source Calls layer with callee reference identity | [#9868](https://github.com/richlander/dotnet-inspect/issues/9868) |
 | Public root inventory and reference-assembly status as execution capabilities | [#9865](https://github.com/richlander/dotnet-inspect/issues/9865) |
 | First exact-member consumer adoption | [#9832](https://github.com/richlander/dotnet-inspect/issues/9832) |
 
@@ -344,7 +345,7 @@ successful empty evidence.
 prerequisites for `AssemblyContextMethodAnalysisQuery`. Allocations,
 optimization opportunities, and final `MethodSignals` composition remain
 explicitly on the old boundary in that mixed slice. The unsafe member census
-adopts after #8700, #9830, #9831, #9864, and #9865, as
+adopts after #8700, #9830, #9831, #9864, #9865, and #9868, as
 [Unsafe member findings](unsafe-member-findings.md#execution) states. `ILOffsetQuery` follows
 only after an owner can bind its prefetched image without reopening by path.
 
