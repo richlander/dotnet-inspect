@@ -659,6 +659,30 @@ public sealed class ApiQualifiedAnchorTests
     }
 
     [Fact]
+    public void EventAssemblyReferenceKey_ConsumesCallerRetainedTextBudget()
+    {
+        (byte[] image, MetadataDeclarationLocation location) =
+            BuildAssemblyReferenceEventImage(keyBytes: 200_000);
+        var policy = new MetadataOperationPolicy(
+            long.MaxValue,
+            maxRetainedText: 100);
+
+        ApiQualifiedAnchorResult result =
+            IssueResult(
+                image,
+                location,
+                policy,
+                new ScopeAuthorizingResolver());
+
+        ApiQualifiedAnchorResult.Failed failed =
+            Assert.IsType<ApiQualifiedAnchorResult.Failed>(result);
+        Assert.Equal(
+            ApiQualifiedAnchorFailureReason.WorkLimitExceeded,
+            failed.Failure.Reason);
+        Assert.InRange(result.Counters.RetainedText, 1, 100);
+    }
+
+    [Fact]
     public void ExhaustedStructuredWorkBudget_FailsWithoutDegradedAnchor()
     {
         string path = Pair.OldAssemblyPath();
@@ -1041,6 +1065,103 @@ public sealed class ApiQualifiedAnchorTests
                 mvid,
                 ApiDeclarationMetadataTable.MethodDefinition,
                 MetadataTokens.GetToken(method)));
+    }
+
+    static (
+        byte[] Image,
+        MetadataDeclarationLocation Location)
+        BuildAssemblyReferenceEventImage(int keyBytes)
+    {
+        MetadataBuilder metadata = NewMetadata(
+            "AssemblyReferenceEvent",
+            out Guid mvid,
+            out _);
+        var publicKey = new BlobBuilder(keyBytes);
+        publicKey.WriteBytes(new byte[keyBytes]);
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("External"),
+                new Version(1, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(publicKey),
+                AssemblyFlags.PublicKey,
+                default);
+        TypeReferenceHandle handler =
+            metadata.AddTypeReference(
+                assembly,
+                metadata.GetOrAddString("Samples"),
+                metadata.GetOrAddString("Handler"));
+        int codedType =
+            (MetadataTokens.GetRowNumber(handler) << 2) | 1;
+        var accessorSignature = new BlobBuilder();
+        accessorSignature.WriteByte(0x00);
+        accessorSignature.WriteByte(0x01);
+        accessorSignature.WriteByte(0x01);
+        accessorSignature.WriteByte(0x12);
+        accessorSignature.WriteCompressedInteger(codedType);
+        ParameterHandle addParameter = metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("value"),
+            sequenceNumber: 1);
+        ParameterHandle removeParameter = metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("value"),
+            sequenceNumber: 1);
+        BlobHandle signature = metadata.GetOrAddBlob(
+            accessorSignature);
+        MethodDefinitionHandle add =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static
+                    | MethodAttributes.SpecialName,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("add_Changed"),
+                signature,
+                bodyOffset: 0,
+                addParameter);
+        MethodDefinitionHandle remove =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static
+                    | MethodAttributes.SpecialName,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("remove_Changed"),
+                signature,
+                bodyOffset: 0,
+                removeParameter);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            add);
+        TypeDefinitionHandle owner =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("Samples"),
+                metadata.GetOrAddString("Owner"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                add);
+        EventDefinitionHandle @event = metadata.AddEvent(
+            EventAttributes.SpecialName,
+            metadata.GetOrAddString("Changed"),
+            handler);
+        metadata.AddEventMap(owner, @event);
+        metadata.AddMethodSemantics(
+            @event,
+            MethodSemanticsAttributes.Adder,
+            add);
+        metadata.AddMethodSemantics(
+            @event,
+            MethodSemanticsAttributes.Remover,
+            remove);
+
+        return (
+            Serialize(metadata),
+            new(
+                mvid,
+                ApiDeclarationMetadataTable.EventDefinition,
+                MetadataTokens.GetToken(@event)));
     }
 
     static (

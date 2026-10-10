@@ -4,7 +4,7 @@ using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Metadata;
 
-/// <summary>Bounded named-occurrence evidence for one member signature; does not resolve names.</summary>
+/// <summary>Bounded named-occurrence evidence for one member declaration; does not resolve names.</summary>
 public static class SignatureOccurrenceDecoder
 {
     public static SignatureOccurrenceDecodeResult Decode(PEReader image, EntityHandle member) =>
@@ -19,10 +19,14 @@ public static class SignatureOccurrenceDecoder
     {
         ArgumentNullException.ThrowIfNull(image);
         if (member.IsNil || member.Kind is not (
-            HandleKind.MethodDefinition or HandleKind.FieldDefinition or HandleKind.PropertyDefinition))
+            HandleKind.MethodDefinition
+            or HandleKind.FieldDefinition
+            or HandleKind.PropertyDefinition
+            or HandleKind.EventDefinition))
         {
             throw new ArgumentException(
-                "A non-nil MethodDef, FieldDef, or PropertyDef handle is required.", nameof(member));
+                "A non-nil MethodDef, FieldDef, PropertyDef, or EventDef handle is required.",
+                nameof(member));
         }
         var effectiveLimits = limits ?? SignatureOccurrenceLimits.Default;
         effectiveLimits.Validate();
@@ -56,6 +60,11 @@ public static class SignatureOccurrenceDecoder
                     reader, reader.GetFieldDefinition((FieldDefinitionHandle)member), provider),
                 HandleKind.PropertyDefinition => DecodeProperty(
                     reader, reader.GetPropertyDefinition((PropertyDefinitionHandle)member), provider),
+                HandleKind.EventDefinition => DecodeEvent(
+                    reader,
+                    reader.GetEventDefinition(
+                        (EventDefinitionHandle)member),
+                    provider),
                 _ => throw new InvalidOperationException("Unexpected validated member kind."),
             };
             return new SignatureOccurrenceDecodeResult.Decoded(occurrences);
@@ -141,4 +150,30 @@ public static class SignatureOccurrenceDecoder
             provider.ObserveGuard(measurements);
         }
     }
+
+    static ImmutableArray<SignatureNamedTypeOccurrence> DecodeEvent(
+        MetadataReader reader,
+        EventDefinition @event,
+        SignatureOccurrenceProvider provider) =>
+        @event.Type.Kind switch
+        {
+            HandleKind.TypeDefinition =>
+                provider.GetTypeFromDefinition(
+                    reader,
+                    (TypeDefinitionHandle)@event.Type,
+                    rawTypeKind: 0x12),
+            HandleKind.TypeReference =>
+                provider.GetTypeFromReference(
+                    reader,
+                    (TypeReferenceHandle)@event.Type,
+                    rawTypeKind: 0x12),
+            HandleKind.TypeSpecification =>
+                provider.GetTypeFromSpecification(
+                    reader,
+                    genericContext: null,
+                    handle: (TypeSpecificationHandle)@event.Type,
+                    rawTypeKind: 0x12),
+            _ => throw new BadImageFormatException(
+                "The EventDef type is not a TypeDef, TypeRef, or TypeSpec."),
+        };
 }

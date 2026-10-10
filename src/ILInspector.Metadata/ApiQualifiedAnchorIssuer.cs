@@ -425,6 +425,7 @@ internal sealed class ApiQualifiedAnchorIssuer
 
     ApiQualifiedAnchor IssueEvent(EventDefinitionHandle handle)
     {
+        PreflightSignatureNamedTypes(handle);
         EventDefinition definition = _reader.GetEventDefinition(handle);
         TypeDefinitionHandle typeHandle = definition.GetDeclaringType();
         MetadataAccessorDeclarationEvidence evidence =
