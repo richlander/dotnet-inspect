@@ -47,20 +47,24 @@ one selected compile projection. The projection is a Hierarchy under
   `TfmResolver` framework priority, highest first, then by framework name, as
   compile selection orders its inventory. Every candidate in a slice is a
   row, whatever markers the slice also has. An explicit empty-group marker is
-  itself a row with role `ref` and its archive path `ref/<tfm>/_._`, so a
-  marker-only framework stays visible in every format and in Count.
+  itself a row with role `ref` and path `ref/<tfm>/_._` in the inventory's
+  framework spelling, so a marker-only framework stays visible in every
+  format and in Count.
 - A tool package groups its tool slices, as
   [Package Info tool measurements](package-info-tool-measurements.md) defines
   them, the same way.
 - An empty compile and tool inventory returns the typed no-Library state with
-  zero rows. A
-  package without compile assets is not searched for other assemblies.
+  zero rows. A package without compile assets is not searched for other
+  assemblies.
 
 The Tree is its native presentation. Explicit `--tree`, JSON, the service
 envelope, TSV, JSONL, and table output lower the same rows; Count counts them
-and `--rows` windows them. Every row carries its own framework, so following
-it uses `package <id> --tfm <framework> --library <path>`; no row implies a
-`--library` path that the selected default framework would reject.
+and `--rows` windows them. Every row carries its own framework. A row whose
+path is in that framework's selected compile projection, or a tool row, is
+followed with `package <id> --tfm <framework> --library <path>`. Marker rows
+and candidates that a real `ref` asset shadows or a co-located marker
+suppresses are listed for discovery only; no row implies a `--library` path
+that its own framework's selection would reject.
 
 The projection's producer sits beside the Package children producer and
 declares its own QuerySpace capabilities. Inspect Web has no `--tfm all`
