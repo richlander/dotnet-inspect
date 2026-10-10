@@ -7021,13 +7021,24 @@ function contextualExtensionsApplyToSelection() {
       || state.memberAccessibilityFilter === "all");
 }
 
-function contextualExtensionGroups(type: AppTypeSurface): AppMemberGroup[] {
-  if (!contextualExtensionsApplyToSelection()) return [];
-  return searchableMemberGroups(groupMembers(type.api.filter(member =>
+function residentContextualExtensionMembers(type: AppTypeSurface) {
+  return type.api.filter(member =>
     !member.graphOnly
     && member.isExtension
     && member.declaringTypeDefinitionId != null
-    && member.declaringTypeDefinitionId !== type.definitionId)));
+    && member.declaringTypeDefinitionId !== type.definitionId);
+}
+
+function contextualExtensionGroups(type: AppTypeSurface): AppMemberGroup[] {
+  if (!contextualExtensionsApplyToSelection()) return [];
+  return searchableMemberGroups(
+    groupMembers(residentContextualExtensionMembers(type)));
+}
+
+function contextualExtensionAccessibilityCount(type: AppTypeSurface) {
+  return state.memberSpelling === "csharp"
+    ? residentContextualExtensionMembers(type).length
+    : 0;
 }
 
 function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
@@ -7275,8 +7286,7 @@ function renderMemberFilterControls(type: AppTypeSurface) {
   const population = currentTypeMemberPopulation(type);
   const composition = population?.composition;
   const selectorCounts = population?.selectorCounts;
-  const contextualCount = contextualExtensionGroups(type)
-    .reduce((count, group) => count + group.overloads.length, 0);
+  const contextualCount = contextualExtensionAccessibilityCount(type);
   const accessibilityCount = (accessibility: MemberAccessibility) => {
     if (!composition) return null;
     return accessibility === "all"
@@ -7409,8 +7419,7 @@ function renderMemberComposition(type: AppTypeSurface) {
       kind))
     .join("");
   const composition = currentTypeMemberPopulation(type)?.composition;
-  const contextualCount = contextualExtensionGroups(type)
-    .reduce((count, group) => count + group.overloads.length, 0);
+  const contextualCount = contextualExtensionAccessibilityCount(type);
   const counts = composition
     ? {
         all: composition.public

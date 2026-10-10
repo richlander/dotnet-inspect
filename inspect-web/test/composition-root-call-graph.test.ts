@@ -1531,6 +1531,114 @@ test("unavailable exact Member populations omit selector counts", () => {
   assert.match(
     exactZero,
     /data-member-jump-trait="interface"><strong>0<\/strong><span>interface<\/span>/);
+
+  const privateState = {
+    ...exactZeroState,
+    memberTraitFilter: "",
+    memberAccessibilityFilter: "private",
+    typeMemberPopulationKey: "csharp/private",
+    typeMemberPopulation: {
+      outcome: "Available",
+      document: {
+        population: {
+          groups: [{
+            key: "method:Private",
+            name: "Private",
+            displayName: "Private",
+            kind: "method",
+            completeCount: 1,
+            receivers: ["this"],
+            traits: {
+              all: 1,
+              static: 0,
+              instance: 1,
+              virtual: 0,
+              interface: 0,
+              extensions: 0,
+            },
+          }],
+          composition: {
+            public: 1,
+            protected: 0,
+            internal: 0,
+            private: 1,
+          },
+          selectorCounts: {
+            kinds: [{ value: "method", count: 1 }],
+            traits: {
+              all: 1,
+              bodyBacked: 1,
+              static: 0,
+              instance: 1,
+              virtual: 0,
+              interface: 0,
+              extensions: 0,
+            },
+          },
+        },
+      },
+    },
+  };
+  const contextualExtension = {
+    name: "Examine",
+    kind: "extension-method",
+    graphOnly: false,
+    isExtension: true,
+    isStatic: true,
+    declaringTypeDefinitionId: "T:Extensions",
+  };
+  const privateRendered: unknown = runInNewContext(
+    stripTypeScriptTypes(`${populationAndFilters}
+      ${compositionControls}
+      ({
+        filters: renderMemberFilterControls(type),
+        composition: renderMemberComposition(type),
+      });
+    `),
+    {
+      state: privateState,
+      type: {
+        definitionId: "T:Receiver",
+        api: [contextualExtension],
+      },
+      MEMBER_TRAITS,
+      memberKindCount,
+      partitionGraphMembers: (members: unknown[]) => ({
+        publicMembers: members,
+        graphMembers: [],
+      }),
+      searchableMemberGroups: (groups: unknown[]) => groups,
+      groupMembers: (members: unknown[]) => [{
+        key: "extension-method:Examine",
+        name: "Examine",
+        kind: "extension-method",
+        overloads: members,
+      }],
+      uploadedLibraryIsActive: () => false,
+      typeMemberPopulationKey: () => "csharp/private",
+      currentTypeMethodLeverageState: () => ({ status: "idle" }),
+      escapeHtml: (value: string) => value,
+    });
+  if (!privateRendered
+    || typeof privateRendered !== "object"
+    || !("filters" in privateRendered)
+    || typeof privateRendered.filters !== "string"
+    || !("composition" in privateRendered)
+    || typeof privateRendered.composition !== "string") {
+    assert.fail("private contextual counts: expected rendered Member controls");
+  }
+  assert.match(
+    privateRendered.filters,
+    /<option value="all"[^>]*>all · 3<\/option>/);
+  assert.match(
+    privateRendered.filters,
+    /<option value="public"[^>]*>public · 2<\/option>/);
+  assert.match(
+    privateRendered.composition,
+    /data-member-jump-access="all"><strong>3<\/strong><span>all<\/span>/);
+  assert.match(
+    privateRendered.composition,
+    /data-member-jump-access="public"><strong>2<\/strong><span>public<\/span>/);
 });
 
 test("type API reports the filtered member count once in its header", () => {
