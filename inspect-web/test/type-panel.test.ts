@@ -905,7 +905,7 @@ test("the type nav renders diff before one accessible salience cue", () => {
         if (item.id === jsonSerializer.id) {
           return [
             {
-              kind: "api-diff",
+              kind: "diff",
               description: "API differences",
             },
             {
@@ -929,7 +929,7 @@ test("the type nav renders diff before one accessible salience cue", () => {
     assert.doesNotMatch(html, /data-type-leverage-filter/);
     assert.match(
       html,
-      /type-row selected api-diff implementation-sea-level/,
+      /type-row selected diff implementation-sea-level/,
     );
     assert.doesNotMatch(
       html,
@@ -943,7 +943,7 @@ test("the type nav renders diff before one accessible salience cue", () => {
       html,
       /class="item-achievement-glyph implementation-sea-level"/,
     );
-    assert.match(html, /class="item-achievement-glyph api-diff"/);
+    assert.match(html, /class="item-achievement-glyph diff"/);
     assert.match(html, /class="item-achievement-rail"/);
     assert.doesNotMatch(html, /[▁▲]/);
     assert.match(
@@ -957,14 +957,14 @@ test("the type nav renders diff before one accessible salience cue", () => {
       /aria-label="8 external source Types; top-leverage namespace"/,
     );
     const seaRow = html.match(
-      /class="type-row selected api-diff implementation-sea-level"[^>]*data-type="System\.Text\.Json\.JsonSerializer"[\s\S]*?<\/button>/,
+      /class="type-row selected diff implementation-sea-level"[^>]*data-type="System\.Text\.Json\.JsonSerializer"[\s\S]*?<\/button>/,
     )?.[0] ?? "";
     const peakRow = html.match(
       /class="type-row  implementation-mountain-peak"[^>]*data-type="System\.Text\.Json\.JsonDocument"[\s\S]*?<\/button>/,
     )?.[0] ?? "";
     assert.match(seaRow, /surface sea-level Type/);
     assert.match(seaRow, /implementation-sea-level/);
-    assert.match(seaRow, /api-diff/);
+    assert.match(seaRow, /item-achievement-glyph diff"/);
     assert.doesNotMatch(seaRow, /implementation-mountain-peak/);
     assert.doesNotMatch(peakRow, /surface-sea-level/);
 });

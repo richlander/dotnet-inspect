@@ -209,10 +209,10 @@ test("every Type change cue names its Compare view", () => {
   const both = { description: "API changed, implementation changed since 9.0.20", api: true, body: true };
 
   const apiLine = renderTypeChangeStatus(api, { status: "loading" }, escape);
-  assert.match(apiLine, /class="item-achievement-glyph api-diff"/);
+  assert.match(apiLine, /class="item-achievement-glyph diff"/);
   assert.match(apiLine, /API changed since 9\.0\.20<\/span>\s*<button type="button" class="type-change-action" data-type-change-compare="api">Compare API<\/button><\/p>/);
   const bodyLine = renderTypeChangeStatus(body, null, escape);
-  assert.match(bodyLine, /class="item-achievement-glyph body-diff"/);
+  assert.match(bodyLine, /class="item-achievement-glyph diff"/);
   assert.match(bodyLine, /data-type-change-compare="member-body">Compare bodies<\/button>/);
   assert.doesNotMatch(bodyLine, /data-type-change-compare="api"/);
   const bothLine = renderTypeChangeStatus(both, null, escape);
