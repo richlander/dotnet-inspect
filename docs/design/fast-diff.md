@@ -62,6 +62,9 @@ not, as `--all` would:
 - the metadata of non-public members; and
 - `beforefieldinit`, when the Type has a static constructor.
 
+An opcode that ECMA-335 does not define cannot be stepped over safely, so it
+makes the Body axis `Indeterminate` rather than comparing as equal.
+
 Neither axis's facts are configurable. A caller can ask for the API axis
 alone; every Body state is then `NotCompared` and no IL is read. A public member present on one side only is an
 API fact; its body is not compared. A Type public on either side partitions
@@ -85,6 +88,15 @@ resolved once per side and memoized. They never compare by token number or
 referenced assembly identity, so a renumbered or retargeted reference in an
 operand or signature is not a difference. Custom attribute and constant
 values are compared as raw blob bytes (see [Observability](#observability)).
+
+Symbolic names are injective. Every name read from metadata (namespace, Type,
+member, parameter, and import) has each character the key grammar uses as a
+separator escaped before it enters a key, so a top-level Type named `A/B`, a
+Type `B` nested in `A`, a Type `A.B` in namespace `N`, and a Type `B` in
+namespace `N.A` never share a key, and neither do member names that contain
+`::` or signature punctuation. Two Type rows that still spell one key, which
+valid metadata does not allow, are both `Indeterminate` rather than one
+replacing the other.
 
 Compiler-generated nested Types (state machines, closures, local-function
 holders, and Types nested beneath them) belong to their nearest declared
@@ -152,6 +164,13 @@ adoption is
   pairs; and
 - Body soundness: every declared owner of a body that canonical IL comparison
   reports changed is not Body `Unchanged`, over the same fixture pairs.
+
+`FastDiffIdentityTests` gates identity and decoding by outcome, over
+generated image pairs compared whole and stepped: a nested Type's body
+change beside a top-level Type whose name spells the same path, a namespace
+and a dotted Type name that display alike, a caller switching between two
+callees whose unescaped keys collide, duplicate Type names, and undefined
+one-byte and two-byte opcodes.
 
 Stepping and the API axis are gated by outcome: a comparison stepped at
 every row and Type boundary, with fresh readers per step, equals the whole
