@@ -1096,6 +1096,63 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PerformanceGroup_ProjectedJsonlExcludesInapplicableRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance:*",
+            "--columns",
+            "Caller",
+            "--jsonl");
+
+        Assert.Equal(0, exit);
+        AssertOnlyPerformanceAnalysisWarnings(error);
+        string[] lines = output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries);
+        Assert.NotEmpty(lines);
+        Assert.All(
+            lines,
+            line =>
+            {
+                using JsonDocument document =
+                    JsonDocument.Parse(line);
+                Assert.False(string.IsNullOrEmpty(
+                    document.RootElement
+                        .GetProperty("caller")
+                        .GetString()));
+            });
+    }
+
+    [Fact]
+    public async Task PerformanceGroup_ProjectedRowsApplyAfterRowAdmission()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance:*",
+            "--columns",
+            "Caller",
+            "--tsv",
+            "-n",
+            "5");
+
+        Assert.Equal(0, exit);
+        AssertOnlyPerformanceAnalysisWarnings(error);
+        string[] lines = output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal("caller", lines[0]);
+        Assert.Equal(5, lines.Length);
+        Assert.All(
+            lines.Skip(1),
+            line => Assert.False(string.IsNullOrEmpty(line)));
+    }
+
+    [Fact]
     public async Task PerformanceGroup_NoHeaderTabular_PreservesEveryRow_NoBlankSeparators()
     {
         // With --no-header the flattened table emits no header line, so every line is a data row and

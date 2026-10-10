@@ -877,10 +877,17 @@ public static class OutputFormatter
         if (performanceGroupRequested
             || multiplePerformanceSectionsEffective)
         {
-            var groupRows = auditView.PerformanceGroupRows(
+            IReadOnlyCollection<string> groupSections =
                 writerOpts.IncludeSections
                     ?? options.IncludeSections
-                    ?? []);
+                    ?? [];
+            var projectedSections =
+                ProjectPerformanceGroupSections(
+                    groupSections,
+                    options.Fields,
+                    options.Columns);
+            var groupRows = auditView.PerformanceGroupRows(
+                projectedSections);
             var groupView = new PerformanceGroupView(groupRows);
             var groupOpts = ConfigureTableWriterOptions(
                 new MarkoutWriterOptions { Projection = writerOpts.Projection }, options.Tsv, options.Jsonl);
@@ -894,6 +901,32 @@ public static class OutputFormatter
                 (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts),
                 options.Rows);
         }
+    }
+
+    private static IReadOnlyCollection<string>
+        ProjectPerformanceGroupSections(
+            IReadOnlyCollection<string> sections,
+            string[]? fields,
+            string[]? columns)
+    {
+        if (fields is not { Length: > 0 }
+            && columns is not { Length: > 0 })
+        {
+            return sections;
+        }
+
+        DocumentSchema schema = InspectionContext.Default
+            .GetSchemaInfo<LibraryInspectionView>()!
+            .ToDocumentSchema();
+        return
+        [
+            .. sections.Where(section =>
+                ProjectionMatchesSection(
+                    schema,
+                    section,
+                    fields,
+                    columns)),
+        ];
     }
 
     public static void WriteLibraryResults(List<LibraryInspection> inspections, LibraryOptions options,
