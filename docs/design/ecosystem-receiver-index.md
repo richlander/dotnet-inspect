@@ -14,11 +14,14 @@ to observable behavior in the CLI and Inspect Web.
 > For one Ecosystem's declared package-prefix population, enumerated and
 > pinned to exact package coordinates at generation, a checked-in
 > deterministic artifact records every public extension member that Metadata
-> reports for the selected Library of each pinned package, keyed by canonical
-> receiver type, together with a complete coverage record. For any receiver
-> type, the artifact's member set equals the member set the live reverse
-> extension question returns over the same pinned coordinates, and a host
-> answers from the artifact without acquiring packages.
+> reports for the selected Libraries of each pinned package, with its
+> hidden and obsolete facts, keyed by Metadata receiver type identity, together
+> with a complete coverage record. For every receiver identity, the artifact's
+> members equal Metadata's extension-member observations with that receiver
+> identity over the pinned coordinates. For any receiver query and admission
+> mode, a lookup returns the members the live reverse extension question
+> returns over the same pinned coordinates, and a host answers it without
+> acquiring packages.
 
 This owner defines:
 
@@ -26,7 +29,8 @@ This owner defines:
   serialization;
 - the coverage record, including what was enumerated, indexed, rejected,
   bounded, or contributed no extension members;
-- the receiver key and the lookup semantics over it;
+- the receiver key, and the lookup over it that consumes Metadata's
+  receiver-matching rule;
 - the equivalence property between the artifact and the live question, and
   its gates;
 - how a consumer observes the pinned coordinates, so staleness is visible;
@@ -36,13 +40,17 @@ This owner defines:
 
 It does not define:
 
-- extension-member decoding, member anchors, or receiver and return type
-  identity, which remain with Metadata (`metadata.extension-member`
-  observations and `MetadataExtensionRelationEvidence`);
+- extension-member decoding, member anchors, receiver and return type
+  identity, or the hidden and obsolete admission rule, which remain with
+  Metadata (`metadata.extension-member` observations,
+  `MetadataExtensionRelationEvidence`, and `ExtensionMethodScanner`);
+- how a receiver query string matches a receiver type, which remains with
+  Metadata's `TypeMatcher`;
 - package-prefix enumeration, paging, or completion, which remain with
   `PackagePrefixDeclaration` and NuGetFetch's prefix search;
-- Library selection within a package, which remains with PackageHouse and the
-  live `extensions` path the index must match;
+- Library selection within a package, which remains with
+  `TfmSelector.SelectHighestAssembliesFromPackage`, the selection the live
+  `extensions` path uses;
 - Ecosystem membership, lineage, or prefix declarations, which remain with
   [Static Ecosystem Packs](ecosystem-packs.md);
 - receiver applicability through the type hierarchy or generic constraints
@@ -122,11 +130,24 @@ Each case below must have a fixture or recorded probe before implementation.
   Looking up `IAzureClientFactoryBuilder` does not return it until constraint
   facts exist; the result names the unresolved type-parameter receivers it
   could not match rather than presenting a complete answer.
-- **Open generic receivers.** Aspire's `IResourceBuilder<T>` receivers with
-  constraints such as `T : IResourceWithConnectionString` share one open
-  receiver key. Lookup by the open receiver returns them; lookup by a closed
-  construction such as `IResourceBuilder<RedisResource>` is a hierarchy and
-  constraint question outside this claim.
+- **Generic receivers and fuzzy matching.** Receiver keys keep Metadata's
+  exact identity: `IResourceBuilder<T>` and
+  `IResourceBuilder<PostgresServerResource>` are distinct keys. A lookup does
+  not use exact key equality. It applies Metadata's `TypeMatcher`, which drops
+  type arguments, compares arity-free base names, accepts namespace suffixes,
+  and ignores case. Observed on `dotnet-inspect 0.27.0+a38bbc6`:
+  `extensions 'System.Collections.Generic.IEnumerable<System.Int32>'
+  --platform System.Linq --count` and the same query for `IEnumerable<T>` both
+  return 66, and `ienumerable` returns 68 because the non-generic interface
+  also matches. A lookup for `IResourceBuilder<RedisResource>` therefore
+  returns every `IResourceBuilder<…>` member, as the live question does, with
+  no constraint filtering. That result is equivalent, not applicable; the
+  difference is a declared [non-claim](#non-claims).
+- **Hidden and obsolete members.** By default the live question drops
+  members marked never-browsable or obsolete and admits them under `--all`.
+  The artifact records every public extension member with both facts, so one
+  artifact answers both admission modes, and the default lookup matches the
+  default live result.
 - **Name heuristics are not extension facts.** A row-shape guess (declaring
   type ending in `Extensions`, or first parameter type) admits
   `DistributedApplicationBuilder.AddResource<T>(T resource)`, which is an
@@ -151,15 +172,17 @@ One artifact per Ecosystem prefix declaration. It contains:
 - **Identity.** Schema version, Ecosystem identity, the exact prefix
   declaration, and the builder's algorithm version.
 - **Population.** Every enumerated package with its exact version, the
-  selected Library and target framework, nuget.org verification and owners,
+  selected Libraries and target framework, nuget.org verification and owners,
   and its disposition: indexed, indexed with zero extension members, or
-  rejected with the typed reason.
+  rejected with the typed reason. A Library whose inspection fails is recorded
+  in coverage with its reason, never as a Library with zero members.
 - **Enumeration completion.** The prefix search's completion outcome and any
   bound it reached.
 - **Members.** For each admitted extension member: canonical receiver type
   identity and receiver kind (named type, open generic, or type parameter),
   member anchor, member kind (method or property), declaring type, return
-  type identity, and the package and Library coordinate that contributes it.
+  type identity, the hidden and obsolete facts, and the package and Library
+  coordinate that contributes it.
 
 Invariants:
 
@@ -180,12 +203,13 @@ Invariants:
 
 ## Lookup semantics
 
-A lookup takes one Ecosystem artifact and one receiver identity and returns:
+A lookup takes one Ecosystem artifact, one receiver query, and one admission
+mode (default or all), and returns:
 
-- every member whose receiver key equals the requested identity, in canonical
-  order;
-- the type-parameter receivers in the artifact, reported as unresolved for
-  this lookup;
+- every admitted member whose receiver key Metadata's `TypeMatcher` matches
+  against the query, in canonical order;
+- the type-parameter receivers in the artifact that the query did not match,
+  reported as unresolved for this lookup;
 - the artifact's pinned coordinates and coverage, so a consumer can state
   "as of" and "partial"; and
 - an empty member set only as a complete-empty answer when enumeration
@@ -198,16 +222,25 @@ network-bearing host gesture.
 
 ## Equivalence with the live question
 
-The live `extensions <receiver> --package-prefix <prefix>` path is the oracle.
-For each receiver in the artifact, evaluated over exactly the artifact's
-pinned coordinates, the two member sets are equal under member anchor
-identity. Return type and declaring type identity also agree. The oracle
-compares typed identities, never display text.
+Equivalence has two levels, each with its own oracle.
 
-The builder must consume the same Metadata extension-member observations and
-the same Library selection the live path uses. A second decoder or a
-generator-side selection rule would make equivalence a coincidence rather
-than a property.
+- **Content.** For every receiver identity, the artifact's members equal the
+  typed per-assembly extension census the live path computes over the same
+  pinned coordinates, compared by member anchor, receiver identity, return
+  type identity, declaring type, and the hidden and obsolete facts. The
+  live `extensions` output cannot serve here: it carries no anchor or return
+  type and collapses overloads by display name.
+- **Lookup.** For any receiver query and admission mode, the lookup's members,
+  collapsed by the live path's overload grouping, equal the live
+  `extensions <query> --package-prefix <prefix>` result over the same pinned
+  coordinates, with `--all` for the all mode. This level checks that the
+  lookup applies the same matcher and admission rule.
+
+Both levels require one shared composition. The live path's per-assembly
+census is CLI-internal today. Step 2 moves it to a host-neutral layer that the
+live command and the builder both consume, with the same Library selection. A
+second decoder, matcher, or generator-side selection rule would make
+equivalence a coincidence rather than a property.
 
 ## Generation and placement
 
@@ -234,9 +267,12 @@ that Ecosystem is missing.
 | Deterministic serialization | Build twice from fixture assemblies and compare bytes | PR-fast |
 | Missing is never empty | Fixture population with a rejected package and an empty Library | PR-fast |
 | Extension facts only | Fixture containing an instance `Add*` method and a classic and C# 14 extension member | PR-fast |
+| Hidden and obsolete facts recorded; default lookup excludes them, all mode admits them | Fixture with never-browsable and obsolete extension members | PR-fast |
+| Lookup applies Metadata's matcher | Fixture lookups for open, closed, short-name, and differently cased receiver queries against keys built from the same fixture | PR-fast |
 | Type-parameter receivers are unresolved, not misfiled | Fixture with a constrained `TBuilder` receiver | PR-fast |
 | Checked-in artifact parses and contains every known-answer control | Load each embedded artifact | PR-fast |
-| Artifact equals the live question over pinned coordinates | Regenerate-and-compare against live `extensions` for each indexed receiver | Slow, network; daily |
+| Content equals the live census over pinned coordinates | Recompute the shared census for each pinned coordinate and compare typed identities | Slow, network; daily |
+| Lookup equals live `extensions` over pinned coordinates | Default and `--all` lookups for each indexed receiver compared with live collapsed rows | Slow, network; daily |
 | Work reduction in each host | Exact NativeAOT base/head comparison of the live and indexed paths, with result cardinality and content | Adoption PRs |
 
 ## Adoption sequence
@@ -245,8 +281,9 @@ Five steps from this design to observable behavior in both hosts, tracked by
 [#9889](https://github.com/richlander/dotnet-inspect/issues/9889):
 
 1. This design.
-2. Builder, artifact schema, generator, checked-in Aspire and
-   Microsoft.Extensions artifacts, and the CLI first adopter:
+2. Host-neutral extension census shared by the live command and the
+   builder; artifact schema, generator, checked-in Aspire and
+   Microsoft.Extensions artifacts; and the CLI first adopter:
    `extensions <Type> --ecosystem <id>` answers from the artifact.
 3. Inspect Web adoption: a Type's incoming Extensions and Spotlight read the
    same asset.
@@ -263,7 +300,9 @@ authority for unindexed populations and the oracle for the index.
 - **Hierarchy and constraint applicability.** Whether an extension on
   `IEnumerable<T>` applies to `List<T>`, or whether a constrained
   `IResourceBuilder<T>` member applies to `IResourceBuilder<RedisResource>`,
-  needs type-hierarchy and generic-constraint facts. Constraint facts belong to
+  needs type-hierarchy and generic-constraint facts. Lookups inherit the live
+  question's matcher, which is broader than applicability; a lookup result is
+  a candidate set, not an applicability judgment. Constraint facts belong to
   Metadata and are a prerequisite, not part of this claim.
 - **Populations beyond declared prefixes.** Extenders outside every Ecosystem
   prefix are not indexed. Lookups state the indexed population; they do not
