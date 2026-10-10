@@ -1682,7 +1682,7 @@ test("managed Saved Open keeps compact rows, packet fidelity, and focus ownershi
     /async function retainedDefinitionPackageLens\([\s\S]*"packageQuery" in definition[\s\S]*parseWorkspaceHref\(definition\.canonicalLocation\)[\s\S]*packageLens/);
   assert.match(
     appSource,
-    /managedHistoryWorkspaceDefinition[\s\S]*retainedDefinitionPackageLens\(\s*managedHistoryWorkspaceDefinition\)[\s\S]*installRetainedWorkspacePosting\(\s*posting,\s*locationIntent,\s*posting\.canonicalLocation === location\.href \? "exact" : "changed",\s*initialPackageLens/);
+    /managedHistoryWorkspaceDefinition[\s\S]*retainedDefinitionPackageLens\(\s*managedHistoryWorkspaceDefinition\)[\s\S]*activeDefinitionId\s*=== historyWorkspaceId[\s\S]*state\.rootKind === "package"[\s\S]*state\.packageLens = initialPackageLens[\s\S]*installRetainedWorkspacePosting\(\s*posting,\s*locationIntent,\s*posting\.canonicalLocation === location\.href \? "exact" : "changed",\s*initialPackageLens/);
   assert.match(
     appSource,
     /async function deleteManagedRetainedWorkspace\([\s\S]*successorPackageLens[\s\S]*retainedDefinitionPackageLens\(successor\)[\s\S]*completeSuccessor: posting =>\s*installRetainedWorkspacePosting\(\s*posting,\s*locationIntent,\s*undefined,\s*successorPackageLens\)/);

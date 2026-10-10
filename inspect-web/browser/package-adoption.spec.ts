@@ -1923,6 +1923,27 @@ test.describe("Package Query website over real Wasm", () => {
     );
     await expect(dependenciesTab).toHaveAttribute("aria-selected", "true");
 
+    await page.locator(
+      '[data-inspector-tab][data-package-lens="overview"]',
+    ).click();
+    await expect(page.locator(".package-overview-surface")).toBeVisible();
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/packages/${hosting.packageId}/${version}#pkg:dependencies$`,
+      ),
+    );
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="query"]').click();
+    await expect(page).toHaveURL(/\/query$/);
+    await page.goBack();
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/packages/${hosting.packageId}/${version}#pkg:dependencies$`,
+      ),
+      { timeout: 120_000 },
+    );
+    await expect(dependenciesTab).toHaveAttribute("aria-selected", "true");
+
     await page.locator("[data-product-navigation-button]").click();
     await page.locator('[data-product-destination="workspace"]').click();
     await page.locator(".workspace-row")

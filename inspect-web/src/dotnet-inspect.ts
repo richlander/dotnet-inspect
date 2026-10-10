@@ -27539,6 +27539,10 @@ window.addEventListener("popstate", () => {
           browserRestoration: "exact",
         });
         retainedLocationIntents.publish(effect, history);
+        if (initialPackageLens !== undefined
+          && state.rootKind === "package") {
+          state.packageLens = initialPackageLens;
+        }
         restoredActiveManagedWorkspace = true;
       } else {
         const result = await requireRetainedWorkspaceActivation().activate(
