@@ -407,8 +407,6 @@ public partial class FindCommand
         bool failures = false;
         bool incomplete = false;
         int acceptedMemberCount = 0;
-        FindInputRowSelection? memberInputRows =
-            options.QueryPlan?.InputRows;
         FindSearchCompletion completion = FindSearchCompletion.Exhausted;
         using var session = CreateEcosystemSession(
             options, patterns, context, tsv, layers,
@@ -571,7 +569,7 @@ public partial class FindCommand
                     + "candidate bound; later prefixes were not searched.");
             incomplete = true;
         }
-        if (tsv is null && layers.Any(layer =>
+        if (!options.Tsv && !options.Jsonl && layers.Any(layer =>
             layer.Declaration.Populations.Any(population =>
                 population is WorkspaceEcosystemPopulationDeclaration.PackagePrefix)))
         {
@@ -594,13 +592,6 @@ public partial class FindCommand
             {
                 SourceSelectionIncomplete = incomplete,
                 Completion = completion,
-                InputRows =
-                    !options.Count
-                    && memberInputRows is { } receiptInputRows
-                        ? new(
-                            receiptInputRows,
-                            acceptedMemberCount)
-                        : null,
                 ExactRowCount =
                     options.Count
                         ? acceptedMemberCount

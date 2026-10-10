@@ -143,6 +143,28 @@ public class FindProgressiveTsvTests
     }
 
     [Theory]
+    [InlineData("-n", "2", 2)]
+    [InlineData("--rows", "2..2", 1)]
+    public async Task EcosystemMemberSelectionUsesBufferedJsonlRows(
+        string selection,
+        string value,
+        int expectedLines)
+    {
+        var result = await Run(
+            "find", ".ToString",
+            "--ecosystem", "runtime",
+            selection, value,
+            "--jsonl");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(
+            expectedLines,
+            result.Output.TrimEnd('\n').Split('\n').Length);
+        Assert.DoesNotContain("output format is blocking", result.Error);
+        Assert.DoesNotContain("Cannot select member rows", result.Error);
+    }
+
+    [Theory]
     [InlineData("--markdown", "## Results")]
     [InlineData("--json", "\"type\"")]
     public async Task ExplicitFormatsRetainTheirExistingShape(string format, string expected)
