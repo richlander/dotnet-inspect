@@ -9,6 +9,7 @@ import { continueMenuButtonDocumentOrder } from "./menu-button.ts";
 export type ApplicationAction =
   | "share"
   | "settings"
+  | "legend"
   | "keyboard-help";
 
 export interface WorkbenchShellBindingActions {
@@ -112,8 +113,71 @@ export function renderApplicationMenu(shareAvailable: boolean): string {
           <div class="application-menu-separator" role="separator"></div>`
         : ""}
       <button type="button" role="menuitem" data-application-action="settings">Settings</button>
+      <button type="button" role="menuitem" data-application-action="legend">Legend</button>
       <button type="button" role="menuitem" data-application-action="keyboard-help">Keyboard help</button>
     </div>
+  </div>`;
+}
+
+const legendEntries = [
+  {
+    kind: "diff",
+    label: "Changed Type",
+    description: "Something in the Type's API or implementation changed.",
+  },
+  {
+    kind: "api-diff",
+    label: "API differences",
+    description: "The Member's provided API changed.",
+  },
+  {
+    kind: "body-diff",
+    label: "Implementation differences",
+    description: "The Member's compiled implementation changed.",
+  },
+  {
+    kind: "surface-sea-level",
+    label: "Sea level",
+    description: "Dominant incoming leverage in surface or implementation evidence.",
+  },
+  {
+    kind: "surface-mountain-peak",
+    label: "Mountain peak",
+    description: "Dominant outgoing leverage in surface or implementation evidence.",
+  },
+  {
+    kind: "top-leverage",
+    label: "Top Leverage",
+    description: "A method with the strongest inbound call leverage in its Type.",
+  },
+  {
+    kind: "implementation-hub",
+    label: "Implementation Hub",
+    description:
+      "An overload called by same-name methods without calling one itself.",
+  },
+] as const;
+
+export function renderLegendDialog(): string {
+  return `<div id="legend-backdrop" class="modal-backdrop">
+    <section id="legend-dialog" class="application-dialog"
+      role="dialog" aria-modal="true" aria-labelledby="legend-title">
+      <header class="application-dialog-head">
+        <div>
+          <p class="section-eyebrow">Application</p>
+          <h2 id="legend-title" tabindex="-1">Legend</h2>
+        </div>
+        <button id="legend-close" type="button">Close</button>
+      </header>
+      <div class="legend-list">
+        ${legendEntries.map(entry => `<div class="legend-row">
+          <span class="legend-icon" aria-hidden="true">
+            <span class="item-achievement-glyph ${entry.kind}"></span>
+          </span>
+          <span><strong>${entry.label}</strong>${entry.description}</span>
+        </div>`).join("")}
+      </div>
+    </section>
   </div>`;
 }
 
@@ -362,6 +426,7 @@ export function bindWorkbenchShell(
         const action = item.dataset.applicationAction;
         if (action !== "share"
           && action !== "settings"
+          && action !== "legend"
           && action !== "keyboard-help") return;
         closeApplicationMenu(menuButton, menu, action === "share");
         actions.onApplicationAction(action);
@@ -412,6 +477,22 @@ export function bindWorkbenchShell(
   });
   helpDialog?.addEventListener("keydown", event => {
     if (event.key === "Tab") trapModalTab(helpDialog, event);
+  });
+
+  const legendBackdrop =
+    root.querySelector<HTMLElement>("#legend-backdrop");
+  const legendDialog =
+    root.querySelector<HTMLElement>("#legend-dialog");
+  const closeLegend = () =>
+    actions.onApplicationAction("legend");
+  root.querySelector("#legend-close")?.addEventListener(
+    "click",
+    closeLegend);
+  legendBackdrop?.addEventListener("click", event => {
+    if (event.target === legendBackdrop) closeLegend();
+  });
+  legendDialog?.addEventListener("keydown", event => {
+    if (event.key === "Tab") trapModalTab(legendDialog, event);
   });
 
   return {
