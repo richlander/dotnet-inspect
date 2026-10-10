@@ -753,7 +753,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                 operation.CancellationToken,
                 operation,
                 requestLog,
-                knownArchiveLength).ConfigureAwait(false);
+                knownArchiveLength,
+                knownDirectory: cachedState?.Directory).ConfigureAwait(false);
         if (open.Value is not { } reader)
         {
             return ClassifyRanged(
@@ -768,21 +769,6 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         await using (reader.ConfigureAwait(false))
         {
             RequireAuthority(reader.Source, authority, client.Source);
-            if (cachedState is not null
-                && (reader.Directory.ArchiveLength != cachedState.Directory.ArchiveLength
-                    || !reader.Directory.Region.Span.SequenceEqual(
-                        cachedState.Directory.Region.Span)))
-            {
-                // The archive changed since its directory was cached: take the
-                // complete fetch, as ArchiveChanged means. No cached item is
-                // replaced.
-                log?.Invoke(
-                    $"The archive of {coordinate.PackageId} {coordinate.Version} at {display} "
-                    + "differs from its cached directory; acquiring the complete archive instead.");
-                return new(
-                    RangedOutcome.Fallback,
-                    Fallback: PackageTransferFallbackReason.ArchiveChanged);
-            }
             if (TryGetDirectoryEntries(
                     reader.Directory,
                     limits,
