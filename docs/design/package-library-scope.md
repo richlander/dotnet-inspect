@@ -74,8 +74,11 @@ A Library probe is how an exact-scope operation obtains its one Library
 occurrence: an exact asset-path request, the Namesake Library or
 [First Library](inspection-subject-navigation.md#initial-aggregate-and-package)
 request, or the bare rule that a population with one Library selects it.
-Navigation owns the namesake and First Library matching rules; this owner
-fixes only the population they run over.
+Navigation owns the namesake and First Library matching rules, and the bare
+rule follows the
+[Library subject resolution](primary-subject-views.md#library-owner-library-inspection-documents-and-populations)
+item of Primary subject views; this owner fixes only the population they run
+over.
 
 The operation declares one asset role, and that role's owner issues exactly
 one role population before any probe runs, for example the selected compile
@@ -340,7 +343,8 @@ another.
 CLI `library --package` and its namesake request do not yet adopt Library
 probes. When compile selection returns `NoCompileAssets`, the CLI searches the
 extracted archive instead. Without `--tfm`, it takes `tools/` DLLs, otherwise
-`ref/`, otherwise `lib/`, otherwise every DLL in the package, and then keeps
+`ref/`, otherwise `lib/`, otherwise every non-satellite DLL in the package,
+and then keeps
 the highest framework named by a `lib/`, `ref/`, or `tools/` folder; with
 `--tfm`, it takes every such folder that names that framework. DLLs under
 `analyzers/`, `build/`, `tasks/`, or `runtimes/<rid>/native/` therefore enter
@@ -348,10 +352,11 @@ only when no DLL has a framework folder, and RID folders merge at the chosen
 framework. A runtime pack consequently yields
 its implementation assemblies, an analyzer package its analyzers, and a
 framework-less root `lib/` package its root assemblies. `--tfm all` bypasses
-compile selection and takes every DLL in the package, merging frameworks,
-RIDs, and roles, including analyzer, build, and native DLLs. A selected
-explicit empty compile group does not reach either path; it fails and reports
-the group's own folder spelling, such as `netstandard`. #9833 decides both
+compile selection and takes every non-satellite DLL in the package, merging
+frameworks, RIDs, and roles, including analyzer, build, and native DLLs, and
+ignoring explicit empty groups. A selected explicit empty compile group does
+not reach the search; it fails and reports the group's own folder spelling,
+such as `netstandard`. #9833 decides both
 paths after the root `lib/` and RID-implementation decisions above, and
 Browser adoption of Library probes is not yet recorded.
 
