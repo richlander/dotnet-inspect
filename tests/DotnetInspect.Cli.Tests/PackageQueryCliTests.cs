@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
@@ -1283,10 +1284,13 @@ public class PackageQueryCliTests
                     boundedCountOptions! with { Count = true },
                     boundedCountSource,
                     null));
-            Assert.Equal(1, boundedCountResult.ExitCode);
-            Assert.Empty(boundedCountResult.Output);
+            // The explicit candidate bound is not semantic Head: Count
+            // reports the observed match, exits as Rows does, and keeps the
+            // bound's disclosure rather than claiming the scope's total.
+            Assert.Equal(0, boundedCountResult.ExitCode);
+            Assert.Equal("1", boundedCountResult.Output.Trim());
             Assert.Equal(2, boundedCountFixture.ManifestRequests);
-            Assert.Contains(
+            Assert.DoesNotContain(
                 "Cannot count Package Query rows",
                 boundedCountResult.Error);
             Assert.Contains(
@@ -2496,11 +2500,13 @@ public class PackageQueryCliTests
         var result = await ConsoleCapture.RunAsync(() => PackageQueryCommand.ExecuteAsync(
             query with { Count = true },
             source, null));
-        Assert.Equal(1, result.ExitCode);
-        Assert.Empty(result.Output);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("0", result.Output.Trim());
         Assert.Equal(1, fixture.ManifestRequests);
-        Assert.Contains("Cannot count Package Query rows", result.Error);
         Assert.Contains("CandidateLimitReached", result.Error);
+        Assert.Contains(
+            "These results do not exhaust the requested package-ID scope",
+            result.Error);
     }
 
     [Fact]
@@ -2540,6 +2546,37 @@ public class PackageQueryCliTests
     }
 
     [Fact]
+    public async Task PartialManifestFailure_CountsObservedMatchesWithRowsExit()
+    {
+        using var source = Source(out var fixture);
+        fixture.MissingManifest = "contoso.third";
+        var rows = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                Options("depends=Dependency.One") with { Tsv = true },
+                source,
+                null));
+        using var countSource = Source(out var countFixture);
+        countFixture.MissingManifest = "contoso.third";
+        var count = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                Options("depends=Dependency.One") with { Count = true },
+                countSource,
+                null));
+
+        int renderedRows =
+            rows.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Length - 1;
+        Assert.Equal(1, renderedRows);
+        Assert.Equal(rows.ExitCode, count.ExitCode);
+        Assert.Equal(1, count.ExitCode);
+        Assert.Equal(
+            renderedRows.ToString(CultureInfo.InvariantCulture),
+            count.Output.Trim());
+        Assert.Contains("ManifestAcquisition", count.Error);
+        Assert.DoesNotContain("Cannot count Package Query rows", count.Error);
+    }
+
+    [Fact]
     public async Task EmptySuccessAndSearchFailureRemainDistinct()
     {
         using var source = Source(out var fixture);
@@ -2551,7 +2588,10 @@ public class PackageQueryCliTests
         fixture.SearchFails = true;
         var failed = await ConsoleCapture.RunAsync(() => PackageQueryCommand.ExecuteAsync(options, source, null));
         Assert.Equal(1, failed.ExitCode);
-        Assert.Contains("Cannot count Package Query rows", failed.Error);
+        Assert.Empty(failed.Output);
+        Assert.Contains(
+            "Cannot count Package Query rows because the package search failed",
+            failed.Error);
     }
 
     [Theory]
