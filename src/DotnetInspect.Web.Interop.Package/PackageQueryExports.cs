@@ -1422,15 +1422,29 @@ namespace DotnetInspect.Web.Interop.Package
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
         : IPackageQueryContentProvider
     {
-        public ValueTask<PackageQueryContentResult> GetContentAsync(
+        public ValueTask<PackageQueryContentResult> GetInventoryAsync(
             PackageQueryPackage package,
-            PackageQueryContentDemand demand,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
+            return BrowserPackageWorkspace
+                .AcquirePackageQueryInventoryAsync(
                 package,
-                demand,
+                BrowserPackageWorkspace.Gallery,
+                deadline);
+        }
+
+        public ValueTask<PackageQueryContentResult> GetFilesAsync(
+            PackageQueryPackage package,
+            PackageQueryContentInventory inventory,
+            IReadOnlyList<PackageContentEntry> entries,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return BrowserPackageWorkspace.AcquirePackageQueryFilesAsync(
+                package,
+                inventory,
+                entries,
                 BrowserPackageWorkspace.Gallery,
                 deadline);
         }

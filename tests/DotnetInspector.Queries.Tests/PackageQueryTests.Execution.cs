@@ -194,7 +194,8 @@ public partial class PackageQueryTests
         Assert.Equal(
             "2",
             EvidenceProperty(match.Evidence[4], "settings-version"));
-        Assert.Equal(["Contoso.Tool"], content.Requests);
+        Assert.Equal(["Contoso.Tool"], content.InventoryRequests);
+        Assert.Equal(["Contoso.Tool"], content.FileRequests);
         Assert.All(
             match.Evidence,
             evidence =>

@@ -76,7 +76,9 @@ internal static class PackageQueryCommand
                 : options.Plan;
         await using ContentProvider? provider =
             prequalificationPlan.RequiresPackageContent
-            ? new ContentProvider(new DesktopPackageSourceComposition(fetchOptions.RequestTimeout), operation)
+            ? new ContentProvider(
+                new DesktopPackageSourceComposition(
+                    fetchOptions.RequestTimeout))
             : null;
         await using DesktopPackageSourceComposition? traversalComposition =
             options.Plan.RequiresDependencyTraversal
@@ -446,43 +448,50 @@ internal static class PackageQueryCommand
             ? 0 : 1;
 
     internal sealed class ContentProvider(
-        DesktopPackageSourceComposition composition,
-        NuGetOperationContext operation) : IPackageQueryContentProvider, IAsyncDisposable
+        DesktopPackageSourceComposition composition)
+        : IPackageQueryContentProvider, IAsyncDisposable
     {
         private readonly Dictionary<ConfiguredPackageAuthority, IPackageStore> _stores = [];
         private string? _temporaryRoot;
 
-        public async ValueTask<PackageQueryContentResult> GetContentAsync(
+        public ValueTask<PackageQueryContentResult> GetInventoryAsync(
             PackageQueryPackage package,
-            PackageQueryContentDemand demand,
+            CancellationToken cancellationToken) =>
+            AcquireContentAsync(
+                package,
+                PackageHouseContentQuery.PackageFileList(),
+                cancellationToken);
+
+        public ValueTask<PackageQueryContentResult> GetFilesAsync(
+            PackageQueryPackage package,
+            PackageQueryContentInventory inventory,
+            IReadOnlyList<PackageContentEntry> entries,
+            CancellationToken cancellationToken) =>
+            AcquireContentAsync(
+                package,
+                inventory.CreateFilesQuery(entries),
+                cancellationToken);
+
+        private async ValueTask<PackageQueryContentResult>
+            AcquireContentAsync(
+            PackageQueryPackage package,
+            PackageHouseContentQuery query,
             CancellationToken cancellationToken)
         {
-            if (demand.ContentQuery is { } query)
-            {
-                PackageHouseSettlement settlement = await composition.AcquireContentAsync(
-                    PackageSourceCoordinate.Create(package.PackageId, package.Version),
-                    query,
-                    GetStore,
-                    new NuGetSourceOptions { Sources = [PackageSource.NuGetOrg.Url] },
-                    cancellationToken: cancellationToken).ConfigureAwait(false);
-                return PackageQueryContentResult.FromSettlement(settlement);
-            }
-            var result = await composition.AcquirePinnedAsync(
-                package.PackageId,
-                package.Version,
+            PackageHouseSettlement settlement =
+                await composition.AcquireContentAsync(
+                PackageSourceCoordinate.Create(
+                    package.PackageId,
+                    package.Version),
+                query,
                 GetStore,
-                new NuGetSourceOptions { Sources = [PackageSource.NuGetOrg.Url] },
-                cancellationToken: cancellationToken,
-                operationContext: operation).ConfigureAwait(false);
-            if (result.Failures.Count > 0)
-            {
-                return new PackageQueryContentResult.Unavailable(string.Join(
-                    "; ", result.Failures.Select(failure => $"{failure.Authority}: {failure.Message}")));
-            }
-            return result.Payload is { } payload
-                ? new PackageQueryContentResult.Available(payload.Content)
-                : new PackageQueryContentResult.Unavailable(
-                    "NuGet.org did not supply the selected package archive.");
+                new NuGetSourceOptions
+                {
+                    Sources = [PackageSource.NuGetOrg.Url],
+                },
+                cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            return PackageQueryContentResult.FromSettlement(settlement);
         }
 
         private IPackageStore GetStore(ConfiguredPackageAuthority authority, PackageProducerIdentity producer)

@@ -368,15 +368,33 @@ different surrounding reference sets.
 `depends starts-with` is an absolute literal-prefix query and remains distinct
 from the candidate-relative `dependencies=cross-prefix` classification.
 
-### Inventory demand for skill presence
+### Demand-shaped package-content evidence
 
 The QuerySpace-bound plan determines content evidence demand before invoking
-`IPackageQueryContentProvider`. When every content predicate is `skill`, the
-provider receives a package-wide File List query and returns its typed
-inventory receipt. Skill evidence counts and previews those admitted entry
-names without opening their bodies. Combining `skill`
-with a body-dependent predicate retains entry-content acquisition. Manifest
-prequalification still precedes either demand.
+`IPackageQueryContentProvider`. Every admitted package-content candidate first
+requests one package-wide File List and retains its typed inventory and House
+evidence. Package Query then joins the complete bound predicate set into one
+exact-entry plan:
+
+- `skill` consumes paths only;
+- `tool-format` selects only admitted `DotnetToolSettings.xml` entries;
+- `references` selects only admitted managed `ref/` and `lib/` assemblies; and
+- compatible body predicates share one later Files request for the union of
+  those exact entries.
+
+An inventory-proven absence settles without a Files request. Entry-count and
+declared-byte limits settle before body transfer when File List evidence is
+sufficient. Metadata row limits and content validity remain body-evaluation
+questions. The later Files request uses references issued by the exact retained
+File List, so generation correspondence, exact-entry admission, physical range
+planning, transfer receipts, and typed acquisition failures remain
+PackageHouse-owned. Manifest prequalification still precedes either stage.
+
+This is the five-axis demand model tracked by #9257: package-wide directory
+breadth, selected-entry body depth, zero-body or complete-entry terminals,
+candidate-bounded inventory retention, and shared directory/exact-file
+preparation. Sharing never widens `skill` or an inventory-proven negative into
+body acquisition.
 
 The motivating real asset is
 [Avalonia 12.1.3](https://www.nuget.org/packages/Avalonia/12.1.3): its archive
@@ -386,8 +404,13 @@ bodies. Shared planning and execution tests cover positive inventory, exact
 counts, no body reads, and mixed predicates; host gates cover acquisition.
 Both website and CLI consume the same demand through PackageHouse. House owns
 range selection and the existing small-package whole-download policy.
-`tool-format` and `references` retain their existing body acquisition in this
-slice; narrowing those demands is successor work.
+
+`dotnet-ef@10.0.0` contains one 194-byte
+`tools/net10.0/any/DotnetToolSettings.xml` entry with
+`DotNetCliTool Version="1"`. It motivates sparse settings acquisition.
+`Microsoft.Extensions.Http@10.0.0` remains the assembly-reference witness: its
+five admitted implementation assemblies motivate bounded multi-entry Metadata
+acquisition without unrelated package bodies.
 
 ## Adaptive result section
 
@@ -890,9 +913,11 @@ product-issued keys and values and do not reconstruct those predicates:
   package type; it does not open the archive merely to classify tool settings.
 - **`package-content` tier.** `tool-format`, `references`, and `skill` require
   an explicit `IPackageQueryContentProvider` and accept at most 20 candidates.
-  `PackageQuery` applies all cheaper predicates first. Tool v1 and v2 are
-  combining members, so selecting both returns either recognized settings
-  format with evidence identifying the observed version.
+  `PackageQuery` applies all cheaper predicates first, requests one File List,
+  and lowers the complete content term set to zero or one union exact Files
+  request. Tool v1 and v2 are combining members, so selecting both returns
+  either recognized settings format with evidence identifying the observed
+  version.
 - **`metadata-expensive` execution.** `library-literal` acquires package
   content, requires one exact planner-authored `library-target`, and admits at
   most five candidates. Package Query applies ordinary terms first, then

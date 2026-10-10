@@ -2855,79 +2855,64 @@ internal static class BrowserPackageWorkspace
     }
 
     internal static ValueTask<PackageQueryContentResult>
-        AcquirePackageQueryContentAsync(
+        AcquirePackageQueryInventoryAsync(
             PackageQueryPackage package,
-            PackageQueryContentDemand demand,
             IPackageSourceClient source,
             BrowserPackageOperationDeadline deadline) =>
         AcquirePackageQueryContentAsync(
             package,
-            demand,
+            PackageHouseContentQuery.PackageFileList(),
             source,
-            ConfiguredSourceIdentityFor(source),
             deadline);
 
-    internal static async ValueTask<PackageQueryContentResult>
+    internal static ValueTask<PackageQueryContentResult>
+        AcquirePackageQueryFilesAsync(
+            PackageQueryPackage package,
+            PackageQueryContentInventory inventory,
+            IReadOnlyList<PackageContentEntry> entries,
+            IPackageSourceClient source,
+            BrowserPackageOperationDeadline deadline) =>
+        AcquirePackageQueryContentAsync(
+            package,
+            inventory.CreateFilesQuery(entries),
+            source,
+            deadline);
+
+    private static async ValueTask<PackageQueryContentResult>
         AcquirePackageQueryContentAsync(
             PackageQueryPackage package,
-            PackageQueryContentDemand demand,
+            PackageHouseContentQuery query,
             IPackageSourceClient source,
-            PackageSourceIdentity configuredSourceIdentity,
             BrowserPackageOperationDeadline deadline)
     {
         ArgumentNullException.ThrowIfNull(package);
+        ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(source);
-        ArgumentNullException.ThrowIfNull(configuredSourceIdentity);
         ArgumentNullException.ThrowIfNull(deadline);
         PackageSourceCoordinate coordinate = PackageSourceCoordinate.Create(
             package.PackageId,
             package.Version);
         BrowserSessionPackageStore store = StoreFor(source);
 
-        PackageSourcePayloadResult result;
         try
         {
-            if (demand.ContentQuery is { } query)
-            {
-                return PackageQueryContentResult.FromSettlement(
-                    await AcquireContentCoreAsync(
-                        coordinate, query, source, deadline,
-                        new BrowserPackageQueryTransferPolicy(
-                            new BrowserPackageOperationTransferPolicy(store, deadline)))
-                        .ConfigureAwait(false));
-            }
-            result = await PackagePayloadAcquisition.AcquireAsync(
-                    source,
-                    configuredSourceIdentity,
+            return PackageQueryContentResult.FromSettlement(
+                await AcquireContentCoreAsync(
                     coordinate,
-                    store,
-                    limits: PayloadLimits,
-                    cancellationToken: deadline.Token,
+                    query,
+                    source,
+                    deadline,
                     transferPolicy: new BrowserPackageQueryTransferPolicy(
                         new BrowserPackageOperationTransferPolicy(
                             store,
                             deadline)))
-                .ConfigureAwait(false);
+                .ConfigureAwait(false));
         }
         catch (BrowserPackagePayloadPolicyException exception)
         {
             return new PackageQueryContentResult.Unavailable(
                 exception.Message);
         }
-        return result switch
-        {
-            PackageSourcePayloadResult.Acquired acquired =>
-                new PackageQueryContentResult.Available(
-                    acquired.Payload.Content),
-            PackageSourcePayloadResult.Unavailable unavailable =>
-                new PackageQueryContentResult.Unavailable(
-                    unavailable.Message),
-            PackageSourcePayloadResult.Failed failed =>
-                new PackageQueryContentResult.Unavailable(
-                    failed.Failure.Message),
-            _ => throw new InvalidOperationException(
-                "Package payload acquisition returned an unknown outcome."),
-        };
     }
 
     internal static ValueTask<PackageRootPayloadResult>
