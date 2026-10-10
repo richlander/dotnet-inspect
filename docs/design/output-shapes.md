@@ -715,36 +715,60 @@ The proposed `--envelope` is a separate
 content-shape or presentation modifier.
 
 `library --package ... --tfm all` selects the Library aggregate over every
-framework in the package. Its result is one Table: the aggregate's row output,
-whose provenance cells (`package`, `version`, `library`, `tfm`) precede the
-selected section's own cells. The `library` cell carries the asset path, so
-assets that share a framework in different package layouts remain distinct
-rows. Under the [shape-native default](cli-verbosity-retirement.md#presentation),
-an omitted format renders that Table as TSV. Markdown renders the same rows as
-one Markdown table, JSONL as one object per row, and JSON as an array of row
-objects; none of them restores one document per Library.
+framework in the package. Its result is one Table. Every row carries the
+provenance cells `package`, `version`, `library`, and `tfm`, then the selected
+section's own cells. The `library` cell carries the asset path, so assets that
+share a framework in different package layouts remain distinct rows. The row
+unit is the selected section's aggregate row unit under
+[Section cardinality](section-cardinality.md):
+
+- `Library Info`: one row per library. Its fields become columns, in owner
+  order, after the provenance cells; Count is the number of libraries.
+- `Switches`, `Integrations`, and `Integration Opportunities`: one row per
+  row of that section for each library, with the section's columns after the
+  provenance cells.
+
+When no explicit or environment format applies, the
+[shape-native default](cli-verbosity-retirement.md#presentation) renders the
+Table as TSV. Markdown renders the same rows as one Markdown table, JSONL as one
+object per row, and JSON as an array of those row objects; none of them
+restores one document per Library. Every lowering carries the same rows, so
+Count, `-n`, and `--rows` observe them alike, and `--columns` selects among the
+Table's columns.
 
 A named Library (`library <L> --package ... --tfm all`) is the same Table
 restricted to the assets that the exact Library request names. It has no
 separate format rule, and a name that matches no asset fails as the exact
 Library request does.
 
-The Table admits exactly one section with a declared aggregate row unit:
-`Library Info`, `Switches`, `Integrations`, or `Integration Opportunities`.
-With no section selected, it is `Library Info`. Any other section, a category
-selector, or a selection of several sections fails visibly in every format and
-names the supported sections; it does not fall back to per-Library documents
-or choose one section. Count and row selection keep the aggregate's declared
-scopes. `--tree`, standalone `--mermaid`, and `--print` fail because the
-result is neither a hierarchy, a graph, nor one payload. Which assets enter the
-aggregate is owned by [Package Library scope](package-library-scope.md), not by
-this shape.
+The Table admits exactly one of those four sections. With no section selected,
+it is `Library Info`, so `--count` alone returns the number of libraries. Any
+other section, a category selector, or a selection of several sections fails
+visibly in every format and with `--count`, and names the supported sections.
+It does not fall back to per-Library documents, choose one section, or sum
+independent per-library row sets into one Count. `--tree`, standalone
+`--mermaid`, and `--print` fail because the result is neither a hierarchy, a
+graph, nor one payload. Which assets enter the aggregate is owned by
+[Package Library scope](package-library-scope.md), not by this shape.
 
-Adoption: the CLI does not yet meet this contract. It renders one Markdown
-section per Library by default, emits whole-inspection JSON, rejects table
-formats for a named Library, renders per-Library documents for unsupported
-sections in Markdown, and renders each section of a multi-section selection.
+Adoption: the CLI does not yet meet this contract. Today it:
+
+- renders one Markdown `Library Info` section per Library by default;
+- emits `Library Info` as `field`/`value` rows in TSV and JSONL, while Count
+  counts libraries;
+- emits whole-inspection JSON;
+- rejects table formats for a named Library;
+- renders per-Library documents for unsupported sections in Markdown, and sums
+  their rows across libraries under `--count`;
+- renders and counts each section of a multi-section selection;
+- rejects `--count` without `-S` and rejects `--columns`; and
+- applies bare `-n` to rendered lines, as
+  [CLI row selection](cli-row-selection.md) records for `--tfm all`.
+
 The CLI adoption under #9833 replaces those behaviors with the Table above.
+Package `--library` produces the same aggregate rows for one selected
+framework, so the row layout applies to it as well; its omitted-format default
+and JSON shape stay with Package adoption under #9547.
 
 For unreduced output, shape cardinality is evaluated after both section and
 subject selection. `--table`, `--tsv`, and `--jsonl` require exactly one table
