@@ -262,33 +262,33 @@ first difference.
 > Type's facts, so a Type axis is `Unchanged` at the Library level exactly
 > when that axis is `Unchanged` for every Member and for the residual.
 
-The partition follows the Library level's census exactly: every fact the
-[API axis](#axes) or the Body axis records for the Type lands in one Member
-state or the residual on the same axis.
+The partition is defined by ownership of the Library level's own census
+facts, not by a separate list, so the two levels cannot disagree:
 
-- **Member API** holds the Member's own Public API facts, compared
-  completely rather than to a first difference: signature, flags,
-  parameters, constants, and custom attributes. Public means visible as the
-  census decides it, which includes explicit interface implementations. A
-  non-public Member, and every Member of a non-public Type, has no API facts.
-- **Member Body** holds the Member's non-API facts and stops at the first
-  difference: its IL; for a non-public Member, its metadata (flags,
-  implementation flags, parameters, constants, imports, and attributes);
-  and the IL and metadata of the generated code it owns. Accessors belong to
-  their property or event, so a public property's non-public accessor
-  metadata is that property's Body.
-- **Residual** holds every Type fact on its axis's side of the visibility
-  partition. For a public Type, the API residual is the Type's declaration:
-  flags except `beforefieldinit`, base Type, interfaces and their
-  attributes, generic parameters and constraints, attributes, layout, the
-  effective nullable context, and MethodImpl rows. For a non-public Type,
-  those declaration facts are the Body residual. The Body residual also
-  holds `beforefieldinit` and generated code, IL and metadata, with no
-  single owner.
+1. **Every census fact has one owner.** A fact belongs to the Member whose
+   declaration row it describes: the method, field, property, or event row,
+   and that row's parameters, constants, imports, generic parameters, and
+   attributes. Accessors and an auto-property's backing field belong to
+   their property or event. Facts of generated code belong to its owner, as
+   below. Every other fact (the Type's own row, base Type, interfaces,
+   generic parameters, attributes, layout, nullable context, MethodImpl rows,
+   and `beforefieldinit`) belongs to the residual.
+2. **A fact keeps the axis the census gives it.** A Member's or the
+   residual's state on an axis is `Changed` when any fact it owns on that
+   axis differs, including a fact present on one side only. So a public
+   Member's own facts are API facts and a non-public Member's are Body
+   facts; public means visible as the census decides it, which includes
+   explicit interface implementations. A public property with a non-public
+   setter therefore has API facts from the property row and getter and Body
+   facts from the setter.
+3. **IL compares where the census compares it.** A Member's Body also covers
+   the IL of its methods present on both sides and of the generated code it
+   owns, to the first difference. The census does not compare the body of a
+   public method present on one side only, so neither does the Type level.
 
-A Member declared on one side only follows the census. A public one is API
-`Changed`; its own body is not compared, so its Body reflects only the
-generated code it owns. A non-public one is Body `Changed`.
+Member API compares completely, so every changed public Member is marked;
+Member Body is an existence check. A Member declared on one side only is
+therefore `Changed` on each axis where it owns facts.
 
 Generated code (lambdas, local functions, iterators, and async state machines)
 belongs to a Member only when the shared lifted-owner resolution in
@@ -320,8 +320,9 @@ generated-code owner resolution comes from `ILInspector.Analysis`; anchors and
 partition itself stays in `FastDiff`.
 
 Gates: for the fixture pairs, the Type-level states agree with the Library
-level per the partition claim, including an added public method, an
-attribute added to an internal method, a base Type change on an internal Type, and a nested Type whose
+level per the partition claim, including an added public method, an added
+public property with a private setter, an attribute added to an internal
+method, a base Type change on an internal Type, and a nested Type whose
 inherited nullable context changed; every Member the complete Public API diff
 reports changed is not API `Unchanged`; and every owner of a body that
 canonical IL comparison reports changed is Body `Changed` or `Indeterminate`,
