@@ -265,6 +265,48 @@ public class ShortCircuitDefiniteAssignmentTests
         Assert.DoesNotContain("= default", result.Output);
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void CompilerProducedUserTruthinessKeepsInitializationAndBinds()
+    {
+        var type = typeof(ShortCircuitTruthinessSample);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = Assert.IsType<IrFunction>(IrImporter.Import(source,
+            type.FullName!, nameof(ShortCircuitTruthinessSample.NestedGuard)));
+        var result = CSharpPrinter.PrintRaised(function,
+            method => IrImporter.Import(source, method),
+            typesProvablyDisjoint: source.AreProvablyDisjoint);
+
+        function.CheckInvariant();
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        string body = Assert.IsType<string>(result.Output);
+        Assert.Contains("&&", body);
+        Assert.Contains("= default", body);
+        string text = $$"""
+            using ILInspector.Decompiler.Tests;
+            class Shell
+            {
+                static ShortCircuitTruthValue Read(out int value)
+                {
+                    value = 42;
+                    return new ShortCircuitTruthValue(true);
+                }
+                static int M(ShortCircuitTruthValue input)
+                {
+                    {{body}}
+                }
+            }
+            """;
+        var compilation = CSharpCompilation.Create("truthiness-decline-binding",
+            [CSharpSyntaxTree.ParseText(text,
+                cancellationToken: TestContext.Current.CancellationToken)],
+            RoslynTestReferences.TrustedPlatform.Add(
+                MetadataReference.CreateFromFile(type.Assembly.Location)),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        Assert.Empty(compilation.GetDiagnostics(TestContext.Current.CancellationToken)
+            .Where(d => d.Severity == DiagnosticSeverity.Error));
+    }
+
     static void AssertBinds(IrFunction function, ArgumentRefKind kind = ArgumentRefKind.Out)
     {
         string body = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
@@ -319,5 +361,36 @@ public static class ShortCircuitAssignmentSample
         if (text is null || !int.TryParse(text, out int value))
             return 0;
         return value;
+    }
+}
+
+public readonly struct ShortCircuitTruthValue
+{
+    readonly bool _value;
+
+    public ShortCircuitTruthValue(bool value) => _value = value;
+    public static bool operator true(ShortCircuitTruthValue value) => value._value;
+    public static bool operator false(ShortCircuitTruthValue value) => !value._value;
+    public static ShortCircuitTruthValue operator &(
+        ShortCircuitTruthValue left, ShortCircuitTruthValue right)
+        => new(left._value && right._value);
+}
+
+public static class ShortCircuitTruthinessSample
+{
+    static ShortCircuitTruthValue Read(out int value)
+    {
+        value = 42;
+        return new ShortCircuitTruthValue(true);
+    }
+
+    public static int NestedGuard(ShortCircuitTruthValue input)
+    {
+        if (input)
+        {
+            if (Read(out int value))
+                return value;
+        }
+        return 0;
     }
 }

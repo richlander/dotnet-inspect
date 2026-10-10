@@ -218,6 +218,17 @@ static class DefiniteAssignment
             }
             if (condition is LogicalBinary logical)
             {
+                // Condition spelling can expose a user-typed operand by stripping
+                // op_True/op_False. Its overloaded &&/|| does not establish C#'s
+                // primitive-boolean outcome facts, even though this IR result is
+                // bool. Keep the unconditional, pre-existing short-circuit proof.
+                if (ContainsUserDefinedTruthiness(logical))
+                {
+                    var unconditional = new HashSet<int>(entry);
+                    CheckReads(logical.Left, unconditional);
+                    CheckReads(logical.Right, new HashSet<int>(unconditional));
+                    return (unconditional, new HashSet<int>(unconditional));
+                }
                 var (leftTrue, leftFalse) = CheckCondition(logical.Left, entry);
                 if (logical.Kind == LogicalKind.And)
                 {
@@ -236,6 +247,19 @@ static class DefiniteAssignment
             var assigned = new HashSet<int>(entry);
             CheckReads(condition, assigned);
             return (assigned, new HashSet<int>(assigned));
+        }
+
+        static bool ContainsUserDefinedTruthiness(IrNode node)
+        {
+            if (node is Lambda or LocalFunctionStatement)
+                return false;
+            if (node is IrExpression expression
+                && ShortCircuitFidelity.IsUserDefinedTruthiness(expression))
+                return true;
+            foreach (var child in node.Children)
+                if (ContainsUserDefinedTruthiness(child))
+                    return true;
+            return false;
         }
 
         void CheckCall(MethodRef callee, IReadOnlyList<IrExpression> arguments, int parameterStart, HashSet<int> assigned)

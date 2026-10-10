@@ -1296,12 +1296,16 @@ locals that may be read before they are definitely assigned and gives up —
 marking every local — on control flow it does not model, so it can only keep a
 redundant initializer, never drop a required one.
 
-Short-circuit conditions carry separate definitely-assigned sets for their
-true and false outcomes. Only metadata-verified `out` arguments establish
-assignment; a skipped call, an input reference, or an unknown ref kind cannot.
+Primitive-boolean short-circuit conditions carry separate definitely-assigned
+sets for their true and false outcomes. Calls establish assignment only for
+metadata-verified `out` arguments; a skipped call, an input reference, or an
+unknown ref kind cannot.
 A branch body consumes its outcome's set, and only paths that reach the normal
 continuation participate in its join. Unsupported control flow retains the
-conservative fallback. `ShortCircuitDefiniteAssignmentTests` gates both
+conservative fallback, as do logical chains containing user-defined truthiness:
+the printer can expose a user-typed operand and bind an overloaded `&&`/`||`,
+which does not establish C#'s primitive-boolean outcome facts.
+`ShortCircuitDefiniteAssignmentTests` gates both
 outcomes, returning guards, nested short-circuit reads, and close declines.
 The motivating real witness is `dotnet-inspect.any` 0.14.0,
 `ILInspector.Decompiler.Pipeline.TypeRef::DisplayName`: the previous projection
