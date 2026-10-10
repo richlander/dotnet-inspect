@@ -596,9 +596,9 @@ work dimension. Its adoption:
 - removes `--candidates` and `--matches` without aliases;
 - carries an absent shared match budget when the row plan is not one Head
   operation;
-- delegates a lone semantic Head through the shared match budget, with or
-  without explicit `--take`, and, for the direct row path without explicit
-  `--take`, the candidate budget; and
+- delegates a lone semantic Head within the owner's match-budget maximum
+  through the shared match budget, with or without explicit `--take`, and, for
+  the direct row path without explicit `--take`, the candidate budget; and
 - still applies `-n` after owner-defined result construction as the semantic
   backstop.
 

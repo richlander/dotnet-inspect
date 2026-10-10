@@ -76,8 +76,9 @@ The initial CLI admits exactly one source, so this is an ordinal path order.
 default is 256 and the maximum is 4,096. The complete population size remains
 known after assembly-set formation, so reaching the bound is reported
 explicitly. An explicit `--take` fixes the requested candidate population, so
-reaching it is the scope of the answer; reaching the default leaves the
-population incomplete.
+reaching it is the scope of the answer. The default leaves the population
+incomplete only when it omits known population members; a population no
+larger than the default is evaluated completely.
 
 `--tail` and `--rows` run only after matching Library rows have been produced.
 A lone `-n` or `--head` may stop candidate evaluation once N matching rows are
@@ -128,9 +129,9 @@ reads remain visible failures. They never become nonmatches.
 - when no reference predicate was requested, incomplete reference rows do not
   invalidate the Library inventory result.
 
-A reached default candidate bound produces partial output with a completion
-warning and a nonzero exit; a reached explicit `--take` is the requested scope,
-not a partial result, and exits zero. Population or evaluation failures produce
+A default candidate bound that omits known population members produces partial
+output with a completion warning and a nonzero exit; a reached explicit
+`--take` is the requested scope, not a partial result, and exits zero. Population or evaluation failures produce
 a nonzero exit.
 `--count` counts the rows Rows would render from the same evaluation, with the
 same completion warning and exit status, under the section-row owner's
@@ -195,7 +196,8 @@ Release gates cover:
   candidate-bound accounting in `DotnetInspector.Queries.Tests`;
 - route-derived query discovery and structural discovery without acquisition
   in `DotnetInspect.Cli.Tests`;
-- directory execution, row selection versus candidate bounds, Count, and
+- directory execution, row selection versus candidate bounds, Count, a
+  population exactly at and one larger than the default bound, and
   malformed-reference visibility in `DotnetInspect.Cli.Tests`; and
 - participant-backed execution, exact Browser asset-ID projection, and Worker
   transport in `DotnetInspector.Queries.Tests` and `DotnetInspect.Web.Tests`;

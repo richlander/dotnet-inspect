@@ -72,9 +72,10 @@ remains owned by
 [Package Query assembly-pattern evaluation](package-query-assembly-evaluation.md).
 `package query` uses [CLI execution bounds](cli-execution-bounds.md):
 `--take` bounds candidate work and semantic `-n` selects final package rows.
-A single semantic Head is delegated to the shared query's optional `matches`
-bound, with or without explicit `--take`; without explicit `--take`, direct
-package rows also use that Head as their candidate bound. Browser requests author the same Head stage and explicit
+A single semantic Head within the 1,000 match-budget maximum is delegated to
+the shared query's optional `matches` bound, with or without explicit
+`--take`; without explicit `--take`, direct package rows also use that Head as
+their candidate bound. Browser requests author the same Head stage and explicit
 match bound through the same planner.
 
 The adoption under
@@ -510,8 +511,9 @@ evaluation before its match status is known. The manifest-only default remains
 200 candidates and an explicit value may raise it to 1,000. Package-content
 queries default to and reject values above 20; a `metadata-expensive`
 `library-literal` query instead defaults to and rejects values above five.
-Reaching a default candidate bound is visible bounded incompleteness: a
-partial view with observed rows and Count, a disclosure, and a nonzero exit. An
+A default candidate bound that stops evaluation before the package-ID scope is
+exhausted is visible bounded incompleteness: a partial view with observed rows
+and Count, a disclosure, and a nonzero exit. An
 explicit `--take` instead fixes the requested candidate population: when every
 candidate in it was evaluated without failure, its matches are the complete
 answer for that population, and the result names the bound as its scope rather
@@ -519,8 +521,8 @@ than warning that the package-ID scope was not exhausted. Neither integer is a
 matched-row count.
 
 `-n` is semantic Head over final matched-package rows. When the row plan is one
-Head operation, the CLI pushes that head into execution, with or without an
-explicit `--take`. Without explicit `--take`, a direct metadata row path uses N
+Head operation within the match-budget maximum, the CLI pushes that head into
+execution, with or without an explicit `--take`. Without explicit `--take`, a direct metadata row path uses N
 as both the candidate and match bound, so `package query 'Foo*' -n 2` has the effective work shape
 `--take 2 -n 2`. An inspection-term-filtered path retains its default candidate ceiling
 and stops after finding N matches. Failures encountered before the Nth match
@@ -573,8 +575,8 @@ operation rather than empty success.
 The low-compatibility migration removes `--candidates` and `--matches`; they do
 not remain aliases or retirement shims. The shared query engine may retain its
 host-neutral match-budget capability. The CLI does not expose that budget as
-another option; it infers one only from a lone semantic Head, with or without
-explicit `--take`.
+another option; it infers one only from a lone semantic Head within the
+match-budget maximum, with or without explicit `--take`.
 
 The owner-issued query request, accepted plan, execution state, and summary
 therefore carry the same optional match budget end to end. Planning preserves
@@ -590,7 +592,9 @@ the observed match count without manufacturing an infinite or candidate-equal
 ceiling.
 
 The CLI requests an absent match budget when the row plan is not one Head
-operation. A lone semantic Head supplies its N as the match budget, with or
+operation or when that Head's N exceeds the 1,000 match-budget maximum; the
+larger Head then applies after execution as the semantic backstop. A lone
+semantic Head within the maximum supplies its N as the match budget, with or
 without explicit `--take`; without explicit `--take`, a direct prefix-metadata
 path also uses N as its candidate budget. The semantic row intent still reaches L2 after execution as a
 backstop. This optional state is required rather than a sentinel: with
@@ -1094,7 +1098,8 @@ accepted plan and summary unchanged without defaulting or sentinel conversion.
 one-row-per-candidate lowering, while
 `ExplicitTake_KeepsSemanticHeadPushdownInsideWindow` must stop at the Nth
 match inside an explicit candidate window, never evaluate past the window, and
-evaluate the whole window when the row plan is not one Head.
+evaluate the whole window when the row plan is not one Head or the Head
+exceeds the match-budget maximum, such as `--take 20 -n 1001`.
 `PresentMatchBudget_PreservesExistingStopBehavior` must retain the current
 product behavior for Browser and other budgeted callers, including the
 numeric summary denominator and completion mapping. Existing Package Query gates continue to own the shared product match-budget
