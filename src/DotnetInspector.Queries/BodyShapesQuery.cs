@@ -29,10 +29,15 @@ public static class BodyShapesQuery
     public static InspectionQuery<BodyShapesResult> Definition { get; } =
         new("Body shapes", InspectionCost.Unbounded);
 
+    /// <param name="limit">
+    /// Optional match count after which the search stops, in its own order;
+    /// the matches returned are then that prefix of the complete search.
+    /// </param>
     public static BodyShapesResult Execute(
         MetadataSource source,
         string kind,
-        IReadOnlySet<int>? methodTokens = null)
+        IReadOnlySet<int>? methodTokens = null,
+        int? limit = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentException.ThrowIfNullOrWhiteSpace(kind);
@@ -40,8 +45,8 @@ public static class BodyShapesQuery
         try
         {
             BodyShapeSearchResult search = methodTokens is null
-                ? BodyShapeSearch.Search(source, kind)
-                : BodyShapeSearch.Search(source, kind, methodTokens);
+                ? BodyShapeSearch.Search(source, kind, limit: limit)
+                : BodyShapeSearch.Search(source, kind, methodTokens, limit: limit);
             return new BodyShapesResult.Available(search);
         }
         catch (Exception ex)

@@ -195,10 +195,14 @@ assessments, and publishes no partial Result. Hosts must not truncate the
 occurrence array or reinterpret the failure as `NoMatch`. Browser transport
 uses the same 10,000-occurrence package bound.
 
-`--count` counts the selected final Package Query Result set. It succeeds only
+`--count` counts the selected final Package Query Result set. It is exact only
 when source population, ordinary prequalification, semantic evaluation, and
-row selection prove that count. Population failures, candidate failures,
-semantic work limits, and incomplete completion prevent an unqualified Count.
+row selection prove that count. When population failures, candidate failures,
+semantic work limits, or incomplete completion leave usable final Results,
+Count reports their observed count with the same disclosure and exit status as
+those Rows, under the section-row owner's
+[incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation). A
+failure that leaves the Result set unavailable produces no Count.
 
 ## Boundaries
 

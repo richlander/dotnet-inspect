@@ -621,7 +621,7 @@ descend to a Scalar by selecting a section, then columns, then collapsing.
 section enters the declared-row ladder at all. Inventory sections expose Rows
 and Count over owner-declared row sets; scalar sections already represent one
 typed value and expose neither. For an inventory, Count reduces each declared
-row set independently: exactly one outcome reaches Scalar, while multiple exact
+row set independently: exactly one outcome reaches Scalar, while multiple
 outcomes reassemble as one ordered count Table. Count never collapses
 independent row sets into one request-wide scalar.
 
@@ -1136,17 +1136,22 @@ Only an inventory section can produce that typed result. A scalar section has
 no declared row set and rejects Count rather than reporting one, zero, its
 property count, or its rendered-line count.
 
-- A successful Count result containing one exact declared-row-set entry
-  produces a culture-invariant decimal scalar. Markdown, plain text, pretty
+- A successful Count result containing one declared-row-set entry produces a
+  culture-invariant decimal scalar. Markdown, plain text, pretty
   table, and TSV emit the same bare value; JSON emits one number; and JSONL
   emits one numeric record.
-- A successful Count result containing multiple exact declared-row-set entries
+- A successful Count result containing multiple declared-row-set entries
   produces ordered row-set/count rows. Markdown, table, and plain text render
   those rows as their native table form; TSV emits two columns; JSONL emits one
   object per row; JSON emits an array of objects. JSON and JSONL counts are
   numbers rather than numeric strings.
 - Standalone Mermaid rejects every Count result because neither a scalar nor a
   count map is a graph.
+- An observed entry over incomplete evidence lowers to the same Scalar or
+  count Table as an exact one. Its incompleteness evidence is not encoded in
+  the numeric value; the consuming output owner discloses it and sets the exit
+  status exactly as it does for Rows over the same evidence, under
+  [Section-row shaping](section-row-shaping.md#incomplete-evaluation).
 - An already-bound failure result produces no Scalar or count Table. Failure
   presentation belongs to the consuming output owner and is not encoded as a
   numeric value.
@@ -1170,6 +1175,9 @@ to the output layer and requires:
   and object-per-row JSONL result, while the separately exercised Mermaid path
   rejects and the ordinary single-input-table restriction does not reject the
   count result;
+- one observed entry and a mixed exact/observed multi-entry result to render
+  the same numeric shapes as exact entries while their incompleteness evidence
+  reaches the consuming owner's disclosure rather than the payload;
 - a bound failure to exercise every Markdown, plain-text, pretty-table, TSV,
   JSON, JSONL, and Mermaid route, each using its owner-defined failure
   presentation with no Scalar or count Table payload; and
@@ -1391,7 +1399,7 @@ resolved by discarding one.
 ### Lens modes project their own payload
 
 A few requests select a *lens* rather than a section of the normal document:
-`package --versions`, `--tfms`, and `--content`, along with
+`package --versions` and `--content`, along with
 `library address --file` and the `-D`/`--discover` listing. Each renders a
 payload it computes itself and returns before the section pipeline, so the
 section-selection vocabulary does not describe what the caller is looking at.
@@ -1399,7 +1407,7 @@ section-selection vocabulary does not describe what the caller is looking at.
 The lens payload is still a payload, so the two-outcome rule above applies
 unchanged. Because the lens owns the shape, its answers are fixed:
 
-- `--count` counts the lens payload — versions, target frameworks, package
+- `--count` counts the lens payload — versions, package
   files, IL offsets, discovered artifacts — not the lines used to render it. A
   layout count is a count of files, even though the rendered tree also shows the
   directories that contain them.

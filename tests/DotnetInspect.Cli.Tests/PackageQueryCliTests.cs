@@ -230,6 +230,35 @@ public class PackageQueryCliTests
     }
 
     [Fact]
+    public void DependsWithDepth_LowersToInclusiveTraversal()
+    {
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Microsoft.Extensions.*",
+                [
+                    "depends=Microsoft.Extensions.Primitives",
+                    "dependency-target=net10.0",
+                    "dependency-depth=2",
+                ],
+                nuspecOnly: true,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        Assert.True(options!.Plan.RequiresDependencyTraversal);
+        Assert.Equal(2, options.Plan.DependencyDepth);
+        Assert.Contains(
+            options.Plan.BoundTerms,
+            term => term.Predicate.Kind == PackageQueryPredicateKind.Depends);
+        Assert.Equal(
+            PackageQuery.MaximumNuspecExpensiveCandidates,
+            options.Plan.MaximumCandidates);
+    }
+
+    [Fact]
     public void CrossPrefixDependenciesTerm_LowersToTheProductPlan()
     {
         Assert.True(
@@ -1083,6 +1112,10 @@ public class PackageQueryCliTests
         Assert.Contains("Contoso.Third", result.Output);
         Assert.DoesNotContain("Contoso.First", result.Output);
         Assert.Contains("cross-prefix", result.Output);
+        Assert.Contains("package-prefix=Contoso", result.Output);
+        Assert.Contains(
+            "Dependency.One 1.0.0",
+            result.Output);
         Assert.Equal(3, fixture.ManifestRequests);
         Assert.Equal(0, fixture.PackageRequests);
         Assert.Empty(result.Error);
@@ -1139,8 +1172,9 @@ public class PackageQueryCliTests
         Assert.DoesNotContain("Contoso.First", result.Output);
         Assert.DoesNotContain("Contoso.Third", result.Output);
         Assert.Contains(
-            "\tOSMF\n",
+            "\tOSMF\t",
             result.Output.ReplaceLineEndings("\n"));
+        Assert.Contains("declaration-kind=File", result.Output);
         Assert.DoesNotContain("Nuspec license", result.Output);
         Assert.Equal(3, fixture.ManifestRequests);
         Assert.Equal(0, fixture.PackageRequests);
@@ -1653,7 +1687,9 @@ public class PackageQueryCliTests
             Assert.Equal(
                 "Dependency.One",
                 json.RootElement.GetProperty("answer").GetString());
-            Assert.False(json.RootElement.TryGetProperty("evidence", out _));
+            Assert.Contains(
+                "Dependency.One 1.0.0",
+                json.RootElement.GetProperty("evidence").GetString());
         }
     }
 
@@ -1701,9 +1737,9 @@ public class PackageQueryCliTests
     }
 
     [Theory]
-    [InlineData("markdown", "| Package | Version | Tier | Source | Answer |")]
-    [InlineData("table", "Package  Version  Tier  Source  Answer")]
-    [InlineData("tsv", "package\tversion\ttier\tsource\tanswer")]
+    [InlineData("markdown", "| Package | Version | Tier | Source | Answer | Evidence |")]
+    [InlineData("table", "Package  Version  Tier  Source  Answer  Evidence")]
+    [InlineData("tsv", "package\tversion\ttier\tsource\tanswer\tevidence")]
     [InlineData("jsonl", null)]
     [InlineData("json", "\"packages\": []")]
     public async Task ExplicitPackages_PreservesEmptyPackageShape(
@@ -2212,8 +2248,7 @@ public class PackageQueryCliTests
         Assert.Equal(
             PackageQuery.LibraryLiteralTermKey,
             explanationDocument.RootElement
-                .GetProperty("resources")[0]
-                .GetProperty("details")
+                .GetProperty("facts")
                 .GetProperty("key")
                 .GetString());
 

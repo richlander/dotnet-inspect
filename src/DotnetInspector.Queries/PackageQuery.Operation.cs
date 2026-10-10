@@ -163,7 +163,8 @@ public static partial class PackageQuery
                                     option.Value),
                             ],
                             term.Summary,
-                            [term.ExampleValue]),
+                            [term.ExampleValue],
+                            term.InputRules),
                         Effects(term))),
             ];
 

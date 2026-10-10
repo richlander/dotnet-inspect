@@ -24,8 +24,10 @@ every Method request in request order, plus physical group work recorded once.
 Method Classification is its first production caller: the session-backed query
 uses request-set access while the PEReader overload remains the direct
 reference.
-Other source kinds, cancellation, residual request satisfaction, and legacy-
-remainder composition remain **unverified**.
+Other source kinds, cancellation, residual request satisfaction, and mixed-
+hub composition remain **unverified**. The no-remainder rule and split
+exact-member prerequisites are recorded under
+[Exact-member scoped producers](#exact-member-scoped-producers).
 
 ## Authority and exact claim
 
@@ -50,7 +52,7 @@ This owner defines:
 - the coarse operation boundary at which optional cancellation is observed;
 - the sequential reference composition required on single-threaded
   Browser/Wasm; and
-- the temporary legacy-remainder rule used while the current producer hub is
+- the exact-member producer drain rule used while the current producer hub is
   drained.
 
 This owner does not define:
@@ -247,9 +249,10 @@ becomes a negative finding. A policy snapshot that changes during the
 invocation fails the execution, as it does for the existing binding-policy
 resolver.
 
-Request-set operations carry no binding, so a request-set plan that declares
-the `ReferenceBinding` layer is rejected with `ReferenceBindingUnavailable`
-before a producer runs.
+A request-set operation carries the binding access to every lane, so a plan
+that declares the `ReferenceBinding` layer runs when the access is present. It
+is rejected with `ReferenceBindingUnavailable` before a producer runs only when
+the access is absent.
 
 The detached execution retains no binding access, policy, resolved
 assembly, or referenced reader.
@@ -290,27 +293,60 @@ Migration uses a strangler:
    presence production path.
 2. Land the minimum general request collapse from #8574 needed to compose
    several producer requests.
-3. Introduce one temporary legacy-remainder declaration for producers that
-   have not moved.
+3. Leave unmoved producers on the existing hub; no aggregate remainder
+   producer is introduced.
 4. Move one cohesive producer owner and at least one production consumer per
    slice.
 5. Delete each superseded feature, plan, runner, aggregate, and compatibility
    projection when its final consumer moves.
-6. Delete the legacy remainder and the current producer hub after the final
-   producer and consumer move.
-
-The legacy-remainder declaration is constrained:
-
-- it receives units from the owner-issued QuerySpace source;
-- it never enumerates an assembly, opens content, or calls
-  `LibraryBodyAnalysisBuilder.Build`;
-- it publishes only fields still required by unmigrated consumers; and
-- its request and result shape shrink in every migration that consumes part
-  of it.
+6. Delete the current producer hub after the final producer and consumer
+   move.
 
 A migrated producer computes its focused result from its declaration and
 visits. Filtering a broad legacy aggregate after construction does not count
 as migration.
+
+### Exact-member scoped producers
+
+The whole-assembly `LibraryBodyAnalysisResult` is not reproducible from
+source-scoped units: its declaration counts, unsafe-mode counts,
+call-resolution map, declared-source publication, exception classification,
+and safety-contract associations span populations larger than one source
+selection. No aggregate remainder producer is declared.
+
+This owner supplies only the drain rule:
+
+> Move one focused producer and real consumer at a time after every semantic
+> input has an owner-issued capability and receipt. Leave unmoved producers on
+> `LibraryBodyAnalysisService`; never wrap `LibraryBodyAnalysisBuilder.Build`,
+> filter its aggregate, hide wider metadata support inside an exact-member
+> visit, or create a second planner.
+
+Exact-member work is split across focused owners:
+
+| Concern | Owner |
+| --- | --- |
+| Method-targeted call population and identity tiers | [#8945](https://github.com/richlander/dotnet-inspect/issues/8945) |
+| Typed same-module callee resolution | [#8700](https://github.com/richlander/dotnet-inspect/issues/8700) |
+| Bounded semantic MethodDef identity | [#9830](https://github.com/richlander/dotnet-inspect/issues/9830) |
+| Receipted memory-safety contract and accessor association support | [#9831](https://github.com/richlander/dotnet-inspect/issues/9831) |
+| First exact-member consumer adoption | [#9832](https://github.com/richlander/dotnet-inspect/issues/9832) |
+
+The prerequisite owners define their result shapes, work bounds, typed
+failures, and gates. Wider metadata correspondence or association work is
+declared execution-scoped source support and receipted separately from sparse
+MethodDef breadth. It never acquires an unrelated body or silently becomes
+successful empty evidence.
+
+[#9832](https://github.com/richlander/dotnet-inspect/issues/9832) composes the
+prerequisites for `AssemblyContextMethodAnalysisQuery`. Allocations,
+optimization opportunities, and final `MethodSignals` composition remain
+explicitly on the old boundary in that mixed slice. `ILOffsetQuery` follows
+only after an owner can bind its prefetched image without reopening by path.
+
+Each adoption updates #8965's live drain map. A hub branch, request parameter,
+or feature is deleted when its final consumer moves, not when the first
+focused adopter lands. The hub is deleted when its last field leaves.
 
 `CompleteProfileV1` remains a compatibility composition of independently
 owned metrics and relationships. It is not one producer. Metric selection and
@@ -421,8 +457,17 @@ exhausted, producer-failed, or aborted completion. Later source kinds and
 mid-source delegation failures add their owner-issued outcomes and gates when
 they adopt the service.
 
-The slice that introduces the legacy-remainder declaration supplies
+The exact-member successors own their evidence:
+
+- #9830 gates bounded semantic MethodDef identity;
+- #9831 gates memory-safety contract and accessor-association support; and
+- #9832 gates the first consumer's complete public outcome and mixed legacy
+  provenance.
+
+When #9832 lands, it supplies
 `AssemblyAnalysisService_MixedLegacyAndMigratedProducersUseOneSourcePlan`.
+This design does not predeclare the successors' result or receipt shapes and
+does not claim their implementation evidence.
 
 The positive session path inherits the Release gates owned by
 [session-owned format admission](assembly-inspection-query.md#session-owned-format-admission).

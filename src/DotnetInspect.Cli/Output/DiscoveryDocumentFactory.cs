@@ -663,6 +663,7 @@ internal static class DiscoveryDocumentFactory
             SectionCategoryNames.Audit => "audit",
             SectionCategoryNames.Dependencies => "dependencies",
             SectionCategoryNames.Calls => "calls",
+            SectionCategoryNames.Relations => "relations",
             SectionCategoryNames.Source => "source",
             SectionCategoryNames.SourceLink => "source-link",
             SectionCategoryNames.Surface => "surface",

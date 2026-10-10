@@ -7,7 +7,9 @@ using System.Text.Json;
 using DotnetInspect.ProductVocabularyTesting;
 using DotnetInspect.Cli.Commands;
 using DotnetInspector.Networking;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using QuerySpace;
 using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 
 namespace DotnetInspect.Cli.Tests;
@@ -20,6 +22,250 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         CoreHttpClientFactory.SetPackageSourceHandlerForTesting(null);
         CoreHttpClientFactory.Initialize(new HttpClientFactoryOptions());
         CoreHttpClientFactory.ResetSharedForTesting();
+    }
+
+    [Fact]
+    public async Task RelationsCategory_RegistersCanonicalNavigationToItsSections()
+    {
+        var result = await RunAsync("explain", "member/categories/relations", "--json");
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement;
+        Assert.Equal("@Relations", root.GetProperty("facts").GetProperty("name").GetString());
+        JsonElement members = root.GetProperty("relationships").GetProperty("category-member");
+        Assert.Equal("Complete", members.GetProperty("completeness").GetString());
+        Assert.Equal(
+            ["member/sections/derived-types", "member/sections/implementers"],
+            members.GetProperty("targets").EnumerateArray()
+                .Select(target => target.GetProperty("addresses")[0].GetProperty("value").GetString())
+                .ToArray());
+    }
+
+    [Fact]
+    public async Task SelectedStyleData_ClosesTierReferencesAndUsesCompleteMembershipTables()
+    {
+        var result = await RunAsync("explain", "vocabularies/csharp.style-choices", ".data", "--json");
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement vocabularies = document.RootElement.GetProperty("vocabularies");
+        JsonElement choices = vocabularies.GetProperty("csharp.style-choices");
+        Assert.Equal(17, choices.GetProperty("values").GetArrayLength());
+        Assert.Equal(4, vocabularies.GetProperty("csharp.style-tiers").GetProperty("values").GetArrayLength());
+        JsonElement sets = choices.GetProperty("property_sets");
+        Assert.Equal(2, sets.GetProperty("byte_divergent").GetArrayLength());
+        Assert.Equal(5, sets.GetProperty("oracle_endorsed").GetArrayLength());
+        Assert.Single(sets.GetProperty("corpus_endorsed").EnumerateArray());
+        Assert.Equal(2, choices.GetProperty("property_groups").GetProperty("conflict_group").EnumerateObject().Count());
+        foreach (JsonElement choice in choices.GetProperty("values").EnumerateArray())
+        {
+            Assert.False(choice.TryGetProperty("byte_divergent", out _));
+            Assert.False(choice.TryGetProperty("conflict_group", out _));
+        }
+    }
+
+    [Fact]
+    public async Task SelectedFacetData_DistinguishesRequiredContextFromExposedTerms()
+    {
+        var result = await RunAsync("explain", "package-query/query/facets/library-literal", ".data", "--json");
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement;
+        Assert.Equal(2, root.GetProperty("facets").EnumerateObject().Count());
+        Assert.Equal("library-target", root.GetProperty("facets").GetProperty("library-literal")
+            .GetProperty("requires")[0].GetString());
+        JsonElement exposed = root.GetProperty("bindings").GetProperty("dotnet-inspect.cli/package-query")
+            .GetProperty("exposed_facets");
+        Assert.Equal(["library-literal"], exposed.EnumerateArray().Select(value => value.GetString()).ToArray());
+        Assert.DoesNotContain(exposed.EnumerateArray(), value => value.GetString() == "library-target");
+    }
+
+    [Fact]
+    public async Task SelectedLiteralHal_RegistersOperandAndHostRulesWithoutAcquisition()
+    {
+        var result = await RunAsync("explain", "package-query/query/facets/library-literal", ".hal", "--json");
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement;
+        string[] operandRules = root.GetProperty("input_rules").EnumerateArray()
+            .Select(value => value.GetString()!).ToArray();
+        Assert.Contains(operandRules, rule => rule.Contains("not an allow list", StringComparison.Ordinal));
+        Assert.Contains(operandRules, rule => rule.Contains("1..1024 UTF-16", StringComparison.Ordinal));
+        Assert.Contains(operandRules, rule => rule.Contains("ordinal substring", StringComparison.Ordinal));
+        Assert.Contains(operandRules, rule => rule.Contains("distinct values are incompatible", StringComparison.Ordinal));
+        JsonElement binding = root.GetProperty("_embedded").GetProperty("bindings")[0];
+        Assert.Contains(binding.GetProperty("input_rules").EnumerateArray(),
+            rule => rule.GetString()!.Contains("--tfm TFM, not --where", StringComparison.Ordinal));
+        Assert.Contains(binding.GetProperty("input_rules").EnumerateArray(),
+            rule => rule.GetString()!.Contains("--json", StringComparison.Ordinal));
+        Assert.Equal("Complete", root.GetProperty("data_scope").GetProperty("completeness").GetString());
+    }
+
+    [Theory]
+    [InlineData(".data", "depends-transitive")]
+    [InlineData(".hal", "depends-transitive")]
+    [InlineData(".data", "dependency-depth")]
+    [InlineData(".hal", "dependency-depth")]
+    public async Task SelectedTransitiveFacet_ClosesPrerequisitesAndPreparesAcceptedPlans(
+        string selection, string key)
+    {
+        var result = await RunAsync("explain", "package-query/query/facets/" + key, selection, "--json");
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement;
+        bool hal = selection == ".hal";
+        Dictionary<string, JsonElement> facets = hal
+            ? root.GetProperty("_embedded").GetProperty("facets").EnumerateArray()
+                .Append(root).ToDictionary(facet => facet.GetProperty("key").GetString()!)
+            : root.GetProperty("facets").EnumerateObject()
+                .ToDictionary(facet => facet.Name, facet => facet.Value);
+        Assert.Equal(
+            key == "depends-transitive"
+                ? ["dependency-depth", "dependency-target", "depends-transitive"]
+                : new[] { "dependency-depth", "dependency-target" },
+            facets.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal("Complete", root.GetProperty(hal ? "data_scope" : "selection")
+            .GetProperty("completeness").GetString());
+        JsonElement target = facets["dependency-target"];
+        JsonElement depth = facets["dependency-depth"];
+        Assert.Equal(["dependency-target"],
+            depth.GetProperty("requires").EnumerateArray().Select(value => value.GetString()));
+        // The target accepts alternatives; it must not require all four predicates.
+        Assert.Empty(target.GetProperty("requires").EnumerateArray());
+        string[] Rules(JsonElement facet) => (hal ? facet : facet.GetProperty("facts"))
+            .GetProperty(hal ? "input_rules" : "input-rules").EnumerateArray()
+            .Select(value => value.GetString()!).ToArray();
+        Assert.Contains(Rules(target), rule => rule.Contains("depends-ecosystem, or dependencies", StringComparison.Ordinal));
+        Assert.Contains(Rules(depth), rule => rule.Contains("exact depends (eq) or legacy depends-transitive", StringComparison.Ordinal));
+        Assert.Contains(Rules(depth), rule => rule.Contains("at most 5 package candidates", StringComparison.Ordinal));
+        JsonElement binding = hal ? root.GetProperty("_embedded").GetProperty("bindings")[0]
+            : root.GetProperty("bindings").GetProperty("dotnet-inspect.cli/package-query").GetProperty("facts");
+        Assert.Contains(binding.GetProperty(hal ? "input_rules" : "input-rules").EnumerateArray(),
+            rule => rule.GetString()!.Contains("--take N", StringComparison.Ordinal));
+
+        if (key == "depends-transitive")
+        {
+            JsonElement transitive = facets["depends-transitive"];
+            Assert.Equal(["dependency-target", "dependency-depth"],
+                transitive.GetProperty("requires").EnumerateArray().Select(value => value.GetString()));
+            Assert.Contains(Rules(transitive), rule => rule.Contains("all is not accepted", StringComparison.Ordinal));
+            if (hal)
+            {
+                JsonElement[] links = transitive.GetProperty("_links").GetProperty("required-context")
+                    .EnumerateArray().ToArray();
+                Assert.Equal(2, links.Length);
+                foreach (JsonElement context in new[] { target, depth })
+                    Assert.Contains(links, link => link.GetProperty("href").GetString()
+                        == context.GetProperty("_links").GetProperty("self").GetProperty("href").GetString());
+            }
+        }
+
+        JsonElement Facts(JsonElement facet) => hal ? facet : facet.GetProperty("facts");
+        PortableQueryTerm Term(string termKey, string value) => new(termKey, PortableQueryOperator.Equal, value);
+        string targetValue = Facts(target).GetProperty("examples")[0].GetString()!;
+        string predicateKey = key == "depends-transitive" ? key : "depends";
+        string packageValue = key == "depends-transitive"
+            ? Facts(facets[key]).GetProperty("examples")[0].GetString()!
+            : "Microsoft.Extensions.Primitives";
+        string[] depths = Facts(depth).GetProperty("values").EnumerateArray()
+            .Select(value => value.GetString()!).ToArray();
+        Assert.Equal(["2", "3", "4"], depths);
+        foreach (string depthValue in depths)
+        {
+            PackageQueryPlan plan = Assert.IsType<PackageQueryPlanResult.Accepted>(PackageQuery.PlanInput(
+                "Microsoft.Extensions.Http", terms:
+                [Term(predicateKey, packageValue), Term("dependency-target", targetValue),
+                    Term("dependency-depth", depthValue)])).Plan;
+            Assert.True(plan.RequiresDependencyTraversal);
+            Assert.Equal(int.Parse(depthValue, CultureInfo.InvariantCulture), plan.DependencyDepth);
+            Assert.Equal(targetValue, plan.DependencyTarget.RequestedTargetFramework);
+        }
+        // The Library target gesture cannot satisfy the dependency target prerequisite.
+        Assert.Equal(PackageQueryRequestFailureReason.TransitiveDependencyRequiresTarget,
+            Assert.IsType<PackageQueryPlanResult.Rejected>(PackageQuery.PlanInput(
+                "Microsoft.Extensions.Http", terms:
+                [Term(predicateKey, packageValue), Term("dependency-depth", depths[0]),
+                    Term("library-literal", "https://")],
+                targetFramework: targetValue)).Failure.Reason);
+    }
+
+    [Theory]
+    [InlineData(".data")]
+    [InlineData(".hal")]
+    public async Task SelectedDependsFacet_DescribesOptionalTraversalWithoutRequiringIt(string selection)
+    {
+        var result = await RunAsync("explain", "package-query/query/facets/depends", selection, "--json");
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement facet = selection == ".hal" ? document.RootElement
+            : document.RootElement.GetProperty("facets").GetProperty("depends");
+        Assert.Empty(facet.GetProperty("requires").EnumerateArray());
+        JsonElement facts = selection == ".hal" ? facet : facet.GetProperty("facts");
+        Assert.Contains(facts.GetProperty(selection == ".hal" ? "input_rules" : "input-rules").EnumerateArray(),
+            rule => rule.GetString()!.Contains("starts-with remains direct", StringComparison.Ordinal));
+        string value = facts.GetProperty("examples")[0].GetString()!;
+        PackageQueryPlan plan = Assert.IsType<PackageQueryPlanResult.Accepted>(PackageQuery.PlanInput(
+            "Microsoft.Extensions.Http", terms: [new("depends", PortableQueryOperator.Equal, value)])).Plan;
+        Assert.False(plan.RequiresDependencyTraversal);
+    }
+
+    [Theory]
+    [InlineData("vocabularies/csharp.style-choices")]
+    [InlineData("package-query/query")]
+    public async Task SelectedHal_LeadsWithDataAndNavigationAndFollowsInHalMode(string path)
+    {
+        var direct = await RunAsync("explain", path, ".data", "--json");
+        var hal = await RunAsync("explain", path, ".hal", "--json");
+        Assert.Equal(0, direct.ExitCode);
+        Assert.Equal(0, hal.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(hal.Output);
+        JsonElement root = document.RootElement;
+        Assert.False(root.TryGetProperty("facts", out _));
+        Assert.False(root.TryGetProperty("identity", out _));
+        Assert.False(root.TryGetProperty("selection", out _));
+        Assert.True(root.TryGetProperty("name", out _));
+        JsonElement links = root.GetProperty("_links");
+        Assert.False(links.TryGetProperty("curies", out _));
+        Assert.True(links.TryGetProperty("describedby", out _));
+        Assert.Equal("application/hal+json", links.GetProperty("self").GetProperty("type").GetString());
+        string href = links.GetProperty("self").GetProperty("href").GetString()!;
+        var followed = await RunAsync("explain", href, "--json");
+        Assert.Equal(0, followed.ExitCode);
+        using JsonDocument followDocument = JsonDocument.Parse(followed.Output);
+        Assert.Equal(root.GetRawText(), followDocument.RootElement.GetRawText());
+        var contractResult = await RunAsync("explain", links.GetProperty("describedby").GetProperty("href").GetString()!, "--json");
+        Assert.Equal(0, contractResult.ExitCode);
+        using JsonDocument contractDocument = JsonDocument.Parse(contractResult.Output);
+        Assert.True(contractDocument.RootElement.TryGetProperty("schemas", out _));
+        JsonElement embedded = root.GetProperty("_embedded");
+        Assert.All(embedded.EnumerateObject(), relation => Assert.Equal(JsonValueKind.Array, relation.Value.ValueKind));
+        if (root.GetProperty("kind").GetString() == "value-vocabulary")
+            Assert.Equal(17, embedded.GetProperty("values").GetArrayLength());
+        else
+            Assert.Equal(19, embedded.GetProperty("facets").GetArrayLength());
+    }
+
+    [Theory]
+    [InlineData(".data", "--json")]
+    [InlineData(".contract", "--json")]
+    [InlineData("--depth", "1", "--json")]
+    [InlineData()]
+    public async Task ProjectedHalAddress_RejectsConflictingSelectionOrDepth(params string[] options)
+    {
+        var result = await RunAsync(["explain", "inspect-resource:/package-query/query?projection=hal", .. options]);
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("projected resource address", result.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("explain", "vocabularies/csharp.style-choices", ".data", "--depth", "1", "--json")]
+    [InlineData("explain", "library", ".data", "--json")]
+    [InlineData("explain", "literal", ".hal", "--json")]
+    [InlineData("explain", "package-query/query", ".data")]
+    public async Task SelectedData_RejectsUnsupportedSelections(params string[] arguments)
+    {
+        var result = await RunAsync(arguments);
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.False(string.IsNullOrWhiteSpace(result.Error));
     }
 
     [Fact]
@@ -41,7 +287,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var json = await RunAsync(
             "explain",
             "package/sections/readme",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, json.ExitCode);
         Assert.Empty(json.Error);
@@ -83,7 +329,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var result = await RunAsync(
             "explain",
             $"library/sections/{section}",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -101,7 +347,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var result = await RunAsync(
             "explain",
             "library/sections/dependency-structure",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, result.ExitCode);
         using JsonDocument document = JsonDocument.Parse(result.Output);
@@ -122,7 +368,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var result = await RunAsync(
             "explain",
             path,
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -156,7 +402,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var typeInfo = await RunAsync(
             "explain",
             "member/sections/type-info",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, typeInfo.ExitCode);
         Assert.Empty(typeInfo.Error);
@@ -172,7 +418,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var source = await RunAsync(
             "explain",
             "member-detail/sections/source",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, source.ExitCode);
         Assert.Empty(source.Error);
@@ -227,7 +473,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var json = await RunAsync(
             "explain",
             "library/categories",
-            "--json");
+            ".contract", "--json");
         var human = await RunAsync(
             "explain",
             "library/categories");
@@ -369,7 +615,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 .GetProperty("path")
                 .GetString());
 
-        var explanation = await RunAsync("explain", path, "--json");
+        var explanation = await RunAsync("explain", path, ".contract", "--json");
 
         Assert.Equal(0, explanation.ExitCode);
         Assert.Empty(explanation.Error);
@@ -421,7 +667,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             path,
             "--depth",
             "2",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, explanation.ExitCode);
         Assert.Empty(explanation.Error);
@@ -479,7 +725,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             "package-files/routes/default",
             "--depth",
             "2",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -569,7 +815,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var explanation = await RunAsync(
             "explain",
             path,
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, explanation.ExitCode);
         Assert.Empty(explanation.Error);
@@ -654,7 +900,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var result = await RunAsync(
             "explain",
             "library",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -674,7 +920,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             "vocabularies",
             "--depth",
             "1",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -700,7 +946,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var json = await RunAsync(
             "explain",
             "vocabularies/csharp.body-kinds",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, json.ExitCode);
         Assert.Empty(json.Error);
@@ -731,7 +977,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             "vocabularies/csharp.style-tiers",
             "--depth",
             "1",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, bulk.ExitCode);
         Assert.Empty(bulk.Error);
@@ -803,7 +1049,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 pin.Path,
                 "--depth",
                 pin.Depth.ToString(CultureInfo.InvariantCulture),
-                "--json");
+                ".contract", "--json");
 
             Assert.Equal(0, result.ExitCode);
             Assert.Empty(result.Error);
@@ -823,7 +1069,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var result = await RunAsync(
             "explain",
             "vocabularies/csharp.style-choices",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, result.ExitCode);
         using JsonDocument document = JsonDocument.Parse(result.Output);
@@ -949,7 +1195,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             "library/sections/reference-hierarchy",
             "--depth",
             "1",
-            "--json");
+            ".contract", "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -1023,6 +1269,58 @@ public sealed class ResourceExplanationCommandTests : IDisposable
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(0, requests);
+    }
+
+    [Theory]
+    [InlineData("vocabularies/csharp.body-kinds", 0)]
+    [InlineData("vocabularies/csharp.style-choices", 1)]
+    [InlineData("package-query/query/facets/library-literal", 0)]
+    public async Task CompactData_ExposesFactsAndUsableLinksWithoutDeclarations(
+        string path, int depth)
+    {
+        var data = await RunAsync("explain", path, "--depth", depth.ToString(
+            CultureInfo.InvariantCulture), "--json");
+        var contract = await RunAsync("explain", path, ".contract", "--depth",
+            depth.ToString(CultureInfo.InvariantCulture), "--json");
+        Assert.Equal(0, data.ExitCode);
+        Assert.Equal(0, contract.ExitCode);
+        using JsonDocument compact = JsonDocument.Parse(data.Output);
+        using JsonDocument complete = JsonDocument.Parse(contract.Output);
+        Assert.False(compact.RootElement.TryGetProperty("schemas", out _));
+        Assert.True(complete.RootElement.TryGetProperty("schemas", out _));
+        Assert.True(data.Output.Length < contract.Output.Length / 2);
+        string href = compact.RootElement.GetProperty("_links").GetProperty("self")
+            .GetProperty("href").GetString()!;
+        var followed = await RunAsync("explain", href, "--json");
+        Assert.Equal(0, followed.ExitCode);
+        using JsonDocument same = JsonDocument.Parse(followed.Output);
+        Assert.Equal(path, same.RootElement.GetProperty("path").GetString());
+        JsonElement facts = compact.RootElement.GetProperty("facts");
+        Assert.Equal(TextFact(complete.RootElement.GetProperty("resources")[0], "name"),
+            facts.GetProperty("name").GetString());
+        if (path.Contains("library-literal", StringComparison.Ordinal))
+        {
+            Assert.Equal("library-literal", facts.GetProperty("key").GetString());
+            Assert.NotEmpty(facts.GetProperty("operators").EnumerateArray());
+        }
+    }
+
+    [Fact]
+    public async Task ContractProjection_RejectsSearchAndUnknownProjection()
+    {
+        Assert.NotEqual(0, (await RunAsync("explain", "literal", ".contract", "--json")).ExitCode);
+        Assert.NotEqual(0, (await RunAsync("explain", "library", ".missing", "--json")).ExitCode);
+    }
+
+    [Fact]
+    public async Task CompactData_DistinguishesAbsentFactFromAvailableEmptyValues()
+    {
+        var result = await RunAsync("explain", "library/sections/dependency-structure", "--json");
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument data = JsonDocument.Parse(result.Output);
+        Assert.False(data.RootElement.GetProperty("facts").TryGetProperty("shape", out _));
+        Assert.Equal("Absent", data.RootElement.GetProperty("fact_states")
+            .GetProperty("shape").GetProperty("state").GetString());
     }
 
     private static string ResourceType(JsonElement resource) =>

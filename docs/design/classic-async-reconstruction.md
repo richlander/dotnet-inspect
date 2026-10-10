@@ -78,6 +78,38 @@ The core does **not** own or claim:
 - runtime-async or iterator reconstruction; or
 - a new accepted classic recipe family.
 
+## Ordered single-await continuation effects
+
+The existing single-void-await recipe may retain a flat continuation suffix of
+expression statements and field stores, in their original order. Acceptance
+requires the exact raw continuation statement roots in the same order,
+followed by the sole completion leave; each statement also owes its existing
+value, effect, import-origin and structured-ancestor proof. Changed order,
+omitted effects, altered values or extra completion edges cannot be healed by
+the planning view. No early-return guard, conditional await or additional
+recipe family is licensed by this correspondence.
+
+The motivating asset is `Utf8JsonWriter.DisposeAsync` in dotnet/runtime at
+commit `ab19415702aa8139d5369e47c73edb47343c34ad`, path
+`src/libraries/System.Text.Json/src/System/Text/Json/Writer/Utf8JsonWriter.cs`.
+Its post-await `ResetHelper()` call and three null field writes motivate the
+ordered suffix. A minimal independently compiled `ContinuationFixtures` body
+retains a cleanup call and two null writes; close planning mutations exercise
+order, omission, value and completion boundaries. The real writer's early
+return remains a separate control obligation, so this slice does not claim it
+is reconstructed. The shared classic pass exposes admitted bodies to both
+CLI and browser consumers through the existing product pipeline. Separating
+continuation effects from writer guards makes eleven currently planned slices
+under #9625.
+
+`ClassicInversePreservesAwaitContinuationCleanup` gates Full raised output;
+`ClassicInverseContinuationCannotBeHealedByPlanning` gates order, omission,
+value, field identity, volatility and completion boundaries.
+`ClassicInverseContinuationPlanIsDetachedAndBudgeted` gates detached field-store
+materialization and visible budget failure. `AwaitContinuationCleanup_CompileBackExact`
+gates Exact raised product whole-member compilation. These gates do not establish
+reconstruction of the motivating writer's early-return guard.
+
 ## Demo
 
 Consider a supported recipe whose result store is nested under a condition:
@@ -217,6 +249,42 @@ block a request when Metadata certifies the relationship with
 `AbsentFromArtifact`. The inverse cannot infer that identity or disposition
 locally. Supplying an authenticated pre-trim assembly or another body source
 would require a separate acquisition and request-adapter contract.
+
+### Root reference-receiver alias correspondence
+
+The core may recover a compiler's entry-block local copy of the captured
+reference receiver. Raw import and planning must agree on the unique store's
+local slot, source offset, exact state-machine receiver field and reference
+type. The store must precede every read in the root entry block; nested reads
+are dominated by that root initialization. The local must have no other store,
+address use, or source-visible PDB name. A failed proof grants no alias role.
+Its input field must still match the existing authenticated kickoff receiver
+transfer before an output `this` can bind. Plan application rebinds that load
+to the declared member's receiver Parameter, just as it rebinds formal arguments;
+no mutable binder identity is retained in the immutable plan. Value-type
+receiver copies are outside this reference-identity correspondence.
+
+Rewriting and lockstep verification both use this proved local-to-field
+relationship; the local store is a protocol frame, and each read retains the
+machine-field-to-kickoff correspondence. No user expression, branch, cleanup
+store, or other unmatched region is made protocol by this rule. Existing
+recipes and the three independent accounting obligations remain required.
+
+The real witness is System.Text.Json 11.0.0-rc.1.26425.128
+`Utf8JsonWriter.DisposeAsync` and `FlushAsync`. Their MoveNext entry blocks
+copy the captured reference receiver into local slot 1 before the completion
+try. Source is pinned to dotnet/runtime
+[`ab19415702aa8139d5369e47c73edb47343c34ad`, Utf8JsonWriter.cs](https://github.com/dotnet/runtime/blob/ab19415702aa8139d5369e47c73edb47343c34ad/src/libraries/System.Text.Json/src/System/Text/Json/Writer/Utf8JsonWriter.cs).
+Compiler-produced `ReceiverAliasFixtures` and
+`ClassicInverseCoreTests.ClassicInverseRecoversProvenReferenceReceiverAlias`
+gate this prerequisite independently.
+`ClassicInverseDeclinesReceiverAliasRebindingAddressOrSourceName` retains
+rebind, address-use, and source-name boundaries.
+`ReferenceReceiverAliases_CompileBackExact` checks raised product whole members. The writer methods' user control
+flow and post-await effects remain outside the accepted recipe set after this
+slice. Adoption uses the existing shared core in CLI and Browser/Wasm; no new
+host path or replacement architecture is introduced. This adds one prerequisite
+slice to the #9625 plan.
 
 ### Recipe demonstration matrix
 

@@ -186,6 +186,28 @@ public sealed class BodyShapeSearchTests
         Assert.Single(limited.Matches);
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(5)]
+    public void Search_LimitReturnsThePrefixOfTheCompleteSearch(int limit)
+    {
+        using var source = MetadataSource.Open(FixturePath);
+        var complete = BodyShapeSearch.Search(
+            source,
+            "ObjectCreationExpression",
+            cancellationToken: TestContext.Current.CancellationToken);
+        var limited = BodyShapeSearch.Search(
+            source,
+            "ObjectCreationExpression",
+            limit: limit,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.True(complete.Matches.Count > limit);
+        Assert.Equal(complete.Matches.Take(limit), limited.Matches);
+        Assert.True(limited.MethodsInspected < complete.MethodsInspected);
+    }
+
     [Fact]
     public void Search_ReportsUnreconstructedStateMachineBodies()
     {

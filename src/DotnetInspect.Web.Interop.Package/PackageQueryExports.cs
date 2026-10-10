@@ -305,15 +305,22 @@ namespace DotnetInspect.Web.Interop.Package
                     ? null
                     : new(
                         BrowserPackageWorkspace.PackageSourceAuthorization,
-                        token => semanticSettlement.IssueOperationLease(
-                            token,
-                            BrowserPackageWorkspace.GalleryOperationTimeout,
-                            semanticBudget!.MaximumDuration),
-                        new PackagePayloadAcquisitionPlan(
-                            static (_, _) =>
-                                BrowserPackageWorkspace.SessionPackageStore,
-                            transferPolicy:
-                                BrowserPackageWorkspace.PackageTransferPolicy),
+                        new PackageAssemblySemanticFindExecution(
+                            BrowserPackageWorkspace
+                                .PackageSourceAuthorization,
+                            new PackagePayloadAcquisitionPlan(
+                                static (_, _) =>
+                                    BrowserPackageWorkspace
+                                        .SessionPackageStore,
+                                semanticBudget!.Payload,
+                                transferPolicy:
+                                    BrowserPackageWorkspace
+                                        .PackageTransferPolicy),
+                            token => semanticSettlement.IssueOperationLease(
+                                token,
+                                BrowserPackageWorkspace
+                                    .GalleryOperationTimeout,
+                                semanticBudget.MaximumDuration)),
                         semanticBudget!,
                         new LibraryLiteralAssessmentSink(emit));
             var envelope =

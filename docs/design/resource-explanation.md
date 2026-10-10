@@ -910,6 +910,142 @@ ordering, and truncation. Compare NativeAOT production terminals and include
 CLI and Browser/Wasm consumption in the adoption plan. Do not choose an
 arbitrary size threshold before measuring these useful results.
 
+### Data-first self-contained document design
+
+Status: **proposed; measured style experiment, not production adoption**.
+The draft compact lowering in #9774 reduces declaration overhead, but its
+43,136-byte Style Choices response still preserves an incidental graph layout.
+That is insufficient evidence for an agent-reading default. The
+[executable shape comparison](../../tools/ExplainReadingScenarios/shapes/README.md)
+starts instead with core data, critical queries, and normalization together.
+The self-contained CVE document above is the primary precedent; HAL lowering
+does not decide the data model inside one document.
+
+The proposed claim is: each selected explanation dataset has a stated core
+population and critical reading queries; its organization and normalization
+are justified by query simplicity and whole-task retrieval size together.
+Self-contained means those queries resolve locally within the selected dataset,
+not that every neighboring resource or declaration closure is included.
+
+For style data, the core population is 17 choices, four tiers, and their
+declared properties. Critical queries list choices, select byte-preserving
+choices, identify conflicts, select a tier's option/value pairs, resolve a
+known choice, build a menu with tier names and descriptions, and list endorsed
+choices. The grouped-menu query requires tier records that the draft depth-one expansion does not
+contain. Other selections start with their own core: a query facet needs its
+issued operand/operator/constraint facts and required-context meaning; a
+resolved subject needs the facts selected about that subject. Tips and reusable
+references select their own smaller currencies under Contextual Resource
+Explanation, rather than inheriting the style dataset.
+
+The preferred measured style candidate is a discoverable choice array with
+direct stable facts, keyed shared tier records, and complete sparse property
+tables. True boolean observations are stored as ID membership sets; optional
+conflict observations are stored as group-to-member tables. These are the core
+property data, not indexes that duplicate flags retained on every record. Choice IDs
+are scoped to their declared vocabulary; tier references inherit the target
+vocabulary from the property declaration. Shared scope and interpretation
+appear once. Both populations, every property, descriptions, and presentation
+order survive the lowering; complete OptionalOne absence remains distinct
+from unavailable or failed observations. Unobserved or incomplete domain data
+cannot be fabricated to make a document self-contained.
+
+The experiment answers all seven questions from one 9,918-byte sparse document.
+Keeping flags and optional conflicts on every choice uses 10,996 bytes; 55 of
+68 such entries are false or absent. Sparse membership preserves those values
+for known records because the source observations and selected populations are
+complete. Unknown records and unavailable observations must not become false
+through negative membership. Repeating tier records uses 14,420 bytes. Keyed choices, explicit ordering,
+and reverse indexes use 12,972 bytes and simplify known-ID and group lookups,
+but complicate ordered discovery. Every answer agrees, and the experiment
+checks recovery of the selected core data. Current CLI retrieval for the menu
+with tier descriptions is 49,935 bytes across two requests. These are
+functional data/query measurements, not runtime performance evidence.
+
+The [worked facet demo](../../tools/ExplainReadingScenarios/facets/README.md)
+applies this reasoning to the 19-facet Package Query space and its 14 CLI-exposed
+query terms. A derived host-exposure index distinguishes authorable terms from
+required context; keyed facet records resolve that context locally. The demo
+also exposes a completeness gap for the full agent task: exact operand bounds
+and the CLI context gesture still require supplementary owner-contract guidance.
+Those facts must be issued by Query Space and the host binding before the
+selected facet document can claim to answer execution-preparation queries
+without additional reads.
+
+The proposed normalization rule is to store shared detail once and add derived
+indexes or scalar repetition only when a critical query earns their cost.
+Arrays support discovery; keyed tables support shared detail and known-key
+lookup. Neither is mandatory for every resource. An index is a projection of
+the same owner data, never another maintained inventory. The selected style
+baseline does not yet justify all the tested indexes for 17 choices.
+
+This experiment does not define a universal style-specific model in Sections,
+change Product Vocabulary's declarations or value grammar, admit a new dotted
+selection, or make the generic compact envelope obsolete for explicit graph
+inspection. Production adoption must generalize the selected-document assembly
+from owner-issued identities, property contracts, and relationship evidence,
+retain selected observation outcomes and completeness, and demonstrate the
+same data-first reasoning for the other adopted resource families. Only then
+should host selection and HAL binding determine the final wire presentation.
+
+#### Selected-data implementation
+
+Exact vocabulary roots and query-space or query-facet roots admit explicit
+`.data --json` and `.hal --json` selections. They assemble a bounded local
+dataset from the validated catalog rather than using graph depth as a data
+selection. Vocabulary datasets include their values and declared target
+vocabularies. Facet datasets include required-context closure and the host
+bindings that expose selected facets. Sparse tables are used only for complete,
+available observations; unsupported or incomplete selected data fails visibly.
+Identity, source addresses, property declarations, and order remain available.
+Closure admits at most 256 resources and 4,096 observed targets. Binding
+exposure lists contain only selected facets; their original total member count
+remains in binding facts.
+These selections do not claim that unregistered validation rules are present.
+
+The HAL representation presents domain data directly as resource state, rather
+than retaining a generic `facts` wrapper or the internal identity/address
+receipt. A small `kind`, `name`, and `summary` header leads into `_links`; related
+resources appear once under `_embedded` relation arrays. Vocabulary values are
+embedded in their vocabulary, and referenced vocabularies embed their own
+values. Query facets and exposing bindings are embedded resources. Property
+sets and groups remain state on their owning vocabulary. Available data needs
+no observation receipt; non-available outcomes other than explicit absence
+remain in `data_states` beside the affected resource. `data_scope.completeness`
+qualifies the selected population, including sparse negatives, without carrying
+traversal budgets or execution bookkeeping.
+
+The reading projection uses simple local relations: `values`, `vocabularies`,
+`facets`, `required-context`, `bindings`, and `exposed-facets`. It deliberately
+favors readable product navigation over URI-qualified extension relations.
+Unlike the HAL draft's recommended documentation-linked extension relations,
+these names do not resolve to relation documentation. CURIEs are not emitted:
+the current single-product vocabulary demonstrates neither documentation
+lookup nor namespace disambiguation that would justify them.
+Embedded inventories supply member self links rather than repeating
+the complete inventory in root links. Links carry titles and destination media
+types. CLI HAL self and dataset links use
+`inspect-resource:/<path>?projection=hal`; following them unchanged retains HAL.
+JSON detail destinations are explicitly typed `application/json`. Root
+`describedby` links use `?projection=contract` to disclose complete schema and
+observation details separately. `self` identifies the current resource and
+representation; `describedby` describes it rather than naming a canonical
+resource. Its scenario is advanced client development or explanation-contract
+inspection, such as examining declared cardinalities or observation rules.
+Ordinary facet exploration and query preparation must not require this fetch;
+qualifications needed to interpret the returned data belong inline. The
+contract also cannot supply domain validation rules absent from the catalog.
+Projected addresses require JSON and reject conflicting projection or depth
+overrides.
+
+The direct JSON model remains independently usable with its typed metadata.
+Compare equivalent data-reading answers and advertised navigation, not equality
+of layouts after stripping links. These gates establish the representation and
+link mechanics; whether unfamiliar agents immediately recognize HAL and need
+fewer navigation tips remains an agent usability evaluation, not an asserted
+outcome. Existing default output and explicit `.contract` remain comparison
+surfaces.
+
 ### Compact resource projection contract
 
 Status: **proposed; not implemented**. This is slice 2 of
@@ -1006,7 +1142,69 @@ host must offer explicit contract selection over the current resource rather
 than emit a dangling schema link. No JSON Schema or result-contract resource
 is advertised before its owning catalog has adopted it.
 
+#### First CLI lowering adoption
+
+The bounded CLI adoption tracked by #9773 changes exact top-level
+`explain <resource> --json` to compact HAL resource data. Explicit
+`explain <resource> .contract --json` retains the existing self-contained
+Document JSON, including its schemas and traversal receipt. `.contract`
+requires JSON and an exact resource; search, contextual Member explanation,
+and human output retain their existing contracts. This is the first production
+consumer of the shared Sections projection; Browser/Wasm adoption remains
+slice 4 of #9762.
+
+The compact wire contains `identity` with separate owner, schema, type, and
+native identity value; direct available `facts`; non-available `fact_states`;
+local `relationships` with exact state, ordered targets, and completeness;
+public `addresses`; and HAL `_links`. The root retains the existing traversal
+receipt. Requested expanded resources appear once in `_embedded.resources` as
+complete projections of their selected data, not as summary copies. This
+expansion collection is a lowering of Document membership, not a new domain
+relationship. Declared relationship links retain their own local relation names.
+
+Integers and decimals use invariant decimal strings so arbitrary precision
+survives JavaScript consumers. Octets use base64 strings. Booleans, finite
+binary floating-point values, and text use native JSON primitives. Record fields
+use their local names and declared cardinality; choices expose a local `case`
+and optional `value`. Term identities carry separate catalog, vocabulary, and
+term values to avoid delimiter collisions. The explicit contract supplies
+value shapes; no declaration wrapper is repeated for each scalar.
+
+CLI HAL links use absolute `inspect-resource:/<canonical-path>` URIs. The CLI
+accepts these values unchanged as exact explanation operands and resolves them
+against the installed explanation catalog; they never fall back to capability
+search or trigger network access. Other host addresses are supplied by the
+consumer binding to the same shared projection. No HTTP endpoint or schema
+resource is minted. Explicit `.contract` selection provides contract inspection
+until an owner registers a navigable contract address.
+
+Gates: `ResourceExplanationDataProjectionTests` covers detached values,
+precision, octets, empty available facts, and unavailable/failed outcomes;
+`ResourceExplanationTests.SchemaDeclarationCount_IncludesComposedRelationships`
+covers direct record/choice values and available-empty relationship outcomes;
+`ResourceExplanationCommandTests` covers actual vocabularies and Package Query
+facets, usable self links, explicit full-contract JSON, absent facts, and
+rejected projection gestures. NativeAOT and cross-host completion evidence
+remain required before their respective adoption claims are complete.
+
 #### Query meaning and evidence
+
+Owner registrations may carry ordered `input_rules` alongside the facet's
+operators, examples, and effects. Query Operation Infrastructure owns the
+resource-free operand declarations; the operation owner supplies their meaning.
+Consumer bindings separately carry their host-owned lowering rules. Explanation
+projects both without guessing from parser flags or rendered help. Empty rules
+mean that no rules are registered, rather than an unrestricted input domain.
+
+The first witness registers the literal operand's UTF-16 bound, preservation,
+ordinal substring matching, repeated-value behavior, accepted text domain, and
+package-candidate bound. Its CLI binding
+registers the positional package seed, `--where` lowering, exact `--tfm` context,
+paired-input requirement, and JSON output gesture. These rules are
+concise text for agents; they are not a machine validation language. Typed
+constraint records should replace prose only when a demonstrated reading or
+validation task benefits from that structure. Both `.data` and `.hal` retain
+these declarations; HAL's navigation does not supply operand semantics.
 
 A facet response preserves its issued key, operand kind, operators, values,
 examples, effects, and declared relationship targets. Vocabulary navigation
@@ -1029,6 +1227,11 @@ The implementation slice records exact base/head bytes and token counts,
 representative `jq` access paths, and agent task outcomes. It measures total
 retrieved content and operation count, so smaller individual responses cannot
 hide additional fetches. NativeAOT comparisons cover the adopted CLI terminals.
+The executable [reading scenarios](../../tools/ExplainReadingScenarios/README.md)
+compare actual style answers across the browser inspection and compact CLI
+projection, expose map-entry and expansion joins, and record query/navigation
+costs. Their filtered answers do not count as reduced retrieval; the evidence
+supports a further selection experiment before an agent-readability claim.
 Cross-host gates compare resource facts and relationship meaning, allowing
 host-specific usable addresses. Boundary evidence covers identity collisions,
 detached subjects, large integers, octets, record and choice values, non-available
@@ -1215,7 +1418,7 @@ preserves the distinction among:
 - facets and their bindings;
 - each facet's owner-issued value shape and cardinality;
 - operators and named orders;
-- Rows and exact Count terminal requirements;
+- Rows and Count terminal requirements, with Count exact or observed by its completion evidence;
 - effects and continuation acceptance; and
 - opaque external value-vocabulary and result-contract identities.
 
@@ -1462,6 +1665,13 @@ gate.
 
 ### Skill
 
+The primary agent scenario begins after reading the shipped skill. That skill
+teaches the explain gestures and HAL vocabulary (`_links`, `_embedded`, link
+media types, and unchanged-href navigation). Spontaneous recognition without
+that guidance is not a prerequisite for landing the registered data model.
+Agent testing after landing optimizes filtering, navigation, and context use;
+ordinary correctness and adoption gates remain required.
+
 The shipped skill retains:
 
 - command-family orientation;
@@ -1478,6 +1688,17 @@ descriptor set and `explain`.
 An agent acceptance scenario starts with only that shallow skill and an
 unfamiliar task, then measures whether discovery and explanation lead to a
 valid command without guessing semantic identities.
+
+The post-landing usability asset is this repository at
+`ec47a520c742136f24fe5ffcec43b06318940b93`, specifically the shipped
+`skills/dotnet-inspect/SKILL.md` and `skills/query/SKILL.md`. Fresh agents reading
+those files encountered obsolete `vocabulary` commands, fetched already embedded
+resources, and fetched the explanation schema to interpret sparse properties.
+The [skill-informed trials](../../tools/ExplainReadingScenarios/usability/skill-informed/README.md)
+retain preparation answers and request/rendering evidence. Updated guidance
+uses current discovery and teaches local joins and completeness-aware filtering.
+These diagnostic trials do not establish that every query owner's registration
+is complete or authorize removal of the remaining domain guidance.
 
 ## Demo scenario
 

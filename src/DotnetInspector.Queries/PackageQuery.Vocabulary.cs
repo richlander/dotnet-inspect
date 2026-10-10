@@ -43,6 +43,8 @@ public sealed record PackageQueryTermDescriptor(
     PackageQueryTermRole Role,
     PackageQueryTermControlKind ControlKind)
 {
+    public ImmutableArray<string> InputRules { get; init; } = [];
+
     public ImmutableArray<PackageQueryTermOptionDescriptor> Options { get; init; } = [];
     public string? SelectionGroupId { get; init; }
     public bool CombinesWithinSelectionGroup { get; init; }
@@ -167,8 +169,9 @@ internal sealed class PackageQueryVocabulary
                         term.Predicate.Kind == PackageQueryPredicateKind.Package))
                         return maximum == 1;
                     if (terms.Any(term =>
-                            term.Predicate.Kind
-                                == PackageQueryPredicateKind.DependsTransitive)
+                            term.Predicate.Kind is
+                                PackageQueryPredicateKind.DependsTransitive
+                                or PackageQueryPredicateKind.DependencyDepth)
                         && maximum
                             > PackageQuery.MaximumNuspecExpensiveCandidates)
                     {

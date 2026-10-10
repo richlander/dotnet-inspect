@@ -915,47 +915,23 @@ package-relative path identity, and directory context.
 
 ## Package TFM adoption
 
-The ordinary single-package `package --tfms` lens declares one semantic row
-per target-framework string. Package resolution, extraction, complete assembly
-enumeration, TFM de-duplication, and TFM-priority ordering finish before
-Head/Tail or strict Window stages select from that completed vector.
+The single-package Target Frameworks section declares one semantic row per
+framework folder name. `--tfms` is its literal section shortcut; explicit
+`-S "Target Frameworks"` uses the same prepared intent. Folder enumeration,
+case-insensitive de-duplication, and TFM-priority ordering precede Head, Tail,
+and strict Window. Count and all section formats observe the selected rows.
 
 ```console
-$ dotnet-inspect package Newtonsoft.Json@13.0.4 \
-    --tfms -n 1 --tail --json
-[
-  {
-    "tfm": "net20"
-  }
-]
+$ dotnet-inspect package System.Text.Json@10.0.12 \
+    --tfms -n 1 --tail --no-headers
+net462
 ```
 
-What to notice: `-n 1 --tail` selects the final complete TFM row. Markdown,
-table, TSV, JSONL, JSON, and Count consume the same selected TFM identity.
-Selection does not reduce package acquisition, archive extraction, or assembly
-enumeration.
-
-The adoption supports Head/Tail, Window, and explicit Lines. JSON rejects
-explicit line selection before package resolution. One strict Window failure
-withholds every output shape:
-
-```console
-$ dotnet-inspect package Newtonsoft.Json@13.0.4 \
-    --tfms --rows 8..9 --json
-Error: Package TFM row selection stage 1 requires row 9, but only 8 TFM rows are available.
-```
-
-The declaration activates only for the ordinary one-package TFM lens.
-Version listing and its population-only modifiers, valid or malformed
-package-range coordinates, dependencies, bare `--tree`, layout, file, content,
-and SourceLink selectors or modifiers, embedded
-`--library`/`--all-libraries` inspection, multiple-package inspection, explicit
-section selection, discovery/schema, envelope output, and unsupported print or
-shape projections remain outside it. Fields and columns remain inside only
-with Count, where they project the TFM lens's count result. These competing
-intents retain their existing diagnostics or legacy row contracts and use
-rendered-line fallback for bare `-n`. Numeric `--rows N` is rejected on the
-ordinary adopted lens because Window requires range syntax.
+Explicit Lines remains rendered clipping; JSON rejects it before acquisition.
+Strict Window failure withholds output. Composed sections, library subject
+inspection, version populations, and discovery retain their own row contracts.
+The [target-framework section owner](package-target-frameworks.md) defines the
+population, lightweight producer, and retirement of the standalone lens.
 
 ## Match candidate adoption
 
@@ -1123,11 +1099,14 @@ An exact lone `Body Shapes` or `Body Shape Summary` section on `library`,
 including the delegated `library --package <package> <library>` route, `type`,
 or `member` declares one semantic row per rendered-syntax occurrence or per
 summary group. The same declaration applies when `--where "Kind=..."` infers
-`Body Shapes`. The body-shape search and, for the summary, grouping finish
-before Head/Tail or strict Window stages select from that vector in search
-order, so a selected group keeps its complete occurrence Count. A selected
-member without a body contributes an empty vector, so Head selects nothing and
-a strict Window fails.
+`Body Shapes`. Head/Tail or strict Window stages select from the search's
+vector in search order. For occurrences, the search stops after the plan's
+[required prefix](semantic-row-selection.md#required-prefix), so `-n 3`
+decompiles bodies only until the third match. Tail needs the complete search.
+Summary groups form from the complete search before selection, so a selected
+group keeps its complete occurrence Count. A selected member without a body
+contributes an empty vector, so Head selects nothing and a strict Window
+fails.
 
 ```console
 $ dotnet-inspect library System.Text.Json \
@@ -1516,9 +1495,9 @@ The Package TFM adoption is enforced by:
 
 | Gate | Property |
 | --- | --- |
-| `CommandExecutionTests.Tfms_SemanticTailSelectsTheSameFrameworkAcrossFormats` and `Tfms_Count_CountsTheListedFrameworks` | One ordinary `--tfms` lens selects complete TFM rows after package extraction and TFM ordering; Markdown, table, TSV, JSONL, JSON, and Count consume the same selected identity. |
-| `CommandExecutionTests.Tfms_UnavailableWindowWithholdsOutput`, `Tfms_RejectInvalidSelectionBeforePackageResolution`, and `Tfms_LinesMakesRenderedClippingExplicit` | One unavailable strict Window emits no partial payload, numeric legacy `--rows` and JSON line clipping fail before package resolution, and explicit Lines clips rendered text. |
-| `CommandExecutionTests.Tfms_CompetingLayoutRetainsRenderedLineFallback`, `Tfms_CompetingTreeAndRangesRetainOwnedDiagnostics`, `Tfms_CompetingProjectionsRetainOwnedDiagnostics`, `Tfms_CompetingModifiersRetainLegacyWindow`, and `LensCounts_ApplyRowsAndValidateProjectedColumns` | Competing Package modes, selectors, modifiers, unsupported projections, and valid or malformed range coordinates remain outside the declaration and retain their owned diagnostics or legacy Window validation, while the ordinary TFM lens applies semantic Window before Count, declared-column validation, and JSONL lowering. |
+| `CommandExecutionTests.Tfms_SectionShortcutMatchesExplicitSection` | Both entrances share native output, explicit formats, projection refusal, tail selection, and Count. |
+| `CommandExecutionTests.Tfms_SectionShortcutComposesAndWithholdsUnavailableWindow` and `Tfms_InvalidWindowFailsBeforeAcquisitionForBothEntrances` | Composed sections remain supported; unavailable strict windows withhold output and malformed windows fail before acquisition. |
+| `CommandExecutionTests.Tfms_CanonicalFoldersIncludePlaceholdersAndExcludeOtherAssetRoots` | Framework-folder rows include placeholder folders, exclude tools/any and unrelated asset roots, and preserve priority order and Count. |
 
 The Match candidate adoption is enforced by:
 
@@ -1548,6 +1527,7 @@ The Body Shapes adoption is enforced by:
 
 | Gate | Property |
 | --- | --- |
+| `BodyShapeSearchTests.Search_LimitReturnsThePrefixOfTheCompleteSearch` and `BodyShapesSectionTests.SearchLimit_BoundsOnlyOccurrencePrefixes` | The search stops after the required prefix of occurrences and returns exactly the complete search's prefix while inspecting fewer bodies; Tail and the summary search everything. |
 | `BodyShapesSectionTests.LibraryKindPredicate_RowSelectionSelectsOccurrencesInEveryFormat`, `TypeKindPredicate_HeadAndTailSelectOccurrences`, `MemberKindPredicate_RowSelectionSelectsScopedOccurrences`, `PackageLibraryRoutes_ObserveSemanticSelection`, and `BodyShapeSummaryApiTests.SummaryRowWindow_SelectsGroupsWithoutTruncatingCounts` | Head, Tail, and Window select the same occurrences before Markdown, TSV, JSONL, Library JSON, or Count lowering on Library, delegated and aggregate package Library, Type, and Member hosts; summary selection keeps each group's complete Count. |
 | `BodyShapesSectionTests.LibraryKindPredicate_UnavailableWindowWithholdsOutput`, `MemberKindPredicate_BodylessMemberConsumesSemanticSelection`, `LibraryKindPredicate_RejectsNumericRows`, `LibraryKindPredicate_LinesKeepRenderedLineSelection`, `LibraryBothViews_RetainRenderedLineFallback`, and `TfmAll_StaysOutsideTheDeclaration` | One unavailable strict Window emits no partial payload, including for a member without a body; numeric legacy `--rows` is rejected; explicit Lines clip rendered text; and selecting both views or `--tfm all` keeps the existing row contracts. |
 

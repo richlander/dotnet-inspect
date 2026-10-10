@@ -325,6 +325,86 @@ public class TypeDependencyScannerTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("ILInspector.Metadata.TypeDependencyCrossAssemblyFixtures.InternalRoot", true)]
+    [InlineData("ILInspector.Metadata.TypeDependencyCrossAssemblyFixtures.internalRoot", false)]
+    [InlineData("InternalRoot", false)]
+    public void DescriptorPopulation_AdmitsOnlyTheExactSelectedInternalRoot(
+        string target,
+        bool expectedFound)
+    {
+        ResolvedAssemblyReference assembly = Descriptor(
+            FixtureCatalog.MetadataTypeDependencyConsumer.AssemblyPath());
+        TypeDependencyPopulationResult result =
+            TypeDependencyScanner.BuildExactDependencyPopulation(
+                target,
+                [assembly],
+                rootRegistration: assembly.Registration);
+
+        Assert.Equal(expectedFound, result.Dependency.Found);
+        if (expectedFound)
+        {
+            Assert.Same(assembly.Registration, result.MatchedRegistration);
+            Assert.Equal(2, result.Dependency.Relationships.Count);
+            Assert.Contains(
+                result.Dependency.Relationships,
+                relationship => relationship.SourceTypeName == target
+                    && relationship.TargetTypeName.EndsWith(
+                        ".CaseBranch", StringComparison.Ordinal));
+        }
+        else
+        {
+            Assert.Null(result.MatchedRegistration);
+            Assert.Empty(result.Dependency.Relationships);
+        }
+    }
+
+    [Fact]
+    public void DescriptorPopulation_DoesNotExpandOtherInternalDefinitions()
+    {
+        const string target =
+            "ILInspector.Metadata.TypeDependencyCrossAssemblyFixtures.OtherInternalRoot";
+        ResolvedAssemblyReference assembly = Descriptor(
+            FixtureCatalog.MetadataTypeDependencyConsumer.AssemblyPath());
+        TypeDependencyPopulationResult result =
+            TypeDependencyScanner.BuildExactDependencyPopulation(
+                target, [assembly], rootRegistration: assembly.Registration);
+
+        Assert.True(result.Dependency.Found);
+        Assert.Contains(
+            result.Dependency.Relationships,
+            relationship => relationship.SourceTypeName == target
+                && relationship.TargetTypeName.EndsWith(
+                    ".InternalRoot", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            result.Dependency.Relationships,
+            relationship => relationship.SourceTypeName.EndsWith(
+                ".InternalRoot", StringComparison.Ordinal));
+        Assert.Empty(Assert.Single(result.Dependency.Tree,
+            node => node.TypeName.EndsWith(
+                ".InternalRoot", StringComparison.Ordinal)).Children);
+    }
+
+    [Fact]
+    public void DescriptorPopulation_InternalRootsRequireTheirOwnRegistration()
+    {
+        const string target =
+            "ILInspector.Metadata.TypeDependencyCrossAssemblyFixtures.InternalRoot";
+        string path = FixtureCatalog.MetadataTypeDependencyConsumer.AssemblyPath();
+        ResolvedAssemblyReference assembly = Descriptor(path);
+        ResolvedAssemblyReference otherRegistration = Descriptor(path);
+
+        Assert.False(TypeDependencyScanner.BuildDependencyTree(
+            target, [path]).Found);
+        Assert.False(TypeDependencyScanner.BuildDependencyPopulation(
+            target, [assembly]).Dependency.Found);
+        Assert.False(TypeDependencyScanner.BuildExactDependencyPopulation(
+            target, [assembly]).Dependency.Found);
+        Assert.False(TypeDependencyScanner.BuildExactDependencyPopulation(
+            target, [assembly],
+            rootRegistration: otherRegistration.Registration).Dependency.Found);
+    }
+
     [Fact]
     public void DescriptorPopulation_ExactNestedTypeUsesDeclaringTypeIdentity()
     {

@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using QuerySpace.Rows;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -1780,6 +1781,143 @@ public sealed class BodyShapesSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal("1", result.Output.Trim());
+    }
+
+    [Fact]
+    public void SearchLimit_BoundsOnlyOccurrencePrefixes()
+    {
+        RowSelectionIntent<string> head = RowSelectionIntent<string>.Create(
+            [RowSelectionIntentOperation<string>.Head(3)]);
+        RowSelectionIntent<string> window = RowSelectionIntent<string>.Create(
+            [RowSelectionIntentOperation<string>.Window(2, 4)]);
+        RowSelectionIntent<string> tail = RowSelectionIntent<string>.Create(
+            [RowSelectionIntentOperation<string>.Tail(3)]);
+        string[] occurrences = [SectionNames.BodyShapes];
+        string[] summary = [SectionNames.BodyShapeSummary];
+
+        Assert.Equal(3, BodyShapeRowSelection.SearchLimit(head, occurrences));
+        Assert.Equal(4, BodyShapeRowSelection.SearchLimit(window, occurrences));
+        Assert.Null(BodyShapeRowSelection.SearchLimit(tail, occurrences));
+        Assert.Null(BodyShapeRowSelection.SearchLimit(head, summary));
+        Assert.Null(BodyShapeRowSelection.SearchLimit(null, occurrences));
+    }
+
+    static string IncompleteFixturePath =>
+        FixtureCatalog.DecompilerClassicStateMachines.AssemblyPath();
+
+    // #9622: bodies below Full fidelity leave the search incomplete. Rows and
+    // Count report what was observed, stderr discloses the gap, and the
+    // command exits nonzero.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IncompleteSearch_RowsAndCountReportObservedRowsAndExitNonzero(
+        bool summary)
+    {
+        string[] library =
+        [
+            "library",
+            IncompleteFixturePath,
+            "--where",
+            "Kind=ReturnStatement",
+            .. summary
+                ? new[] { "-S", SectionNames.BodyShapeSummary }
+                : [],
+        ];
+
+        var tsv = await Run([.. library, "--tsv", "--no-header"]);
+        var count = await Run([.. library, "--count"]);
+
+        Assert.Equal(1, tsv.ExitCode);
+        Assert.Equal(1, count.ExitCode);
+        int rows = tsv.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+        Assert.True(rows > 0);
+        Assert.Equal(rows.ToString(), count.Output.Trim());
+        Assert.All(
+            [tsv.Error, count.Error],
+            error => Assert.Contains(
+                "Body Shapes inspection incomplete: ",
+                error));
+    }
+
+    [Fact]
+    public async Task IncompleteEmptySearch_IsNotTheExplicitEmptyState()
+    {
+        string[] library =
+        [
+            "library",
+            IncompleteFixturePath,
+            "--where",
+            "Kind=LockStatement",
+        ];
+
+        var markdown = await Run([.. library, "--markdown"]);
+        var count = await Run([.. library, "--count"]);
+
+        Assert.Equal(1, markdown.ExitCode);
+        Assert.DoesNotContain("No matching body shapes found.", markdown.Output);
+        Assert.Contains("no matches were observed, but ", markdown.Error);
+        Assert.Equal(1, count.ExitCode);
+        Assert.Equal("0", count.Output.Trim());
+    }
+
+    [Fact]
+    public async Task CompleteEmptySearch_KeepsTheExplicitEmptyState()
+    {
+        var result = await Run(
+            [
+                "library",
+                FixturePath,
+                "--where",
+                "Kind=LockStatement",
+                "--markdown",
+            ]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("No matching body shapes found.", result.Output);
+        Assert.DoesNotContain("inspection incomplete", result.Error);
+    }
+
+    [Fact]
+    public async Task IncompleteTypeSearch_ReportsObservedRowsAndExitsNonzero()
+    {
+        string[] type =
+        [
+            "type",
+            "ILInspector.Decompiler.Fixtures.ClassicStateMachines.ClassicStateMachineFixtures",
+            "--library",
+            IncompleteFixturePath,
+            "--where",
+            "Kind=ReturnStatement",
+        ];
+
+        var tsv = await Run([.. type, "--tsv", "--no-header"]);
+        var count = await Run([.. type, "--count"]);
+        // Projected tabular output is buffered until it validates; an
+        // incomplete search must still publish it before exiting nonzero.
+        var projected = await Run(
+            [.. type, "--columns", "Kind;Match", "--tsv", "--no-header"]);
+        var summary = await Run(
+            [
+                .. type,
+                "-S",
+                SectionNames.BodyShapeSummary,
+                "--columns",
+                "Match;Count",
+                "--jsonl",
+            ]);
+
+        int rows = tsv.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+        Assert.Equal(1, tsv.ExitCode);
+        Assert.Equal(1, count.ExitCode);
+        Assert.Equal(rows.ToString(), count.Output.Trim());
+        Assert.Contains("Body Shapes inspection incomplete: ", count.Error);
+        Assert.Equal(1, projected.ExitCode);
+        Assert.Equal(
+            rows,
+            projected.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.Equal(1, summary.ExitCode);
+        Assert.NotEmpty(summary.Output.Trim());
     }
 
     [Fact]

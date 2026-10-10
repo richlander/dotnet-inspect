@@ -1,0 +1,81 @@
+{
+  "sources": [
+    "response-01.out: explain vocabularies --json",
+    "response-02.out: explain vocabularies/csharp.style-choices .hal --json"
+  ],
+  "data_scope": { "completeness": "Complete" },
+  "data_states": null,
+  "interpretation": "For a known member of this complete selected vocabulary, an ID absent from a sparse property_sets Boolean list is false because the mapped properties have complete coverage and are available. This negative inference does not apply to unknown IDs, incomplete datasets, or unavailable properties. The declared conflict groups mean mutually exclusive selections; no invocation rule is inferred from their names.",
+  "choices": [
+    {
+      "id": "wrap-splittable-expressions",
+      "option": "wrap-splittable-expressions",
+      "value": "true",
+      "name": "Wrap long boolean chains",
+      "description": "Break a long short-circuit &&/|| chain across lines instead of one very wide line (whitespace only).",
+      "tier": { "id": "Formatting", "name": "Formatting", "description": "Layout only — whitespace and line breaks. The code itself is unchanged, and compiles to identical IL." },
+      "endorsed_by": ["corpus"],
+      "data_states": null
+    },
+    {
+      "id": "qualify-field-access",
+      "option": "qualify-field-access",
+      "value": "true",
+      "name": "Qualify field access with this.",
+      "description": "Render this. on an instance field even where the bare name is unambiguous (IL-identical).",
+      "tier": { "id": "Spelling", "name": "Spelling", "description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL." },
+      "endorsed_by": ["oracle"],
+      "data_states": null
+    },
+    {
+      "id": "qualify-property-access",
+      "option": "qualify-property-access",
+      "value": "true",
+      "name": "Qualify property access with this.",
+      "description": "Render this. on an instance property even where the bare name is unambiguous (IL-identical).",
+      "tier": { "id": "Spelling", "name": "Spelling", "description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL." },
+      "endorsed_by": ["oracle"],
+      "data_states": null
+    },
+    {
+      "id": "qualify-method-access",
+      "option": "qualify-method-access",
+      "value": "true",
+      "name": "Qualify method access with this.",
+      "description": "Render this. on an instance method call even where the bare name is unambiguous (IL-identical).",
+      "tier": { "id": "Spelling", "name": "Spelling", "description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL." },
+      "endorsed_by": ["oracle"],
+      "data_states": null
+    },
+    {
+      "id": "qualify-event-access",
+      "option": "qualify-event-access",
+      "value": "true",
+      "name": "Qualify event access with this.",
+      "description": "Render this. on an instance event even where the bare name is unambiguous (IL-identical).",
+      "tier": { "id": "Spelling", "name": "Spelling", "description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL." },
+      "endorsed_by": ["oracle"],
+      "data_states": null
+    }
+  ],
+  "declared_conflict_groups": {
+    "guarded-boolean-return-style": [
+      "guarded-boolean-return-style:conditional-expression",
+      "guarded-boolean-return-style:branchless"
+    ],
+    "var-spelling-style": [
+      "var-spelling-style:var-for-built-in-types",
+      "var-spelling-style:var-when-type-apparent",
+      "var-spelling-style:var-elsewhere"
+    ]
+  },
+  "trial_report": {
+    "successful_product_requests": 2,
+    "failed_requests": 1,
+    "failure": "Initial guide attempt used request -- guide and was rejected by the runner; guide was then read with the guide action.",
+    "guesses": 0,
+    "unnecessary_product_reads": 0,
+    "inspections_executed": 0,
+    "network_reads": 0
+  }
+}

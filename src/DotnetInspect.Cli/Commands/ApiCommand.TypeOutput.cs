@@ -108,6 +108,11 @@ public partial class ApiCommand
         return 1;
     }
 
+    /// <param name="bodyShapeCompletion">
+    /// Receives whether a selected Body Shapes search was incomplete. The
+    /// caller publishes the rendered output first and then exits nonzero, so
+    /// incompleteness never withholds observed rows.
+    /// </param>
     internal static async Task<int> WriteTypeOutputAsync(
         ApiType type,
         string? foundIn,
@@ -119,7 +124,8 @@ public partial class ApiCommand
         TextWriter? output = null,
         ResolvedAssemblyReference? sourceAssembly = null,
         ResolvedAssemblyReference? memberCodeSourceAssembly = null,
-        HttpClient? sourceClient = null)
+        HttpClient? sourceClient = null,
+        BodyShapeCompletion? bodyShapeCompletion = null)
     {
         var sink = output ?? Console.Out;
 
@@ -210,7 +216,6 @@ public partial class ApiCommand
 
             ApiOutputFormatter.WriteShapeOutput(
                 type,
-                foundIn,
                 packageName,
                 packageVersion,
                 options.MemberFilter,
@@ -428,6 +433,8 @@ public partial class ApiCommand
         }
 
         var view = ApiOutputFormatter.BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
+        if (bodyShapeCompletion is not null)
+            bodyShapeCompletion.View = view;
         EventsView? eventsView = null;
         MethodGroupsView? methodGroupsView = null;
         MethodsView? methodsView = null;

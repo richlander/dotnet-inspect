@@ -88,7 +88,7 @@ producers that will extend that space.
   schemas or rendered fields.
   [Query Space Composition](design/query-space-composition.md) owns the target
   host-neutral composition of one operation route with explicit row spaces,
-  Rows or exact Count, structural plan descriptions, and preservation of an
+  Rows or Count, structural plan descriptions, and preservation of an
   adjacent source owner's continuation. It keeps semantic selection, work
   bounds, source batching, consumer paging, and rendering distinct while
   exposing one capability descriptor to CLI, Browser/Wasm, generated .NET
@@ -1042,6 +1042,9 @@ rules, this document describes subsystem ownership, and
 - [Fast Diff](design/fast-diff.md): per-Type API and Body change states for a
   Library image pair, sound for the facts each axis compares, without building
   either complete diff.
+- [Inspect-web background analysis](design/inspect-web-background-analysis.md):
+  the page-side queue for analysis the website starts on its own, its
+  foreground-first order, and the default Fast Diff baselines.
 - [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by the opt-in `diff` section, RTS, and harnesses.
 - [C# assembly round-trip testing](design/csharp-member-recompilation.md): proposed tools-only `cluster`/`all` artifact compilation and layered IL/C# comparison.
 - [Fixture governance](fixture-governance.md): fixture catalog, project-boundary, and semantic-axis rules.

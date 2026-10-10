@@ -105,6 +105,7 @@ internal static class CSharpDeclarationWriter
             options,
             CollectShadowingNames(type, [member]),
             CSharpFormatter.StripArity(type.Name),
+            TypedNestedTypeRoots(MemberTypeReferenceIdentities(member)),
             qualificationOnlyAttributeReferences,
             memberReferences.Except(explicitInterfaceReferences).ToHashSet(StringComparer.Ordinal),
             attributeValueReferences,
@@ -163,6 +164,7 @@ internal static class CSharpDeclarationWriter
             options,
             CollectShadowingNames(type, [member]),
             CSharpFormatter.StripArity(type.Name),
+            TypedNestedTypeRoots(MemberTypeReferenceIdentities(member)),
             qualificationOnlyAttributeReferences,
             memberReferences.Except(explicitInterfaceReferences).ToHashSet(StringComparer.Ordinal),
             attributeValueReferences,
@@ -249,6 +251,9 @@ internal static class CSharpDeclarationWriter
             options,
             CollectShadowingNames(type, memberList),
             CSharpFormatter.StripArity(type.Name),
+            TypedNestedTypeRoots(memberList
+                .SelectMany(MemberTypeReferenceIdentities)
+                .Concat(parameters.SelectMany(parameter => parameter.TypeReferences))),
             qualificationOnlyAttributeReferences,
             shortenableReferences,
             attributeValueReferences,
@@ -333,6 +338,7 @@ internal static class CSharpDeclarationWriter
                 options,
                 CollectShadowingNames(type, [delegateInvoke]),
                 CSharpFormatter.StripArity(type.Name),
+                TypedNestedTypeRoots(MemberTypeReferenceIdentities(delegateInvoke)),
                 delegateQualificationOnlyReferences,
                 delegateSignatureReferences,
                 valueReferences: delegateAttributeValueReferences);
@@ -390,6 +396,7 @@ internal static class CSharpDeclarationWriter
             options,
             CollectShadowingNames(type, []),
             CSharpFormatter.StripArity(type.Name),
+            TypedNestedTypeRoots(parameters.SelectMany(parameter => parameter.TypeReferences)),
             qualificationOnlyAttributeReferences,
             shortenableReferences,
             attributeValueReferences,
@@ -417,6 +424,7 @@ internal static class CSharpDeclarationWriter
             options,
             new HashSet<string>(StringComparer.Ordinal),
             "",
+            TypedNestedTypeRoots([]),
             qualificationOnlyReferences,
             valueReferences: valueReferences);
         return (attributes.Select(plan.Apply).ToArray(), plan.Diagnostics);
@@ -480,6 +488,11 @@ internal static class CSharpDeclarationWriter
                 scope.DeclaredTypeFullName,
                 scope.CanImportDeclaringNamespace))
             .ToList();
+        var nestedTypeRoots = TypedNestedTypeRoots(scopeList.SelectMany(scope =>
+            scope.Members
+                .SelectMany(MemberTypeReferenceIdentities)
+                .Concat(scope.AdditionalParameters.SelectMany(parameter => parameter.TypeReferences))));
+        TypeRef? CreateTypeRef(string value) => TypeRef.TryCreate(value, nestedTypeRoots);
         var typeRefs = scopeList
             .SelectMany(scope => CollectTypeReferences(scope.Type)
                 .Concat(scope.Members.SelectMany(member =>
@@ -488,7 +501,7 @@ internal static class CSharpDeclarationWriter
                         includeSignatureAttributes: scope.Type.Kind != "delegate")))
                 .Concat(scope.AdditionalParameters.SelectMany(parameter =>
                     ExtractTypeNames(parameter.Type))))
-            .Select(TypeRef.TryCreate)
+            .Select(CreateTypeRef)
             .Where(r => r is not null)
             .Select(r => r!)
             .DistinctBy(r => r.FullName, StringComparer.Ordinal)
@@ -517,7 +530,8 @@ internal static class CSharpDeclarationWriter
             .Select(r => r!)
             .DistinctBy(r => r.FullName, StringComparer.Ordinal)
             .ToList();
-        // Dotted signature text does not distinguish namespaces from enclosing types.
+        // Dotted signature text does not distinguish namespaces from enclosing types;
+        // typed identity does, and CreateTypeRef applies it where a member carries it.
         // Newly planned delegate and primary-constructor surfaces need independent
         // namespace evidence before they can introduce a using.
         var existingSurfaceTypeFullNames = scopeList
@@ -529,7 +543,7 @@ internal static class CSharpDeclarationWriter
                             CollectMemberTypeReferences(
                                 member,
                                 includeSignatureAttributes: true))))
-            .Select(TypeRef.TryCreate)
+            .Select(CreateTypeRef)
             .Where(reference => reference is not null)
             .Select(reference => reference!.FullName)
             .ToHashSet(StringComparer.Ordinal);
@@ -544,7 +558,7 @@ internal static class CSharpDeclarationWriter
                     : [])
                 .Concat(scope.AdditionalParameters.SelectMany(parameter =>
                     ExtractTypeNames(parameter.Type))))
-            .Select(TypeRef.TryCreate)
+            .Select(CreateTypeRef)
             .Where(reference => reference is not null)
             .Select(reference => reference!.FullName)
             .ToHashSet(StringComparer.Ordinal);
@@ -3187,14 +3201,16 @@ internal static class CSharpDeclarationWriter
             CSharpDeclarationOptions options,
             IReadOnlySet<string> shadowingNames,
             string declaredTypeName,
+            IReadOnlyDictionary<string, TypeRef> nestedTypeRoots,
             IReadOnlySet<string>? qualificationOnlyReferences = null,
             IReadOnlySet<string>? shortenableReferences = null,
             IReadOnlySet<string>? valueReferences = null,
             IReadOnlySet<string>? preferredSimpleNameReferences = null,
             IReadOnlySet<string>? attributeNameReferences = null)
         {
+            TypeRef? CreateTypeRef(string value) => TypeRef.TryCreate(value, nestedTypeRoots);
             var qualificationOnlyFullNames = qualificationOnlyReferences?
-                .Select(TypeRef.TryCreate)
+                .Select(CreateTypeRef)
                 .Where(reference => reference is not null)
                 .Select(reference => reference!.FullName)
                 .ToHashSet(StringComparer.Ordinal)
@@ -3202,12 +3218,12 @@ internal static class CSharpDeclarationWriter
             if (shortenableReferences is not null)
             {
                 qualificationOnlyFullNames.ExceptWith(shortenableReferences
-                    .Select(TypeRef.TryCreate)
+                    .Select(CreateTypeRef)
                     .Where(reference => reference is not null)
                     .Select(reference => reference!.FullName));
             }
             var valueFullNames = valueReferences?
-                .Select(TypeRef.TryCreate)
+                .Select(CreateTypeRef)
                 .Where(reference => reference is not null)
                 .Select(reference => reference!.FullName)
                 .ToHashSet(StringComparer.Ordinal)
@@ -3217,24 +3233,24 @@ internal static class CSharpDeclarationWriter
             if (shortenableReferences is not null)
             {
                 valueOnlyFullNames.ExceptWith(shortenableReferences
-                    .Select(TypeRef.TryCreate)
+                    .Select(CreateTypeRef)
                     .Where(reference => reference is not null)
                     .Select(reference => reference!.FullName));
             }
             var preferredSimpleNameFullNames = preferredSimpleNameReferences?
-                .Select(TypeRef.TryCreate)
+                .Select(CreateTypeRef)
                 .Where(reference => reference is not null)
                 .Select(reference => reference!.FullName)
                 .ToHashSet(StringComparer.Ordinal)
                 ?? new HashSet<string>(StringComparer.Ordinal);
             var attributeNameFullNames = attributeNameReferences?
-                .Select(TypeRef.TryCreate)
+                .Select(CreateTypeRef)
                 .Where(reference => reference is not null)
                 .Select(reference => reference!.FullName)
                 .ToHashSet(StringComparer.Ordinal)
                 ?? new HashSet<string>(StringComparer.Ordinal);
             var typeRefs = references
-                .Select(TypeRef.TryCreate)
+                .Select(CreateTypeRef)
                 .Where(r => r is not null)
                 .Select(r => r!)
                 .DistinctBy(r => r.FullName, StringComparer.Ordinal)
@@ -3581,10 +3597,65 @@ internal static class CSharpDeclarationWriter
         return text.Length;
     }
 
+    /// <summary>
+    /// Maps the dotted C# spelling of each typed definition to the type a reference
+    /// with that spelling binds through. Dotted text cannot tell <c>N.Outer.Inner</c>
+    /// (type <c>Inner</c> nested in <c>N.Outer</c>) from a type <c>Inner</c> in
+    /// namespace <c>N.Outer</c>; a <see cref="MetadataTypeDefinitionName"/> can.
+    /// A nested definition binds through its outermost declaring type, so that type,
+    /// not the dotted prefix, is the import and shortening candidate: importing
+    /// <c>N</c> shortens the reference to <c>Outer.Inner</c>. When two typed
+    /// identities split one spelling differently, the spelling has no single reading;
+    /// it maps to a namespace-less reference, which is never imported or shortened
+    /// and so stays as written.
+    /// </summary>
+    static IReadOnlyDictionary<string, TypeRef> TypedNestedTypeRoots(
+        IEnumerable<ApiTypeReferenceIdentity> references)
+    {
+        var roots = new Dictionary<string, TypeRef>(StringComparer.Ordinal);
+        var ambiguous = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var reference in references)
+        {
+            if (reference.DefinitionName is not { } name)
+                continue;
+            string prefix = name.Namespace.Length == 0 ? "" : $"{name.Namespace}.";
+            string spelling = prefix + string.Join('.', name.Segments.Select(MetadataNameArity.StripFromSegment));
+            if (ambiguous.Contains(spelling))
+                continue;
+            string outer = MetadataNameArity.StripFromSegment(name.Segments[0]);
+            var root = new TypeRef(prefix + outer, name.Namespace, outer);
+            if (roots.TryGetValue(spelling, out var existing) && existing != root)
+            {
+                roots[spelling] = new TypeRef(spelling, "", spelling);
+                ambiguous.Add(spelling);
+                continue;
+            }
+            roots[spelling] = root;
+        }
+        return roots;
+    }
+
+    static IEnumerable<ApiTypeReferenceIdentity> MemberTypeReferenceIdentities(ApiMember member)
+        => member.SignatureModel is not { } signature
+            ? []
+            : signature.ReturnTypeReferences
+                .Concat(signature.Parameters.SelectMany(parameter => parameter.TypeReferences));
+
     // An empty namespace records unqualified type-position evidence. It participates
     // in collision analysis but never produces a replacement or using directive.
     sealed record TypeRef(string FullName, string Namespace, string SimpleName)
     {
+        public static TypeRef? TryCreate(
+            string value,
+            IReadOnlyDictionary<string, TypeRef> nestedTypeRoots)
+        {
+            var reference = TryCreate(value);
+            return reference is not null
+                && nestedTypeRoots.TryGetValue(reference.FullName, out var root)
+                    ? root
+                    : reference;
+        }
+
         public static TypeRef? TryCreate(string value)
         {
             value = value.Trim().TrimEnd('?');

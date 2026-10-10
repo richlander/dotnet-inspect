@@ -84,7 +84,8 @@ public sealed record CSharpMemberShellSpec(
     int? SetterToken = null,
     int? AdderToken = null,
     int? RemoverToken = null,
-    bool IsReadOnly = false);
+    bool IsReadOnly = false,
+    IReadOnlyList<ApiTypeReferenceIdentity>? ReturnTypeReferences = null);
 
 /// <summary>
 /// Composes product-owned C# member models and body policies from a neutral shell
@@ -104,6 +105,7 @@ public static class CSharpMemberShellProducer
         ValidateBodyKind(spec);
         ValidateExplicitInterfaceMemberName(spec);
         ValidateConstructorInitializer(spec);
+        ValidateStaticConstructor(spec);
         var member = BuildMember(spec);
         return spec.BodyKind switch
         {
@@ -249,7 +251,12 @@ public static class CSharpMemberShellProducer
         bool isExplicitInterface = spec.ExplicitInterfaceMemberName is not null;
         var member = new ApiMember
         {
-            Name = spec.ExplicitInterfaceMemberName ?? spec.Name,
+            // A static constructor is identified by its metadata name: the declaration
+            // writer spells `.cctor` as `static T()`, with no accessibility (CS0515),
+            // whatever identifier the caller sanitized the metadata name into.
+            Name = IsStaticConstructor(spec)
+                ? ".cctor"
+                : spec.ExplicitInterfaceMemberName ?? spec.Name,
             Kind = isExplicitInterface && (isProperty || isEvent || spec.Kind == CSharpShellMemberKind.Method)
                 ? "explicit-interface-implementation"
                 : spec.Kind switch
@@ -290,11 +297,26 @@ public static class CSharpMemberShellProducer
             RemoverToken = spec.RemoverToken,
         };
 
-        if (spec.Kind != CSharpShellMemberKind.Field)
+        if (spec.Kind == CSharpShellMemberKind.Field)
+        {
+            // Mirror a metadata-sourced field: its typed type identity lets the
+            // declaration writer tell a nested type from a namespace member.
+            if (spec.ReturnTypeReferences is { Count: > 0 } fieldTypeReferences)
+            {
+                member.SignatureModel = new ApiSignature
+                {
+                    ReturnType = spec.ReturnType,
+                    MemberName = spec.Name,
+                    ReturnTypeReferences = [.. fieldTypeReferences],
+                };
+            }
+        }
+        else
         {
             member.SignatureModel = new ApiSignature
             {
                 ReturnType = spec.ReturnType,
+                ReturnTypeReferences = [.. spec.ReturnTypeReferences ?? []],
                 ReturnAttributes = spec.Kind == CSharpShellMemberKind.Method
                     ? spec.ReturnAttributes?.ToList() ?? []
                     : [],
@@ -497,6 +519,26 @@ public static class CSharpMemberShellProducer
 
     static bool IsTypeNameSeparator(char ch)
         => ch is '<' or '>' or ',' or '.' or '(' or ')' or '[' or ']' or '?' or '*' or '&' or ':';
+
+    static bool IsStaticConstructor(CSharpMemberShellSpec spec)
+        => spec.Kind == CSharpShellMemberKind.Constructor && spec.IsStatic;
+
+    /// <summary>
+    /// A static constructor takes no parameters and chains to nothing; a shell that
+    /// asks for either is not a C# static constructor, so it is refused rather than
+    /// spelled.
+    /// </summary>
+    static void ValidateStaticConstructor(CSharpMemberShellSpec spec)
+    {
+        if (!IsStaticConstructor(spec))
+            return;
+        if (spec.Parameters.Count != 0 || spec.ConstructorInitializer is not null)
+        {
+            throw new ArgumentException(
+                "Static constructor shells take no parameters and no constructor initializer.",
+                nameof(spec));
+        }
+    }
 
     static void ValidateConstructorInitializer(CSharpMemberShellSpec spec)
     {

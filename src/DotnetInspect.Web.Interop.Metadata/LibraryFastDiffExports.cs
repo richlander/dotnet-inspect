@@ -13,6 +13,11 @@ public static partial class MetadataExports
 {
     static readonly BrowserManagedOperationBridge LibraryFastDiffOperations = new();
 
+    // The structural bound on one synchronous Fast Diff step. The Worker is
+    // single-threaded, so the operation yields to its event loop between steps
+    // and foreground operations and cancellation run there.
+    internal static TimeSpan LibraryFastDiffStepBudget { get; set; } = TimeSpan.FromMilliseconds(8);
+
     [JSExport]
     public static string CancelLibraryFastDiff(string operationId, string reason)
     {
@@ -113,12 +118,25 @@ public static partial class MetadataExports
         BrowserWorkspaceParticipant current = currentScope.ImplementationParticipant(
             currentScope.SurfaceParticipant(currentCoordinate, currentAsset));
 
-        cancellationToken.ThrowIfCancellationRequested();
-        AssemblyContextFastDiffOutcome outcome =
-            targetScope.UseImplementationParticipant(target, (targetGroup, targetParticipant) =>
+        var comparison = new FastDiffComparison(Project(request.Axes));
+        AssemblyContextFastDiffOutcome outcome;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            outcome = targetScope.UseImplementationParticipant(target, (targetGroup, targetParticipant) =>
                 currentScope.UseImplementationParticipant(current, (currentGroup, currentParticipant) =>
                     AssemblyContextFastDiffQuery.Execute(
-                        targetGroup, targetParticipant, currentGroup, currentParticipant, cancellationToken)));
+                        targetGroup,
+                        targetParticipant,
+                        currentGroup,
+                        currentParticipant,
+                        comparison,
+                        LibraryFastDiffStepBudget,
+                        cancellationToken)));
+            if (outcome is not AssemblyContextFastDiffOutcome.Pending)
+                break;
+            await Task.Yield();
+        }
         cancellationToken.ThrowIfCancellationRequested();
 
         return outcome switch
@@ -133,8 +151,7 @@ public static partial class MetadataExports
                     compared.Result.Types.Length,
                     [
                         .. compared.Result.Types
-                            .Where(type => type.Api != FastDiffState.Unchanged
-                                || type.Body != FastDiffState.Unchanged)
+                            .Where(type => IsReported(type.Api) || IsReported(type.Body))
                             .Select(type => new BrowserFastDiffType(
                                 type.Identifier,
                                 type.FullName,
@@ -156,12 +173,23 @@ public static partial class MetadataExports
         };
     }
 
+    static bool IsReported(FastDiffState state)
+        => state is FastDiffState.Changed or FastDiffState.Indeterminate;
+
     static BrowserFastDiffState Project(FastDiffState state) => state switch
     {
         FastDiffState.Unchanged => BrowserFastDiffState.Unchanged,
         FastDiffState.Changed => BrowserFastDiffState.Changed,
         FastDiffState.Indeterminate => BrowserFastDiffState.Indeterminate,
+        FastDiffState.NotCompared => BrowserFastDiffState.NotCompared,
         _ => throw new ArgumentOutOfRangeException(nameof(state)),
+    };
+
+    static FastDiffAxes Project(BrowserFastDiffAxes axes) => axes switch
+    {
+        BrowserFastDiffAxes.ApiAndBody => FastDiffAxes.ApiAndBody,
+        BrowserFastDiffAxes.Api => FastDiffAxes.Api,
+        _ => throw new ArgumentOutOfRangeException(nameof(axes)),
     };
 
     static void ValidateLibraryFastDiffRequest(BrowserLibraryFastDiffRequest request)
@@ -181,6 +209,8 @@ public static partial class MetadataExports
         RequireBoundedRequestField(request.TargetFramework, nameof(request.TargetFramework));
         RequireBoundedRequestField(request.CompileAssetId, nameof(request.CompileAssetId));
         _ = BrowserFrameworkText.Require(request.TargetFramework);
+        if (!Enum.IsDefined(request.Axes))
+            throw new ArgumentOutOfRangeException(nameof(request), "The Library Fast Diff axes are unsupported.");
         if (!NuGetVersion.TryParse(request.CurrentVersion, out _)
             || !NuGetVersion.TryParse(request.TargetVersion, out _))
         {

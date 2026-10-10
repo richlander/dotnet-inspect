@@ -17,6 +17,10 @@
              Link="AsyncExpressionFixtures.cs" />
     <Compile Include="..\ILInspector.Decompiler.Fixtures.ClassicAsync\AsyncFixtures.cs"
              Link="AsyncFixtures.cs" />
+    <Compile Include="..\ILInspector.Decompiler.Fixtures.ClassicAsync\ReceiverAliasFixtures.cs"
+             Link="ReceiverAliasFixtures.cs" />
+    <Compile Include="..\ILInspector.Decompiler.Fixtures.ClassicAsync\ContinuationFixtures.cs"
+             Link="ContinuationFixtures.cs" />
   </ItemGroup>
 
 </Project>

@@ -36,7 +36,8 @@ public static class TfmSelector
         string? Tfm,
         PackageLibraryResolutionStatus Status,
         IReadOnlyList<string> CandidatePaths,
-        IReadOnlyList<string>? IdentityFailurePaths = null)
+        IReadOnlyList<string>? IdentityFailurePaths = null,
+        FirstPackageLibraryReason? FirstLibraryReason = null)
     {
         public bool IsSelected => Status == PackageLibraryResolutionStatus.Selected && Paths.Count > 0;
     }
@@ -273,6 +274,28 @@ public static class TfmSelector
 
     public static List<string> GetPackageAssemblies(string extractPath)
         => FilterResourceAssemblies(GetPackageDlls(extractPath));
+
+    /// <summary>Framework folders represented by the Package Target Frameworks section.</summary>
+    public static List<string> GetPackageFrameworkFolders(string extractPath)
+        => GetPackageFrameworkFolders(
+            new[] { "lib", "tools" }
+                .Select(root => Path.Combine(extractPath, root))
+                .Where(Directory.Exists)
+                .SelectMany(Directory.GetDirectories)
+                .Select(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/')));
+
+    /// <summary>Framework folders from owner-issued package-relative logical directories.</summary>
+    public static List<string> GetPackageFrameworkFolders(IEnumerable<string> directories)
+        => OrderByTfmPriorityDescending(
+            directories.Select(path => path.Split('/'))
+                .Where(parts => parts.Length == 2
+                    && (parts[0] == "lib" || parts[0] == "tools")
+                    && !(parts[0] == "tools"
+                        && parts[1].Equals("any", StringComparison.OrdinalIgnoreCase)))
+                .Select(parts => parts[1])
+                .Order(StringComparer.Ordinal)
+                .Distinct(StringComparer.OrdinalIgnoreCase), static tfm => tfm)
+            .ToList();
 
     public static List<string> GetPackageTfms(string extractPath)
         => GetPackageTfms(GetPackageDlls(extractPath), extractPath);
@@ -594,6 +617,68 @@ public static class TfmSelector
                 tfm,
                 PackageLibraryResolutionStatus.Ambiguous,
                 candidates);
+    }
+
+    /// <summary>
+    /// Reads the owner-issued assembly simple name of each candidate and
+    /// applies <see cref="PackageLibraryOrder.SelectFirst"/> over
+    /// <paramref name="extractPath"/>-relative <c>/</c> asset paths.
+    /// Non-assembly candidates are skipped. On success the candidate paths are
+    /// the admitted Libraries in Library order; otherwise they are the input
+    /// candidates.
+    /// </summary>
+    public static PackageLibraryResolution SelectFirstPackageLibrary(
+        IReadOnlyList<string> candidates,
+        string extractPath,
+        string packageId,
+        string? tfm = null)
+    {
+        var libraries = new List<PackageLibraryIdentity>();
+        var unresolved = new List<string>();
+        var paths = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (string path in candidates)
+        {
+            PackageLibraryImageKind imageKind =
+                ClassifyPackageLibraryImage(path);
+            if (imageKind == PackageLibraryImageKind.NonAssembly)
+                continue;
+
+            string assetPath = Path.GetRelativePath(extractPath, path)
+                .Replace('\\', '/');
+            paths[assetPath] = path;
+            string? assemblyName =
+                imageKind == PackageLibraryImageKind.Unreadable
+                    ? null
+                    : TryReadAssemblySimpleName(path);
+            if (assemblyName is null)
+                unresolved.Add(assetPath);
+            else
+                libraries.Add(new(assetPath, assemblyName));
+        }
+
+        return PackageLibraryOrder.SelectFirst(libraries, unresolved, packageId) switch
+        {
+            FirstPackageLibrarySelection.Selected selected =>
+                new PackageLibraryResolution(
+                    [paths[selected.Library.AssetPath]],
+                    tfm,
+                    PackageLibraryResolutionStatus.Selected,
+                    [.. selected.LibraryOrder.Select(
+                        library => paths[library.AssetPath])],
+                    FirstLibraryReason: selected.Reason),
+            FirstPackageLibrarySelection.IdentityUnresolved failed =>
+                new PackageLibraryResolution(
+                    [],
+                    tfm,
+                    PackageLibraryResolutionStatus.NamesakeIdentityUnavailable,
+                    candidates,
+                    [.. failed.AssetPaths.Select(assetPath => paths[assetPath])]),
+            _ => new PackageLibraryResolution(
+                [],
+                tfm,
+                PackageLibraryResolutionStatus.NoAssemblies,
+                candidates),
+        };
     }
 
     private static string? TryReadAssemblySimpleName(string path)

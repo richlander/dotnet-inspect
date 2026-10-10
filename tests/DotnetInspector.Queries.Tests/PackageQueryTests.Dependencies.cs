@@ -392,6 +392,156 @@ public partial class PackageQueryTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_DependsWithDepthIncludesDirectReachability()
+    {
+        var source = SourceFor(
+            Manifest(
+                "Contoso.Root",
+                dependencies:
+                """
+                <group targetFramework="net10.0">
+                  <dependency id="Contoso.Target" version="[2.0.0]" />
+                </group>
+                """),
+            "Contoso.Root");
+        var traversal = new FakePackageQueryTraversal(
+            ("Contoso.Target", "2.0.0", ""));
+        PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(
+            "Contoso.*",
+            terms:
+            [
+                Term(PackageQuery.DependsTermKey, "Contoso.Target"),
+                Term(PackageQuery.DependencyTargetTermKey, "net10.0"),
+                Term(PackageQuery.DependencyDepthTermKey, "2"),
+            ],
+            maximumCandidates: 1,
+            maximumMatches: null));
+
+        PackageQueryMatch match = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                contentProvider: null,
+                traversal.Services,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+
+        PackageQueryEvidence evidence = Assert.Single(
+            match.Evidence,
+            item => item.Id == PackageQuery.DependsTermKey);
+        Assert.Equal("1", EvidenceProperty(evidence, "minimum-depth"));
+        Assert.Equal("2", EvidenceProperty(evidence, "maximum-depth"));
+        Assert.Contains(
+            "Contoso.Target@2.0.0",
+            Assert.Single(evidence.Summary!.Preview).ToString(),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DependsWithDepthIncludesIndirectReachability()
+    {
+        var source = SourceFor(
+            Manifest(
+                "Contoso.Root",
+                dependencies:
+                """
+                <group targetFramework="net10.0">
+                  <dependency id="Contoso.Bridge" version="[1.0.0]" />
+                </group>
+                """),
+            "Contoso.Root");
+        var traversal = new FakePackageQueryTraversal(
+            ("Contoso.Bridge", "1.0.0",
+                """
+                <group targetFramework="net10.0">
+                  <dependency id="Contoso.Target" version="[2.0.0]" />
+                </group>
+                """),
+            ("Contoso.Target", "2.0.0", ""));
+        PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(
+            "Contoso.*",
+            terms:
+            [
+                Term(PackageQuery.DependsTermKey, "Contoso.Target"),
+                Term(PackageQuery.DependencyTargetTermKey, "net10.0"),
+                Term(PackageQuery.DependencyDepthTermKey, "2"),
+            ],
+            maximumCandidates: 1,
+            maximumMatches: null));
+
+        PackageQueryMatch match = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                contentProvider: null,
+                traversal.Services,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+
+        PackageQueryEvidence evidence = Assert.Single(
+            match.Evidence,
+            item => item.Id == PackageQuery.DependsTermKey);
+        Assert.Contains(
+            "Contoso.Bridge@1.0.0",
+            Assert.Single(evidence.Summary!.Preview).ToString(),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, traversal.ResolverCallCount);
+        Assert.Equal(1, traversal.ManifestCallCount);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DependsWithDepthTermsShareOneTraversal()
+    {
+        var source = SourceFor(
+            Manifest(
+                "Contoso.Root",
+                dependencies:
+                """
+                <group targetFramework="net10.0">
+                  <dependency id="Contoso.Bridge" version="[1.0.0]" />
+                  <dependency id="Contoso.Target.One" version="[2.0.0]" />
+                </group>
+                """),
+            "Contoso.Root");
+        var traversal = new FakePackageQueryTraversal(
+            ("Contoso.Bridge", "1.0.0",
+                """
+                <group targetFramework="net10.0">
+                  <dependency id="Contoso.Target.Two" version="[3.0.0]" />
+                </group>
+                """),
+            ("Contoso.Target.One", "2.0.0", ""),
+            ("Contoso.Target.Two", "3.0.0", ""));
+        PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(
+            "Contoso.*",
+            terms:
+            [
+                Term(PackageQuery.DependsTermKey, "Contoso.Target.One"),
+                Term(PackageQuery.DependsTermKey, "Contoso.Target.Two"),
+                Term(PackageQuery.DependencyTargetTermKey, "net10.0"),
+                Term(PackageQuery.DependencyDepthTermKey, "2"),
+            ],
+            maximumCandidates: 1,
+            maximumMatches: null));
+
+        PackageQueryMatch match = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                contentProvider: null,
+                traversal.Services,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+
+        Assert.Equal(
+            2,
+            match.Evidence.Count(item =>
+                item.Id == PackageQuery.DependsTermKey));
+        Assert.Equal(3, traversal.ResolverCallCount);
+        Assert.Equal(2, traversal.ManifestCallCount);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_IncompleteTransitiveTraversalIsVisibleFailure()
     {
         var source = SourceFor(

@@ -64,6 +64,14 @@ const DEPENDS_TERM: QueryTermDescriptor = {
   example: "Microsoft.Extensions.Hosting",
   multiline: false,
 };
+const DEPENDENCY_TARGET_TERM: QueryTermDescriptor = {
+  ...DEPENDS_TERM,
+  key: "dependency-target",
+  label: "Dependency target",
+  summary: "Selects one compatible dependency group.",
+  valueKind: "target framework",
+  example: "net10.0",
+};
 const LIBRARY_LITERAL_TERM: QueryTermDescriptor = {
   key: "library-literal",
   label: "Library literal",
@@ -1471,17 +1479,25 @@ test("Browser data source streams matches and failures before terminal completio
   const rows: string[] = [];
   const failures: string[] = [];
   const progress: string[] = [];
-  const request = withPreset(
-    createQueryRequest("Microsoft."),
-    {
-      id: "dependency-depth:eq:2",
-      key: "dependency-depth",
-      operator: "eq",
-      value: "2",
-      label: "Depth 2",
-      tier: "nuspec",
-      executionClass: "nuspec-expensive",
-    });
+  const request = withTerm(
+    withTerm(
+      withPreset(
+        createQueryRequest("Microsoft."),
+        {
+          id: "dependency-depth:eq:2",
+          key: "dependency-depth",
+          operator: "eq",
+          value: "2",
+          label: "Depth 2",
+          tier: "nuspec",
+          executionClass: "nuspec-expensive",
+        }),
+      DEPENDS_TERM,
+      "eq",
+      "Microsoft.Extensions.Primitives"),
+    DEPENDENCY_TARGET_TERM,
+    "eq",
+    "net10.0");
 
   const completion = await createBrowserPackageQueryDataSource(engine).run(
     request,
@@ -1494,7 +1510,15 @@ test("Browser data source streams matches and failures before terminal completio
   assert.equal(typeof receivedArguments[0], "string");
   assert.deepEqual(receivedArguments.slice(1, 8), [
     "Microsoft.",
-    [{ key: "dependency-depth", operator: "eq", value: "2" }],
+    [
+      { key: "dependency-depth", operator: "eq", value: "2" },
+      {
+        key: "depends",
+        operator: "eq",
+        value: "Microsoft.Extensions.Primitives",
+      },
+      { key: "dependency-target", operator: "eq", value: "net10.0" },
+    ],
     null,
     5,
     100,

@@ -107,10 +107,10 @@ its candidate limits. The latter is the UI taxonomy:
 or `metadata-expensive`. The Browser preserves the class through its generated
 facade and TypeScript catalog instead of deriving it from acquisition tier.
 For example, `references` has package-content acquisition and metadata
-execution, while `depends-transitive` and its `dependency-depth` qualifier use
-nuspec acquisition with `nuspec-expensive` execution. Selecting either
-transitive control lowers the Browser's candidate bound to five, including
-when a package-content term is also active. The remaining expensive class
+execution, while bounded dependency reach uses nuspec acquisition with
+`nuspec-expensive` execution. Selecting a dependency depth lowers the Browser's
+candidate bound to five, including when a package-content term is also active.
+The remaining expensive class
 reserves explicit disclosure for future call-graph or decompiler-driven queries
 rather than silently broadening a cheaper class.
 
@@ -162,6 +162,27 @@ Applied terms are individually editable and removable. Apply or remove
 preserves package input, prerelease selection, and selected terms, and starts
 a replacement query when the package input is runnable. Repeated
 `depends` terms remain separate active rows and AND through the product planner.
+The Browser presents them through one **Depends on package** facet. Each row
+authors the package operand and `eq` or `starts-with` operator. One visibly
+shared reach choice applies to every exact `depends` row:
+**Direct only**, **Within 2 edges**, **Within 3 edges**, or
+**Within 4 edges**. Direct-only is the default. Changing reach through any
+exact dependency editor changes the shared reach for all exact dependency
+rows; the Browser does not imply unsupported mixed direct and bounded exact
+semantics. A bounded reach atomically authors the exact `depends` terms with
+one query-wide `dependency-depth=2|3|4` and one required exact
+`dependency-target=<tfm>`; each exact term includes direct and transitive paths
+within that maximum. During bounded reach, the target editor is visibly shared
+and scopes every dependency fact. Returning to direct-only removes that
+traversal context unless another dependency fact independently retains the
+ordinary active target term. Literal-prefix matching remains direct-only and
+does not itself select bounded reach.
+The Browser does not expose `depends-transitive`, `dependency-depth`, or
+`depends-transitive` or `dependency-depth` as independent palette controls, so
+it cannot issue an invalid depth-only intermediate request. The ordinary
+dependency-target term remains available for scoping other direct dependency
+facts. The shared planner retains legacy
+`depends-transitive` compatibility outside this host experience.
 `license` is a closed choice. `any` matches a nuspec declaration, `MIT`
 matches the exact SPDX expression, and `OSMF` matches the declared
 `OSMFEULA.*` basename. The Browser does not inspect license content or define

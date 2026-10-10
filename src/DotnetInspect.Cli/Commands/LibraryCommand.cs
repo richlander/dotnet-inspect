@@ -2367,6 +2367,14 @@ public partial class LibraryCommand
             return 1;
         }
 
+        if (BodyKindQueryOptions.IsSelected(options.IncludeSections)
+            && inspections.Any(inspection =>
+                BodyShapeCompleteness.IsIncomplete(
+                    inspection.EffectiveBodyShapeSearchResult)))
+        {
+            return 1;
+        }
+
         return inspections.Any(inspection =>
         {
             var empty = pipeline.GetEmptySections(

@@ -1660,9 +1660,12 @@ canaries:
   same-named type in another participant cannot become the root, and verifies
   the exact normalized root name and Metadata-issued registration that
   contributed the match rather than borrowing another definition or a fuzzy
-  same-participant match when the selected participant contributed no public
-  dependency root. Published outcomes retain committed participant order. The
-  query returns resource-free subjects, graph facts, and typed per-participant
+  same-participant match when the selected participant contributed no exact
+  dependency root. Participant-qualified lookup admits the exact selected
+  definition regardless of accessibility; ordinary scans and ancestor
+  expansion retain their public-type population. Published outcomes retain
+  committed participant order. The query returns resource-free subjects, graph
+  facts, and typed per-participant
   failures. The L2 `TypeDependencySectionPlan` binds the exact target and
   semantic relationship-row intent, then applies the shared row contract after
   complete query execution. The CLI `depends` host and Inspect Web Type
@@ -1820,6 +1823,31 @@ intentional and visible:
   queries are available, but that existing CLI adapter has not adopted them.
 - `InspectionCost` and the legacy `SectionCost` are parallel during migration;
   L2 maps between them exhaustively.
+
+### Exact non-public dependency roots
+
+A participant-qualified request may inspect the exact selected non-public
+root. Metadata admits that one additional definition only from the requested
+acquisition registration and only by its exact normalized name. Other
+non-public definitions remain outside the scan population. Missing, fuzzy,
+case-distinct, or rejected roots cannot borrow another participant's definition;
+participant failures retain their existing outcomes.
+
+The motivating asset is `System.Text.Json@11.0.0-rc.1.26425.128`,
+`lib/net11.0/System.Text.Json.dll`, whose internal
+`System.Text.ValueStringBuilder` derives from `System.ValueType`. The browser
+could display its shape but previously emitted an uncertified-relationship
+warning because the scanner skipped its root. The Web test project restores
+this exact package and retains its unmodified archive as an inspected input.
+`QueryTypeProjection_InspectsAuthenticInternalDependencyRoot` gates the exact
+browser path and the absence of the uncertified-root warning. The scanner's
+existing omission of `System.Object`, `System.ValueType`, and `System.Enum`
+remains in effect, so this root has an empty dependency graph. Focused Metadata
+and Queries tests gate the public-only defaults, exact-name matching, and
+selected-participant identity.
+These are PR-fast cases; the authentic canary is marked slow because it scans a
+whole package assembly. Daily Deep Inspect and the focused pre-merge Web gate
+own that canary. Acquisition occurs at restore rather than test time.
 
 ## What must change
 

@@ -58,6 +58,48 @@ public sealed class PackageAssemblySemanticFindBudget
 }
 
 /// <summary>
+/// Host-supplied PackageHouse acquisition capability and same-generation
+/// source-operation issuer for one assembly-semantic execution.
+/// </summary>
+public sealed class PackageAssemblySemanticFindExecution
+{
+    private readonly Func<
+        CancellationToken,
+        PackageSourceOperationLease> _createSourceOperation;
+
+    public PackageAssemblySemanticFindExecution(
+        IPackageSourceAuthorization sourceAuthorization,
+        PackagePayloadAcquisitionPlan payloadAcquisition,
+        Func<CancellationToken, PackageSourceOperationLease>
+            createSourceOperation,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(sourceAuthorization);
+        ArgumentNullException.ThrowIfNull(payloadAcquisition);
+        PayloadLimits = payloadAcquisition.Limits
+            ?? throw new ArgumentException(
+                "Assembly-semantic PackageHouse acquisition requires the request's payload limits.",
+                nameof(payloadAcquisition));
+        House = new PackageHouse(
+            sourceAuthorization,
+            payloadAcquisition,
+            log);
+        _createSourceOperation = createSourceOperation
+            ?? throw new ArgumentNullException(nameof(createSourceOperation));
+    }
+
+    internal PackageHouse House { get; }
+
+    internal PackagePayloadLimits PayloadLimits { get; }
+
+    public PackageSourceOperationLease IssueSourceOperation(
+        CancellationToken cancellationToken) =>
+        _createSourceOperation(cancellationToken)
+        ?? throw new InvalidOperationException(
+            "The assembly-semantic source-operation issuer returned null.");
+}
+
+/// <summary>
 /// Immutable resource-free input for one authority-bearing package
 /// assembly-semantic Find operation.
 /// </summary>
@@ -514,7 +556,7 @@ internal static class PackageAssemblySemanticFindQuery
         ExecuteToDocumentAsync(
             PackageAssemblySemanticFindRequest request,
             PackageSourceOperationLease sourceOperation,
-            PackagePayloadAcquisitionPlan payloadAcquisition,
+            PackageAssemblySemanticFindExecution execution,
             IPackageAssemblySemanticFindNonterminalSink? nonterminalSink = null,
             CancellationToken cancellationToken = default)
     {
@@ -522,7 +564,7 @@ internal static class PackageAssemblySemanticFindQuery
         return ExecuteCoreAsync(
             request,
             sourceOperation,
-            payloadAcquisition,
+            execution,
             nonterminalSink,
             cancellationToken);
     }
@@ -531,7 +573,7 @@ internal static class PackageAssemblySemanticFindQuery
         ExecuteCoreAsync(
             PackageAssemblySemanticFindRequest request,
             PackageSourceOperationLease sourceOperation,
-            PackagePayloadAcquisitionPlan payloadAcquisition,
+            PackageAssemblySemanticFindExecution execution,
             IPackageAssemblySemanticFindNonterminalSink? nonterminalSink,
             CancellationToken cancellationToken)
     {
@@ -540,7 +582,7 @@ internal static class PackageAssemblySemanticFindQuery
             ValidateExecution(
                 request,
                 sourceOperation,
-                payloadAcquisition,
+                execution,
                 cancellationToken);
 
             CancellationToken callerCancellation =
@@ -566,13 +608,12 @@ internal static class PackageAssemblySemanticFindQuery
                     PackageAcquisitionCandidate candidate =
                         request.Population.Candidates[index];
                     ConfiguredPackagePayloadResult acquired =
-                        await sourceOperation.AcquireCandidatePayloadAsync(
-                            candidate,
-                            payloadAcquisition.GetStore,
-                            payloadAcquisition.Log,
-                            request.Budget.Payload,
-                            payloadAcquisition.TransferPolicy)
-                        .ConfigureAwait(false);
+                        PackageHousePayloadResultAdapter.Create(
+                            await AcquireCandidateAsync(
+                                candidate,
+                                execution,
+                                operationCancellation)
+                            .ConfigureAwait(false));
                     ObserveCancellation();
 
                     CandidateEvaluation evaluated;
@@ -663,17 +704,17 @@ internal static class PackageAssemblySemanticFindQuery
     internal static void ValidateExecution(
         PackageAssemblySemanticFindRequest request,
         PackageSourceOperationLease sourceOperation,
-        PackagePayloadAcquisitionPlan payloadAcquisition,
+        PackageAssemblySemanticFindExecution execution,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(sourceOperation);
-        ArgumentNullException.ThrowIfNull(payloadAcquisition);
-        if (payloadAcquisition.Limits is not null)
+        ArgumentNullException.ThrowIfNull(execution);
+        if (execution.PayloadLimits != request.Budget.Payload)
         {
             throw new ArgumentException(
-                "The semantic Find request owns payload limits; its acquisition plan must not declare another limit set.",
-                nameof(payloadAcquisition));
+                "The assembly-semantic PackageHouse payload limits must match the request budget.",
+                nameof(execution));
         }
         if (sourceOperation.OperationTimeout
             != request.Budget.MaximumDuration)
@@ -688,6 +729,35 @@ internal static class PackageAssemblySemanticFindQuery
             throw new ArgumentException(
                 "The Package Source operation and semantic Find execution must carry the same caller cancellation.",
                 nameof(cancellationToken));
+        }
+        sourceOperation.ValidatePopulationOwnership(request.Population);
+    }
+
+    private static Task<PackageHouseSettlement> AcquireCandidateAsync(
+        PackageAcquisitionCandidate candidate,
+        PackageAssemblySemanticFindExecution execution,
+        CancellationToken cancellationToken)
+    {
+        PackageSourceOperationLease? sourceOperation =
+            execution.IssueSourceOperation(cancellationToken);
+        try
+        {
+            var request = new PackageHouseRequest(
+                new PackageHouseDemand.Candidate(candidate),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire,
+                    sourceOperation.RequestTimeout,
+                    sourceOperation.OperationTimeout));
+            Task<PackageHouseSettlement> pending =
+                execution.House.ExecuteAsync(
+                    request,
+                    sourceOperation);
+            sourceOperation = null;
+            return pending;
+        }
+        finally
+        {
+            sourceOperation?.Dispose();
         }
     }
 

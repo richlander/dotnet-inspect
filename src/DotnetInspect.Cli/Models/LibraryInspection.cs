@@ -745,6 +745,13 @@ public class LibraryInspection
     [JsonIgnore]
     internal BodyShapeRowSelection? BodyShapeRowSelection { get; set; }
 
+    /// <summary>
+    /// Match count after which the Body Shapes search may stop, because the
+    /// semantic row selection retains no later row; null searches everything.
+    /// </summary>
+    [JsonIgnore]
+    internal int? BodyShapeSearchLimit { get; set; }
+
     [JsonIgnore]
     public BodyKindQueryOptions BodyKindQueryOptions { get; set; } = BodyKindQueryOptions.Default;
 
@@ -1901,8 +1908,6 @@ public record class DependencyAgeSummary(int Count, int MinDays, int MedianDays,
 public sealed record LibraryIntegrationSummaryJson(string Integration, int Count);
 
 public sealed record VersionJson(string Version);
-
-public sealed record PackageTfmJson(string Tfm);
 
 public sealed record VersionListingJson(string Version, string Listing);
 

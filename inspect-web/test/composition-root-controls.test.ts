@@ -240,13 +240,25 @@ test("settled API Diff evidence decorates exact Type and Member navigation rows"
   const typeNav = sourceText(functionDeclaration("renderTypeNavPane"));
   assert.match(
     typeNav,
-    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*typeLeverageAchievements\([\s\S]*diffPresence\.typeIdentifiers\.has\(item\.definitionId \?\? item\.id\)\s*\? apiDiffAchievement : null\)/,
+    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*const fastDiffCues = libraryFastDiffCueSource\(\)[\s\S]*const identifier = item\.definitionId \?\? item\.id;\s*const diff = fastDiffCues\s*\? libraryFastDiffAchievement\(\s*fastDiffTypes\?\.get\(identifier\),\s*fastDiffCues\.baseline\.targetVersion\)\s*: diffPresence\.typeIdentifiers\.has\(identifier\)\s*\? typeApiDiffAchievement\s*: null;\s*return typeLeverageAchievements\(/,
+  );
+  // Outside Library Compare, Type cues come from the last-patch Fast Diff
+  // baseline; inside it, from the Compare result. Both are the change glyph.
+  assert.match(
+    sourceText(functionDeclaration("libraryFastDiffCueSource")),
+    /if \(currentCompareSubject\(\) !== null\) return null;/,
   );
 
   const memberNav = sourceText(functionDeclaration("renderMemberNavPane"));
   assert.match(
     memberNav,
-    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*memberApiDiffAchievements\(\s*diffPresence\.memberFingerprints,\s*group,\s*index\)/,
+    /memberAchievements: \(group, index\) => \[\s*\.\.\.methodLeverageAchievements\(group, index\),\s*\.\.\.memberChangeAchievements\(group, index\),\s*\]/,
+  );
+  // Inside Library Compare, member cues come from the Compare result;
+  // outside it, from the selected Type's background API Diff.
+  assert.match(
+    sourceText(functionDeclaration("memberChangeAchievements")),
+    /if \(currentCompareSubject\(\) !== null\) \{\s*return memberApiDiffAchievements\(\s*libraryApiDiffPresence\(state\.libraryApiDiff\)\.memberFingerprints,\s*group,\s*index\);\s*\}[\s\S]*typeApiDiffCues\.entry\(request\)/,
   );
 
   const memberDiff = sourceText(
@@ -258,6 +270,10 @@ test("settled API Diff evidence decorates exact Type and Member navigation rows"
   assert.match(
     stylesSource,
     /\.item-achievement-glyph\.api-diff[\s\S]*color: var\(--purple\)/,
+  );
+  assert.match(
+    stylesSource,
+    /\.item-achievement-glyph\.diff \{[\s\S]*?color: var\(--purple\)/,
   );
 });
 
