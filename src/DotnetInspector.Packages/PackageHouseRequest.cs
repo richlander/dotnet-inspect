@@ -383,11 +383,37 @@ public sealed class PackageHouseRequest
                 "Only an Acquire operation carries a file demand.",
                 nameof(fileDemand));
         }
+        bool compileInventory = realizes
+            && assetSelection == PackageHouseAssetSelectionKind.Compile
+            && libraryHandoff == PackageHouseLibraryHandoffMode.PackageOnly
+            && implementationNames is null
+            && libraryCompanionDemand == PackageHouseLibraryCompanionDemand.None
+            && contentQuery is
+            {
+                Narrowing: PackageHouseContentNarrowing.PackageWide,
+                FileListTerminal: not null,
+                Terminals.Count: 1,
+            };
+        bool compileLibrary = realizes
+            && assetSelection == PackageHouseAssetSelectionKind.Compile
+            && libraryHandoff == PackageHouseLibraryHandoffMode.PackageOnly
+            && implementationNames is null
+            && libraryCompanionDemand == PackageHouseLibraryCompanionDemand.None
+            && contentQuery is
+            {
+                Narrowing: PackageHouseContentNarrowing.PackageWide,
+                CompileLibraryTerminal: not null,
+                Terminals.Count: 1,
+            }
+            && contentQuery.CompileLibraryTerminal.AssetDemand == assetDemand;
+        if (contentQuery?.CompileLibraryTerminal is not null && !compileLibrary)
+            throw new ArgumentException("An exact compile Library terminal requires its package-only compile realization.", nameof(contentQuery));
         if (contentQuery is not null
-            && operation.Profile != PackageHouseOperationProfile.Acquire)
+            && operation.Profile != PackageHouseOperationProfile.Acquire
+            && !compileInventory && !compileLibrary)
         {
             throw new ArgumentException(
-                "Only an Acquire operation carries a semantic content query.",
+                "A semantic content query requires Acquire or a package-only compile inventory or exact Library realization.",
                 nameof(contentQuery));
         }
         if (contentQuery is not null && fileDemand is not null)
@@ -398,7 +424,8 @@ public sealed class PackageHouseRequest
         }
         if (contentQuery?.Narrowing
                 is PackageHouseContentNarrowing.PackageWide
-            && targetContext is not null)
+            && targetContext is not null
+            && !compileInventory && !compileLibrary)
         {
             throw new ArgumentException(
                 "Package-wide content narrowing does not carry a target context.",
@@ -481,6 +508,8 @@ public sealed class PackageHouseRequest
                 nameof(libraryCompanionDemand));
         }
 
+        IsCompileInventory = compileInventory;
+        IsCompileLibrary = compileLibrary;
         Demand = demand;
         Operation = operation;
         TargetContext = targetContext;
@@ -512,6 +541,50 @@ public sealed class PackageHouseRequest
     public PackageHouseLibraryHandoffMode LibraryHandoff { get; }
 
     public PackageHouseRequestAssociation? Association { get; }
+
+    /// <summary>
+    /// Whether this request settles package directory and compile-selection
+    /// facts without requesting Library content or handoffs.
+    /// </summary>
+    public bool IsCompileInventory { get; }
+
+    /// <summary>Whether this request declares exact compile Library content.</summary>
+    public bool IsCompileLibrary { get; }
+
+    /// <summary>
+    /// Declares package-wide File List and compile selection before acquisition.
+    /// Library inspection requires a later Library-content realization.
+    /// </summary>
+    public static PackageHouseRequest CompileInventory(
+        PackageHouseDemand demand,
+        PackageHouseOperation operation,
+        PackageHouseTargetContext target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        return new(
+            demand,
+            operation,
+            target,
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.PackageOnly,
+            evidenceDemand: PackageHouseEvidenceDemand.FrameworkReferences,
+            contentQuery: new PackageHouseContentQuery(
+                new PackageHouseContentNarrowing.PackageWide(),
+                [new PackageHouseContentTerminal.FileList()]));
+    }
+
+    /// <summary>Declares an exact Library selector before House acquisition planning.</summary>
+    public static PackageHouseRequest CompileLibrary(
+        PackageHouseDemand demand,
+        PackageHouseOperation operation,
+        PackageHouseTargetContext target,
+        PackageLibrarySelector selector,
+        PackageAssetDemand assetDemand) =>
+        new(demand, operation, target, PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.PackageOnly, assetDemand: assetDemand,
+            contentQuery: new PackageHouseContentQuery(
+                new PackageHouseContentNarrowing.PackageWide(),
+                [new PackageHouseContentTerminal.CompileLibrary(selector, assetDemand)]));
 
     /// <summary>
     /// Which assets the consumer reads. A ranged Realize reads only these;

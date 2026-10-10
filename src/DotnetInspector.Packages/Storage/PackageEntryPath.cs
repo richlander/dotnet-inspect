@@ -3,6 +3,17 @@ namespace DotnetInspector.Packages;
 /// <summary>Validates package-root path segments shared by package-content stores.</summary>
 public static class PackageEntryPath
 {
+    /// <summary>Recognizes the standard package tool-settings entry layout.</summary>
+    public static bool IsToolSettingsPath(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        string[] parts = path.Replace('\\', '/').Split(
+            '/', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length is >= 2 and <= 4
+            && parts[0].Equals("tools", StringComparison.OrdinalIgnoreCase)
+            && parts[^1].Equals("DotnetToolSettings.xml", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     /// Returns whether a value is a safe single package-entry segment.
     /// <c>ExecuteAsync_RejectsAmbiguousAndUnsafeManifestPaths</c> gates the
