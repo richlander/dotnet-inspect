@@ -6,11 +6,13 @@ namespace ILInspector.Metadata;
 /// Metadata work actually read while deriving memory-safety rules, accessor
 /// associations, and member contracts. Row counts are the rows enumerated,
 /// which stop early when a scan fails or exhausts its budget. Name characters
-/// are the characters admitted by the name-work budget. Signature bytes are
-/// the full length of every blob opened for decoding: each member signature,
-/// each TypeSpec reached from it, each accessor-shape signature, and, for each
-/// attribute row whose type matched, its constructor signature and, once the
-/// constructor is accepted, its value blob.
+/// are the characters admitted by the name-work budget. Signature bytes add a
+/// blob's full length each time an enumerated decode step runs: a member
+/// signature pointer decode and every TypeSpec it reaches, an accessor-shape
+/// signature read, and, for each attribute row whose type matched, its
+/// constructor signature before validation and its value blob once the
+/// constructor is accepted. Attribute type-name resolution, including a
+/// generic attribute's TypeSpec parent, is reported only as name characters.
 /// </summary>
 public sealed record MemorySafetyMetadataWork(
     int CustomAttributeOrderRows,
