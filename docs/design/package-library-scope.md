@@ -113,9 +113,9 @@ versions, under #9833, informs them:
   `runtimes/<rid>/lib/`.
 - 3 carry only framework-less root `lib/*.dll`: WebGrease, Antlr, and
   EO.WebBrowser.
-- The rest carry no Library assembly: 53 no DLLs, 48 only satellite resource
-  assemblies, 10 only native assets, 8 only tool payloads, 5 only analyzers,
-  and 4 only `build/` or `tasks/` DLLs.
+- The rest carry no Library assembly: 53 with no DLLs or native assets, 48
+  only satellite resource assemblies, 10 only native assets, 8 only tool
+  payloads, 5 only analyzers, and 4 only `build/` or `tasks/` DLLs.
 
 Several namesakes in one population can therefore arise only from distinct
 assets in that population that carry the same assembly simple name, such as
@@ -341,24 +341,18 @@ strategy and identity-row provision; hosts do not infer one provision from
 another.
 
 CLI `library --package` and its namesake request do not yet adopt Library
-probes. When compile selection returns `NoCompileAssets`, the CLI searches the
-extracted archive instead. Without `--tfm`, it takes `tools/` DLLs, otherwise
-`ref/`, otherwise `lib/`, otherwise every non-satellite DLL in the package,
-and then keeps
-the highest framework named by a `lib/`, `ref/`, or `tools/` folder; with
-`--tfm`, it takes every such folder that names that framework. DLLs under
-`analyzers/`, `build/`, `tasks/`, or `runtimes/<rid>/native/` therefore enter
-only when no DLL has a framework folder, and RID folders merge at the chosen
-framework. A runtime pack consequently yields
-its implementation assemblies, an analyzer package its analyzers, and a
-framework-less root `lib/` package its root assemblies. `--tfm all` bypasses
-compile selection and takes every non-satellite DLL in the package, merging
-frameworks, RIDs, and roles, including analyzer, build, and native DLLs, and
-ignoring explicit empty groups. A selected explicit empty compile group does
-not reach the search; it fails and reports the group's own folder spelling,
-such as `netstandard`. #9833 decides both
-paths after the root `lib/` and RID-implementation decisions above, and
-Browser adoption of Library probes is not yet recorded.
+probes. When compile selection returns `NoCompileAssets`, and always under
+`--tfm all`, `ResolvePackageLibraryCandidates` searches the extracted archive
+through `TfmSelector` instead of consuming a role population. Observed results
+include a runtime pack yielding its implementation assemblies, an analyzer
+package its analyzers, a framework-less root `lib/` package its root
+assemblies, and a satellite-only package its satellite resource assemblies.
+`--tfm all` also merges frameworks and roles and ignores explicit empty
+groups. Without `--tfm all`, a selected explicit empty compile group fails
+before the search and reports the group's own folder spelling, such as
+`netstandard`. #9833 records the search's exact rules and decides both paths
+after the root `lib/` and RID-implementation decisions above, and Browser
+adoption of Library probes is not yet recorded.
 
 Later SourceLink and relationship adoptions remain separately scoped. Existing
 aggregate behavior is evidence, not an automatic conformance claim.
