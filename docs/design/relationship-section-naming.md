@@ -53,8 +53,12 @@ implementation type.
 
 Choose the name only after classifying the semantic result. Use the same
 canonical name in CLI discovery, Browser labels, documentation, and
-human-facing shared or replayed presentation. Portable payloads continue to
-bind stable facet identities.
+human-facing shared or replayed presentation, except for Inspect Web's Package
+direct-reference inspector. Inspect Web presents both Package and Library
+direct-reference inspectors as `References`; the Package route and portable
+facet retain their existing `dependencies` and `package.dependencies`
+identities. The website label follows its subject navigation vocabulary and
+does not rename the CLI Package section or its dependency evidence.
 
 | Result shape | Naming form | Examples |
 | --- | --- | --- |
@@ -219,7 +223,8 @@ each component.
 
 | Current or proposed surface | Semantic shape | Classification |
 | --- | --- | --- |
-| Package `Dependencies` | Direct declared dependency evidence | Conforming direct name; preserved by #7649 |
+| CLI Package `Dependencies` | Direct declared dependency evidence | Conforming direct name; preserved by #7649 |
+| Inspect Web Package `References` | Direct declared dependency evidence | Website navigation exception; the internal `package.dependencies` identity remains unchanged |
 | Package `Dependency Hierarchy` | Rooted occurrence-addressed Depends result | Conforming hierarchy name and identity; adopted by #7649 |
 | Removed Package `--dependencies` and `Dependencies --tree` spellings | Former transitive hierarchy request | Intentionally removed by #7649 with replacement guidance |
 | Depends `Dependency Hierarchy` | Rooted occurrence-addressed dependency result over canonical backing evidence | Conforming hierarchy name and identity; adopted by #7648 |

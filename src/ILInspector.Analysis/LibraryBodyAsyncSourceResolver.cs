@@ -634,6 +634,11 @@ internal sealed class LibraryBodyAsyncSourceResolver
         }
     }
 
+    internal bool HasRejectedAsyncStateMachineAttribute(
+        MethodDefinition methodDefinition) =>
+        AsyncStateMachineAttribute(
+            methodDefinition.GetCustomAttributes()).Rejected;
+
     /// <summary>
     /// MoveNext token → authenticated immediate execution source. The source
     /// can itself be a generated lifted kickoff; callers that expose declared

@@ -1644,6 +1644,13 @@ canaries:
   and ordered resolution routes into caller-shaped Browser values. The Package
   facade preserves the generated wire contract without referencing Metadata
   identities or structured Type names.
+- Web Core's direct project and emitted assembly dependencies are separate
+  positive ceilings. They admit the owner-issued package, Platform, workspace,
+  query, presentation, call-graph, Metadata identity, and source-acquisition
+  APIs required by Browser composition, while rejecting every unlisted edge.
+  The semantic Browser banned-symbol gate remains necessary inside that ceiling:
+  an admitted owner assembly does not authorize Core to open raw images, invoke
+  product producers, or reconstruct identity and correspondence semantics.
 - Product demo plans resolve their owner-issued member anchor over
   caller-shaped candidates in Queries. Web Core carries only the projected
   Browser surface and a portable exact Library identity to Catalog; Catalog

@@ -17,7 +17,10 @@ public interface IPackageArchiveRangeSource
     /// context, credential, and source identity, and must be disposed before
     /// the operation ends. When <paramref name="requestLog"/> is supplied,
     /// every ranged request attempt of this open and of the returned reader
-    /// is recorded in it.
+    /// is recorded in it. A <paramref name="knownDirectory"/> must belong to
+    /// this exact coordinate and authorized source, whose archive is immutable.
+    /// It is checked against the current limits without a directory transfer;
+    /// the reader receives a fresh operation context and validates each entry.
     /// </summary>
     Task<PackageArchiveReadResult<PackageArchiveReader>> OpenArchiveAsync(
         string packageId,
@@ -26,7 +29,8 @@ public interface IPackageArchiveRangeSource
         CancellationToken cancellationToken = default,
         NuGetOperationContext? operationContext = null,
         PackageArchiveRequestLog? requestLog = null,
-        long? knownArchiveLength = null);
+        long? knownArchiveLength = null,
+        ZipDirectory? knownDirectory = null);
 }
 
 /// <summary>The range-specific ways a read can be refused; each is owned by the capability.</summary>

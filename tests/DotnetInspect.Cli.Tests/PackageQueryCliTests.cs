@@ -2660,8 +2660,7 @@ public class PackageQueryCliTests
         using var cache = new IsolatedCache();
         using var source = Source(out var fixture);
         fixture.InvalidArchive = invalidArchive;
-        using var operation = new NuGetOperationContext();
-        await using var provider = ContentProvider(fixture, operation);
+        await using var provider = ContentProvider(fixture);
         PackageQueryOptions query = Options(
             "dependencies=none",
             "skill=true");
@@ -2688,8 +2687,7 @@ public class PackageQueryCliTests
     {
         using var cache = new IsolatedCache();
         using var source = Source(out var fixture);
-        using var operation = new NuGetOperationContext();
-        await using var provider = ContentProvider(fixture, operation);
+        await using var provider = ContentProvider(fixture);
         PackageQueryOptions query = OptionsForInput(
             "Contoso.First",
             ["references=DotnetInspector.Queries"],
@@ -2701,7 +2699,7 @@ public class PackageQueryCliTests
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Contoso.First", result.Output);
         Assert.Contains("DotnetInspector.Queries", result.Output);
-        Assert.Equal(1, fixture.PackageRequests);
+        Assert.Equal(3, fixture.PackageRequests);
         Assert.True(fixture.Payload!.Disposed);
         Assert.Empty(result.Error);
     }
@@ -2714,27 +2712,71 @@ public class PackageQueryCliTests
         // reads it without another request.
         using var cache = new IsolatedCache();
         using var source = Source(out var fixture);
-        using var operation = new NuGetOperationContext();
         var package = new PackageQueryPackage("Contoso.First", "1.0.0", [], null, null, source.Source);
-        string root;
-        await using (var provider = ContentProvider(fixture, operation))
+        byte[] firstBytes;
+        await using (var provider = ContentProvider(fixture))
         {
+            PackageQueryContentInventory inventory =
+                Assert.IsType<PackageQueryContentResult.InventoryAvailable>(
+                    await provider.GetInventoryAsync(
+                        package,
+                        CancellationToken.None))
+                .Inventory;
+            PackageContentEntry assembly = Assert.Single(
+                inventory.Entries,
+                static entry => entry.Path.EndsWith(
+                    "DotnetInspect.Cli.Tests.dll",
+                    StringComparison.Ordinal));
             var result = Assert.IsType<PackageQueryContentResult.Available>(
-                await provider.GetContentAsync(package, PackageQueryContentDemand.EntryContent, CancellationToken.None));
-            root = Assert.IsType<string>(result.Content.RootPath);
-            Assert.True(Directory.Exists(root));
+                await provider.GetFilesAsync(
+                    package,
+                    inventory,
+                    [assembly],
+                    CancellationToken.None));
+            firstBytes = ReadEntry(result.Content, assembly.Path);
+            Assert.NotNull(result.Evidence);
         }
-        Assert.True(Directory.Exists(root));
         Assert.True(fixture.Payload!.Disposed);
-        Assert.Equal(1, fixture.PackageRequests);
+        int firstRequests = fixture.PackageRequests;
 
-        await using (var provider = ContentProvider(fixture, operation))
+        await using (var provider = ContentProvider(fixture))
         {
+            PackageQueryContentInventory inventory =
+                Assert.IsType<PackageQueryContentResult.InventoryAvailable>(
+                    await provider.GetInventoryAsync(
+                        package,
+                        CancellationToken.None))
+                .Inventory;
+            PackageContentEntry assembly = Assert.Single(
+                inventory.Entries,
+                static entry => entry.Path.EndsWith(
+                    "DotnetInspect.Cli.Tests.dll",
+                    StringComparison.Ordinal));
             var result = Assert.IsType<PackageQueryContentResult.Available>(
-                await provider.GetContentAsync(package, PackageQueryContentDemand.EntryContent, CancellationToken.None));
-            Assert.Equal(root, result.Content.RootPath);
+                await provider.GetFilesAsync(
+                    package,
+                    inventory,
+                    [assembly],
+                    CancellationToken.None));
+            Assert.Equal(
+                firstBytes,
+                ReadEntry(result.Content, assembly.Path));
         }
-        Assert.Equal(1, fixture.PackageRequests);
+        Assert.Equal(firstRequests, fixture.PackageRequests);
+
+        static byte[] ReadEntry(
+            IPackageContent content,
+            string path)
+        {
+            Assert.True(content.TryOpenEntry(path, out Stream? stream));
+            Assert.NotNull(stream);
+            using (stream)
+            using (var bytes = new MemoryStream())
+            {
+                stream.CopyTo(bytes);
+                return bytes.ToArray();
+            }
+        }
     }
 
     /// <summary>
@@ -2884,10 +2926,10 @@ public class PackageQueryCliTests
     }
 
     private static PackageQueryCommand.ContentProvider ContentProvider(
-        FakeSource fixture, NuGetOperationContext operation) =>
+        FakeSource fixture) =>
         new(new DesktopPackageSourceComposition(
             TimeSpan.FromSeconds(10), new UnavailableCredentials(),
-            (_, _) => new PayloadHandler(fixture)), operation);
+            (_, _) => new PayloadHandler(fixture)));
 
     private sealed class UnavailableCredentials : ICredentialSource
     {

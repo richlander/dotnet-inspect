@@ -33,6 +33,16 @@ namespace DotnetInspect.Web.Interop.Package
             TargetFrameworkOption("net472"),
         ];
 
+        private static readonly BrowserPackageQueryTermOptionDescriptor[]
+            DependencyTargetOptions =
+        [
+            new(
+                "all",
+                "All target frameworks",
+                "Do not filter declared dependency groups by target framework."),
+            .. TargetFrameworkOptions,
+        ];
+
         private static readonly PackageQueryRegisteredTerm[] ExposedTerms =
         [
             .. PackageQuery.RegisteredTerms.Where(term =>
@@ -82,7 +92,8 @@ namespace DotnetInspect.Web.Interop.Package
                             term.Descriptor.DisplayGroupLabel,
                             categoryId,
                             categoryLabel,
-                            categoryOrder);
+                            categoryOrder,
+                            WorkspaceLens(term.Descriptor.Key));
                     })),
                 ],
                 [
@@ -121,7 +132,8 @@ namespace DotnetInspect.Web.Interop.Package
                                 && term.Descriptor.Key
                                     != PackageQuery.DependsEcosystemTermKey,
                             term.Descriptor.ReplacementGroupId,
-                            BrowserTermOptions(term.Descriptor))),
+                            BrowserTermOptions(term.Descriptor),
+                            WorkspaceLens(term.Descriptor.Key))),
                 ]);
 
         private static bool IsFactTerm(PackageQueryRegisteredTerm term) =>
@@ -150,8 +162,9 @@ namespace DotnetInspect.Web.Interop.Package
                                 pack.Title,
                                 pack.Summary)),
                 ],
-                PackageQuery.DependencyTargetTermKey
-                    or PackageQuery.LibraryTargetTermKey =>
+                PackageQuery.DependencyTargetTermKey =>
+                    [.. DependencyTargetOptions],
+                PackageQuery.LibraryTargetTermKey =>
                     [.. TargetFrameworkOptions],
                 _ =>
                 [
@@ -169,6 +182,20 @@ namespace DotnetInspect.Web.Interop.Package
                 value,
                 value,
                 $"Use the exact NuGet target framework '{value}'.");
+
+        private static BrowserPackageQueryWorkspaceLens? WorkspaceLens(
+            string key) =>
+            key switch
+            {
+                PackageQuery.DependenciesTermKey
+                    or PackageQuery.DependencyDepthTermKey
+                    or PackageQuery.DependencyTargetTermKey
+                    or PackageQuery.DependsTermKey
+                    or PackageQuery.DependsTransitiveTermKey
+                    or PackageQuery.DependsEcosystemTermKey =>
+                    BrowserPackageQueryWorkspaceLens.Dependencies,
+                _ => null,
+            };
 
         private static (string Id, string Label, int Order) FactCategory(
             string key) =>
@@ -1508,15 +1535,29 @@ namespace DotnetInspect.Web.Interop.Package
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
         : IPackageQueryContentProvider
     {
-        public ValueTask<PackageQueryContentResult> GetContentAsync(
+        public ValueTask<PackageQueryContentResult> GetInventoryAsync(
             PackageQueryPackage package,
-            PackageQueryContentDemand demand,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
+            return BrowserPackageWorkspace
+                .AcquirePackageQueryInventoryAsync(
                 package,
-                demand,
+                BrowserPackageWorkspace.Gallery,
+                deadline);
+        }
+
+        public ValueTask<PackageQueryContentResult> GetFilesAsync(
+            PackageQueryPackage package,
+            PackageQueryContentInventory inventory,
+            IReadOnlyList<PackageContentEntry> entries,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return BrowserPackageWorkspace.AcquirePackageQueryFilesAsync(
+                package,
+                inventory,
+                entries,
                 BrowserPackageWorkspace.Gallery,
                 deadline);
         }

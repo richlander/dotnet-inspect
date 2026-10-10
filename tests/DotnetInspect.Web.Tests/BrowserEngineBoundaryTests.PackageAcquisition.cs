@@ -394,20 +394,33 @@ public sealed partial class BrowserEngineBoundaryTests
                 TimeSpan.FromSeconds(5),
                 TestContext.Current.CancellationToken);
 
+        PackageQueryContentInventory inventory =
+            Assert.IsType<PackageQueryContentResult.InventoryAvailable>(
+                await BrowserPackageWorkspace
+                    .AcquirePackageQueryInventoryAsync(
+                        package,
+                        source,
+                        deadline))
+            .Inventory;
+        PackageContentEntry skill = Assert.Single(
+            inventory.Entries,
+            static entry => entry.Path == "skills/SKILL.md");
         PackageQueryContentResult result =
-            await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
+            await BrowserPackageWorkspace.AcquirePackageQueryFilesAsync(
                 package,
-                PackageQueryContentDemand.EntryContent,
+                inventory,
+                [skill],
                 source,
-                PackageSourceIdentity.NuGetOrg,
                 deadline);
 
-        IPackageContent content = Assert.IsType<
-            PackageQueryContentResult.Available>(result).Content;
+        var available = Assert.IsType<
+            PackageQueryContentResult.Available>(result);
+        IPackageContent content = available.Content;
         Assert.Contains(
             "skills/SKILL.md",
             content.EnumerateEntries(),
             StringComparer.Ordinal);
+        Assert.NotNull(available.Evidence);
         Assert.Equal(
             [$"https://globalcdn.nuget.org/packages/{packageId}.{version}.nupkg"],
             handler.Requested);
@@ -444,11 +457,9 @@ public sealed partial class BrowserEngineBoundaryTests
                 TestContext.Current.CancellationToken);
 
         PackageQueryContentResult result =
-            await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
+            await BrowserPackageWorkspace.AcquirePackageQueryInventoryAsync(
                 package,
-                PackageQueryContentDemand.EntryContent,
                 source,
-                PackageSourceIdentity.NuGetOrg,
                 deadline);
 
         string message = Assert.IsType<
@@ -1064,7 +1075,7 @@ public sealed partial class BrowserEngineBoundaryTests
             TestContext.Current.CancellationToken,
             epochWork: null);
 
-        Assert.False(second.FromCache);
+        Assert.True(second.FromCache);
         Assert.True(firstAgain.FromCache);
         Assert.True(secondAgain.Content.FromCache);
         Assert.Same(first.Content.GenerationIdentity, firstAgain.GenerationIdentity);
@@ -1089,9 +1100,23 @@ public sealed partial class BrowserEngineBoundaryTests
                 new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
                     TimeSpan.FromSeconds(5),
                     TestContext.Current.CancellationToken);
+            PackageQueryContentInventory inventory =
+                Assert.IsType<PackageQueryContentResult.InventoryAvailable>(
+                    await BrowserPackageWorkspace
+                        .AcquirePackageQueryInventoryAsync(
+                            package,
+                            source,
+                            deadline))
+                .Inventory;
             return Assert.IsType<PackageQueryContentResult.Available>(
-                await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
-                    package, PackageQueryContentDemand.EntryContent, source, deadline)).Content;
+                await BrowserPackageWorkspace
+                    .AcquirePackageQueryFilesAsync(
+                        package,
+                        inventory,
+                        inventory.Entries,
+                        source,
+                        deadline))
+                .Content;
         }
     }
 

@@ -1162,34 +1162,119 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
-    public void CheckedInInspectWebCoreApiSurfaceRuleRetiresLowLevelEdges()
+    public void CheckedInInspectWebCoreRulesMatchHostCompositionRatchet()
     {
         string repository = FindRepositoryRoot();
         DependencyPolicyDocument policy = PolicyLoader.Load(
             Path.Combine(repository, "eng", "dependency-policy.json"));
-        DependencyRule rule = Assert.Single(
+        DependencyRule projectRule = Assert.Single(
             policy.Rules,
             candidate => candidate.Id
-                == "inspect-web-core-api-surface-presentation-"
-                    + "stays-host-neutral");
+                == "inspect-web-core-project-dependencies-"
+                    + "stay-within-host-composition-ratchet");
+        DependencyRule assemblyRule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "inspect-web-core-assembly-dependencies-"
+                    + "stay-within-host-composition-ratchet");
+        string[] target = ["DotnetInspect.Web.Core"];
+        string[] projectPath =
+        [
+            "src/DotnetInspect.Web.Core/"
+                + "DotnetInspect.Web.Core.csproj",
+        ];
 
-        Assert.Equal(
-            [DependencyGraphKind.Project, DependencyGraphKind.Assembly],
-            rule.Graphs);
-        Assert.Equal(["DotnetInspect.Web.Core"], rule.Targets);
+        Assert.Equal([DependencyGraphKind.Project], projectRule.Graphs);
+        Assert.Equal(target, projectRule.Targets);
+        Assert.Equal(projectPath, projectRule.ProjectPaths);
         Assert.Equal(
             [
-                "src/DotnetInspect.Web.Core/"
-                    + "DotnetInspect.Web.Core.csproj",
+                "DotnetInspector.Libraries",
+                "DotnetInspector.PackageQueries",
+                "DotnetInspector.Packages",
+                "DotnetInspector.PlatformHouse.Packages",
+                "DotnetInspector.PlatformQueries",
+                "DotnetInspector.Presentation",
+                "DotnetInspector.Queries",
+                "DotnetInspector.ResearchQueries",
+                "DotnetInspector.Sections",
+                "DotnetInspector.Services",
+                "DotnetInspector.SourceHouse",
+                "ILInspector.Analysis",
+                "ILInspector.CallGraph",
+                "ILInspector.Metadata",
+                "NuGetFetch",
             ],
-            rule.ProjectPaths);
-        Assert.Null(rule.AllowOnly);
+            Assert.IsType<string[]>(projectRule.AllowOnly));
+        Assert.Null(projectRule.Deny);
+        Assert.Empty(projectRule.ExcludeTargets);
+        Assert.Empty(projectRule.ExcludeProjectPaths);
+        Assert.Empty(projectRule.Except);
+
+        Assert.Equal([DependencyGraphKind.Assembly], assemblyRule.Graphs);
+        Assert.Equal(target, assemblyRule.Targets);
+        Assert.Equal(projectPath, assemblyRule.ProjectPaths);
         Assert.Equal(
-            ["CSharpText", "ILInspector.Research"],
-            Assert.IsType<string[]>(rule.Deny));
-        Assert.Empty(rule.ExcludeTargets);
-        Assert.Empty(rule.ExcludeProjectPaths);
-        Assert.Empty(rule.Except);
+            [
+                "$platform",
+                "DotnetInspector.DocumentationHouse.Contracts",
+                "DotnetInspector.Libraries",
+                "DotnetInspector.PackageQueries",
+                "DotnetInspector.Packages",
+                "DotnetInspector.PlatformHouse",
+                "DotnetInspector.PlatformHouse.Packages",
+                "DotnetInspector.PlatformQueries",
+                "DotnetInspector.Platforms",
+                "DotnetInspector.Presentation",
+                "DotnetInspector.Queries",
+                "DotnetInspector.ResearchQueries",
+                "DotnetInspector.Sections",
+                "DotnetInspector.Services",
+                "DotnetInspector.SourceHouse",
+                "DotnetInspector.SourceSelection",
+                "ILInspector.Analysis",
+                "ILInspector.CallGraph",
+                "ILInspector.Metadata",
+                "InertText",
+                "Inspector.Artifacts",
+                "Inspector.Artifacts.Workspaces",
+                "Inspector.Graph",
+                "NuGet.Frameworks",
+                "NuGet.Versioning",
+                "NuGetFetch",
+                "QuerySpace.Primitives",
+                "ZipFetch",
+            ],
+            Assert.IsType<string[]>(assemblyRule.AllowOnly));
+        Assert.Null(assemblyRule.Deny);
+        Assert.Empty(assemblyRule.ExcludeTargets);
+        Assert.Empty(assemblyRule.ExcludeProjectPaths);
+        Assert.Empty(assemblyRule.Except);
+
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            projectRule.Id,
+            target[0],
+            "CSharpText",
+            DependencyGraphKind.Project,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            assemblyRule.Id,
+            target[0],
+            "CSharpText",
+            DependencyGraphKind.Assembly,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            projectRule.Id,
+            target[0],
+            "ILInspector.Research",
+            DependencyGraphKind.Project,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            assemblyRule.Id,
+            target[0],
+            "ILInspector.Research",
+            DependencyGraphKind.Assembly,
+            projectPath[0]);
     }
 
     [Fact]
