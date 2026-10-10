@@ -362,13 +362,20 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                         PackageMemberships(item.PackageId);
                     EcosystemFindBlock<T> block =
                         await _candidate(item, memberships, token);
-                    Accept(block with
+                    EcosystemFindBlock<T> attributed = block with
                     {
                         Candidate = item,
                         Ordinal = candidates - 1,
                         Memberships = memberships,
-                    }, _prefixBlocks, token);
-                    prefixRows = checked(prefixRows + block.RowCount);
+                    };
+                    if (attributed.RowCount == 0)
+                        Observe(attributed, token);
+                    else
+                    {
+                        Accept(attributed, _prefixBlocks, token);
+                        prefixRows = checked(
+                            prefixRows + attributed.RowCount);
+                    }
                 }
                 if (page.Completion is EcosystemFindPrefixPageCompletion.SourcePageLimit
                     or EcosystemFindPrefixPageCompletion.ClientPageLimit)
@@ -427,11 +434,19 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
     private void Accept(EcosystemFindBlock<T> block,
         List<EcosystemFindBlock<T>> destination, CancellationToken token)
     {
+        Observe(block, token);
+        destination.Add(block);
+        _rows = checked(_rows + block.RowCount);
+        _publish?.Invoke(block);
+    }
+
+    private void Observe(
+        EcosystemFindBlock<T> block,
+        CancellationToken token)
+    {
         token.ThrowIfCancellationRequested();
         if (block.RowCount < 0)
             throw new ArgumentOutOfRangeException(nameof(block));
-        destination.Add(block);
-        _rows = checked(_rows + block.RowCount);
         _failures |= block.HasFailures;
         _incomplete |= block.Incomplete;
         if (block.Failure is { } failure)
@@ -439,7 +454,6 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                 ? "Prefix" : "Bounded",
                 block.Candidate?.PackageId ?? block.Ecosystem!.Value,
                 failure));
-        _publish?.Invoke(block);
     }
 
     private EcosystemFindSearchSummary<T> Complete(

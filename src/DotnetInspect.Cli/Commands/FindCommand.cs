@@ -904,7 +904,7 @@ public partial class FindCommand
                     };
                     members.Add(attributed);
                 }
-                foreach (TypeFindResult row in WithoutSupersededWeakRows(
+                foreach (TypeFindResult row in DurablePrefixTypeRows(
                     foundTypes.Rows, band))
                 {
                     TypeFindResult attributed = row with
@@ -930,6 +930,16 @@ public partial class FindCommand
             new(types, members, acceptedMemberCount),
             failures, incomplete, sourceFailure);
     }
+
+    internal static List<TypeFindResult> DurablePrefixTypeRows(
+        List<TypeFindResult> typeRows,
+        List<MemberFindResult> members) =>
+        [
+            .. WithoutSupersededWeakRows(typeRows, members)
+                .Where(static row =>
+                    row.Match is not TypeFindMatchKind.Partial
+                        and not TypeFindMatchKind.NotFound),
+        ];
 
     private static int CountLayeredRows(
         FindOptions options,

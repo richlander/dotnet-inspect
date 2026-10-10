@@ -282,6 +282,38 @@ public class FindProgressiveTsvTests
     }
 
     [Fact]
+    public void PrefixTypeRowsExcludePackageLocalAndRelativeResults()
+    {
+        List<TypeFindResult> rows =
+        [
+            new()
+            {
+                FullName = "Contoso.Exact",
+                Pattern = "Contoso.Exact",
+                Match = TypeFindMatchKind.Exact,
+            },
+            new()
+            {
+                FullName = "Contoso.Similar",
+                Pattern = "Contoso.Exact",
+                Match = TypeFindMatchKind.Partial,
+            },
+            new()
+            {
+                Pattern = "Missing",
+                Match = TypeFindMatchKind.NotFound,
+            },
+        ];
+
+        List<TypeFindResult> durable =
+            FindCommand.DurablePrefixTypeRows(rows, []);
+
+        Assert.Equal(
+            ["Contoso.Exact"],
+            durable.Select(row => row.FullName));
+    }
+
+    [Fact]
     public async Task MemberRowsArePublishedBeforeServiceCompletion()
     {
         bool completed = false;

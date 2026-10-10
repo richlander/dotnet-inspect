@@ -484,4 +484,28 @@ public class EcosystemFindSearchSessionTests
         Assert.Equal(EcosystemFindCompletion.Failed, result.Completion);
         Assert.Single(result.Failures);
     }
+
+    [Fact]
+    public async Task ZeroRowPrefixSettlementIsNotADurableBlock()
+    {
+        var layer = Layer("first", "First.Core", "Contoso.");
+        using var session = new EcosystemFindSearchSession<string>(
+            Request([layer]),
+            (_, _) => Task.FromResult(new EcosystemFindBlock<string>(
+                "core", 0)),
+            (_, _, token) => Pages(new(
+                [new("Contoso.Empty", "1.0.0")]), token),
+            (_, _, _) => Task.FromResult(new EcosystemFindBlock<string>(
+                "empty", 0, HasFailures: true, Incomplete: true)
+                { Failure = "Package settlement failed." }));
+
+        EcosystemFindSearchSummary<string> result =
+            await session.ExecuteAsync(TestContext.Current.CancellationToken);
+
+        Assert.Empty(result.PrefixBlocks);
+        Assert.Equal(EcosystemFindCompletion.Partial, result.Completion);
+        Assert.Equal(
+            "Contoso.Empty",
+            Assert.Single(result.Failures).Source);
+    }
 }
