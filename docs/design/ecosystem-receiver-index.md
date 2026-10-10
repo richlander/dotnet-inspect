@@ -17,9 +17,10 @@ to observable behavior in the CLI and Inspect Web.
 > extension census admits by default for the selected Libraries of each
 > pinned package, keyed by structured receiver type identity, together with
 > the generic-constraint and type-hierarchy facts its lookups consume and a
-> complete coverage record. A receiver query resolves to one type
-> definition, one constructed type, or an explicit name pattern, and the
-> lookup returns that query's members with an applicability label for each.
+> complete coverage record. A receiver query resolves to an explicit name
+> pattern, one type definition, one shape with placeholders, or one
+> constructed type, and the lookup returns that query's members, each labeled
+> with its receiver shape or, for a constructed type, its applicability.
 > The live `extensions` command and the lookup share one resolver and one
 > matcher, so over the same pinned coordinates they return the same answer,
 > and a host answers from the artifact without acquiring packages.
@@ -192,7 +193,7 @@ Each case below must have a fixture or recorded probe before implementation.
 
 ## Receiver query model
 
-A receiver query is text. It names one of three things, from broad to
+A receiver query is text. It names one of four things, from broad to
 narrow. Each level is a different question, not a looser or tighter version
 of one fuzzy match.
 
@@ -200,67 +201,101 @@ of one fuzzy match.
 | --- | --- | --- |
 | `IEnumerable*` | An explicit name pattern | Every definition whose name matches, each answered as a definition query and grouped by definition |
 | `IEnumerable`, `IEnumerable<T>` | One type definition, by name and arity | Members whose receiver is that definition under any instantiation; `IEnumerable` and `IEnumerable<T>` are disjoint |
-| `IEnumerable<int>` | One constructed type | Members that apply to that exact use, each labeled with how it applies |
+| `T[]`, `IDictionary<string, TValue>` | A shape with placeholders | Members whose receivers have that shape, labeled by receiver shape |
+| `IEnumerable<int>`, `IEnumerable<int?>` | One constructed type | Members that apply to that exact use, each labeled with how it applies |
 
 Fuzziness is something a user asks for with `*`, never the default.
 
 ### Resolution
 
-Resolution maps query text to identities in a **definition universe**: the
-definitions of every type declared in the selected Libraries, plus every named
-definition that occurs anywhere in an indexed receiver, return, or constraint
-identity, including inside type arguments. Primitive types resolve by their
-C# keyword (`int`) and by their full name (`System.Int32`). The live command
-computes the same universe from the same census over its scope, so resolution
-agrees wherever the populations agree.
+Query text is C# type syntax. It parses into a type-use tree with the same
+arms as `ApiQualifiedTypeIdentity`:
 
-1. **Pattern.** Text containing `*` is a glob over definition display names,
-   with the namespace optional. It resolves to the matching set of
-   definitions.
-2. **Definition with placeholders.** `D<>`, `D<,>`, `` D`2 ``, and `D<T>` or
-   `D<TKey, TValue>` name the definition of that arity. An argument is a
-   placeholder only when it is empty, or is `T` or `T` followed by an
-   uppercase letter, and resolves to no definition in the universe.
-   Placeholder names are display, not identity, so `IEnumerable<T>` and
-   `IEnumerable<TSource>` are the same query.
-3. **Constructed.** When no argument is a placeholder, the query is
-   constructed. Arguments resolve recursively by these same rules. An
-   argument that resolves to no definition in the universe, such as
-   `DateTime` under `--platform System.Linq`, becomes an **opaque type**: a
-   named type known only by its query text. The answer names every opaque
-   argument, so a misspelling is visible rather than silently answered. A
-   mix of placeholders and concrete arguments is refused as unsupported and
-   named.
-4. **Bare name.** A name with no argument list resolves among definitions of
-   that name, namespace optional, preferring an exact-case match:
-   - if an arity-0 definition exists, the query is that definition, and the
-     answer names the sibling arities (`IEnumerable<T>` also exists; use
-     `IEnumerable*` for both);
-   - if no arity-0 definition exists and exactly one arity does, the query is
-     that definition, and the answer states the resolution (`List` resolved
-     to `List<T>`); and
-   - otherwise, including the same name in two namespaces, the query is
-     ambiguous: it returns no members and lists the candidates. Candidates
-     are never merged.
+- a name, with an optional generic argument list, a C# keyword (`int`), or a
+  full primitive name (`System.Int32`);
+- `X?` on a value type, which is `Nullable<X>`; on a reference type it is a
+  nullable annotation, which does not participate in identity, and the answer
+  says it was ignored;
+- `X[]` and `X[,]`, which are single-dimensional and multidimensional arrays
+  of that rank;
+- `X*`, which is a pointer; and
+- `(A, B)`, which is `ValueTuple<A, B>`; element names are display and are
+  dropped.
+
+Names resolve against a **definition universe**: the definitions of every
+type declared in the selected Libraries, plus every named definition that
+occurs anywhere in an indexed receiver, return, or constraint identity,
+including inside type arguments. The live command computes the same universe
+from the same census over its scope, so resolution agrees wherever the
+populations agree.
+
+Each name in the tree becomes one leaf:
+
+- **Placeholder.** A name that is empty (`D<>`, `D<,>`), or is `T` or `T`
+  followed by an uppercase letter, and resolves to no definition in the
+  universe. Placeholder names are display, not identity, so
+  `IEnumerable<T>` and `IEnumerable<TSource>` are the same query.
+  `` D`2 `` is `D` with two placeholders.
+- **Definition.** A name that resolves to exactly one definition. A bare
+  name at the root follows the bare-name rule below. A bare name inside an
+  argument, array, or nullable that resolves only to a generic definition
+  (`IEnumerable<List>`) is refused, and the answer asks for its arguments.
+- **Opaque type.** A name that resolves to no definition in the universe and
+  is not a placeholder, such as `DateTime` under `--platform System.Linq`. It
+  is a named type known only by its query text. The answer names every opaque
+  leaf, so a misspelling is visible rather than silently answered.
+  `Opaque?` is refused, because whether it is a value type is unknown.
+
+The whole query is then classified:
+
+1. **Pattern.** Text containing `*` as a wildcard, rather than as a pointer
+   suffix, is a glob over definition display names with the namespace
+   optional. It resolves to the matching set of definitions.
+2. **Definition.** The root is one definition and every generic argument is
+   a placeholder, or the root is a bare name.
+3. **Shape.** Any other tree that contains a placeholder, such as `T[]`,
+   `T?`, or `IDictionary<string, TValue>`.
+4. **Constructed.** A tree with no placeholder.
+
+A bare name at the root resolves among definitions of that name, namespace
+optional, preferring an exact-case match:
+
+- if an arity-0 definition exists, the query is that definition, and the
+  answer names the sibling arities (`IEnumerable<T>` also exists; use
+  `IEnumerable*` for both);
+- if no arity-0 definition exists and exactly one arity does, the query is
+  that definition, and the answer states the resolution (`List` resolved to
+  `List<T>`); and
+- otherwise, including the same name in two namespaces, the query is
+  ambiguous: it returns no members and lists the candidates. Candidates are
+  never merged.
 
 A query that resolves to nothing in the universe reports that, together with
 the artifact's coverage, instead of a bare empty answer.
 
 ### Matching
 
-Receivers are `ApiQualifiedTypeIdentity` values. A receiver's shape is one of:
-named (`IServiceCollection`), closed generic
-(`IResourceBuilder<PostgresServerResource>`), open generic over the member's
-type parameters (`IResourceBuilder<T>`, `IEnumerable<KeyValuePair<TKey,
-TValue>>`), or a bare type parameter (`TBuilder`).
+A receiver is any `ApiQualifiedTypeIdentity`: a named or primitive type, a
+generic instance, an array, a pointer, or a type parameter of the member, in
+any nesting. A by-reference receiver (`this ref`, `this in`) matches as its
+element type, and its row is labeled by-reference. Signature modifiers on the
+receiver do not affect matching and remain in the row's identity.
+
+Matching is structural unification over the whole tree. Member type
+parameters in the receiver bind to query subtrees, consistently across
+occurrences. Query placeholders in a shape query match any receiver subtree,
+also consistently.
 
 A **definition query** for `D` returns members whose receiver is `D` or an
 instantiation of `D`, plus bare type-parameter receivers whose constraints
-name `D`. Each row is labeled with its receiver shape. A definition query
-makes no applicability judgment; it answers what is declared for `D`.
+name `D`. A **shape query** returns members whose receivers unify with the
+shape, plus, when the shape's root is a definition, the bare type-parameter
+receivers whose constraints name it. Both label each row with its receiver
+shape and make no applicability judgment; they answer what is declared.
 
-A **constructed query** for `D<A…>` considers the same members and labels
-each one:
+A **constructed query** considers members whose receivers unify with it, plus
+the bare type-parameter receivers whose constraints name its root definition,
+and labels each one:
 
 | Label | Rule |
 | --- | --- |
@@ -269,21 +304,30 @@ each one:
 | `Unknown` | The receiver unifies, but some constraint cannot be decided from the artifact's facts |
 | `NotApplicable` | Unification fails, or a constraint is violated; excluded from rows and reported as a count |
 
+For example, `IEnumerable<int?>` is `IEnumerable<Nullable<Int32>>`. The
+closed `Sum(this IEnumerable<int?>)` receiver is `Exact`, the open
+`Where<TSource>(this IEnumerable<TSource>)` receiver is `Satisfied`, and the
+closed `Sum(this IEnumerable<int>)` receiver is `NotApplicable`.
+
 Constraint checking uses the member's constraint facts and the artifact's
 declared supertypes. A type-argument constraint `T : I` is satisfied when the
 bound type is `I` or reaches `I` through declared base types and interfaces,
 with type arguments substituted. `class` and `struct` constraints are decided
-from the identity's value-type flag. A walk that leaves the artifact's
-declared types before reaching `I`, a `new()`, `unmanaged`, or `notnull`
-constraint, or a constraint that refers to a still-unbound type parameter,
-yields `Unknown`. `Unknown` is never presented as applicable.
+structurally: arrays are reference types; `Nullable<X>` and tuples are value
+types; primitives decide from their fixed set, where `String` and `Object` are
+reference types and the rest are value types; and a named type decides from
+its identity's value-type flag. A walk that leaves the artifact's declared
+types before reaching `I`, a `new()`, `unmanaged`, or `notnull` constraint, or
+a constraint that refers to a still-unbound type parameter, yields `Unknown`.
+`Unknown` is never presented as applicable.
 
-An opaque argument binds only to member type parameters. Any constraint on a
+An opaque leaf binds only to member type parameters. Any constraint on a
 parameter bound to it, including `class` and `struct`, is `Unknown`. It never
-equals a closed receiver's argument, because every closed receiver's
-arguments are in the universe, so such a receiver is `NotApplicable`. A
-declared type with no supertype record in the artifact is treated as a walk
-that leaves the artifact (`Unknown`), never as a type with no supertypes.
+equals a named definition in a receiver, because every named definition in a
+receiver is in the universe, so a receiver that needs one there is
+`NotApplicable`. A declared type with no supertype record in the artifact is
+treated as a walk that leaves the artifact (`Unknown`), never as a type with
+no supertypes.
 
 A bare type-parameter receiver `TBuilder` is checked the same way, binding
 `TBuilder` to the whole query. A pattern query runs a definition query for
@@ -310,9 +354,13 @@ resolver and matcher the lookup uses. Three answers change deliberately:
 
 Constructed queries whose arguments are outside the scoped Libraries, such as
 `extensions 'IEnumerable<DateTime>' --platform System.Linq`, keep answering:
-the argument is opaque and unconstrained receivers are `Satisfied`.
+the argument is opaque and unconstrained receivers are `Satisfied`. Array
+and nullable queries also keep answering: `extensions 'T[]' --platform` is a
+shape query that returns array receivers such as `MemoryExtensions.AsSpan`, and
+`IEnumerable<int?>` returns the `Nullable<Int32>` overloads of `Sum` as
+`Exact`.
 
-The CLI reference documents both changes in the step that ships them.
+The CLI reference documents these changes in the step that ships them.
 
 ## Artifact contract
 
@@ -337,8 +385,9 @@ One artifact per Ecosystem prefix declaration. It contains:
   member kind (method or property); signature text as admitted; declaring
   type; and the package and Library coordinate that contributes it.
 - **Declared supertypes.** For each type declared in the selected Libraries
-  that the members' receivers, constraints, or return types reach: its base
-  type and directly implemented interfaces as identities.
+  that the members' receivers, constraints, or return types reach, and
+  transitively for each supertype of it that the selected Libraries declare:
+  its base type and directly implemented interfaces as identities.
 - **Unresolved members.** Members whose identities could not be issued, with
   contained display signature and refusal reason.
 
@@ -468,8 +517,8 @@ that Ecosystem is missing.
 | Missing is never empty | Fixture population with a rejected package, a Library that fails inspection, an unresolved member, and an empty Library; only the empty Library contributes to a complete-empty answer | PR-fast |
 | Extension facts only | Fixture containing an instance `Add*` method and a classic and C# 14 extension member | PR-fast |
 | Stored members are the census's default admission | Fixture with never-browsable, obsolete, non-public, and hidden-accessor extension members compared with the shared census | PR-fast |
-| Resolution levels | Fixture queries: pattern; arity-0 and arity-1 siblings; placeholder spellings; single-arity bare name; same name in two namespaces; full primitive name and keyword; constructed with an opaque argument against unconstrained, constrained, and closed receivers; mixed placeholders | PR-fast |
-| Matching labels | Fixture with exact, open-unconstrained, open-constrained satisfied, violated, and undecidable receivers, a closed receiver over another argument, and a constrained and an unconstrained bare type-parameter receiver | PR-fast |
+| Resolution levels | Fixture queries: pattern; arity-0 and arity-1 siblings; placeholder spellings; single-arity bare name; same name in two namespaces; full primitive name and keyword; `?` on value, reference, and opaque types; `[]`, `[,]`, pointer, and tuple forms; constructed with an opaque argument against unconstrained, constrained, and closed receivers; shape queries with placeholders below the root; a generic bare name inside an argument | PR-fast |
+| Matching labels | Fixture with exact, open-unconstrained, open-constrained satisfied, violated, and undecidable receivers; a closed receiver over another argument; array, nullable, and by-reference receivers; and a constrained and an unconstrained bare type-parameter receiver | PR-fast |
 | Live command and lookup agree | Offline fixture: live `extensions` over fixture packages and lookup over an artifact built from them return equal resolutions, rows, labels, and counts | PR-fast |
 | Checked-in artifact parses and contains every known-answer control | Load each embedded artifact | PR-fast |
 | Content equals the live census over pinned coordinates | Recompute the shared census for each pinned coordinate and compare typed identities | Slow, network; daily |
