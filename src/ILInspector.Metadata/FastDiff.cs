@@ -581,6 +581,13 @@ public static class FastDiff
                     }
                     if (generatedAt < 0)
                     {
+                        // A name that is not well-formed UTF-8 has no decodable
+                        // spelling to identify it by, like a malformed row.
+                        if (EscapedName(handle) is not { } identifier)
+                        {
+                            AddMalformed(units, handle);
+                            continue;
+                        }
                         SymbolKey key = TypeKey(handle);
                         if (units.TryGetValue(key, out Unit? existing))
                         {
@@ -591,8 +598,7 @@ public static class FastDiff
                             AddMalformed(units, handle);
                             continue;
                         }
-                        units[key] = new Unit(
-                            DisplayName(handle), EscapedName(handle), handle, []);
+                        units[key] = new Unit(DisplayName(handle), identifier, handle, []);
                         continue;
                     }
                     if (generatedAt > 0)
@@ -1028,23 +1034,42 @@ public static class FastDiff
             return name;
         }
 
-        /// <summary>The injective escaped name of a Type.</summary>
-        string EscapedName(TypeDefinitionHandle handle)
+        /// <summary>
+        /// The injective escaped name of a Type, or null when its namespace or
+        /// a name in its declaring chain is not well-formed UTF-8, whose
+        /// decoded spelling would not be injective.
+        /// </summary>
+        string? EscapedName(TypeDefinitionHandle handle)
         {
             Span<TypeDefinitionHandle> chain =
                 stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
             if (!TryDeclaringChain(handle, chain, out int length))
                 throw new BadImageFormatException("The Type has an invalid declaring chain.");
             TypeDefinition root = Md.GetTypeDefinition(chain[0]);
+            string? space = root.Namespace.IsNil ? "" : Decoded(root.Namespace);
             var segments = ImmutableArray.CreateBuilder<string>(length);
             for (int i = 0; i < length; i++)
-                segments.Add(Md.GetString(Md.GetTypeDefinition(chain[i]).Name));
-            return MetadataTypeDefinitionName.Create(
-                    root.Namespace.IsNil ? "" : Md.GetString(root.Namespace),
-                    segments.MoveToImmutable())
+            {
+                if (Decoded(Md.GetTypeDefinition(chain[i]).Name) is not { } segment)
+                    return null;
+                segments.Add(segment);
+            }
+            if (space is null)
+                return null;
+            return MetadataTypeDefinitionName.Create(space, segments.MoveToImmutable())
                 is MetadataTypeDefinitionNameResult.Valid { Name: var name }
                 ? name.ToEscapedFullName()
                 : throw new BadImageFormatException("The Type name cannot be represented.");
+        }
+
+        /// <summary>
+        /// A name decoded, or null when its stored bytes are not well-formed
+        /// UTF-8. Only a decoded name holding U+FFFD needs its bytes checked.
+        /// </summary>
+        string? Decoded(StringHandle handle)
+        {
+            string name = Md.GetString(handle);
+            return name.Contains('\uFFFD') && !Keys.Names.IsWellFormed(handle) ? null : name;
         }
 
         /// <summary>The display name of a Type, with <c>.</c> between nested names.</summary>

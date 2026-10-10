@@ -231,6 +231,14 @@ internal readonly struct SymbolKey : IEquatable<SymbolKey>, IComparable<SymbolKe
                 : throw new BadImageFormatException("A #Strings entry is not terminated.");
         }
 
+        /// <summary>Whether a name's stored bytes are well-formed UTF-8.</summary>
+        public bool IsWellFormed(StringHandle handle)
+        {
+            byte[] stored = new byte[Length(handle)];
+            Copy(handle, stored, 0, stored.Length);
+            return System.Text.Unicode.Utf8.IsValid(stored);
+        }
+
         /// <summary>Copies the name <see cref="Length"/> measured.</summary>
         public void Copy(StringHandle handle, byte[] buffer, int index, int length)
         {
