@@ -296,6 +296,21 @@ public sealed partial class MethodDefinitionRequestSetTests
             .Value!;
     }
 
+    /// <summary>The call-target receipt of one exact caller in a synthetic image.</summary>
+    internal static SameModuleCallTargetCoverage ProbeCallTargetCoverage(
+        ImmutableArray<byte> image,
+        MethodDefinitionHandle caller)
+    {
+        MethodDefinitionSourceAssociation association =
+            Association(
+                CallTargetProbe.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth.ExactMethods(caller));
+        return Execute(AcceptedPlan([association]), image)
+            .ResultOf(association)
+            .SourceReceipt.Coverage.CallTargets;
+    }
+
     static MethodDefinitionSourceRequestSetExecution ExecuteAt(
         MethodDefinitionSourceRequestSetPlan plan,
         string path)

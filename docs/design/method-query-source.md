@@ -440,16 +440,24 @@ token in the visited body:
 - `calli` is unresolved as indirect and reads no metadata.
 - An operand that peels, through a MethodSpec or a MemberRef on a MethodDef
   parent, to a same-image MethodDef binds by token. The lookup reads that
-  method's declaring type, its signature-depth guard, and its signature header
-  to check the generic declaration. It decodes no signature.
+  method's row for its declaring type, the operand's signature-depth guard,
+  and, when the call site passes its checks, the method's signature header to
+  check the generic declaration. It decodes no signature.
 - Any other operand's member reference is decoded in the caller's generic
   scope. A binding by signature reads the module's TypeDef index, which the
   lookup builds at the first query that needs it. It then decodes the
   signatures of the matched type's methods with the referenced name, once per
   type and name.
 - A MethodSpec's instantiation does not affect the target and is not decoded.
-- Metadata that cannot be read throws and fails the visited body, as it does in
-  Library Body Analysis.
+- Metadata that cannot be read throws and fails the visited body. A
+  generic-declaration header that cannot be read is an invalid declaration, as
+  Library Body Analysis judges it.
+
+On hand-authored metadata the two sources can still differ, and each outcome
+stays contained. Library Body Analysis fails a body whose MethodSpec
+instantiation is invalid for its target, and it omits from its declared
+methods a MethodDef whose identity it could not build. The lookup resolves the
+MethodSpec's target and supplies every MethodDef row.
 
 The source receipt carries `SameModuleCallTargetCoverage`. Construction reads
 the module name and assembly identity and records no work. Query work counts
@@ -464,7 +472,9 @@ three things:
   MethodDef signature.
 
 The index and candidate caches last for the execution, so their work is
-charged to the query that first needed them. MemberRef and MethodSpec rows that
+charged to the query that first needed them. The lookup also remembers the
+last caller's scope, so consecutive queries from one body, including those of
+another lane visiting it in the same shared pass, read the caller's row once. MemberRef and MethodSpec rows that
 peel an operand are not reported; each query reads at most one of each.
 Coverage also records the MethodDefs whose visits queried the lookup and the
 number of queries. The physical group receipt and each request receipt

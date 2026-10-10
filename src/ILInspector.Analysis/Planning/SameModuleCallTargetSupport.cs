@@ -151,6 +151,10 @@ internal sealed class SameModuleCallTargetLookup : SameModuleMethodResolver
             MetadataTokens.GetToken(method));
         if (ContainsToken(definitionToken))
         {
+            // The definition probe: one MethodDef row, read for its declaring
+            // type and, when the call site passes its checks, its generic
+            // declaration.
+            _methodDefinitionRows++;
             BlobHandle signature = SignatureOf(method);
             _signatureBytes += BlobLength(signature);
             return Project(
@@ -249,28 +253,40 @@ internal sealed class SameModuleCallTargetLookup : SameModuleMethodResolver
             && row <= _reader.MethodDefinitions.Count;
     }
 
+    // Reached only through a token-bound query, whose definition probe
+    // already counted this row.
     private protected override bool HasInvalidGenericDeclaration(int token)
     {
-        _methodDefinitionRows++;
         return !HasExactGenericParameterDeclaration(
             _reader.GetMethodDefinition(
                 (MethodDefinitionHandle)MetadataTokens.EntityHandle(token)));
     }
 
     // The signature's generic parameter count against the method's declared
-    // generic parameters, read from the signature header alone.
+    // generic parameters, read from the signature header alone. An unreadable
+    // header is an invalid declaration, as Library Body Analysis judges it.
     bool HasExactGenericParameterDeclaration(MethodDefinition method)
     {
-        BlobReader signature = _reader.GetBlobReader(method.Signature);
-        SignatureHeader header = signature.ReadSignatureHeader();
-        if (header.Kind != SignatureKind.Method)
+        try
+        {
+            BlobReader signature = _reader.GetBlobReader(method.Signature);
+            SignatureHeader header = signature.ReadSignatureHeader();
+            if (header.Kind != SignatureKind.Method)
+                return false;
+            int count = header.IsGeneric ? signature.ReadCompressedInteger() : 0;
+            return count >= 0
+                && MemberResolver.HasExactGenericParameters(
+                    _reader,
+                    method.GetGenericParameters(),
+                    count);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException
+            or OverflowException)
+        {
             return false;
-        int count = header.IsGeneric ? signature.ReadCompressedInteger() : 0;
-        return count >= 0
-            && MemberResolver.HasExactGenericParameters(
-                _reader,
-                method.GetGenericParameters(),
-                count);
+        }
     }
 
     private protected override ReadOnlySpan<SameModuleMethodSignature> Candidates(
