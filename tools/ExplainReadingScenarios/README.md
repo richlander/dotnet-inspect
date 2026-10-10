@@ -169,6 +169,10 @@ carry titles and media types; HAL dataset destinations retain HAL mode while
 JSON resource-detail destinations are explicitly typed. All 47 distinct
 non-template links resolve.
 
+Those table sizes and 47-link count describe the original selected-data
+capture. The current specimens and `comparison.json` were refreshed after the
+transitive registrations below. Earlier usability captures remain historical.
+
 ### Worked facet exploration
 
 Start with the query-space resource. Read the embedded facet summaries and the
@@ -219,6 +223,60 @@ need to fetch the full contract.
 The [agent usability trials](usability/README.md) test whether unfamiliar agents
 actually take that efficient path. They retain both successes and unnecessary
 requests rather than treating link resolution as usability evidence.
+
+### Worked transitive preparation
+
+Once the facet key is known, request its closure directly:
+
+```bash
+dotnet-inspect explain package-query/query/facets/depends-transitive .hal --json \
+  > transitive-hal.json
+jq -c --arg key depends-transitive \
+  -f tools/ExplainReadingScenarios/query-preparation.jq transitive-hal.json
+```
+
+The [HAL response](examples/selected/selected-transitive-hal.json) links both
+prerequisites under `_links["required-context"]` and embeds them under
+`_embedded.facets`. The [direct response](examples/selected/selected-transitive-data.json)
+joins the same requirements through the keyed `facets` table. Both produce
+the identical [preparation answer](examples/selected/transitive-preparation.json).
+The jq view includes context operand rules, examples, closed depth values, and
+reciprocal requirements. Selecting depth instead also closes the cycle locally;
+no extra request or contract fetch is needed to read its transitive prerequisite.
+
+The focused transitive closure is 5,107 bytes in HAL and 5,418 bytes in direct
+JSON; the minified preparation answer is 2,225 bytes from either format. Both
+retrieve the answer in one request. The updated full query-space selection is
+17,664 bytes in HAL or 16,761 bytes in direct JSON. The literal closure is
+3,335 bytes in HAL or 4,471 bytes in direct JSON and produces a 1,662-byte
+planning answer. These UTF-8 sizes include the output newline and the added
+host-bound gesture. The comparison now resolves all 48 distinct HAL links.
+They measure content, not runtime performance.
+
+Read the rules in that answer: supply a framework rather than `all`, select
+depth 2, 3, or 4, and use the binding's `--where` gesture for all three facets.
+`--tfm` supplies Library context; it cannot replace `dependency-target`.
+For a prefix population, the transitive candidate bound is at most five and
+the binding identifies `--take N` as the gesture. `-n` selects final rows.
+The target's rule accepts any of four dependency predicates, so its empty
+`requires` array does not assert that it is independently usable.
+
+For the owner's motivating exact-package scenario, these facts yield:
+
+```bash
+dotnet-inspect package query Microsoft.Extensions.Http \
+  --where depends-transitive=Microsoft.Extensions.Primitives \
+  --where dependency-target=net10.0 --where dependency-depth=2 --take 1 --json
+```
+
+The reading demo acquires no package content. The CLI test
+`SelectedTransitiveFacet_ClosesPrerequisitesAndPreparesAcceptedPlans` feeds the
+embedded examples and every listed depth into the shared planner and verifies
+accepted plans. The existing planning gate verifies missing target, `all`,
+missing depth, depth without a transitive predicate, and excess candidate work.
+Direct-only dependency queries remain an adjacent supported case; their target
+can still be `all`. This change registers established validation rules and host
+gestures; it does not change query execution.
 
 `selected-style.jq` and `selected-facets.jq` expose the adaptations needed by each
 layout and verify equivalent reading answers. Merely removing `_links` is no

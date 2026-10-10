@@ -7,7 +7,9 @@ using System.Text.Json;
 using DotnetInspect.ProductVocabularyTesting;
 using DotnetInspect.Cli.Commands;
 using DotnetInspector.Networking;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using QuerySpace;
 using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 
 namespace DotnetInspect.Cli.Tests;
@@ -96,6 +98,86 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.Contains(binding.GetProperty("input_rules").EnumerateArray(),
             rule => rule.GetString()!.Contains("--json", StringComparison.Ordinal));
         Assert.Equal("Complete", root.GetProperty("data_scope").GetProperty("completeness").GetString());
+    }
+
+    [Theory]
+    [InlineData(".data", "depends-transitive")]
+    [InlineData(".hal", "depends-transitive")]
+    [InlineData(".data", "dependency-depth")]
+    [InlineData(".hal", "dependency-depth")]
+    public async Task SelectedTransitiveFacet_ClosesPrerequisitesAndPreparesAcceptedPlans(
+        string selection, string key)
+    {
+        var result = await RunAsync("explain", "package-query/query/facets/" + key, selection, "--json");
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement;
+        bool hal = selection == ".hal";
+        Dictionary<string, JsonElement> facets = hal
+            ? root.GetProperty("_embedded").GetProperty("facets").EnumerateArray()
+                .Append(root).ToDictionary(facet => facet.GetProperty("key").GetString()!)
+            : root.GetProperty("facets").EnumerateObject()
+                .ToDictionary(facet => facet.Name, facet => facet.Value);
+        Assert.Equal(
+            ["dependency-depth", "dependency-target", "depends-transitive"],
+            facets.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal("Complete", root.GetProperty(hal ? "data_scope" : "selection")
+            .GetProperty("completeness").GetString());
+        JsonElement transitive = facets["depends-transitive"];
+        JsonElement target = facets["dependency-target"];
+        JsonElement depth = facets["dependency-depth"];
+        Assert.Equal(["dependency-target", "dependency-depth"],
+            transitive.GetProperty("requires").EnumerateArray().Select(value => value.GetString()));
+        Assert.Equal(["depends-transitive"],
+            depth.GetProperty("requires").EnumerateArray().Select(value => value.GetString()));
+        // The target accepts alternatives; it must not require all four predicates.
+        Assert.Empty(target.GetProperty("requires").EnumerateArray());
+        string[] Rules(JsonElement facet) => (hal ? facet : facet.GetProperty("facts"))
+            .GetProperty(hal ? "input_rules" : "input-rules").EnumerateArray()
+            .Select(value => value.GetString()!).ToArray();
+        Assert.Contains(Rules(transitive), rule => rule.Contains("all is not accepted", StringComparison.Ordinal));
+        Assert.Contains(Rules(transitive), rule => rule.Contains("at most 5 package candidates", StringComparison.Ordinal));
+        Assert.Contains(Rules(target), rule => rule.Contains("depends-ecosystem, or dependencies", StringComparison.Ordinal));
+        Assert.Contains(Rules(depth), rule => rule.Contains("at least one depends-transitive", StringComparison.Ordinal));
+        JsonElement binding = hal ? root.GetProperty("_embedded").GetProperty("bindings")[0]
+            : root.GetProperty("bindings").GetProperty("dotnet-inspect.cli/package-query").GetProperty("facts");
+        Assert.Contains(binding.GetProperty(hal ? "input_rules" : "input-rules").EnumerateArray(),
+            rule => rule.GetString()!.Contains("--take N", StringComparison.Ordinal));
+
+        if (hal)
+        {
+            JsonElement[] links = transitive.GetProperty("_links").GetProperty("required-context")
+                .EnumerateArray().ToArray();
+            Assert.Equal(2, links.Length);
+            foreach (JsonElement context in new[] { target, depth })
+                Assert.Contains(links, link => link.GetProperty("href").GetString()
+                    == context.GetProperty("_links").GetProperty("self").GetProperty("href").GetString());
+        }
+
+        JsonElement Facts(JsonElement facet) => hal ? facet : facet.GetProperty("facts");
+        PortableQueryTerm Term(string termKey, string value) => new(termKey, PortableQueryOperator.Equal, value);
+        string targetValue = Facts(target).GetProperty("examples")[0].GetString()!;
+        string packageValue = Facts(transitive).GetProperty("examples")[0].GetString()!;
+        string[] depths = Facts(depth).GetProperty("values").EnumerateArray()
+            .Select(value => value.GetString()!).ToArray();
+        Assert.Equal(["2", "3", "4"], depths);
+        foreach (string depthValue in depths)
+        {
+            PackageQueryPlan plan = Assert.IsType<PackageQueryPlanResult.Accepted>(PackageQuery.PlanInput(
+                "Microsoft.Extensions.Http", terms:
+                [Term("depends-transitive", packageValue), Term("dependency-target", targetValue),
+                    Term("dependency-depth", depthValue)])).Plan;
+            Assert.True(plan.RequiresDependencyTraversal);
+            Assert.Equal(int.Parse(depthValue, CultureInfo.InvariantCulture), plan.DependencyDepth);
+            Assert.Equal(targetValue, plan.DependencyTarget.RequestedTargetFramework);
+        }
+        // The Library target gesture cannot satisfy the dependency target prerequisite.
+        Assert.Equal(PackageQueryRequestFailureReason.TransitiveDependencyRequiresTarget,
+            Assert.IsType<PackageQueryPlanResult.Rejected>(PackageQuery.PlanInput(
+                "Microsoft.Extensions.Http", terms:
+                [Term("depends-transitive", packageValue), Term("dependency-depth", depths[0]),
+                    Term("library-literal", "https://")],
+                targetFramework: targetValue)).Failure.Reason);
     }
 
     [Theory]

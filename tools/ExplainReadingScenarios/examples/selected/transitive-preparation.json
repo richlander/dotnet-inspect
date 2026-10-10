@@ -1,0 +1,82 @@
+{
+  "data_scope": {
+    "completeness": "Complete"
+  },
+  "facet": {
+    "key": "depends-transitive",
+    "summary": "Matches a source-authorized declared dependency reached at depth 2 or greater.",
+    "value_kind": "NuGet package ID",
+    "operators": [
+      "eq"
+    ],
+    "values": [],
+    "input_rules": [
+      "Requires an explicit dependency-target=<tfm> and dependency-depth=2, 3, or 4; all is not accepted as the target.",
+      "Matches declaration edges at depth 2 through the selected maximum depth; direct-only dependencies do not match. Repeated terms AND and share traversal.",
+      "Admits at most 5 package candidates; an exact package input admits one. Set the candidate bound explicitly for a prefix or ecosystem population."
+    ],
+    "requires": [
+      "dependency-target",
+      "dependency-depth"
+    ]
+  },
+  "context": [
+    {
+      "key": "dependency-target",
+      "summary": "Scopes dependency terms to all manifest groups or one TFM-selected group.",
+      "value_kind": "all or NuGet target framework",
+      "operators": [
+        "eq"
+      ],
+      "values": [],
+      "examples": [
+        "net8.0"
+      ],
+      "input_rules": [
+        "Requires at least one depends, depends-transitive, depends-ecosystem, or dependencies term; applies to all dependency predicates in the query.",
+        "depends-transitive requires an explicit dependency-target=<tfm>; all is not accepted for traversal."
+      ],
+      "requires": []
+    },
+    {
+      "key": "dependency-depth",
+      "summary": "Bounds transitive dependency traversal to the selected maximum depth.",
+      "value_kind": "closed value",
+      "operators": [
+        "eq"
+      ],
+      "values": [
+        "2",
+        "3",
+        "4"
+      ],
+      "examples": [
+        "2"
+      ],
+      "input_rules": [
+        "Requires at least one depends-transitive term; selects the maximum declaration-edge depth, not the result row limit."
+      ],
+      "requires": [
+        "depends-transitive"
+      ]
+    }
+  ],
+  "bindings": [
+    {
+      "gesture": "package query",
+      "input_rules": [
+        "Supply a package ID or PREFIX* as the positional argument after package query.",
+        "Supply exposed inspection facets through --where key=value.",
+        "Set the package-candidate work bound through --take N; -n N selects final result rows and does not replace that bound for inspection predicates.",
+        "Use --json for structured query result output.",
+        "Supply library-target through --tfm TFM, not --where. Use one exact NuGet target framework.",
+        "library-literal and --tfm require each other; neither is valid alone."
+      ],
+      "exposed_facets": [
+        "dependency-target",
+        "depends-transitive",
+        "dependency-depth"
+      ]
+    }
+  ]
+}

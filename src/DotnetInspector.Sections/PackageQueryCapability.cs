@@ -82,6 +82,24 @@ public static class PackageQueryCapability
                 queryTermRelationships:
                 [
                     new(
+                        InspectionQueryTermRelationshipKind.RequiredContext,
+                        PackageQuery.TermBindingIdentity(
+                            PackageQuery.DependsTransitiveTermKey),
+                        PackageQuery.TermBindingIdentity(
+                            PackageQuery.DependencyTargetTermKey)),
+                    new(
+                        InspectionQueryTermRelationshipKind.RequiredContext,
+                        PackageQuery.TermBindingIdentity(
+                            PackageQuery.DependsTransitiveTermKey),
+                        PackageQuery.TermBindingIdentity(
+                            PackageQuery.DependencyDepthTermKey)),
+                    new(
+                        InspectionQueryTermRelationshipKind.RequiredContext,
+                        PackageQuery.TermBindingIdentity(
+                            PackageQuery.DependencyDepthTermKey),
+                        PackageQuery.TermBindingIdentity(
+                            PackageQuery.DependsTransitiveTermKey)),
+                    new(
                         InspectionQueryTermRelationshipKind
                             .RequiredContext,
                         PackageQuery.TermBindingIdentity(

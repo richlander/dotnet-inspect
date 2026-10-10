@@ -237,7 +237,10 @@
         "effects": [
           "AcquisitionTier: nuspec"
         ],
-        "input-rules": []
+        "input-rules": [
+          "Requires at least one depends, depends-transitive, depends-ecosystem, or dependencies term; applies to all dependency predicates in the query.",
+          "depends-transitive requires an explicit dependency-target=<tfm>; all is not accepted for traversal."
+        ]
       },
       "requires": []
     },
@@ -346,9 +349,16 @@
         "effects": [
           "AcquisitionTier: nuspec"
         ],
-        "input-rules": []
+        "input-rules": [
+          "Requires an explicit dependency-target=<tfm> and dependency-depth=2, 3, or 4; all is not accepted as the target.",
+          "Matches declaration edges at depth 2 through the selected maximum depth; direct-only dependencies do not match. Repeated terms AND and share traversal.",
+          "Admits at most 5 package candidates; an exact package input admits one. Set the candidate bound explicitly for a prefix or ecosystem population."
+        ]
       },
-      "requires": []
+      "requires": [
+        "dependency-target",
+        "dependency-depth"
+      ]
     },
     "dependency-depth": {
       "identity": {
@@ -386,9 +396,13 @@
         "effects": [
           "AcquisitionTier: nuspec"
         ],
-        "input-rules": []
+        "input-rules": [
+          "Requires at least one depends-transitive term; selects the maximum declaration-edge depth, not the result row limit."
+        ]
       },
-      "requires": []
+      "requires": [
+        "depends-transitive"
+      ]
     },
     "license": {
       "identity": {
@@ -793,6 +807,7 @@
         "input-rules": [
           "Supply a package ID or PREFIX* as the positional argument after package query.",
           "Supply exposed inspection facets through --where key=value.",
+          "Set the package-candidate work bound through --take N; -n N selects final result rows and does not replace that bound for inspection predicates.",
           "Use --json for structured query result output.",
           "Supply library-target through --tfm TFM, not --where. Use one exact NuGet target framework.",
           "library-literal and --tfm require each other; neither is valid alone."

@@ -304,6 +304,28 @@ compatible selection for that requested target. Candidate resolution uses the
 existing source-authorized declared-range query and therefore does not claim
 NuGet restore, lock-file, or asset-selection equivalence.
 
+The owner registers these prerequisites for explain: `depends-transitive`
+requires both `dependency-target` and `dependency-depth`; `dependency-depth`
+requires `depends-transitive`. Input rules distinguish a framework target from
+`all`, give the candidate bound, and describe the target's alternative
+dependency predicates. The latter is a disjunction, not four unconditional
+required-context edges. Selected `.data` and `.hal` facets include the complete
+prerequisite closure, with operand rules and depth choices available locally.
+The CLI binding registers `--take N` as the candidate work bound and `-n N`
+as final row selection, so a prefix query can apply the declared candidate
+bound without conflating it with traversal depth or result count.
+
+The motivating source asset is
+[`PackageQuery.cs` at `40497bfd87e17520573d8934b14edd6936f33d0e`](https://github.com/richlander/dotnet-inspect/blob/40497bfd87e17520573d8934b14edd6936f33d0e/src/DotnetInspector.Queries/PackageQuery.cs):
+`ResolveIntentCore` enforces target and depth requirements, while the term
+declarations expose no input rules for those facets. This mismatch prevents
+an agent from preparing the existing transitive scenario below using explain
+alone. Durable evidence pairs selected CLI projection tests with the existing
+`PlanInput_TransitiveDependencyRequiresExactTargetAndDepth` validation gate;
+the worked jq demo retains both projections and their identical preparation
+answer. These tests are PR-fast catalog and planning checks, with no package
+acquisition.
+
 One transitive query admits at most five package candidates. Within each
 candidate it admits at most 32 acquired manifest projections and 128
 declaration resolutions. Repeated transitive terms AND and share one traversal

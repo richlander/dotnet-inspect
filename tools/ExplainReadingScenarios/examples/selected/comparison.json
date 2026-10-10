@@ -17,8 +17,8 @@
   },
   "facets": {
     "bytes_including_newline": {
-      "data": 15757,
-      "hal": 16149
+      "data": 16761,
+      "hal": 17664
     },
     "answer_bytes": {
       "discover": 2384,
@@ -31,8 +31,8 @@
   },
   "facet": {
     "bytes_including_newline": {
-      "data": 4324,
-      "hal": 3188
+      "data": 4471,
+      "hal": 3335
     },
     "answer_bytes": {
       "inspect": 238,
@@ -42,13 +42,22 @@
   },
   "registered_input_rules": {
     "operand_rules": 6,
-    "host_rules": 5,
+    "host_rules": 6,
     "equal_across_projections": true
   },
   "query_preparation": {
     "equal_across_projections": true,
     "scope_retained": true,
-    "answer_bytes_including_newline": 1430
+    "answer_bytes_including_newline": 1662
+  },
+  "transitive_preparation": {
+    "bytes_including_newline": {
+      "data": 5418,
+      "hal": 5107
+    },
+    "answer_bytes_including_newline": 2225,
+    "equal_across_projections": true,
+    "locally_resolved_prerequisites": 2
   },
   "agent_navigation": {
     "authored_destination_paths": 0,
@@ -57,6 +66,6 @@
     "required_context": "library-target"
   },
   "navigation": {
-    "unique_hal_links_followed": 47
+    "unique_hal_links_followed": 48
   }
 }
