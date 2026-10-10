@@ -1121,7 +1121,18 @@ public static class FastDiff
         public string GetPinnedType(string elementType) => elementType + " pinned";
         public string GetPointerType(string elementType) => elementType + "*";
         // A leading '#' is escaped in every name, so no Type spells a primitive.
-        public string GetPrimitiveType(PrimitiveTypeCode typeCode) => "#" + typeCode;
+        static readonly string[] PrimitiveKeys = CreatePrimitiveKeys();
+
+        static string[] CreatePrimitiveKeys()
+        {
+            var keys = new string[256];
+            foreach (PrimitiveTypeCode code in Enum.GetValues<PrimitiveTypeCode>())
+                keys[(byte)code] = "#" + code;
+            return keys;
+        }
+
+        public string GetPrimitiveType(PrimitiveTypeCode typeCode)
+            => PrimitiveKeys[(byte)typeCode] ?? "#" + typeCode;
         public string GetSZArrayType(string elementType) => elementType + "[]";
         public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
             => side.TypeKey(handle);
