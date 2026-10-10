@@ -1048,11 +1048,11 @@ surfaces.
 
 ### Compact resource projection contract
 
-Status: **proposed; not implemented**. This is slice 2 of
-[#9762](https://github.com/richlander/dotnet-inspect/issues/9762). It specifies
-one projection of the validated catalog; it does not replace the catalog,
-change owner declarations, or admit new CLI gestures. The existing complete
-Document remains supported until the production adoption changes its default.
+Status: **implemented for CLI and the Browser vocabulary facade** under
+[#9762](https://github.com/richlander/dotnet-inspect/issues/9762). This is one
+projection of the validated catalog; it does not replace the catalog or change
+owner declarations. Ordinary JSON uses compact data; explicit contract
+inspection retains the complete Document.
 
 #### Claim and selection
 
@@ -1150,8 +1150,8 @@ The bounded CLI adoption tracked by #9773 changes exact top-level
 Document JSON, including its schemas and traversal receipt. `.contract`
 requires JSON and an exact resource; search, contextual Member explanation,
 and human output retain their existing contracts. This is the first production
-consumer of the shared Sections projection; Browser/Wasm adoption remains
-slice 4 of #9762.
+consumer of the shared Sections projection; the Browser vocabulary facade
+adopts it in slice 4 of #9762, described under [Browser/Wasm](#browserwasm).
 
 The compact wire contains `identity` with separate owner, schema, type, and
 native identity value; direct available `facts`; non-available `fact_states`;
@@ -1418,7 +1418,7 @@ preserves the distinction among:
 - facets and their bindings;
 - each facet's owner-issued value shape and cardinality;
 - operators and named orders;
-- Rows and exact Count terminal requirements;
+- Rows and Count terminal requirements, with Count exact or observed by its completion evidence;
 - effects and continuation acceptance; and
 - opaque external value-vocabulary and result-contract identities.
 
@@ -1509,24 +1509,17 @@ are the shared host limits. No separate command or document carries
 vocabulary values; the `vocabulary` command retired under
 [Product Vocabulary](vocabulary.md#retirement).
 
-Both hosts request the same explanation. The CLI's `explain` and Inspect
-Web's catalog-facade export `CatalogExports.ExplainVocabularies(path, depth)`
-resolve the same path against their own composed snapshots and return the
-same Document Content under `ResourceExplanationRequest.ForHost`. Inspect Web
-calls `VocabularyExplanation` in `DotnetInspector.Sections`, the host-neutral
-request surface over `CreateVocabularies`; the CLI dispatches its
-`vocabularies` root to `CreateVocabularies` with the same request. Equal
-Content is gated the way `ProductVocabularyPin` gates the snapshot:
-`ProductVocabularyPin.ExplanationContent`, a linked file, pins the SHA-256 of
-the Document JSON for representative requests, and the CLI suite hashes
-`explain --json` output while the Inspect Web suite hashes the export's
-Content. The Browser export carries the completed Document, serialized by
-`ResourceExplanationJsonContext`, as owner-issued content in the facade-local
-`BrowserVocabularyExplanation` record, the established form for owner content
-that crosses a facade boundary; its Share and diagnostics reuse the
-facade-local vocabulary records. A non-canonical path, a path outside
-`vocabularies`, an unknown path with its suggestions, or a negative depth is a
-typed rejection rather than an empty Document.
+Both hosts request the same explanation from their composed snapshots. The
+CLI and Inspect Web use the shared compact resource projection for ordinary
+JSON; explicit contract inspection retains the complete Document. The linked
+`ProductVocabularyPin.ExplanationContent` pins the SHA-256 of representative
+contract requests in both host suites. Selected vocabulary data and HAL use
+`ResourceExplanationDataset`, including referenced vocabularies, sparse property
+sets, groups, ordering, and completeness, rather than a Browser-maintained
+inventory. The facade-local `BrowserVocabularyExplanation` carries the owner
+projection as JSON Content with the existing Share and diagnostics records.
+Non-canonical, outside-root, unknown, and negative-depth requests retain typed
+rejections rather than becoming empty Content.
 
 A CLI query key whose values are one vocabulary's identities, such as the
 Body Shapes `Kind` key, carries that vocabulary's name and canonical path on
@@ -1647,14 +1640,44 @@ After Library structural explanation presents the same Formats facts from
 
 ### Browser/Wasm
 
-Browser/Wasm consumes the same completed
-`InspectionEnvelope<ResourceExplanationDocument>`.
-It may render links, breadcrumbs, expandable relationships, and
-purpose-specific controls, but it does not reconstruct the graph from CLI
-text or restate owner catalogs in TypeScript. The first Browser request
-surface is the vocabulary explanation export under
-[Value-vocabulary resources](#value-vocabulary-resources); the structural
-explanation consumer remains adoption step 4.
+Browser/Wasm consumes the shared compact projection and bounded selected data
+through `CatalogExports.ExplainVocabularies(path, depth)`. An ordinary canonical
+path returns compact resource data with requested expansion. Full declaration
+serialization is retired from ordinary output and remains explicit contract
+inspection. The facade accepts `inspect-resource:/<path>` addresses unchanged;
+`?projection=data` and `?projection=hal` select vocabulary reading datasets at
+depth zero, while `?projection=contract` selects the complete Document at the
+requested depth. Projected datasets reject depth overrides and unsupported
+roots with `InvalidSelection`, preserving an explanatory rejection. HAL self
+and vocabulary links retain `projection=hal`; `describedby` selects contract
+inspection. Value detail links use ordinary compact data. These addresses are
+operands for the catalog facade, not Browser HTTP routes or endpoints.
+
+This is the vocabulary catalog adoption for #9854, production slice 4 of #9762.
+It does not add a user interface, structural explanation routes, or query-facet
+Browser registrations. Hosts do not reconstruct the graph from CLI text or
+restate owner catalogs in TypeScript. `BrowserVocabularyCompositionTests`
+checks actual facade projections, contract pins, all advertised selected HAL
+links, and typed rejection cases. `ProductVocabularyPin.CompactContent` pins
+ordinary, direct selected, and HAL selected output in the CLI and Browser suites. The production branch of
+`verify-published-engine-facades.ts` executes compact, selected, contract, link
+navigation, and invalid-selection requests through the generated catalog facade
+in the published Wasm runtime.
+
+A worked facade request is:
+
+```javascript
+const result = catalog.explainVocabularies(
+  "inspect-resource:/vocabularies/csharp.style-choices?projection=hal", 0);
+const choices = result.explanation.content._embedded.values;
+const contract = catalog.explainVocabularies(
+  result.explanation.content._links.describedby.href, 0);
+```
+
+The normal reading request has values, property sets, and referenced vocabulary
+data locally. The contract fetch is for declaration inspection and is not
+needed to read those values. Pass advertised hrefs back to `explainVocabularies`
+rather than to `fetch`.
 
 The shared implementation targets NativeAOT and single-threaded Browser/Wasm
 and uses explicit static registrations and source-generated serialization.

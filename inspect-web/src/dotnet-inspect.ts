@@ -317,11 +317,19 @@ import { createBackgroundAnalysisQueue } from "./background-analysis.ts";
 import {
   bindLibraryFastDiffRetry,
   createLibraryFastDiff,
+  fastDiffAxisReported,
   libraryFastDiffAchievement,
   libraryFastDiffKey,
   renderLibraryFastDiffStatus,
   type LibraryFastDiffBaseline,
 } from "./library-fast-diff.ts";
+import {
+  bindTypeChangeActions,
+  createTypeApiDiffCues,
+  renderTypeChangeStatus,
+  typeApiDiffCueKey,
+  type TypeApiDiffCueRequest,
+} from "./type-api-diff-cues.ts";
 import {
   createMetadataInspectionCoordinator,
   type AppExplorerState,
@@ -696,17 +704,25 @@ import {
   createEcosystemQueryRequest,
   createPackageQueryController,
   createQueryRequest,
+  dependencyReach as selectedDependencyReach,
+  dependencyTarget as selectedDependencyTarget,
   ECOSYSTEM_PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
   initialQueryState,
+  isTraversalDependencyTarget,
   shouldExecuteQuery,
+  synchronizeDependencyTermEditor,
+  synchronizeDependencyTermEdits,
   togglePreset,
   replaceTerm,
   withTerm,
+  withDependencyTerm,
+  withoutDependencyTerm,
   withoutTerm,
   withEditorDraft,
   withSourceSelection,
   withScopeQuery,
   type PackageQueryState,
+  type DependencyReach,
   type QueryPreset,
   type QueryRequest,
   type QuerySourceSelection,
@@ -5110,6 +5126,23 @@ const libraryFastDiff = createLibraryFastDiff({
   render,
 });
 
+const typeApiDiffCues = createTypeApiDiffCues({
+  queue: backgroundAnalysis,
+  operationAuthority,
+  query: (operationId, request) => inspectLibraryApiDiff(operationId, request),
+  cancel: (operationId, reason) => {
+    observeAsync(
+      cancelLibraryApiDiff(operationId, reason),
+      "Canceling member change cues");
+  },
+  describeError: errorMessage,
+  reportOperationDiagnostic: diagnostic => {
+    console.error("Member change cue operation authority failure.", diagnostic);
+    return undefined;
+  },
+  render,
+});
+
 const memberDiffExplorer = createMemberDiffExplorer({
   document,
   operationAuthority,
@@ -7032,6 +7065,12 @@ const apiDiffAchievement: ItemAchievement = {
   description: "API differences",
 };
 
+// A Type's cue says that something changed; its Members' cues say what.
+const typeApiDiffAchievement: ItemAchievement = {
+  ...apiDiffAchievement,
+  kind: "diff",
+};
+
 function memberApiDiffAchievements(
   memberFingerprints: ReadonlySet<string>,
   group: {
@@ -7040,6 +7079,7 @@ function memberApiDiffAchievements(
     }[];
   },
   index: number | null,
+  achievement: ItemAchievement = apiDiffAchievement,
 ): readonly ItemAchievement[] {
   const overloads = index === null
     ? group.overloads
@@ -7048,7 +7088,7 @@ function memberApiDiffAchievements(
     overload.anchorDigest !== null
     && overload.anchorDigest !== undefined
     && memberFingerprints.has(overload.anchorDigest))
-    ? [apiDiffAchievement]
+    ? [achievement]
     : [];
 }
 
@@ -8184,6 +8224,101 @@ function scheduleLibraryFastDiff() {
       baseline,
       () => libraryFastDiffBaselineIsCurrent(baseline));
   }
+  const request = currentTypeApiDiffCueRequest();
+  if (request) typeApiDiffCues.ensure(request, () => typeApiDiffCueIsCurrent(request));
+}
+
+function typeApiDiffCueIsCurrent(request: TypeApiDiffCueRequest) {
+  const current = currentTypeApiDiffCueRequest();
+  return current !== null
+    && typeApiDiffCueKey(current) === typeApiDiffCueKey(request);
+}
+
+// The last-patch Fast Diff state of the Type on screen, outside Library
+// Compare, when that Type has a change cue.
+function selectedTypeChangeCue() {
+  const source = libraryFastDiffCueSource();
+  const type = selectedType();
+  if (source?.entry?.status !== "ready" || !type || isForwardedType(type))
+    return null;
+  const fastDiff = source.entry.value.get(typeIdentifierOf(type));
+  const cue = libraryFastDiffAchievement(fastDiff, source.baseline.targetVersion);
+  return fastDiff && cue
+    ? { baseline: source.baseline, type, fastDiff, cue }
+    : null;
+}
+
+// The Type-surface API Diff that places member cues, for a selected Type
+// whose API axis is reported (inspect-web-background-analysis.md#navigation-cues).
+function currentTypeApiDiffCueRequest(): TypeApiDiffCueRequest | null {
+  const change = selectedTypeChangeCue();
+  if (!change || !fastDiffAxisReported(change.fastDiff.api) || !state.package) return null;
+  return {
+    packageModel: state.package,
+    baseline: change.baseline,
+    typeQueryIdentifier: typeQueryIdentifierOf(change.type),
+    typeIdentifier: typeIdentifierOf(change.type),
+  };
+}
+
+// Member cues come from the Compare result inside Library Compare and from
+// the selected Type's background API Diff outside it.
+function memberChangeAchievements(
+  group: Parameters<typeof memberApiDiffAchievements>[1],
+  index: number | null,
+): readonly ItemAchievement[] {
+  if (currentCompareSubject() !== null) {
+    return memberApiDiffAchievements(
+      libraryApiDiffPresence(state.libraryApiDiff).memberFingerprints,
+      group,
+      index);
+  }
+  const request = currentTypeApiDiffCueRequest();
+  const entry = request ? typeApiDiffCues.entry(request) : null;
+  return request && entry?.status === "ready"
+    ? memberApiDiffAchievements(entry.value.memberFingerprints, group, index, {
+        kind: "api-diff",
+        description: `API changed since ${request.baseline.targetVersion}`,
+      })
+    : [];
+}
+
+// Every Type change cue leads to a view: the Members header names the change
+// and opens the matching Compare content against the baseline.
+function selectedTypeChangeStatus(type: AppTypeSurface): string {
+  const change = selectedTypeChangeCue();
+  if (!change || change.type !== type) return "";
+  const request = currentTypeApiDiffCueRequest();
+  return renderTypeChangeStatus(
+    {
+      description: change.cue.description,
+      api: fastDiffAxisReported(change.fastDiff.api),
+      body: fastDiffAxisReported(change.fastDiff.body),
+    },
+    request ? typeApiDiffCues.entry(request) : null,
+    escapeHtml);
+}
+
+function openTypeChangeCompare(content: "api" | "member-body") {
+  const pkg = state.package;
+  if (!pkg) return;
+  packageComparisonTargets.selectMode(pkg, "diff");
+  packageComparisonTargets.selectDiff(
+    pkg,
+    { kind: "previous" },
+    catalogRequests.packageVersions(pkg));
+  packageComparisonTargets.selectDiffContent(
+    pkg,
+    content === "api" ? { kind: "api" } : { kind: "member-body" });
+  state.lens = "compare";
+  render();
+}
+
+function retryTypeApiDiffCues() {
+  const request = currentTypeApiDiffCueRequest();
+  if (!request) return;
+  typeApiDiffCues.retry(request, () => typeApiDiffCueIsCurrent(request));
+  render();
 }
 
 function retryLibraryFastDiff() {
@@ -10407,7 +10542,7 @@ function renderTypeNavPane(
   const diffPresence = libraryApiDiffPresence(state.libraryApiDiff);
   const fastDiffCues = libraryFastDiffCueSource();
   const fastDiffTypes = fastDiffCues?.entry?.status === "ready"
-    ? fastDiffCues.entry.types
+    ? fastDiffCues.entry.value
     : null;
   const { definitions, forwarders } =
     accessibilityScopedTypeSelectorDefinitions();
@@ -10473,7 +10608,7 @@ function renderTypeNavPane(
             fastDiffTypes?.get(identifier),
             fastDiffCues.baseline.targetVersion)
         : diffPresence.typeIdentifiers.has(identifier)
-          ? apiDiffAchievement
+          ? typeApiDiffAchievement
           : null;
       return typeLeverageAchievements(
         presentation?.byType.get(identifier) ?? [],
@@ -10492,7 +10627,6 @@ function renderTypeNavPane(
 function renderMemberNavPane(type: AppTypeSurface) {
   const visibleGroups = visibleMemberGroups(type);
   const groups = selectedMemberGroups(type);
-  const diffPresence = libraryApiDiffPresence(state.libraryApiDiff);
   return renderMemberNav({
     type,
     entries: memberNavEntries(type),
@@ -10515,10 +10649,7 @@ function renderMemberNavPane(type: AppTypeSurface) {
     familyHeatCue: memberNavFamilyHeatCue,
     memberAchievements: (group, index) => [
       ...methodLeverageAchievements(group, index),
-      ...memberApiDiffAchievements(
-        diffPresence.memberFingerprints,
-        group,
-        index),
+      ...memberChangeAchievements(group, index),
     ],
     overloadSourceIndex: memberNavOverloadSourceIndex,
     emptyMessage: "No members match these filters.",
@@ -12904,7 +13035,8 @@ function renderApiLens(item: AppTypeSurface) {
     0);
   const populationSummary =
     memberPopulationSummary(item, visibleMemberCount, memberCount);
-  const populationStatus = renderTypeMemberPopulationStatus(item);
+  const populationStatus =
+    renderTypeMemberPopulationStatus(item) + selectedTypeChangeStatus(item);
   const definingLibrary = typeQualifiedLibraryLabel(item);
   const definingLibraryHtml = definingLibrary
     ? `<span data-type-library>· ${escapeHtml(definingLibrary)}</span>`
@@ -12946,9 +13078,14 @@ function renderApiLens(item: AppTypeSurface) {
           Boolean(state.memberTraitFilter));
         const sourceOverloadCount =
           group.sourceOverloadCount ?? group.overloads.length;
-        const achievements = methodLeverageAchievements(
-          group,
-          sourceOverloadCount === 1 ? 0 : null);
+        const achievements = [
+          ...methodLeverageAchievements(
+            group,
+            sourceOverloadCount === 1 ? 0 : null),
+          ...memberChangeAchievements(
+            group,
+            sourceOverloadCount === 1 ? 0 : null),
+        ];
         const achievementClasses =
           itemAchievementClassNames(achievements);
         return `
@@ -14706,6 +14843,10 @@ function bindWorkspaceSubjectEvents() {
 
 function bindLibraryFastDiffEvents() {
   bindLibraryFastDiffRetry(document, retryLibraryFastDiff);
+  bindTypeChangeActions(document, {
+    compare: openTypeChangeCompare,
+    retry: retryTypeApiDiffCues,
+  });
 }
 
 function bindPlatformForwarderEvents() {
@@ -20875,7 +21016,12 @@ function togglePackageQueryPreset(presetId: string, text: string) {
   }
 
   const current = preparePackageQueryControlRequest(text);
-  submitPackageQueryRequest(togglePreset(current, preset));
+  const request = togglePreset(current, preset);
+  if (preset.key === "dependencies"
+    || preset.key === "dependency-depth") {
+    synchronizePackageQueryDependencyEditors(current, request);
+  }
+  submitPackageQueryRequest(request);
 }
 
 function addPackageQueryTerm(termKey: string, initialValue = "") {
@@ -20892,6 +21038,16 @@ function addPackageQueryTerm(termKey: string, initialValue = "") {
     descriptor,
     operator: descriptor.operators[0] ?? "",
     value: initialValue,
+    ...(descriptor.key === "depends"
+      ? {
+          dependencyReach: selectedDependencyReach(
+            state.packageQueryState.request
+              ?? createQueryRequest(state.packageQueryPrefix)),
+          dependencyTarget: selectedDependencyTarget(
+            state.packageQueryState.request
+              ?? createQueryRequest(state.packageQueryPrefix)),
+        }
+      : {}),
   };
   state.packageQueryNavigationError = "";
   render();
@@ -20900,11 +21056,33 @@ function addPackageQueryTerm(termKey: string, initialValue = "") {
       ?.focus());
 }
 
+function synchronizePackageQueryDependencyDraft(request: QueryRequest) {
+  const draft = state.packageQueryState.termDraft;
+  if (draft?.descriptor.key !== "depends") return;
+  state.packageQueryState.termDraft = {
+    ...draft,
+    ...synchronizeDependencyTermEditor(request, draft),
+  };
+}
+
+function synchronizePackageQueryDependencyEditors(
+  previous: QueryRequest,
+  next: QueryRequest,
+) {
+  state.packageQueryState.termEdits = synchronizeDependencyTermEdits(
+    previous,
+    next,
+    state.packageQueryState.termEdits ?? []);
+  synchronizePackageQueryDependencyDraft(next);
+}
+
 function applyPackageQueryTerm(
   index: number | null,
   operator: string,
   value: string,
   text: string,
+  dependencyReach: DependencyReach = "direct",
+  dependencyTargetValue = "net10.0",
 ) {
   const descriptor = index === null
     ? state.packageQueryState.termDraft?.descriptor
@@ -20917,12 +21095,52 @@ function applyPackageQueryTerm(
   }
 
   const current = preparePackageQueryControlRequest(text);
-  const request = index === null
-    ? withTerm(current, descriptor, operator, value)
-    : replaceTerm(current, index, operator, value);
+  let request: QueryRequest;
+  if (descriptor.key === "depends") {
+    const depthPreset = dependencyReach === "direct"
+      ? null
+      : state.packageQueryPresets.find(preset =>
+          preset.key === "dependency-depth"
+          && preset.value === dependencyReach) ?? null;
+    const targetDescriptor = state.packageQueryTerms.find(
+      term => term.key === "dependency-target") ?? null;
+    if (dependencyReach !== "direct"
+      && (!depthPreset || !targetDescriptor)) {
+      state.packageQueryNavigationError =
+        "Dependency reach controls are unavailable.";
+      render();
+      return;
+    }
+    if (dependencyReach !== "direct"
+      && !isTraversalDependencyTarget(dependencyTargetValue)) {
+      state.packageQueryNavigationError =
+        "Bounded dependency reach requires an exact target framework.";
+      render();
+      return;
+    }
+    request = withDependencyTerm(
+      current,
+      descriptor,
+      index,
+      operator,
+      value,
+      dependencyReach,
+      dependencyTargetValue,
+      depthPreset,
+      targetDescriptor);
+  } else {
+    request = index === null
+      ? withTerm(current, descriptor, operator, value)
+      : replaceTerm(current, index, operator, value);
+  }
+  const changesDependencyContext = descriptor.key === "depends"
+    || descriptor.key === "dependency-target";
+  if (changesDependencyContext) {
+    synchronizePackageQueryDependencyEditors(current, request);
+  }
   if (index === null) {
     state.packageQueryState.termDraft = null;
-  } else {
+  } else if (descriptor.key !== "depends") {
     const edits = [...(state.packageQueryState.termEdits ?? [])];
     edits[index] = null;
     state.packageQueryState.termEdits = edits;
@@ -20932,16 +21150,31 @@ function applyPackageQueryTerm(
 
 function removePackageQueryTerm(index: number, text: string) {
   const current = preparePackageQueryControlRequest(text);
-  state.packageQueryState.termEdits =
-    (state.packageQueryState.termEdits ?? []).filter(
-      (_edit, termIndex) => termIndex !== index);
-  submitPackageQueryRequest(withoutTerm(current, index));
+  const termKey = current.terms[index]?.descriptor.key;
+  const dependency = termKey === "depends";
+  const changesDependencyContext = dependency
+    || termKey === "depends-transitive"
+    || termKey === "depends-ecosystem"
+    || termKey === "dependency-target";
+  const request = dependency
+    ? withoutDependencyTerm(current, index)
+    : withoutTerm(current, index);
+  if (changesDependencyContext) {
+    synchronizePackageQueryDependencyEditors(current, request);
+  } else {
+    state.packageQueryState.termEdits =
+      (state.packageQueryState.termEdits ?? []).filter(
+        (_edit, termIndex) => termIndex !== index);
+  }
+  submitPackageQueryRequest(request);
 }
 
 function editPackageQueryTerm(
   index: number | null,
   operator: string,
   value: string,
+  dependencyReach?: DependencyReach,
+  dependencyTargetValue?: string,
 ) {
   if (index === null) {
     const draft = state.packageQueryState.termDraft;
@@ -20949,12 +21182,23 @@ function editPackageQueryTerm(
       ...draft,
       operator,
       value,
+      ...(dependencyReach === undefined ? {} : { dependencyReach }),
+      ...(dependencyTargetValue === undefined
+        ? {}
+        : { dependencyTarget: dependencyTargetValue }),
     };
     return;
   }
   if (!state.packageQueryState.request?.terms[index]) return;
   const edits = [...(state.packageQueryState.termEdits ?? [])];
-  edits[index] = { operator, value };
+  edits[index] = {
+    operator,
+    value,
+    ...(dependencyReach === undefined ? {} : { dependencyReach }),
+    ...(dependencyTargetValue === undefined
+      ? {}
+      : { dependencyTarget: dependencyTargetValue }),
+  };
   state.packageQueryState.termEdits = edits;
 }
 

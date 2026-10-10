@@ -87,16 +87,16 @@ test("cues name the changed axis and the baseline version", () => {
     null);
   assert.deepEqual(
     libraryFastDiffAchievement(type("A", "Changed", "Unchanged"), "2.0.0"),
-    { kind: "api-diff", description: "API changed since 2.0.0" });
+    { kind: "diff", description: "API changed since 2.0.0" });
   assert.deepEqual(
     libraryFastDiffAchievement(type("A", "Unchanged", "Changed"), "2.0.0"),
-    { kind: "body-diff", description: "Implementation changed since 2.0.0" });
+    { kind: "diff", description: "Implementation changed since 2.0.0" });
   assert.deepEqual(
     libraryFastDiffAchievement(type("A", "Changed", "Changed"), "2.0.0"),
-    { kind: "api-diff", description: "API changed, implementation changed since 2.0.0" });
+    { kind: "diff", description: "API changed, implementation changed since 2.0.0" });
   assert.deepEqual(
     libraryFastDiffAchievement(type("A", "Unchanged", "Indeterminate"), "2.0.0"),
-    { kind: "body-diff", description: "Implementation undecided since 2.0.0" });
+    { kind: "diff", description: "Implementation undecided since 2.0.0" });
 });
 
 test("a baseline result is held per exact request and keyed by identifier", async () => {
@@ -114,7 +114,7 @@ test("a baseline result is held per exact request and keyed by identifier", asyn
   const entry = state.fastDiff.entry(baseline);
   assert.equal(entry?.status, "ready");
   assert.equal(
-    entry?.status === "ready" ? entry.types.get("Fixture.Outer+Inner")?.body : null,
+    entry?.status === "ready" ? entry.value.get("Fixture.Outer+Inner")?.body : null,
     "Changed");
   assert.equal(state.fastDiff.entry({ ...baseline, axes: "Api" }), null);
   assert.ok(state.renders() > 0);

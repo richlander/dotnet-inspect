@@ -95,8 +95,9 @@ internal static class ClassicInverseRealizationRules
                 return VerifyStore(claim, context, out failure);
 
             case ClassicInverseRealizationRule.Statement:
-                if (claim.Source is not ExpressionStatement
-                    || claim.Output is not ExpressionStatement)
+                if (!((claim.Source is ExpressionStatement && claim.Output is ExpressionStatement)
+                    || (claim.Source is StoreField store && claim.Output is StoreField
+                        && !ClassicInverseNodeFacts.IsMachineField(store.Field, shell.Machine))))
                 {
                     failure = "statement realization is not statement-shaped";
                     return false;
@@ -641,6 +642,9 @@ internal static class ClassicInverseRealizationRules
                 left.Accessor == right.Accessor
                 && left.IsVirtual == right.IsVirtual
                 && left.HasInstance == right.HasInstance,
+            (StoreField left, StoreField right) =>
+                left.Field == right.Field && left.IsVolatile == right.IsVolatile
+                && left.HasInstance == right.HasInstance && left.UpdateKind == right.UpdateKind,
             (LoadField left, LoadField right) =>
                 left.Field == right.Field
                 && left.IsVolatile == right.IsVolatile,

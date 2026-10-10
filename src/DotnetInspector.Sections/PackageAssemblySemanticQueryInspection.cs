@@ -14,12 +14,12 @@ public static class PackageAssemblySemanticQueryInspection
         ExecuteAsync(
             PackageAssemblySemanticFindRequest request,
             PackageSourceOperationLease sourceOperation,
-            PackagePayloadAcquisitionPlan payloadAcquisition,
+            PackageAssemblySemanticFindExecution execution,
             CancellationToken cancellationToken = default) =>
         await ExecuteAsync(
             request,
             sourceOperation,
-            payloadAcquisition,
+            execution,
             nonterminalSink: null,
             cancellationToken).ConfigureAwait(false);
 
@@ -28,7 +28,7 @@ public static class PackageAssemblySemanticQueryInspection
         ExecuteAsync(
             PackageAssemblySemanticFindRequest request,
             PackageSourceOperationLease sourceOperation,
-            PackagePayloadAcquisitionPlan payloadAcquisition,
+            PackageAssemblySemanticFindExecution execution,
             IPackageAssemblySemanticQueryNonterminalSink? nonterminalSink,
             CancellationToken cancellationToken = default)
     {
@@ -37,7 +37,7 @@ public static class PackageAssemblySemanticQueryInspection
             PackageAssemblySemanticFindQuery.ValidateExecution(
                 request,
                 sourceOperation,
-                payloadAcquisition,
+                execution,
                 cancellationToken);
             sourceOperation.CancellationToken.ThrowIfCancellationRequested();
             NuGetFetch.PackageSourceTimeout? deadline =
@@ -60,7 +60,7 @@ public static class PackageAssemblySemanticQueryInspection
                 await PackageAssemblySemanticFindQuery.ExecuteToDocumentAsync(
                     request,
                     sourceOperation,
-                    payloadAcquisition,
+                    execution,
                     bridge,
                     cancellationToken).ConfigureAwait(false);
 

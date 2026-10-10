@@ -65,6 +65,24 @@
       ]
     },
     {
+      "id": "inspect-web-core-api-surface-presentation-stays-host-neutral",
+      "source": "docs/design/api-surface-presentation.md#host-boundary; composition tracker #8779",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspect.Web.Core"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web.Core/DotnetInspect.Web.Core.csproj"
+      ],
+      "deny": [
+        "CSharpText",
+        "ILInspector.Research"
+      ]
+    },
+    {
       "id": "inspect-web-call-graph-facade-stays-at-capability-boundary",
       "source": "docs/design/inspect-web-jsexport-partitioning.md#call-graph-facade-2-exports",
       "graphs": [

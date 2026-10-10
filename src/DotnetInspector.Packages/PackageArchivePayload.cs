@@ -28,6 +28,9 @@ internal sealed class PackageArchivePayload
         Limits = limits;
     }
 
+    internal IReadOnlyList<string> GetDirectories() =>
+        PackageArchiveDirectories.FromPaths(_entries.Select(entry => entry.Path));
+
     internal int ArchiveLength => _bytes.Length;
 
     internal byte[] OwnedBytes => _bytes;

@@ -591,6 +591,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 .GetProperty("counts")[0]
                 .GetProperty("value")
                 .GetInt32());
+        Assert.True(
+            content.GetProperty("count")
+                .GetProperty("counts")[0]
+                .GetProperty("is_exact")
+                .GetBoolean());
         Assert.Equal(
             3,
             content.GetProperty("document")
