@@ -1,3 +1,4 @@
+using DotnetInspector.Packages;
 using System.Text;
 
 namespace DotnetInspector.Services.Tests;
@@ -283,6 +284,103 @@ public class TfmSelectorTests : IDisposable
         Assert.True(result.IsSelected);
         Assert.Equal([namesake], result.Paths);
         Assert.Empty(result.IdentityFailurePaths ?? []);
+    }
+
+    [Fact]
+    public void SelectFirstPackageLibrary_OrdersByAssemblyNameNotFileStemOrPath()
+    {
+        // File stems and paths both put Tests first; assembly simple names
+        // put DotnetInspector.Services first.
+        string tests = WriteAssembly(
+            "lib/net8.0/a/A.dll",
+            typeof(TfmSelectorTests).Assembly.Location);
+        string services = WriteAssembly(
+            "lib/net8.0/z/Z.dll",
+            typeof(TfmSelector).Assembly.Location);
+        string placeholder = WriteDll("lib/net8.0/Text.dll");
+        File.WriteAllText(placeholder, "placeholder");
+
+        var result = TfmSelector.SelectFirstPackageLibrary(
+            [tests, placeholder, services],
+            _tempDir,
+            "Contoso.Missing",
+            tfm: "net8.0");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal([services], result.Paths);
+        Assert.Equal(
+            FirstPackageLibraryReason.FirstInLibraryOrder,
+            result.FirstLibraryReason);
+        Assert.Equal([services, tests], result.CandidatePaths);
+        Assert.Equal("net8.0", result.Tfm);
+    }
+
+    [Fact]
+    public void SelectFirstPackageLibrary_MatchesNamesakeIgnoringCase()
+    {
+        string tests = WriteAssembly(
+            "lib/net8.0/a/A.dll",
+            typeof(TfmSelectorTests).Assembly.Location);
+        string services = WriteAssembly(
+            "lib/net8.0/z/Z.dll",
+            typeof(TfmSelector).Assembly.Location);
+        string packageId = typeof(TfmSelectorTests).Assembly.GetName().Name!
+            .ToUpperInvariant();
+
+        var result = TfmSelector.SelectFirstPackageLibrary(
+            [services, tests],
+            _tempDir,
+            packageId);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal([tests], result.Paths);
+        Assert.Equal(
+            FirstPackageLibraryReason.Namesake,
+            result.FirstLibraryReason);
+        Assert.Equal([services, tests], result.CandidatePaths);
+    }
+
+    [Fact]
+    public void SelectFirstPackageLibrary_ReportsUnreadableIdentity()
+    {
+        string namesake = WriteAssembly(
+            "lib/net8.0/Renamed.dll",
+            typeof(TfmSelectorTests).Assembly.Location);
+        string unreadable = WriteDll("lib/net8.0/Unreadable.dll");
+        string packageId =
+            typeof(TfmSelectorTests).Assembly.GetName().Name!;
+
+        var result = TfmSelector.SelectFirstPackageLibrary(
+            [namesake, unreadable],
+            _tempDir,
+            packageId);
+
+        Assert.False(result.IsSelected);
+        Assert.Equal(
+            TfmSelector.PackageLibraryResolutionStatus
+                .NamesakeIdentityUnavailable,
+            result.Status);
+        Assert.Equal([unreadable], result.IdentityFailurePaths);
+        Assert.Equal([namesake, unreadable], result.CandidatePaths);
+        Assert.Null(result.FirstLibraryReason);
+    }
+
+    [Fact]
+    public void SelectFirstPackageLibrary_NoManagedAssemblyIsUnavailable()
+    {
+        string placeholder = WriteDll("lib/net8.0/Text.dll");
+        File.WriteAllText(placeholder, "placeholder");
+
+        var result = TfmSelector.SelectFirstPackageLibrary(
+            [placeholder],
+            _tempDir,
+            "MyPackage");
+
+        Assert.False(result.IsSelected);
+        Assert.Equal(
+            TfmSelector.PackageLibraryResolutionStatus.NoAssemblies,
+            result.Status);
+        Assert.Null(result.FirstLibraryReason);
     }
 
     [Fact]
