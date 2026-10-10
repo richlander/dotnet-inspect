@@ -59,16 +59,15 @@ exercises that path over application-owned types.
 
 The source-aware one-association path additionally carries one opaque
 owner-issued disposition/completion-evidence pair plus independent
-Rows-usability, Count-sufficiency, and optional accepted exact-cardinality
-facts for every participating set. Rows execute residual shaping only for
-usable sets and preserve source-only companions. Count consumes accepted exact
-cardinalities without Rows, executes residual shaping only for sufficient row
-handoffs, and returns every source outcome without entering a residual cohort
-when any set is insufficient. Exact zero remains a first-class result. That
-path predates the section-row owner's
-[incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation): it
-still refuses Count for an incomplete Rows-usable set instead of reporting its
-observed cardinality.
+Rows-usability, completeness, and optional accepted exact-cardinality facts
+for every participating set. Rows execute residual shaping only for usable
+sets and preserve source-only companions. Count consumes accepted exact
+cardinalities without Rows, executes residual shaping for every usable row
+handoff, marks each entry exact or observed by its set's completeness under
+the section-row owner's
+[incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation),
+and returns every source outcome without entering a residual cohort when any
+set is Rows-unavailable. Exact zero remains a first-class result.
 
 The immutable request-set reference planner now validates the complete set
 before acquisition, retains caller association and owner resource identities,
