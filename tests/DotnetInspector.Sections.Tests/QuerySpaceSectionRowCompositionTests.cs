@@ -242,13 +242,13 @@ public sealed class QuerySpaceSectionRowCompositionTests
                 SourceDisposition.Partial,
                 partial,
                 rowsAreUsable: true,
-                countIsSufficient: false),
+                isComplete: false),
             Source(
                 "right",
                 SourceDisposition.Unavailable,
                 unavailable,
                 rowsAreUsable: false,
-                countIsSufficient: false),
+                isComplete: false),
         ];
         var sectionScope =
             new SectionQuerySpaceRowScopeBinding<ScoreRow>(
@@ -360,7 +360,7 @@ public sealed class QuerySpaceSectionRowCompositionTests
     }
 
     [Fact]
-    public void IncompleteRowsRemainVisibleWithoutBecomingCount()
+    public void IncompleteRowsAndCountReportOneObservation()
     {
         int residualCalls = 0;
         QuerySpaceRowScopeBinding<ScoreRow> queryScope =
@@ -406,7 +406,7 @@ public sealed class QuerySpaceSectionRowCompositionTests
                 SourceDisposition.Partial,
                 partialReceipt,
                 rowsAreUsable: true,
-                countIsSufficient: false),
+                isComplete: false),
         ];
 
         QuerySpaceSectionSourceRowResolutionResult<
@@ -466,13 +466,17 @@ public sealed class QuerySpaceSectionRowCompositionTests
                     string,
                     SectionRowSourceEvidence<
                         SourceDisposition,
-                        CompletionReceipt>>.SourceForCount>(
+                        CompletionReceipt>>.Completed>(
                             QuerySpaceSectionRowExecutor.ApplyCount(
                                 partialCountResolution.Request!));
-        Assert.Single(partialCount.Sources);
+        SectionCountEntry<string> observed =
+            Assert.Single(partialCount.Counts);
+        Assert.Equal("left", observed.Identity);
+        Assert.Equal(0, observed.Value);
+        Assert.False(observed.IsExact);
         Assert.Same(
             partialReceipt,
-            partialCount.Sources[0].Evidence.Completion);
+            Assert.Single(partialCount.Sources).Evidence.Completion);
 
         SectionRowSourceState<
             string,
@@ -484,7 +488,7 @@ public sealed class QuerySpaceSectionRowCompositionTests
                 SourceDisposition.Complete,
                 new("logical exhaustion"),
                 rowsAreUsable: true,
-                countIsSufficient: true),
+                isComplete: true),
         ];
         QuerySpaceSectionSourceRowResolutionResult<
             Projection,
@@ -513,6 +517,7 @@ public sealed class QuerySpaceSectionRowCompositionTests
         Assert.Single(completed.Counts);
         Assert.Equal("left", completed.Counts[0].Identity);
         Assert.Equal(0, completed.Counts[0].Value);
+        Assert.True(completed.Counts[0].IsExact);
         Assert.Equal(0, residualCalls);
     }
 
@@ -689,7 +694,7 @@ public sealed class QuerySpaceSectionRowCompositionTests
                 SourceDisposition.Complete,
                 new("logical exhaustion"),
                 rowsAreUsable: true,
-                countIsSufficient: true),
+                isComplete: true),
         ];
 
         QuerySpaceSectionSourceRowResolutionResult<
@@ -768,7 +773,7 @@ public sealed class QuerySpaceSectionRowCompositionTests
                 SourceDisposition.Complete,
                 new("logical exhaustion"),
                 rowsAreUsable: true,
-                countIsSufficient: true),
+                isComplete: true),
         ];
 
         QuerySpaceSectionSourceRowResolutionResult<
@@ -819,7 +824,7 @@ public sealed class QuerySpaceSectionRowCompositionTests
     }
 
     [Fact]
-    public void InsufficientCompanionSuppressesExactSourceCount()
+    public void UnavailableCompanionSuppressesExactSourceCount()
     {
         int residualCalls = 0;
         QuerySpaceRowScopeBinding<ScoreRow> queryScope =
@@ -832,8 +837,8 @@ public sealed class QuerySpaceSectionRowCompositionTests
             SectionRowSchemaIdentity<ScoreRow>.Create();
         var exactReceipt =
             new CompletionReceipt("accepted exact count");
-        var partialReceipt =
-            new CompletionReceipt("provider cap");
+        var unavailableReceipt =
+            new CompletionReceipt("source unavailable");
         SectionRowSourceState<
             string,
             SourceDisposition,
@@ -846,10 +851,10 @@ public sealed class QuerySpaceSectionRowCompositionTests
                 7),
             Source(
                 "right",
-                SourceDisposition.Partial,
-                partialReceipt,
-                rowsAreUsable: true,
-                countIsSufficient: false),
+                SourceDisposition.Unavailable,
+                unavailableReceipt,
+                rowsAreUsable: false,
+                isComplete: false),
         ];
 
         QuerySpaceSectionSourceRowResolutionResult<
@@ -897,9 +902,132 @@ public sealed class QuerySpaceSectionRowCompositionTests
             exactReceipt,
             failed.Sources[0].Evidence.Completion);
         Assert.Same(
-            partialReceipt,
+            unavailableReceipt,
             failed.Sources[1].Evidence.Completion);
         Assert.Equal(0, residualCalls);
+    }
+
+    [Fact]
+    public void IncompleteCompanionCountsBesideExactSourceCount()
+    {
+        QuerySpaceRowScopeBinding<ScoreRow> queryScope =
+            CreateQueryScope(CreateRowVocabulary());
+        QuerySpaceBinding querySpace =
+            CreateQuerySpace(queryScope);
+        SectionRowSchemaIdentity<ScoreRow> schema =
+            SectionRowSchemaIdentity<ScoreRow>.Create();
+        var exactReceipt =
+            new CompletionReceipt("accepted exact count");
+        var partialReceipt =
+            new CompletionReceipt("provider cap");
+        SectionRowSourceState<
+            string,
+            SourceDisposition,
+            CompletionReceipt>[] sources =
+        [
+            ExactCountSource(
+                "left",
+                SourceDisposition.Complete,
+                exactReceipt,
+                7),
+            Source(
+                "right",
+                SourceDisposition.Partial,
+                partialReceipt,
+                rowsAreUsable: true,
+                isComplete: false),
+        ];
+        SectionRowSetDeclaration<
+            string,
+            Projection>[] declarations =
+        [
+            Declaration(
+                "left",
+                schema,
+                [],
+                static (projection, _) => projection),
+            Declaration(
+                "right",
+                schema,
+                [new(1), new(2), new(3)],
+                static (projection, rows) =>
+                    projection with
+                    {
+                        Right =
+                            rows.Select(
+                                static row => row.Score)
+                                .ToArray(),
+                    }),
+        ];
+        var sectionScope =
+            new SectionQuerySpaceRowScopeBinding<ScoreRow>(
+                queryScope,
+                schema);
+
+        QuerySpaceSectionSourceRowResolutionResult<
+            Projection,
+            SourceDisposition,
+            CompletionReceipt> countResolution =
+                QuerySpaceSectionRowResolver.Resolve(
+                    querySpace,
+                    CreateRequest(
+                        querySpace,
+                        queryScope,
+                        PortableQueryIntent.Empty,
+                        QuerySpaceTerminalRequirement.Count),
+                    declarations,
+                    sources,
+                    sectionScope);
+        var completed =
+            Assert.IsType<
+                SectionCountOutcome<
+                    string,
+                    SectionRowSourceEvidence<
+                        SourceDisposition,
+                        CompletionReceipt>>.Completed>(
+                            QuerySpaceSectionRowExecutor.ApplyCount(
+                                countResolution.Request!));
+        Assert.Equal(
+            ["left", "right"],
+            completed.Counts.Select(static count => count.Identity));
+        Assert.Equal(
+            [7, 3],
+            completed.Counts.Select(static count => count.Value));
+        Assert.Equal(
+            [true, false],
+            completed.Counts.Select(static count => count.IsExact));
+        Assert.Same(
+            exactReceipt,
+            completed.Sources[0].Evidence.Completion);
+        Assert.Same(
+            partialReceipt,
+            completed.Sources[1].Evidence.Completion);
+
+        QuerySpaceSectionSourceRowResolutionResult<
+            Projection,
+            SourceDisposition,
+            CompletionReceipt> rowsResolution =
+                QuerySpaceSectionRowResolver.Resolve(
+                    querySpace,
+                    CreateRequest(
+                        querySpace,
+                        queryScope,
+                        PortableQueryIntent.Empty,
+                        QuerySpaceTerminalRequirement.Rows),
+                    declarations,
+                    sources,
+                    sectionScope);
+        SectionSourceRowsOutcome<
+            string,
+            Projection,
+            SourceDisposition,
+            CompletionReceipt> rows =
+                QuerySpaceSectionRowExecutor.ApplyRows(
+                    rowsResolution.Request!);
+        Assert.True(rows.IsSuccess);
+        Assert.Equal(
+            completed.Counts[1].Value,
+            rows.Rebind(Projection.Empty).Right.Count);
     }
 
     [Fact]
@@ -1189,19 +1317,19 @@ public sealed class QuerySpaceSectionRowCompositionTests
                 SourceDisposition.Unavailable,
                 new("unavailable"),
                 rowsAreUsable: false,
-                countIsSufficient: false),
+                isComplete: false),
             Source(
                 "b0",
                 SourceDisposition.Complete,
                 new("complete"),
                 rowsAreUsable: true,
-                countIsSufficient: true),
+                isComplete: true),
             Source(
                 "a1",
                 SourceDisposition.Complete,
                 new("complete"),
                 rowsAreUsable: true,
-                countIsSufficient: true),
+                isComplete: true),
         ];
         SectionSourceRowExecutionRequest<
             string,
@@ -1706,12 +1834,12 @@ public sealed class QuerySpaceSectionRowCompositionTests
             SourceDisposition disposition,
             CompletionReceipt completion,
             bool rowsAreUsable,
-            bool countIsSufficient) =>
+            bool isComplete) =>
         new(
             identity,
             new(disposition, completion),
             rowsAreUsable,
-            countIsSufficient);
+            isComplete);
 
     private static SectionRowSourceState<
         string,
