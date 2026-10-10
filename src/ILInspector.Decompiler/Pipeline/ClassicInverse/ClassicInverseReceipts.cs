@@ -102,6 +102,9 @@ internal enum ClassicInverseRealizationRule
     /// <summary>A proved single-await guard branch retains its exact Boolean condition.</summary>
     AwaitGuardCondition,
 
+    /// <summary>The second reference test realizes on the right of the short-circuit OR.</summary>
+    AwaitGuardSecondCondition,
+
     /// <summary>The compiler's hoisted loop collection becomes the <c>foreach</c> collection.</summary>
     LoopCollection,
 

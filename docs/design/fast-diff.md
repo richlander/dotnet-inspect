@@ -394,9 +394,15 @@ that owns all of its methods, and otherwise to the residual. That resolver
 is internal to `ILInspector.Analysis` today; step 7 adds a public entry
 point that resolves the owners of one Type's generated methods.
 
-Each Member is reported by the fingerprint of its After-side `MemberAnchor`,
-the identity the Members list already carries for every accessibility, and a
-removed Member by its Before-side fingerprint. As
+Each Member is reported by the fingerprint of its After-side `MemberAnchor`, the
+identity the Members list already carries for every accessibility, and a removed
+Member by its Before-side fingerprint. A Member present on both sides, whose
+census key is the same in both images, is also reported by its Before-side
+fingerprint, so a consumer can join two pairs that share an image by the
+fingerprints both read from that image, as a version window
+([#9920](https://github.com/richlander/dotnet-inspect/issues/9920)) does. Its
+two fingerprints differ when an annotation the anchor includes, such as
+nullability, changes while the census key does not. As
 [API qualified anchor](api-qualified-anchor.md#version-pair-correspondence)
 states, anchor inequality is not absence: the Type level reports states per
 declared Member and does not classify a Member as renamed, added, or
@@ -421,7 +427,9 @@ inherited nullable context changed; an added and a removed public Type, one
 of them with no Members, are reported whole by the Library level and have no
 Type-level rows; an undefined opcode in one method makes that Member Body
 `Indeterminate` and no owner `Unchanged` by omission; two Type rows of one
-name have no Type-level rows; every Member the complete Public API diff
+name have no Type-level rows; a Member present on both sides carries both
+fingerprints, which differ after a nullable annotation change; every Member
+the complete Public API diff
 reports changed is not API `Unchanged`; and every owner of a body that
 canonical IL comparison reports changed is Body `Changed` or `Indeterminate`,
 or the change is a residual Body change. `eng/measure-fast-diff.cs` reports
