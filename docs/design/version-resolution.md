@@ -209,7 +209,7 @@ A is a prerelease:
 
 | Point | Rule |
 | --- | --- |
-| A′ | The highest candidate strictly below A. This is the existing automatic previous version, which is also the highest lower version on A's major.minor line when that line has one. |
+| A′ | The highest candidate strictly below A. This is the existing automatic previous version, which is also the highest lower candidate on A's major.minor line when that line has one. |
 | A″ | The highest candidate whose major is lower than A's. |
 
 Two named windows use these points:
@@ -225,8 +225,14 @@ than two points is a typed non-success that names the missing point, not a
 one-point History. When the listing is not authoritative, the projection is a
 typed non-success, never a window built from partial evidence.
 
-The result is a population vector from the window's first point to A, with the
-selected points as addresses from that vector. Versions between two points
+A is the caller's exact pin, so it is never a candidate and need not be
+listed. The result is a population vector from the window's first point to A,
+with the selected points as addresses from that vector. A is the vector's end
+address whether it is listed, unlisted, or absent from the listing; acquiring
+A owns whether it is available. This is a narrow exception to the listed-only
+History vector rule in [Addressable vector](#addressable-vector-nameab), which
+already names an exact caller pin as the way to inspect an unlisted version.
+Every other point and every interior version remains listed-only. Versions between two points
 remain unevaluated gaps, so History attributes a change on such a step to the
 gap. The projection does not choose which points take part in Body
 comparison; [Library-scope History](diff-history.md#library-scope-history-over-fast-diff)
@@ -236,7 +242,8 @@ Gates: `LastPatch` and `LastMajor` for a servicing release (`10.0.2`), an
 `X.Y.0` release, an `X.0.0` release where A′ and A″ coincide, a package with
 no lower major, a first release, a prerelease A that admits prerelease
 candidates, a stable A that excludes them, an unlisted A′ candidate that is
-skipped, and a non-authoritative listing.
+skipped, an unlisted A and an A absent from the listing, each the end address
+of a listed-only vector, and a non-authoritative listing.
 
 ## Resolution receipt
 
