@@ -120,12 +120,15 @@ export function renderTypeChangeStatus(
   escapeHtml: (value: unknown) => string,
 ): string {
   const detail = cues?.status === "failed"
-    ? ` Member cues unavailable: ${escapeHtml(cues.error)} <button type="button" data-type-change-retry>Retry</button>`
+    ? `<span class="type-change-detail">Member cues unavailable: ${escapeHtml(cues.error)}</span>
+      <button type="button" class="type-change-action" data-type-change-retry>Retry</button>`
     : cues?.status === "ready" && cues.value.size === 0
-      ? " No member changed; Compare shows the Type-level change."
+      ? '<span class="type-change-detail">No member changed; Compare shows the Type-level change.</span>'
       : "";
-  return `<p class="inspection-note" role="status">${escapeHtml(change.description)}.${detail}
-      <button type="button" data-type-change-compare="${change.api ? "api" : "member-body"}">${change.api ? "Compare API" : "Compare bodies"}</button></p>`;
+  return `<p class="type-change-status" role="status">
+      <span class="item-achievement-glyph ${change.api ? "api-diff" : "body-diff"}" aria-hidden="true"></span>
+      <span class="type-change-text">${escapeHtml(change.description)}</span>${detail}
+      <button type="button" class="type-change-action" data-type-change-compare="${change.api ? "api" : "member-body"}">${change.api ? "Compare API" : "Compare bodies"}</button></p>`;
 }
 
 export function bindTypeChangeActions(

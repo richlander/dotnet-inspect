@@ -140,16 +140,16 @@ test("every Type change cue names its Compare view", () => {
   const api = { description: "API changed since 9.0.20", api: true };
   const body = { description: "Implementation changed since 9.0.20", api: false };
 
-  assert.match(
-    renderTypeChangeStatus(api, { status: "loading" }, escape),
-    /API changed since 9\.0\.20\.\s*<button type="button" data-type-change-compare="api">Compare API<\/button>/);
-  assert.match(
-    renderTypeChangeStatus(body, null, escape),
-    /Implementation changed since 9\.0\.20\.\s*<button type="button" data-type-change-compare="member-body">Compare bodies<\/button>/);
+  const apiLine = renderTypeChangeStatus(api, { status: "loading" }, escape);
+  assert.match(apiLine, /class="item-achievement-glyph api-diff"/);
+  assert.match(apiLine, /API changed since 9\.0\.20<\/span>\s*<button type="button" class="type-change-action" data-type-change-compare="api">Compare API<\/button>/);
+  const bodyLine = renderTypeChangeStatus(body, null, escape);
+  assert.match(bodyLine, /class="item-achievement-glyph body-diff"/);
+  assert.match(bodyLine, /data-type-change-compare="member-body">Compare bodies<\/button>/);
   assert.match(
     renderTypeChangeStatus(api, { status: "ready", value: new Set() }, escape),
     /No member changed; Compare shows the Type-level change\./);
   assert.match(
     renderTypeChangeStatus(api, { status: "failed", error: "Unavailable." }, escape),
-    /Member cues unavailable: Unavailable\. <button type="button" data-type-change-retry>Retry<\/button>/);
+    /Member cues unavailable: Unavailable\.<\/span>\s*<button type="button" class="type-change-action" data-type-change-retry>Retry<\/button>/);
 });
