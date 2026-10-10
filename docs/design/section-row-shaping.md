@@ -434,7 +434,8 @@ Examples:
 | Twelve rows, then `Window(3, 5)` | `3` |
 | Three rows, then strict `Window(3, 5)` | window failure; no count |
 | Twelve rows, then `Top(5, ScoreDescending)` | `5`, after preserving `Top`'s semantic observations |
-| Twelve rows observed before a work budget stopped the source, then `Head(20)` | `12`, observed and incomplete |
+| Twelve rows observed before a default work ceiling stopped the source, then `Head(20)` | `12`, observed and incomplete |
+| Twelve rows from a requested candidate population whose every candidate completed, then `Head(20)` | `12`, exact for that population |
 
 For `Head(N) -> Count`, finding N ordered matches is sufficient to prove the
 exact result N without proving corpus exhaustion. Returning fewer than N is
@@ -442,14 +443,31 @@ exact only when the implementation can prove that no additional applicable
 row exists. Source completion is therefore relative to the resolved logical
 request, not necessarily to the complete underlying corpus.
 
-A work, page, time, memory, or acquisition budget is not semantic `Head`.
-Reaching such a budget cannot turn the rows observed so far into an exact
-Count.
+A work, page, time, memory, or acquisition budget is not semantic `Head`, and
+reaching one never makes the rows observed so far a count of any wider scope.
+Whether reaching it leaves the request incomplete depends on whether the
+request set it:
+
+- A bound the user requests on what is evaluated, such as an explicit
+  candidate population, is part of the resolved logical request. Evidence that
+  establishes every item inside that bound, without failure, is complete for
+  the request. The wider scope beyond the bound is outside the question, not
+  missing evidence.
+- A default or operational ceiling, provider or page limit, deadline, or other
+  constraint the request did not set is not part of the question. It leaves
+  the request incomplete when it stops evaluation before the requested scope
+  is exhausted. A ceiling reached with nothing left to evaluate constrains
+  nothing.
 
 ### Incomplete evaluation
 
 Rows and Count are two representations of the same result. Neither may report
 a different completeness than the other for the same evidence.
+
+Incomplete evidence is a partial view of the request: evaluation stopped short
+of what the request asked for, because of a failure, an evaluation that could
+not be established, or a limit the request did not set. Each source owner
+names its own reasons; the rule below is the same for all of them.
 
 When a set's evidence is Rows-usable but incomplete for its resolved logical
 request, Count returns the cardinality of the rows that Rows would select from
@@ -462,6 +480,13 @@ empty result is an observed zero, not the explicit empty state.
 A Count that differs from the rows the same evidence would render is a defect,
 whichever path produced it. Only a set with no usable rows refuses Count: a
 failed, `Absent`, or Rows-unavailable set has nothing to count.
+
+An operation owner may instead decline to admit Count for a request whose
+evaluation policy cannot answer the counted unit by design, such as a sparse
+sample of a population whose rows are adjacent-version transitions. That is
+request admission, decided before evaluation and named by the owner. It is not
+a refusal over incomplete evidence, and it does not change how an admitted
+Count treats incomplete evidence.
 
 Strict semantic stages retain their failure behavior. Count cannot replace an
 unsatisfied `Window` with the number of rows that happened to fall inside its
@@ -499,12 +524,15 @@ consumes three independent typed facts for each participating set:
   without a row handoff.
 
 A source result may be Rows-usable while carrying evidence that the underlying
-candidate set is incomplete. Candidate-bounded `package query` is the
-canonical case: its rows remain visible with their owner-issued incompleteness
-evidence, and Count reports their cardinality with the same evidence. `--take`
-does not become semantic `Head`, so that cardinality is never an exact count
-of the candidate population. A failed, `Absent`, or otherwise Rows-unavailable
-result carries no row values into residual shaping.
+candidate set is incomplete. `package query` stopped by its default candidate
+ceiling, a page limit, or a candidate failure is the canonical case: its rows
+remain visible with their owner-issued incompleteness evidence, and Count
+reports their cardinality with the same evidence. An explicit `--take` instead
+fixes the requested candidate population: when every candidate in it was
+evaluated without failure, the evidence is complete for the request and Count
+is exact for that population, never for the wider package-ID scope. `--take`
+does not become semantic `Head` in either case. A failed, `Absent`, or
+otherwise Rows-unavailable result carries no row values into residual shaping.
 
 The execution and failure precedence after successful resolution is:
 
