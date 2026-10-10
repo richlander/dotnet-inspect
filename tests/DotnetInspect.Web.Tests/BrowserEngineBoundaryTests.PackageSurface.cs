@@ -64,6 +64,8 @@ using BrowserPackagePerformance = DotnetInspect.Web.Interop.Analysis.BrowserPack
 using BrowserPerformanceMember = DotnetInspect.Web.Interop.Analysis.BrowserPerformanceMember;
 using BrowserOpportunityItem = DotnetInspect.Web.Interop.Analysis.BrowserOpportunityItem;
 using BrowserLibraryMetrics = DotnetInspect.Web.Interop.Analysis.BrowserLibraryMetrics;
+using BrowserLibraryMetricsPopulation =
+    DotnetInspect.Web.Interop.Analysis.BrowserLibraryMetricsPopulation;
 using BrowserLibraryDependencyStructure =
     DotnetInspect.Web.Interop.Analysis.BrowserLibraryDependencyStructure;
 using BrowserLibraryDependencyTypeEdge =
@@ -2583,6 +2585,25 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             $"{SelectedLibrary}.dll",
             Assert.Single(metadata.Assemblies).Assembly);
+
+        BrowserLibraryMetrics metrics =
+            Assert.IsType<BrowserLibraryMetrics>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPackageLibraryMetrics(
+                            PackageId,
+                            "1.0.0",
+                            "net11.0",
+                            useAssetId
+                                ? $"compile:lib/net11.0/{SelectedLibrary}.dll"
+                                : "selected.library"),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserLibraryMetrics));
+        Assert.Equal("available", metrics.Outcome);
+        Assert.True(
+            Assert.IsType<BrowserLibraryMetricsPopulation>(
+                metrics.Population)
+                .PhysicalEvidenceBodyCount > 0);
 
         BrowserPackageIntegrations integrations =
             Assert.IsType<BrowserPackageIntegrations>(
