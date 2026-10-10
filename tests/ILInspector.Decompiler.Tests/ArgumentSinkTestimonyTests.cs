@@ -405,6 +405,51 @@ public class ArgumentSinkTestimonyTests
     }
 
     [Fact]
+    public void LaterSelfCoalesceReadingTheResultStaysOneCarrier()
+    {
+        var consume = new MethodRef(
+            Holder,
+            "Consume",
+            Void,
+            [BaseReference],
+            HasThis: false);
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(
+            0,
+            new LoadArgument(0, "alpha", Alpha)));
+        block.Add(new StoreStackSlot(
+            0,
+            new Coalesce(
+                new LoadStackSlot(0, Alpha),
+                new LoadArgument(1, "beta", Beta))));
+        block.Add(new ExpressionStatement(new Call(
+            consume,
+            isVirtual: false,
+            [new LoadStackSlot(0, BaseReference)])));
+        block.Add(new StoreStackSlot(
+            0,
+            new Coalesce(
+                new LoadStackSlot(0, BaseReference),
+                new LoadArgument(2, "gamma", Beta))));
+        block.Add(new Return(new LoadStackSlot(0, BaseReference)));
+        var function = Function(
+            BaseReference,
+            block,
+            [
+                new Parameter("alpha", Alpha),
+                new Parameter("beta", Beta),
+                new Parameter("gamma", Beta),
+            ]);
+        AddSelfWideningReferenceFacts(function);
+
+        new StackSlotLiveRangePass().Run(
+            function,
+            PassContext.None);
+
+        AssertOnlySlotZero(function);
+    }
+
+    [Fact]
     public void SelfWideningReferenceCoalesceInStructuredLoopStaysOneCarrier()
     {
         var loopBody = new Block(1);

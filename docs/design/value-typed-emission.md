@@ -900,7 +900,9 @@ This proof is deliberately smaller than general testimony reconciliation. It
 requires no structured exception handling, no enclosing structured loop, the
 self-update as a top-level same-block store, exactly one same-slot read in the
 coalesce, no reference to the slot outside that block, and at least one later
-load before the next store. Every such load must testify the same target type.
+load before the next store. That next store boundary must not read the carrier:
+such a read still observes the widened result and cannot remain on the old
+identity. Every admitted later load must testify the same target type.
 Import-time `ReferenceWidening` facts must prove both the prior carrier type and
 the right operand's assignment type assignable to that target. The pass does
 not walk a type hierarchy late, infer a common base, admit cross-block
@@ -921,12 +923,13 @@ The pinned Microsoft.CodeAnalysis.CSharp 5.0.0 witnesses are
 `SourceMemberContainerTypeSymbol.GetAccessorOrPropertyLocation` and
 `GetAccessorOrEventLocation`. Synthetic gates cover the admitted split,
 missing importer widening, structured loops, and structured exception
-handling. On the fixed 14-assembly corpus, exact `stack-slot-live-range`
-pass impact grows from 65 to 67 methods, with exactly those two witnesses as
-candidate-only changes. The rule reduces residual-bound webs from 82 to 80,
-residual-bound locals from 148 to 144, methods with residual bindings from 55
-to 53, and split webs from 51 to 49. Late-decidable webs remain zero and the
-same four known pass bugs remain visible.
+handling, and a later self-coalesce that must read the widened result. On the
+fixed 14-assembly corpus, exact `stack-slot-live-range` pass impact grows from
+65 to 67 methods, with exactly those two witnesses as candidate-only changes.
+The rule reduces residual-bound webs from 82 to 80, residual-bound locals from
+148 to 144, methods with residual bindings from 55 to 53, and split webs from
+51 to 49. Late-decidable webs remain zero and the same four known pass bugs
+remain visible.
 
 ### Residual storage binding
 

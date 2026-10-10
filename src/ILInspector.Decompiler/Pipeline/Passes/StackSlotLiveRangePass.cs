@@ -62,6 +62,7 @@ public sealed class StackSlotLiveRangePass : IIrPass
                 int slot = store.Slot;
                 if (coalesce.Descendants.OfType<LoadStackSlot>()
                         .Count(load => load.Slot == slot) != 1
+                    || NextStoreBoundaryHasUnprovenLoad(block, i, slot)
                     || scopeNodes
                         .Where(node => node is StoreStackSlot candidateStore
                                 && candidateStore.Slot == slot
