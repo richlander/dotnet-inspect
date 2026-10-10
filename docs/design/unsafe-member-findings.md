@@ -215,6 +215,74 @@ comparison as complete. The comparison consumer decides how to present it, and
 must not report a member as added or removed, or its evidence as changed,
 because either side could not inspect a body.
 
+## Execution
+
+The census runs as one focused value producer through
+[Assembly Analysis Operation](assembly-analysis-operation.md) over an
+owner-issued Method Query Source request. It does not run on, wrap, or filter
+the Library Body Analysis aggregate that
+[#8965](https://github.com/richlander/dotnet-inspect/issues/8965) retires, and
+no census consumer adopts that aggregate. The current builder over
+`LibraryBodyAnalysisExecution` remains only until this producer lands, then
+leaves with its last caller.
+
+The producer visits each physical body once and emits a detached per-body
+fact: availability, body roles, explicit-contract calls with their contract
+source, and the lowering exclusions. Its accumulator folds those facts into
+the census in `Complete`, where attribution, exposure, and the image-level
+limitations are joined. It keeps no state across units outside the
+accumulator.
+
+Breadth follows the requested scope:
+
+- **Type scope** uses exact-type breadth with generated execution bodies
+  included. Attribution joins each visited generated body to the receipt's
+  expansion origin, whose declared owner is the ultimate source owner. A
+  bound reached during expansion is the census's attribution-bound limitation.
+  A generated candidate the expansion examined but could not authenticate is
+  outside the breadth, so it cannot be shown to lack evidence; it makes the
+  type census incomplete with an unattributed limitation naming that body,
+  never a silent omission.
+- **Library scope** uses all-definition breadth with the generated-owner
+  relation over it. Every physical body is visited, so a generated-shaped body
+  with no authenticated owner is still inspected and becomes an unattributed
+  limitation exactly when it has evidence or failed. Exact-type breadth over
+  every source type is not sufficient here, because a generated body that no
+  source member claims would never be examined.
+
+Every input comes from an owner-issued, receipted capability:
+
+| Input | Owner |
+| --- | --- |
+| Generated-owner relation over all-definition breadth, and the unauthenticated candidates of either breadth | [#9864](https://github.com/richlander/dotnet-inspect/issues/9864), under [#8577](https://github.com/richlander/dotnet-inspect/issues/8577) |
+| Module memory-safety rules and the direct or associated caller-unsafe contract of a same-image callee | [#9831](https://github.com/richlander/dotnet-inspect/issues/9831) |
+| Typed same-module callee resolution | [#8700](https://github.com/richlander/dotnet-inspect/issues/8700) |
+| Semantic MethodDef identity for the finding key | [#9830](https://github.com/richlander/dotnet-inspect/issues/9830) |
+| Public root inventory and reference-assembly status | [#9865](https://github.com/richlander/dotnet-inspect/issues/9865) |
+| Platform caller-unsafe contracts | [Platform caller-unsafe contracts](platform-caller-unsafe-contracts.md), static embedded data |
+
+Body roles, constant-data and stack-allocation span lowering, and call
+contract precedence keep their current owners and rules; moving them changes
+where they execute, not what they admit. The census publishes the Method Query
+Source receipt beside its result, so a host can show the work it did.
+
+The census moves only after every row of that table has landed. Until then the
+CLI section (step 3) does not ship, because it would land the census's first
+consumer on the retiring aggregate.
+
+Focused gates for the move:
+
+- the existing `UnsafeMemberFindingsTests` and platform-contract gates pass
+  unchanged against the new producer at Library scope;
+- Type and Library scope agree on every finding for types whose generated
+  bodies all authenticate, including the
+  [#9755](https://github.com/richlander/dotnet-inspect/issues/9755) shapes;
+- an iterator body with evidence is an unattributed limitation at Library
+  scope, and its type's census at Type scope is incomplete with that body as
+  an unattributed limitation rather than complete without it; and
+- the receipt shows no whole-table work at Type scope beyond what expansion
+  declares.
+
 ## Non-claims
 
 - **Guidance concerns.** A finding is an inventory fact, not a verdict against
