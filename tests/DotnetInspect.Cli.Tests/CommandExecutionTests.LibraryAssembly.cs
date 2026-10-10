@@ -3541,6 +3541,9 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("| Performance: Boxing | section", output);
         Assert.Contains("| Performance: Async | section", output);
+        Assert.Contains(
+            "| Performance: Sync Calls in Async | section",
+            output);
 
         Assert.Equal(0, treeExit);
         Assert.Empty(treeError);
@@ -3551,10 +3554,24 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, countExit);
         Assert.Empty(countError);
-        Assert.Equal("11", countOutput.Trim());
+        Assert.Equal("12", countOutput.Trim());
 
-        Assert.Equal(0, effectiveExit);
-        AssertOnlyPerformanceAnalysisWarnings(effectiveError);
+        Assert.Equal(1, effectiveExit);
+        Assert.Contains(
+            "Warning: Array Pool Escapes inspection incomplete "
+                + "(analysis.resource-lifecycle):",
+            effectiveError,
+            StringComparison.Ordinal);
+        AssertOnlyPerformanceAnalysisWarnings(
+            string.Join(
+                '\n',
+                effectiveError.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries
+                        | StringSplitOptions.TrimEntries)
+                    .Where(line => !line.StartsWith(
+                        "Warning: Array Pool Escapes inspection incomplete ",
+                        StringComparison.Ordinal))));
         Assert.Contains("| Performance: Boxing | section", effectiveOutput);
     }
 
@@ -4898,6 +4915,51 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Source: Platform", output);
         Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_SelectsOnlyTheNamedLibrary()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        try
+        {
+            string content = Path.Combine(tempDir, "content");
+            foreach (string tfm in new[] { "net8.0", "net10.0" })
+            {
+                string dir = Path.Combine(content, "lib", tfm);
+                Directory.CreateDirectory(dir);
+                File.Copy(TestAssemblyPath, Path.Combine(dir, "Lib.dll"));
+                File.Copy(TestAssemblyPath, Path.Combine(dir, "Other.dll"));
+            }
+            string packagePath = Path.Combine(tempDir, "Named.MultiTfm.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "-S", SectionNames.LibraryInfo, "--markdown");
+
+            Assert.True(exit == 0, error);
+            Assert.Contains("### Lib.dll (net8.0)", output, StringComparison.Ordinal);
+            Assert.Contains("### Lib.dll (net10.0)", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("Other.dll", output, StringComparison.Ordinal);
+
+            var (missingExit, missingOutput, missingError) = await RunAppAsync(
+                "library", "Nope.dll", "--package", packagePath, "--tfm", "all",
+                "-S", SectionNames.LibraryInfo, "--markdown");
+
+            Assert.Equal(1, missingExit);
+            Assert.Empty(missingOutput);
+            Assert.Contains(
+                "Library 'Nope.dll' not found in package.",
+                missingError,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Theory]

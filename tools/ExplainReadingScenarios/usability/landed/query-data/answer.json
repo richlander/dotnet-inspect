@@ -1,0 +1,175 @@
+{
+  "commands": {
+    "A_literal": [
+      "dnx",
+      "dotnet-inspect",
+      "-y",
+      "--",
+      "package",
+      "query",
+      "Microsoft.Azure.SignalR",
+      "--where",
+      "library-literal=https://",
+      "--tfm",
+      "net8.0",
+      "--json"
+    ],
+    "B_dependency": [
+      "dnx",
+      "dotnet-inspect",
+      "-y",
+      "--",
+      "package",
+      "query",
+      "Microsoft.Azure.SignalR",
+      "--where",
+      "depends=Newtonsoft.Json",
+      "--where",
+      "dependency-target=net8.0",
+      "--where",
+      "dependency-depth=3",
+      "--json"
+    ],
+    "prefix_example_A": [
+      "dnx",
+      "dotnet-inspect",
+      "-y",
+      "--",
+      "package",
+      "query",
+      "Microsoft.Azure.*",
+      "--where",
+      "library-literal=https://",
+      "--tfm",
+      "net8.0",
+      "--take",
+      "5",
+      "-n",
+      "2",
+      "--json"
+    ],
+    "prefix_example_B": [
+      "dnx",
+      "dotnet-inspect",
+      "-y",
+      "--",
+      "package",
+      "query",
+      "Microsoft.Azure.*",
+      "--where",
+      "depends=Newtonsoft.Json",
+      "--where",
+      "dependency-target=net8.0",
+      "--where",
+      "dependency-depth=3",
+      "--take",
+      "5",
+      "-n",
+      "2",
+      "--json"
+    ]
+  },
+  "explanations": {
+    "literal": "The exact package ID selects at most one latest eligible listed package candidate. The CLI supplies library-target using --tfm net8.0; library-literal and --tfm require each other. The operand is decoded UTF-16 text, length 1..1024 UTF-16 code units. All operand text, including whitespace, newlines, and case, is preserved without normalization. Matching is an ordinal substring of each decoded string-literal use across the selected implementation libraries. Identical repeated operands collapse; distinct values are incompatible. This predicate acquires package content. Six hundred astral Unicode characters occupy 1200 UTF-16 code units, so that operand exceeds the limit and is rejected. An empty listed values array is not unrestricted acceptance: the declared input rules still govern.",
+    "dependency": "The preferred exact depends=Newtonsoft.Json predicate with dependency-depth=3 matches direct declaration edges and source-authorized reachability through at most three declaration edges for the selected compatible net8.0 dependency group. It is not a NuGet restore graph. The legacy depends-transitive=Newtonsoft.Json spelling matches only depth 2 or greater through the selected maximum; a direct-only dependency does not qualify. Depth values are the closed set 2, 3, and 4; depth 1 is invalid. Traversal requires at least one exact depends term (or the legacy transitive term) and an explicit dependency-target=<TFM>; dependency-target=all is invalid for traversal. A starts-with term alone cannot authorize depth. Without depth, exact depends checks direct dependencies. An empty listed values array for depends or dependency-target does not override the value kind and input rules.",
+    "work_and_rows": "The CLI takes a package ID or literal PREFIX* after package query and query terms through --where key=value; --json requests structured output. For Microsoft.Azure.*, --take 5 bounds package candidates inspected and -n 2 selects at most two final matched package rows. The two limits act at different stages; -n 2 does not replace --take for inspection predicates. These facets admit at most five package candidates; the exact ID admits at most one. The package prefix selects IDs beginning with that literal prefix.",
+    "completeness": "These commands are prepared, not executed; no match or nonmatch for Microsoft.Azure.SignalR is asserted. A bounded prefix search may leave later candidates unevaluated. Package Query results retain matches, failures, and completion summary; an unavailable package, implementation library, source-authorized dependency declaration, or incomplete traversal must be read as incomplete evaluation rather than evidence of absence. Literal results concern selected implementation libraries and decoded string-literal uses, not every package file. JSON retains structured evidence and selected-library context; query Share is non-projectable."
+  },
+  "evidence": [
+    {
+      "response": "response-04.out",
+      "path": "package-query/query/facets/library-literal",
+      "supports": [
+        "literal text rules",
+        "UTF-16 length",
+        "candidate cap",
+        "library-target requirement",
+        "binding gesture"
+      ]
+    },
+    {
+      "response": "response-05.out",
+      "path": "package-query/query/facets/dependency-depth",
+      "supports": [
+        "closed depth values",
+        "prerequisites",
+        "candidate cap"
+      ]
+    },
+    {
+      "response": "response-06.out",
+      "path": "package-query/query/facets/dependency-target",
+      "supports": [
+        "target prerequisite",
+        "all invalid for traversal"
+      ]
+    },
+    {
+      "response": "response-07.out",
+      "path": "package-query/query/facets/depends",
+      "supports": [
+        "preferred exact predicate",
+        "direct versus traversal",
+        "starts-with limitation"
+      ]
+    },
+    {
+      "response": "response-08.out",
+      "path": "package-query/query/facets/depends-transitive",
+      "supports": [
+        "legacy depth-2-or-greater semantics"
+      ]
+    },
+    {
+      "response": "response-11.out",
+      "path": "package-query/query",
+      "supports": [
+        "complete effective facet selection",
+        "exact package and prefix facets",
+        "binding invocation rules"
+      ]
+    },
+    {
+      "response": "response-12.out",
+      "path": "package-query/bindings/cli",
+      "supports": [
+        "--where",
+        "--tfm",
+        "--take versus -n",
+        "--json"
+      ]
+    },
+    {
+      "response": "response-13.out",
+      "path": "package-query/routes/default",
+      "supports": [
+        "package result grain"
+      ]
+    },
+    {
+      "response": "response-14.out",
+      "path": "package-query",
+      "supports": [
+        "document matches, failures, and completion"
+      ]
+    },
+    {
+      "response": "guide",
+      "path": "assigned product guide",
+      "supports": [
+        "latest eligible listed version",
+        "structured evidence and completion caveats",
+        "non-projectable query Share"
+      ]
+    }
+  ],
+  "uncertainties": [
+    "No inspection or package query was executed, so the package version, actual matches, selected implementation asset, and traversal completeness are unknown.",
+    "The selected facet data does not specify exact package-ID case normalization; the answer makes no claim about it."
+  ],
+  "qualitative_friction": [
+    "The facet .data view gives precise constraints, but each response repeats the CLI binding and required facet data, increasing reading volume.",
+    "A separate discovered binding is needed to confirm --tfm, --take, -n, and --json gestures.",
+    "The empty values arrays could be mistaken for unrestricted values until the facet input rules are read."
+  ]
+}

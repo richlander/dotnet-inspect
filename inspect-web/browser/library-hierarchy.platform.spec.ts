@@ -11,12 +11,25 @@ import {
   installFacades,
   releaseFacade,
   currentWorkspaceHistoryState,
+  openApplicationAction,
   openProductDestination,
   openInstalledPlatform,
   openPlatform,
 } from "./library-hierarchy.support.ts";
 
 test.use({ viewport: { width: 900, height: 900 } });
+
+test("Platform Legend receives initial focus", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+
+  await openApplicationAction(page, "legend");
+
+  await expect(page.locator("#legend-title")).toBeFocused();
+  await expect(page.locator(".workbench")).toHaveAttribute("inert", "");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#application-menu-button")).toBeFocused();
+});
 
 test("Platform Member offers Source without an Implementation section", async ({
   page,

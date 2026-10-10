@@ -413,6 +413,53 @@ references are per-body producer diagnostics, never negative findings.
 Referenced-body traversal remains outside this layer; it resolves declarations
 only.
 
+### Memory-safety contract support
+
+`MemorySafetyContracts` is declared shared lookup support for producers that
+need the caller contract of a same-image member, tracked by
+[#9831](https://github.com/richlander/dotnet-inspect/issues/9831). It does not
+imply `ModuleLookup`. It builds no `LibraryBodyAnalysisBuilder`, acquires no
+body, and does not widen breadth. A producer that did not declare it cannot
+obtain it.
+
+The execution constructs one `MemorySafetyContractLookup` over the subject's
+metadata reader at the first access by a declaring producer. Lanes of one
+shared execution group use the same lookup. The lookup is a thin projection of
+`MemorySafetyMetadataIndex`. Contract semantics, integrity validation, and the
+budgets in `MetadataSafetyPolicy` stay with that index. The lookup adds no
+correctness logic.
+
+The lookup publishes:
+
+- module rules, with their typed availability or failure;
+- the direct or associated contract of a same-image MethodDef, FieldDef,
+  PropertyDef, or EventDef, as the index's `GetMemberContract` decides it; and
+- for a MethodDef, its accessor association. The association is none, the
+  PropertyDef or EventDef with the accessor's role, ambiguous, or unavailable
+  with the index's association failure.
+
+Cross-assembly members are outside this support. Call-target identity comes
+from its owners, #8700 and #8945; this support resolves no operand.
+
+The source receipt carries `MemorySafetyContractCoverage`. Construction work is
+the CustomAttribute ordering scan, the TypeDef, MethodDef, NestedClass,
+Property, and Event integrity scan, the Property, Event, and MethodSemantics
+association projection, and the module CustomAttribute rows. Query work is the
+member CustomAttribute rows read. Both report the name characters admitted by
+the name budget and the signature bytes of enumerated decode steps. Each step
+adds the full length of its blob each time it runs: a member signature
+pointer decode and every TypeSpec it reaches, an accessor-shape signature
+read, and, for each attribute row whose type matched, its constructor
+signature before validation and then its value blob. Attribute type-name
+resolution, including a generic attribute's TypeSpec parent, is reported only
+as name characters, which the name budget bounds. Coverage also records the MethodDefs whose visits queried
+the lookup and the number of queries.
+
+The physical group receipt records construction once and all query work. A
+request receipt records construction only for the lane whose access created
+the lookup, and only that lane's queries. Construction is absent when no
+producer declares the support or no declaring producer queries it.
+
 ## Planning
 
 Planning is resource-free. It validates:
@@ -588,6 +635,25 @@ satisfy the early-stop work property. Concurrency, incremental publication,
 and cross-operation caches require their own scheduling, close, and lifetime
 designs before adoption.
 
+Library Metrics adopts an exact structural request. One shallow decoded
+instruction array supplies instruction cardinality, normal-flow branch shape,
+backward-loop ranges, and allocation opcodes; direct invocation resolution
+consumes that same bounded per-method evidence without constructing the
+canonical `BlockGraph` or `ExceptionFlowTopology`. The physical request
+therefore omits local-signature and canonical-context facts entirely. Async
+disposition retains the generated-type provenance metadata needed to suppress
+runtime-async methods in generated types without requesting complete
+MethodEvidence. Research consumes a focused structural result rather than
+reconstructing or publishing complete implementation profiles.
+
+The distinction is measured, not aesthetic. A rejected retained
+complete-profile packet removed traversals but improved the exact NativeAOT
+CoreLib Library Metrics command median by only 1.264%, below its 5% admission
+gate. The packet implementation is not retained. The structural route exists
+because QuerySpace must select the minimum physical fact family for the
+terminal, not merely share a cheaper implementation of an overbroad
+compatibility result.
+
 ## Migration and production adoption
 
 Migration is incremental:
@@ -632,6 +698,8 @@ Migration is incremental:
    **unverified**; legacy callers stay until their consumers move.
 10. Add bounded semantic MethodDef identity (#9830) and receipted
     memory-safety contract support (#9831) as independent source capabilities.
+    [Memory-safety contract support](#memory-safety-contract-support) is
+    implemented; its consumers adopt it in their own slices.
 11. Move the first exact-member consumer in #9832 through
     [exact-member scoped producers](assembly-analysis-operation.md#exact-member-scoped-producers),
     consuming #8700 and #8945 rather than defining another call resolver or
@@ -728,6 +796,16 @@ gated in Release:
 - `MethodCallCountProducer_DoesNotResolveMalformedTarget`
 - `MethodCallCountProducer_DiscoveryFailureIsVisible`
 
+Memory-safety contract support is gated in Release:
+
+- `MemorySafetyMetadataIndex_ReceiptedMatchesUnreceiptedContracts`
+- `MemorySafetyMetadataIndex_PublishesAccessorAssociationAndRole`
+- `MemorySafetyMetadataIndex_ReceiptsConstructionAndQueryWork`
+- `MethodQuerySource_MemorySafetyContractsAbsentWhenUndeclared`
+- `MethodQuerySource_MemorySafetyContractsRequireDeclaration`
+- `MethodQuerySource_MemorySafetyContractsReceiptExactMethodWork`
+- `MethodQuerySource_MemorySafetyContractsSharedOnceAcrossLanes`
+
 The following deeper-source gates remain **unverified**:
 
 - `MethodQuerySource_ReferencedExpansionIsBoundedDeduplicatedAndOrdered`
@@ -773,9 +851,10 @@ assemblies.
 Resource-free planning and serial execution are deterministic ordinary code.
 The routing and settlement transition system remains owned and modeled by
 [Open and closed queries](open-and-closed-queries.md). This design adds no
-independent concurrent state machine. A future parallel, incremental, or
-retained executor must model its scheduling and close interaction before
-implementation.
+independent concurrent state machine. The Library Metrics structural route uses
+the existing scheduler and has no early-settling terminal. A future parallel,
+incremental, or retained executor must model its scheduling and close
+interaction before implementation.
 
 ## Non-claims
 

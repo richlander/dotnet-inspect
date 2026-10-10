@@ -545,7 +545,9 @@ and signal sets may change between releases.
 Use `library -S @Performance` for a whole-assembly triage pass, `Top Leverage`
 for ranking, `Resource Triage` for exception-path pool-churn candidates, and
 `Call Graph` to drill one selected member. The performance skill covers the full
-workflow in more depth.
+workflow in more depth. `Performance: Sync Calls in Async` finds synchronous
+calls made by async methods when the declaring type offers a callable async
+sibling, including `Dispose`/`DisposeAsync` pairs.
 
 ```bash
 dotnet-inspect library System.Text.Json -S @Performance
@@ -553,6 +555,7 @@ dotnet-inspect library System.Text.Json -S "Library Metrics"
 dotnet-inspect library System.Text.Json -S @Performance --count
 dotnet-inspect library System.Text.Json -S "Performance: Boxing" --json
 dotnet-inspect library System.Text.Json -S "Performance: Strings" --json
+dotnet-inspect library System.Text.Json -S "Performance: Sync Calls in Async"
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
 ```
 
@@ -1206,8 +1209,12 @@ reject a query that would require package content. Without explicit `--take`, a
 simple `-n N` query pushes that semantic head into execution; explicit
 `--take` instead fixes the candidate population before row selection. Reached
 candidate limits and partial failures are reported explicitly. `--count`
-counts selected matching package rows only when completion or the semantic
-selection proves the count exact.
+counts the selected matching package rows that the same query would render,
+with the same completion warnings and exit status. A reached candidate bound or
+partial failure therefore yields an observed count, not the scope's total.
+Incompleteness alone never withholds the count: only a search that fails before
+evaluating any candidate prints none, and an unsatisfied strict `--rows` window
+fails as it does for rows.
 
 Package Query output adapts after execution. The default renders `Packages`
 when at least one package matched and `Query Summary` otherwise. The summary
@@ -1393,10 +1400,12 @@ unchanged; if recovery after cutover also fails, Inspect Web enters a blocking
 retry state rather than exposing the failed tentative Workspace. Source
 declarations that do not require authentication activate without a prompt.
 
-Add `--make-package-dependencies-explicit` to acquire every direct Package
-member, resolve its exact direct dependencies for the member's effective
-target, and append those dependencies to the same context before emitting the
-derived packet:
+Add `--make-package-dependencies-explicit` to acquire the bounded manifest for
+every direct Package member, resolve its exact direct dependencies for the
+member's effective target, and append those dependencies to the same context
+before emitting the derived packet. PackageHouse uses a source-supplied
+manifest when available and otherwise acquires only the root nuspec from the
+package archive:
 
 ```bash
 dotnet-inspect workspace \
@@ -1409,7 +1418,7 @@ dotnet-inspect workspace \
 The transformation also accepts a canonical Base64URL packet string through
 `--packet`. Existing members retain their order; new members use owner-issued
 dependency order and are deduplicated only within each context. The command
-emits no packet unless every selected Package root completes and the complete
+emits no packet unless every selected Package manifest settles and the complete
 derived definition remains projectable. Unlike ordinary resource-free
 `--share`, this explicit transformation admits `--preview` and NuGet source
 policy because acquisition is part of the requested operation.

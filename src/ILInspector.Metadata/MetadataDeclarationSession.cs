@@ -22,6 +22,7 @@ public sealed class MetadataDeclarationSession : IDisposable
         MetadataAccessorDeclarationRequest,
         MetadataAccessorDeclarationResult>? _accessorDeclarations;
     readonly object _accessorDeclarationGate = new();
+    readonly object _qualifiedAnchorGate = new();
     readonly object _methodDeclarationGate = new();
     readonly object _typeDeclarationGate = new();
     bool _disposed;
@@ -299,6 +300,43 @@ public sealed class MetadataDeclarationSession : IDisposable
 
             _accessorDeclarations.Add(request, result);
             return result;
+        }
+    }
+
+    public ApiQualifiedAnchorResult PostApiQualifiedAnchor(
+        MetadataDeclarationLocation location,
+        IApiQualifiedTypeDefinitionResolver? typeDefinitionResolver = null,
+        CancellationToken token = default)
+    {
+        EnsureAccess();
+        token.ThrowIfCancellationRequested();
+        lock (_qualifiedAnchorGate)
+        {
+            EnsureAccess();
+            token.ThrowIfCancellationRequested();
+            MetadataOperationContext operation = _operationContext!;
+            if (_imageAdmission
+                is MetadataImageAdmissionResult.Rejected)
+            {
+                return new ApiQualifiedAnchorResult.Failed(
+                    new(
+                        ApiQualifiedAnchorStage.AddressValidation,
+                        ApiQualifiedAnchorFailureReason.WorkLimitExceeded,
+                        "The metadata image was not admitted."),
+                    operation.Counters);
+            }
+
+            return new ApiQualifiedAnchorIssuer(
+                _assemblySession!
+                    .GetPEReaderForDeclarationSession(),
+                _assemblySession!
+                    .GetMetadataReaderForDeclarationSession(),
+                operation,
+                GetOrCreateTypeDefinitionIndex,
+                PostTypeDeclaration,
+                PostMethodDeclaration,
+                PostAccessorDeclaration)
+                .Issue(location, typeDefinitionResolver, token);
         }
     }
 

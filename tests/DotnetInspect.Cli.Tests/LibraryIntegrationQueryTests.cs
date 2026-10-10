@@ -377,8 +377,8 @@ public class LibraryIntegrationQueryTests
                     <authors>Test</authors><description>Query fixture</description></metadata></package>
                     """);
             }
-            var result = await RunAsync("library", "--package", package, "--tfm", "all",
-                "-S", "Integrations", "--where", AspirePredicate, "--json", "--offline");
+            var result = await RunAsync("library", "QueryFixture", "--package", package, "--tfm", "all",
+                "-S", "Integrations", "--where", AspirePredicate, "--json");
             Assert.True(result.ExitCode == 0, result.Error);
             using var json = JsonDocument.Parse(result.Output);
             Assert.Equal(2, json.RootElement.GetArrayLength());
@@ -388,8 +388,8 @@ public class LibraryIntegrationQueryTests
                 Assert.NotEmpty(
                     library.GetProperty("dependency_injection").EnumerateArray());
             });
-            var jsonl = await RunAsync("library", "--package", package, "--tfm", "all",
-                "-S", "Integrations", "--where", AspirePredicate, "--jsonl", "--offline");
+            var jsonl = await RunAsync("library", "QueryFixture", "--package", package, "--tfm", "all",
+                "-S", "Integrations", "--where", AspirePredicate, "--jsonl");
             Assert.Equal(1, jsonl.ExitCode);
             Assert.Contains("requires exactly one table shape", jsonl.Error);
             Assert.Empty(jsonl.Output);

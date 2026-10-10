@@ -92,6 +92,8 @@ export type BrowserPackageQueryProgressPhase = "Search" | "Manifest" | "PackageC
 
 export type BrowserPackageQueryResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
+export type BrowserPackageQueryWorkspaceLens = "Dependencies" | number;
+
 export type BrowserPackageVersionSettlementOutcomeKind = "Settled" | "NotSettled" | number;
 
 export type BrowserPackageVulnerabilityAvailability = "Complete" | "Partial" | "Unavailable" | number;
@@ -992,6 +994,10 @@ export interface BrowserPackageQueryPresetDescriptor {
   readonly replacementGroupId: string | null;
   readonly displayGroupId: string | null;
   readonly displayGroupLabel: string | null;
+  readonly categoryId: string;
+  readonly categoryLabel: string;
+  readonly categoryOrder: number;
+  readonly workspaceLens: BrowserPackageQueryWorkspaceLens | null;
 }
 
 export interface BrowserPackageQueryProgress {
@@ -1044,6 +1050,16 @@ export interface BrowserPackageQueryTermDescriptor {
   readonly valueKind: string;
   readonly example: string;
   readonly multiline: boolean;
+  readonly allowsCustomValue: boolean;
+  readonly replacementGroupId: string | null;
+  readonly options: ReadonlyArray<BrowserPackageQueryTermOptionDescriptor>;
+  readonly workspaceLens: BrowserPackageQueryWorkspaceLens | null;
+}
+
+export interface BrowserPackageQueryTermOptionDescriptor {
+  readonly value: string;
+  readonly label: string;
+  readonly summary: string;
 }
 
 export interface BrowserPackageRootLoadResult {

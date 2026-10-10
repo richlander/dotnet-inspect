@@ -809,6 +809,37 @@ public partial class LibraryCommand
             }
         }
 
+        if (options.PerformanceTriage.HasFilters
+            && !SupportsSyncCallsInAsyncTriage(
+                options.PerformanceTriage)
+            && options.IncludeSections?.Contains(
+                SectionNames.PerformanceSyncCallsInAsync) == true)
+        {
+            if (options.ExactIncludeSections?.Contains(
+                    SectionNames.PerformanceSyncCallsInAsync) == true)
+            {
+                CommandError.Write(
+                    $"{SectionNames.PerformanceSyncCallsInAsync} supports "
+                        + "--triage-shape sync-call-in-async, but not "
+                        + "legacy Performance Triage predicates or ranking. "
+                        + "Use -n or --rows to limit rendered rows.");
+                return 1;
+            }
+
+            options = options with
+            {
+                IncludeSections =
+                    options.IncludeSections
+                        .Where(section =>
+                            !section.Equals(
+                                SectionNames
+                                    .PerformanceSyncCallsInAsync,
+                                StringComparison.OrdinalIgnoreCase))
+                        .ToHashSet(
+                            StringComparer.OrdinalIgnoreCase),
+            };
+        }
+
         options = options with
         {
             UserIncludeSectionsOverride = options.IncludeSections is { Count: > 0 }
@@ -3756,6 +3787,16 @@ public partial class LibraryCommand
         return false;
     }
 
+    private static bool SupportsSyncCallsInAsyncTriage(
+        PerformanceTriageOptions options) =>
+        !options.LoopOnly
+        && string.IsNullOrWhiteSpace(options.MinConfidence)
+        && options.Where.Length == 0
+        && !options.HasRanking
+        && options.Shapes is { Length: > 0 }
+        && options.Shapes.Any(static shape =>
+            PerformanceKinds.IsSyncCallsInAsyncShape(shape));
+
     private static bool ValidateMultiTfmOutput(LibraryOptions options)
     {
         if (!IsAllTfmPackageSelection(options)
@@ -5223,7 +5264,7 @@ public partial class LibraryCommand
             }
         }
 
-        // --tfm all: return all assemblies from every TFM
+        // --tfm all: return the named Library from every TFM, or all assemblies
         if (string.Equals(tfm, "all", StringComparison.OrdinalIgnoreCase))
         {
             var (candidates, _) = TfmSelector.SelectHighestAssembliesFromPackage(extractPath, tfm);
@@ -5232,6 +5273,21 @@ public partial class LibraryCommand
                 CommandError.Write("No DLLs found in package.");
                 DeleteTempDir(tempDir);
                 return null;
+            }
+            if (!string.IsNullOrEmpty(assemblyName))
+            {
+                IReadOnlyList<string> named = TfmSelector.FindAssembliesInPackage(
+                    candidates,
+                    extractPath,
+                    assemblyName);
+                if (named.Count == 0)
+                {
+                    CommandError.Write($"Library '{assemblyName}' not found in package.");
+                    CommandError.WriteLine("Use 'dotnet-inspect package <name> --path \"lib/\"' to list available libraries.");
+                    DeleteTempDir(tempDir);
+                    return null;
+                }
+                candidates = [.. named];
             }
             return (candidates, extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
         }

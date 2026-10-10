@@ -6,15 +6,17 @@ using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspector.Queries;
 
-public sealed record OptimizationOpportunityPublicMember(
+public sealed record OptimizationOpportunityMemberSurface(
     string Type,
     string Member,
     string StableSelector,
+    bool IsPublic,
+    ApiType DeclaringType,
     ImmutableArray<int> BodyTokens);
 
 public sealed record AssemblyOptimizationOpportunityMember(
     OptimizationOpportunityMemberRanking Ranking,
-    OptimizationOpportunityPublicMember? PublicMember);
+    OptimizationOpportunityMemberSurface? Member);
 
 public sealed record AssemblyOptimizationOpportunityRanking(
     ImmutableArray<AssemblyOptimizationOpportunityMember> Members,
@@ -28,7 +30,7 @@ public sealed record AssemblyOptimizationOpportunityRanking(
 
     public int NonPublicOpportunities =>
         Members
-            .Where(member => member.PublicMember is null)
+            .Where(member => member.Member?.IsPublic != true)
             .Sum(member => member.Ranking.Opportunities.Length);
 }
 
@@ -41,8 +43,8 @@ public sealed record AssemblyContextOptimizationOpportunityMember(
 /// </summary>
 /// <remarks>
 /// The query owns every whole-assembly Analysis execution, joins method bodies to the
-/// public API surface through product body selectors, and retains participant
-/// rejection or failure beside healthy rankings. Ordering, public-member
+/// all-accessibility API surface through product body selectors, and retains participant
+/// rejection or failure beside healthy rankings. Ordering, member
 /// attribution, and sequential execution are gated by
 /// <c>AssemblyContextOptimizationOpportunitiesQueryTests</c>.
 /// </remarks>
@@ -80,11 +82,11 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
         AssemblyContextGroup group)
     {
         ArgumentNullException.ThrowIfNull(group);
-        AssemblyContextResult<AssemblyOptimizationPublicMembers>
-            publicMembers = AssemblyContextQueryExecutor.Execute(
+        AssemblyContextResult<AssemblyOptimizationMembers>
+            members = AssemblyContextQueryExecutor.Execute(
                 group,
-                ProjectPublicMembers);
-        return Execute(group, publicMembers);
+                ProjectMembers);
+        return Execute(group, members);
     }
 
     /// <summary>
@@ -97,37 +99,36 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(participant);
-        var publicMembers =
-            new AssemblyContextResult<AssemblyOptimizationPublicMembers>(
+        var members =
+            new AssemblyContextResult<AssemblyOptimizationMembers>(
             [
                 AssemblyContextQueryExecutor.ExecuteParticipant(
                     group,
                     participant,
-                    ProjectPublicMembers),
+                    ProjectMembers),
             ]);
-        return Execute(group, [participant], publicMembers);
+        return Execute(group, [participant], members);
     }
 
     internal static AssemblyContextOptimizationOpportunitiesResult Execute(
         AssemblyContextGroup group,
-        AssemblyContextResult<AssemblyOptimizationPublicMembers>
-            publicMembers)
+        AssemblyContextResult<AssemblyOptimizationMembers> members)
     {
         ArgumentNullException.ThrowIfNull(group);
-        return Execute(group, group.Participants, publicMembers);
+        return Execute(group, group.Participants, members);
     }
 
     static AssemblyContextOptimizationOpportunitiesResult Execute(
         AssemblyContextGroup group,
         IReadOnlyList<AssemblyContextParticipant> participants,
-        AssemblyContextResult<AssemblyOptimizationPublicMembers> publicMembers)
+        AssemblyContextResult<AssemblyOptimizationMembers> members)
     {
-        ArgumentNullException.ThrowIfNull(publicMembers);
-        if (publicMembers.Assemblies.Length
+        ArgumentNullException.ThrowIfNull(members);
+        if (members.Assemblies.Length
             != participants.Count)
         {
             throw new InspectionQueryException(
-                "Assembly context public members did not produce one result per participant.");
+                "Assembly context members did not produce one result per participant.");
         }
 
         var entries =
@@ -141,30 +142,30 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
         {
             AssemblyContextParticipant participant =
                 participants[index];
-            AssemblyContextEntry<AssemblyOptimizationPublicMembers>
-                projectedPublicMembers =
-                    publicMembers.Assemblies[index];
+            AssemblyContextEntry<AssemblyOptimizationMembers>
+                projectedMembers =
+                    members.Assemblies[index];
             EnsureSameParticipant(
                 participant,
-                projectedPublicMembers.Subject);
+                projectedMembers.Subject);
             entries.Add(
-                projectedPublicMembers switch
+                projectedMembers switch
                 {
                     AssemblyContextEntry<
-                        AssemblyOptimizationPublicMembers>.Rejected
+                        AssemblyOptimizationMembers>.Rejected
                         rejected =>
                         new AssemblyContextEntry<
                             AssemblyOptimizationOpportunityRanking>.Rejected(
                                 rejected.Subject,
                                 rejected.Failure),
                     AssemblyContextEntry<
-                        AssemblyOptimizationPublicMembers>.Failed failed =>
+                        AssemblyOptimizationMembers>.Failed failed =>
                         new AssemblyContextEntry<
                             AssemblyOptimizationOpportunityRanking>.Failed(
                                 failed.Subject,
                                 failed.Error),
                     AssemblyContextEntry<
-                        AssemblyOptimizationPublicMembers>.Available
+                        AssemblyOptimizationMembers>.Available
                         available =>
                         AssemblyContextQueryExecutor
                             .ExecuteParticipantOverSnapshot(
@@ -176,7 +177,7 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
                                     snapshot,
                                     available.Value)),
                     _ => throw new InvalidOperationException(
-                        $"Unknown public-member entry '{projectedPublicMembers.GetType().Name}'."),
+                        $"Unknown member entry '{projectedMembers.GetType().Name}'."),
                 });
         }
 
@@ -193,7 +194,7 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
         AssemblyContextGroup group,
         AssemblyContextSubject subject,
         AssemblyImageSnapshot snapshot,
-        AssemblyOptimizationPublicMembers publicMembers)
+        AssemblyOptimizationMembers members)
     {
         LibraryBodyAnalysisExecution? execution = null;
         try
@@ -226,12 +227,12 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
                                 .IncludeInMemberTriage(
                                     opportunity)));
             var result = new AssemblyOptimizationOpportunityRanking(
-                AggregatePublicMembers(
+                AggregateMembers(
                     rankings,
-                    publicMembers.Members),
+                    members.ByBodyToken),
                 optimization.GeneratedFrameworkTypes,
                 execution.Receipt.Diagnostics,
-                publicMembers.InspectionFailures);
+                members.InspectionFailures);
             resolver.ValidateForPublication();
             return result;
         }
@@ -241,16 +242,16 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
         }
     }
 
-    static AssemblyOptimizationPublicMembers ProjectPublicMembers(
+    static AssemblyOptimizationMembers ProjectMembers(
         AssemblyInspectionSession session)
     {
         ApiSurface surface =
             session.CompatibilityApiSurface(
-                ApiSurfaceExtractionScope.Public);
+                ApiSurfaceExtractionScope.IncludeAll);
         var members =
             new Dictionary<
                 int,
-                OptimizationOpportunityPublicMember>();
+                OptimizationOpportunityMemberSurface>();
         foreach (ApiType type in surface.Types)
         {
             foreach (ApiMember member in type.Members)
@@ -264,8 +265,8 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
                 if (selectors.Length == 0)
                     continue;
 
-                OptimizationOpportunityPublicMember publicMember =
-                    PublicMember(
+                OptimizationOpportunityMemberSurface surfaceMember =
+                    SurfaceMember(
                         type,
                         member);
                 foreach (CallGraphMemberBodySelector selector
@@ -273,56 +274,59 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
                 {
                     members.TryAdd(
                         selector.BodyToken,
-                        publicMember);
+                        surfaceMember);
                 }
             }
         }
 
-        return new AssemblyOptimizationPublicMembers(
+        return new AssemblyOptimizationMembers(
             members,
             [.. surface.InspectionFailures]);
     }
 
-    static OptimizationOpportunityPublicMember PublicMember(
+    static OptimizationOpportunityMemberSurface SurfaceMember(
         ApiType type,
         ApiMember member)
     {
         MemberAnchor anchor =
             ApiMemberIdentity.GetMemberAnchor(type, member);
         return
-            new OptimizationOpportunityPublicMember(
+            new OptimizationOpportunityMemberSurface(
                 AssemblyContextApiSurfaceQuery
                     .MetadataTypeIdentity(type),
                 member.Name,
                 anchor.StableSelector,
+                type.Accessibility is null
+                    && member.Accessibility is null,
+                type,
                 []);
     }
 
     static ImmutableArray<AssemblyOptimizationOpportunityMember>
-        AggregatePublicMembers(
+        AggregateMembers(
             ImmutableArray<OptimizationOpportunityMemberRanking>
                 rankings,
             IReadOnlyDictionary<
                 int,
-                OptimizationOpportunityPublicMember> publicMembers)
+                OptimizationOpportunityMemberSurface> members)
     {
         AssemblyOptimizationOpportunityMember[] projected =
         [
             .. rankings.Select(ranking =>
                 new AssemblyOptimizationOpportunityMember(
                     ranking,
-                    publicMembers.GetValueOrDefault(
+                    members.GetValueOrDefault(
                         ranking.Method.MetadataToken))),
         ];
         IEnumerable<AssemblyOptimizationOpportunityMember>
-            nonPublic = projected.Where(
-                member => member.PublicMember is null);
+            unattributed = projected.Where(
+                member => member.Member is null);
         IEnumerable<AssemblyOptimizationOpportunityMember>
-            publicRankings = projected
-                .Where(member => member.PublicMember is not null)
-                .GroupBy(member => new PublicMemberKey(
-                    member.PublicMember!.Type,
-                    member.PublicMember.StableSelector))
+            attributed = projected
+                .Where(member => member.Member is not null)
+                .GroupBy(member => new MemberKey(
+                    member.Member!.Type,
+                    member.Member.StableSelector))
                 .Select(group =>
                 {
                     AssemblyOptimizationOpportunityMember leading =
@@ -337,7 +341,7 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
                             group.SelectMany(
                                 member =>
                                     member.Ranking.Opportunities)),
-                        leading.PublicMember! with
+                        leading.Member! with
                         {
                             BodyTokens =
                             [
@@ -354,8 +358,8 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
                 });
         return
         [
-            .. nonPublic
-                .Concat(publicRankings)
+            .. unattributed
+                .Concat(attributed)
                 .OrderBy(
                     member => member.Ranking,
                     OptimizationOpportunityRanking.MemberComparer),
@@ -397,14 +401,14 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
         }
     }
 
-    internal sealed record AssemblyOptimizationPublicMembers(
+    internal sealed record AssemblyOptimizationMembers(
         IReadOnlyDictionary<
             int,
-            OptimizationOpportunityPublicMember> Members,
+            OptimizationOpportunityMemberSurface> ByBodyToken,
         ImmutableArray<ApiSurfaceInspectionFailure>
             InspectionFailures);
 
-    readonly record struct PublicMemberKey(
+    readonly record struct MemberKey(
         string Type,
         string StableSelector);
 }

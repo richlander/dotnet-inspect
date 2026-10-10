@@ -2452,6 +2452,258 @@ public sealed partial class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task NuspecTerminal_DirectManifestSettlesWithoutPayload()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior([Version], IncludeManifest: true));
+        int storeRequests = 0;
+        PackageHouse house = environment.CreateContentHouse(
+            (_, _) =>
+            {
+                storeRequests++;
+                return new InMemoryPackageStore();
+            });
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PackageId, Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            contentQuery: PackageHouseContentQuery.PackageNuspec());
+
+        PackageHouseSettlement settlement =
+            await house.ExecuteAsync(
+                request,
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken));
+
+        Assert.IsType<PackageHouseSettlement.ResourceFree>(settlement);
+        var settled = Assert.IsType<PackageHouseResult.Settled>(
+            settlement.Result);
+        PackageHouseNuspec nuspec =
+            Assert.IsType<PackageHouseNuspec>(
+                settled.Evidence.Nuspec);
+        Assert.Null(nuspec.Acquisition);
+        Assert.Equal(
+            PackageHouseNuspecOrigin.SourceManifest,
+            nuspec.Origin);
+        Assert.Null(nuspec.EntryPath);
+        Assert.Contains(
+            $"<id>{PackageId}</id>",
+            System.Text.Encoding.UTF8.GetString(nuspec.ToArray()),
+            StringComparison.Ordinal);
+        byte[] mutableCopy = nuspec.ToArray();
+        mutableCopy[0] ^= 0xff;
+        Assert.NotEqual(mutableCopy, nuspec.ToArray());
+        Assert.Equal(1, environment.Clients[0].ManifestRequests);
+        Assert.Equal(0, environment.Clients[0].PayloadRequests);
+        Assert.Equal(0, storeRequests);
+    }
+
+    [Fact]
+    public async Task NuspecTerminal_ArchiveFallbackPublishesOnlyRootManifest()
+    {
+        byte[] manifest =
+            System.Text.Encoding.UTF8.GetBytes(
+                $"""
+                <package>
+                  <metadata>
+                    <id>{PackageId}</id>
+                    <version>{Version}</version>
+                  </metadata>
+                </package>
+                """);
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                PayloadContentEntries:
+                [
+                    ($"{PackageId}.nuspec", manifest),
+                    ($"lib/net11.0/{PackageId}.dll", [1, 2, 3]),
+                ]));
+        PackageHouse house = environment.CreateContentHouse(
+            (_, _) => new InMemoryPackageStore());
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PackageId, Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            contentQuery: PackageHouseContentQuery.PackageNuspec());
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await house.ExecuteAsync(
+                request,
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken)));
+
+        var settled = Assert.IsType<PackageHouseResult.Settled>(
+            acquired.Result);
+        PackageHouseNuspec nuspec =
+            Assert.IsType<PackageHouseNuspec>(
+                settled.Evidence.Nuspec);
+        Assert.Same(settled.Evidence.Acquisition, nuspec.Acquisition);
+        Assert.Equal(
+            PackageHouseNuspecOrigin.PackageArchive,
+            nuspec.Origin);
+        Assert.Equal($"{PackageId}.nuspec", nuspec.EntryPath);
+        Assert.Equal(manifest, nuspec.ToArray());
+        Assert.Equal(
+            [$"{PackageId}.nuspec"],
+            acquired.Payload.Content.EnumerateEntries());
+        Assert.Equal(1, environment.Clients[0].ManifestRequests);
+        Assert.Equal(1, environment.Clients[0].PayloadRequests);
+    }
+
+    [Fact]
+    public async Task NuspecTerminal_MissingRootManifestFailsVisibly()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                PayloadContentEntries:
+                [
+                    ($"lib/net11.0/{PackageId}.dll", [1, 2, 3]),
+                ]));
+        PackageHouse house = environment.CreateContentHouse(
+            (_, _) => new InMemoryPackageStore());
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PackageId, Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            contentQuery: PackageHouseContentQuery.PackageNuspec());
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await house.ExecuteAsync(
+                request,
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken)));
+
+        PackageHouseResult.Failed failed =
+            Assert.IsType<PackageHouseResult.Failed>(acquired.Result);
+        Assert.Contains(
+            "does not contain a root nuspec",
+            failed.Reason.ToString(),
+            StringComparison.Ordinal);
+        Assert.Null(failed.Evidence.Nuspec);
+    }
+
+    [Fact]
+    public async Task NuspecTerminal_DuplicateRootManifestsFailVisibly()
+    {
+        byte[] manifest = "<package />"u8.ToArray();
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                PayloadContentEntries:
+                [
+                    ($"{PackageId}.nuspec", manifest),
+                    ("other.nuspec", manifest),
+                ]));
+        PackageHouse house = environment.CreateContentHouse(
+            (_, _) => new InMemoryPackageStore());
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PackageId, Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            contentQuery: PackageHouseContentQuery.PackageNuspec());
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await house.ExecuteAsync(
+                request,
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken)));
+
+        PackageHouseResult.Failed failed =
+            Assert.IsType<PackageHouseResult.Failed>(acquired.Result);
+        Assert.Contains(
+            "one valid root nuspec",
+            failed.Reason.ToString(),
+            StringComparison.Ordinal);
+        Assert.Null(failed.Evidence.Nuspec);
+    }
+
+    [Fact]
+    public async Task NuspecTerminal_OversizedRootManifestFailsVisibly()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                PayloadContentEntries:
+                [
+                    (
+                        $"{PackageId}.nuspec",
+                        new byte[
+                            PackageManifestFactsProjection.MaxManifestBytes
+                                + 1]),
+                ]));
+        PackageHouse house = environment.CreateContentHouse(
+            (_, _) => new InMemoryPackageStore());
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PackageId, Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            contentQuery: PackageHouseContentQuery.PackageNuspec());
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await house.ExecuteAsync(
+                request,
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken)));
+
+        PackageHouseResult.Failed failed =
+            Assert.IsType<PackageHouseResult.Failed>(acquired.Result);
+        Assert.Contains(
+            "manifest byte limit",
+            failed.Reason.ToString(),
+            StringComparison.Ordinal);
+        Assert.Null(failed.Evidence.Nuspec);
+    }
+
+    [Fact]
+    public async Task NuspecTerminal_OperationTimeoutIsTerminal()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                IncludeManifest: true,
+                BeforeManifest: async (_, token) =>
+                    await Task.Delay(
+                        TimeSpan.FromMilliseconds(60),
+                        token)));
+        PackageHouse house = environment.CreateContentHouse(
+            (_, _) => new InMemoryPackageStore());
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PackageId, Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire,
+                requestTimeout: TimeSpan.FromSeconds(1),
+                operationTimeout: TimeSpan.FromMilliseconds(20)),
+            contentQuery: PackageHouseContentQuery.PackageNuspec());
+
+        PackageHouseSettlement settlement =
+            await house.ExecuteAsync(
+                request,
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken));
+
+        Assert.IsType<PackageHouseSettlement.ResourceFree>(settlement);
+        PackageHouseResult.Failed failed =
+            Assert.IsType<PackageHouseResult.Failed>(settlement.Result);
+        Assert.True(failed.Evidence.HasOperationTimeout);
+        Assert.Null(failed.Evidence.Nuspec);
+        Assert.Equal(0, environment.Clients[0].PayloadRequests);
+    }
+
+    [Fact]
     public async Task CandidateManifestReleasesTransferredOperationWhenSourceThrows()
     {
         await using HouseEnvironment environment = HouseEnvironment.Create(
@@ -3083,7 +3335,11 @@ public sealed partial class PackageHouseExecutionTests
             string,
             IReadOnlyList<(string EntryPath, byte[] Content)>>?
             PayloadContentEntriesByPackageId = null,
-        bool IncludeManifest = false);
+        bool IncludeManifest = false,
+        Func<
+            NuGetOperationContext?,
+            CancellationToken,
+            Task>? BeforeManifest = null);
 
     private sealed class HouseEnvironment : IAsyncDisposable
     {
@@ -3369,6 +3625,8 @@ public sealed partial class PackageHouseExecutionTests
 
         public int PayloadRequests { get; private set; }
 
+        public int ManifestRequests { get; private set; }
+
         public List<string> PayloadPackageIds { get; } = [];
 
         public Task<PackageSourceOperationResult<PackageVersionResult>>
@@ -3512,13 +3770,21 @@ public sealed partial class PackageHouseExecutionTests
             NuGetOperationContext? operationContext = null) =>
             throw new NotSupportedException();
 
-        public Task<PackageSourceOperationResult<PackageSourceManifest>>
+        public async Task<
+            PackageSourceOperationResult<PackageSourceManifest>>
             GetManifestAsync(
             string packageId,
             string version,
             CancellationToken cancellationToken = default,
             NuGetOperationContext? operationContext = null)
         {
+            ManifestRequests++;
+            if (behavior.BeforeManifest is not null)
+            {
+                await behavior.BeforeManifest(
+                    operationContext,
+                    cancellationToken);
+            }
             PackageSourceCoordinate coordinate =
                 PackageSourceCoordinate.Create(packageId, version);
             if (!behavior.IncludeManifest)
@@ -3527,10 +3793,10 @@ public sealed partial class PackageHouseExecutionTests
                     version,
                     StringComparer.OrdinalIgnoreCase))
             {
-                return Task.FromResult(
+                return
                     factory.FailedManifest(
                         coordinate,
-                        PackageSourceFailureKind.NotFound));
+                        PackageSourceFailureKind.NotFound);
             }
 
             ReadOnlyMemory<byte> content =
@@ -3546,12 +3812,12 @@ public sealed partial class PackageHouseExecutionTests
                       </metadata>
                     </package>
                     """);
-            return Task.FromResult(
+            return
                 factory.SucceededManifest(
                     coordinate,
                     factory.Manifest(
                         coordinate,
-                        content)));
+                        content));
         }
 
         public Task<PackageSourceOperationResult<PackageSourcePayload>>

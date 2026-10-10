@@ -541,6 +541,80 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 .GetString());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DiffHistoryRange_SparseCountReportsObservedChangedVersions(
+        bool envelope)
+    {
+        const string Id = "range.diff-history.count-observed";
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                ["1.0.0", "2.0.0", "3.0.0"],
+                version => CreateApiPackage(
+                    Id,
+                    version,
+                    version switch
+                    {
+                        "1.0.0" => FixtureCatalog.DiffV1.AssemblyPath(),
+                        "2.0.0" => FixtureCatalog.LibraryApiDiffV1.AssemblyPath(),
+                        _ => FixtureCatalog.DiffV2.AssemblyPath(),
+                    }),
+                new ConcurrentQueue<string>()));
+        List<string> args =
+        [
+            "diff",
+            "--history",
+            "--package", $"{Id}@1.0.0..3.0.0",
+            "--type", RangeType,
+            "--finding", "api.type",
+            "--source", FirstFeed,
+            "--at", "first",
+            "--at", "last",
+            "--count",
+        ];
+        if (envelope)
+            args.AddRange(["--envelope", "--compact"]);
+
+        var result = await RunCommandAsync([.. args]);
+
+        // Deliberate sparse History succeeds for Rows, so its Count does
+        // too: the observed count prints, and the unknown middle transition
+        // is disclosed rather than reported as an exact zero.
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Contains(
+            "Diff History inspection incomplete",
+            result.Error);
+        if (!envelope)
+        {
+            Assert.Equal("0", result.Output.Trim());
+            return;
+        }
+
+        using var document = JsonDocument.Parse(result.Output);
+        JsonElement count = document.RootElement
+            .GetProperty("content")
+            .GetProperty("count");
+        Assert.Equal("completed", count.GetProperty("outcome").GetString());
+        JsonElement entry = count.GetProperty("counts")[0];
+        Assert.Equal(0, entry.GetProperty("value").GetInt32());
+        Assert.False(entry.GetProperty("is_exact").GetBoolean());
+        Assert.Equal(
+            "Unevaluated",
+            count.GetProperty("sources")[0]
+                .GetProperty("evidence")
+                .GetProperty("first_unestablished_assessment")
+                .GetProperty("state")
+                .GetString());
+        Assert.Contains(
+            document.RootElement.GetProperty("diagnostics").EnumerateArray(),
+            static diagnostic =>
+                diagnostic.GetProperty("code").GetString()
+                    == "diff-history.count-incomplete");
+    }
+
     [Fact]
     public async Task DiffHistoryRange_CountEnvelopeRetainsCompleteContent()
     {

@@ -25,6 +25,7 @@ import type {
   BrowserPackageQueryCatalog,
   BrowserPackageQueryAcquisitionTier,
   BrowserPackageQueryExecutionClass,
+  BrowserPackageQueryWorkspaceLens,
 } from "./facades/inspect-web-package.d.ts";
 import type { BoundedPayloadDecoder } from "./worker-runtime-protocol.ts";
 
@@ -77,6 +78,13 @@ function executionClass(value: unknown): BrowserPackageQueryExecutionClass {
     || value === "PackageContent"
     || value === "Metadata"
     || value === "MetadataExpensive") return value;
+  return number(value);
+}
+
+function packageQueryWorkspaceLens(
+  value: unknown,
+): BrowserPackageQueryWorkspaceLens | null {
+  if (value === null || value === "Dependencies") return value;
   return number(value);
 }
 
@@ -415,6 +423,10 @@ export const engineStartupOperations = {
             replacementGroupId: nullableText(preset.replacementGroupId),
             displayGroupId: nullableText(preset.displayGroupId),
             displayGroupLabel: nullableText(preset.displayGroupLabel),
+            categoryId: text(preset.categoryId),
+            categoryLabel: text(preset.categoryLabel),
+            categoryOrder: number(preset.categoryOrder),
+            workspaceLens: packageQueryWorkspaceLens(preset.workspaceLens),
           };
         }),
         terms: array(data.terms, rawTerm => {
@@ -431,6 +443,18 @@ export const engineStartupOperations = {
             valueKind: text(term.valueKind),
             example: text(term.example),
             multiline: boolean(term.multiline),
+            allowsCustomValue: boolean(term.allowsCustomValue),
+            replacementGroupId: nullableText(term.replacementGroupId),
+            options: array(term.options, rawOption => {
+              const option = record(rawOption);
+              return {
+                ...option,
+                value: text(option.value),
+                label: text(option.label),
+                summary: text(option.summary),
+              };
+            }),
+            workspaceLens: packageQueryWorkspaceLens(term.workspaceLens),
           };
         }),
       };

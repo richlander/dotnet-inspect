@@ -1,0 +1,1 @@
+jq: error (at /private/tmp/explain-landed-trials/style-hal/response-01.out:1): Cannot index number with string ("resource_path")
