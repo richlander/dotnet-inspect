@@ -1118,11 +1118,12 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             DiffHistoryTerminalOutcome.EqualEndpoints>(
                 Assert.IsType<DiffHistoryDocument.ApiMembers>(
                     available.Document).Content.TerminalOutcome);
-        Assert.IsType<
+        var observedCount = Assert.IsType<
             SectionCountOutcome<
                 DiffHistoryCountCohort,
-                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                DiffHistoryChangedVersionCountEvidence>.Completed>(
                     available.Count);
+        AssertObserved(observedCount, 0);
     }
 
     [Fact]
@@ -1486,9 +1487,10 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         var source = Assert.IsType<
             SectionCountOutcome<
                 DiffHistoryCountCohort,
-                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                DiffHistoryChangedVersionCountEvidence>.Completed>(
                     Assert.IsType<DiffHistorySectionAvailable>(
                         fullEnvelope.Content).Count);
+        AssertObserved(source, 1);
         DiffHistoryChangedVersionCountEvidence evidence =
             Assert.Single(source.Sources).Evidence;
         Assert.Equal(4, evidence.EstablishedAssessmentCount);
@@ -1703,7 +1705,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
 
     [Fact]
     public async Task
-        HistoryCountDegradedSignaturesRemainSourceInsufficient()
+        HistoryCountDegradedSignaturesReportObservedCount()
     {
         var signature = new BlobBuilder();
         SignatureTypeEncoder fieldType =
@@ -1781,8 +1783,9 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         var source = Assert.IsType<
             SectionCountOutcome<
                 DiffHistoryCountCohort,
-                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                DiffHistoryChangedVersionCountEvidence>.Completed>(
                     available.Count);
+        AssertObserved(source, 0);
         Assert.Equal(
             DiffHistoryChangedVersionState.Failed,
             Assert.Single(source.Sources)
@@ -1791,12 +1794,12 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             envelope.Diagnostics,
             static diagnostic =>
                 diagnostic.Code
-                    == "diff-history.count-source-insufficient");
+                    == "diff-history.count-incomplete");
     }
 
     [Fact]
     public async Task
-        HistoryCountPotentiallyCoveringFailuresRemainSourceInsufficient()
+        HistoryCountPotentiallyCoveringFailuresReportObservedCount()
     {
         byte[] image =
             StructuralCloneMalformedMetadataFixtures
@@ -1863,8 +1866,9 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         var source = Assert.IsType<
             SectionCountOutcome<
                 DiffHistoryCountCohort,
-                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                DiffHistoryChangedVersionCountEvidence>.Completed>(
                     available.Count);
+        AssertObserved(source, 0);
         Assert.Equal(
             DiffHistoryChangedVersionState.Failed,
             Assert.Single(source.Sources)
@@ -1949,7 +1953,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
 
     [Fact]
     public async Task
-        HistoryCountSelectedConstraintFailureRemainsSourceInsufficient()
+        HistoryCountSelectedConstraintFailureReportsObservedCount()
     {
         byte[] image =
             AssemblyContextApiComparisonQueryTests
@@ -2014,11 +2018,12 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             assessment.State);
         Assert.IsType<FindingComparison<ApiMemberHandle>.Failed>(
             assessment.Comparison!.Value);
-        Assert.IsType<
+        var observedCount = Assert.IsType<
             SectionCountOutcome<
                 DiffHistoryCountCohort,
-                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                DiffHistoryChangedVersionCountEvidence>.Completed>(
                     available.Count);
+        AssertObserved(observedCount, 0);
     }
 
     [Fact]
@@ -2057,8 +2062,9 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         var failure = Assert.IsType<
             SectionCountOutcome<
                 DiffHistoryCountCohort,
-                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                DiffHistoryChangedVersionCountEvidence>.Completed>(
                     available.Count);
+        AssertObserved(failure, 0);
         DiffHistoryChangedVersionCountEvidence evidence =
             Assert.Single(failure.Sources).Evidence;
         Assert.Equal(0, evidence.EstablishedAssessmentCount);
@@ -2069,7 +2075,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             envelope.Diagnostics,
             static diagnostic =>
                 diagnostic.Code
-                    == "diff-history.count-source-insufficient");
+                    == "diff-history.count-incomplete");
     }
 
     [Fact]
@@ -2111,8 +2117,9 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         var failure = Assert.IsType<
             SectionCountOutcome<
                 DiffHistoryCountCohort,
-                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                DiffHistoryChangedVersionCountEvidence>.Completed>(
                     available.Count);
+        AssertObserved(failure, 0);
         Assert.Contains(
             failure.Sources,
             static source =>
@@ -2122,12 +2129,12 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             envelope.Diagnostics,
             static diagnostic =>
                 diagnostic.Code
-                    == "diff-history.count-source-insufficient");
+                    == "diff-history.count-incomplete");
     }
 
     [Fact]
     public async Task
-        HistoryTailCountRequiresCompleteSparseSuffixEvidence()
+        HistoryTailCountOverSparseSuffixIsObserved()
     {
         ImmutableArray<CellFixture> population =
             CellFixture.CreatePopulation(
@@ -2171,8 +2178,9 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         var failure = Assert.IsType<
             SectionCountOutcome<
                 DiffHistoryCountCohort,
-                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                DiffHistoryChangedVersionCountEvidence>.Completed>(
                     available.Count);
+        AssertObserved(failure, 1);
         DiffHistoryChangedVersionCountEvidence evidence =
             Assert.Single(failure.Sources).Evidence;
         Assert.Equal(1, evidence.EstablishedAssessmentCount);
@@ -2278,7 +2286,11 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                     DiffHistoryChangedVersionCountEvidence>.Completed>(
                         Assert.IsType<DiffHistorySectionAvailable>(
                             prefixEnvelope.Content).Count);
-            Assert.Equal(1, Assert.Single(prefixCompleted.Counts).Value);
+            SectionCountEntry<DiffHistoryCountCohort> prefixCount =
+                Assert.Single(prefixCompleted.Counts);
+            Assert.Equal(1, prefixCount.Value);
+            Assert.True(prefixCount.IsExact);
+            Assert.Empty(prefixCompleted.Sources);
         }
 
         RowSelectionIntent<string> boundedStrictFailure =
@@ -2320,9 +2332,10 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             var unbounded = Assert.IsType<
                 SectionCountOutcome<
                     DiffHistoryCountCohort,
-                    DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                    DiffHistoryChangedVersionCountEvidence>.Completed>(
                         Assert.IsType<DiffHistorySectionAvailable>(
                             unboundedEnvelope.Content).Count);
+            AssertObserved(unbounded, 1);
             Assert.Null(
                 Assert.Single(unbounded.Sources)
                     .Evidence.RequiredChangedVersionPrefix);
@@ -2358,9 +2371,11 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         var blocked = Assert.IsType<
             SectionCountOutcome<
                 DiffHistoryCountCohort,
-                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                DiffHistoryChangedVersionCountEvidence>.Completed>(
                     Assert.IsType<DiffHistorySectionAvailable>(
                         blockedEnvelope.Content).Count);
+
+        AssertObserved(blocked, 0);
         Assert.Equal(
             1,
             Assert.Single(blocked.Sources)
@@ -2614,8 +2629,9 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         var countFailure = Assert.IsType<
             SectionCountOutcome<
                 DiffHistoryCountCohort,
-                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                DiffHistoryChangedVersionCountEvidence>.Completed>(
                     available.Count);
+        AssertObserved(countFailure, 0);
         Assert.Equal(
             DiffHistoryChangedVersionState.Inapplicable,
             Assert.Single(countFailure.Sources)
@@ -2797,7 +2813,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
     }
 
     [Fact]
-    public async Task HistoryCountRequiresAtLeastOneTransition()
+    public async Task HistoryCountWithoutTransitionsIsObservedZero()
     {
         ImmutableArray<CellFixture> population =
             CellFixture.CreatePopulation(
@@ -2816,9 +2832,11 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         var failure = Assert.IsType<
             SectionCountOutcome<
                 DiffHistoryCountCohort,
-                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                DiffHistoryChangedVersionCountEvidence>.Completed>(
                     Assert.IsType<DiffHistorySectionAvailable>(
                         envelope.Content).Count);
+
+        AssertObserved(failure, 0);
         DiffHistoryChangedVersionCountEvidence evidence =
             Assert.Single(failure.Sources).Evidence;
         Assert.Equal(0, evidence.TotalAssessmentCount);
@@ -3032,4 +3050,16 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 DiffHistoryCountCohort.ChangedVersions,
                 rowSelection));
 
+    static void AssertObserved(
+        SectionCountOutcome<
+            DiffHistoryCountCohort,
+            DiffHistoryChangedVersionCountEvidence>.Completed count,
+        int expected)
+    {
+        SectionCountEntry<DiffHistoryCountCohort> entry =
+            Assert.Single(count.Counts);
+        Assert.False(entry.IsExact);
+        Assert.Equal(expected, entry.Value);
+        Assert.Equal(entry.Identity, Assert.Single(count.Sources).Identity);
+    }
 }
