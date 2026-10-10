@@ -89,29 +89,35 @@ referenced assembly identity, so a renumbered or retargeted reference in an
 operand or signature is not a difference. Custom attribute and constant
 values are compared as raw blob bytes (see [Observability](#observability)).
 
-Symbolic names are injective. Every name read from metadata (namespace, Type,
-member, parameter, and import) has each character the key grammar uses as a
-separator escaped before it enters a key, so a top-level Type named `A/B`, a
-Type `B` nested in `A`, a Type `A.B` in namespace `N`, and a Type `B` in
-namespace `N.A` never share a key, and neither do member names that contain
-`::` or signature punctuation. A primitive Type is spelled with a leading `#`,
-which every name escapes, so `int` and a global Type named `Int32` stay
-distinct. Every signature key closes its return Type, so a pointer, byref, or
-modifier suffix and a method instantiation's arguments cannot be read as part
-of it: `delegate*<void*>` and `delegate*<void>*` are distinct. An event's key
-carries a reserved marker, so a field-like event and its backing field, which
-share a name and Type, never share a key. A method signature key keeps its
-full header and marks a vararg sentinel with the reserved `#...`, so call
-sites of two vararg overloads that pass the same argument Types stay distinct.
-Rows that still spell one key are never told apart by guessing. Two Type rows
-of one name, which valid metadata does not allow, and two method rows of one
-Type and its generated code, are `Indeterminate` rather than one replacing the
-other, and so is any fact that refers to one of those Type rows or to a
-compiler-controlled (`PrivateScope`) method or field, which ECMA-335 lets
-share a name and signature. Other member rows of one Type that share a name
-and signature are invalid metadata outside Roslyn fidelity. A reference to
-them compares by the shared key, a contained wrong answer rather than a
-decoded one.
+Symbolic names are injective by construction, as containment is for
+`InertString`. A key or fact is a byte string that only its builder can make,
+and every part the builder writes is self-delimiting: a one-byte marker, a
+tagged integer, or a tagged and length-prefixed name, nested key, or blob. Two
+keys are therefore equal exactly when they were built from the same parts, and
+no name is scanned or escaped. A top-level Type named `A/B`, a Type `B` nested
+in `A`, a Type `A.B` in namespace `N`, and a Type `B` in namespace `N.A` never
+share a key, and neither do member names that contain any punctuation. A name is
+the metadata's own UTF-8, copied from the `#Strings` heap without decoding or
+Windows Runtime projection, so member names whose bytes differ only in
+ill-formed sequences, which both decode to U+FFFD, stay distinct. A Type whose
+namespace or names are not well-formed UTF-8 has no decodable name to identify
+it by, so, like a malformed row, it is `Indeterminate` and identified by its row
+token. Each key shape has its own marker: a primitive Type and a global Type
+named `Int32` stay distinct, a signature's return Type is marked apart from its
+parameters so `delegate*<void*>` and `delegate*<void>*` are distinct, and a
+field-like event and its backing field, which share a name and Type, never share
+a key. A method signature key keeps its full header and marks a vararg sentinel,
+so call sites of two vararg overloads that pass the same argument Types stay
+distinct. A Type reference and a Type definition of one name share a key, so
+they compare by name rather than by assembly. Rows that still spell one key are
+never told apart by guessing. Two Type rows of one name, which valid metadata
+does not allow, and two method rows of one Type and its generated code, are
+`Indeterminate` rather than one replacing the other, and so is any fact that
+refers to one of those Type rows or to a compiler-controlled (`PrivateScope`)
+method or field, which ECMA-335 lets share a name and signature. Other member
+rows of one Type that share a name and signature are invalid metadata outside
+Roslyn fidelity. A reference to them compares by the shared key, a contained
+wrong answer rather than a decoded one.
 
 Compiler-generated nested Types (state machines, closures, local-function
 holders, and Types nested beneath them) belong to their nearest declared
@@ -183,13 +189,16 @@ adoption is
 `FastDiffIdentityTests` gates identity and decoding by outcome, over generated
 image pairs compared whole and stepped: a nested Type's body change beside a
 top-level Type whose name spells the same path, a namespace and a dotted Type
-name that display alike, a caller switching between two callees whose
-unescaped keys collide, a primitive and a global Type of one name, a function
-pointer returning a pointer and a pointer to a function pointer, an attribute
-moved from a backing field to its event, a switch between external vararg
-overloads, duplicate Type names and duplicate generated Type names, a caller
-switching between two compiler-controlled methods or between methods of two
-Type rows of one name, and undefined one-byte and two-byte opcodes.
+name that display alike, a caller switching between two callees whose names
+joined by punctuation would collide, two method names, and two Type names, whose
+stored bytes differ but decode alike, a primitive and a global Type of one name,
+a function pointer returning a pointer and a pointer to a function pointer, an
+attribute moved from a backing field to its event, a switch between external
+vararg overloads, duplicate Type names and duplicate generated Type names, a
+caller switching between two compiler-controlled methods or between methods of
+two Type rows of one name, and undefined one-byte and two-byte opcodes. The same
+class checks that the stored UTF-8 of every System.Private.CoreLib Type, method,
+and field name equals the encoding of its decoded name.
 
 Stepping and the API axis are gated by outcome: a comparison stepped at
 every row and Type boundary, with fresh readers per step, equals the whole
@@ -244,8 +253,9 @@ versions. It accepts the Library API Diff endpoint coordinates and `axes`,
 `Indeterminate`, plus the compared Type count; absence means every requested
 axis is `Unchanged`. Each Type carries `identifier`, the escaped definition
 name (`Outer+Inner`) that Library navigation joins on, and `fullName` for
-display. Malformed rows that have no decodable name receive a row-token
-identifier and never join a navigation entry.
+display. Malformed rows, and Types whose namespace or names are not
+well-formed UTF-8, have no decodable name; they receive a row-token identifier
+and never join a navigation entry.
 
 The Worker is single-threaded, so the operation runs the comparison in
 [steps](#steps) with an 8 ms budget each and yields to the Worker event loop

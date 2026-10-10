@@ -103,6 +103,22 @@ public sealed class LibraryBodyAnalysisRequest
                 .CompleteProfileCompatibility(),
             captureStageParticipation: false);
 
+    /// <summary>
+    /// Selects the exact whole-library structural evidence consumed by
+    /// Library Metrics.
+    /// </summary>
+    public static LibraryBodyAnalysisRequest
+        CreateLibraryStructuralReport() =>
+        new(
+            LibraryBodyAnalysisFeatures.None,
+            bodyScope: null,
+            bodyTypeScope: null,
+            resourceEffects: null,
+            includeResourceLifecycle: false,
+            ImplementationMetricAnalysisRequest
+                .LibraryStructuralReport(),
+            captureStageParticipation: false);
+
     internal static LibraryBodyAnalysisRequest
         CreateImplementationMetrics(
             ImplementationMetricKind metrics,

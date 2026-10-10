@@ -548,6 +548,9 @@ public sealed class BrowserPackageQueryOperationsTests
             Assert.False(string.IsNullOrWhiteSpace(actual.CategoryLabel));
             Assert.True(actual.CategoryOrder > 0);
             Assert.Equal(
+                ExpectedWorkspaceLens(term.Key),
+                actual.WorkspaceLens);
+            Assert.Equal(
                 BrowserTier(term.Tier),
                 actual.Tier);
             Assert.Equal(
@@ -595,6 +598,9 @@ public sealed class BrowserPackageQueryOperationsTests
                 expected.ReplacementGroupId,
                 actual.ReplacementGroupId);
             Assert.Equal(
+                ExpectedWorkspaceLens(expected.Key),
+                actual.WorkspaceLens);
+            Assert.Equal(
                 (expected.ControlKind
                     is PackageQueryTermControlKind.Input
                         or PackageQueryTermControlKind.MultilineInput)
@@ -605,6 +611,15 @@ public sealed class BrowserPackageQueryOperationsTests
                 Assert.Equal(
                     ["v1", "v2"],
                     actual.Options.Select(option => option.Value));
+            }
+            if (expected.Key == PackageQuery.DependencyTargetTermKey)
+            {
+                Assert.Equal(
+                    "all",
+                    actual.Options[0].Value);
+                Assert.Equal(
+                    "All target frameworks",
+                    actual.Options[0].Label);
             }
         }
     }
@@ -2031,6 +2046,20 @@ public sealed class BrowserPackageQueryOperationsTests
                 TimeSpan.FromSeconds(1),
                 TestContext.Current.CancellationToken));
     }
+
+    static BrowserPackageQueryWorkspaceLens? ExpectedWorkspaceLens(
+        string key) =>
+        key switch
+        {
+            PackageQuery.DependenciesTermKey
+                or PackageQuery.DependencyDepthTermKey
+                or PackageQuery.DependencyTargetTermKey
+                or PackageQuery.DependsTermKey
+                or PackageQuery.DependsTransitiveTermKey
+                or PackageQuery.DependsEcosystemTermKey =>
+                BrowserPackageQueryWorkspaceLens.Dependencies,
+            _ => null,
+        };
 
     static BrowserPackageQueryAcquisitionTier BrowserTier(
         PackageQueryAcquisitionTier tier) => tier switch
