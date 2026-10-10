@@ -107,7 +107,7 @@ This design owns:
   terminal reduction;
 - Count's logical meaning and observed stage;
 - Count outcomes across one or more declared row sets; and
-- typed rebinding of selected rows, exact counts, and failures to row-set
+- typed rebinding of selected rows, counts, and failures to row-set
   identities.
 
 This design does not own:
@@ -470,10 +470,11 @@ partial bounds.
 ## Multiple row sets
 
 Count preserves declared row-set identity and order. A successful Count result
-contains one exact cardinality, including exact zero, for every participating
-selected set.
+contains one cardinality, including zero, for every participating selected
+set. Each is exact or observed according to that set's evidence, under
+[Incomplete evaluation](#incomplete-evaluation).
 
-One exact count entry occupies the Scalar rung of the shape ladder. Multiple
+One count entry occupies the Scalar rung of the shape ladder. Multiple
 entries occupy an ordered row-set/count Table. L2 does not also invent a total
 across those entries.
 
@@ -728,7 +729,7 @@ The remaining implementation must add these named Release gates:
 | `CrossCohortRowsAreAtomicOnExecutionFailure` | A successful earlier cohort followed by a later row-query exception or strict Window failure publishes no earlier Row-outcomes payload; exceptions propagate unchanged and semantic failure returns only its bound failure. |
 | `SectionRowResolutionIsAtomic` | Any invalid row-set, schema, projection, row-query, selection, or reduction binding returns one structured failure with explicit request-wide or declared-row-set scope and no partial executable request. |
 | `SectionRowResolutionFailureOrderIsDeterministic` | Simultaneous failures within and across request, row-set, projection, intent-binding, cohort, and result-map checks return the first exact step and request-wide or row-set scope above; the row-query substep preserves its owner's internal order. |
-| `SectionRowResultsArePresentationFree` | Row, Count, and failure results contain typed row-set identities, values, exact cardinalities, or owner-issued outcome evidence without headings, formatted cells, diagnostic sentences, or renderer state. |
+| `SectionRowResultsArePresentationFree` | Row, Count, and failure results contain typed row-set identities, values, exact or observed cardinalities, or owner-issued outcome evidence without headings, formatted cells, diagnostic sentences, or renderer state. |
 
 ## Non-claims
 

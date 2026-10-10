@@ -634,7 +634,8 @@ carries the Document and an optional already-bound Count component:
 | --- | --- |
 | Not requested | Absent; not a successful zero or a failed Count. |
 | Requested and established | Existing typed L2 Count result, with the Changed Versions row-set identity and exact cardinality. |
-| Requested but not established | Existing typed L2 failure, with its scope, reason, and completion evidence; no Count payload. |
+| Requested over incomplete evidence | Existing typed L2 Count result, with the Changed Versions row-set identity, the observed cardinality, and its incompleteness evidence; never presented as exact. |
+| Requested but unavailable | Existing typed L2 failure, with its scope, reason, and completion evidence; no Count payload. |
 
 The component consumes
 [L2's result algebra](section-row-shaping.md#result-binding-and-failure),
@@ -748,10 +749,11 @@ Inferred bounds preserve this same count meaning; supplying three checkpoints
 does not turn a longer population into a three-version population.
 
 `--history --max-probes N --count` similarly retains adaptive evaluation and
-does not spend additional probes merely to establish Count. It succeeds only
-when the resulting evidence independently establishes every changed-version
-membership required by the selected Count rows; otherwise the Count component
-is typed non-success beside the usable investigation Document.
+does not spend additional probes merely to establish Count. Its Count is
+exact only when the resulting evidence independently establishes every
+changed-version membership required by the selected Count rows; otherwise the
+Count component reports the observed cardinality with its incompleteness
+evidence beside the usable investigation Document.
 
 These illustrative sequences describe the contract, not measured package data:
 
@@ -759,9 +761,9 @@ These illustrative sequences describe the contract, not measured package data:
 | --- | --- |
 | `A -> A -> A`, every adjacent comparison established | `0` |
 | `A -> B -> A`, every adjacent comparison established | `2`, even when the middle version has many changed detail rows |
-| Only first and last evaluated in `A -> ? -> A` | Non-success; the gap may contain a change and reversion |
-| `A -> failed -> B` | Non-success; preserve the usable evaluations and failure |
-| Only one version evaluated | Non-success; no established transition evidence |
+| Only first and last evaluated in `A -> ? -> A` | Observed `0`, incomplete; the gap may contain a change and reversion |
+| `A -> failed -> B` | Observed count of the established changes, incomplete; preserve the usable evaluations and failure |
+| Only one version evaluated | Observed `0`, incomplete; no established transition evidence |
 
 This follows the existing Count convention of counting logical cohort rows,
 while endpoint Diff and identity-track/detail counts answer different
@@ -778,8 +780,8 @@ evaluations retain their evidence beside usable points. Unselected points are
 not failures. The CLI returns nonzero for a failed requested evaluation,
 unfulfilled work bound, or invalid/unavailable request, while preserving any
 usable document output; deliberate sparse work may succeed.
-Such a History result does not imply an exact change count: an insufficient
-Count request follows the non-success rule above.
+Such a History result does not imply an exact change count: a Count request
+over it reports an observed count under the incompleteness rule above.
 
 The existing [inspection envelope](inspection-envelope.md) owns Share and
 diagnostics. Until its Share owner can faithfully represent this range,

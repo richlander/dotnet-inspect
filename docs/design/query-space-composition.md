@@ -135,7 +135,7 @@ This owner defines:
 - the closed query-language boundary shared by hosts;
 - the requirement that resolved plans preserve inspectable structural meaning
   beside executable machinery;
-- preservation of owner-issued Rows, exact Count, and Exists terminal
+- preservation of owner-issued Rows, Count, and Exists terminal
   branches;
 - the distinction among semantic selection, work bounds, source continuation,
   delivery demand, and rendering windows;
@@ -267,7 +267,7 @@ One query space is an immutable effective binding containing:
 | Operation scope | One Query Operation definition, operation-only query-vocabulary identity, subject role, result grain, and operation profile. |
 | Row-query scopes | One or more stable scope identities, each pairing one row query vocabulary with the compatible declared row-set identities and shaping capabilities to which an instance of that intent may apply. |
 | Request shape | One operation intent plus optional section-owned projection intent, zero or more ordered row-intent associations, a non-empty participating row-set selection, and one terminal requirement. |
-| Terminal space | The supported terminal requirements, including Rows, exact Count, and owner-issued Exists, preserving each participating row-set identity. |
+| Terminal space | The supported terminal requirements, including Rows, Count, and owner-issued Exists, preserving each participating row-set identity. |
 | Effects | The capability, acquisition, work, and completion consequences reachable through the effective bindings. |
 | Continuation acceptance | Whether this result composition can preserve an adjacent source contract's continuation; the selected source offer supplies any effective continuation capability. |
 | Result-contract references | Optional owner-issued mapping from a terminal/result shape to the output contract it produces; schema, Content Kind, and serialization remain with the output owner. |
@@ -704,7 +704,7 @@ subject or population binding
   -> semantic Head, Tail, Window, or Top
   -> one terminal branch:
      -> selected rows -> cell projection -> Rows
-     -> selected rows -> exact Count
+     -> selected rows -> Count
 ```
 
 This is the [Section-row shaping](section-row-shaping.md#reference-composition)
@@ -783,7 +783,7 @@ Kind, or schema generation.
 
 ## Terminal requirements
 
-Rows and exact Count are peer terminal requirements over each participating
+Rows and Count are peer terminal requirements over each participating
 row set's selected sequence after membership projection, predicates, effective
 order, and semantic selection. Exists is the Boolean closing defined by
 [Open and closed queries](open-and-closed-queries.md): it settles when the
@@ -813,13 +813,14 @@ semantic execution begins, publication is atomic: a later cohort failure
 publishes no earlier Row-outcomes.
 
 **Count** validates cell-projection intent but does not execute it, because the
-terminal result has no row cells. A successful result contains one exact
+terminal result has no row cells. A successful result contains one
 cardinality, including zero, for every participating selected row set in
-declaration order. It does not invent an aggregate across independently
-declared sets; an aggregate exists only when the producer declared one
-aggregate row set before shaping. A typed non-count outcome remains visible,
-and an observed row count is never returned as though it were exact. Count may
-be satisfied for a participating set:
+declaration order, each exact or observed according to that set's evidence.
+It does not invent an aggregate across independently declared sets; an
+aggregate exists only when the producer declared one aggregate row set before
+shaping. A typed non-count outcome remains visible, and an observed row count
+is never returned as though it were exact. Count is exact for a participating
+set:
 
 - by logical exhaustion after local or delegated execution;
 - by an owner-accepted exact source Count witness; or
@@ -847,7 +848,7 @@ failure-precedence contract.
 
 Count remains first class because it tests whether every layer preserves
 semantic scope and completion. A provider's candidate count, total-hit field,
-page size, work bound, or observed match count is not automatically the final
+page size, work bound, or observed match count is not automatically an exact
 Count.
 
 A future combined preview-and-count shape would carry two independent
@@ -1037,7 +1038,8 @@ The eventual implementation and adopter gates must preserve these cases:
 - `Head(10)` finds ten rows and returns a continuation. The semantic query is
   complete, while the underlying population is explicitly not exhausted.
 - Unbounded Count reaches a candidate limit with 327 observed matches and a
-  continuation. No exact Count is returned.
+  continuation. Count returns 327 as observed, with the candidate-limit
+  incompleteness evidence; no exact Count is returned.
 - A source provides an exact filtered Count and only the first 20 rows. Count
   is exact, row delivery is partial, and seekability is not inferred.
 - NuGet Search reports `totalHits` for its broader ranked query. Exact-prefix
