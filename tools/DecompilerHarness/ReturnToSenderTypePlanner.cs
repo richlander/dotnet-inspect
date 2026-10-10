@@ -2778,7 +2778,8 @@ public static partial class CompileBackSourceComposer
             GetterToken: requirement.GetterToken,
             SetterToken: requirement.SetterToken,
             AdderToken: requirement.AdderToken,
-            RemoverToken: requirement.RemoverToken);
+            RemoverToken: requirement.RemoverToken,
+            ReturnTypeReferences: requirement.ReturnType?.References);
 
     static CSharpShellParameter ToShellParameter(CompileBackParameter parameter)
         => new(
@@ -3205,9 +3206,11 @@ public static partial class CompileBackSourceComposer
 
             var field = reader.GetFieldDefinition(fieldHandle);
             string fieldType;
+            IReadOnlyList<ApiTypeReferenceIdentity> fieldTypeReferences;
             try
             {
                 fieldType = GuardedSignatureText.FieldText(reader, field, GenericContext.ForType(reader, declaringType));
+                fieldTypeReferences = ApiSurfaceExtractor.FieldTypeReferences(reader, declaringType, field);
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -3226,7 +3229,7 @@ public static partial class CompileBackSourceComposer
                 CompileBackMemberKind.Field,
                 field.Attributes.HasFlag(FieldAttributes.Static),
                 Parameters: [],
-                CompileBackTypeSignature.Display(fieldType),
+                CompileBackTypeSignature.Display(fieldType, fieldTypeReferences),
                 TypeParameters: [],
                 CompileBackStubBodyKind.FieldInitializer,
                 parameterName,
@@ -3400,9 +3403,11 @@ public static partial class CompileBackSourceComposer
                 continue;
 
             string fieldType;
+            IReadOnlyList<ApiTypeReferenceIdentity> fieldTypeReferences;
             try
             {
                 fieldType = GuardedSignatureText.FieldText(reader, field, GenericContext.ForType(reader, typeDef));
+                fieldTypeReferences = ApiSurfaceExtractor.FieldTypeReferences(reader, typeDef, field);
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -3414,7 +3419,7 @@ public static partial class CompileBackSourceComposer
                 CompileBackMemberKind.Field,
                 field.Attributes.HasFlag(FieldAttributes.Static),
                 Parameters: [],
-                CompileBackTypeSignature.Display(fieldType),
+                CompileBackTypeSignature.Display(fieldType, fieldTypeReferences),
                 TypeParameters: [],
                 CompileBackStubBodyKind.None,
                 TargetBody: null,
@@ -3455,9 +3460,11 @@ public static partial class CompileBackSourceComposer
                 continue;
 
             string fieldType;
+            IReadOnlyList<ApiTypeReferenceIdentity> fieldTypeReferences;
             try
             {
                 fieldType = GuardedSignatureText.FieldText(reader, field, GenericContext.ForType(reader, typeDef));
+                fieldTypeReferences = ApiSurfaceExtractor.FieldTypeReferences(reader, typeDef, field);
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -3469,7 +3476,7 @@ public static partial class CompileBackSourceComposer
                 CompileBackMemberKind.PropertyGet,
                 field.Attributes.HasFlag(FieldAttributes.Static),
                 Parameters: [],
-                CompileBackTypeSignature.Display(fieldType),
+                CompileBackTypeSignature.Display(fieldType, fieldTypeReferences),
                 TypeParameters: [],
                 CompileBackStubBodyKind.AutoProperty,
                 TargetBody: null,

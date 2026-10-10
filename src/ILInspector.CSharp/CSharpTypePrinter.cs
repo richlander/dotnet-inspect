@@ -1089,6 +1089,9 @@ public sealed class CSharpTypePrinter
         return new ApiSignature
         {
             ReturnType = signature.ReturnType,
+            // Typed identity is what lets the declaration writer tell a nested
+            // type from a namespace member when it derives using directives.
+            ReturnTypeReferences = [.. signature.ReturnTypeReferences ?? []],
             ReturnAttributes = returnAttributes?.ToList()!,
             MemberName = signature.MemberName,
             IsRequired = signature.IsRequired,
@@ -1122,6 +1125,7 @@ public sealed class CSharpTypePrinter
             Attributes = attributes?.ToList()!,
             Name = parameter.Name,
             Type = parameter.Type,
+            TypeReferences = [.. parameter.TypeReferences ?? []],
             Modifier = parameter.Modifier,
             HasDefault = parameter.HasDefault,
             DefaultValueText = parameter.DefaultValueText
