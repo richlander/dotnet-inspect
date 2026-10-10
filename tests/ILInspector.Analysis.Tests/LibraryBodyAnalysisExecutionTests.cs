@@ -164,6 +164,19 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.True(
             request.Plan.Includes(
                 LibraryBodyAnalysisFeatures.MethodEvidence));
+        Assert.True(
+            request.Plan.UsesPlannedCompleteProfileSource);
+        MethodBodyAnalyzerPlan instructionPlan =
+            CompleteProfileInstructionPacket.InstructionPlan;
+        Assert.Equal(
+            MethodBodyInstructionSourceKind.LazyRetainedSequence,
+            instructionPlan.Source);
+        Assert.Equal(
+            MethodBodyInstructionAccess.RetainedPrefix,
+            instructionPlan.Demand.Access);
+        Assert.Equal(
+            MethodBodyInstructionDetail.SelectiveOperands,
+            instructionPlan.Demand.Detail);
     }
 
     [Fact]
@@ -243,6 +256,28 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Equal(
             LibraryBodyAnalysisFeatures.None,
             migratedProjection.FeatureCauses);
+        Assert.Null(
+            legacyExecution.ImplementationMetrics
+                .Participation.InstructionSourceWork);
+        ImplementationMetricInstructionSourceWork sourceWork =
+            Assert.IsType<
+                ImplementationMetricInstructionSourceWork>(
+                    migratedExecution.ImplementationMetrics
+                        .Participation.InstructionSourceWork);
+        int measuredBodies =
+            migratedExecution.ImplementationMetrics.Bodies.Count(
+                static body => body.InstructionShape is not null);
+        Assert.Equal(
+            measuredBodies,
+            sourceWork.ResolvedSourcesOpened);
+        Assert.Equal(
+            measuredBodies,
+            sourceWork.CanonicalContextsMaterialized);
+        Assert.Equal(
+            migratedExecution.ImplementationMetrics.Bodies.Sum(
+                static body =>
+                    body.InstructionShape?.InstructionCount ?? 0),
+            sourceWork.InstructionsVisited);
     }
 
     [Fact]
@@ -306,6 +341,9 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Equal(
             profile.NormalFlowCyclomaticComplexity,
             controlFlow.NormalFlowCyclomaticComplexity);
+        Assert.Null(
+            execution.ImplementationMetrics
+                .Participation!.InstructionSourceWork);
         ImplementationMetricDirectCalls directCalls =
             Assert.IsType<ImplementationMetricDirectCalls>(
                 body.DirectCalls);

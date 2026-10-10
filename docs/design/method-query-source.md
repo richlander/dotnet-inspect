@@ -539,6 +539,19 @@ satisfy the early-stop work property. Concurrency, incremental publication,
 and cross-operation caches require their own scheduling, close, and lifetime
 designs before adoption.
 
+Library Body complete-profile analysis has one focused parallel substitution.
+It retains the existing metadata-ordered `Parallel.For` scheduler and applies
+only to an unscoped `CompleteProfileV1` compatibility request. The immutable
+Method analyzer plan is shared, while each worker owns one resolved retained
+instruction sequence and canonical context for one method packet. Results are
+written to metadata-ordinal slots and aggregated in reference order. Its source
+receipt records resolved sources opened, instructions visited, and canonical
+contexts materialized. The substitution also projects profile-only body signals
+from that retained scan and does not construct richer allocation or unsafety
+occurrence facts that the request does not consume. Scoped and other Method
+requests continue to use their existing executor. This is not a general
+parallel Method Query Source implementation.
+
 ## Migration and production adoption
 
 Migration is incremental:
@@ -718,9 +731,10 @@ assemblies.
 Resource-free planning and serial execution are deterministic ordinary code.
 The routing and settlement transition system remains owned and modeled by
 [Open and closed queries](open-and-closed-queries.md). This design adds no
-independent concurrent state machine. A future parallel, incremental, or
-retained executor must model its scheduling and close interaction before
-implementation.
+independent concurrent state machine. The focused Library Body substitution
+uses an existing scheduler and has no early-settling terminal; any broader
+parallel, incremental, or retained executor must model its scheduling and close
+interaction before implementation.
 
 ## Non-claims
 

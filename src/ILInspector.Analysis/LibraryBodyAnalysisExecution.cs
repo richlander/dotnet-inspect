@@ -587,6 +587,8 @@ public sealed class LibraryBodyAnalysisExecution
                     && plan.RequestedFeatures
                         == LibraryBodyAnalysisFeatures.None,
                 actualStages,
+                analysis.ImplementationMetricParticipation
+                    ?.InstructionSourceWork,
                 analysis.ImplementationMetricWork),
             analysis.Methods.DeclaredMethods,
             analysis.Methods.Methods,

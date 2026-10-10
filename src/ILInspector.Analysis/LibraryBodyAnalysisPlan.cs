@@ -20,6 +20,17 @@ internal sealed record LibraryBodyAnalysisPlan(
     internal bool IsScoped
         => MethodScope is not null || TypeScope is not null;
 
+    internal bool UsesPlannedCompleteProfileSource =>
+        !IsScoped
+        && ImplementationMetrics is
+        {
+            Origin: ImplementationMetricRequestOrigin
+                .CompleteProfileCompatibility,
+            RequestedMetrics: var requestedMetrics,
+        }
+        && requestedMetrics
+            == ImplementationMetricAnalysisRequest.CompleteProfileV1;
+
     internal bool Includes(LibraryBodyAnalysisFeatures feature)
         => (Features & feature) != 0;
 

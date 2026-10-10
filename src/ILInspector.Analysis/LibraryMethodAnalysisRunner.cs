@@ -5,6 +5,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using ILInspector.Analysis.Planning;
 using ILInspector.ControlFlow;
 using Inspector.Findings;
 using ILInspector.Instructions;
@@ -711,6 +712,8 @@ internal sealed partial class LibraryMethodAnalysisRunner(
         bool includeCallValueFlow = plan.RequiresCallValueFlow;
         bool includeLocalThrows = plan.Includes(
             LibraryBodyAnalysisFeatures.LocalThrows);
+        bool usePlannedCompleteProfileSource =
+            plan.UsesPlannedCompleteProfileSource;
         if (plan.ImplementationMetrics
                 is { UsesFocusedExecution: true }
             && !includeMethodEvidence)
@@ -1072,7 +1075,14 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         SourceDeclaringType:
                             result.DeclaredSource?.DeclaringType);
             }
-            var il = metadataBody.IL.ToArray();
+            CompleteProfileInstructionPacket?
+                completeProfileInstructionPacket =
+                    usePlannedCompleteProfileSource
+                    && metricBodyAdmitted
+                        ? new(
+                            body,
+                            _implementationMetricRecorder)
+                        : null;
             if (plan.ImplementationMetrics
                     is { IncludesHeaderMetrics: true } metricPlan
                 && metricBodyAdmitted)
@@ -1098,7 +1108,8 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         ImplementationMetricWorkStage
                             .DirectCallDiscovery);
                 MethodCallAnalysis.DiscoveryCounts counts =
-                    MethodCallAnalysis.DiscoverCounts(body);
+                    completeProfileInstructionPacket?.Scan()
+                    ?? MethodCallAnalysis.DiscoverCounts(body);
                 discovery?.Complete();
                 directCallDiscoveryStage?.Complete();
                 result.ImplementationMetrics =
@@ -1144,14 +1155,31 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     plan,
                     ImplementationMetricWorkStage
                         .CanonicalMethodContext);
-            MethodBodyAnalysisContext context =
-                MethodBodyAnalysisContext.Create(
-                caller,
-                metadataBody,
-                localTypes.Types,
-                localTypes.DeclaredCount,
-                localTypes.IncompleteReason,
-                body.LocalVariablesInitialized);
+            MethodBodyAnalysisContext context;
+            if (completeProfileInstructionPacket is not null)
+            {
+                MethodInstructions plannedInstructions =
+                    completeProfileInstructionPacket.Materialize(
+                        metadataBody);
+                context = MethodBodyAnalysisContext.Create(
+                    caller,
+                    metadataBody,
+                    plannedInstructions,
+                    localTypes.Types,
+                    localTypes.DeclaredCount,
+                    localTypes.IncompleteReason,
+                    body.LocalVariablesInitialized);
+            }
+            else
+            {
+                context = MethodBodyAnalysisContext.Create(
+                    caller,
+                    metadataBody,
+                    localTypes.Types,
+                    localTypes.DeclaredCount,
+                    localTypes.IncompleteReason,
+                    body.LocalVariablesInitialized);
+            }
             contextConstruction?.Complete();
             contextConstructionStage?.Complete();
             if (plan.IncludesResourceOccurrences)
@@ -1175,7 +1203,9 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     || measureControlFlow))
             {
                 contextMeasurements =
-                    MethodImplementationProfileAnalysis
+                    completeProfileInstructionPacket
+                        ?.CompleteMeasurements(context)
+                    ?? MethodImplementationProfileAnalysis
                         .MeasureContext(
                             context,
                             measureInstructionShape,
@@ -1200,36 +1230,44 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     MethodImplementationProfileAnalysis.Measure(
                         context,
                         result.DeclaredMethod ?? caller,
-                        il.Length,
+                        metadataBody.IL.Length,
                         asyncBody is not null,
                         contextMeasurements
                         ?? throw new InvalidOperationException(
                             "Implementation profiles require context measurements."));
             }
-            MethodAllocationFacts allocationFacts;
+            MethodAllocationFacts? allocationFacts;
             ILibraryMethodAnalysisResolver methodAnalysisResolver;
             using (LibraryBodyAnalysisStageRecorder.StageAttempt?
                 allocationStage = StartStage(
                     LibraryBodyAnalysisStage.AllocationAnalysis))
             {
-                // Build allocation's Layer-1 indexes before other topic
-                // producers, then keep every result and query bound to this
-                // exact context.
-                allocationFacts =
-                    MethodAllocationFacts.Create(context);
                 methodAnalysisResolver =
                     _infrastructure.CreateMethodAnalysisResolver(
                         scope,
                         caller,
                         methodInstructions);
-                // Discover and classify allocation occurrences once.
-                // Performance Triage consumes the allocation owner's
-                // lifetime verdict rather than running a parallel escape
-                // analysis.
-                if (includeAllocations)
-                    allocationFacts.Collect(methodAnalysisResolver);
-                result.Allocations =
-                    allocationFacts.ClassifiedOccurrences;
+                if (completeProfileInstructionPacket is not null)
+                {
+                    allocationFacts = null;
+                    result.Allocations = [];
+                }
+                else
+                {
+                    // Build allocation's Layer-1 indexes before other topic
+                    // producers, then keep every result and query bound to
+                    // this exact context.
+                    allocationFacts =
+                        MethodAllocationFacts.Create(context);
+                    // Discover and classify allocation occurrences once.
+                    // Performance Triage consumes the allocation owner's
+                    // lifetime verdict rather than running a parallel escape
+                    // analysis.
+                    if (includeAllocations)
+                        allocationFacts.Collect(methodAnalysisResolver);
+                    result.Allocations =
+                        allocationFacts.ClassifiedOccurrences;
+                }
                 allocationStage?.Complete();
             }
             bool hasUnsafeLocals;
@@ -1243,22 +1281,29 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         evidence);
                 hasUnsafeLocals =
                     localSafety.HasUnsafeLocals;
-                result.Unsafety =
-                    MethodSafetyAnalysis.CollectOccurrences(
-                        context,
-                        token => _infrastructure.CalliReturnDetail(
-                            token,
-                            scope),
-                        token => ((IMethodAllocationResolver)
-                            methodAnalysisResolver)
-                            .ResolveMember(token));
-                result.ConstantDataSpanConstructors =
-                    SpanStackAllocations.RecognizeConstantDataSpans(
-                        context,
-                        token => ((IMethodAllocationResolver)
-                            methodAnalysisResolver)
-                            .ResolveMember(token),
-                        IsSameImageFieldWithRva);
+                if (completeProfileInstructionPacket is not null)
+                {
+                    result.Unsafety = [];
+                }
+                else
+                {
+                    result.Unsafety =
+                        MethodSafetyAnalysis.CollectOccurrences(
+                            context,
+                            token => _infrastructure.CalliReturnDetail(
+                                token,
+                                scope),
+                            token => ((IMethodAllocationResolver)
+                                methodAnalysisResolver)
+                                .ResolveMember(token));
+                    result.ConstantDataSpanConstructors =
+                        SpanStackAllocations.RecognizeConstantDataSpans(
+                            context,
+                            token => ((IMethodAllocationResolver)
+                                methodAnalysisResolver)
+                                .ResolveMember(token),
+                            IsSameImageFieldWithRva);
+                }
                 safetyStage?.Complete();
             }
             BodySignals signals;
@@ -1266,12 +1311,19 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 bodySignalStage = StartStage(
                     LibraryBodyAnalysisStage.BodySignalAnalysis))
             {
-                signals = BodySignalAnalysis.Collect(
-                    context,
-                    token => _infrastructure
-                        .IsAllocatingValueTypeBox(
-                            token,
-                            scope));
+                signals =
+                    completeProfileInstructionPacket
+                        ?.CompleteBodySignals(
+                            token => _infrastructure
+                                .IsAllocatingValueTypeBox(
+                                    token,
+                                    scope))
+                    ?? BodySignalAnalysis.Collect(
+                        context,
+                        token => _infrastructure
+                            .IsAllocatingValueTypeBox(
+                                token,
+                                scope));
                 bodySignalStage?.Complete();
             }
             if (signals.Newarr > 0
@@ -1346,7 +1398,10 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     _infrastructure.CreateCallResolver(
                         scope,
                         caller),
-                    offset => allocationFacts.MultiplicityAt(offset),
+                    allocationFacts is null
+                        ? null
+                        : offset =>
+                            allocationFacts.MultiplicityAt(offset),
                     calls,
                     evidence,
                     includeIndirectOpcodes:
@@ -1486,7 +1541,9 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 {
                     result.Opportunities =
                         OptimizationOpportunityAnalysis.Collect(
-                            allocationFacts,
+                            allocationFacts
+                            ?? throw new InvalidOperationException(
+                                "Optimization analysis requires allocation facts."),
                             methodAnalysisResolver);
                     if (!collectOwnershipDerivedOpportunities
                         && requiresDeclaredOwner)
@@ -1516,7 +1573,9 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     result.Opportunities =
                     [
                         .. OptimizationOpportunityAnalysis.Collect(
-                            allocationFacts,
+                            allocationFacts
+                            ?? throw new InvalidOperationException(
+                                "Optimization analysis requires allocation facts."),
                             methodAnalysisResolver)
                         .Where(static opportunity =>
                             opportunity.Shape

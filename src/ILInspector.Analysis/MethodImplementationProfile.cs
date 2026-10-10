@@ -86,6 +86,51 @@ internal readonly record struct MethodImplementationContextMeasurements(
     ImplementationMetricInstructionShape? InstructionShape,
     ImplementationMetricControlFlow? ControlFlow);
 
+internal sealed class MethodImplementationInstructionScan
+{
+    readonly HashSet<ILOpCode> _distinctOpcodes = [];
+    int _instructionCount;
+    int _branches;
+    int _conditionalBranches;
+    int _switches;
+    int _switchTargets;
+
+    internal bool Visit(ILOpCode opcode, int encodedLength)
+    {
+        _instructionCount++;
+        _distinctOpcodes.Add(opcode);
+        if (opcode == ILOpCode.Switch)
+        {
+            _branches++;
+            _conditionalBranches++;
+            _switches++;
+            _switchTargets +=
+                checked((encodedLength - 1 - sizeof(int)) / sizeof(int));
+        }
+        else if (ILOpcodeExtensions.IsBranch(opcode))
+        {
+            _branches++;
+            if (!ILOpcodeExtensions.IsUnconditionalBranch(opcode))
+                _conditionalBranches++;
+        }
+        return true;
+    }
+
+    internal MethodImplementationContextMeasurements Complete(
+        MethodBodyAnalysisContext context) =>
+        new(
+            new(
+                _instructionCount,
+                _distinctOpcodes.Count),
+            new(
+                context.Blocks.Blocks.Length,
+                _branches,
+                _conditionalBranches,
+                _switches,
+                _switchTargets,
+                context.LoopRegions.Distinct().Count()));
+}
+
 internal static class MethodImplementationProfileAnalysis
 {
     internal static MethodImplementationContextMeasurements MeasureContext(

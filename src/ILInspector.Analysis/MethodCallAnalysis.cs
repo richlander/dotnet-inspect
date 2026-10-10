@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 
+using ILInspector.Analysis.Planning;
 using ILInspector.Instructions;
 
 namespace ILInspector.Analysis;
@@ -64,28 +65,17 @@ internal static partial class MethodCallAnalysis
     {
         ArgumentNullException.ThrowIfNull(body);
 
-        int invocationCount = 0;
-        int callSiteCount = 0;
+        var counts = new MethodCallInstructionCounts();
         InstructionDecoder.Visit(
             body,
             (opcode, _, _) =>
-            {
-                if (opcode is ILOpCode.Call
-                    or ILOpCode.Callvirt
-                    or ILOpCode.Newobj)
-                {
-                    invocationCount++;
-                    callSiteCount++;
-                }
-                else if (opcode is ILOpCode.Ldftn
-                    or ILOpCode.Ldvirtftn
-                    or ILOpCode.Calli)
-                {
-                    callSiteCount++;
-                }
-                return true;
-            });
-        return new(invocationCount, callSiteCount);
+                MethodCallInstructionCounter.Visit(
+                    ref counts,
+                    opcode,
+                    encodedLength: 0));
+        return new(
+            counts.InvocationCount,
+            counts.CallSiteCount);
     }
 
     internal static void CollectDirectCalls(
@@ -110,7 +100,7 @@ internal static partial class MethodCallAnalysis
     internal static void Collect(
         MethodBodyAnalysisContext context,
         IMethodCallResolver resolver,
-        Func<int, AllocationMultiplicity> multiplicityAt,
+        Func<int, AllocationMultiplicity>? multiplicityAt,
         ImmutableArray<DirectCall>.Builder calls,
         ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence,
         bool includeIndirectOpcodes,

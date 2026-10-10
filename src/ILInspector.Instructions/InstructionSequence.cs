@@ -52,6 +52,7 @@ public sealed class InstructionSequence
     readonly List<InstructionEntry> _prefix = [];
     byte[]? _resolutionIl;
     Dictionary<int, DecodedInstruction>? _resolved;
+    List<DecodedInstruction>? _resolvedPrefix;
     int _nextOffset;
     bool _isComplete;
     ExceptionDispatchInfo? _failure;
@@ -229,6 +230,12 @@ public sealed class InstructionSequence
     public DecodedInstruction Resolve(int index)
     {
         InstructionEntry entry = this[index];
+        if (_retainResolvedDetail
+            && _resolvedPrefix is not null
+            && (uint)index < (uint)_resolvedPrefix.Count)
+        {
+            return _resolvedPrefix[index];
+        }
         if (_resolved is not null
             && _resolved.TryGetValue(index, out DecodedInstruction? resolved))
         {
@@ -294,24 +301,16 @@ public sealed class InstructionSequence
                 nameof(body));
         }
 
-        var instructions =
-            ImmutableArray.CreateBuilder<DecodedInstruction>(_prefix.Count);
-        for (int i = 0; i < _prefix.Count; i++)
+        if (_resolvedPrefix is null
+            || _resolvedPrefix.Count != _prefix.Count)
         {
-            if (_resolved is null
-                || !_resolved.TryGetValue(
-                    i,
-                    out DecodedInstruction? resolved))
-            {
-                throw new InvalidOperationException(
-                    "Resolved instruction detail was not retained.");
-            }
-            instructions.Add(resolved);
+            throw new InvalidOperationException(
+                "Resolved instruction detail was not retained.");
         }
 
         return MethodInstructions.Create(
             body,
-            instructions.MoveToImmutable());
+            [.. _resolvedPrefix]);
     }
 
     internal bool TryMoveNext(
@@ -379,11 +378,9 @@ public sealed class InstructionSequence
     {
         try
         {
-            _ensureBodyOwnerAlive?.Invoke();
             bool hasInstruction;
             if (_retainResolvedDetail)
             {
-                int index = _prefix.Count;
                 if (InstructionDecoder.TryDecodeNext(
                     GetResolutionIl(),
                     ref _nextOffset,
@@ -395,8 +392,8 @@ public sealed class InstructionSequence
                         resolved.Offset,
                         resolved.OpCode,
                         resolved.NextOffset);
-                    _resolved ??= [];
-                    _resolved.Add(index, resolved);
+                    _resolvedPrefix ??= [];
+                    _resolvedPrefix.Add(resolved);
                 }
                 else
                 {
@@ -406,6 +403,7 @@ public sealed class InstructionSequence
             }
             else
             {
+                _ensureBodyOwnerAlive?.Invoke();
                 hasInstruction = _body is not null
                     ? InstructionDecoder.TryReadNext(
                         _body,
