@@ -174,7 +174,8 @@ internal static class PackageArchiveRangeAccess
         CancellationToken cancellationToken,
         NuGetOperationContext? operationContext,
         PackageArchiveRequestLog? requestLog = null,
-        long? knownArchiveLength = null)
+        long? knownArchiveLength = null,
+        ZipDirectory? knownDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(limits);
         if (memory.RangeIgnored)
@@ -203,12 +204,22 @@ internal static class PackageArchiveRangeAccess
         HttpRangeSource? source = null;
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            context.ThrowIfExpired();
             (string url, PackageSourceCredential? credential) = await resolveArchive(
                 context.CreateDeadline(clientTimeout, cancellationToken, results.Source))
                 .ConfigureAwait(false);
             if (!NuGetHttpRequest.TryCreatePreservingPathAndQuery(url, out Uri? archiveUri))
                 throw new InvalidDataException("The package archive URL is not a well-formed absolute URI.");
             session.UseCredential(credential);
+            ZipDirectory? retained = knownDirectory is null
+                ? null
+                : ZipArchiveReader.ReadDirectoryFromRegion(
+                    knownDirectory.Region, knownDirectory.ArchiveLength, limits);
+            if (retained is not null && knownArchiveLength is { } length
+                && length != retained.ArchiveLength)
+                throw new InvalidDataException("The retained directory and known archive length disagree.");
+            knownArchiveLength = retained?.ArchiveLength ?? knownArchiveLength;
             source = new HttpRangeSource(
                 archiveUri!,
                 session.SendAsync,
@@ -219,10 +230,14 @@ internal static class PackageArchiveRangeAccess
                         OperatingSystem.IsBrowser()
                         && knownArchiveLength is not null,
                 });
-            ZipDirectory directory = await ZipArchiveReader.ReadDirectoryAsync(
+            ZipDirectory directory = retained ?? await ZipArchiveReader.ReadDirectoryAsync(
                 source,
                 limits,
                 cancellationToken).ConfigureAwait(false);
+            if (retained is not null)
+                source.ConfirmLength(retained.ArchiveLength);
+            cancellationToken.ThrowIfCancellationRequested();
+            context.ThrowIfExpired();
             return new PackageArchiveReadResult<PackageArchiveReader>(
                 new PackageArchiveReader(session, source, directory, limits));
         }
