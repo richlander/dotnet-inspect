@@ -1418,7 +1418,7 @@ preserves the distinction among:
 - facets and their bindings;
 - each facet's owner-issued value shape and cardinality;
 - operators and named orders;
-- Rows and exact Count terminal requirements;
+- Rows and Count terminal requirements, with Count exact or observed by its completion evidence;
 - effects and continuation acceptance; and
 - opaque external value-vocabulary and result-contract identities.
 

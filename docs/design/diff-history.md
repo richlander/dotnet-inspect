@@ -246,8 +246,10 @@ compare endpoints, or acquire package payloads.
 
 Source authorization, prerelease/listing policy, endpoint validation, ordering,
 and discovery completeness remain owned by package version resolution.
-Missing endpoints, source failure, or count-insufficient evidence produce
-visible non-success, never zero or an observed-prefix count.
+Missing endpoints or source failure produce visible non-success, never zero.
+Incomplete version discovery reports the observed versions' count with its
+incompleteness evidence, never as exact, under the section-row owner's
+[incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation).
 `--rows 2..4 --count` counts three versions only when that strict window is valid.
 
 Count-only accepts source/version-discovery context and supported version-row
@@ -561,7 +563,7 @@ requested Count result defined below. The Document preserves:
 - native census correlation and, when requested, exact-identity tracks;
 - native comparison evidence joined to its exact evaluated endpoints;
 - the Type/Member Changed Versions cohort, with its destination/predecessor
-  association and Count-sufficiency evidence; and
+  association and completion evidence; and
 - one typed terminal investigation outcome and optional typed adjacent-Diff
   actions, without host-formatted command strings; and
 - coverage, limits, and per-evaluation failures needed to interpret the
@@ -632,7 +634,8 @@ carries the Document and an optional already-bound Count component:
 | --- | --- |
 | Not requested | Absent; not a successful zero or a failed Count. |
 | Requested and established | Existing typed L2 Count result, with the Changed Versions row-set identity and exact cardinality. |
-| Requested but not established | Existing typed L2 failure, with its scope, reason, and completion evidence; no Count payload. |
+| Requested over incomplete evidence | Existing typed L2 Count result, with the Changed Versions row-set identity, the observed cardinality, and its incompleteness evidence; never presented as exact. |
+| Requested but unavailable | Existing typed L2 failure, with its scope, reason, and completion evidence; no Count payload. |
 
 The component consumes
 [L2's result algebra](section-row-shaping.md#result-binding-and-failure),
@@ -716,18 +719,23 @@ An exact whole-population change count requires established changed or
 unchanged evidence for every adjacent population transition. A sparse comparison
 across a gap remains useful endpoint evidence, but cannot identify a changed
 destination version within that gap. Failed, missing, inapplicable, or
-unevaluated evidence cannot become unchanged, zero, or a successful count of
-the observed prefix. History with fewer than two evaluated versions does not
-establish an unchanged History and is Count-insufficient for this Type/Member
-question.
+unevaluated evidence cannot become unchanged or exact zero; it leaves the
+Changed Versions cohort incomplete. Count then reports the changed versions
+that Changed Versions rows would render from the same evidence, as an observed
+count with that incompleteness evidence. History with fewer than two evaluated
+versions does not establish an unchanged History; its Count is an observed
+zero, not exact zero.
 
 Admitted row selection applies to the Changed Versions cohort before Count.
 Exactness remains relative to that logical request under the existing Count
 contract: a proven semantic prefix may suffice without complete later evidence,
 but a work limit is not a prefix selection. Unknown earlier membership cannot
 be skipped to fill a requested prefix or strict window with later known changes.
-If the requested count is not established, retain typed non-success with the
-completion evidence in the shared Count component, not a scalar or count table.
+If the requested count is not established, the shared Count component
+carries the observed cardinality with its completion evidence, never an exact
+scalar or count table, and discloses it as Changed Versions rows would. The
+current implementation predates this rule and still returns typed non-success
+without a cardinality.
 Preserve independently available History transitions and coverage in the
 sibling Document; requested evaluation failures retain their existing nonzero
 behavior.
@@ -741,10 +749,11 @@ Inferred bounds preserve this same count meaning; supplying three checkpoints
 does not turn a longer population into a three-version population.
 
 `--history --max-probes N --count` similarly retains adaptive evaluation and
-does not spend additional probes merely to establish Count. It succeeds only
-when the resulting evidence independently establishes every changed-version
-membership required by the selected Count rows; otherwise the Count component
-is typed non-success beside the usable investigation Document.
+does not spend additional probes merely to establish Count. Its Count is
+exact only when the resulting evidence independently establishes every
+changed-version membership required by the selected Count rows; otherwise the
+Count component reports the observed cardinality with its incompleteness
+evidence beside the usable investigation Document.
 
 These illustrative sequences describe the contract, not measured package data:
 
@@ -752,9 +761,9 @@ These illustrative sequences describe the contract, not measured package data:
 | --- | --- |
 | `A -> A -> A`, every adjacent comparison established | `0` |
 | `A -> B -> A`, every adjacent comparison established | `2`, even when the middle version has many changed detail rows |
-| Only first and last evaluated in `A -> ? -> A` | Non-success; the gap may contain a change and reversion |
-| `A -> failed -> B` | Non-success; preserve the usable evaluations and failure |
-| Only one version evaluated | Non-success; no established transition evidence |
+| Only first and last evaluated in `A -> ? -> A` | Observed `0`, incomplete; the gap may contain a change and reversion |
+| `A -> failed -> B` | Observed count of the established changes, incomplete; preserve the usable evaluations and failure |
+| Only one version evaluated | Observed `0`, incomplete; no established transition evidence |
 
 This follows the existing Count convention of counting logical cohort rows,
 while endpoint Diff and identity-track/detail counts answer different
@@ -771,8 +780,8 @@ evaluations retain their evidence beside usable points. Unselected points are
 not failures. The CLI returns nonzero for a failed requested evaluation,
 unfulfilled work bound, or invalid/unavailable request, while preserving any
 usable document output; deliberate sparse work may succeed.
-Such a History result does not imply an exact change count: an insufficient
-Count request follows the non-success rule above.
+Such a History result does not imply an exact change count: a Count request
+over it reports an observed count under the incompleteness rule above.
 
 The existing [inspection envelope](inspection-envelope.md) owns Share and
 diagnostics. Until its Share owner can faithfully represent this range,
@@ -873,7 +882,7 @@ designs decide controls, applicability, result installation, navigation, and
 retained mode state. This specification does not add a tab, alter sticky
 navigation, or create another Workspace lifecycle. Unevaluated versions, gaps,
 and failed points must remain distinguishable in that host's projection.
-Changed Versions and its Count-sufficiency evidence reach that host in the same
+Changed Versions and its completion evidence reach that host in the same
 shared baseline as the CLI, even when the current view hides that cohort.
 
 ## Future population construction
@@ -1055,17 +1064,19 @@ The implementation slices must supply Release gates for:
   population, combined `--at` and automatic selection, or any History-only
   input without History;
 - count-only versions, filtered version counts, and Count after an explicit
-  operation, retaining the declared unit and rejecting insufficient evidence;
+  operation, retaining the declared unit and reporting incomplete evidence as
+  an observed count;
 - Type/Member changed-version counts for unchanged adjacent versions, several
   changed details in one version, multiple changed versions, and a change
   followed by reversion;
-- Count-insufficient single-evaluation, sparse-gap, and failed
-  evaluation cases, retaining useful independent History evidence;
+- incomplete single-evaluation, sparse-gap, and failed evaluation cases
+  reporting an observed Count with their incompleteness evidence, retaining
+  useful independent History evidence;
 - Changed Versions section/default binding, incompatible Count cohort
   rejection before acquisition, and row shaping without predecessor rebasing
   or silently skipping unknown earlier membership;
 - exact semantic-prefix Count evidence versus work-bound truncation, preserving
-  the existing Count-sufficiency distinction;
+  the exact-versus-observed Count distinction;
 - shared Content distinguishing no requested Count, successful zero/nonzero
   Count, and typed Count failure beside the retained History Document;
 - complete Count-request Content/envelope serialization and both-host delivery,

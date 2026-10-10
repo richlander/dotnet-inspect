@@ -612,22 +612,20 @@ dotnet-inspect package System.Text.Json -n 12
 dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 11..20
 ```
 
-- `--count` reports exact cardinality after the selected candidate set's
-  preceding semantic item/range stages, as defined by
+- `--count` reports the cardinality of the rows that would render after the
+  selected candidate set's preceding semantic item/range stages, as defined by
   [Section-row shaping](section-row-shaping.md#count-semantics). The focused L3
   design will decide final conflicts involving row addresses or rendered-line
-  windows. An upstream-bounded source may return Count only when it proves
-  exact completion for the logical request; a provider, work, page, time, or
-  memory cap is not semantic selection and must remain disclosed rather than
-  becoming a corpus total. `package query`'s candidate `--take` remains
-  non-semantic, so Count requires exact completion evidence for the authorized
-  candidate population rather than reporting the work ceiling; an explicit
-  `-n 20` is semantic `Head(20)`. Without explicit `--take`, Package Query may
-  push a lone Head into direct candidate or filtered match execution; reaching
-  that derived Head is complete for the selected rows rather than a candidate
-  truncation. A Rows request may still render rows from an explicitly
-  candidate-bounded query with its incompleteness disclosure; that does not
-  make the candidate cap semantic or Count-sufficient.
+  windows. Count is exact only when the evidence is complete for the logical
+  request; a provider, work, page, time, or memory cap is not semantic
+  selection and never becomes a corpus total. Under incomplete evidence, Rows
+  and Count both report what was observed, with the same disclosure and exit
+  status. `package query`'s candidate `--take` remains non-semantic, so a
+  reached candidate bound yields an observed match count, not the work
+  ceiling; an explicit `-n 20` is semantic `Head(20)`. Without explicit
+  `--take`, Package Query may push a lone Head into direct candidate or
+  filtered match execution; reaching that derived Head is complete for the
+  selected rows rather than a candidate truncation.
 - `-n N` and numeric shorthand such as `-6` limit declared items independently
   within each row set after filtering and ordering. `package query` keeps this
   semantic selection separate from explicit `--take`; without explicit

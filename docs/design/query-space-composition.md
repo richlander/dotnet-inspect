@@ -64,7 +64,11 @@ facts for every participating set. Rows execute residual shaping only for
 usable sets and preserve source-only companions. Count consumes accepted exact
 cardinalities without Rows, executes residual shaping only for sufficient row
 handoffs, and returns every source outcome without entering a residual cohort
-when any set is insufficient. Exact zero remains a first-class result.
+when any set is insufficient. Exact zero remains a first-class result. That
+path predates the section-row owner's
+[incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation): it
+still refuses Count for an incomplete Rows-usable set instead of reporting its
+observed cardinality.
 
 The immutable request-set reference planner now validates the complete set
 before acquisition, retains caller association and owner resource identities,
@@ -131,7 +135,7 @@ This owner defines:
 - the closed query-language boundary shared by hosts;
 - the requirement that resolved plans preserve inspectable structural meaning
   beside executable machinery;
-- preservation of owner-issued Rows, exact Count, and Exists terminal
+- preservation of owner-issued Rows, Count, and Exists terminal
   branches;
 - the distinction among semantic selection, work bounds, source continuation,
   delivery demand, and rendering windows;
@@ -263,7 +267,7 @@ One query space is an immutable effective binding containing:
 | Operation scope | One Query Operation definition, operation-only query-vocabulary identity, subject role, result grain, and operation profile. |
 | Row-query scopes | One or more stable scope identities, each pairing one row query vocabulary with the compatible declared row-set identities and shaping capabilities to which an instance of that intent may apply. |
 | Request shape | One operation intent plus optional section-owned projection intent, zero or more ordered row-intent associations, a non-empty participating row-set selection, and one terminal requirement. |
-| Terminal space | The supported terminal requirements, including Rows, exact Count, and owner-issued Exists, preserving each participating row-set identity. |
+| Terminal space | The supported terminal requirements, including Rows, Count, and owner-issued Exists, preserving each participating row-set identity. |
 | Effects | The capability, acquisition, work, and completion consequences reachable through the effective bindings. |
 | Continuation acceptance | Whether this result composition can preserve an adjacent source contract's continuation; the selected source offer supplies any effective continuation capability. |
 | Result-contract references | Optional owner-issued mapping from a terminal/result shape to the output contract it produces; schema, Content Kind, and serialization remain with the output owner. |
@@ -700,7 +704,7 @@ subject or population binding
   -> semantic Head, Tail, Window, or Top
   -> one terminal branch:
      -> selected rows -> cell projection -> Rows
-     -> selected rows -> exact Count
+     -> selected rows -> Count
 ```
 
 This is the [Section-row shaping](section-row-shaping.md#reference-composition)
@@ -779,7 +783,7 @@ Kind, or schema generation.
 
 ## Terminal requirements
 
-Rows and exact Count are peer terminal requirements over each participating
+Rows and Count are peer terminal requirements over each participating
 row set's selected sequence after membership projection, predicates, effective
 order, and semantic selection. Exists is the Boolean closing defined by
 [Open and closed queries](open-and-closed-queries.md): it settles when the
@@ -809,13 +813,14 @@ semantic execution begins, publication is atomic: a later cohort failure
 publishes no earlier Row-outcomes.
 
 **Count** validates cell-projection intent but does not execute it, because the
-terminal result has no row cells. A successful result contains one exact
+terminal result has no row cells. A successful result contains one
 cardinality, including zero, for every participating selected row set in
-declaration order. It does not invent an aggregate across independently
-declared sets; an aggregate exists only when the producer declared one
-aggregate row set before shaping. A typed non-count outcome remains visible,
-and an observed row count is never returned as though it were exact. Count may
-be satisfied for a participating set:
+declaration order, each exact or observed according to that set's evidence.
+It does not invent an aggregate across independently declared sets; an
+aggregate exists only when the producer declared one aggregate row set before
+shaping. A typed non-count outcome remains visible, and an observed row count
+is never returned as though it were exact. Count is exact for a participating
+set:
 
 - by logical exhaustion after local or delegated execution;
 - by an owner-accepted exact source Count witness; or
@@ -831,17 +836,19 @@ snapshot and uses the reference interpreter; it cannot consume a
 cardinality-only declaration.
 
 Count publication is all-or-failure across the participating sets. A failed,
-`Absent`, or Count-insufficient source outcome prevents every Count entry,
+`Absent`, or Rows-unavailable source outcome prevents every Count entry,
 preserves every participating set's disposition and completion evidence in one
 typed source failure, carries no row values or Count payload, and invokes no
-residual row-query or semantic execution. If residual execution begins, a
+residual row-query or semantic execution. An incomplete Rows-usable set enters
+residual execution and contributes its observed cardinality with its
+incompleteness evidence, as Rows would render it. If residual execution begins, a
 later row-query or semantic failure likewise publishes no partial Count.
 Already-reached owner-defined observations remain governed by the section-row
 failure-precedence contract.
 
 Count remains first class because it tests whether every layer preserves
 semantic scope and completion. A provider's candidate count, total-hit field,
-page size, work bound, or observed match count is not automatically the final
+page size, work bound, or observed match count is not automatically an exact
 Count.
 
 A future combined preview-and-count shape would carry two independent
@@ -1031,7 +1038,8 @@ The eventual implementation and adopter gates must preserve these cases:
 - `Head(10)` finds ten rows and returns a continuation. The semantic query is
   complete, while the underlying population is explicitly not exhausted.
 - Unbounded Count reaches a candidate limit with 327 observed matches and a
-  continuation. No exact Count is returned.
+  continuation. Count returns 327 as observed, with the candidate-limit
+  incompleteness evidence; no exact Count is returned.
 - A source provides an exact filtered Count and only the first 20 rows. Count
   is exact, row delivery is partial, and seekability is not inferred.
 - NuGet Search reports `totalHits` for its broader ranked query. Exact-prefix
@@ -1062,10 +1070,14 @@ The eventual implementation and adopter gates must preserve these cases:
 - Two participating row sets contain three and five selected rows. Count
   returns ordered entries `(first, 3)` and `(second, 5)` rather than an invented
   total of eight.
-- Two participating row sets are requested for Count, but one is
-  Count-insufficient. The result preserves both source dispositions and
-  completion evidence, executes no residual shaping, and publishes no Count
-  entries for either set.
+- Two participating row sets are requested for Count, but one source failed.
+  The result preserves both source dispositions and completion evidence,
+  executes no residual shaping, and publishes no Count entries for either set.
+- Two participating row sets are requested for Count. The first is complete
+  with three selected rows; the second stopped at a work bound after four
+  usable rows. Count returns `(first, 3)` as exact and `(second, 4)` as
+  observed, with the second set's incompleteness evidence, matching the rows
+  Rows would render.
 - A route declares no row sets. It may expose its operation capabilities but
   cannot form a terminal query space or advertise Rows or Count.
 - A Rows request receives one incomplete-but-usable set and one failed set. It
@@ -1144,7 +1156,7 @@ slices:
 | `QuerySpaceRequestLowersToExplicitRowAssociations` | One operation intent and zero or more ordered row-intent associations lower deterministically; the operation intent rejects order and semantic stages, row intents reject execution bounds, every participating set is assigned exactly once, one shared association targets only compatible sets, heterogeneous or independently shaped sets remain separate, ambiguous unqualified order or selection fails before execution, and selection executes exactly once after row predicates. |
 | `EffectiveQuerySpaceIdentitiesRemainScoped` | Handwritten and generated registration reject duplicate canonical term keys across the query space; each portable intent resolves inside one operation or row query vocabulary; same-named owner-local families and predicates remain isolated across scopes, while distinct keys within one scope preserve their shared combining, exclusive, required-family, and duplicate-binding behavior. |
 | `OperationAndRowFacetStagesRemainDistinct` | An operation facet may authorize work; a row facet cannot, and identical display spelling never changes the bound stage. |
-| `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `SelectedRowSetListIsNonEmpty`, `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, `RowsPreserveIndependentSourceOutcomes`, `IncompleteRowsRemainVisibleWithoutBecomingCount`, `CrossCohortRowsAreAtomicOnExecutionFailure`, `CountObservesPrecedingSemanticStages`, `CountPreservesDeclaredRowSetScope`, `CountFailurePrecedenceIsDeterministic`, and `CountSourceFailureBindingPreservesOutcomes`; terminal resolution requires a participating row set, Rows preserves independent source evidence but publishes no partial execution result, and Count preserves its owner-issued success and all-or-failure branches. `CountCapturesCardinalityWhileRowsCaptureValues` verifies the terminal-specific snapshot boundary and caller-mutation isolation for the Graph Libraries adopter. |
+| `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `SelectedRowSetListIsNonEmpty`, `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, `RowsPreserveIndependentSourceOutcomes`, `IncompleteRowsAndCountReportOneObservation`, `CrossCohortRowsAreAtomicOnExecutionFailure`, `CountObservesPrecedingSemanticStages`, `CountPreservesDeclaredRowSetScope`, `CountFailurePrecedenceIsDeterministic`, and `CountSourceFailureBindingPreservesOutcomes`; terminal resolution requires a participating row set, Rows preserves independent source evidence but publishes no partial execution result, and Count preserves its owner-issued success and all-or-failure branches. `CountCapturesCardinalityWhileRowsCaptureValues` verifies the terminal-specific snapshot boundary and caller-mutation isolation for the Graph Libraries adopter. |
 | `QuerySpacePreservesExistsClosing` | The unsafe-evidence descriptor advertises only Exists, its owner-issued request retains the method-definition row set and result contract, and request resolution lowers that closing to the Producer Planning Exists terminal before image acquisition. The production borrowed-context gate verifies successful early-stop execution publishes the corresponding producer receipt without prefetched image access; the incomplete-before-evidence gate verifies a failed execution preserves its typed producer outcome and receipt while pre-execution failures remain distinct. |
 | `RequestSetRejectsInvalidAssociationsWithoutWork` | Duplicate association identities, absent resource identities, unresolved requests, source bindings inconsistent with their resource associations, and result-contract mismatches reject the complete set before acquisition. |
 | `CollapsePreservesIndependentReferenceResults` | Source-native, shared-read, singleton, and deliberately unshared plans publish the same per-request values, outcomes, failure units, completion, and evidence as independent reference executions. |
