@@ -35,7 +35,7 @@ public static class FixedBufferMetadata
         CustomAttributeHandleCollection attributes,
         int maxAttributeRows,
         Action<int>? beforeMaterialize,
-        Action? beforeRow = null)
+        MemorySafetyMetadataWorkRecorder? work = null)
     {
         if (attributes.Count > maxAttributeRows)
         {
@@ -48,7 +48,8 @@ public static class FixedBufferMetadata
         bool malformed = false;
         foreach (var handle in attributes)
         {
-            beforeRow?.Invoke();
+            if (work is not null)
+                work.MemberAttributeRows++;
             try
             {
                 var attribute = reader.GetCustomAttribute(handle);
@@ -67,10 +68,18 @@ public static class FixedBufferMetadata
                 {
                     continue;
                 }
-                if (!AttributeReader.HasExpectedSystemTypeInt32Constructor(
+                if (!MemorySafetyMetadataWorkRecorder.ObserveConstructor(
+                        work,
+                        reader,
+                        attribute.Constructor)
+                    || !AttributeReader.HasExpectedSystemTypeInt32Constructor(
                         reader,
                         attribute.Constructor,
                         beforeMaterialize)
+                    || !MemorySafetyMetadataWorkRecorder.ObserveValue(
+                        work,
+                        reader,
+                        attribute)
                     || AttributeDecoder
                         .TryDecodePreservingSerializedTypeNames(
                             reader,

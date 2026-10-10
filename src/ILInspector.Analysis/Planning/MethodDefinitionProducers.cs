@@ -578,9 +578,14 @@ public readonly ref struct MethodDefinitionView
     {
         MemorySafetyContractLookup lookup =
             BeginMemorySafetyQuery(out MemorySafetyMetadataWork before);
-        MemorySafetyRulesResult rules = lookup.Rules;
-        _unit.EndMemorySafetyQuery(lookup, before);
-        return rules;
+        try
+        {
+            return lookup.Rules;
+        }
+        finally
+        {
+            _unit.EndMemorySafetyQuery(lookup, before);
+        }
     }
 
     /// <summary>
@@ -592,10 +597,14 @@ public readonly ref struct MethodDefinitionView
     {
         MemorySafetyContractLookup lookup =
             BeginMemorySafetyQuery(out MemorySafetyMetadataWork before);
-        MemorySafetyMemberContractResult contract =
-            lookup.GetMemberContract(member);
-        _unit.EndMemorySafetyQuery(lookup, before);
-        return contract;
+        try
+        {
+            return lookup.GetMemberContract(member);
+        }
+        finally
+        {
+            _unit.EndMemorySafetyQuery(lookup, before);
+        }
     }
 
     /// <summary>
@@ -607,10 +616,14 @@ public readonly ref struct MethodDefinitionView
     {
         MemorySafetyContractLookup lookup =
             BeginMemorySafetyQuery(out MemorySafetyMetadataWork before);
-        MemorySafetyMethodContract contract =
-            lookup.GetMethodContract(method);
-        _unit.EndMemorySafetyQuery(lookup, before);
-        return contract;
+        try
+        {
+            return lookup.GetMethodContract(method);
+        }
+        finally
+        {
+            _unit.EndMemorySafetyQuery(lookup, before);
+        }
     }
 
     MemorySafetyContractLookup BeginMemorySafetyQuery(

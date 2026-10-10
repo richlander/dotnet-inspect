@@ -396,9 +396,12 @@ The source receipt carries `MemorySafetyContractCoverage`. Construction work is
 the CustomAttribute ordering scan, the TypeDef, MethodDef, NestedClass,
 Property, and Event integrity scan, the Property, Event, and MethodSemantics
 association projection, and the module CustomAttribute rows. Query work is the
-member CustomAttribute rows read. Both report the bounded name characters and
-signature bytes observed. Signature bytes include TypeSpec blobs reached from
-a member signature. Coverage also records the MethodDefs whose visits queried
+member CustomAttribute rows read. Both report the name characters admitted by
+the name budget and the signature bytes opened for decoding. Signature bytes
+are the full length of each blob decoded: member signatures, TypeSpecs reached
+from them, accessor-shape signatures, and, for each attribute row whose type
+matched, its constructor signature and then its value blob. Coverage also
+records the MethodDefs whose visits queried
 the lookup and the number of queries.
 
 The physical group receipt records construction once and all query work. A

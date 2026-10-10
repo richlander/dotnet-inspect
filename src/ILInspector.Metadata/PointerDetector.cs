@@ -150,18 +150,7 @@ internal sealed class PointerDetector : ISignatureTypeProvider<PointerDetection,
         BlobHandle blob,
         MemorySafetyMetadataWorkRecorder? work)
     {
-        if (work is null)
-            return;
-
-        // An unreadable blob is left to the guarded decode, so receipting
-        // never changes the evidence the decode reports.
-        try
-        {
-            work.ObserveSignatureBytes(reader.GetBlobReader(blob).Length);
-        }
-        catch (BadImageFormatException)
-        {
-        }
+        work?.ObserveBlob(reader, blob);
     }
 
     public PointerDetection GetSZArrayType(PointerDetection elementType) => elementType;

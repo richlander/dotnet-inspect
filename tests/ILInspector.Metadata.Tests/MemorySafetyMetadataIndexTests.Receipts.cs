@@ -244,6 +244,43 @@ public sealed partial class MemorySafetyMetadataIndexTests
                 legacy.Reader.GetMethodDefinition(pointer).Signature).Length,
             legacyIndex.RecordedWork!.Since(beforePointer).SignatureBytes);
 
+        using OpenedMetadata compiler = Open(typeof(ContractFixtures));
+        MemorySafetyMetadataIndex compilerIndex =
+            MemorySafetyMetadataIndex.CreateReceipted(compiler.Reader);
+        MethodDefinitionHandle explicitMethod = FindMethod(
+            compiler.Reader,
+            typeof(ContractFixtures).FullName!,
+            nameof(ContractFixtures.MethodContract));
+        MemorySafetyMetadataWork beforeExplicit = compilerIndex.RecordedWork!;
+        Assert.IsType<MemorySafetyMemberContractResult.Explicit>(
+            compilerIndex.GetMemberContract(explicitMethod));
+        MemorySafetyMetadataWork explicitWork =
+            compilerIndex.RecordedWork!.Since(beforeExplicit);
+        CustomAttributeHandleCollection explicitAttributes =
+            compiler.Reader.GetMethodDefinition(explicitMethod)
+                .GetCustomAttributes();
+        long expectedAttributeBytes = 0;
+        foreach (CustomAttributeHandle handle in explicitAttributes)
+        {
+            CustomAttribute attribute =
+                compiler.Reader.GetCustomAttribute(handle);
+            if (AttributeTypeName(compiler.Reader, attribute)
+                != "RequiresUnsafeAttribute")
+            {
+                continue;
+            }
+
+            expectedAttributeBytes +=
+                ConstructorSignatureLength(
+                    compiler.Reader,
+                    attribute.Constructor)
+                + compiler.Reader.GetBlobReader(attribute.Value).Length;
+        }
+
+        Assert.True(expectedAttributeBytes > 0);
+        Assert.Equal(expectedAttributeBytes, explicitWork.SignatureBytes);
+        Assert.Equal(explicitAttributes.Count, explicitWork.MemberAttributeRows);
+
         using OpenedMetadata unsorted = Open(
             WithSwappedCustomAttributeRows(BuildSyntheticImage([2])));
         MemorySafetyMetadataWork failed =
@@ -321,6 +358,41 @@ public sealed partial class MemorySafetyMetadataIndexTests
 
         return (image, associationRows, attributeRows, nameChars);
     }
+
+    static string AttributeTypeName(
+        MetadataReader reader,
+        CustomAttribute attribute)
+    {
+        EntityHandle type = attribute.Constructor.Kind switch
+        {
+            HandleKind.MemberReference =>
+                reader.GetMemberReference(
+                    (MemberReferenceHandle)attribute.Constructor).Parent,
+            HandleKind.MethodDefinition =>
+                reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)attribute.Constructor)
+                    .GetDeclaringType(),
+            _ => default,
+        };
+        return type.Kind switch
+        {
+            HandleKind.TypeReference => reader.GetString(
+                reader.GetTypeReference((TypeReferenceHandle)type).Name),
+            HandleKind.TypeDefinition => reader.GetString(
+                reader.GetTypeDefinition((TypeDefinitionHandle)type).Name),
+            _ => "",
+        };
+    }
+
+    static int ConstructorSignatureLength(
+        MetadataReader reader,
+        EntityHandle constructor) =>
+        reader.GetBlobReader(
+            constructor.Kind == HandleKind.MemberReference
+                ? reader.GetMemberReference(
+                    (MemberReferenceHandle)constructor).Signature
+                : reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)constructor).Signature).Length;
 
     static IEnumerable<EntityHandle> AllMembers(MetadataReader reader)
     {

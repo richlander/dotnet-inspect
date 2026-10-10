@@ -886,7 +886,7 @@ public sealed class MemorySafetyMetadataIndex
                 field.GetCustomAttributes(),
                 _attributeRowBudget,
                 nameBudget.Observe,
-                _work is null ? null : ObserveMemberAttributeRow);
+                _work);
         }
         catch (MetadataBudgetException)
         {
@@ -938,10 +938,18 @@ public sealed class MemorySafetyMetadataIndex
                     continue;
                 }
 
-                if (AttributeReader.HasExpectedMarkerConstructor(
+                if (MemorySafetyMetadataWorkRecorder.ObserveConstructor(
+                        _work,
+                        _reader,
+                        attribute.Constructor)
+                    && AttributeReader.HasExpectedMarkerConstructor(
                         _reader,
                         attribute.Constructor,
                         nameBudget.Observe)
+                    && MemorySafetyMetadataWorkRecorder.ObserveValue(
+                        _work,
+                        _reader,
+                        attribute)
                     && AttributeDecoder.TryDecode(
                         _reader,
                         attribute,
@@ -1084,6 +1092,7 @@ public sealed class MemorySafetyMetadataIndex
                         reader,
                         attribute,
                         nameBudget.Observe,
+                        work,
                         out int markerVersion))
                 {
                     observations.Add(
@@ -1161,12 +1170,21 @@ public sealed class MemorySafetyMetadataIndex
         MetadataReader reader,
         CustomAttribute attribute,
         Action<int> beforeMaterialize,
+        MemorySafetyMetadataWorkRecorder? work,
         out int version)
     {
-        if (AttributeReader.HasExpectedInt32Constructor(
+        if (MemorySafetyMetadataWorkRecorder.ObserveConstructor(
+                work,
+                reader,
+                attribute.Constructor)
+            && AttributeReader.HasExpectedInt32Constructor(
                 reader,
                 attribute.Constructor,
                 beforeMaterialize)
+            && MemorySafetyMetadataWorkRecorder.ObserveValue(
+                work,
+                reader,
+                attribute)
             && AttributeDecoder.TryDecode(
                 reader,
                 attribute,
@@ -1562,7 +1580,7 @@ public sealed class MemorySafetyMetadataIndex
             }
             finally
             {
-                work?.ObserveSignatureBytes(blob.Offset);
+                work?.ObserveBlob(reader, property.Signature);
             }
         }
         catch (BadImageFormatException)
@@ -1594,7 +1612,7 @@ public sealed class MemorySafetyMetadataIndex
             }
             finally
             {
-                work?.ObserveSignatureBytes(blob.Offset);
+                work?.ObserveBlob(reader, signature);
             }
         }
         catch (BadImageFormatException)
