@@ -205,8 +205,9 @@ result, the answer is a partial view of an unbounded question.
 The window does not require eager evaluation. Materializing it before
 selection, as in `Window(20).ToList().Where(match).Head(5)`, is not a semantic
 requirement and gives up the early stop that makes a lone Head cheap. Only a
-later operation that needs every candidate in the window evaluates all of it:
-Tail, Top, global ordering, aggregation, or Count without a satisfied Head.
+request whose answer depends on every candidate in the window evaluates all of
+it: Rows or Count without a satisfied Head or closed row window, Tail, Top,
+global ordering, and aggregation.
 
 ### Why `-n` and `--take` remain distinct
 
@@ -593,10 +594,11 @@ work dimension. Its adoption:
 
 - exposes `--take` for package candidates and `-n` for final matched packages;
 - removes `--candidates` and `--matches` without aliases;
-- carries an absent shared match budget when `-n` is absent or explicit
-  `--take` fixes the candidate population;
-- delegates a lone semantic Head through the shared match budget and, for the
-  direct row path, the candidate budget; and
+- carries an absent shared match budget when the row plan is not one Head
+  operation;
+- delegates a lone semantic Head through the shared match budget, with or
+  without explicit `--take`, and, for the direct row path without explicit
+  `--take`, the candidate budget; and
 - still applies `-n` after owner-defined result construction as the semantic
   backstop.
 
@@ -645,8 +647,9 @@ Every adopting command must gate at least:
 - the bounded population visible as the answer's scope when the explicit
   bound constrains execution, and visible incompleteness when a default
   ceiling, failure, or other constraint does;
-- exact Count for a bounded population only with completion evidence for every
-  item inside it, never presented as a total for the wider scope;
+- exact Count only when semantic selection establishes it, such as a
+  witnessed `Head(N)`, or when every item inside the bound was evaluated
+  without failure, and never presented as a total for the wider scope;
 - preservation of failures observed before the bound stops work;
 - preservation of failures encountered before a source-delegated Head is
   satisfied;

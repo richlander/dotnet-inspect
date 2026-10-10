@@ -573,8 +573,8 @@ operation rather than empty success.
 The low-compatibility migration removes `--candidates` and `--matches`; they do
 not remain aliases or retirement shims. The shared query engine may retain its
 host-neutral match-budget capability. The CLI does not expose that budget as
-another option; it infers one only from a lone semantic Head when no explicit
-`--take` is present.
+another option; it infers one only from a lone semantic Head, with or without
+explicit `--take`.
 
 The owner-issued query request, accepted plan, execution state, and summary
 therefore carry the same optional match budget end to end. Planning preserves
@@ -1072,8 +1072,8 @@ separate `MaximumCandidates` and `MaximumMatches` and stops before later
 candidate acquisition when the match budget is reached.
 `ExecuteAsync_FiltersBeforeMatchLimitAndStopsManifestAcquisition` and
 `ExecuteAsync_ExactExhaustionAtMatchLimitIsConservative` gate that shared
-behavior. The CLI supplies that budget for a lone semantic Head only when no
-explicit `--take` fixes a larger candidate population. A
+behavior. The CLI supplies that budget for a lone semantic Head, including
+inside an explicit `--take` window. A
 `MatchLimitReached` completion produced by this lowering is successful
 completion of the requested Head and does not warn that the package-ID scope
 was not exhausted. Existing Browser callers retain their current match-stop
@@ -1092,8 +1092,9 @@ parity.
 accepted plan and summary unchanged without defaulting or sentinel conversion.
 `SemanticHeadWithoutTake_BoundsDirectRowsAndMatches` must prove the direct
 one-row-per-candidate lowering, while
-`ExplicitTake_PreventsSemanticHeadPushdown` must preserve the full explicit
-candidate population.
+`ExplicitTake_KeepsSemanticHeadPushdownInsideWindow` must stop at the Nth
+match inside an explicit candidate window, never evaluate past the window, and
+evaluate the whole window when the row plan is not one Head.
 `PresentMatchBudget_PreservesExistingStopBehavior` must retain the current
 product behavior for Browser and other budgeted callers, including the
 numeric summary denominator and completion mapping. Existing Package Query gates continue to own the shared product match-budget
