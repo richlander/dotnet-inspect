@@ -103,7 +103,7 @@ public partial class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(56 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(57 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
         Assert.Contains(IntegrationSectionNames.Integrations, pipeline.AllSectionNames);
         Assert.Contains("Context: Callsite", pipeline.AllSectionNames);
@@ -136,6 +136,9 @@ public partial class SectionPipelineTests
         Assert.Contains("Performance: Loop Hot Paths", pipeline.AllSectionNames);
         Assert.Contains("Performance: Allocation Hotspots", pipeline.AllSectionNames);
         Assert.Contains("Performance: Async", pipeline.AllSectionNames);
+        Assert.Contains(
+            "Performance: Sync Calls in Async",
+            pipeline.AllSectionNames);
         Assert.Contains("Performance: Other", pipeline.AllSectionNames);
         Assert.DoesNotContain("Performance Triage", pipeline.AllSectionNames);
         Assert.Contains("Array Pool Escapes", pipeline.AllSectionNames);
@@ -240,6 +243,8 @@ public partial class SectionPipelineTests
                 LibrarySections.PerformanceHotspots.SizeClass),
             (LibrarySections.PerformanceAsync.Name,
                 LibrarySections.PerformanceAsync.SizeClass),
+            (LibrarySections.PerformanceSyncCallsInAsync.Name,
+                LibrarySections.PerformanceSyncCallsInAsync.SizeClass),
             (LibrarySections.PerformanceOther.Name,
                 LibrarySections.PerformanceOther.SizeClass),
             (LibrarySections.ArrayPoolEscapes.Name,
@@ -580,6 +585,9 @@ public partial class SectionPipelineTests
         // sections are outside the base scope and therefore hidden from the flat base catalog.
         foreach (var kind in PerformanceKinds.Sections)
             Assert.Contains(kind, hidden);
+        Assert.Contains(
+            SectionNames.PerformanceSyncCallsInAsync,
+            hidden);
         foreach (var integration in new[]
                  {
                      IntegrationSectionNames.Integrations,
@@ -670,6 +678,7 @@ public partial class SectionPipelineTests
                          SectionNames.SourceLinkMissingFiles,
                          SectionNames.SourceLinkIntegrity,
                          SectionNames.TopLeverage,
+                         SectionNames.PerformanceSyncCallsInAsync,
                          SectionNames.ArrayPoolEscapes
                      ]))
         {
@@ -714,6 +723,9 @@ public partial class SectionPipelineTests
             queries);
         Assert.Contains(
             OptimizationOpportunitiesQuery.Definition,
+            queries);
+        Assert.Contains(
+            SyncCallsInAsyncDemand.Section,
             queries);
 
         Assert.Contains(

@@ -84,10 +84,41 @@ public class PerformanceKindsTests
         };
         PerformanceProjection projection = Assert.IsType<
             PerformanceProjection>(
-                PerformanceProjection.FromOpportunities([row]));
+                PerformanceProjection.FromFindings(
+                    [row],
+                    syncCallsInAsync: null));
 
         Assert.Equal([row], projection.Strings);
         Assert.Null(projection.Other);
+    }
+
+    [Fact]
+    public void PerformanceProjection_ExcludesLegacySyncCallRows()
+    {
+        var legacy = new OptimizationOpportunitySummary
+        {
+            Shape = "sync-call-in-async",
+        };
+        var syncCall = new SyncCallInAsyncSummary
+        {
+            Caller = "Caller",
+            Callee = "Callee",
+            Alternative = "Alternative",
+            PairKind = "Operation",
+        };
+
+        PerformanceProjection projection = Assert.IsType<
+            PerformanceProjection>(
+                PerformanceProjection.FromFindings(
+                    [legacy],
+                    [syncCall]));
+
+        Assert.Null(projection.Async);
+        Assert.Equal([syncCall], projection.SyncCallsInAsync);
+        Assert.Null(
+            PerformanceProjection.FromFindings(
+                [legacy],
+                syncCallsInAsync: null));
     }
 
     [Fact]

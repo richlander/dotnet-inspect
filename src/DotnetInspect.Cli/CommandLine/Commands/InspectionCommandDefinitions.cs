@@ -903,11 +903,21 @@ public static class InspectionCommandDefinitions
                 if (performanceTriage.Shapes is { Length: > 0 })
                 {
                     var kinds = performanceTriage.Shapes
-                        .Select(PerformanceKinds.SectionForShape)
+                        .Select(
+                            PerformanceKinds.SectionForRequestedShape)
                         .Distinct(StringComparer.Ordinal)
                         .ToArray();
                     if (kinds.Length == 1)
                         targets = kinds;
+                    else if (kinds.Contains(
+                        SectionNames.PerformanceSyncCallsInAsync,
+                        StringComparer.Ordinal))
+                    {
+                        targets =
+                        [
+                            .. PerformanceKinds.TabularSections,
+                        ];
+                    }
                 }
                 select = [.. select ?? [], .. targets];
             }

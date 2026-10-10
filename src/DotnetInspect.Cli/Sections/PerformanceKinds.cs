@@ -11,6 +11,8 @@ using ILInspector.Analysis;
 /// </summary>
 public static class PerformanceKinds
 {
+    public const string SyncCallsInAsyncShape = "sync-call-in-async";
+
     /// <summary>The kind-scoped performance sections, in curated display order.</summary>
     public static readonly string[] Sections =
     [
@@ -25,6 +27,12 @@ public static class PerformanceKinds
         SectionNames.PerformanceOther,
     ];
 
+    public static IReadOnlyList<string> TabularSections { get; } =
+    [
+        .. Sections,
+        SectionNames.PerformanceSyncCallsInAsync,
+    ];
+
     /// <summary>
     /// Resolves the section that renders a given opportunity shape. Unmapped shapes route to
     /// <see cref="SectionNames.PerformanceOther"/> so the scan is never silently lossy.
@@ -32,6 +40,17 @@ public static class PerformanceKinds
     public static string SectionForShape(string? shape) =>
         SectionForKind(
             OptimizationOpportunityRowSpace.KindForShape(shape));
+
+    public static string SectionForRequestedShape(string? shape) =>
+        IsSyncCallsInAsyncShape(shape)
+            ? SectionNames.PerformanceSyncCallsInAsync
+            : SectionForShape(shape);
+
+    public static bool IsSyncCallsInAsyncShape(string? shape) =>
+        string.Equals(
+            shape,
+            SyncCallsInAsyncShape,
+            StringComparison.OrdinalIgnoreCase);
 
     public static OptimizationOpportunityCuratedQuery QueryForSection(
         string section) =>
@@ -66,16 +85,27 @@ public static class PerformanceKinds
     public static ImmutableArray<OptimizationOpportunity> Select(
         string section,
         IEnumerable<OptimizationOpportunity> opportunities) =>
-        OptimizationOpportunityRowSpace.SelectPartition(
-            QueryForSection(section),
-            opportunities);
+        [
+            .. OptimizationOpportunityRowSpace.SelectPartition(
+                    QueryForSection(section),
+                    opportunities)
+                .Where(opportunity =>
+                    section != SectionNames.PerformanceAsync
+                    || !IsSyncCallsInAsyncShape(opportunity.Shape)),
+        ];
 
     public static bool Any(
         string section,
         IEnumerable<OptimizationOpportunity> opportunities) =>
-        OptimizationOpportunityRowSpace.Any(
-            QueryForSection(section),
-            opportunities);
+        section == SectionNames.PerformanceAsync
+            ? OptimizationOpportunityRowSpace.SelectPartition(
+                    QueryForSection(section),
+                    opportunities)
+                .Any(static opportunity =>
+                        !IsSyncCallsInAsyncShape(opportunity.Shape))
+            : OptimizationOpportunityRowSpace.Any(
+                QueryForSection(section),
+                opportunities);
 
     private static string SectionForKind(
         OptimizationOpportunityKind kind) => kind switch
@@ -138,8 +168,14 @@ public static class PerformanceKinds
         if (sections.Count == 0)
             return false;
         foreach (var section in sections)
-            if (Array.IndexOf(Sections, section) < 0)
+        {
+            if (!TabularSections.Contains(
+                    section,
+                    StringComparer.OrdinalIgnoreCase))
+            {
                 return false;
+            }
+        }
         return true;
     }
 }

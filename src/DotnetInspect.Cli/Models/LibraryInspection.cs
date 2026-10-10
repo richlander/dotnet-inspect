@@ -629,7 +629,37 @@ public class LibraryInspection
     [JsonPropertyName("performance")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public PerformanceProjection? Performance =>
-        PerformanceProjection.FromOpportunities(OptimizationOpportunities);
+        PerformanceProjection.FromFindings(
+            OptimizationOpportunities,
+            SyncCallsInAsyncSummaries);
+
+    [JsonIgnore]
+    public ImmutableArray<ILInspector.Analysis.Planning.AsyncSiblingRow>
+        SyncCallsInAsyncRows
+    { get; set; } = [];
+
+    [JsonIgnore]
+    public List<SyncCallInAsyncSummary>? SyncCallsInAsyncSummaries
+    { get; set; }
+
+    [JsonIgnore]
+    public int? SyncCallsInAsyncCount { get; set; }
+
+    [JsonIgnore]
+    public bool? SyncCallsInAsyncPresence { get; set; }
+
+    private string? _syncCallsInAsyncFailure;
+
+    [JsonIgnore]
+    public string? SyncCallsInAsyncFailure
+    {
+        get => _syncCallsInAsyncFailure;
+        set
+        {
+            _syncCallsInAsyncFailure = value;
+            ResetFindingProjectionCaches();
+        }
+    }
 
     private ResourceTriageResult? _resourceTriageQueryResult;
 
@@ -1152,6 +1182,13 @@ public class LibraryInspection
                                 analyzerFailure));
                         }
                     }
+                }
+                if (SyncCallsInAsyncFailure is { } syncCallsFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.PerformanceSyncCallsInAsync,
+                        SyncCallsInAsyncQuery.Definition.Name,
+                        syncCallsFailure));
                 }
                 AddFailure(failures, SectionNames.UnsafeMembers, UnsafeEvidenceInspection);
                 if (TopLeverageQueryResult is TopLeverageResult.Failed leverageFailure)
@@ -1835,6 +1872,10 @@ public sealed class PerformanceProjection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<OptimizationOpportunitySummary>? Async { get; set; }
 
+    [JsonPropertyName("sync_calls_in_async")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<SyncCallInAsyncSummary>? SyncCallsInAsync { get; set; }
+
     [JsonPropertyName("other")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<OptimizationOpportunitySummary>? Other { get; set; }
@@ -1843,34 +1884,70 @@ public sealed class PerformanceProjection
     /// Buckets a flat opportunity list into the nested projection. Returns null (absent) when the
     /// list is null or empty. Preserves the scanner's pre-ordering within each bucket.
     /// </summary>
-    public static PerformanceProjection? FromOpportunities(
-        List<OptimizationOpportunitySummary>? opportunities)
+    public static PerformanceProjection? FromFindings(
+        List<OptimizationOpportunitySummary>? opportunities,
+        List<SyncCallInAsyncSummary>? syncCallsInAsync)
     {
-        if (opportunities is not { Count: > 0 })
+        bool hasOptimizationOpportunities =
+            opportunities?.Any(static opportunity =>
+                !PerformanceKinds.IsSyncCallsInAsyncShape(
+                    opportunity.Shape)) == true;
+        if (!hasOptimizationOpportunities
+            && syncCallsInAsync is not { Count: > 0 })
         {
             return null;
         }
 
-        var projection = new PerformanceProjection();
-        foreach (var opportunity in opportunities)
+        var projection = new PerformanceProjection
         {
-            var bucket = PerformanceKinds.SectionForShape(opportunity.Shape) switch
+            SyncCallsInAsync = syncCallsInAsync,
+        };
+        if (opportunities is not null)
+        {
+            foreach (var opportunity in opportunities)
             {
-                SectionNames.PerformanceBoxing => projection.Boxing ??= [],
-                SectionNames.PerformanceArrays => projection.Arrays ??= [],
-                SectionNames.PerformanceClosures => projection.ClosuresAndDelegates ??= [],
-                SectionNames.PerformanceEnumerators => projection.Enumerators ??= [],
-                SectionNames.PerformanceStrings => projection.Strings ??= [],
-                SectionNames.PerformanceLoops => projection.LoopHotPaths ??= [],
-                SectionNames.PerformanceHotspots => projection.AllocationHotspots ??= [],
-                SectionNames.PerformanceAsync => projection.Async ??= [],
-                _ => projection.Other ??= [],
-            };
-            bucket.Add(opportunity);
+                if (PerformanceKinds.IsSyncCallsInAsyncShape(
+                        opportunity.Shape))
+                    continue;
+
+                var bucket =
+                    PerformanceKinds.SectionForShape(opportunity.Shape)
+                    switch
+                    {
+                        SectionNames.PerformanceBoxing =>
+                            projection.Boxing ??= [],
+                        SectionNames.PerformanceArrays =>
+                            projection.Arrays ??= [],
+                        SectionNames.PerformanceClosures =>
+                            projection.ClosuresAndDelegates ??= [],
+                        SectionNames.PerformanceEnumerators =>
+                            projection.Enumerators ??= [],
+                        SectionNames.PerformanceStrings =>
+                            projection.Strings ??= [],
+                        SectionNames.PerformanceLoops =>
+                            projection.LoopHotPaths ??= [],
+                        SectionNames.PerformanceHotspots =>
+                            projection.AllocationHotspots ??= [],
+                        SectionNames.PerformanceAsync =>
+                            projection.Async ??= [],
+                        _ => projection.Other ??= [],
+                    };
+                bucket.Add(opportunity);
+            }
         }
 
         return projection;
     }
+}
+
+public sealed record SyncCallInAsyncSummary
+{
+    public required string Caller { get; init; }
+    public required string Callee { get; init; }
+    public required string Alternative { get; init; }
+
+    [JsonPropertyName("pair_kind")]
+    public required string PairKind { get; init; }
 }
 
 /// <summary>

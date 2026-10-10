@@ -865,10 +865,22 @@ public static class OutputFormatter
             return;
         }
 
-        if (writerOpts.IncludeSections is { Count: > 1 }
-            && Sections.PerformanceKinds.AllShareCommonView(writerOpts.IncludeSections))
+        bool performanceGroupRequested =
+            options.SelectExplicitlySet
+            && options.IncludeSections is { Count: > 1 } requestedSections
+            && Sections.PerformanceKinds.AllShareCommonView(
+                requestedSections);
+        bool multiplePerformanceSectionsEffective =
+            writerOpts.IncludeSections is { Count: > 1 } effectiveSections
+            && Sections.PerformanceKinds.AllShareCommonView(
+                effectiveSections);
+        if (performanceGroupRequested
+            || multiplePerformanceSectionsEffective)
         {
-            var groupRows = auditView.PerformanceGroupRows(writerOpts.IncludeSections);
+            var groupRows = auditView.PerformanceGroupRows(
+                writerOpts.IncludeSections
+                    ?? options.IncludeSections
+                    ?? []);
             var groupView = new PerformanceGroupView(groupRows);
             var groupOpts = ConfigureTableWriterOptions(
                 new MarkoutWriterOptions { Projection = writerOpts.Projection }, options.Tsv, options.Jsonl);
@@ -1455,6 +1467,13 @@ public static class OutputFormatter
                 count);
         }
         ApplyClassificationCounts(projection, inspection, writerOptions.IncludeSections, rows);
+        ApplySyncCallsInAsyncCount(
+            projection,
+            inspection,
+            writerOptions.IncludeSections,
+            rows,
+            fields,
+            columns);
         ApplyArchitecturalFamilyCounts(
             projection,
             inspection,
@@ -1527,6 +1546,41 @@ public static class OutputFormatter
             && inspection.PInvokeMethodCount is int pInvokeCount)
         {
             projection.SetRows(SectionNames.PInvokeMethods, WindowedCount(pInvokeCount, rows));
+        }
+    }
+
+    internal static void ApplySyncCallsInAsyncCount(
+        CountProjection projection,
+        LibraryInspection inspection,
+        IReadOnlyCollection<string>? includedSections,
+        RowWindow? rows,
+        string[]? fields = null,
+        string[]? columns = null)
+    {
+        if (includedSections?.Contains(
+                SectionNames.PerformanceSyncCallsInAsync) == true
+            && inspection.SyncCallsInAsyncRows.IsEmpty
+            && inspection.SyncCallsInAsyncCount is int count)
+        {
+            if (fields is { Length: > 0 }
+                || columns is { Length: > 0 })
+            {
+                DocumentSchema schema = InspectionContext.Default
+                    .GetSchemaInfo<LibraryInspectionView>()!
+                    .ToDocumentSchema();
+                if (!ProjectionMatchesSection(
+                        schema,
+                        SectionNames.PerformanceSyncCallsInAsync,
+                        fields,
+                        columns))
+                {
+                    count = 0;
+                }
+            }
+
+            projection.SetRows(
+                SectionNames.PerformanceSyncCallsInAsync,
+                WindowedCount(count, rows));
         }
     }
 

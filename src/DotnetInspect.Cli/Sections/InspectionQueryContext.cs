@@ -88,6 +88,8 @@ public sealed class InspectionQueryContext : IDisposable
     private MethodBodyInspectionSession? _bodySession;
     private MethodClassificationBindingResult? _methodClassification;
     private IReadOnlyList<ClassificationQuestion>? _methodClassificationQuestions;
+    private SyncCallsInAsyncBindingResult? _syncCallsInAsync;
+    private IReadOnlyList<SyncCallsInAsyncClosing>? _syncCallsInAsyncClosings;
     private AssemblyInspectionSession? _session;
     private Exception? _sessionOpenFailure;
     private bool _sessionOpenAttempted;
@@ -252,6 +254,75 @@ public sealed class InspectionQueryContext : IDisposable
             },
             static ex => new MethodClassificationBindingResult.Failed(ex));
         return _methodClassification;
+    }
+
+    public SyncCallsInAsyncBindingResult SyncCallsInAsync()
+    {
+        IReadOnlyList<SyncCallsInAsyncClosing> closings =
+            SyncCallsInAsyncDemand.ClosingsFor(
+                CountOnly,
+                ApplicabilityOnly);
+        if (_syncCallsInAsync is { } cached
+            && closings.All(_syncCallsInAsyncClosings!.Contains))
+        {
+            return cached;
+        }
+
+        _syncCallsInAsyncClosings = closings;
+        _syncCallsInAsync = Query<SyncCallsInAsyncBindingResult>(
+            session =>
+            {
+                try
+                {
+                    var binding = new AssemblyReferenceBindingAccess(
+                        ReferenceBindingSubject(),
+                        BodyReferenceResolver switch
+                        {
+                            IAssemblyBindingPolicy policy => policy,
+                            not null =>
+                                new AssemblyReferenceBindingPolicy(
+                                    BodyReferenceResolver),
+                            null => throw new InvalidOperationException(
+                                "Sync Calls in Async requires reference "
+                                + "binding."),
+                        });
+                    return new SyncCallsInAsyncBindingResult.Available(
+                        SyncCallsInAsyncQuery.Execute(
+                            session,
+                            binding,
+                            closings));
+                }
+                catch (Exception ex)
+                    when (ex is not
+                        Analysis.Planning.ProducerContractException)
+                {
+                    return new SyncCallsInAsyncBindingResult.Failed(ex);
+                }
+            },
+            static ex => new SyncCallsInAsyncBindingResult.Failed(ex));
+        return _syncCallsInAsync;
+    }
+
+    private ResolvedAssemblyReference ReferenceBindingSubject()
+    {
+        if (AssemblyReference is { } assembly
+            && (MetadataContext is null
+                || MetadataContext.IsBoundTo(assembly)))
+        {
+            return assembly;
+        }
+
+        byte[] image = GetMetadataContext()
+            .GetPrefetchedImage()
+            .ToArray();
+        return ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Designated(
+                    "library command snapshot"),
+                lastWriteTimeUtc: null,
+                assetFileName: Path.GetFileName(AssemblyPath))
+            ?? throw new BadImageFormatException(
+                "The selected Library snapshot has no managed metadata.");
     }
 
     /// <summary>
