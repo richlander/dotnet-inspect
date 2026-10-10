@@ -3240,6 +3240,16 @@ async function activateManagedRetainedWorkspace(
       && retainedWorkspaces.activeWorkspaceId !== null) {
       workspaceLocation.replace(location.href, history.state);
     }
+    const definition = controller.state.definitions.find(
+      candidate => candidate.id === retainedDefinitionId);
+    if (definition === undefined) {
+      throw new Error(
+        `Unknown retained Workspace definition '${retainedDefinitionId}'.`);
+    }
+    const initialPackageLens = "packageQuery" in definition
+      ? (await parseWorkspaceHref(definition.canonicalLocation)).packageLens
+        ?? undefined
+      : undefined;
     const locationIntent = retainedLocationIntents.admitNonBrowser(
       locationPolicy,
       installedRetainedLocation,
@@ -3251,7 +3261,11 @@ async function activateManagedRetainedWorkspace(
       const activation = controller.activate(
         retainedDefinitionId,
         () => retainedLocationIntents.currentIntentId === locationIntent.id,
-        posting => installRetainedWorkspacePosting(posting, locationIntent),
+        posting => installRetainedWorkspacePosting(
+          posting,
+          locationIntent,
+          undefined,
+          initialPackageLens),
         undefined,
         undefined,
         posting => retainedLocationPresentationCurrent(

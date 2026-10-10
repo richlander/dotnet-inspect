@@ -1676,6 +1676,9 @@ test("managed Saved Open keeps compact rows, packet fidelity, and focus ownershi
     /async function openSavedWorkspaceEntry\([\s\S]*const activationNavigationSeq = navigationSequence\.begin\(\)[\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*completeRetainedActivationPresentation\(\s*result,\s*locationIntent,\s*activationNavigationSeq,\s*\)/);
   assert.match(
     appSource,
+    /async function activateManagedRetainedWorkspace\([\s\S]*controller\.state\.definitions\.find\([\s\S]*"packageQuery" in definition[\s\S]*parseWorkspaceHref\(definition\.canonicalLocation\)[\s\S]*installRetainedWorkspacePosting\(\s*posting,\s*locationIntent,\s*undefined,\s*initialPackageLens\)/);
+  assert.match(
+    appSource,
     /async function activateManagedRetainedWorkspace\([\s\S]*const activationNavigationSeq = navigationSequence\.current\(\)[\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*completeRetainedActivationPresentation\(\s*result,\s*locationIntent,\s*activationNavigationSeq,\s*\)/);
   assert.match(
     packageAction,

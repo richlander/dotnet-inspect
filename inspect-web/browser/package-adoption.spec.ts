@@ -1659,6 +1659,10 @@ test.describe("Package Query website over real Wasm", () => {
       manifest: injectionManifest,
       archive: storedZip([
         { name: "Contoso.InjectionConsumer.nuspec", bytes: injectionManifest },
+        {
+          name: "lib/net10.0/Contoso.InjectionConsumer.dll",
+          bytes: brokenReferenceAssembly,
+        },
       ]),
     };
     const registry = new GalleryFixtureRegistry([hosting, injection]);
@@ -1838,6 +1842,42 @@ test.describe("Package Query website over real Wasm", () => {
     );
     const dependenciesTab = page.locator(
       '[data-inspector-tab][data-package-lens="dependencies"]',
+    );
+    await expect(dependenciesTab).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#inspector-panel"))
+      .toContainText("Microsoft.Extensions.Hosting", { timeout: 60_000 });
+
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="query"]').click();
+    await expect(page).toHaveURL(/\/query$/);
+    await page.locator('[data-query-term-remove="0"]').click();
+    await expect(rows).toHaveText([
+      hosting.packageId,
+      injection.packageId,
+    ]);
+    await page.locator(".query-row")
+      .filter({ hasText: injection.packageId })
+      .locator("[data-query-row-open]")
+      .click();
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/packages/${injection.packageId}/${version}#package$`,
+      ),
+      { timeout: 120_000 },
+    );
+    await expect(page.locator(".package-overview-surface")).toBeVisible();
+
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="workspace"]').click();
+    const hostingWorkspace = page.locator("[data-workspace-switch]")
+      .filter({ hasText: `${hosting.packageId}@${version}` });
+    await expect(hostingWorkspace).toBeVisible();
+    await hostingWorkspace.click();
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/packages/${hosting.packageId}/${version}#pkg:dependencies$`,
+      ),
+      { timeout: 120_000 },
     );
     await expect(dependenciesTab).toHaveAttribute("aria-selected", "true");
     await expect(page.locator("#inspector-panel"))
