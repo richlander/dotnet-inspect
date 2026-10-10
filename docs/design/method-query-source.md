@@ -581,8 +581,14 @@ Migration is incremental:
    lanes, and the producer closes Rows, Count, and Exists as independent
    QuerySpace requests through `SyncCallsInAsyncQuery`. This slice is
    **unverified**; legacy callers stay until their consumers move.
-10. Move remaining producers and delete each superseded legacy scan and index
-   when its final consumer moves.
+10. Add bounded semantic MethodDef identity (#9830) and receipted
+    memory-safety contract support (#9831) as independent source capabilities.
+11. Move the first exact-member consumer in #9832 through
+    [exact-member scoped producers](assembly-analysis-operation.md#exact-member-scoped-producers),
+    consuming #8700 and #8945 rather than defining another call resolver or
+    population.
+12. Move remaining producers and delete each superseded legacy scan and index
+    when its final consumer moves.
 
 Wrapping `LibraryBodyAnalysisBuilder.Build`, constructing every legacy result
 and filtering afterward, or scanning every MethodDef to realize an exact
