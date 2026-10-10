@@ -314,6 +314,28 @@ public class FindProgressiveTsvTests
     }
 
     [Fact]
+    public async Task ZeroRowPrefixFailureIsReportedFromTerminalSummary()
+    {
+        var capture = await ConsoleCapture.RunAsync(() =>
+        {
+            FindCommand.ReportEcosystemFailures(
+            [
+                new(
+                    "Prefix",
+                    "Contoso.Empty",
+                    "Package settlement failed."),
+            ]);
+            return Task.FromResult(0);
+        });
+
+        Assert.Equal(0, capture.ExitCode);
+        Assert.Contains(
+            "Prefix source \"Contoso.Empty\" failed: "
+                + "Package settlement failed.",
+            capture.Error);
+    }
+
+    [Fact]
     public async Task MemberRowsArePublishedBeforeServiceCompletion()
     {
         bool completed = false;

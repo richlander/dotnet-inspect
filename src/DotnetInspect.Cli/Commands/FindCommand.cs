@@ -543,6 +543,7 @@ public partial class FindCommand
         EcosystemFindSearchSummary<LayeredSearchBlock> summary =
             bounded.Completed ?? await bounded.Continuation!.ResumeAsync(
                 bounded.Continuation.MaximumRemainingRows, cancellationToken);
+        ReportEcosystemFailures(summary.Failures);
         if (summary.Completion == EcosystemFindCompletion.RowLimitReached)
         {
             CommandError.WriteNote(
@@ -666,8 +667,6 @@ public partial class FindCommand
                 members.AddRange(content.Members);
                 addAcceptedMembers(content.AcceptedMemberCount);
                 addStatus(block.HasFailures, block.Incomplete);
-                if (block.Failure is { } failure)
-                    CommandError.WriteWarning(failure);
                 foreach (MemberFindResult row in content.Members)
                 {
                     foreach (string pattern in patterns)
@@ -790,9 +789,6 @@ public partial class FindCommand
         {
             if (page.Failure is { } failure)
             {
-                CommandError.WriteWarning(
-                    $"Could not search package prefix \"{prefix.Prefix}\": "
-                    + failure.Message);
                 yield return new([], EcosystemFindPrefixPageCompletion.Failed,
                     failure.Message);
                 yield break;
@@ -940,6 +936,17 @@ public partial class FindCommand
                     row.Match is not TypeFindMatchKind.Partial
                         and not TypeFindMatchKind.NotFound),
         ];
+
+    internal static void ReportEcosystemFailures(
+        IReadOnlyList<EcosystemFindSourceFailure> failures)
+    {
+        foreach (EcosystemFindSourceFailure failure in failures)
+        {
+            CommandError.WriteWarning(
+                $"{failure.Phase} source \"{failure.Source}\" failed: "
+                + failure.Message);
+        }
+    }
 
     private static int CountLayeredRows(
         FindOptions options,
