@@ -99,9 +99,10 @@ label, summary, weight, acquisition tier, execution class, optional resolver
 selection group, optional preset replacement group, display group, and
 Browser-issued fact category. Operand-bearing descriptors carry the same
 route-issued key and operators plus product-owned value-kind and example
-metadata. They may also carry product-issued choices or suggestions. A closed
-choice renders as a select; suggestions render as a dropdown-backed input that
-still admits an exact custom value.
+metadata. Presets and operand-bearing descriptors may also carry one
+product-issued Package Workspace lens hint. They may also carry product-issued
+choices or suggestions. A closed choice renders as a select; suggestions
+render as a dropdown-backed input that still admits an exact custom value.
 
 Acquisition tier and execution class are independent product facts. The former
 authorizes source search metadata, nuspec, or package-content work and retains
@@ -174,14 +175,21 @@ shared reach choice applies to every exact `depends` row:
 **Within 4 edges**. Direct-only is the default. Changing reach through any
 exact dependency editor changes the shared reach for all exact dependency
 rows; the Browser does not imply unsupported mixed direct and bounded exact
-semantics. A bounded reach atomically authors the exact `depends` terms with
-one query-wide `dependency-depth=2|3|4` and one required exact
+semantics. The visibly shared target editor is blank by default, meaning all
+declared dependency groups, and remains editable for direct exact and
+literal-prefix matching. Applying an exact TFM authors one query-wide
+`dependency-target=<tfm>`; clearing it removes the target term rather than
+falling back to the Library target or a Browser-default TFM. When another
+exact dependency still retains bounded reach, clearing this shared target is
+invalid: Apply keeps the editor open and visibly requires an exact target
+rather than silently discarding the dependency edit. A bounded reach atomically
+authors the exact `depends` terms with one query-wide
+`dependency-depth=2|3|4` and one required exact
 `dependency-target=<tfm>`; each exact term includes direct and transitive paths
-within that maximum. During bounded reach, the target editor is visibly shared
-and scopes every dependency fact. Returning to direct-only removes that
-traversal context unless another dependency fact independently retains the
-ordinary active target term. Literal-prefix matching remains direct-only and
-does not itself select bounded reach.
+within that maximum. Returning to direct-only removes the traversal depth but
+retains the user's explicit dependency target until it is cleared.
+Literal-prefix matching remains direct-only and does not itself select bounded
+reach.
 The Browser does not expose `depends-transitive`, `dependency-depth`, or
 `depends-transitive` or `dependency-depth` as independent palette controls, so
 it cannot issue an invalid depth-only intermediate request. The ordinary
@@ -362,11 +370,24 @@ Interaction](inspect-web-shell-interaction.md#product-navigation-menu) and its
   nonempty query context without inventing package inspection facts.
 - **Handoff, not duplication**: `Open in workspace` submits the row's
   product-issued package ID and exact version once through the standard typed
-  Workspace transition, without inferring a framework, source, or fallback
-  from display text — the funnel never grows its own type/member browser.
+  Workspace transition. Active presets and terms contribute only their
+  product-issued Package Workspace lens hints. When every active hint agrees,
+  the transition opens that lens; dependency facts and value queries hint
+  Package Dependencies. No hint or conflicting hints open Package Overview.
+  The handoff never infers a framework, source, or fallback from display text,
+  so the funnel never grows its own type/member browser.
   Assembly match rows instead submit the evaluator's exact opaque Root
   reacquisition request. The Browser never reconstructs it from package ID,
   version, selected path, framework, or evidence text.
+
+The motivating real asset is
+`Microsoft.Extensions.Configuration.Binder@10.0.12`, observed through
+`package query 'Microsoft.Extensions.*' --where
+'depends=Microsoft.Extensions.Configuration' --nuspec-only`: its nuspec
+declares the requested dependency and makes Package Dependencies the natural
+continuation of the result. The durable Browser fixture uses the same
+dependency-group shape, with a non-default TFM proving that an absent direct
+target does not silently become `net10.0`.
 
 ## States
 
@@ -748,10 +769,13 @@ and browser-history and focus-return outcomes are proved by
 5. Change the search text, leave the route, and start another run; confirm each
    aborts or supersedes the active source operation and that events from an
    older generation cannot enter a replacement outcome.
-6. Open a row in Workspace and confirm one typed package transition using its
-   exact product-issued ID and version, without inferring a framework, source,
-   or fallback from display text. Confirm that a typed failure retains
-   `/query`, the result set, and the request.
+6. Run a direct dependency query without a target and confirm its target editor
+   is blank, editable, and evaluates dependency groups without silently
+   selecting `net10.0`. Apply and clear an exact direct target, then open a
+   matching row and confirm one typed package transition using its exact
+   product-issued ID and version into Package Dependencies. Confirm that no
+   framework, source, or fallback is inferred from display text and that a
+   typed failure retains `/query`, the result set, and the request.
 7. Confirm that `.NET Tool`, `v1`, and `v2` form one segmented control with
    independent focus and pressed state. `.NET Tool` replaces either version;
    either version replaces `.NET Tool`; `v1` and `v2` remain selectable

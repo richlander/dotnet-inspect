@@ -15,6 +15,8 @@ import {
   initialQueryState,
   isTraversalDependencyTarget,
   isLibraryLiteralQuery,
+  packageQueryWorkspaceLens,
+  requiresTraversalDependencyTarget,
   shouldExecuteQuery,
   synchronizeDependencyTermEditor,
   synchronizeTermEdits,
@@ -58,6 +60,7 @@ const HAS_DEPENDENCIES_FACET: QueryPreset = {
   tier: "nuspec",
   executionClass: "nuspec",
   selectionGroupId: "dependencies",
+  workspaceLens: "dependencies",
 };
 
 const NO_DEPENDENCIES_FACET: QueryPreset = {
@@ -69,6 +72,7 @@ const NO_DEPENDENCIES_FACET: QueryPreset = {
   tier: "nuspec",
   executionClass: "nuspec",
   selectionGroupId: "dependencies",
+  workspaceLens: "dependencies",
 };
 
 const SKILL_FACET: QueryPreset = {
@@ -148,6 +152,7 @@ const DEPENDS_TERM: QueryTermDescriptor = {
   valueKind: "package-id",
   example: "Microsoft.Extensions.Hosting",
   multiline: false,
+  workspaceLens: "dependencies",
 };
 
 const DEPENDENCY_TARGET_TERM: QueryTermDescriptor = {
@@ -264,6 +269,7 @@ test("createQueryRequest gives candidate and match limits independent defaults",
 
 test("dependency facet applies direct or bounded reach atomically", () => {
   const base = createQueryRequest("Microsoft.Extensions.*");
+  assert.equal(dependencyTarget(base), "");
   const traversed = withDependencyTerm(
     base,
     DEPENDS_TERM,
@@ -297,16 +303,36 @@ test("dependency facet applies direct or bounded reach atomically", () => {
     "eq",
     "Microsoft.Extensions.Primitives",
     "direct",
-    "net10.0",
+    "",
     null,
-    null);
+    DEPENDENCY_TARGET_TERM);
 
   assert.deepEqual(
     direct.terms.map(term => term.descriptor.key),
     ["depends"]);
   assert.deepEqual(direct.presets, []);
   assert.equal(dependencyReach(direct), "direct");
+  assert.equal(dependencyTarget(direct), "");
   assert.equal(direct.requestedLimit, 200);
+
+  const targetedDirect = withDependencyTerm(
+    direct,
+    DEPENDS_TERM,
+    0,
+    "eq",
+    "Microsoft.Extensions.Primitives",
+    "direct",
+    "net9.0",
+    null,
+    DEPENDENCY_TARGET_TERM);
+
+  assert.deepEqual(
+    targetedDirect.terms.map(term => [term.descriptor.key, term.value]),
+    [
+      ["depends", "Microsoft.Extensions.Primitives"],
+      ["dependency-target", "net9.0"],
+    ]);
+  assert.equal(dependencyTarget(targetedDirect), "net9.0");
 
   const directWithAll = withTerm(
     withTerm(
@@ -332,6 +358,46 @@ test("dependency facet applies direct or bounded reach atomically", () => {
   assert.equal(isTraversalDependencyTarget(" ALL "), false);
   assert.equal(isTraversalDependencyTarget("net10.0"), true);
   assert.equal(invalidTraversal, directWithAll);
+});
+
+test("bounded dependencies retain their shared exact target for direct prefix additions", () => {
+  const bounded = withDependencyTerm(
+    createQueryRequest("Contoso.*"),
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Contoso.Exact",
+    "2",
+    "net9.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+
+  assert.equal(
+    requiresTraversalDependencyTarget(
+      bounded,
+      null,
+      "starts-with",
+      "direct"),
+    true);
+  assert.equal(
+    withDependencyTerm(
+      bounded,
+      DEPENDS_TERM,
+      null,
+      "starts-with",
+      "Contoso.Prefix",
+      "direct",
+      "",
+      null,
+      DEPENDENCY_TARGET_TERM),
+    bounded);
+  assert.equal(
+    requiresTraversalDependencyTarget(
+      createQueryRequest("Contoso.*"),
+      null,
+      "starts-with",
+      "direct"),
+    false);
 });
 
 test("dependency prefix forces direct reach and removing the last dependency clears traversal", () => {
@@ -364,7 +430,7 @@ test("dependency prefix forces direct reach and removing the last dependency cle
     "direct",
     "net10.0",
     null,
-    null);
+    DEPENDENCY_TARGET_TERM);
 
   assert.equal(dependencyReach(withDirectPrefix), "2");
   assert.equal(
@@ -393,7 +459,7 @@ test("dependency prefix forces direct reach and removing the last dependency cle
   assert.equal(dependencyReach(directPrefix), "direct");
   assert.deepEqual(
     directPrefix.terms.map(term => term.descriptor.key),
-    ["depends"]);
+    ["depends", "dependency-target"]);
   assert.equal(directPrefix.requestedLimit, 200);
   assert.deepEqual(withoutDependencyTerm(directPrefix, 0).terms, []);
 });
@@ -429,7 +495,7 @@ test("switching traversal to direct retains another dependency term's target", (
     "direct",
     "net10.0",
     null,
-    null);
+    DEPENDENCY_TARGET_TERM);
 
   assert.equal(dependencyReach(direct), "direct");
   assert.deepEqual(
@@ -439,6 +505,25 @@ test("switching traversal to direct retains another dependency term's target", (
       ["depends", "Contoso.Target"],
       ["dependency-target", "net10.0"],
     ]);
+});
+
+test("query workspace lens follows product-issued active hints", () => {
+  const base = createQueryRequest("Contoso.*");
+  assert.equal(packageQueryWorkspaceLens(base), null);
+
+  const dependencyTerm = withTerm(
+    base,
+    DEPENDS_TERM,
+    "eq",
+    "Contoso.Target");
+  assert.equal(packageQueryWorkspaceLens(dependencyTerm), "dependencies");
+
+  const dependencyFact = withPreset(base, HAS_DEPENDENCIES_FACET);
+  assert.equal(packageQueryWorkspaceLens(dependencyFact), "dependencies");
+
+  assert.equal(
+    packageQueryWorkspaceLens(withPreset(dependencyTerm, TFM_FACET)),
+    "dependencies");
 });
 
 test("removing the final dependency fact clears shared context", () => {
@@ -523,7 +608,7 @@ test("dependency reach is query-wide across repeated exact terms", () => {
       "direct",
       "net10.0",
       null,
-      null);
+      DEPENDENCY_TARGET_TERM);
 
     assert.equal(dependencyReach(direct), "direct");
     assert.equal(direct.requestedLimit, 200);
@@ -614,7 +699,7 @@ test("unrelated preset toggles preserve pending dependency reach and target", ()
     "direct",
     "net10.0",
     null,
-    null);
+    DEPENDENCY_TARGET_TERM);
   const pending = [{
     operator: "eq",
     value: "Contoso.Dependency.Edited",
@@ -629,7 +714,7 @@ test("unrelated preset toggles preserve pending dependency reach and target", ()
     pending[0]);
   assert.deepEqual(
     synchronizeTermEdits(previous, next, pending),
-    pending);
+    [...pending, null]);
 });
 
 test("standalone target changes synchronize pending dependency editors", () => {
@@ -695,11 +780,14 @@ test("standalone target changes synchronize pending dependency editors", () => {
     operator: "eq",
     value: "Contoso.Applied.Edited",
     dependencyReach: "direct",
-    dependencyTarget: "net10.0",
+    dependencyTarget: "",
   });
   assert.deepEqual(
     synchronizeDependencyTermEditor(changed, removed, draft),
-    draft);
+    {
+      ...draft,
+      dependencyTarget: "",
+    });
 });
 
 test("Ecosystem requests preserve curated identity with 24 initial and 96 maximum matches", () => {

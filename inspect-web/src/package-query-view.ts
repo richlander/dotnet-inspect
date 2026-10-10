@@ -15,6 +15,7 @@ import {
   dependencyTarget,
   isTraversalDependencyTarget,
   isLibraryLiteralQuery,
+  requiresTraversalDependencyTarget,
 } from "./package-query.ts";
 import {
   resolvePackageQueryRowWindow,
@@ -367,6 +368,7 @@ export function restorePackageQueryScroll(
 export function bindPackageQueryView(
   root: ParentNode,
   actions: PackageQueryBindingActions,
+  request: QueryRequest | null = null,
 ) {
   const prefixInput = () =>
     root.querySelector<HTMLInputElement>("#package-query-prefix");
@@ -388,7 +390,7 @@ export function bindPackageQueryView(
     button.addEventListener("click", () => actions.onPresetToggle(
       button.dataset.queryPreset ?? "",
       prefixInput()?.value ?? "")));
-  bindPackageQueryTerms(root, actions, prefixInput);
+  bindPackageQueryTerms(root, actions, prefixInput, request);
   const prerelease = root.querySelector<HTMLInputElement>(
     "#package-query-prerelease");
   prerelease?.addEventListener("change", () => actions.onSourceChange({
@@ -426,6 +428,7 @@ function bindPackageQueryTerms(
   root: ParentNode,
   actions: PackageQueryBindingActions,
   prefixInput: () => HTMLInputElement | null,
+  request: QueryRequest | null,
 ): void {
   root.querySelectorAll<HTMLElement>("[data-query-term-add]").forEach(button =>
     button.addEventListener("click", () =>
@@ -485,7 +488,6 @@ function bindPackageQueryTerms(
           dependencyReachControl.disabled = false;
         }
         const direct = dependencyReachControl.value === "direct";
-        dependencyTargetControl.disabled = direct;
         dependencyTargetControl.required = !direct;
       };
       termOperator?.addEventListener("change", () => {
@@ -525,12 +527,21 @@ function bindPackageQueryTerms(
           termValue.reportValidity();
           return;
         }
+        const selectedReach = dependencyReachValue(
+          dependencyReachControl?.value);
+        const effectiveReach = selectedReach ?? "direct";
+        const dependencyTargetRequired = request === null
+          ? effectiveReach !== "direct"
+          : requiresTraversalDependencyTarget(
+            request,
+            index,
+            termOperator.value,
+            effectiveReach);
         if (dependencyTargetControl
-          && !dependencyTargetControl.disabled
-          && !isTraversalDependencyTarget(
-            dependencyTargetControl.value)) {
+          && dependencyTargetRequired
+          && !isTraversalDependencyTarget(dependencyTargetControl.value)) {
           dependencyTargetControl.setCustomValidity(
-            "Enter an exact target framework.");
+            "Enter an exact target framework while bounded reach is active.");
           dependencyTargetControl.reportValidity();
           return;
         }
@@ -540,7 +551,7 @@ function bindPackageQueryTerms(
           termOperator.value,
           value,
           prefixInput()?.value ?? "",
-          dependencyReachValue(dependencyReachControl?.value),
+          selectedReach,
           dependencyTargetControl?.value);
       });
     });
@@ -1034,15 +1045,15 @@ function renderDependencyTermEditor(
         </select>
       </label>
       <label class="query-dependency-target">
-        <span>Shared dependency target framework</span>
+        <span>Shared dependency target framework (optional for direct)</span>
         <input
           data-query-dependency-target
           ${control("dependency-target")}
           type="text"
           value="${escapeHtml(targetFramework)}"
           list="package-query-dependency-target-${identity}-options"
-          placeholder="net10.0"
-          ${effectiveReach === "direct" ? "disabled" : "required"}
+          placeholder="All target frameworks"
+          ${effectiveReach === "direct" ? "" : "required"}
           autocomplete="off"
           spellcheck="false" />
         <datalist id="package-query-dependency-target-${identity}-options">
@@ -1052,7 +1063,7 @@ function renderDependencyTermEditor(
             </option>`).join("")}
         </datalist>
       </label>
-      <p class="query-preset-disclosure">Reach applies to every exact package dependency in this query. Direct only inspects declared dependencies. A bounded reach includes direct and transitive declaration paths and inspects at most five candidates. The target framework scopes every dependency fact.</p>
+      <p class="query-preset-disclosure">Reach applies to every exact package dependency in this query. Direct only inspects declared dependencies; leave target framework blank to inspect all declared groups. A bounded reach includes direct and transitive declaration paths, requires one exact target framework, and inspects at most five candidates. An exact target scopes every dependency fact.</p>
       <div class="query-term-actions">
         <button type="submit" ${control("apply")}>Apply</button>
         ${draft
@@ -1074,10 +1085,13 @@ function renderTermControls(
   const targetOptions = availableTerms.find(term =>
     term.key === "dependency-target")?.options ?? [];
   const draft = state.termDraft;
+  const presentsDependencyFacet = applied.some(term =>
+    term.descriptor.key === "depends")
+    || draft?.descriptor.key === "depends";
   const active = [
     ...applied.map((term, index) => {
       if (term.descriptor.key === "dependency-target"
-        && sharedReach !== "direct") return "";
+        && presentsDependencyFacet) return "";
       const edit = state.termEdits?.[index];
       if (term.descriptor.key === "depends") {
         return renderDependencyTermEditor(
@@ -1104,7 +1118,7 @@ function renderTermControls(
           draft.operator,
           draft.value,
           draft.dependencyReach ?? "direct",
-          draft.dependencyTarget ?? request.targetFramework,
+          draft.dependencyTarget ?? sharedTarget,
           null,
           targetOptions,
           escapeHtml)
@@ -1126,7 +1140,7 @@ function renderTermControls(
   const palette = availableTerms
     .filter(term => term.operators.length > 0
       && term.key !== "depends-transitive"
-      && !(sharedReach !== "direct"
+      && !(presentsDependencyFacet
         && term.key === "dependency-target"))
     .map(term => `
       <button
