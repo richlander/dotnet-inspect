@@ -66,7 +66,8 @@ public class FindProgressiveTsvTests
     public async Task JsonlPublishesBroadenedMemberFindings()
     {
         var result = await Run(
-            "find", ".Serialize", "--library", JsonLibrary, "--jsonl");
+            "find", ".Serialize", "--ecosystem", "runtime",
+            "-n", "2", "--jsonl");
 
         Assert.Equal(0, result.ExitCode);
         var rows = new List<JsonElement>();

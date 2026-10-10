@@ -90,7 +90,9 @@ public partial class FindCommand
             FindOptions searchOptions =
                 CreateSearchOptions(options, patterns);
             using FindDiscoveryTsvWriter? tsv =
-                (options.Tsv || options.Jsonl) && !options.Count
+                (options.Tsv
+                    || options.Jsonl && options.Ecosystems is not null)
+                && !options.Count
                     ? new(Console.Out, !options.NoHeader,
                         options.Columns, options.Fields,
                         jsonl: options.Jsonl)
@@ -407,10 +409,12 @@ public partial class FindCommand
         bool failures = false;
         bool incomplete = false;
         int acceptedMemberCount = 0;
+        bool demandPrefixes =
+            !options.Count && (options.Tsv || options.Jsonl);
         FindSearchCompletion completion = FindSearchCompletion.Exhausted;
         using var session = CreateEcosystemSession(
             options, patterns, context, tsv, layers,
-            options.Tsv || options.Jsonl,
+            demandPrefixes,
             types, members, unansweredPatterns,
             count => acceptedMemberCount += count,
             (hasFailures, isIncomplete) =>
@@ -471,7 +475,7 @@ public partial class FindCommand
                         layer,
                         layers,
                         id.Value,
-                        options.Tsv || options.Jsonl);
+                        demandPrefixes);
                     MemberFindResult[] rows =
                     [
                         .. found.Rows.Select(row => row with
@@ -503,7 +507,7 @@ public partial class FindCommand
                     layer,
                     layers,
                     id.Value,
-                    options.Tsv || options.Jsonl);
+                    demandPrefixes);
                 MemberFindResult[] attributedMembers =
                 [
                     .. band.Select(row => row with { Ecosystem = attribution }),
@@ -569,7 +573,7 @@ public partial class FindCommand
                     + "candidate bound; later prefixes were not searched.");
             incomplete = true;
         }
-        if (!options.Tsv && !options.Jsonl && layers.Any(layer =>
+        if (!demandPrefixes && layers.Any(layer =>
             layer.Declaration.Populations.Any(population =>
                 population is WorkspaceEcosystemPopulationDeclaration.PackagePrefix)))
         {
@@ -577,7 +581,6 @@ public partial class FindCommand
                 "Package-prefix populations were not searched because "
                 + "this output format is blocking. Use TSV or JSONL for "
                 + "progressive prefix discovery.");
-            incomplete = true;
         }
         if (completion == FindSearchCompletion.Exhausted
             && (failures || incomplete))
