@@ -1441,6 +1441,10 @@ test("compact Type groups retain resident contextual extensions", () => {
 });
 
 test("unavailable exact Member populations omit selector counts", () => {
+  const accessibilityHelper =
+    appSource.match(/function currentMemberAccessibility\([\s\S]*?(?=\nfunction restoreOrdinaryTypeMemberPopulationIntent)/)?.[0]
+    ?? "";
+  assert.notEqual(accessibilityHelper, "");
   const populationAndFilters =
     appSource.match(/function currentTypeMemberPopulationInspection\([\s\S]*?(?=\nfunction renderTypeMemberPopulationStatus)/)?.[0]
     ?? "";
@@ -1470,7 +1474,8 @@ test("unavailable exact Member populations omit selector counts", () => {
       typeMemberPopulationError: failed ? "Population unavailable" : "",
     };
     const rendered: unknown = runInNewContext(
-      stripTypeScriptTypes(`${populationAndFilters}
+      stripTypeScriptTypes(`${accessibilityHelper}
+        ${populationAndFilters}
         ${compositionControls}
         ({
           filters: renderMemberFilterControls(type),
@@ -1559,7 +1564,8 @@ test("unavailable exact Member populations omit selector counts", () => {
     typeMemberPopulationError: "",
   };
   const exactZero: unknown = runInNewContext(
-    stripTypeScriptTypes(`${populationAndFilters}
+    stripTypeScriptTypes(`${accessibilityHelper}
+      ${populationAndFilters}
       ${compositionControls}
       renderMemberComposition(type);
     `),
@@ -1654,7 +1660,8 @@ test("unavailable exact Member populations omit selector counts", () => {
     declaringTypeDefinitionId: "T:InternalExtensions",
   };
   const privateRendered: unknown = runInNewContext(
-    stripTypeScriptTypes(`${populationAndFilters}
+    stripTypeScriptTypes(`${accessibilityHelper}
+      ${populationAndFilters}
       ${compositionControls}
       ({
         filters: renderMemberFilterControls(type),

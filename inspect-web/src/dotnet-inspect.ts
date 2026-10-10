@@ -7150,7 +7150,7 @@ function contextualExtensionGroups(type: AppTypeSurface): AppMemberGroup[] {
   return searchableMemberGroups(
     groupMembers(contextualExtensionMembersAtAccessibility(
       type,
-      state.memberAccessibilityFilter as MemberAccessibility,
+      currentMemberAccessibility(),
     )));
 }
 

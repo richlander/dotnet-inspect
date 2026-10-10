@@ -330,7 +330,7 @@ test("compact group traits filter names and exact counts before declarations loa
       ]),
     [["method:Format", 3, 1]]);
   assert.equal(memberGroupVisibleCount(virtualGroups[0]!), 1);
-  assert.equal(memberGroupUsesFamilySurface(virtualGroups[0]!), true);
+  assert.equal(memberGroupUsesFamilySurface(virtualGroups[0]), true);
   assert.deepEqual(
     filterMemberGroups(pending, { trait: "interface" }), []);
   assert.deepEqual(
