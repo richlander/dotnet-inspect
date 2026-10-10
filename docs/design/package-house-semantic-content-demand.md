@@ -409,8 +409,10 @@ The counted PackageHouse stack has seven slices:
    Library-inventory package-symbol consumption, compose later exact Files
    acquisition, and migrate one current PDB consumer. Retire direct companion
    delivery only for that adopted route.
-5. Adopt `GetLibraryAndInventoryForTarget` in Inspect Web Package Query,
-   beginning with assembly-semantic evaluation and the website Library list.
+5. Adopt `GetLibraryAndInventoryForTarget` in Inspect Web Package Query and
+   the website Library list. Assembly-semantic candidate realization already
+   enters PackageHouse through #9815; semantic content narrowing remains in
+   this step.
 6. Adopt the same demands in `find` and shared Workspace/declaration loading,
    removing their split acquisition behavior.
 7. Migrate remaining commands and hosts, then delete

@@ -65,7 +65,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
             await PackageAssemblySemanticQueryInspection.ExecuteAsync(
                 Request(population),
                 operation,
-                fixture.PayloadAcquisition,
+                fixture.Execution,
                 sink,
                 TestContext.Current.CancellationToken);
 
@@ -166,7 +166,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
             (await PackageAssemblySemanticQueryInspection.ExecuteAsync(
                 Request(population),
                 operation,
-                fixture.PayloadAcquisition,
+                fixture.Execution,
                 sink,
                 TestContext.Current.CancellationToken)).Content;
 
@@ -227,7 +227,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
                 (await PackageAssemblySemanticQueryInspection.ExecuteAsync(
                     Request(population),
                     operation,
-                    fixture.PayloadAcquisition,
+                    fixture.Execution,
                     cancellationToken:
                         TestContext.Current.CancellationToken))
                 .Content.Results);
@@ -277,7 +277,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
             (await PackageAssemblySemanticQueryInspection.ExecuteAsync(
                 Request(population, budget),
                 operation,
-                fixture.PayloadAcquisition,
+                fixture.Execution,
                 cancellationToken:
                     TestContext.Current.CancellationToken)).Content;
 
@@ -323,7 +323,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
             (await PackageAssemblySemanticQueryInspection.ExecuteAsync(
                 Request(population),
                 operation,
-                fixture.PayloadAcquisition,
+                fixture.Execution,
                 cancellationToken:
                     TestContext.Current.CancellationToken)).Content;
 
@@ -360,7 +360,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
             (await PackageAssemblySemanticQueryInspection.ExecuteAsync(
                 Request(population),
                 operation,
-                fixture.PayloadAcquisition,
+                fixture.Execution,
                 cancellationToken:
                     TestContext.Current.CancellationToken)).Content;
 
@@ -401,7 +401,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
                 (await PackageAssemblySemanticQueryInspection.ExecuteAsync(
                     Request(population),
                     operation,
-                    fixture.PayloadAcquisition,
+                    fixture.Execution,
                     cancellationToken:
                         TestContext.Current.CancellationToken))
                 .Content.Results);
@@ -437,7 +437,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
             (await PackageAssemblySemanticQueryInspection.ExecuteAsync(
                 Request(population, maximumMatches: 1),
                 operation,
-                fixture.PayloadAcquisition,
+                fixture.Execution,
                 sink,
                 TestContext.Current.CancellationToken)).Content;
 
@@ -536,8 +536,14 @@ public sealed class PackageAssemblySemanticFindQueryTests
             (await PackageAssemblySemanticFindInspection.ExecuteAsync(
                 request,
                 operation,
-                new PackagePayloadAcquisitionPlan(
-                    (_, _) => store),
+                new PackageAssemblySemanticFindExecution(
+                    new FixedAuthorization(authorization),
+                    new PackagePayloadAcquisitionPlan(
+                        (_, _) => store,
+                        budget.Payload),
+                    token => rootLease.IssueOperationLease(
+                        token,
+                        operationTimeout: budget.MaximumDuration)),
                 TestContext.Current.CancellationToken)).Content;
 
         JsonElement expected = root.GetProperty("expected");
@@ -637,7 +643,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
             (await PackageAssemblySemanticFindInspection.ExecuteAsync(
                 Request(population),
                 operation,
-                fixture.PayloadAcquisition,
+                fixture.Execution,
                 sink,
                 TestContext.Current.CancellationToken)).Content;
 
@@ -736,7 +742,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
             (await PackageAssemblySemanticFindInspection.ExecuteAsync(
                 Request(population),
                 operation,
-                fixture.PayloadAcquisition,
+                fixture.Execution,
                 TestContext.Current.CancellationToken)).Content;
 
         Assert.Same(population, document.Population);
@@ -787,7 +793,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
             await PackageAssemblySemanticQueryInspection.ExecuteAsync(
                 Request(population),
                 operation,
-                fixture.PayloadAcquisition,
+                fixture.Execution,
                 sink,
                 TestContext.Current.CancellationToken);
         PackageAssemblySemanticQueryDocument document = envelope.Content;
@@ -860,7 +866,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
             (await PackageAssemblySemanticQueryInspection.ExecuteAsync(
                 Request(population),
                 operation,
-                fixture.PayloadAcquisition,
+                fixture.Execution,
                 TestContext.Current.CancellationToken)).Content;
 
         Assert.False(document.Completion.IsOperationDeadlineExpired);
@@ -894,7 +900,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
                     await PackageAssemblySemanticQueryInspection.ExecuteAsync(
                         Request(population),
                         operation,
-                        fixture.PayloadAcquisition,
+                        fixture.Execution,
                         cancellation.Token));
 
         Assert.Equal(cancellation.Token, failure.CancellationToken);
@@ -925,7 +931,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
                 await PackageAssemblySemanticQueryInspection.ExecuteAsync(
                     Request(population),
                     foreignOperation,
-                    foreign.PayloadAcquisition,
+                    foreign.Execution,
                     TestContext.Current.CancellationToken));
 
         Assert.Throws<ObjectDisposedException>(
@@ -957,7 +963,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
                     await PackageAssemblySemanticFindInspection.ExecuteAsync(
                         Request(population),
                         operation,
-                        fixture.PayloadAcquisition,
+                        fixture.Execution,
                         sink,
                         cancellation.Token));
 
@@ -997,7 +1003,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
                     await PackageAssemblySemanticFindInspection.ExecuteAsync(
                         Request(population),
                         operation,
-                        fixture.PayloadAcquisition,
+                        fixture.Execution,
                         cancellation.Token));
 
         Assert.Equal(cancellation.Token, failure.CancellationToken);
@@ -1043,7 +1049,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
                 await PackageAssemblySemanticFindInspection.ExecuteAsync(
                     Request(population, budget),
                     operation,
-                    fixture.PayloadAcquisition,
+                    fixture.Execution,
                     TestContext.Current.CancellationToken));
         Assert.Throws<ObjectDisposedException>(
             operation.ThrowIfExpired);
@@ -1070,7 +1076,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
             pending = PackageAssemblySemanticFindInspection.ExecuteAsync(
                 Request(population),
                 operation,
-                fixture.PayloadAcquisition,
+                fixture.Execution,
                 sink,
                 cancellation.Token).AsTask();
         await fixture.Client.PackageStarted.Task.WaitAsync(
@@ -1112,7 +1118,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
                 await PackageAssemblySemanticFindInspection.ExecuteAsync(
                     Request(population),
                     operation,
-                    fixture.PayloadAcquisition,
+                    fixture.Execution,
                     sink,
                     cancellation.Token));
 
@@ -1152,7 +1158,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
                 await PackageAssemblySemanticFindInspection.ExecuteAsync(
                     Request(population),
                     operation,
-                    fixture.PayloadAcquisition,
+                    fixture.Execution,
                     sink,
                     cancellation.Token));
 
@@ -1196,7 +1202,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
                 await PackageAssemblySemanticFindInspection.ExecuteAsync(
                     Request(population, budget),
                     operation,
-                    fixture.PayloadAcquisition,
+                    fixture.Execution,
                     sink,
                     TestContext.Current.CancellationToken));
 
@@ -1228,7 +1234,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
                 await PackageAssemblySemanticFindInspection.ExecuteAsync(
                     Request(population),
                     operation,
-                    fixture.PayloadAcquisition,
+                    fixture.Execution,
                     sink,
                     TestContext.Current.CancellationToken));
 
@@ -1260,13 +1266,46 @@ public sealed class PackageAssemblySemanticFindQueryTests
                 await PackageAssemblySemanticFindInspection.ExecuteAsync(
                     Request(population),
                     foreignOperation,
-                    foreign.PayloadAcquisition,
+                    foreign.Execution,
                     TestContext.Current.CancellationToken));
 
         Assert.Throws<ObjectDisposedException>(
             foreignOperation.ThrowIfExpired);
         Assert.Equal(0, foreign.Client.PackageRequests);
         ownerOperation.Dispose();
+    }
+
+    [Fact]
+    public async Task
+        ForeignHouseOperationIsRejectedWithoutCoordinateFallback()
+    {
+        await using var owner = new SemanticFindSourceFixture();
+        await using var foreign = new SemanticFindSourceFixture();
+        PackageSourceOperationLease ownerOperation =
+            owner.IssueOperation(
+                TestContext.Current.CancellationToken);
+        PackageAcquisitionPopulation population =
+            await owner.ResolvePopulationAsync(
+                ownerOperation,
+                ["Contoso.Foreign"]);
+        var execution = new PackageAssemblySemanticFindExecution(
+            new FixedAuthorization(owner.Authorization),
+            new PackagePayloadAcquisitionPlan(
+                (_, _) => owner.Store,
+                PackageAssemblySemanticFindBudget.Default.Payload),
+            foreign.IssueOperation);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () =>
+                await PackageAssemblySemanticFindInspection.ExecuteAsync(
+                    Request(population),
+                    ownerOperation,
+                    execution,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Throws<ObjectDisposedException>(
+            ownerOperation.ThrowIfExpired);
+        Assert.Equal(0, foreign.Client.PackageRequests);
     }
 
     [Fact]
@@ -1282,7 +1321,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
                 await PackageAssemblySemanticFindInspection.ExecuteAsync(
                     null!,
                     operation,
-                    fixture.PayloadAcquisition,
+                    fixture.Execution,
                     TestContext.Current.CancellationToken));
 
         Assert.Throws<ObjectDisposedException>(
@@ -1307,7 +1346,39 @@ public sealed class PackageAssemblySemanticFindQueryTests
                 await PackageAssemblySemanticFindInspection.ExecuteAsync(
                     Request(population),
                     operation,
-                    fixture.PayloadAcquisition,
+                    fixture.Execution,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Throws<ObjectDisposedException>(
+            operation.ThrowIfExpired);
+    }
+
+    [Fact]
+    public async Task MismatchedHousePayloadLimitsReleaseTransferredOperation()
+    {
+        await using var fixture = new SemanticFindSourceFixture();
+        PackageSourceOperationLease operation =
+            fixture.IssueOperation(
+                TestContext.Current.CancellationToken);
+        PackageAcquisitionPopulation population =
+            await fixture.ResolvePopulationAsync(
+                operation,
+                ["Contoso.Limits"]);
+        PackagePayloadLimits defaults =
+            PackageAssemblySemanticFindBudget.Default.Payload;
+        var budget = new PackageAssemblySemanticFindBudget(
+            defaults with
+            {
+                MaxArchiveBytes = defaults.MaxArchiveBytes + 1,
+            },
+            PackageAssemblySemanticFindBudget.Default.Evaluation);
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            async () =>
+                await PackageAssemblySemanticFindInspection.ExecuteAsync(
+                    Request(population, budget),
+                    operation,
+                    fixture.Execution,
                     TestContext.Current.CancellationToken));
 
         Assert.Throws<ObjectDisposedException>(
@@ -1598,7 +1669,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
 
         internal InMemoryPackageStore Store { get; } = new();
 
-        internal PackagePayloadAcquisitionPlan PayloadAcquisition
+        internal PackageAssemblySemanticFindExecution Execution
             { get; }
 
         internal SemanticFindSourceFixture()
@@ -1612,10 +1683,17 @@ public sealed class PackageAssemblySemanticFindQueryTests
             Root =
                 PackageSourceSettlementService.IssueLease(
                     _ => OwnedClient);
-            PayloadAcquisition =
-                new PackagePayloadAcquisitionPlan(
-                    (_, _) => Store);
+            Execution = CreateExecution(Store);
         }
+
+        internal PackageAssemblySemanticFindExecution CreateExecution(
+            InMemoryPackageStore store) =>
+            new(
+                new FixedAuthorization(Authorization),
+                new PackagePayloadAcquisitionPlan(
+                    (_, _) => store,
+                    PackageAssemblySemanticFindBudget.Default.Payload),
+                IssueOperation);
 
         internal PackageSourceOperationLease IssueOperation() =>
             Root.IssueOperationLease(

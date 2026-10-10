@@ -15,28 +15,21 @@ public sealed class PackageQueryAssemblySemanticExecution
 {
     public PackageQueryAssemblySemanticExecution(
         IPackageSourceAuthorization sourceAuthorization,
-        Func<CancellationToken, PackageSourceOperationLease>
-            createSourceOperation,
-        PackagePayloadAcquisitionPlan payloadAcquisition,
+        PackageAssemblySemanticFindExecution execution,
         PackageAssemblySemanticFindBudget budget,
         IPackageQueryLibraryLiteralAssessmentSink? assessmentSink = null)
     {
         SourceAuthorization = sourceAuthorization
             ?? throw new ArgumentNullException(nameof(sourceAuthorization));
-        CreateSourceOperation = createSourceOperation
-            ?? throw new ArgumentNullException(nameof(createSourceOperation));
-        PayloadAcquisition = payloadAcquisition
-            ?? throw new ArgumentNullException(nameof(payloadAcquisition));
+        Execution = execution
+            ?? throw new ArgumentNullException(nameof(execution));
         Budget = budget ?? throw new ArgumentNullException(nameof(budget));
         AssessmentSink = assessmentSink;
     }
 
     public IPackageSourceAuthorization SourceAuthorization { get; }
 
-    public Func<CancellationToken, PackageSourceOperationLease>
-        CreateSourceOperation { get; }
-
-    public PackagePayloadAcquisitionPlan PayloadAcquisition { get; }
+    public PackageAssemblySemanticFindExecution Execution { get; }
 
     public PackageAssemblySemanticFindBudget Budget { get; }
 
@@ -248,7 +241,7 @@ public static class PackageQueryInspection
         }
 
         PackageSourceOperationLease? sourceOperation =
-            execution.CreateSourceOperation(cancellationToken);
+            execution.Execution.IssueSourceOperation(cancellationToken);
         var semanticSink = new SemanticSink(
             plan,
             prequalified,
@@ -281,7 +274,7 @@ public static class PackageQueryInspection
                 await PackageAssemblySemanticQueryInspection.ExecuteAsync(
                     request,
                     transferredOperation,
-                    execution.PayloadAcquisition,
+                    execution.Execution,
                     semanticSink,
                     cancellationToken).ConfigureAwait(false);
             semantic = envelope.Content;
