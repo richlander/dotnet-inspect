@@ -76,6 +76,14 @@ public enum MethodDefinitionLayers
     /// metadata work. It does not imply <see cref="ModuleLookup"/>.
     /// </summary>
     MemorySafetyContracts = 1024,
+
+    /// <summary>
+    /// Same-module call-target support: the typed target of a call operand,
+    /// bound by definition token and then by signature against the inspected
+    /// module's methods, with its receipted metadata work. It does not imply
+    /// <see cref="ModuleLookup"/>.
+    /// </summary>
+    CallTargets = 2048,
 }
 
 /// <summary>
@@ -371,7 +379,8 @@ public readonly ref struct MethodDefinitionView
         MethodDefinitionLayers.Body
         | MethodDefinitionLayers.ModuleLookup
         | MethodDefinitionLayers.ReferenceBinding
-        | MethodDefinitionLayers.MemorySafetyContracts;
+        | MethodDefinitionLayers.MemorySafetyContracts
+        | MethodDefinitionLayers.CallTargets;
 
     readonly ref MethodDefinitionUnit _unit;
     readonly MethodDefinitionExecution.ProducerState? _producer;
@@ -644,6 +653,39 @@ public readonly ref struct MethodDefinitionView
         return _unit.BeginMemorySafetyQuery(out before);
     }
 
+    /// <summary>
+    /// The typed target of the call in this unit's body whose operand is
+    /// <paramref name="operandToken"/>, through the declared call-target
+    /// support. Metadata that cannot be read throws, failing the body.
+    /// </summary>
+    internal MethodCallTarget ResolveCallTarget(
+        CallKind kind,
+        int operandToken)
+    {
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasCallTargetLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare "
+                + "call-target support.");
+        }
+
+        producer.CountUnit(
+            ref producer.LastCallTargetUnit,
+            Token,
+            ref producer.CallTargetUses);
+        SameModuleCallTargetLookup lookup =
+            _unit.BeginCallTargetQuery(out SameModuleCallTargetWork before);
+        try
+        {
+            return lookup.Resolve(_unit.MethodHandle, kind, operandToken);
+        }
+        finally
+        {
+            _unit.EndCallTargetQuery(lookup, before);
+        }
+    }
+
     /// <summary>Whether the unit has a managed IL body to acquire.</summary>
     internal bool HasManagedBody =>
         _unit.MethodDefinition.RelativeVirtualAddress != 0
@@ -876,6 +918,7 @@ internal struct MethodDefinitionUnit(
     MethodDefinitionSourceCoverageBuilder? _requestSourceCoverage;
     LibraryMethodAnalysisRunner? _lookup;
     MemorySafetyContractSupport? _memorySafety;
+    SameModuleCallTargetSupport? _callTargets;
     MethodRowGate? _gate;
     bool _positionsRequestOnMove;
     MethodBodyBlock? _body;
@@ -926,6 +969,7 @@ internal struct MethodDefinitionUnit(
         MethodRowGate gate,
         LibraryMethodAnalysisRunner? lookup,
         MemorySafetyContractSupport? memorySafety,
+        SameModuleCallTargetSupport? callTargets,
         MethodDefinitionSourceCoverageBuilder sourceCoverage,
         int ordinal)
     {
@@ -934,6 +978,7 @@ internal struct MethodDefinitionUnit(
         _gate = gate;
         _lookup = lookup;
         _memorySafety = memorySafety;
+        _callTargets = callTargets;
         _requestSourceCoverage = sourceCoverage;
         Ordinal = ordinal;
         gate.MoveTo(
@@ -1073,6 +1118,51 @@ internal struct MethodDefinitionUnit(
                 _physicalSourceCoverage))
         {
             _requestSourceCoverage?.RecordMemorySafetyQuery(
+                MethodHandle,
+                work);
+        }
+    }
+
+    /// <summary>
+    /// Acquires the declared call-target support, recording construction for
+    /// the physical source once and for the request whose query created it.
+    /// </summary>
+    public readonly SameModuleCallTargetLookup BeginCallTargetQuery(
+        out SameModuleCallTargetWork before)
+    {
+        SameModuleCallTargetSupport support =
+            _callTargets ?? throw new InvalidOperationException(
+                "Call-target support was not declared by any planned "
+                + "producer.");
+        SameModuleCallTargetLookup lookup =
+            support.Acquire(out bool constructed);
+        if (constructed)
+        {
+            _physicalSourceCoverage.RecordCallTargetConstruction();
+            if (!ReferenceEquals(
+                    _requestSourceCoverage,
+                    _physicalSourceCoverage))
+            {
+                _requestSourceCoverage?.RecordCallTargetConstruction();
+            }
+        }
+
+        before = lookup.RecordedWork;
+        return lookup;
+    }
+
+    /// <summary>Records one query's work for the physical source and the request.</summary>
+    public readonly void EndCallTargetQuery(
+        SameModuleCallTargetLookup lookup,
+        SameModuleCallTargetWork before)
+    {
+        SameModuleCallTargetWork work = lookup.RecordedWork.Since(before);
+        _physicalSourceCoverage.RecordCallTargetQuery(MethodHandle, work);
+        if (!ReferenceEquals(
+                _requestSourceCoverage,
+                _physicalSourceCoverage))
+        {
+            _requestSourceCoverage?.RecordCallTargetQuery(
                 MethodHandle,
                 work);
         }

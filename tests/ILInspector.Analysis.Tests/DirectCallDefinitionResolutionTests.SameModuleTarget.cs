@@ -7,8 +7,14 @@ public sealed partial class DirectCallDefinitionResolutionTests
 {
     static DirectCallTarget SameModuleTarget(SyntheticOptions options)
     {
+        SyntheticParticipant synthetic = CreateSynthetic(options);
         LibraryCallGraphAnalysisResult graph =
-            CreateSynthetic(options).Participant.CallGraph;
+            synthetic.Participant.CallGraph;
+        // Method Query Source call-target support issues the same target.
+        MethodDefinitionRequestSetTests.AssertCallTargetParity(
+            graph,
+            MethodDefinitionRequestSetTests.ProbeCallTargets(
+                [.. synthetic.Image]));
         return graph.ResolveTarget(Assert.Single(graph.DirectCalls));
     }
 

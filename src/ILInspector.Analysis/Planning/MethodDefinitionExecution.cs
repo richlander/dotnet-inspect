@@ -31,6 +31,7 @@ public sealed class MethodDefinitionExecution
     MethodRowGate? _gate;
     LibraryMethodAnalysisRunner? _lookup;
     MemorySafetyContractSupport? _memorySafety;
+    SameModuleCallTargetSupport? _callTargets;
     CriticalFailure? _critical;
 
     /// <summary>
@@ -160,15 +161,21 @@ public sealed class MethodDefinitionExecution
         bool lookupDeclared = false;
         bool referenceBindingDeclared = false;
         bool memorySafetyDeclared = false;
+        bool callTargetsDeclared = false;
         foreach (ProducerState state in execution._states)
         {
             lookupDeclared |= state.HasLookupLayer;
             referenceBindingDeclared |= state.HasReferenceBindingLayer;
             memorySafetyDeclared |= state.HasMemorySafetyLayer;
+            callTargetsDeclared |= state.HasCallTargetLayer;
         }
         execution._memorySafety =
             memorySafetyDeclared
                 ? new MemorySafetyContractSupport(reader)
+                : null;
+        execution._callTargets =
+            callTargetsDeclared
+                ? new SameModuleCallTargetSupport(reader)
                 : null;
         if (referenceBindingDeclared && referenceBinding is null)
         {
@@ -438,6 +445,11 @@ public sealed class MethodDefinitionExecution
                 static state => state.HasMemorySafetyLayer))
                 ? new MemorySafetyContractSupport(reader)
                 : null;
+        SameModuleCallTargetSupport? callTargets =
+            lanes.Any(static lane => lane._states.Any(
+                static state => state.HasCallTargetLayer))
+                ? new SameModuleCallTargetSupport(reader)
+                : null;
         try
         {
             var visiting = new ProducerState[lanes.Length][];
@@ -458,6 +470,11 @@ public sealed class MethodDefinitionExecution
                         static state => state.HasMemorySafetyLayer))
                 {
                     lane._memorySafety = memorySafety;
+                }
+                if (lane._states.Any(
+                        static state => state.HasCallTargetLayer))
+                {
+                    lane._callTargets = callTargets;
                 }
                 if (referenceBinding is null
                     && lane._states.Any(
@@ -1217,6 +1234,7 @@ public sealed class MethodDefinitionExecution
             Gate,
             Lookup,
             _memorySafety,
+            _callTargets,
             _sourceCoverage,
             CurrentOrdinal);
     }
@@ -1748,6 +1766,13 @@ public sealed class MethodDefinitionExecution
                     state.MemorySafetyUses));
             }
 
+            if (state.HasCallTargetLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.CallTargets),
+                    state.CallTargetUses));
+            }
+
             producers.Add(new ProducerParticipation(
                 state.Producer.Identity,
                 state.Outcome
@@ -1933,6 +1958,9 @@ public sealed class MethodDefinitionExecution
         public bool HasMemorySafetyLayer { get; } =
             (layers & MethodDefinitionLayers.MemorySafetyContracts) != 0;
 
+        public bool HasCallTargetLayer { get; } =
+            (layers & MethodDefinitionLayers.CallTargets) != 0;
+
         public bool IsActive { get; set; } = true;
 
         public ProducerOutcome? Outcome { get; set; }
@@ -1963,6 +1991,11 @@ public sealed class MethodDefinitionExecution
         public int MemorySafetyUses;
 
         public int LastMemorySafetyUnit;
+
+        /// <summary>Units in which call-target support was queried.</summary>
+        public int CallTargetUses;
+
+        public int LastCallTargetUnit;
 
         /// <summary>Counts <paramref name="unitToken"/> once, however often a layer is read in it.</summary>
         public void CountUnit(ref int lastUnit, int unitToken, ref int count)

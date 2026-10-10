@@ -411,6 +411,65 @@ request receipt records construction only for the lane whose access created
 the lookup, and only that lane's queries. Construction is absent when no
 producer declares the support or no declaring producer queries it.
 
+### Same-module call-target support
+
+`CallTargets` is declared shared lookup support for producers that need the
+typed target of a call operand, tracked by
+[#8700](https://github.com/richlander/dotnet-inspect/issues/8700). It does not
+imply `ModuleLookup`. It builds no `LibraryBodyAnalysisBuilder`, acquires no
+body, and does not widen breadth. A producer that did not declare it cannot
+obtain it.
+
+The target is the one
+[Direct-call target resolution](library-body-analysis-service.md#direct-call-target-resolution)
+defines: a current-module MethodDef, an external declaring type's exact
+reference origin, a runtime-provided array member, or a typed unresolved
+reason. One resolver owns that judgment. Library Body Analysis's declared-method
+map and this support are two sources of candidate methods for it, so neither
+defines another resolver. For each physical call site,
+`MethodQuerySource_CallTargetsMatchLibraryBodyAnalysis` gates that both issue
+the same target. This support is the declared shared lookup that the `Calls`
+layer ([#9868](https://github.com/richlander/dotnet-inspect/issues/9868))
+requires to carry a target for each call site.
+
+The execution constructs one `SameModuleCallTargetLookup` over the subject's
+metadata reader at the first query by a declaring producer. Lanes of one shared
+execution group use the same lookup. A query names the call kind and operand
+token in the visited body:
+
+- `calli` is unresolved as indirect and reads no metadata.
+- An operand that peels, through a MethodSpec or a MemberRef on a MethodDef
+  parent, to a same-image MethodDef binds by token. The lookup reads that
+  method's declaring type, its signature-depth guard, and its signature header
+  to check the generic declaration. It decodes no signature.
+- Any other operand's member reference is decoded in the caller's generic
+  scope. A binding by signature reads the module's TypeDef index, which the
+  lookup builds at the first query that needs it. It then decodes the
+  signatures of the matched type's methods with the referenced name, once per
+  type and name.
+- A MethodSpec's instantiation does not affect the target and is not decoded.
+- Metadata that cannot be read throws and fails the visited body, as it does in
+  Library Body Analysis.
+
+The source receipt carries `SameModuleCallTargetCoverage`. Construction reads
+the module name and assembly identity and records no work. Query work counts
+three things:
+
+- the TypeDef rows read to build the index;
+- the MethodDef rows read as caller-scope probes, definition probes, and
+  candidates; and
+- signature bytes, as the full blob length of each enumerated step each time
+  it runs. The steps are the depth guard of a token-bound operand's signature,
+  the member reference signature and its TypeSpec parent, and each candidate
+  MethodDef signature.
+
+The index and candidate caches last for the execution, so their work is
+charged to the query that first needed them. MemberRef and MethodSpec rows that
+peel an operand are not reported; each query reads at most one of each.
+Coverage also records the MethodDefs whose visits queried the lookup and the
+number of queries. The physical group receipt and each request receipt
+attribute construction and queries as memory-safety contract support does.
+
 ## Planning
 
 Planning is resource-free. It validates:
@@ -651,6 +710,8 @@ Migration is incremental:
     memory-safety contract support (#9831) as independent source capabilities.
     [Memory-safety contract support](#memory-safety-contract-support) is
     implemented; its consumers adopt it in their own slices.
+    [Same-module call-target support](#same-module-call-target-support) (#8700)
+    is implemented on the same terms.
 11. Move the first exact-member consumer in #9832 through
     [exact-member scoped producers](assembly-analysis-operation.md#exact-member-scoped-producers),
     consuming #8700 and #8945 rather than defining another call resolver or
@@ -756,6 +817,20 @@ Memory-safety contract support is gated in Release:
 - `MethodQuerySource_MemorySafetyContractsRequireDeclaration`
 - `MethodQuerySource_MemorySafetyContractsReceiptExactMethodWork`
 - `MethodQuerySource_MemorySafetyContractsSharedOnceAcrossLanes`
+
+Same-module call-target support is gated in Release:
+
+- `MethodQuerySource_CallTargetsMatchLibraryBodyAnalysis`, over the
+  callee-resolution fixture, the Analysis test assembly,
+  System.Collections.Immutable, and System.Linq
+- the `SameModuleTarget_*` synthetic cases, which assert the same parity for
+  unmatched, ambiguous, unsupported, malformed, and single-definition member
+  references
+- `MethodQuerySource_CallTargetsAbsentWhenUndeclared`
+- `MethodQuerySource_CallTargetsRequireDeclaration`
+- `MethodQuerySource_CallTargetsReceiptExactMethodWork`
+- `MethodQuerySource_CallTargetsBindDefinitionTokensWithoutTypeIndex`
+- `MethodQuerySource_CallTargetsSharedOnceAcrossLanes`
 
 The following deeper-source gates remain **unverified**:
 
