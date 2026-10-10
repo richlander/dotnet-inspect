@@ -995,6 +995,19 @@ test("valid courtesy package routes continue to decode normally", () => {
   assert.equal(parsed.routeFailure, null);
 });
 
+test("courtesy package routes preserve the dependencies lens", () => {
+  const parsed = parseWorkspaceLocation(locationSnapshot(
+    "https://inspect.example/packages/Example.Package/1.0.0#pkg:dependencies"),
+  () => {
+    throw new Error("unexpected packet decode");
+  });
+
+  assert.equal(parsed.package, "Example.Package");
+  assert.equal(parsed.version, "1.0.0");
+  assert.equal(parsed.atPackageRoot, true);
+  assert.equal(parsed.packageLens, "dependencies");
+});
+
 test("an empty workspace parameter remains authoritative", () => {
   const route = parseWorkspaceRoute(locationSnapshot(
     "https://inspect.example/?package=Visible.Package&w=#metadata"));

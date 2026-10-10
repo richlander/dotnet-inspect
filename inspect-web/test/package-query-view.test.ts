@@ -582,7 +582,7 @@ test("active value queries render above the query-by-value palette", () => {
   assert.match(html, /value="Microsoft\.Extensions\.DependencyInjection"/);
   assert.match(html, /data-query-term-add="depends"/);
   assert.match(html, /Add Direct dependency/);
-  assert.match(html, /Add Dependency target/);
+  assert.doesNotMatch(html, /Add Dependency target/);
   assert.match(html, /Add Depends on ecosystem/);
   assert.match(html, /Add DotnetCliTool/);
   assert.doesNotMatch(html, /Add Transitively depends on package/);
@@ -616,6 +616,7 @@ test("dependency package, reach, and target render as one facet", () => {
   assert.match(html, /value="2" selected/);
   assert.match(html, /data-query-dependency-target/);
   assert.match(html, /value="net10\.0"/);
+  assert.match(html, /optional for direct/);
   assert.doesNotMatch(html, /data-query-preset="dependency-depth:eq:2"/);
   assert.doesNotMatch(html, /data-query-term-form="1"/);
   assert.doesNotMatch(html, /Add Dependency target/);
@@ -722,7 +723,7 @@ test("unrelated fact toggles preserve pending dependency controls", () => {
     "direct",
     "net10.0",
     null,
-    null);
+    DEPENDENCY_TARGET_TERM);
   const request = togglePreset(previous, NUSPEC_FACET);
   const termEdits = synchronizeTermEdits(previous, request, [{
     operator: "eq",
@@ -2349,6 +2350,54 @@ test("bindPackageQueryView applies dependency reach and target atomically", () =
     "Microsoft.Extensions.*",
     "2",
     "net10.0",
+  ]]);
+});
+
+test("bindPackageQueryView allows an absent target for direct dependencies", () => {
+  const root = new FakeRoot();
+  const prefix = new FakeElement({}, "package-query-prefix");
+  prefix.value = "Microsoft.Extensions.*";
+  const form = new FakeElement({ queryTermForm: "draft" });
+  const value = new FakeElement();
+  value.value = "Microsoft.Extensions.Primitives";
+  const operator = new FakeElement();
+  operator.value = "eq";
+  const reach = new FakeElement();
+  reach.value = "direct";
+  const target = new FakeElement();
+  target.value = "";
+  form.add("[data-query-term-value]", value);
+  form.add("[data-query-term-operator]", operator);
+  form.add("[data-query-dependency-reach]", reach);
+  form.add("[data-query-dependency-target]", target);
+  root.add("#package-query-prefix", prefix);
+  root.add("[data-query-term-form]", form);
+  const calls: unknown[][] = [];
+
+  bindPackageQueryView(fakeDom.parentNode(root), {
+    onBack: () => {},
+    onCancel: () => {},
+    onPresetToggle: () => {},
+    onLibraryTargetInput: () => {},
+    onPrefixInput: () => {},
+    onResultPressure: () => {},
+    onResultViewportChange: () => {},
+    onRowOpen: () => {},
+    onRun: () => {},
+    onSourceChange: () => {},
+    onTermApply: (...args) => calls.push(args),
+  });
+
+  form.dispatch("submit", fakeDom.event({ preventDefault() {} }));
+
+  assert.equal(target.customValidity, "");
+  assert.deepEqual(calls, [[
+    null,
+    "eq",
+    "Microsoft.Extensions.Primitives",
+    "Microsoft.Extensions.*",
+    "direct",
+    "",
   ]]);
 });
 

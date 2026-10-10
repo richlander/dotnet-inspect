@@ -1271,7 +1271,13 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /@media \(max-width: 860px\) \{\s*body\.package-query-route,\s*body\.package-activity-route \{ min-width: 0; \}/);
   assert.match(
     handoff,
-    /if \(rootRequest !== undefined\) \{\s*await openExactPackageQueryRow\(packageId, version, rootRequest\);[\s\S]*const controller = requireRetainedWorkspaceActivation\(\);[\s\S]*controller\.retain\(\{[\s\S]*packageQuery: \{ packageId, version \},[\s\S]*controller\.activate\([\s\S]*installRetainedWorkspacePosting\(posting, locationIntent\)[\s\S]*completeRetainedActivationPresentation\(/);
+    /if \(rootRequest !== undefined\) \{\s*await openExactPackageQueryRow\(packageId, version, rootRequest\);[\s\S]*const controller = requireRetainedWorkspaceActivation\(\);[\s\S]*controller\.retain\(\{[\s\S]*packageQuery: \{ packageId, version \},[\s\S]*controller\.activate\([\s\S]*completeRetainedActivationPresentation\(/);
+  assert.match(
+    handoff,
+    /const initialPackageLens: PackageLens = origin === "query"\s*\? packageQueryWorkspaceLens\(state\.packageQueryState\.request\) \?\? "overview"[\s\S]*url\.hash = initialPackageLens === "overview"\s*\? "package"\s*: `pkg:\$\{initialPackageLens\}`;/);
+  assert.match(
+    handoff,
+    /installRetainedWorkspacePosting\(\s*posting,\s*locationIntent,\s*undefined,\s*initialPackageLens\)/);
   assert.doesNotMatch(
     handoff,
     /captureWorkspaceConstructionSnapshots|loadPackage\(|publishCurrentWorkspace/);

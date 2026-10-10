@@ -209,11 +209,12 @@ function packageQueryManifest(
   packageVersion: string,
   isTool: boolean,
   dependencies: readonly string[] = [],
+  targetFramework = "net10.0",
 ): Buffer {
   const dependencyMarkup = dependencies.length === 0
     ? ""
     : `<dependencies>
-      <group targetFramework="net10.0">
+      <group targetFramework="${targetFramework}">
         ${dependencies.map(
           dependency => `<dependency id="${dependency}" version="[1.0.0, )" />`,
         ).join("\n        ")}
@@ -517,7 +518,7 @@ async function installGalleryRoutes(
   };
   await context.route("https://globalcdn.nuget.org/**", serveFixture);
   await context.route("https://api.nuget.org/v3-flatcontainer/**", serveFixture);
-  await context.route("https://api.nuget.org/v3/index.json", async route => {
+  const serveServiceIndex = async (route: Route): Promise<void> => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -527,10 +528,16 @@ async function installGalleryRoutes(
         resources: [{
           "@id": "https://api.nuget.org/v3-flatcontainer/",
           "@type": "PackageBaseAddress/3.0.0",
+        }, {
+          "@id": "https://azuresearch-usnc.nuget.org/query",
+          "@type": "SearchQueryService/3.5.0",
         }],
       }),
     });
-  });
+  };
+  await context.route(
+    /^https:\/\/api\.nuget\.org(?::443)?\/v3\/index\.json$/u,
+    serveServiceIndex);
 }
 
 declare global {
@@ -1627,7 +1634,8 @@ test.describe("Package Query website over real Wasm", () => {
       "Contoso.HostingConsumer",
       version,
       false,
-      ["Microsoft.Extensions.Hosting"]);
+      ["Microsoft.Extensions.Hosting"],
+      "net9.0");
     const injectionManifest = packageQueryManifest(
       "Contoso.InjectionConsumer",
       version,
@@ -1637,13 +1645,21 @@ test.describe("Package Query website over real Wasm", () => {
       packageId: "Contoso.HostingConsumer",
       version,
       manifest: hostingManifest,
-      archive: healthyArchive,
+      archive: storedZip([
+        { name: "Contoso.HostingConsumer.nuspec", bytes: hostingManifest },
+        {
+          name: "lib/net9.0/Contoso.HostingConsumer.dll",
+          bytes: healthyAssembly,
+        },
+      ]),
     };
     const injection: FixtureCoordinate = {
       packageId: "Contoso.InjectionConsumer",
       version,
       manifest: injectionManifest,
-      archive: healthyArchive,
+      archive: storedZip([
+        { name: "Contoso.InjectionConsumer.nuspec", bytes: injectionManifest },
+      ]),
     };
     const registry = new GalleryFixtureRegistry([hosting, injection]);
     await installGalleryRoutes(context, registry);
@@ -1700,6 +1716,14 @@ test.describe("Package Query website over real Wasm", () => {
       page.locator('[data-query-term-form="0"] [data-query-dependency-reach]');
     const dependencyTarget =
       page.locator('[data-query-term-form="0"] [data-query-dependency-target]');
+    await expect(dependencyTarget).toBeEnabled();
+    await expect(dependencyTarget).toHaveValue("");
+    await dependencyTarget.fill("net10.0");
+    await page.locator('[data-query-term-form="0"] button[type="submit"]').click();
+    await expect(page.locator(".query-row")).toHaveCount(0);
+    await dependencyTarget.fill("");
+    await page.locator('[data-query-term-form="0"] button[type="submit"]').click();
+    await expect(rows).toHaveText([hosting.packageId]);
     await dependencyReach.selectOption("2");
     await dependencyTarget.fill("net9.0");
     await page.locator('[data-query-preset="readme:eq:true"]').click();
@@ -1709,6 +1733,7 @@ test.describe("Package Query website over real Wasm", () => {
     await expect(dependencyReach).toHaveValue("2");
     await expect(dependencyTarget).toHaveValue("net9.0");
     await dependencyReach.selectOption("direct");
+    await dependencyTarget.fill("");
 
     await firstValue.fill("Microsoft.Extensions.DependencyInjection");
     await firstValue.evaluate(element => {
@@ -1798,6 +1823,25 @@ test.describe("Package Query website over real Wasm", () => {
       hosting.packageId,
       injection.packageId,
     ]);
+
+    await page.locator('[data-query-term-add="depends"]').click();
+    await page.locator("[data-query-term-draft-value]")
+      .fill("Microsoft.Extensions.Hosting");
+    await page.locator('[data-query-term-form="draft"] button[type="submit"]').click();
+    await expect(rows).toHaveText([hosting.packageId]);
+    await page.locator("[data-query-row-open]").click();
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/packages/${hosting.packageId}/${version}#pkg:dependencies$`,
+      ),
+      { timeout: 120_000 },
+    );
+    const dependenciesTab = page.locator(
+      '[data-inspector-tab][data-package-lens="dependencies"]',
+    );
+    await expect(dependenciesTab).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#inspector-panel"))
+      .toContainText("Microsoft.Extensions.Hosting", { timeout: 60_000 });
   });
 
   test("retains 100 prefix results while mounting a bounded row window", async ({

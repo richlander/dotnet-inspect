@@ -1206,7 +1206,18 @@ const toolMatchEvent: BrowserPackageQueryEvent = {
 };
 
 test("packageQueryCatalog preserves product descriptors and producer ordering", () => {
-  const catalog: BrowserPackageQueryCatalog = {
+  const catalog: {
+    presets: Array<
+      BrowserPackageQueryCatalog["presets"][number] & {
+        workspaceLens: "Dependencies" | null;
+      }
+    >;
+    terms: Array<
+      BrowserPackageQueryCatalog["terms"][number] & {
+        workspaceLens: "Dependencies" | null;
+      }
+    >;
+  } = {
     presets: [
       {
         key: "dependencies",
@@ -1225,6 +1236,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
         categoryId: "dependencies",
         categoryLabel: "Dependencies",
         categoryOrder: 200,
+        workspaceLens: "Dependencies",
       },
       {
         key: "readme",
@@ -1243,6 +1255,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
         categoryId: "package-metadata",
         categoryLabel: "Package metadata",
         categoryOrder: 100,
+        workspaceLens: null,
       },
     ],
     terms: [
@@ -1260,6 +1273,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
         allowsCustomValue: true,
         replacementGroupId: null,
         options: [],
+        workspaceLens: null,
       },
       {
         key: "tool-format",
@@ -1286,6 +1300,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
             summary: "RID-specific format.",
           },
         ],
+        workspaceLens: null,
       },
     ],
   };
@@ -1310,6 +1325,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
       categoryId: "dependencies",
       categoryLabel: "Dependencies",
       categoryOrder: 200,
+      workspaceLens: "dependencies",
     },
     {
       id: "readme:eq:true",
@@ -1329,6 +1345,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
       categoryId: "package-metadata",
       categoryLabel: "Package metadata",
       categoryOrder: 100,
+      workspaceLens: null,
     },
   ]);
   assert.deepEqual(projected.terms, [
@@ -1346,6 +1363,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
       allowsCustomValue: true,
       replacementGroupId: null,
       options: [],
+      workspaceLens: null,
     },
     {
       key: "tool-format",
@@ -1372,6 +1390,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
           summary: "RID-specific format.",
         },
       ],
+      workspaceLens: null,
     },
   ]);
 });

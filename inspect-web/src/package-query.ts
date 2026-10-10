@@ -16,6 +16,8 @@ type QueryExecutionClass =
   | "metadata"
   | "metadata-expensive";
 
+export type PackageQueryWorkspaceLens = "dependencies";
+
 /** One product-issued package-query preset descriptor. */
 export interface QueryPreset {
   id: string;
@@ -35,6 +37,7 @@ export interface QueryPreset {
   categoryId?: string;
   categoryLabel?: string;
   categoryOrder?: number;
+  workspaceLens?: PackageQueryWorkspaceLens | null;
 }
 
 export interface QueryTermOption {
@@ -58,6 +61,7 @@ export interface QueryTermDescriptor {
   allowsCustomValue?: boolean;
   replacementGroupId?: string | null;
   options?: readonly QueryTermOption[];
+  workspaceLens?: PackageQueryWorkspaceLens | null;
 }
 
 export type DependencyReach = "direct" | "2" | "3" | "4";
@@ -322,9 +326,23 @@ export function dependencyReach(request: QueryRequest): DependencyReach {
 }
 
 export function dependencyTarget(request: QueryRequest): string {
-  return request.terms.find(
-    term => term.descriptor.key === "dependency-target")?.value
-    ?? request.targetFramework;
+  const value = request.terms.find(
+    term => term.descriptor.key === "dependency-target")?.value.trim() ?? "";
+  return value.toLowerCase() === "all" ? "" : value;
+}
+
+export function packageQueryWorkspaceLens(
+  request: QueryRequest | null,
+): PackageQueryWorkspaceLens | null {
+  if (request === null) return null;
+  const hints = [
+    ...request.presets.map(preset => preset.workspaceLens),
+    ...request.terms.map(term => term.descriptor.workspaceLens),
+  ].filter((hint): hint is PackageQueryWorkspaceLens => hint !== null
+    && hint !== undefined);
+  if (hints.length === 0) return null;
+  const first = hints[0]!;
+  return hints.every(hint => hint === first) ? first : null;
 }
 
 function dependencyContextChanged(
@@ -388,18 +406,14 @@ export function withDependencyTerm(
   const preservesTraversal = hadTraversal
     && (hasOtherTransitiveDependency
       || (operator !== "eq" && hasOtherExactDependency));
-  const hasOtherDependencyPredicate = request.terms.some(
-    (term, termIndex) =>
-      termIndex !== index
-      && (term.descriptor.key === "depends"
-        || term.descriptor.key === "depends-transitive"
-        || term.descriptor.key === "depends-ecosystem"))
-    || request.presets.some(preset => preset.key === "dependencies");
-  const preservesTarget = preservesTraversal
-    || (hadTraversal && hasOtherDependencyPredicate);
+  const normalizedTarget = targetFramework.trim();
+  const exactTarget = isTraversalDependencyTarget(normalizedTarget)
+    ? normalizedTarget
+    : null;
+  if ((traverses || preservesTraversal) && exactTarget === null) return request;
+  if (exactTarget !== null && targetDescriptor === null) return request;
   const terms = request.terms.flatMap((term, termIndex) => {
-    if (term.descriptor.key === "dependency-target"
-      && (traverses || (hadTraversal && !preservesTarget))) return [];
+    if (term.descriptor.key === "dependency-target") return [];
     if (index !== null && termIndex === index) {
       return [{ descriptor, operator, value }];
     }
@@ -408,12 +422,11 @@ export function withDependencyTerm(
   if (index === null) {
     terms.push({ descriptor, operator, value });
   }
-  if (traverses) {
-    if (!targetDescriptor) return request;
+  if (exactTarget !== null && targetDescriptor !== null) {
     terms.push({
       descriptor: targetDescriptor,
       operator: targetDescriptor.operators[0] ?? "eq",
-      value: targetFramework,
+      value: exactTarget,
     });
   }
 

@@ -709,6 +709,7 @@ import {
   ECOSYSTEM_PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
   initialQueryState,
   isTraversalDependencyTarget,
+  packageQueryWorkspaceLens,
   shouldExecuteQuery,
   synchronizeDependencyTermEditor,
   synchronizeTermEdits,
@@ -2658,6 +2659,7 @@ async function installRetainedWorkspacePosting(
   posting: BrowserRetainedWorkspacePosting,
   locationIntent: LocationIntentDeclaration,
   browserRestoration?: "exact" | "changed",
+  initialPackageLens?: PackageLens,
 ): Promise<void> {
   const detailAuthority = retainedWorkspaceInitialDetailAuthority;
   if (detailAuthority?.realizationId !== posting.realizationId) {
@@ -2732,6 +2734,9 @@ async function installRetainedWorkspacePosting(
     state.workspaceSubjectOpen = state.package === null;
     state.atPackageRoot = true;
     state.atLibraryRoot = false;
+    if (initialPackageLens !== undefined && state.rootKind === "package") {
+      state.packageLens = initialPackageLens;
+    }
     if (detailFailure !== null) {
       if (packageInventory !== undefined) {
         const presentation = retainedWorkspacePresentation;
@@ -21082,7 +21087,7 @@ function applyPackageQueryTerm(
   value: string,
   text: string,
   dependencyReach: DependencyReach = "direct",
-  dependencyTargetValue = "net10.0",
+  dependencyTargetValue = "",
 ) {
   const descriptor = index === null
     ? state.packageQueryState.termDraft?.descriptor
@@ -21104,8 +21109,9 @@ function applyPackageQueryTerm(
           && preset.value === dependencyReach) ?? null;
     const targetDescriptor = state.packageQueryTerms.find(
       term => term.key === "dependency-target") ?? null;
-    if (dependencyReach !== "direct"
-      && (!depthPreset || !targetDescriptor)) {
+    if ((dependencyReach !== "direct" && !depthPreset)
+      || (isTraversalDependencyTarget(dependencyTargetValue)
+        && !targetDescriptor)) {
       state.packageQueryNavigationError =
         "Dependency reach controls are unavailable.";
       render();
@@ -21226,6 +21232,9 @@ async function openPackageQueryRow(
     packageQueryViewport =
       capturePackageQueryViewport(document) ?? packageQueryViewport;
   }
+  const initialPackageLens: PackageLens = origin === "query"
+    ? packageQueryWorkspaceLens(state.packageQueryState.request) ?? "overview"
+    : "overview";
   if (!canPublishRetainedWorkspace()) {
     if (origin === "query") {
       state.packageQueryNavigationError = retainedWorkspaceCapacityMessage();
@@ -21259,7 +21268,9 @@ async function openPackageQueryRow(
     `/packages/${encodeURIComponent(packageId)}/${encodeURIComponent(version)}`,
     location.origin,
   );
-  url.hash = "package";
+  url.hash = initialPackageLens === "overview"
+    ? "package"
+    : `pkg:${initialPackageLens}`;
   const destination = url.toString();
   const locationIntent = retainedLocationIntents.admitNonBrowser(
     "push",
@@ -21279,7 +21290,11 @@ async function openPackageQueryRow(
       () =>
         navigationSequence.isCurrent(navigationSeq)
         && retainedLocationIntents.currentIntentId === locationIntent.id,
-      posting => installRetainedWorkspacePosting(posting, locationIntent),
+      posting => installRetainedWorkspacePosting(
+        posting,
+        locationIntent,
+        undefined,
+        initialPackageLens),
       undefined,
       undefined,
       posting => retainedLocationPresentationCurrent(
@@ -21325,7 +21340,10 @@ async function openPackageQueryRow(
       navigationSeq,
     );
     clearWorkspaceFeedIdentity();
-    afterCurrentNavigationFrame(focusTypeList);
+    afterCurrentNavigationFrame(() => {
+      if (initialPackageLens === "overview") focusTypeList();
+      else focusLevelOneHeading();
+    });
     return;
   }
   if (!navigationSequence.isCurrent(navigationSeq)) return;
