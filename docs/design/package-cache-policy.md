@@ -317,9 +317,9 @@ No builds or tests ran during measurement. CDN latency remains uncontrolled.
 | --- | --- | --- | --- | --- |
 | Avalonia 12.1.3, net10.0, default facade | 232.5 → 187.7 | 299.5 → 244.6 | 0.6 → 0.6 | 0.7 → 0.6 |
 | Avalonia 12.1.3, net10.0, `compile:ref/net10.0/Avalonia.Base.dll` | 466.4 → 435.8 | 496.8 → 469.5 | 147.8 → 146.1 | 148.1 → 150.1 |
-| Microsoft.CodeAnalysis.CSharp 4.11.0, netstandard2.0 | 343.0 → 337.8 | 416.7 → 370.9 | 53.0 → 51.8 | 53.7 → 54.0 |
+| Microsoft.CodeAnalysis.CSharp 5.9.0, netstandard2.0 | 343.0 → 337.8 | 416.7 → 370.9 | 53.0 → 51.8 | 53.7 → 54.0 |
 | Newtonsoft.Json 13.0.4, net6.0 | 253.4 → 228.1 | 270.4 → 268.1 | 22.2 → 22.5 | 27.8 → 23.4 |
-| Dapper 2.1.72, net8.0 | 119.1 → 121.0 | 146.1 → 135.1 | 10.6 → 10.8 | 11.6 → 13.9 |
+| Dapper 2.1.66, net8.0 | 119.1 → 121.0 | 146.1 → 135.1 | 10.6 → 10.8 | 11.6 → 13.9 |
 
 Tail means the largest of seven samples, also nearest-rank p95 at this sample
 count. Small timing differences, especially Dapper's unchanged complete-fetch
@@ -365,9 +365,9 @@ matches between sides.
 | --- | --- |
 | Avalonia facade | 138,904 → 73,347 |
 | Avalonia.Base | 1,786,944 → 1,721,387 |
-| Roslyn | 2,723,574 → 2,658,017 |
+| Roslyn | 2,914,735 → 2,849,178 |
 | Newtonsoft | 408,803 → 343,246 |
-| Dapper | 587,733 → 587,733 |
+| Dapper | 437,579 → 437,579 |
 
 Newtonsoft's remaining requests are the abandoned size probe (zero consumed
 body bytes), the initial directory tail (65,557), the nuspec span (1,818),
