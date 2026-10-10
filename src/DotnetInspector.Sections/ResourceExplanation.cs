@@ -168,6 +168,7 @@ public enum InspectionCapabilityResourceKind
     Route,
     QuerySpace,
     QueryFacet,
+    RelatedOperation,
     ConsumerBinding,
     Analysis,
     AnalysisCollection,
