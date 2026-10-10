@@ -225,25 +225,38 @@ than two points is a typed non-success that names the missing point, not a
 one-point History. When the listing is not authoritative, the projection is a
 typed non-success, never a window built from partial evidence.
 
-A is the caller's exact pin, so it is never a candidate and need not be
-listed. The result is a population vector from the window's first point to A,
-with the selected points as addresses from that vector. A is the vector's end
-address whether it is listed, unlisted, or absent from the listing; acquiring
-A owns whether it is available. This is a narrow exception to the listed-only
-History vector rule in [Addressable vector](#addressable-vector-nameab), which
-already names an exact caller pin as the way to inspect an unlisted version.
-Every other point and every interior version remains listed-only. Versions between two points
-remain unevaluated gaps, so History attributes a change on such a step to the
-gap. The projection does not choose which points take part in Body
-comparison; [Library-scope History](diff-history.md#library-scope-history-over-fast-diff)
-and its consumers do.
+A is the caller's bound exact coordinate, so it is never a candidate and need
+not be listed. The projection admits A, with the listed candidates, as the
+version set of the result: a population vector from the window's first point to
+A, with the selected points as addresses from that vector. A is the vector's end
+address whether it is listed, unlisted, or absent from the listing. This is a
+narrow exception to the listed-only History vector rule in [Addressable
+vector](#addressable-vector-nameab), which already names an exact caller pin as
+the way to inspect an unlisted version. Every other point and every interior
+version remains listed-only.
+
+History acquires A through its exact pin, as caller-pinned inspection acquires
+an unlisted exact coordinate without candidate discovery in the [Package Source
+Model](package-source-model.md), and never through the discovery's
+`SelectCandidate`. Every other point is acquired through `SelectCandidate`, as
+for any History address. Acquiring A owns whether it is available. How a
+population cell carries that pinned end address belongs to the House and Diff
+History adoption in
+[#9920](https://github.com/richlander/dotnet-inspect/issues/9920).
+
+Versions between two points remain unevaluated gaps, so History attributes a
+change on such a step to the gap. The projection does not choose which points
+take part in Body comparison; [Library-scope
+History](diff-history.md#library-scope-history-over-fast-diff) and its consumers
+do.
 
 Gates: `LastPatch` and `LastMajor` for a servicing release (`10.0.2`), an
 `X.Y.0` release, an `X.0.0` release where A′ and A″ coincide, a package with
 no lower major, a first release, a prerelease A that admits prerelease
 candidates, a stable A that excludes them, an unlisted A′ candidate that is
-skipped, an unlisted A and an A absent from the listing, each the end address
-of a listed-only vector, and a non-authoritative listing.
+skipped, an unlisted A and an A absent from the listing, each ending a vector
+whose points other than A are listed-only and acquired through its exact pin,
+and a non-authoritative listing.
 
 ## Resolution receipt
 
