@@ -715,7 +715,7 @@ The proposed `--envelope` is a separate
 content-shape or presentation modifier.
 
 `--tfm all` is package discovery under
-[Compile selection](package-asset-selection-correspondence.md#all-frameworks-discovery):
+[All-frameworks package discovery](package-tfm-all-discovery.md):
 it selects no compile projection, and requests that inspect assemblies fail
 before acquisition rather than select one Library from several frameworks.
 

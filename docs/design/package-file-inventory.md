@@ -92,7 +92,7 @@ depth; it does not match a filename, a segment substring, or only known NuGet
 roots.
 
 `--tfm all` adds no predicate;
-[Compile selection](package-asset-selection-correspondence.md#all-frameworks-discovery)
+[All-frameworks package discovery](package-tfm-all-discovery.md)
 owns what that request admits.
 
 The target-framework value is validated before package acquisition through the

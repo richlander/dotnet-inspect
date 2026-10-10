@@ -344,27 +344,18 @@ CLI `library --package` and its namesake request do not yet adopt Library
 probes. When compile selection returns `NoCompileAssets`, and under
 `--tfm all`, the CLI's package Library routes search the extracted archive
 through `TfmSelector` instead of consuming a role population; #9833 records
-each route. `--tfm all` is package discovery under
-[Compile selection](package-asset-selection-correspondence.md#all-frameworks-discovery),
-so its Library routes are retired rather than repopulated. #9833 adopts that
-rule: `library`, `type`, and `member` package targets,
-`package --library`, and assembly-reading `package` sections such as
-SourceLink, Signals, and Package Info's selected-framework facts fail before
-acquisition, and Package's default Library hierarchy shows every available
-slice, where it currently ignores `--tfm all` in favor of the selected
-framework.
-Observed results
-include a runtime pack yielding its implementation assemblies, an analyzer
-package its analyzers, a framework-less root `lib/` package its root
-assemblies, and a satellite-only package its satellite resource assemblies.
-Until that retirement, `--tfm all` also merges frameworks and roles and
-ignores explicit empty groups. Without `--tfm all`, a selected explicit empty
-compile group fails
-before the search and reports the group's own folder spelling, such as
-`netstandard`. #9833 records the search's exact rules and decides the
+each route. Observed results include a runtime pack yielding its
+implementation assemblies, an analyzer package its analyzers, a
+framework-less root `lib/` package its root assemblies, and a satellite-only
+package its satellite resource assemblies. Under `--tfm all` the search also
+merges frameworks and roles and ignores explicit empty groups; those routes
+are retired rather than repopulated, because `--tfm all` is package discovery
+under [All-frameworks package discovery](package-tfm-all-discovery.md), which
+records that adoption. Without `--tfm all`, a selected explicit empty compile
+group fails before the search and reports the group's own folder spelling,
+such as `netstandard`. #9833 records the search's exact rules and decides the
 `NoCompileAssets` path after the root `lib/` and RID-implementation decisions
-above, and Browser
-adoption of Library probes is not yet recorded.
+above, and Browser adoption of Library probes is not yet recorded.
 
 Later SourceLink and relationship adoptions remain separately scoped. Existing
 aggregate behavior is evidence, not an automatic conformance claim.
