@@ -276,6 +276,11 @@ export function dependencyTarget(request: QueryRequest): string {
     ?? request.targetFramework;
 }
 
+export function isTraversalDependencyTarget(value: string): boolean {
+  const candidate = value.trim();
+  return candidate.length > 0 && candidate.toLowerCase() !== "all";
+}
+
 export function synchronizeDependencyTermEditor(
   request: QueryRequest,
   editor: QueryTermEditor,
@@ -304,7 +309,10 @@ export function withDependencyTerm(
   }
 
   const traverses = operator === "eq" && reach !== "direct";
-  if (traverses && (!depthPreset || !targetDescriptor)) return request;
+  if (traverses
+    && (!depthPreset
+      || !targetDescriptor
+      || !isTraversalDependencyTarget(targetFramework))) return request;
 
   const hadTraversal = request.presets.some(
     preset => preset.key === "dependency-depth");

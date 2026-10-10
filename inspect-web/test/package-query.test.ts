@@ -13,6 +13,7 @@ import {
   dependencyTarget,
   emptyOutcome,
   initialQueryState,
+  isTraversalDependencyTarget,
   isLibraryLiteralQuery,
   shouldExecuteQuery,
   synchronizeDependencyTermEditor,
@@ -287,6 +288,31 @@ test("dependency facet applies direct or bounded reach atomically", () => {
   assert.deepEqual(direct.presets, []);
   assert.equal(dependencyReach(direct), "direct");
   assert.equal(direct.requestedLimit, 200);
+
+  const directWithAll = withTerm(
+    withTerm(
+      base,
+      DEPENDS_TERM,
+      "eq",
+      "Microsoft.Extensions.Primitives"),
+    DEPENDENCY_TARGET_TERM,
+    "eq",
+    "all");
+  const invalidTraversal = withDependencyTerm(
+    directWithAll,
+    DEPENDS_TERM,
+    0,
+    "eq",
+    "Microsoft.Extensions.Primitives",
+    "2",
+    "all",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+
+  assert.equal(isTraversalDependencyTarget("all"), false);
+  assert.equal(isTraversalDependencyTarget(" ALL "), false);
+  assert.equal(isTraversalDependencyTarget("net10.0"), true);
+  assert.equal(invalidTraversal, directWithAll);
 });
 
 test("dependency prefix forces direct reach and removing the last dependency clears traversal", () => {

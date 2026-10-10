@@ -691,6 +691,7 @@ import {
   dependencyTarget as selectedDependencyTarget,
   ECOSYSTEM_PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
   initialQueryState,
+  isTraversalDependencyTarget,
   shouldExecuteQuery,
   synchronizeDependencyTermEditor,
   synchronizeDependencyTermEdits,
@@ -20844,6 +20845,13 @@ function applyPackageQueryTerm(
       && (!depthPreset || !targetDescriptor)) {
       state.packageQueryNavigationError =
         "Dependency reach controls are unavailable.";
+      render();
+      return;
+    }
+    if (dependencyReach !== "direct"
+      && !isTraversalDependencyTarget(dependencyTargetValue)) {
+      state.packageQueryNavigationError =
+        "Bounded dependency reach requires an exact target framework.";
       render();
       return;
     }

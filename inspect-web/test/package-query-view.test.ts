@@ -2118,7 +2118,7 @@ test("bindPackageQueryView applies dependency reach and target atomically", () =
   const reach = new FakeElement();
   reach.value = "2";
   const target = new FakeElement();
-  target.value = "net10.0";
+  target.value = "all";
   form.add("[data-query-term-value]", value);
   form.add("[data-query-term-operator]", operator);
   form.add("[data-query-dependency-reach]", reach);
@@ -2141,6 +2141,14 @@ test("bindPackageQueryView applies dependency reach and target atomically", () =
     onTermApply: (...args) => calls.push(args),
   });
 
+  form.dispatch("submit", fakeDom.event({ preventDefault() {} }));
+
+  assert.equal(target.customValidity, "Enter an exact target framework.");
+  assert.equal(target.validityReports, 1);
+  assert.deepEqual(calls, []);
+
+  target.value = "net10.0";
+  target.dispatch("input");
   form.dispatch("submit", fakeDom.event({ preventDefault() {} }));
 
   assert.deepEqual(calls, [[

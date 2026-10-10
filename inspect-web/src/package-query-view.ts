@@ -12,6 +12,7 @@ import {
   createQueryRequest,
   dependencyReach,
   dependencyTarget,
+  isTraversalDependencyTarget,
   isLibraryLiteralQuery,
 } from "./package-query.ts";
 import {
@@ -515,7 +516,8 @@ function bindPackageQueryTerms(
         }
         if (dependencyTargetControl
           && !dependencyTargetControl.disabled
-          && dependencyTargetControl.value.trim().length === 0) {
+          && !isTraversalDependencyTarget(
+            dependencyTargetControl.value)) {
           dependencyTargetControl.setCustomValidity(
             "Enter an exact target framework.");
           dependencyTargetControl.reportValidity();
