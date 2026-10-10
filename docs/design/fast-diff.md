@@ -4,7 +4,8 @@
 
 This document owns **Fast Diff**: one pass over a Library image pair that
 decides, for every Type, whether its API and its implementation differ,
-without building either complete diff. It is tracked by
+without building either complete diff, and the narrower
+[Type and Member levels](#levels) beneath it. It is tracked by
 [#9716](https://github.com/richlander/dotnet-inspect/issues/9716) and
 supersedes the earlier body-free, presence-only design proposed in #9717.
 
@@ -235,6 +236,126 @@ large Library needs it.
 The comparison itself accounts for more than 99% of each call; the interpreter
 costs roughly 15x relative to NativeAOT.
 
+## Levels
+
+Fast Diff answers at three levels, each scoped to what its view shows. Each
+level is sound for the level above it, so a cue never points to a view that
+shows nothing.
+
+| Level | Question | Answer per row |
+| --- | --- | --- |
+| Library | Which Types differ? | API exists, Body exists |
+| Type | Which Members of this Type differ? | API (signature diff), Body exists |
+| Member | How does this Member differ? | Complete API and body diff |
+
+### Library
+
+The [contract](#contract) above: every Type, with each axis stopped at its
+first difference.
+
+### Type
+
+> **Claim.** For one Type in one Library image pair, the Type level returns,
+> for every Member declared on either side, an **API** state and a **Body**
+> state, and one **residual** state per axis for the Type's facts that belong
+> to no single Member. The Member states and the residual partition the
+> Type's facts, so a Type axis is `Unchanged` at the Library level exactly
+> when that axis is `Unchanged` for every Member and for the residual.
+
+The partition is defined by ownership of the Library level's own census
+facts, not by a separate list, so the two levels cannot disagree:
+
+1. **Every census fact has one owner.** A fact belongs to the Member whose
+   declaration row it describes: the method, field, property, or event row,
+   and that row's parameters, constants, imports, generic parameters, and
+   attributes. Two kinds of row are not Members in their own right:
+   - **Un-raised rows** encode a source construct in metadata. They belong
+     to the construct the API surface raises them to: accessors, an
+     auto-property's backing field, and a field-like event's backing field
+     to their property or event, and an enum's `value__` field, which
+     carries the underlying Type, to the residual. A row the API surface
+     does not list as a Member and that is not generated code belongs to
+     the residual.
+   - **Generated code** is a lifted body (a lambda, local function,
+     iterator, or async state machine) with its methods, fields, and
+     nested Types. It belongs to its owner, as below.
+
+   Every other fact (the Type's own row and visibility, base Type,
+   interfaces, generic parameters, attributes, layout, nullable context,
+   MethodImpl rows, and `beforefieldinit`) belongs to the residual.
+2. **A fact keeps the axis the census gives it.** A Member's or the
+   residual's state on an axis is `Changed` when any fact it owns on that
+   axis differs, including a fact present on one side only. The census
+   decides visibility, which includes explicit interface implementations,
+   and partitions a Type public on either side as public on both. A public
+   Member of such a Type has API facts, and a non-public one has Body facts,
+   so a public property with a non-public setter has API facts from the
+   property row and getter and Body facts from the setter. Where the Type is
+   hidden on one side, the census records only its visibility there, so that
+   change makes the residual and every public Member API `Changed` and
+   leaves Body comparing as it would for a public Type. Every Member of a
+   Type hidden on both sides has Body facts only.
+3. **IL compares where the census compares it.** A Member's Body also covers
+   the IL of its methods present on both sides and of the generated code it
+   owns, to the first difference. The census does not compare the body of a
+   public method present on one side only, so neither does the Type level.
+
+Member API compares completely, so every changed public Member is marked;
+Member Body is an existence check. A Member declared on one side only is
+therefore `Changed` on each axis where it owns facts.
+
+Generated code belongs to a Member only when the shared lifted-owner
+resolution in `ILInspector.Analysis` names exactly one owner, as it does for
+the targeted walk
+([#9745](https://github.com/richlander/dotnet-inspect/pull/9745)). A change
+in generated code shared by several Members, or whose owner is ambiguous, is
+a residual Body change. It is never assigned to a guessed Member. A
+generated Type follows its owner as a whole: its row, fields, properties and
+their accessors, interfaces, and MethodImpl rows belong to the one Member
+that owns all of its methods, and otherwise to the residual. That resolver
+is internal to `ILInspector.Analysis` today; step 7 adds a public entry
+point that resolves the owners of one Type's generated methods.
+
+Each Member is reported by the fingerprint of its After-side `MemberAnchor`,
+the identity the Members list already carries for every accessibility, and a
+removed Member by its Before-side fingerprint. As
+[API qualified anchor](api-qualified-anchor.md#version-pair-correspondence)
+states, anchor inequality is not absence: the Type level reports states per
+declared Member and does not classify a Member as renamed, added, or
+removed. The query resolves anchors over the selected Type's declarations
+only, through `MemberTargetResolver`, as exact Member lookup does
+([#9739](https://github.com/richlander/dotnet-inspect/pull/9739)); it never
+builds the Library's API surface.
+
+The query runs in [steps](#steps) that end at Member boundaries. It lives in
+`DotnetInspector.Queries`, beside `AssemblyContextFastDiffQuery`, because
+generated-code owner resolution comes from `ILInspector.Analysis`; anchors and
+`MemberTargetResolver` are in `ILInspector.Metadata`, and the per-Member fact
+partition itself stays in `FastDiff`.
+
+Gates: for the fixture pairs, the Type-level states agree with the Library
+level per the partition claim, including an added public method, an added
+public property with a private setter, a public Type made internal, an enum
+underlying-type change, a
+`[field:]` attribute on a field-like event, an attribute added to an internal
+method, a base Type change on an internal Type, and a nested Type whose
+inherited nullable context changed; every Member the complete Public API diff
+reports changed is not API `Unchanged`; and every owner of a body that
+canonical IL comparison reports changed is Body `Changed` or `Indeterminate`,
+or the change is a residual Body change. `eng/measure-fast-diff.cs` reports
+NativeAOT time per Type for the largest changed Types of each measured pair.
+
+### Member
+
+The Member level is the complete API and body diff of one Member, which
+[Library API Diff](inspect-web-library-api-diff.md) and
+[Member Body Diff](inspect-web-member-body-diff.md) own. Entered from a Type
+or Member cue, it finds that one Member in each image over its Type's
+declarations, through the version-pair correspondence that
+[API qualified anchor](api-qualified-anchor.md#version-pair-correspondence)
+defines, and diffs only that Member. It does not build the Library-wide
+Member Body inventory, which remains Library Compare's view.
+
 ## Adoption
 
 1. **Producer** (#9798): `FastDiff.Compare`, its gates, and the measurement
@@ -252,8 +373,16 @@ costs roughly 15x relative to NativeAOT.
 6. **Caching:** retain results per exact endpoint pair in the Worker and in
    persistent storage keyed by the build commit, per
    [#9793](https://github.com/richlander/dotnet-inspect/issues/9793).
-7. **Member states:** per-Member states for an opened Type.
-8. **CLI:** expose the same producer through `diff`.
+7. **Type level:** per-Member states and the residual for one Type, with
+   NativeAOT numbers, through a Worker export. Member cues for the Type on
+   screen then come from it: the API Member glyph, the implementation Member
+   glyph, or the change glyph for both. This replaces the Type-surface
+   Library API Diff that places API Member cues today, which computes the
+   whole Library's API diff.
+8. **Member level:** a targeted diff of one Member, entered from a cue,
+   after API qualified anchor's correspondence adoption
+   ([#9827](https://github.com/richlander/dotnet-inspect/issues/9827)).
+9. **CLI:** expose the same producer through `diff`.
 
 By default, each Library page computes Fast Diff in the background after it
 first loads, against two baselines: `ApiAndBody` against the last patch
@@ -267,7 +396,8 @@ selection belong to the background analysis design that adopts this export.
 
 - Fast Diff does not define API semantics, canonical IL, or correspondence; it
   is sound against the owners of those.
-- It does not report which change was found, counts, classifications, or text.
+- It does not report which change was found, counts, classifications, or text;
+  the Member level's complete diff does.
 - It does not replace Public API Diff or Member Body Diff; they remain the
   complete views.
 - It reports Type definitions only. Type forwarders and assembly-level
