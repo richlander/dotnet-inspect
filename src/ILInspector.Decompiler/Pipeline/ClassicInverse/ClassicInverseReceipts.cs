@@ -99,6 +99,9 @@ internal enum ClassicInverseRealizationRule
     /// <summary>A branch condition becomes a reproduced output condition.</summary>
     ControlCondition,
 
+    /// <summary>A proved single-await guard branch retains its exact Boolean condition.</summary>
+    AwaitGuardCondition,
+
     /// <summary>The compiler's hoisted loop collection becomes the <c>foreach</c> collection.</summary>
     LoopCollection,
 

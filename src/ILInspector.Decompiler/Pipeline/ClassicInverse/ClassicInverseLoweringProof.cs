@@ -197,8 +197,25 @@ internal sealed partial class ClassicInverseLoweringProof
             return "the raw import and planning view route await completion differently";
         if (!planning.ResumeOffsets.SequenceEqual(raw.ResumeOffsets))
             return "the raw import and planning view resume at different state stores";
-        if (!planning.CompletionOffsets.SequenceEqual(raw.CompletionOffsets))
+        if (planning.CompletionStores.Length != raw.CompletionStores.Length)
             return "the raw import and planning view complete at different state stores";
+        for (int i = 0; i < raw.CompletionStores.Length; i++)
+        {
+            if (!budget.Charge()) return BudgetFailure;
+            CompletionStoreIdentity before = raw.CompletionStores[i];
+            CompletionStoreIdentity after = planning.CompletionStores[i];
+            if (before.CallbackOffset != after.CallbackOffset || before.Field != after.Field
+                || before.Offset < 0)
+                return "the raw import and planning view complete at different state stores";
+            bool carriesOrigin = false;
+            foreach (int origin in after.Origins)
+            {
+                if (!budget.Charge()) return BudgetFailure;
+                if (origin == before.Offset) carriesOrigin = true;
+            }
+            if (!carriesOrigin)
+                return "the raw import and planning view complete at different state stores";
+        }
         if (planning.GuardCount != raw.GuardCount)
             return "the raw import and planning view guard suspension differently";
         return null;
@@ -300,9 +317,12 @@ internal sealed partial class ClassicInverseLoweringProof
         ImmutableArray<AwaiterBindIdentity> AwaiterBinds,
         ImmutableArray<AwaitCompletionIdentity> AwaitCompletions,
         ImmutableArray<int> ResumeOffsets,
-        ImmutableArray<int> CompletionOffsets,
+        ImmutableArray<CompletionStoreIdentity> CompletionStores,
         int GuardCount,
         BodyIndex Index);
+
+    readonly record struct CompletionStoreIdentity(
+        int Offset, ImmutableArray<int> Origins, string Field, int CallbackOffset);
 
     /// <summary>
     /// Compatibility identity for a non-Metadata imported or structured
@@ -1132,7 +1152,7 @@ internal sealed partial class ClassicInverseLoweringProof
         var dispatchers = ImmutableArray.CreateBuilder<string>();
         var resumes = ImmutableArray.CreateBuilder<string>();
         var resumeOffsets = ImmutableArray.CreateBuilder<int>();
-        var completionOffsets = ImmutableArray.CreateBuilder<int>();
+        var completionStores = ImmutableArray.CreateBuilder<CompletionStoreIdentity>();
         var claimed = new HashSet<IrNode>(ReferenceEqualityComparer.Instance);
         var resumeBlocksByState = new Dictionary<int, Block>();
 
@@ -1407,12 +1427,19 @@ internal sealed partial class ClassicInverseLoweringProof
 
             roles[store] = StateFieldStore;
             claimed.Add(store);
-            completionOffsets.Add(store.SourceOffset);
+            var origins = ImmutableArray.CreateBuilder<int>();
+            foreach (int origin in store.ProvenanceOffsets)
+            {
+                if (!budget.Charge()) { failure = BudgetFailure; return null; }
+                origins.Add(origin);
+            }
+            completionStores.Add(new(store.SourceOffset, origins.ToImmutable(),
+                ClassicInverseTypedIdentity.Field(store.Field), ((ExpressionStatement)next!).Expression.SourceOffset));
         }
-        if (completionOffsets.Count != 2)
+        if (completionStores.Count != 2)
         {
             failure = "the completion protocol needs exactly two machine state "
-                + $"stores of -2; the body has {completionOffsets.Count}";
+                + $"stores of -2; the body has {completionStores.Count}";
             return null;
         }
         foreach (StoreLocal store in stateLocalStores)
@@ -1480,7 +1507,7 @@ internal sealed partial class ClassicInverseLoweringProof
             awaiterBinds,
             awaitCompletions.Value,
             [.. resumeOffsets.Order()],
-            [.. completionOffsets.Order()],
+            [.. completionStores.OrderBy(static store => store.CallbackOffset)],
             guardCount,
             index);
 
