@@ -111,6 +111,14 @@ version in each major, falling back to the latest prerelease for a preview-only
 major; body-level Analysis producers select the latest admitted version in each
 major.
 
+The 2026-10-10 version-window decision in
+[#9920](https://github.com/richlander/dotnet-inspect/issues/9920) admits one
+Library-scope History, whose only producer is
+[Fast Diff](fast-diff.md). Each step of that History declares its axes: API on
+every step, and Body only on the last steps.
+[Library-scope History over Fast Diff](#library-scope-history-over-fast-diff)
+owns it. Finding producers keep the Type and Member domain.
+
 This owner defines the semantic requests and terminal content.
 It consumes package version resolution, Finding correlation, acquisition,
 Workspace lifetime, row selection, and envelope contracts; it does not
@@ -185,8 +193,11 @@ argument meaning and content.
 The initial History domain is one bounded package-version population, one
 Type focus, and one Finding producer, optionally narrowed to one Member.
 The population has explicit or checkpoint-inferred range bounds as defined
-below. It is not Library-wide history, platform-version discovery, local-build
-ordering, or cross-package comparison. Both hosts consume this same domain.
+below. It is not platform-version discovery, local-build ordering, or
+cross-package comparison. Library scope is admitted only for the Fast Diff
+producer, under
+[Library-scope History over Fast Diff](#library-scope-history-over-fast-diff).
+Both hosts consume this same domain.
 
 ```bash
 # Plain Diff compares only the two endpoints
@@ -888,12 +899,167 @@ Complete Browser delivery is also part of adoption; it must preserve Content,
 Share, and ordered typed diagnostics even where the UI renders only a subset.
 This supersedes the earlier delivery plan that deferred envelope exposure.
 
+## Library-scope History over Fast Diff
+
+> **Claim.** For one Library in a bounded package-version population with
+> explicitly selected evaluation points, Library-scope History runs
+> [Fast Diff](fast-diff.md) on each consecutive pair of evaluated points, which
+> is a *step*, on the axes that step declares. For every Type, it reports each
+> step's API and Body states and one *window* state per axis. A window axis is
+> `Unchanged` only when that axis is `Unchanged` on every step that compares
+> it. Type rows name, for each Member and axis, the step destinations where
+> that axis changed.
+
+### Request
+
+The request names one Package, one compile asset, the population bounds,
+exact evaluation points, and the Body participants. Library scope admits only
+explicit points: exact versions, `first`, `last`, `endpoints`, `midpoint`, and
+`#N`. `all`, and a full-population, survey, adaptive, or major-representative
+policy over a whole Library, are outside this claim. Choosing the points
+belongs to
+[Package Version Selection](version-resolution.md): a named window policy
+returns them as exact addresses, and this owner never derives a version.
+
+The canonical window has three points, written from the baseline:
+
+| Point | Version | Example |
+| --- | --- | --- |
+| A″ | Latest patch of the previous major (the baseline) | 9.0.11 |
+| A′ | Previous patch on the current line | 10.0.1 |
+| A | Current | 10.0.2 |
+
+Its steps are A″ → A′ and A′ → A. A request with only two points has one step
+and equals pairwise Fast Diff.
+
+### Step axes
+
+The API axis runs on every step. The **Body participants** are a suffix of the
+evaluated points, written as their count: none, or at least two. The Body axis
+runs on a step only when both of its points are Body participants. Every other
+step asks Fast Diff for the API axis alone, so its Body states are
+`NotCompared` and no IL is read. The canonical window makes A′ and A the Body
+participants, so the Body axis runs on A′ → A only.
+
+A step's evidence is exactly its Fast Diff result. A step across unevaluated
+versions, such as A″ → A′, establishes only its two endpoint facts, as
+[What transitions establish](#what-transitions-establish) states. A change on
+that step is attributed to the gap that ends at A′, not to a version inside
+it.
+
+### Window states
+
+Types are joined across steps by their Fast Diff `Identifier`. A row-token
+`Identifier` (`!` and a row token) and the `Identifier` of Type rows that share
+one name identify a row within one image only, so they are never joined across
+steps. Each such Type is its own window entry. A Type present on only one side
+of a step is reported whole by Fast Diff's presence rule, as added or removed
+at that step's destination. Per Type and axis, the window
+state is:
+
+| Step states on that axis | Window state |
+| --- | --- |
+| Any `Changed` | `Changed` |
+| None `Changed`, any `Indeterminate` | `Indeterminate` |
+| Every compared step `Unchanged` | `Unchanged` |
+| No step compares the axis | `NotCompared` |
+
+`Unchanged` is sound per compared step: every step that compares that axis
+found no difference between its own two points. It does not claim that a
+direct comparison of the first and last points would agree, because Fast Diff
+partitions some facts by pair, such as visibility and the bodies of one-sided
+public methods. For the canonical window, the API axis covers A″ → A′ and
+A′ → A, and the Body axis covers A′ → A. `Changed` may
+over-report. A change on one step that a later step reverts still reports
+`Changed`, as Fast Diff permits and as History's transitions record. Library
+and Type cues read the window states only. They name no version, so diff icons
+do not change.
+
+### Type rows
+
+For one Type, the Type level of [Fast Diff](fast-diff.md#type) runs on each
+step where that Type is present on both sides. Each row is one Member, with
+two columns, API and Body. A column lists the destination of every step whose
+state on that axis is `Changed` or `Indeterminate`. A step across a gap is
+shown as that gap, for example "9.0.11 → 10.0.1". The residual has its own
+row. A step where the Type is present on one side only adds a presence row,
+added or removed at that step's destination, so a Type cue never opens an
+empty view.
+
+Members are joined across consecutive steps within the image those steps
+share. The Type level reports a Member present on both sides of a step by both
+its Before-side and After-side fingerprints. So the After-side fingerprint of
+A″ → A′ and the Before-side fingerprint of A′ → A are both read from A′. The
+join compares fingerprints within one image and never chains identity across
+versions. A joined row is named by its fingerprint at the latest point that
+declares it. As
+[API qualified anchor](api-qualified-anchor.md#version-pair-correspondence)
+states, anchor inequality is not absence. A Member the census does not pair
+across a step, such as one whose signature changed, is two declared Members
+there, removed and added, and so has two rows.
+
+Each changed cell carries a typed pairwise Diff action over its step's two
+points, focused on that Member, in the shape that
+[Evaluation methodology and terminal
+outcome](#evaluation-methodology-and-terminal-outcome) defines for adjacent
+actions. For a step across a gap, the action compares the gap's endpoints and
+does not localize the change within it. Entering the action runs Fast Diff's
+[Member level](fast-diff.md#member) for that one step, which depends on
+[#9827](https://github.com/richlander/dotnet-inspect/issues/9827) as that
+level states.
+
+### Document, Count, and Share
+
+The result is one `DiffHistoryOutcome` whose Document carries the population,
+the exact points, the Body participants, each step's Fast Diff result, the
+window states, and coverage and failures. Type rows are a projection over a
+per-Type Document produced on demand for each step, not a second Library
+inspection. A failed step keeps its failure, and its Types are `Indeterminate`
+on every axis it was asked for, so the window never reads a failed step as
+`Unchanged`.
+
+Library-scope History does not admit Count. Changed Versions is a Type and
+Member cohort, and Count requires a full-population policy, as
+[Subject-specific History Count](#subject-specific-history-count) states;
+Library scope admits neither. Share follows
+[Failure and Share](#failure-and-share). The Library-scope sections, their
+default projection, and their Markout lowering belong to the CLI adoption in
+[#9920](https://github.com/richlander/dotnet-inspect/issues/9920) slice 10.
+They project this typed Document and do not reduce it.
+
+### Gates
+
+The implementation slices tracked in
+[#9920](https://github.com/richlander/dotnet-inspect/issues/9920) supply
+Release gates for:
+
+- a two-point request equal to pairwise Fast Diff, on both axes and on the
+  API axis alone;
+- the canonical window with the Body axis read on A′ → A only, and
+  `NotCompared` on A″ → A′;
+- the window states, including a change that is reverted on a later step and
+  a failed step that never yields `Unchanged`;
+- a Type added on A″ → A′, and one removed on A′ → A, each reported whole at
+  its destination;
+- Type rows joined within the shared image, including a Member whose
+  fingerprint changes after a nullable annotation change (one row), a Member
+  whose signature changes (two rows), an API change on the gap step, a Body
+  change on the last step, and a presence row for a Type added mid-window;
+- row-token and duplicate-name Types kept as separate window entries;
+- rejection, before acquisition, of Count and of every policy other than
+  explicit points; and
+- NativeAOT time per window for the pairs `eng/measure-fast-diff.cs`
+  measures.
+
 ## Browser adoption boundary
 
 The shared operation enables History under **Diff** inside Compare, not a
 third peer beside Diff and Clone. The initial consumers are Type and Member
-Compare; Library-wide History is not claimed by this slice. Population counts
-are metadata-only and do not require a Type or Member focus.
+Compare. Library-scope History over Fast Diff is consumed by Library cues and
+Type compare rows, as
+[Library-scope History over Fast Diff](#library-scope-history-over-fast-diff)
+states. Population counts are metadata-only and do not require a Type or
+Member focus.
 
 The Browser adopter supplies the same resolved population, full-evaluation,
 checkpoint, or adaptive policy, focus, producer, and scope, then consumes the
@@ -984,8 +1150,10 @@ Browser/Wasm adoption. The host-neutral Type Count implementation and evidence
 are complete; command admission, rendering, and both production consumers
 remain downstream.
 
-Call Graph/canvas, Library-wide History, and the future duration example remain
-outside that path. The new envelope requirement does not hold already-shipped
+Call Graph/canvas, Library-scope History, and the future duration example remain
+outside that path. Library-scope History over Fast Diff is counted separately,
+under [#9920](https://github.com/richlander/dotnet-inspect/issues/9920).
+The new envelope requirement does not hold already-shipped
 pairwise Compare work hostage to this migration.
 
 The real scenario is `Markout@0.33.0..0.35.2` focused on
