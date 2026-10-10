@@ -914,8 +914,9 @@ This supersedes the earlier delivery plan that deferred envelope exposure.
 
 The request names one Package, one compile asset, the population bounds,
 exact evaluation points, and the Body participants. Library scope admits only
-explicit points. A full-population, survey, adaptive, or major-representative
-policy over a whole Library is outside this claim. Choosing the points
+explicit points: exact versions, `first`, `last`, `endpoints`, `midpoint`, and
+`#N`. `all`, and a full-population, survey, adaptive, or major-representative
+policy over a whole Library, are outside this claim. Choosing the points
 belongs to
 [Package Version Selection](version-resolution.md): a named window policy
 returns them as exact addresses, and this owner never derives a version.
@@ -948,9 +949,12 @@ it.
 
 ### Window states
 
-Types are joined across steps by their Fast Diff `Identifier`. A Type present
-on only one side of a step is reported whole by Fast Diff's presence rule, as
-added or removed at that step's destination. Per Type and axis, the window
+Types are joined across steps by their Fast Diff `Identifier`. A row-token
+`Identifier` (`!` and a row token) and the `Identifier` of Type rows that share
+one name identify a row within one image only, so they are never joined across
+steps. Each such Type is its own window entry. A Type present on only one side
+of a step is reported whole by Fast Diff's presence rule, as added or removed
+at that step's destination. Per Type and axis, the window
 state is:
 
 | Step states on that axis | Window state |
@@ -960,9 +964,12 @@ state is:
 | Every compared step `Unchanged` | `Unchanged` |
 | No step compares the axis | `NotCompared` |
 
-`Unchanged` is sound: every step that compares that axis found no difference,
-so the axis's facts agree across every point it compares. For the canonical
-window, that is A″ through A for API and A′ through A for Body. `Changed` may
+`Unchanged` is sound per compared step: every step that compares that axis
+found no difference between its own two points. It does not claim that a
+direct comparison of the first and last points would agree, because Fast Diff
+partitions some facts by pair, such as visibility and the bodies of one-sided
+public methods. For the canonical window, the API axis covers A″ → A′ and
+A′ → A, and the Body axis covers A′ → A. `Changed` may
 over-report. A change on one step that a later step reverts still reports
 `Changed`, as Fast Diff permits and as History's transitions record. Library
 and Type cues read the window states only. They name no version, so diff icons
@@ -975,16 +982,21 @@ step where that Type is present on both sides. Each row is one Member, with
 two columns, API and Body. A column lists the destination of every step whose
 state on that axis is `Changed` or `Indeterminate`. A step across a gap is
 shown as that gap, for example "9.0.11 → 10.0.1". The residual has its own
-row.
+row. A step where the Type is present on one side only adds a presence row,
+added or removed at that step's destination, so a Type cue never opens an
+empty view.
 
-Members are joined across steps within the image the steps share. The
-After-side anchor of A″ → A′ and the Before-side anchor of A′ → A are both read
-from A′, so the join compares fingerprints within one image and never chains
-identity across versions. As
+Members are joined across consecutive steps within the image those steps
+share. The Type level reports a Member present on both sides of a step by both
+its Before-side and After-side fingerprints. So the After-side fingerprint of
+A″ → A′ and the Before-side fingerprint of A′ → A are both read from A′. The
+join compares fingerprints within one image and never chains identity across
+versions. A joined row is named by its fingerprint at the latest point that
+declares it. As
 [API qualified anchor](api-qualified-anchor.md#version-pair-correspondence)
-states, anchor inequality is not absence. A Member whose anchor differs between
-two points has one row per anchor, and a row is named by its anchor at the
-latest point that declares it.
+states, anchor inequality is not absence. A Member the census does not pair
+across a step, such as one whose signature changed, is two declared Members
+there, removed and added, and so has two rows.
 
 Each changed cell carries a typed pairwise Diff action over its step's two
 points, focused on that Member, in the shape that
@@ -992,7 +1004,9 @@ points, focused on that Member, in the shape that
 outcome](#evaluation-methodology-and-terminal-outcome) defines for adjacent
 actions. For a step across a gap, the action compares the gap's endpoints and
 does not localize the change within it. Entering the action runs Fast Diff's
-[Member level](fast-diff.md#member) for that one step.
+[Member level](fast-diff.md#member) for that one step, which depends on
+[#9827](https://github.com/richlander/dotnet-inspect/issues/9827) as that
+level states.
 
 ### Document, Count, and Share
 
@@ -1004,10 +1018,14 @@ inspection. A failed step keeps its failure, and its Types are `Indeterminate`
 on every axis it was asked for, so the window never reads a failed step as
 `Unchanged`.
 
-Library-scope History selects explicit points, so it is sparse and does not
-admit Count, as
-[Subject-specific History Count](#subject-specific-history-count) requires.
-Share follows [Failure and Share](#failure-and-share).
+Library-scope History does not admit Count. Changed Versions is a Type and
+Member cohort, and Count requires a full-population policy, as
+[Subject-specific History Count](#subject-specific-history-count) states;
+Library scope admits neither. Share follows
+[Failure and Share](#failure-and-share). The Library-scope sections, their
+default projection, and their Markout lowering belong to the CLI adoption in
+[#9920](https://github.com/richlander/dotnet-inspect/issues/9920) slice 10.
+They project this typed Document and do not reduce it.
 
 ### Gates
 
@@ -1023,8 +1041,11 @@ Release gates for:
   a failed step that never yields `Unchanged`;
 - a Type added on A″ → A′, and one removed on A′ → A, each reported whole at
   its destination;
-- Type rows joined within the shared image, including a Member whose anchor
-  changes, an API change on the gap step, and a Body change on the last step;
+- Type rows joined within the shared image, including a Member whose
+  fingerprint changes after a nullable annotation change (one row), a Member
+  whose signature changes (two rows), an API change on the gap step, a Body
+  change on the last step, and a presence row for a Type added mid-window;
+- row-token and duplicate-name Types kept as separate window entries;
 - rejection, before acquisition, of Count and of every policy other than
   explicit points; and
 - NativeAOT time per window for the pairs `eng/measure-fast-diff.cs`
