@@ -455,6 +455,52 @@ public sealed class BrowserMemberDeclarationTests
         Assert.Equal(
             packageMembers.SelectorCounts.Traits.All,
             packageMembers.SelectorCounts.Kinds.Sum(count => count.Count));
+        BrowserTypeOverviewInspection packageOverview =
+            TypeOverview(await MetadataExports.QueryTypeOverviewDocument(
+                PackageId,
+                Version,
+                Framework,
+                AssemblyFileName,
+                SpellingType,
+                "csharp",
+                "public"));
+        BrowserTypeOverviewPopulation compact = Assert.IsType<
+            BrowserTypeOverview>(packageOverview.Document).Population;
+        Assert.Equal(BrowserTypeOverviewOutcome.Available,
+            packageOverview.Outcome);
+        Assert.NotNull(packageOverview.Share);
+        Assert.Equal(SpellingType, packageOverview.Document.TypeIdentity);
+        Assert.NotEqual(Guid.Empty, packageOverview.Document.ModuleVersionId);
+        Assert.Equal("All", compact.Receiver);
+        Assert.Equal("Metadata", compact.Ordering);
+        Assert.False(compact.IncludeHidden);
+        Assert.Equal(packageMembers.Composition.Public,
+            compact.Composition.Public);
+        Assert.Equal(compact.SelectorCounts.Traits.All,
+            compact.Groups.Sum(group => group.CompleteCount));
+        Assert.Equal(
+            packageMembers.Groups.Select(group => group.Key)
+                .Order(StringComparer.Ordinal),
+            compact.Groups.Select(group => group.Key)
+                .Order(StringComparer.Ordinal));
+        Assert.All(compact.Groups, group =>
+        {
+            Assert.Equal($"{group.Kind}:{group.Name}", group.Key);
+            Assert.Equal(group.CompleteCount, group.Traits.All);
+            Assert.Equal(group.CompleteCount,
+                group.Traits.Static + group.Traits.Instance
+                    + group.Traits.Extensions);
+        });
+        BrowserTypeOverviewInspection missingOverview =
+            TypeOverview(await MetadataExports.QueryTypeOverviewDocument(
+                PackageId, Version, Framework, AssemblyFileName,
+                "Missing.Type", "csharp", "public"));
+        Assert.Equal(BrowserTypeOverviewOutcome.Rejected,
+            missingOverview.Outcome);
+        Assert.Null(missingOverview.Document);
+        Assert.NotNull(missingOverview.Share);
+        Assert.NotNull(missingOverview.Detail);
+        Assert.Empty(missingOverview.Diagnostics);
         BrowserTypeMemberPopulationInspection metadataPopulation =
             TypeMemberPopulation(
                 await MetadataExports.QueryTypeMemberPopulation(
@@ -544,6 +590,33 @@ public sealed class BrowserMemberDeclarationTests
         Assert.Equal<int?>(
             [1, 2, 3, 4, 5],
             examine.Members.Select(member => member.BaselineOrdinal));
+        BrowserTypeOverviewInspection uploadedOverview =
+            TypeOverview(await MetadataExports
+                .QueryUploadedLibraryTypeOverviewDocument(
+                    AssemblyFileName, image, ExtensionType,
+                    "csharp", "public"));
+        BrowserTypeOverviewGroup uploadedExamine = Assert.Single(
+            Assert.IsType<BrowserTypeOverview>(
+                    uploadedOverview.Document).Population.Groups,
+            group => group.Name == "Examine");
+        Assert.Equal(BrowserTypeOverviewOutcome.Available,
+            uploadedOverview.Outcome);
+        Assert.NotNull(uploadedOverview.Share);
+        Assert.Empty(uploadedOverview.Diagnostics);
+        Assert.Equal(5, uploadedExamine.CompleteCount);
+        Assert.Contains("extension", uploadedExamine.Receivers);
+        Assert.Equal(5, uploadedExamine.Traits.Extensions);
+        Assert.NotEqual(Guid.Empty,
+            uploadedOverview.Document.ModuleVersionId);
+        BrowserTypeOverviewInspection missingUploadedOverview =
+            TypeOverview(await MetadataExports
+                .QueryUploadedLibraryTypeOverviewDocument(
+                    AssemblyFileName, image, "Missing.Type",
+                    "csharp", "public"));
+        Assert.Equal(BrowserTypeOverviewOutcome.Rejected,
+            missingUploadedOverview.Outcome);
+        Assert.Null(missingUploadedOverview.Document);
+        Assert.NotNull(missingUploadedOverview.Share);
 
         BrowserMemberGroupDocumentInspection missingGroup =
             MemberGroupDocument(
@@ -853,6 +926,23 @@ public sealed class BrowserMemberDeclarationTests
             Assert.Equal(
                 members.Composition.Public,
                 members.Groups.Sum(candidate => candidate.Members.Length));
+            BrowserTypeOverviewInspection overview =
+                TypeOverview(await MetadataExports
+                    .QueryPlatformTypeOverviewDocument(
+                        framework,
+                        version,
+                        AssemblyFileName,
+                        "netcore.app",
+                        SpellingType,
+                        "csharp",
+                        "public"));
+            BrowserTypeOverviewPopulation compact = Assert.IsType<
+                BrowserTypeOverview>(overview.Document).Population;
+            Assert.Equal(BrowserTypeOverviewOutcome.Available,
+                overview.Outcome);
+            Assert.NotNull(overview.Share);
+            Assert.Equal(members.Composition.Public,
+                compact.Groups.Sum(group => group.CompleteCount));
             Assert.Equal(requests, handler.Requests);
         }
         finally
@@ -1319,6 +1409,14 @@ public sealed class BrowserMemberDeclarationTests
                 .BrowserTypeMemberPopulationInspection)
         ?? throw new InvalidOperationException(
             "The browser Type Member population export returned null.");
+
+    static BrowserTypeOverviewInspection TypeOverview(string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            BrowserMetadataJsonContext.Default
+                .BrowserTypeOverviewInspection)
+        ?? throw new InvalidOperationException(
+            "The browser Type overview export returned null.");
 
     static byte[] PackagePair(byte[] image)
     {

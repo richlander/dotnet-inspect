@@ -292,7 +292,36 @@ test("only multiple visible declarations use the MemberGroup surface", () => {
     overloads: [{}],
     sourceOverloadCount: 3,
   }), false);
+  assert.equal(memberGroupUsesFamilySurface({
+    overloads: [],
+    sourceOverloadCount: 3,
+    detailsPending: true,
+  }), true);
   assert.equal(memberGroupUsesFamilySurface({ overloads: [{}, {}] }), true);
+});
+
+test("compact group traits filter names and exact counts before declarations load", () => {
+  const pending = [{
+    key: "method:Format",
+    name: "Format",
+    kind: "method",
+    overloads: [],
+    detailsPending: true,
+    completeCount: 3,
+    sourceOverloadCount: 3,
+    traitCounts: {
+      all: 3, static: 2, instance: 1, virtual: 1,
+      interface: 0, extensions: 0,
+    },
+  }];
+  assert.deepEqual(
+    filterMemberGroups(pending, { trait: "virtual", query: "form" })
+      .map(group => [group.key, group.sourceOverloadCount]),
+    [["method:Format", 1]]);
+  assert.deepEqual(
+    filterMemberGroups(pending, { trait: "interface" }), []);
+  assert.deepEqual(
+    filterMemberGroups(pending, { trait: "", query: "missing" }), []);
 });
 
 test("member traits use the complete selector vocabulary", () => {

@@ -34,6 +34,16 @@ interface FilterableMemberOverload extends MemberOverloadSummary {
 
 export interface FilterableMemberGroup extends MemberGroup {
   overloads: readonly FilterableMemberOverload[];
+  detailsPending?: boolean;
+  receivers?: readonly string[];
+  traitCounts?: {
+    all: number;
+    static: number;
+    instance: number;
+    virtual: number;
+    interface: number;
+    extensions: number;
+  };
 }
 
 type FilteredMemberGroup<TGroup extends FilterableMemberGroup> =
@@ -53,6 +63,10 @@ export function memberGroupMatches(
 
   const overloads = group.overloads.filter(
     overload => memberMatchesTrait(overload, filters.trait ?? ""));
+  if (overloads.length === 0 && group.detailsPending) {
+    return summaryTraitCount(group, filters.trait ?? "") > 0
+      && (!query || group.name.toLowerCase().includes(query));
+  }
   return overloads.length > 0 && (
     !query
     || group.name.toLowerCase().includes(query)
@@ -97,6 +111,17 @@ export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
 
     const overloads = group.overloads.filter(
       overload => memberMatchesTrait(overload, filters.trait ?? ""));
+    const count = summaryTraitCount(group, filters.trait ?? "");
+    if (overloads.length === 0 && group.detailsPending) {
+      return count > 0 && (!query
+        || group.name.toLowerCase().includes(query))
+        ? [{
+            ...group,
+            overloads,
+            sourceOverloadCount: count,
+          }]
+        : [];
+    }
     if (overloads.length === 0 || (
       query
       && !group.name.toLowerCase().includes(query)
@@ -109,10 +134,32 @@ export function filterMemberGroups<TGroup extends FilterableMemberGroup>(
     return [{
       ...group,
       overloads,
-      sourceOverloadCount:
-        group.sourceOverloadCount ?? group.overloads.length,
+      sourceOverloadCount: group.detailsPending
+        ? count
+        : group.sourceOverloadCount ?? group.overloads.length,
     }];
   });
+}
+
+function summaryTraitCount(
+  group: FilterableMemberGroup,
+  trait: string,
+): number {
+  const counts = group.traitCounts;
+  if (counts) {
+    switch (trait) {
+      case "": return counts.all;
+      case "static": return counts.static;
+      case "instance": return counts.instance;
+      case "virtual": return counts.virtual;
+      case "interface": return counts.interface;
+      case "extensions": return counts.extensions;
+      default: return 0;
+    }
+  }
+  if (!trait) return group.sourceOverloadCount ?? group.overloads.length;
+  return group.overloads.filter(overload =>
+    memberMatchesTrait(overload, trait)).length;
 }
 
 interface StableMemberOverload {

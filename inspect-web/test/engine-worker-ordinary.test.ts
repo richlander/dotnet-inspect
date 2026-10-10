@@ -152,6 +152,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryMemberDocument"),
     queryMemberGroupDocument: () =>
       unexpected("queryMemberGroupDocument"),
+    queryTypeOverviewDocument: () =>
+      unexpected("queryTypeOverviewDocument"),
     queryTypeMemberPopulation: () =>
       unexpected("queryTypeMemberPopulation"),
     queryPlatformMemberDeclaration: () =>
@@ -160,6 +162,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformMemberDocument"),
     queryPlatformMemberGroupDocument: () =>
       unexpected("queryPlatformMemberGroupDocument"),
+    queryPlatformTypeOverviewDocument: () =>
+      unexpected("queryPlatformTypeOverviewDocument"),
     queryUploadedLibraryMemberDocument: () =>
       unexpected("queryUploadedLibraryMemberDocument"),
     queryPlatformTypeMemberPopulation: () =>
@@ -168,6 +172,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryUploadedLibraryMemberGroupDocument"),
     queryUploadedLibraryTypeMemberPopulation: () =>
       unexpected("queryUploadedLibraryTypeMemberPopulation"),
+    queryUploadedLibraryTypeOverviewDocument: () =>
+      unexpected("queryUploadedLibraryTypeOverviewDocument"),
     queryTypeProjection: () => unexpected("queryTypeProjection"),
     queryPackageMetadataTable: () =>
       unexpected("queryPackageMetadataTable"),
@@ -542,7 +548,7 @@ test("uploaded Library Member document queries use the retained exact image", as
   const content = [0x4d, 0x5a, 0x00, 0x01];
   const identity = `sha256:${"a".repeat(64)}`;
   let received:
-    [string, number[], string, string] | undefined;
+    [string, number[], string, string, string, string, boolean] | undefined;
   let exactReceived:
     [string, number[], string, string, number, string] | undefined;
   let receivedPopulation:
@@ -618,8 +624,12 @@ test("uploaded Library Member document queries use the retained exact image", as
         bytes,
         typeIdentity,
         memberName,
+        accessibility,
+        receiver,
+        includeHidden,
       ) {
-        received = [declaredName, bytes, typeIdentity, memberName];
+        received = [declaredName, bytes, typeIdentity, memberName,
+          accessibility, receiver, includeHidden];
         return {
           outcome: "Available",
           detail: null,
@@ -674,6 +684,9 @@ test("uploaded Library Member document queries use the retained exact image", as
       identity,
       "Example.Widget",
       "Run",
+      "protected",
+      "all",
+      false,
     );
   await state.environment.flushAsync();
 
@@ -683,6 +696,9 @@ test("uploaded Library Member document queries use the retained exact image", as
     content,
     "Example.Widget",
     "Run",
+    "protected",
+    "all",
+    false,
   ]);
   const population =
     state.client.metadata.queryUploadedLibraryTypeMemberPopulation(
@@ -725,6 +741,9 @@ test("uploaded Library Member document queries use the retained exact image", as
       `sha256:${"b".repeat(64)}`,
       "Example.Widget",
       "Run",
+      "protected",
+      "all",
+      false,
     );
   const mismatchFailure = assert.rejects(
     mismatched,
@@ -2390,10 +2409,12 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberDocument",
       "queryMemberGroupDocument",
       "queryTypeMemberPopulation",
+      "queryTypeOverviewDocument",
       "queryPlatformMemberDeclaration",
       "queryPlatformMemberDocument",
       "queryPlatformMemberGroupDocument",
       "queryPlatformTypeMemberPopulation",
+      "queryPlatformTypeOverviewDocument",
       "queryPackageHeapEntries",
       "queryPackageMetadata",
       "queryPackageMetadataTable",
@@ -2404,6 +2425,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryUploadedLibraryMemberDocument",
       "queryUploadedLibraryMemberGroupDocument",
       "queryUploadedLibraryTypeMemberPopulation",
+      "queryUploadedLibraryTypeOverviewDocument",
     ],
     analysis: [
       "queryCloneCandidates",
@@ -2494,7 +2516,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 123);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 126);
 
   const state = fixture();
   const groups = [

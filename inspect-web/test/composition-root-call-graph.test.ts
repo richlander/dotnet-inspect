@@ -1030,7 +1030,7 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     overview,
-    /ordinaryMethodGroup\(selectedMember\(selectedType\(\)\)\)[\s\S]*memberGroupUsesFamilySurface\(selectedMember\(selectedType\(\)\)\)[\s\S]*state\.selectedOverloadIndex === null[\s\S]*loadSelectedMemberGroupDocument\(\)[\s\S]*loadSelectedMemberDocumentation\(\)/);
+    /ordinaryMethodGroup\(group\)[\s\S]*memberGroupUsesFamilySurface\(group\) \|\| group\?\.detailsPending[\s\S]*state\.selectedOverloadIndex === null[\s\S]*loadSelectedMemberGroupDocument\(\)[\s\S]*loadUnsupportedMemberDeclarations\(\)[\s\S]*loadSelectedMemberDocumentation\(\)/);
 
   const applyView =
     appSource.match(/function applyView\([\s\S]*?\n}\n\nasync function restorePlatformHistoryView/)?.[0]
@@ -1052,7 +1052,10 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     groupDocument,
-    /member\.completeCountStatus === "available"[\s\S]*renderPreservingMemberFocus\(\);[\s\S]*return;/);
+    /member\.kind !== "method"[\s\S]*state\.memberSpelling !== "csharp"[\s\S]*member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*renderPreservingMemberFocus\(\);[\s\S]*return;/);
+  assert.match(
+    groupDocument,
+    /member\.name,[\s\S]*state\.memberAccessibilityFilter,[\s\S]*"all",[\s\S]*false/);
 
   const drillOut =
     appSource.match(/function drillOut\(\)[\s\S]*?\n}\n\nfunction exitMemberScope/)?.[0]
@@ -1204,6 +1207,13 @@ test("unavailable exact Member populations omit selector counts", () => {
         type: { api: [] },
         MEMBER_TRAITS,
         memberKindCount,
+        partitionGraphMembers: () => ({
+          publicMembers: [],
+          graphMembers: [],
+        }),
+        searchableMemberGroups: (groups: unknown[]) => groups,
+        groupMembers: () => [],
+        uploadedLibraryIsActive: () => false,
         typeMemberPopulationKey: () =>
           `${state.memberSpelling}/${state.memberAccessibilityFilter}`,
         currentTypeMethodLeverageState: () => ({ status: "idle" }),
@@ -1246,23 +1256,26 @@ test("unavailable exact Member populations omit selector counts", () => {
     typeMemberPopulationKey: "csharp/public",
     typeMemberPopulation: {
       outcome: "Available",
-      population: {
-        groups: [],
-        composition: {
-          public: 0,
-          protected: 0,
-          internal: 0,
-          private: 0,
-        },
-        selectorCounts: {
-          kinds: [],
-          traits: {
-            all: 0,
-            static: 0,
-            instance: 0,
-            virtual: 0,
-            interface: 0,
-            extensions: 0,
+      document: {
+        population: {
+          groups: [],
+          composition: {
+            public: 0,
+            protected: 0,
+            internal: 0,
+            private: 0,
+          },
+          selectorCounts: {
+            kinds: [],
+            traits: {
+              all: 0,
+              bodyBacked: 0,
+              static: 0,
+              instance: 0,
+              virtual: 0,
+              interface: 0,
+              extensions: 0,
+            },
           },
         },
       },
@@ -1280,6 +1293,13 @@ test("unavailable exact Member populations omit selector counts", () => {
       type: { api: [] },
       MEMBER_TRAITS,
       memberKindCount,
+      partitionGraphMembers: () => ({
+        publicMembers: [],
+        graphMembers: [],
+      }),
+      searchableMemberGroups: (groups: unknown[]) => groups,
+      groupMembers: () => [],
+      uploadedLibraryIsActive: () => false,
       typeMemberPopulationKey: () => "csharp/public",
       escapeHtml: (value: string) => value,
     });
@@ -1312,7 +1332,10 @@ test("member population status stays visible outside collapsed filters", () => {
   const filters =
     appSource.match(/function renderMemberFilterControls\([\s\S]*?\n}\n\nfunction renderTypeMemberPopulationStatus/)?.[0]
     ?? "";
-  assert.doesNotMatch(filters, /typeMemberPopulationError|inspection-error/);
+  assert.doesNotMatch(filters, /typeMemberPopulationError/);
+  assert.match(
+    filters,
+    /Signature search unavailable:[\s\S]*Loading exact signature matches/);
 
   const status =
     appSource.match(/function renderTypeMemberPopulationStatus\([\s\S]*?\n}\n\nfunction memberPopulationSummary/)?.[0]
@@ -1365,7 +1388,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.doesNotMatch(emptyMember, /typeHeadingHtml/);
   assert.match(
     renderMember,
-    /member\.kind === "method"[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*member\.completeCountStatus === "available"[\s\S]*completeMemberGroupHasBaselineOrdinals\(member\)[\s\S]*member\.overloads\.map\(\(overload, index\) =>[\s\S]*memberNavOverloadSourceIndex\(member, index\)[\s\S]*highlight\(overload\.signature\)/);
+    /member\.kind === "method"[\s\S]*state\.memberSpelling !== "csharp"[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*member\.overloads\.map\(\(overload, index\) =>[\s\S]*memberNavOverloadSourceIndex\(member, index\)[\s\S]*highlight\(overload\.signature\)/);
   assert.match(
     renderMember,
     /memberGroupDocumentLoading[\s\S]*Building the shared MemberGroup document/);
@@ -1374,7 +1397,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /memberGroupDocumentError[\s\S]*Overload query failed/);
   assert.match(
     renderMember,
-    /document\.rows\.map\(row =>[\s\S]*findIndex\(overload =>[\s\S]*row\.metadataToken[\s\S]*memberNavOverloadSourceIndex\(member, visibleIndex\)[\s\S]*data-overload="\$\{sourceIndex}"/);
+    /document\.rows\.filter\(row =>[\s\S]*\.map\(row =>[\s\S]*findIndex\(overload =>[\s\S]*row\.metadataToken[\s\S]*memberNavOverloadSourceIndex\(member, visibleIndex\)[\s\S]*data-overload="\$\{sourceIndex}"/);
   assert.doesNotMatch(
     renderMember,
     /Exact Member document|Resolving the shared Member document/);

@@ -416,6 +416,64 @@ public sealed record BrowserTypeMemberPopulationGroup(
     int CompleteCount,
     BrowserMemberSurface[] Members);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeOverviewOutcome>))]
+public enum BrowserTypeOverviewOutcome
+{
+    Available,
+    Rejected,
+    Incomplete,
+    Failed,
+}
+
+public sealed record BrowserTypeOverviewInspection(
+    BrowserTypeOverviewOutcome Outcome,
+    string? Detail,
+    BrowserTypeOverview? Document,
+    InspectionShare Share,
+    BrowserMemberGroupDocumentDiagnostic[] Diagnostics);
+
+public sealed record BrowserTypeOverview(
+    BrowserTypeOverviewAssemblyIdentity Assembly,
+    Guid ModuleVersionId,
+    string TypeIdentity,
+    int TypeDefinitionToken,
+    string Category,
+    bool IsByRefLike,
+    BrowserTypeOverviewGenericParameter[] GenericParameters,
+    BrowserTypeOverviewPopulation Population);
+
+public sealed record BrowserTypeOverviewAssemblyIdentity(
+    string Name,
+    string Version,
+    string? Culture,
+    string? PublicKeyToken);
+
+public sealed record BrowserTypeOverviewGenericParameter(
+    string Name,
+    int MetadataIndex,
+    int DefinitionSegmentIndex,
+    string Attributes);
+
+public sealed record BrowserTypeOverviewPopulation(
+    string Spelling,
+    string Accessibility,
+    string Receiver,
+    string Ordering,
+    bool IncludeHidden,
+    BrowserTypeMemberComposition Composition,
+    BrowserTypeMemberSelectorCounts SelectorCounts,
+    BrowserTypeOverviewGroup[] Groups);
+
+public sealed record BrowserTypeOverviewGroup(
+    string Key,
+    string Name,
+    string DisplayName,
+    string Kind,
+    int BaselineOrdinal,
+    int CompleteCount,
+    string[] Receivers,
+    BrowserTypeMemberTraitCounts Traits);
+
 /// <summary>
 /// One type row projected for a graph target. See the package facade's declaration for the
 /// identity rules these fields carry; this facade owns its own copy of the transport.
@@ -575,6 +633,7 @@ public sealed record BrowserExceptionSurface(
     typeof(Wire.AuthoredDocumentationOutcome.Incomplete),
     TypeInfoPropertyName = "AuthoredDocumentationIncomplete")]
 [JsonSerializable(typeof(BrowserTypeMemberPopulationInspection))]
+[JsonSerializable(typeof(BrowserTypeOverviewInspection))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(
     typeof(InspectionEnvelope<JsonElement>),

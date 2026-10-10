@@ -227,15 +227,20 @@ export interface MemberGroup {
   completeCount?: number;
   completeCountStatus?: "available" | "pending" | "failed";
   sourceOverloadCount?: number;
+  displayName?: string;
+  detailsPending?: boolean;
 }
 
 export function memberGroupUsesFamilySurface(
   group: {
     readonly overloads: readonly unknown[];
     readonly sourceOverloadCount?: number;
+    readonly detailsPending?: boolean;
   } | null | undefined,
 ): boolean {
-  return (group?.overloads.length ?? 0) > 1;
+  return (group?.overloads.length ?? 0) > 1
+    || (group?.detailsPending === true
+      && (group.sourceOverloadCount ?? 0) > 1);
 }
 
 export function familyOutsideMarkerHtml(
@@ -246,6 +251,7 @@ export function familyOutsideMarkerHtml(
 ): string {
   if (group.overloads.some(overload => overload.graphOnly)) return "";
   if (overloadFilterActive) return "";
+  if (group.detailsPending) return "";
   const completeCountStatus = group.completeCountStatus
     ?? (group.completeCount == null ? "pending" : "available");
   if (completeCountStatus === "failed") {
@@ -891,8 +897,8 @@ export function renderMemberNav(options: MemberNavOptions): string {
                 ? renderItemAchievementRail(achievements, escapeHtml)
                 : ""}
               <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
-              <span class="type-name${family ? " family-name" : ""}">${graphOnly || isMulti ? escapeHtml(group.name) : singleMemberLabelHtml(group, escapeHtml, highlight)}</span>
-              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : isMulti ? `<span class="family-count">${overloadCount}×</span>` : singleMemberDetailHtml(group, escapeHtml, shortKind)}${outsideMarker}${cue === null ? "" : ` <span class="family-heat-cue ${cue.tone}">${escapeHtml(cue.text)}</span>`}</small>
+              <span class="type-name${family ? " family-name" : ""}">${graphOnly || isMulti || group.detailsPending ? escapeHtml(group.displayName ?? group.name) : singleMemberLabelHtml(group, escapeHtml, highlight)}</span>
+              <small>${graphOnly ? `graph target · ${escapeHtml(shortKind(group.kind))}` : isMulti ? `<span class="family-count">${group.sourceOverloadCount ?? overloadCount}×</span>` : group.detailsPending ? escapeHtml(shortKind(group.kind)) : singleMemberDetailHtml(group, escapeHtml, shortKind)}${outsideMarker}${cue === null ? "" : ` <span class="family-heat-cue ${cue.tone}">${escapeHtml(cue.text)}</span>`}</small>
             </button>`;
           }
           const overload = entry.group.overloads[entry.index];
