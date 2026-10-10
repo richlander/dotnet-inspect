@@ -2557,12 +2557,15 @@ shared text helpers used well beyond the type panel (`kindIcon`, `shortKind`,
 Normal Type-member first paint requests the compact, owner-issued
 `TypeOverviewDocument` for package, platform, and uploaded Libraries. It
 delivers exact group identities, counts, receiver forms, and selector counts
-without realizing exact declarations. Opening a supported method group
-requests the shared `MemberGroupDocument` with the selected accessibility
-intent. Interactions that still need the legacy rich population (including
-Metadata spelling, non-public declarations without resident rows, and other
-resident-row gaps) request it only after opening a group. Hierarchy, graphs,
-source, metrics, documentation, and analysis remain independent requests.
+without repeating the rich assembly-surface and exact-declaration work used to
+establish the resident package, platform, or uploaded-Library inventory.
+Opening a supported method group requests the shared `MemberGroupDocument`
+with the selected accessibility intent. Interactions that still need the
+legacy rich Type-member population (including Metadata spelling, non-public
+declarations without resident rows, and other resident-row gaps) request it
+only after opening a group. This slice does not replace the rich resident
+surface used to enter Type navigation. Hierarchy, graphs, source, metrics,
+documentation, and analysis remain independent requests.
 `test/type-panel.test.ts` gates every rendered control binding, type-filter
 keyboard behavior, namespace grouping and selection in the type list,
 active-group and overload selection in the member list, the type heading's
