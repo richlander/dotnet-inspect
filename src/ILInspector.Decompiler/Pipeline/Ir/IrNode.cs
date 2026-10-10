@@ -38,6 +38,15 @@ public abstract class IrNode
     /// <summary>Records the originating IL offset. Stamped at import; idempotent.</summary>
     public void SetSourceOffset(int offset) => SourceOffset = offset;
 
+    /// <summary>Moves a surviving branch label while retaining the instruction's imported origin.</summary>
+    internal void MoveSourceLabel(int offset)
+    {
+        if (SourceOffset >= 0 && SourceOffset != offset
+            && !_retainedSourceOffsets.Contains(SourceOffset))
+            _retainedSourceOffsets = [.. _retainedSourceOffsets, SourceOffset];
+        SourceOffset = offset;
+    }
+
     /// <summary>
     /// Whether this node may render the label for <see cref="SourceOffset"/>.
     /// Semantic clones retain provenance but suppress label ownership so they

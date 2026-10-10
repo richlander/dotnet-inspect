@@ -87,6 +87,18 @@ internal static class ClassicInverseRealizationRules
                 }
                 return Lockstep(claim.Source, claim.Output, context, out failure);
 
+            case ClassicInverseRealizationRule.AwaitGuardCondition:
+                if (claim.Source is not ConditionalBranch branch
+                    || claim.Output is not IrExpression condition
+                    || condition.Parent is not IfStatement guarded
+                    || !ReferenceEquals(guarded.Condition, condition)
+                    || guarded.HasElse)
+                {
+                    failure = "await guard does not realize as a single-arm condition";
+                    return false;
+                }
+                return Lockstep(branch.Condition, condition, context, out failure);
+
             case ClassicInverseRealizationRule.ControlCondition:
                 return VerifyControlCondition(claim, context, out failure);
 
