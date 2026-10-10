@@ -71,6 +71,46 @@ public class ClosureDiagnosticEvidenceTests
         Assert.Equal(expectedContainingNamespace, reference.ContainingNamespace);
     }
 
+    /// <remarks>
+    /// C# attribute lookup tries <c>X</c> and <c>XAttribute</c>, and Roslyn reports one
+    /// missing-type diagnostic per spelling. Real witness: Microsoft.CodeAnalysis 5.0.0
+    /// structs carry <c>[Microsoft.CodeAnalysis.NonCopyable]</c>, whose type is the
+    /// internal <c>Microsoft.CodeAnalysis.NonCopyableAttribute</c>; closure growth
+    /// searched only for <c>NonCopyable</c> and stalled. An already-suffixed name is not
+    /// suffixed again.
+    /// </remarks>
+    [Theory]
+    [InlineData("CS0234", "[Root.NonCopyable] struct S {} namespace Root { public class Existing {} }", "NonCopyable", "NonCopyableAttribute", "Root")]
+    [InlineData("CS0246", "[NonCopyable] struct S {}", "NonCopyable", "NonCopyableAttribute", null)]
+    [InlineData("CS0246", "[MissingAttribute] struct S {}", "MissingAttribute", "MissingAttribute", null)]
+    public void Extract_AttributeNameReportsEachSpellingLookupTried(
+        string diagnosticId,
+        string source,
+        string firstName,
+        string secondName,
+        string? expectedContainingNamespace)
+    {
+        var tree = CSharpSyntaxTree.ParseText(
+            source,
+            cancellationToken: TestContext.Current.CancellationToken);
+        var compilation = CSharpCompilation.Create(
+            "closure-diagnostic-evidence",
+            [tree],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var semanticModel = compilation.GetSemanticModel(tree);
+        var references = compilation.GetDiagnostics(TestContext.Current.CancellationToken)
+            .Where(candidate => candidate.Id == diagnosticId)
+            .Select(diagnostic => ClosureDiagnosticEvidence.Extract(diagnostic, semanticModel))
+            .ToList();
+
+        Assert.Equal(2, references.Count);
+        Assert.All(references, reference => Assert.Equal(expectedContainingNamespace, reference!.ContainingNamespace));
+        Assert.Equal(
+            new[] { firstName, secondName }.Order(StringComparer.Ordinal),
+            references.Select(reference => reference!.Name).Order(StringComparer.Ordinal));
+    }
+
     [Fact]
     public void Extract_ReturnsNullForSupportedDiagnosticWithoutSourceLocation()
     {

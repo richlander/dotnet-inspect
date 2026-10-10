@@ -67,6 +67,11 @@ internal static class ClosureDiagnosticEvidence
             return null;
 
         string name = simpleName.Identifier.ValueText;
+        if (diagnostic.Id is "CS0246" or "CS0234"
+            && NamesAttributeSuffixedSpelling(diagnostic, simpleName, name))
+        {
+            name += "Attribute";
+        }
         return diagnostic.Id switch
         {
             "CS0234" => new ClosureDiagnosticReference(
@@ -85,6 +90,33 @@ internal static class ClosureDiagnosticEvidence
             "CS0246" or "CS0103" => new ClosureDiagnosticReference(name),
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// C# attribute lookup (§22.3) binds <c>[X]</c> to a type named <c>X</c> or
+    /// <c>XAttribute</c>, and Roslyn reports a missing attribute type once for each
+    /// spelling it tried. The syntax carries only <c>X</c>, so the diagnostic that names
+    /// <c>XAttribute</c> must look that spelling up; otherwise closure growth searches for
+    /// a type metadata never defines and stalls.
+    /// </summary>
+    static bool NamesAttributeSuffixedSpelling(
+        Diagnostic diagnostic,
+        SimpleNameSyntax simpleName,
+        string name)
+    {
+        if (name.EndsWith("Attribute", StringComparison.Ordinal))
+            return false;
+        var attribute = simpleName.Ancestors().OfType<AttributeSyntax>().FirstOrDefault();
+        bool isAttributeName = attribute?.Name switch
+        {
+            SimpleNameSyntax direct => direct == simpleName,
+            QualifiedNameSyntax qualified => qualified.Right == simpleName,
+            AliasQualifiedNameSyntax aliased => aliased.Name == simpleName,
+            _ => false,
+        };
+        return isAttributeName
+            && diagnostic.GetMessage(System.Globalization.CultureInfo.InvariantCulture)
+                .Contains($"'{name}Attribute'", StringComparison.Ordinal);
     }
 
     static bool IsMissingExplicitMemberReference(
