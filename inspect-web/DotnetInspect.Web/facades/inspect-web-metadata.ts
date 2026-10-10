@@ -1957,3 +1957,4 @@ export async function queryUploadedLibraryTypeOverviewDocument(declaredName: str
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeOverviewInspection;
 }
+
