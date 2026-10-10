@@ -469,7 +469,6 @@ public static class FastDiff
     {
         readonly Guid _mvid;
         readonly Dictionary<int, SymbolKey> _keys = [];
-        readonly Dictionary<int, SymbolKey> _referenceKeys = [];
         readonly Dictionary<int, string> _displayNames = [];
         readonly HashSet<SymbolKey> _duplicateTypeKeys = [];
         readonly SignatureKeys _signatures;
@@ -1075,15 +1074,8 @@ public static class FastDiff
         /// ECMA-335 lets share a name and signature, cannot say which
         /// declaration it names, so the referring fact is not decided.
         /// </summary>
-        /// <remarks>
-        /// The duplicate Type keys are complete before any reference is read,
-        /// so a token's decision is made once and a repeat costs one lookup.
-        /// </remarks>
         public SymbolKey ReferenceKey(EntityHandle handle)
         {
-            int token = MetadataTokens.GetToken(handle);
-            if (_referenceKeys.TryGetValue(token, out SymbolKey key))
-                return key;
             switch (handle.Kind)
             {
                 case HandleKind.TypeDefinition:
@@ -1106,9 +1098,7 @@ public static class FastDiff
                     break;
                 }
             }
-            key = Key(handle);
-            _referenceKeys[token] = key;
-            return key;
+            return Key(handle);
         }
 
         void RejectDuplicate(TypeDefinitionHandle handle)
