@@ -2335,7 +2335,9 @@ test("bindPackageQueryView applies dependency reach and target atomically", () =
 
   form.dispatch("submit", fakeDom.event({ preventDefault() {} }));
 
-  assert.equal(target.customValidity, "Enter an exact target framework.");
+  assert.equal(
+    target.customValidity,
+    "Enter an exact target framework while bounded reach is active.");
   assert.equal(target.validityReports, 1);
   assert.deepEqual(calls, []);
 
@@ -2399,6 +2401,60 @@ test("bindPackageQueryView allows an absent target for direct dependencies", () 
     "direct",
     "",
   ]]);
+});
+
+test("bindPackageQueryView preserves a direct draft when another dependency retains bounded reach", () => {
+  const request = withDependencyTerm(
+    createQueryRequest("Contoso.*"),
+    TERMS[0]!,
+    null,
+    "eq",
+    "Contoso.Exact",
+    "2",
+    "net9.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+  const root = new FakeRoot();
+  const prefix = new FakeElement({}, "package-query-prefix");
+  prefix.value = "Contoso.*";
+  const form = new FakeElement({ queryTermForm: "draft" });
+  const value = new FakeElement();
+  value.value = "Contoso.Prefix";
+  const operator = new FakeElement();
+  operator.value = "starts-with";
+  const reach = new FakeElement();
+  reach.value = "direct";
+  const target = new FakeElement();
+  target.value = "";
+  form.add("[data-query-term-value]", value);
+  form.add("[data-query-term-operator]", operator);
+  form.add("[data-query-dependency-reach]", reach);
+  form.add("[data-query-dependency-target]", target);
+  root.add("#package-query-prefix", prefix);
+  root.add("[data-query-term-form]", form);
+  const calls: unknown[][] = [];
+
+  bindPackageQueryView(fakeDom.parentNode(root), {
+    onBack: () => {},
+    onCancel: () => {},
+    onPresetToggle: () => {},
+    onLibraryTargetInput: () => {},
+    onPrefixInput: () => {},
+    onResultPressure: () => {},
+    onResultViewportChange: () => {},
+    onRowOpen: () => {},
+    onRun: () => {},
+    onSourceChange: () => {},
+    onTermApply: (...args) => calls.push(args),
+  }, request);
+
+  form.dispatch("submit", fakeDom.event({ preventDefault() {} }));
+
+  assert.equal(
+    target.customValidity,
+    "Enter an exact target framework while bounded reach is active.");
+  assert.equal(target.validityReports, 1);
+  assert.deepEqual(calls, []);
 });
 
 test("assembly row binding forwards the exact opaque Root request", () => {

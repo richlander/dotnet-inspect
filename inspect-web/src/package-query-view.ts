@@ -15,6 +15,7 @@ import {
   dependencyTarget,
   isTraversalDependencyTarget,
   isLibraryLiteralQuery,
+  requiresTraversalDependencyTarget,
 } from "./package-query.ts";
 import {
   resolvePackageQueryRowWindow,
@@ -367,6 +368,7 @@ export function restorePackageQueryScroll(
 export function bindPackageQueryView(
   root: ParentNode,
   actions: PackageQueryBindingActions,
+  request: QueryRequest | null = null,
 ) {
   const prefixInput = () =>
     root.querySelector<HTMLInputElement>("#package-query-prefix");
@@ -388,7 +390,7 @@ export function bindPackageQueryView(
     button.addEventListener("click", () => actions.onPresetToggle(
       button.dataset.queryPreset ?? "",
       prefixInput()?.value ?? "")));
-  bindPackageQueryTerms(root, actions, prefixInput);
+  bindPackageQueryTerms(root, actions, prefixInput, request);
   const prerelease = root.querySelector<HTMLInputElement>(
     "#package-query-prerelease");
   prerelease?.addEventListener("change", () => actions.onSourceChange({
@@ -426,6 +428,7 @@ function bindPackageQueryTerms(
   root: ParentNode,
   actions: PackageQueryBindingActions,
   prefixInput: () => HTMLInputElement | null,
+  request: QueryRequest | null,
 ): void {
   root.querySelectorAll<HTMLElement>("[data-query-term-add]").forEach(button =>
     button.addEventListener("click", () =>
@@ -524,12 +527,21 @@ function bindPackageQueryTerms(
           termValue.reportValidity();
           return;
         }
+        const selectedReach = dependencyReachValue(
+          dependencyReachControl?.value);
+        const effectiveReach = selectedReach ?? "direct";
+        const dependencyTargetRequired = request === null
+          ? effectiveReach !== "direct"
+          : requiresTraversalDependencyTarget(
+            request,
+            index,
+            termOperator.value,
+            effectiveReach);
         if (dependencyTargetControl
-          && dependencyReachControl?.value !== "direct"
-          && !isTraversalDependencyTarget(
-            dependencyTargetControl.value)) {
+          && dependencyTargetRequired
+          && !isTraversalDependencyTarget(dependencyTargetControl.value)) {
           dependencyTargetControl.setCustomValidity(
-            "Enter an exact target framework.");
+            "Enter an exact target framework while bounded reach is active.");
           dependencyTargetControl.reportValidity();
           return;
         }
@@ -539,7 +551,7 @@ function bindPackageQueryTerms(
           termOperator.value,
           value,
           prefixInput()?.value ?? "",
-          dependencyReachValue(dependencyReachControl?.value),
+          selectedReach,
           dependencyTargetControl?.value);
       });
     });

@@ -16,6 +16,7 @@ import {
   isTraversalDependencyTarget,
   isLibraryLiteralQuery,
   packageQueryWorkspaceLens,
+  requiresTraversalDependencyTarget,
   shouldExecuteQuery,
   synchronizeDependencyTermEditor,
   synchronizeTermEdits,
@@ -357,6 +358,46 @@ test("dependency facet applies direct or bounded reach atomically", () => {
   assert.equal(isTraversalDependencyTarget(" ALL "), false);
   assert.equal(isTraversalDependencyTarget("net10.0"), true);
   assert.equal(invalidTraversal, directWithAll);
+});
+
+test("bounded dependencies retain their shared exact target for direct prefix additions", () => {
+  const bounded = withDependencyTerm(
+    createQueryRequest("Contoso.*"),
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Contoso.Exact",
+    "2",
+    "net9.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+
+  assert.equal(
+    requiresTraversalDependencyTarget(
+      bounded,
+      null,
+      "starts-with",
+      "direct"),
+    true);
+  assert.equal(
+    withDependencyTerm(
+      bounded,
+      DEPENDS_TERM,
+      null,
+      "starts-with",
+      "Contoso.Prefix",
+      "direct",
+      "",
+      null,
+      DEPENDENCY_TARGET_TERM),
+    bounded);
+  assert.equal(
+    requiresTraversalDependencyTarget(
+      createQueryRequest("Contoso.*"),
+      null,
+      "starts-with",
+      "direct"),
+    false);
 });
 
 test("dependency prefix forces direct reach and removing the last dependency clears traversal", () => {

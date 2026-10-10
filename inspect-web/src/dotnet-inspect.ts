@@ -710,6 +710,7 @@ import {
   initialQueryState,
   isTraversalDependencyTarget,
   packageQueryWorkspaceLens,
+  requiresTraversalDependencyTarget,
   shouldExecuteQuery,
   synchronizeDependencyTermEditor,
   synchronizeTermEdits,
@@ -3246,10 +3247,8 @@ async function activateManagedRetainedWorkspace(
       throw new Error(
         `Unknown retained Workspace definition '${retainedDefinitionId}'.`);
     }
-    const initialPackageLens = "packageQuery" in definition
-      ? (await parseWorkspaceHref(definition.canonicalLocation)).packageLens
-        ?? undefined
-      : undefined;
+    const initialPackageLens =
+      await retainedDefinitionPackageLens(definition);
     const locationIntent = retainedLocationIntents.admitNonBrowser(
       locationPolicy,
       installedRetainedLocation,
@@ -3392,6 +3391,16 @@ function publishFreshEmptyWorkspaceFromHistory(
   return true;
 }
 
+async function retainedDefinitionPackageLens(
+  definition: RetainedWorkspaceActivationController[
+    "state"
+  ]["definitions"][number],
+): Promise<PackageLens | undefined> {
+  if (!("packageQuery" in definition)) return undefined;
+  return (await parseWorkspaceHref(definition.canonicalLocation)).packageLens
+    ?? undefined;
+}
+
 function deleteRetainedWorkspace(workspaceId: string): void {
   if (retainedWorkspaceActivation?.state.definitions.some(
     definition => definition.id === workspaceId)) {
@@ -3459,6 +3468,9 @@ async function deleteManagedRetainedWorkspace(
     ? undefined
     : controller.state.definitions[definitionIndex + 1]
       ?? controller.state.definitions[definitionIndex - 1];
+  const successorPackageLens = successor === undefined
+    ? undefined
+    : await retainedDefinitionPackageLens(successor);
   const compatibilitySuccessor =
     successor === undefined
       ? retainedWorkspaces.workspaces.at(-1)
@@ -3476,7 +3488,11 @@ async function deleteManagedRetainedWorkspace(
       acceptSuccessor: () =>
         retainedLocationIntents.currentIntentId === locationIntent.id,
       completeSuccessor: posting =>
-        installRetainedWorkspacePosting(posting, locationIntent),
+        installRetainedWorkspacePosting(
+          posting,
+          locationIntent,
+          undefined,
+          successorPackageLens),
       isSuccessorPresentationCurrent: posting =>
         retainedLocationPresentationCurrent(
           locationIntent,
@@ -21131,10 +21147,14 @@ function applyPackageQueryTerm(
       render();
       return;
     }
-    if (dependencyReach !== "direct"
+    if (requiresTraversalDependencyTarget(
+      current,
+      index,
+      operator,
+      dependencyReach)
       && !isTraversalDependencyTarget(dependencyTargetValue)) {
       state.packageQueryNavigationError =
-        "Bounded dependency reach requires an exact target framework.";
+        "An exact target framework is required while bounded dependency reach is active.";
       render();
       return;
     }
@@ -21642,7 +21662,10 @@ function replacePackageQueryPage() {
     escapeHtml,
     viewport,
   }));
-  bindPackageQueryView(document, packageQueryActions);
+  bindPackageQueryView(
+    document,
+    packageQueryActions,
+    state.packageQueryState.request);
   restorePackageQueryViewport(document, viewport);
   packageQueryViewport =
     capturePackageQueryViewport(document) ?? viewport;
@@ -27488,12 +27511,16 @@ window.addEventListener("popstate", () => {
   const sourceHistoryWorkspaceAvailable = historyWorkspaceId !== null
     && workspaceFeedActivation?.ownsRetainedDefinition(
       historyWorkspaceId) === true;
-  const managedHistoryWorkspaceAvailable = !sourceHistoryWorkspaceAvailable
+  const managedHistoryWorkspaceDefinition = !sourceHistoryWorkspaceAvailable
     && historyWorkspaceId !== null
-    && retainedWorkspaceActivation?.state.definitions.some(
-      definition => definition.id === historyWorkspaceId) === true;
+    ? retainedWorkspaceActivation?.state.definitions.find(
+      definition => definition.id === historyWorkspaceId)
+    : undefined;
+  const managedHistoryWorkspaceAvailable =
+    managedHistoryWorkspaceDefinition !== undefined;
   let restoredActiveManagedWorkspace = false;
-  if (managedHistoryWorkspaceAvailable && historyWorkspaceId !== null) {
+  if (managedHistoryWorkspaceDefinition !== undefined
+    && historyWorkspaceId !== null) {
     const locationIntent = retainedLocationIntents.selectBrowserEntry({
       url: location.href,
       historyState: history.state,
@@ -27501,6 +27528,8 @@ window.addEventListener("popstate", () => {
       incumbent: installedRetainedLocation,
     });
     try {
+      const initialPackageLens = await retainedDefinitionPackageLens(
+        managedHistoryWorkspaceDefinition);
       if (retainedWorkspaceActivation?.state.activeDefinitionId
           === historyWorkspaceId) {
         const effect = retainedLocationIntents.classify(locationIntent, {
@@ -27519,6 +27548,7 @@ window.addEventListener("popstate", () => {
             posting,
             locationIntent,
             posting.canonicalLocation === location.href ? "exact" : "changed",
+            initialPackageLens,
           ),
           undefined,
           undefined,

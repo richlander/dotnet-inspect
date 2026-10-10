@@ -358,6 +358,28 @@ export function isTraversalDependencyTarget(value: string): boolean {
   return candidate.length > 0 && candidate.toLowerCase() !== "all";
 }
 
+export function requiresTraversalDependencyTarget(
+  request: QueryRequest,
+  index: number | null,
+  operator: string,
+  reach: DependencyReach,
+): boolean {
+  if (operator === "eq" && reach !== "direct") return true;
+  const hadTraversal = request.presets.some(
+    preset => preset.key === "dependency-depth");
+  if (!hadTraversal) return false;
+  const hasOtherExactDependency = request.terms.some((term, termIndex) =>
+    termIndex !== index
+    && term.descriptor.key === "depends"
+    && term.operator === "eq");
+  const hasOtherTransitiveDependency = request.terms.some(
+    (term, termIndex) =>
+      termIndex !== index
+      && term.descriptor.key === "depends-transitive");
+  return hasOtherTransitiveDependency
+    || (operator !== "eq" && hasOtherExactDependency);
+}
+
 export function synchronizeDependencyTermEditor(
   previous: QueryRequest,
   next: QueryRequest,
@@ -388,29 +410,19 @@ export function withDependencyTerm(
   }
 
   const traverses = operator === "eq" && reach !== "direct";
-  if (traverses
-    && (!depthPreset
-      || !targetDescriptor
-      || !isTraversalDependencyTarget(targetFramework))) return request;
+  const requiresTarget = requiresTraversalDependencyTarget(
+    request,
+    index,
+    operator,
+    reach);
+  const preservesTraversal = requiresTarget && !traverses;
+  if (traverses && (!depthPreset || !targetDescriptor)) return request;
 
-  const hadTraversal = request.presets.some(
-    preset => preset.key === "dependency-depth");
-  const hasOtherExactDependency = request.terms.some((term, termIndex) =>
-    termIndex !== index
-    && term.descriptor.key === "depends"
-    && term.operator === "eq");
-  const hasOtherTransitiveDependency = request.terms.some(
-    (term, termIndex) =>
-      termIndex !== index
-      && term.descriptor.key === "depends-transitive");
-  const preservesTraversal = hadTraversal
-    && (hasOtherTransitiveDependency
-      || (operator !== "eq" && hasOtherExactDependency));
   const normalizedTarget = targetFramework.trim();
   const exactTarget = isTraversalDependencyTarget(normalizedTarget)
     ? normalizedTarget
     : null;
-  if ((traverses || preservesTraversal) && exactTarget === null) return request;
+  if (requiresTarget && exactTarget === null) return request;
   if (exactTarget !== null && targetDescriptor === null) return request;
   const terms = request.terms.flatMap((term, termIndex) => {
     if (term.descriptor.key === "dependency-target") return [];

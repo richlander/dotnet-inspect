@@ -179,8 +179,11 @@ semantics. The visibly shared target editor is blank by default, meaning all
 declared dependency groups, and remains editable for direct exact and
 literal-prefix matching. Applying an exact TFM authors one query-wide
 `dependency-target=<tfm>`; clearing it removes the target term rather than
-falling back to the Library target or a Browser-default TFM. A bounded reach
-atomically authors the exact `depends` terms with one query-wide
+falling back to the Library target or a Browser-default TFM. When another
+exact dependency still retains bounded reach, clearing this shared target is
+invalid: Apply keeps the editor open and visibly requires an exact target
+rather than silently discarding the dependency edit. A bounded reach atomically
+authors the exact `depends` terms with one query-wide
 `dependency-depth=2|3|4` and one required exact
 `dependency-target=<tfm>`; each exact term includes direct and transitive paths
 within that maximum. Returning to direct-only removes the traversal depth but

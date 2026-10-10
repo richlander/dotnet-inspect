@@ -1736,6 +1736,28 @@ test.describe("Package Query website over real Wasm", () => {
     await page.locator('[data-query-preset="readme:eq:true"]').click();
     await expect(dependencyReach).toHaveValue("2");
     await expect(dependencyTarget).toHaveValue("net9.0");
+    await page.locator('[data-query-term-form="0"] button[type="submit"]').click();
+    await expect(page.getByRole("heading", { name: "Query failed" }))
+      .toBeVisible();
+
+    await page.locator('[data-query-term-add="depends"]').click();
+    const boundedPrefixDraft = page.locator('[data-query-term-form="draft"]');
+    await boundedPrefixDraft.locator("[data-query-term-operator]")
+      .selectOption("starts-with");
+    await boundedPrefixDraft.locator("[data-query-term-value]")
+      .fill("Microsoft.Extensions.");
+    const boundedPrefixTarget =
+      boundedPrefixDraft.locator("[data-query-dependency-target]");
+    await boundedPrefixTarget.fill("");
+    const beforeConflictedApply = searchRequests;
+    await boundedPrefixDraft.locator('button[type="submit"]').click();
+    await expect(boundedPrefixTarget).toHaveJSProperty(
+      "validationMessage",
+      "Enter an exact target framework while bounded reach is active.");
+    await expect(boundedPrefixDraft).toBeVisible();
+    expect(searchRequests).toBe(beforeConflictedApply);
+    await page.locator("[data-query-term-draft-cancel]").click();
+
     await dependencyReach.selectOption("direct");
     await dependencyTarget.fill("");
 
@@ -1882,6 +1904,38 @@ test.describe("Package Query website over real Wasm", () => {
     await expect(dependenciesTab).toHaveAttribute("aria-selected", "true");
     await expect(page.locator("#inspector-panel"))
       .toContainText("Microsoft.Extensions.Hosting", { timeout: 60_000 });
+
+    await page.goBack();
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/packages/${injection.packageId}/${version}#package$`,
+      ),
+      { timeout: 120_000 },
+    );
+    await expect(page.locator(".package-overview-surface")).toBeVisible();
+
+    await page.goForward();
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/packages/${hosting.packageId}/${version}#pkg:dependencies$`,
+      ),
+      { timeout: 120_000 },
+    );
+    await expect(dependenciesTab).toHaveAttribute("aria-selected", "true");
+
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="workspace"]').click();
+    await page.locator(".workspace-row")
+      .filter({ hasText: `${hosting.packageId}@${version}` })
+      .locator("[data-workspace-delete]")
+      .click();
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/packages/${injection.packageId}/${version}#package$`,
+      ),
+      { timeout: 120_000 },
+    );
+    await expect(page.locator(".package-overview-surface")).toBeVisible();
   });
 
   test("retains 100 prefix results while mounting a bounded row window", async ({

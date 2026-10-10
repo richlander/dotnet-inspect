@@ -507,7 +507,7 @@ test("complete Workspace URLs use page-session retained activation", () => {
     /tryOpenSourceBearingWorkspace\([\s\S]*new URL\(location\.href\)[\s\S]*return;[\s\S]*parseLocation\(\)/);
   assert.match(
     history,
-    /sourceHistoryWorkspaceAvailable = historyWorkspaceId !== null[\s\S]*workspaceFeedActivation\?\.ownsRetainedDefinition\([\s\S]*managedHistoryWorkspaceAvailable = !sourceHistoryWorkspaceAvailable[\s\S]*if \(managedHistoryWorkspaceAvailable[\s\S]*tryOpenSourceBearingWorkspace/);
+    /sourceHistoryWorkspaceAvailable = historyWorkspaceId !== null[\s\S]*workspaceFeedActivation\?\.ownsRetainedDefinition\([\s\S]*managedHistoryWorkspaceDefinition = !sourceHistoryWorkspaceAvailable[\s\S]*managedHistoryWorkspaceAvailable =\s*managedHistoryWorkspaceDefinition !== undefined[\s\S]*if \(managedHistoryWorkspaceDefinition !== undefined[\s\S]*tryOpenSourceBearingWorkspace/);
   assert.match(
     history,
     /if \(restoredActiveManagedWorkspace[\s\S]*await parseLocation\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*state\.credits = false/);
@@ -1297,7 +1297,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /state\.packageQueryReturnFocusPending = true/);
   assert.match(
     appSource,
-    /function renderPackageQueryPage\(\) \{\s*packageQueryRender\.renderFull\(\);\s*}\s*function replacePackageQueryPage\(\) \{\s*const focus = capturePackageQueryFocus\(document\);\s*const viewport =\s*capturePackageQueryViewport\(document\) \?\? packageQueryViewport;[\s\S]*replaceChildrenPreservingRenderedInteractions\(app, renderPackageQueryView\(\{[\s\S]*viewport,[\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*restorePackageQueryViewport\(document, viewport\);\s*packageQueryViewport =\s*capturePackageQueryViewport\(document\) \?\? viewport;\s*restorePackageQueryFocus\(document, focus\)/);
+    /function renderPackageQueryPage\(\) \{\s*packageQueryRender\.renderFull\(\);\s*}\s*function replacePackageQueryPage\(\) \{\s*const focus = capturePackageQueryFocus\(document\);\s*const viewport =\s*capturePackageQueryViewport\(document\) \?\? packageQueryViewport;[\s\S]*replaceChildrenPreservingRenderedInteractions\(app, renderPackageQueryView\(\{[\s\S]*viewport,[\s\S]*bindPackageQueryView\(\s*document,\s*packageQueryActions,\s*state\.packageQueryState\.request\);\s*restorePackageQueryViewport\(document, viewport\);\s*packageQueryViewport =\s*capturePackageQueryViewport\(document\) \?\? viewport;\s*restorePackageQueryFocus\(document, focus\)/);
   const streamPatch =
     appSource.match(/function patchPackageQueryPage\(\) \{[\s\S]*?\n}\n/)?.[0]
     ?? "";
@@ -1394,7 +1394,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /try \{\s*const catalog =\s*packageQueryCatalog\(await engineClient\.package\.listPackageQueryCatalog\(\)\);\s*state\.packageQueryPresets = catalog\.presets;\s*state\.packageQueryTerms = catalog\.terms;\s*\} catch \(error\) \{[\s\S]*state\.packageQueryPresets = \[\];\s*state\.packageQueryTerms = \[\];\s*state\.packageQueryCatalogError =[\s\S]*\}/);
   assert.match(
     appSource,
-    /function applyPackageQueryTerm\([\s\S]*descriptor\.key === "depends"[\s\S]*withDependencyTerm\([\s\S]*\? withTerm\(current, descriptor, operator, value\)\s*: replaceTerm\(current, index, operator, value\);[\s\S]*state\.packageQueryState\.termDraft = null;[\s\S]*state\.packageQueryState\.termEdits = edits;[\s\S]*submitPackageQueryRequest\(request\)/);
+    /function applyPackageQueryTerm\([\s\S]*descriptor\.key === "depends"[\s\S]*requiresTraversalDependencyTarget\([\s\S]*An exact target framework is required while bounded dependency reach is active\.[\s\S]*withDependencyTerm\([\s\S]*\? withTerm\(current, descriptor, operator, value\)\s*: replaceTerm\(current, index, operator, value\);[\s\S]*state\.packageQueryState\.termDraft = null;[\s\S]*state\.packageQueryState\.termEdits = edits;[\s\S]*submitPackageQueryRequest\(request\)/);
   assert.match(
     appSource,
     /function editPackageQueryTerm\([\s\S]*state\.packageQueryState\.termDraft = \{[\s\S]*operator,[\s\S]*value,[\s\S]*state\.packageQueryState\.termEdits = edits/);
@@ -1676,7 +1676,16 @@ test("managed Saved Open keeps compact rows, packet fidelity, and focus ownershi
     /async function openSavedWorkspaceEntry\([\s\S]*const activationNavigationSeq = navigationSequence\.begin\(\)[\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*completeRetainedActivationPresentation\(\s*result,\s*locationIntent,\s*activationNavigationSeq,\s*\)/);
   assert.match(
     appSource,
-    /async function activateManagedRetainedWorkspace\([\s\S]*controller\.state\.definitions\.find\([\s\S]*"packageQuery" in definition[\s\S]*parseWorkspaceHref\(definition\.canonicalLocation\)[\s\S]*installRetainedWorkspacePosting\(\s*posting,\s*locationIntent,\s*undefined,\s*initialPackageLens\)/);
+    /async function activateManagedRetainedWorkspace\([\s\S]*controller\.state\.definitions\.find\([\s\S]*retainedDefinitionPackageLens\(definition\)[\s\S]*installRetainedWorkspacePosting\(\s*posting,\s*locationIntent,\s*undefined,\s*initialPackageLens\)/);
+  assert.match(
+    appSource,
+    /async function retainedDefinitionPackageLens\([\s\S]*"packageQuery" in definition[\s\S]*parseWorkspaceHref\(definition\.canonicalLocation\)[\s\S]*packageLens/);
+  assert.match(
+    appSource,
+    /managedHistoryWorkspaceDefinition[\s\S]*retainedDefinitionPackageLens\(\s*managedHistoryWorkspaceDefinition\)[\s\S]*installRetainedWorkspacePosting\(\s*posting,\s*locationIntent,\s*posting\.canonicalLocation === location\.href \? "exact" : "changed",\s*initialPackageLens/);
+  assert.match(
+    appSource,
+    /async function deleteManagedRetainedWorkspace\([\s\S]*successorPackageLens[\s\S]*retainedDefinitionPackageLens\(successor\)[\s\S]*completeSuccessor: posting =>\s*installRetainedWorkspacePosting\(\s*posting,\s*locationIntent,\s*undefined,\s*successorPackageLens\)/);
   assert.match(
     appSource,
     /async function activateManagedRetainedWorkspace\([\s\S]*const activationNavigationSeq = navigationSequence\.current\(\)[\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*completeRetainedActivationPresentation\(\s*result,\s*locationIntent,\s*activationNavigationSeq,\s*\)/);
