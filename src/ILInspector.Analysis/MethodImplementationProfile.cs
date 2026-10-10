@@ -38,6 +38,7 @@ public sealed record MethodImplementationProfile(
     int OutgoingOverloadTargetCount,
     bool IsComplete,
     ImmutableArray<string> IncompleteReasons)
+    : ILibraryStructuralMethodEvidence
 {
     /// <summary>
     /// Cyclomatic complexity of the ordinary-flow IL graph.
@@ -52,6 +53,9 @@ public sealed record MethodImplementationProfile(
     /// </remarks>
     public int NormalFlowCyclomaticComplexity =>
         1 + ConditionalBranchCount - SwitchCount + SwitchTargetCount;
+
+    public int ExceptionRegionCount =>
+        CatchCount + FilterCount + FinallyCount + FaultCount;
 }
 
 /// <summary>An exact direct call between distinct methods in one overload family.</summary>
@@ -85,51 +89,6 @@ internal sealed record MethodBodyImplementationMetrics(
 internal readonly record struct MethodImplementationContextMeasurements(
     ImplementationMetricInstructionShape? InstructionShape,
     ImplementationMetricControlFlow? ControlFlow);
-
-internal sealed class MethodImplementationInstructionScan
-{
-    readonly HashSet<ILOpCode> _distinctOpcodes = [];
-    int _instructionCount;
-    int _branches;
-    int _conditionalBranches;
-    int _switches;
-    int _switchTargets;
-
-    internal bool Visit(ILOpCode opcode, int encodedLength)
-    {
-        _instructionCount++;
-        _distinctOpcodes.Add(opcode);
-        if (opcode == ILOpCode.Switch)
-        {
-            _branches++;
-            _conditionalBranches++;
-            _switches++;
-            _switchTargets +=
-                checked((encodedLength - 1 - sizeof(int)) / sizeof(int));
-        }
-        else if (ILOpcodeExtensions.IsBranch(opcode))
-        {
-            _branches++;
-            if (!ILOpcodeExtensions.IsUnconditionalBranch(opcode))
-                _conditionalBranches++;
-        }
-        return true;
-    }
-
-    internal MethodImplementationContextMeasurements Complete(
-        MethodBodyAnalysisContext context) =>
-        new(
-            new(
-                _instructionCount,
-                _distinctOpcodes.Count),
-            new(
-                context.Blocks.Blocks.Length,
-                _branches,
-                _conditionalBranches,
-                _switches,
-                _switchTargets,
-                context.LoopRegions.Distinct().Count()));
-}
 
 internal static class MethodImplementationProfileAnalysis
 {
@@ -243,7 +202,7 @@ internal static class MethodImplementationProfileAnalysis
             IncompleteReasons(context));
     }
 
-    static ImmutableArray<string> IncompleteReasons(
+    internal static ImmutableArray<string> IncompleteReasons(
         MethodBodyAnalysisContext context)
     {
         var reasons = ImmutableArray.CreateBuilder<string>();

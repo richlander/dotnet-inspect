@@ -8,6 +8,55 @@ namespace ILInspector.Research.Tests;
 public sealed class LibraryStructuralReportTests
 {
     [Fact]
+    public void
+        LibraryStructuralReport_FocusedEvidencePreservesCompleteProfileDocument()
+    {
+        AssertFocusedEvidencePreservesCompleteProfileDocument(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+    }
+
+    [Fact]
+    public void
+        LibraryStructuralReport_FocusedEvidencePreservesAsyncProfileDocument()
+    {
+        AssertFocusedEvidencePreservesCompleteProfileDocument(
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
+    }
+
+    static void AssertFocusedEvidencePreservesCompleteProfileDocument(
+        string path)
+    {
+        LibraryBodyAnalysisExecution legacy =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile());
+        LibraryBodyAnalysisExecution focused =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateLibraryStructuralReport());
+
+        var legacyDocument =
+            Assert.IsType<
+                LibraryStructuralReportResult.Available>(
+                    LibraryStructuralReport.Execute(legacy))
+                .Document;
+        var focusedDocument =
+            Assert.IsType<
+                LibraryStructuralReportResult.Available>(
+                    LibraryStructuralReport.Execute(focused))
+                .Document;
+
+        Assert.Equivalent(
+            legacyDocument,
+            focusedDocument,
+            strict: true);
+        Assert.True(focused.StructuralMetrics.WasRequested);
+        Assert.False(focused.ImplementationProfiles.WasRequested);
+    }
+
+    [Fact]
     public void LibraryStructuralReport_RejectsScopedProfilePopulation()
     {
         var method = FakeMethod("Widget", "M", 0x06000001);

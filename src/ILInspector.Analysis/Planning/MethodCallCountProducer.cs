@@ -97,10 +97,10 @@ public sealed class MethodCallCountProducer
 
         try
         {
-            var counts = new MethodCallInstructionCounts();
+            var counts = new CallCounts();
             view.VisitInstructionShapes(
                 ref counts,
-                MethodCallInstructionCounter.Visit);
+                CountInstruction);
             return CompletedBody(view.Token, _kind, counts);
         }
         catch (Exception exception)
@@ -130,10 +130,39 @@ public sealed class MethodCallCountProducer
         MethodDefinitionCompletionView completion) =>
         new(accumulator.ToImmutable());
 
+    struct CallCounts
+    {
+        public int InvocationCount;
+
+        public int CallSiteCount;
+    }
+
+    static bool CountInstruction(
+        ref CallCounts counts,
+        ILOpCode opcode,
+        int encodedLength)
+    {
+        _ = encodedLength;
+        if (opcode is ILOpCode.Call
+            or ILOpCode.Callvirt
+            or ILOpCode.Newobj)
+        {
+            counts.InvocationCount++;
+            counts.CallSiteCount++;
+        }
+        else if (opcode is ILOpCode.Ldftn
+            or ILOpCode.Ldvirtftn
+            or ILOpCode.Calli)
+        {
+            counts.CallSiteCount++;
+        }
+        return true;
+    }
+
     static MethodCallCountBody CompletedBody(
         int methodToken,
         MethodCallCountKind kind,
-        MethodCallInstructionCounts counts) =>
+        CallCounts counts) =>
         new(
             methodToken,
             HasManagedBody: true,
@@ -157,7 +186,7 @@ public sealed class MethodCallCountProducer
     sealed class FusedState : State
     {
         readonly MethodCallCountProducer _producer;
-        MethodCallInstructionCounts _counts;
+        CallCounts _counts;
         int _methodToken;
 
         public FusedState(
@@ -224,7 +253,7 @@ public sealed class MethodCallCountProducer
         public override bool VisitInstructionShape(
             ILOpCode opcode,
             int encodedLength) =>
-            MethodCallInstructionCounter.Visit(
+            CountInstruction(
                 ref _counts,
                 opcode,
                 encodedLength);
@@ -239,37 +268,5 @@ public sealed class MethodCallCountProducer
                         _counts)
                     : FailedBody(_methodToken, failure));
 
-    }
-}
-
-internal struct MethodCallInstructionCounts
-{
-    internal int InvocationCount;
-
-    internal int CallSiteCount;
-}
-
-internal static class MethodCallInstructionCounter
-{
-    internal static bool Visit(
-        ref MethodCallInstructionCounts counts,
-        ILOpCode opcode,
-        int encodedLength)
-    {
-        _ = encodedLength;
-        if (opcode is ILOpCode.Call
-            or ILOpCode.Callvirt
-            or ILOpCode.Newobj)
-        {
-            counts.InvocationCount++;
-            counts.CallSiteCount++;
-        }
-        else if (opcode is ILOpCode.Ldftn
-            or ILOpCode.Ldvirtftn
-            or ILOpCode.Calli)
-        {
-            counts.CallSiteCount++;
-        }
-        return true;
     }
 }

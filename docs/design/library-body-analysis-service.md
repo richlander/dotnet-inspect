@@ -1106,51 +1106,48 @@ Each slice is independently coherent and reaches an existing production
 consumer or the next named host-neutral consumer. No unused generic execution
 substrate lands ahead of adoption.
 
-#### Whole-library complete-profile executor substitution
+#### Library Metrics structural request
 
-The first body-dense consumer adopts Method instruction planning through a
-narrow executor substitution rather than replacing the established
-metadata-ordered parallel Library Body scheduler with the serial reference
-executor. The substitution applies only when all of these are true:
+A complete-profile packet experiment removed duplicate instruction traversals
+but retained canonical contexts and complete-profile publication. Exact
+NativeAOT measurement improved the CoreLib command median by only 1.264%;
+standard presentation remained neutral. That negative result rejects complete
+profile construction as the production migration boundary, and the rejected
+packet implementation is not retained.
 
-- the implementation-metric origin is `CompleteProfileCompatibility`;
-- the requested metric set is exactly `CompleteProfileV1`; and
-- the request has no Method or Type scope.
+An exact Library Metrics query instead issues
+`CreateLibraryStructuralReport()`. Its versioned metric set contains only:
 
-For each admitted managed body, the scheduler joins the `DirectCalls` and
-`CanonicalContext` analyzer declarations. Their joined demand is one
-`RetainedPrefix` plus `SelectiveOperands` source. One packet-local resolved
-`InstructionSequence` then:
+- instruction count;
+- normal-flow cyclomatic complexity;
+- loop count;
+- exception-region count;
+- direct invocation count and the direct calls needed for type relationships;
+- allocation count; and
+- async-state-machine body attribution.
 
-1. visits each instruction once for direct-invocation, instruction-shape, and
-   control-flow opcode measurements;
-2. promotes the retained resolved sequence to canonical `MethodInstructions`;
-3. constructs the canonical context without replaying instruction decode; and
-4. completes block and loop measurements from the canonical graph without
-   rewalking the decoded instruction array.
+This request publishes `LibraryStructuralAnalysisResult`; it does not publish
+`MethodImplementationProfile` rows. Research consumes the structural result
+directly and preserves the existing Library Metrics document, compatibility
+receipt, population coverage, diagnostics, ordering, and transport bytes.
+Other queries, including Implementation Profiles and exact-family Member
+Metrics, retain their existing result and execution routes.
 
-The same exact request does not construct allocation occurrence facts, unsafe
-occurrence rows, or constant-data-span recognition that no complete-profile
-field consumes. The retained scan supplies the profile's `newarr`, allocating
-`box`, and throw counts. Call collection still resolves the direct-call facts
-needed for callee cardinality, reflection counts, unsafe call evidence, and
-sibling relationships, but it does not build allocation multiplicity or
-call-value-flow evidence for this request. Other feature combinations retain
-their existing topic-owner execution.
+The Library Metrics physical plan uses one shallow decoded instruction array
+per admitted body. One scan computes instruction, branch, switch, backward-loop,
+`newarr`, and allocating-`box` facts. Backward `leave` targets count as loops
+only when the transfer is not redirected through an enclosing `finally`,
+matching the canonical graph's normal successor. A second shallow pass resolves
+only `call`, `callvirt`, and `newobj` facts required by allocation counts and
+cross-type relationships. The route does not decode local signatures or build
+`MethodInstructions`, `BlockGraph`, `ExceptionFlowTopology`, canonical method
+contexts, allocation occurrences, safety evidence, or complete profiles.
 
-The substitution preserves the scheduler's metadata-ordinal result slots and
-ordered aggregation. Packet-local source and context authority do not escape
-the method result. The implementation-metric participation receipt publishes
-resolved sources opened, instructions visited, and canonical contexts
-materialized. Those counts are owner-issued physical-work evidence, not
-producer result counts.
-
-Scoped complete-profile requests, including the exact-family Member Metrics
-control, remain on the prior execution path in this slice. This substitution
-is neither a generic parallel Method Query Source executor nor completion of
-the producer decomposition above; it removes the proven duplicate traversals
-for the first whole-library production adopter while leaving exact-family
-behavior as the regression control.
+The implementation-metric plan records
+`StructuralInstructionStream` as the required physical fact and
+`StructuralInstructionScan` as actual work. Stage receipts must show no local
+signature or canonical-context participation. The existing metadata-ordered
+parallel scheduler and ordered aggregation remain unchanged.
 
 ### Fusion-payoff admission for profile migration
 

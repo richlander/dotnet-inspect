@@ -64,6 +64,10 @@ internal sealed record MethodImplementationMetricEvidence(
     ImplementationMetricCallSiteCount? CallSiteCount,
     ImplementationMetricDirectCalls? DirectCalls)
 {
+    internal bool? IsAsync { get; init; }
+
+    internal ImmutableArray<string> IncompleteReasons { get; init; } = [];
+
     internal bool DirectCallCollectionAttempted { get; init; }
 
     internal bool DirectCallCollectionComplete { get; init; }
@@ -77,11 +81,6 @@ internal sealed record ImplementationMetricStageParticipation(
     int CompletedBodies,
     int FailedBodies);
 
-internal sealed record ImplementationMetricInstructionSourceWork(
-    int ResolvedSourcesOpened,
-    long InstructionsVisited,
-    int CanonicalContextsMaterialized);
-
 internal sealed record ImplementationMetricParticipationReceipt(
     ImplementationMetricKind RequestedMetrics,
     ImplementationMetricFactKind RequiredFacts,
@@ -89,7 +88,6 @@ internal sealed record ImplementationMetricParticipationReceipt(
     bool HasCompleteStageParticipation,
     ImmutableArray<ImplementationMetricStageParticipation>
         ActualStages,
-    ImplementationMetricInstructionSourceWork? InstructionSourceWork,
     ImplementationMetricWorkBudgetSnapshot? Work);
 
 internal sealed record LibraryImplementationMetricAnalysisResult(
@@ -104,8 +102,7 @@ internal sealed record LibraryImplementationMetricAnalysisResult(
     ImmutableArray<AnalysisDiagnostic> Diagnostics);
 
 internal sealed record ImplementationMetricStageParticipationSnapshot(
-    ImmutableArray<ImplementationMetricStageParticipation> Stages,
-    ImplementationMetricInstructionSourceWork? InstructionSourceWork);
+    ImmutableArray<ImplementationMetricStageParticipation> Stages);
 
 internal sealed class ImplementationMetricExecutionRecorder
 {
@@ -115,9 +112,6 @@ internal sealed class ImplementationMetricExecutionRecorder
     readonly Dictionary<
         ImplementationMetricWorkStage,
         MutableParticipation> _stages = [];
-    int _resolvedSourcesOpened;
-    long _instructionsVisited;
-    int _canonicalContextsMaterialized;
 
     internal ImplementationMetricExecutionRecorder(
         ImplementationMetricAnalysisPlan plan,
@@ -156,30 +150,8 @@ internal sealed class ImplementationMetricExecutionRecorder
                     .OrderBy(static pair => pair.Key)
                     .Select(static pair =>
                         pair.Value.Snapshot(pair.Key)),
-            ],
-            _resolvedSourcesOpened == 0
-                ? null
-                : new(
-                    _resolvedSourcesOpened,
-                    _instructionsVisited,
-                    _canonicalContextsMaterialized));
+            ]);
         }
-    }
-
-    internal void RecordInstructionSource(
-        int instructionsVisited)
-    {
-        lock (_gate)
-        {
-            _resolvedSourcesOpened++;
-            _instructionsVisited += instructionsVisited;
-        }
-    }
-
-    internal void RecordInstructionMaterialization()
-    {
-        lock (_gate)
-            _canonicalContextsMaterialized++;
     }
 
     void Complete(ImplementationMetricWorkStage stage)

@@ -539,18 +539,22 @@ satisfy the early-stop work property. Concurrency, incremental publication,
 and cross-operation caches require their own scheduling, close, and lifetime
 designs before adoption.
 
-Library Body complete-profile analysis has one focused parallel substitution.
-It retains the existing metadata-ordered `Parallel.For` scheduler and applies
-only to an unscoped `CompleteProfileV1` compatibility request. The immutable
-Method analyzer plan is shared, while each worker owns one resolved retained
-instruction sequence and canonical context for one method packet. Results are
-written to metadata-ordinal slots and aggregated in reference order. Its source
-receipt records resolved sources opened, instructions visited, and canonical
-contexts materialized. The substitution also projects profile-only body signals
-from that retained scan and does not construct richer allocation or unsafety
-occurrence facts that the request does not consume. Scoped and other Method
-requests continue to use their existing executor. This is not a general
-parallel Method Query Source implementation.
+Library Metrics adopts an exact structural request. One shallow decoded
+instruction array supplies instruction cardinality, normal-flow branch shape,
+backward-loop ranges, and allocation opcodes; direct invocation resolution
+consumes that same bounded per-method evidence without constructing the
+canonical `BlockGraph` or `ExceptionFlowTopology`. The physical request
+therefore omits local-signature and canonical-context facts entirely. Research
+consumes a focused structural result rather than reconstructing or publishing
+complete implementation profiles.
+
+The distinction is measured, not aesthetic. A rejected retained
+complete-profile packet removed traversals but improved the exact NativeAOT
+CoreLib Library Metrics command median by only 1.264%, below its 5% admission
+gate. The packet implementation is not retained. The structural route exists
+because QuerySpace must select the minimum physical fact family for the
+terminal, not merely share a cheaper implementation of an overbroad
+compatibility result.
 
 ## Migration and production adoption
 
@@ -731,9 +735,9 @@ assemblies.
 Resource-free planning and serial execution are deterministic ordinary code.
 The routing and settlement transition system remains owned and modeled by
 [Open and closed queries](open-and-closed-queries.md). This design adds no
-independent concurrent state machine. The focused Library Body substitution
-uses an existing scheduler and has no early-settling terminal; any broader
-parallel, incremental, or retained executor must model its scheduling and close
+independent concurrent state machine. The Library Metrics structural route uses
+the existing scheduler and has no early-settling terminal. A future parallel,
+incremental, or retained executor must model its scheduling and close
 interaction before implementation.
 
 ## Non-claims

@@ -164,19 +164,91 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.True(
             request.Plan.Includes(
                 LibraryBodyAnalysisFeatures.MethodEvidence));
+    }
+
+    [Fact]
+    public void LibraryStructuralRequest_PlansOnlyShallowStructuralWork()
+    {
+        LibraryBodyAnalysisRequest request =
+            LibraryBodyAnalysisRequest
+                .CreateLibraryStructuralReport();
+
+        Assert.Equal(
+            LibraryBodyAnalysisFeatures.None,
+            request.Features);
+        ImplementationMetricAnalysisPlan plan =
+            Assert.IsType<ImplementationMetricAnalysisPlan>(
+                request.Plan.ImplementationMetrics);
+        Assert.Equal(
+            ImplementationMetricAnalysisRequest
+                .LibraryStructuralReportV1,
+            plan.RequestedMetrics);
+        Assert.Equal(
+            ImplementationMetricRequestOrigin
+                .LibraryStructuralReport,
+            plan.Origin);
+        Assert.True(plan.UsesFocusedExecution);
+        Assert.True(request.Plan.ProducesLibraryStructuralReport);
         Assert.True(
-            request.Plan.UsesPlannedCompleteProfileSource);
-        MethodBodyAnalyzerPlan instructionPlan =
-            CompleteProfileInstructionPacket.InstructionPlan;
+            plan.RequiredFacts.HasFlag(
+                ImplementationMetricFactKind
+                    .StructuralInstructionStream));
+        Assert.False(plan.RequiresLocalSignatureDecode);
+        Assert.False(plan.RequiresCanonicalContext);
+        Assert.False(
+            request.Plan.Includes(
+                LibraryBodyAnalysisFeatures.MethodEvidence));
+        Assert.False(
+            request.Plan.Includes(
+                LibraryBodyAnalysisFeatures
+                    .ImplementationProfiles));
+    }
+
+    [Fact]
+    public void LibraryStructuralRequest_PublishesShallowStageReceipt()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                LibraryBodyAnalysisRequest
+                    .CreateLibraryStructuralReport()
+                    .WithStageParticipation());
+
+        Assert.True(execution.StructuralMetrics.WasRequested);
+        Assert.False(execution.ImplementationProfiles.WasRequested);
+        ImplementationMetricParticipationReceipt participation =
+            Assert.IsType<ImplementationMetricParticipationReceipt>(
+                execution.ImplementationMetrics.Participation);
+        Assert.Contains(
+            participation.ActualStages,
+            static stage => stage.Stage
+                == ImplementationMetricWorkStage
+                    .StructuralInstructionScan
+                && stage.AttemptedBodies > 0
+                && stage.AttemptedBodies
+                    == stage.CompletedBodies);
+        Assert.DoesNotContain(
+            participation.ActualStages,
+            static stage => stage.Stage is
+                ImplementationMetricWorkStage.LocalSignatureDecode
+                or ImplementationMetricWorkStage
+                    .CanonicalMethodContext
+                or ImplementationMetricWorkStage
+                    .DirectCallDiscovery);
+        LibraryBodyAnalysisStageParticipationReceipt stages =
+            Assert.IsType<
+                LibraryBodyAnalysisStageParticipationReceipt>(
+                    execution.Receipt.StageParticipation);
         Assert.Equal(
-            MethodBodyInstructionSourceKind.LazyRetainedSequence,
-            instructionPlan.Source);
+            0,
+            stages.For(
+                LibraryBodyAnalysisStage
+                    .LocalSignatureDecode).Attempts);
         Assert.Equal(
-            MethodBodyInstructionAccess.RetainedPrefix,
-            instructionPlan.Demand.Access);
-        Assert.Equal(
-            MethodBodyInstructionDetail.SelectiveOperands,
-            instructionPlan.Demand.Detail);
+            0,
+            stages.For(
+                LibraryBodyAnalysisStage
+                    .CanonicalMethodContext).Attempts);
     }
 
     [Fact]
@@ -256,28 +328,6 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Equal(
             LibraryBodyAnalysisFeatures.None,
             migratedProjection.FeatureCauses);
-        Assert.Null(
-            legacyExecution.ImplementationMetrics
-                .Participation.InstructionSourceWork);
-        ImplementationMetricInstructionSourceWork sourceWork =
-            Assert.IsType<
-                ImplementationMetricInstructionSourceWork>(
-                    migratedExecution.ImplementationMetrics
-                        .Participation.InstructionSourceWork);
-        int measuredBodies =
-            migratedExecution.ImplementationMetrics.Bodies.Count(
-                static body => body.InstructionShape is not null);
-        Assert.Equal(
-            measuredBodies,
-            sourceWork.ResolvedSourcesOpened);
-        Assert.Equal(
-            measuredBodies,
-            sourceWork.CanonicalContextsMaterialized);
-        Assert.Equal(
-            migratedExecution.ImplementationMetrics.Bodies.Sum(
-                static body =>
-                    body.InstructionShape?.InstructionCount ?? 0),
-            sourceWork.InstructionsVisited);
     }
 
     [Fact]
@@ -341,9 +391,6 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Equal(
             profile.NormalFlowCyclomaticComplexity,
             controlFlow.NormalFlowCyclomaticComplexity);
-        Assert.Null(
-            execution.ImplementationMetrics
-                .Participation!.InstructionSourceWork);
         ImplementationMetricDirectCalls directCalls =
             Assert.IsType<ImplementationMetricDirectCalls>(
                 body.DirectCalls);

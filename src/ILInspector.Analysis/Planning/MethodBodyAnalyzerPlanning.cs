@@ -335,12 +335,6 @@ public static class MethodBodyAnalyzerDeclarations
             "BoundedFlow",
             MethodBodyInstructionAccess.RetainedPrefix,
             MethodBodyInstructionDetail.SelectiveOperands);
-
-    public static MethodBodyAnalyzerDeclaration CanonicalContext { get; } =
-        MethodBodyCapabilityAuthority.Create(
-            "CanonicalContext",
-            MethodBodyInstructionAccess.RetainedPrefix,
-            MethodBodyInstructionDetail.SelectiveOperands);
 }
 
 static class MethodBodyCapabilityAuthority
