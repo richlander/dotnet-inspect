@@ -464,6 +464,7 @@ public sealed record BrowserPackageQueryTermDescriptor(
     string Example,
     bool Multiline,
     bool AllowsCustomValue,
+    string? ReplacementGroupId,
     BrowserPackageQueryTermOptionDescriptor[] Options);
 
 public sealed record BrowserPackageQueryTermOptionDescriptor(

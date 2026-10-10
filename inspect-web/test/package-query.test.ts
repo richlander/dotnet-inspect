@@ -118,6 +118,25 @@ const TOOL_V2_FACET: QueryPreset = {
   replacementGroupId: "dotnet-tool",
 };
 
+const TOOL_FORMAT_TERM: QueryTermDescriptor = {
+  key: "tool-format",
+  label: "DotnetCliTool",
+  summary: "Matches the DotnetCliTool format version.",
+  weight: 510,
+  tier: "package-content",
+  executionClass: "package-content",
+  operators: ["eq"],
+  valueKind: "closed value",
+  example: "v2",
+  multiline: false,
+  allowsCustomValue: false,
+  replacementGroupId: "dotnet-tool",
+  options: [
+    { value: "v1", label: "v1", summary: "Portable format." },
+    { value: "v2", label: "v2", summary: "RID-specific format." },
+  ],
+};
+
 const DEPENDS_TERM: QueryTermDescriptor = {
   key: "depends",
   label: "Direct dependency",
@@ -924,6 +943,34 @@ test("togglePreset applies product-owned tool replacement and union groups", () 
     backToV2.presets.map(preset => preset.id),
     [TOOL_V2_FACET.id]);
   assert.equal(backToV2.requestedLimit, 20);
+});
+
+test("tool facts and DotnetCliTool value queries replace across control families", () => {
+  const withAny = togglePreset(
+    createQueryRequest("Microsoft."),
+    ANY_TOOL_FACET);
+  const withV1 = withTerm(
+    withAny,
+    TOOL_FORMAT_TERM,
+    "eq",
+    "v1");
+  const withBoth = withTerm(
+    withV1,
+    TOOL_FORMAT_TERM,
+    "eq",
+    "v2");
+  const backToAny = togglePreset(withBoth, ANY_TOOL_FACET);
+
+  assert.deepEqual(withV1.presets, []);
+  assert.deepEqual(
+    withBoth.terms.map(term => term.value),
+    ["v1", "v2"]);
+  assert.equal(withBoth.requestedLimit, 20);
+  assert.deepEqual(
+    backToAny.presets.map(preset => preset.id),
+    [ANY_TOOL_FACET.id]);
+  assert.deepEqual(backToAny.terms, []);
+  assert.equal(backToAny.requestedLimit, 200);
 });
 
 test("appendRows and appendFailure accumulate without mutating prior outcome", () => {

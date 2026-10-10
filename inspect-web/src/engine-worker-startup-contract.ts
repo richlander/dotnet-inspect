@@ -435,6 +435,7 @@ export const engineStartupOperations = {
             example: text(term.example),
             multiline: boolean(term.multiline),
             allowsCustomValue: boolean(term.allowsCustomValue),
+            replacementGroupId: nullableText(term.replacementGroupId),
             options: array(term.options, rawOption => {
               const option = record(rawOption);
               return {

@@ -860,6 +860,8 @@ public static partial class PackageQuery
     public const string SkillTermKey = "skill";
     public const string LibraryLiteralTermKey = "library-literal";
     public const string LibraryTargetTermKey = "library-target";
+    public const string ToolReplacementGroupId =
+        "package.query.replacement.dotnet-tool";
     private static readonly ImmutableArray<string> EqualityOperator =
         [PortableQueryModel.TextOf(PortableQueryOperator.Equal)];
 
@@ -1119,6 +1121,7 @@ public static partial class PackageQuery
             [
                 new("true", ".NET Tool", "The manifest declares a .NET tool package type."),
             ],
+            ReplacementGroupId = ToolReplacementGroupId,
         },
         new(
             ToolFormatTermKey,
@@ -1140,6 +1143,7 @@ public static partial class PackageQuery
             ],
             SelectionGroupId = PackageQueryVocabulary.ToolFormatFamily,
             CombinesWithinSelectionGroup = true,
+            ReplacementGroupId = ToolReplacementGroupId,
         },
         new(
             ReferencesTermKey,

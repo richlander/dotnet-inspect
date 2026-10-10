@@ -198,7 +198,9 @@ these mappings in TypeScript.
 `tool=true` is the nuspec-only **.NET Tool** inspection fact.
 `tool-format=v1|v2` is the package-content **DotnetCliTool** value query and
 selects the format version reported by `DotnetToolSettings.xml`. They are
-presented separately rather than as one segmented fact control.
+presented separately rather than as one segmented fact control. Applying
+either replaces the incompatible control from the other family; repeated
+DotnetCliTool value queries may still combine `v1` and `v2`.
 The Browser does not pre-collapse exact or case-variant duplicates, reinterpret
 the operand, or infer a term from evidence text. Product-issued term
 attribution remains structured across the Browser engine boundary.

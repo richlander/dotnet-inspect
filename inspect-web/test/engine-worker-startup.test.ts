@@ -94,6 +94,7 @@ const catalog: BrowserPackageQueryCatalog = {
     example: "Microsoft.Extensions.Hosting",
     multiline: false,
     allowsCustomValue: true,
+    replacementGroupId: null,
     options: [],
   }],
 };

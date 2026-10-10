@@ -201,6 +201,7 @@ const TOOL_FORMAT_TERM: QueryTermDescriptor = {
   example: "v2",
   multiline: false,
   allowsCustomValue: false,
+  replacementGroupId: "package.query.replacement.dotnet-tool",
   options: [
     {
       value: "v1",

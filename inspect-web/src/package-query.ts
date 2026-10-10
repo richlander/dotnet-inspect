@@ -56,6 +56,7 @@ export interface QueryTermDescriptor {
   example: string;
   multiline: boolean;
   allowsCustomValue?: boolean;
+  replacementGroupId?: string | null;
   options?: readonly QueryTermOption[];
 }
 
@@ -281,8 +282,16 @@ export function togglePreset(
     return combines
       || (!replacesSelectionGroup && !replacesReplacementGroup);
   });
-  return reconcileDependencyContext(
-    withPreset(withPresets(request, compatible), preset));
+  const terms = request.terms.filter(term =>
+    preset.replacementGroupId === null
+    || preset.replacementGroupId === undefined
+    || term.descriptor.replacementGroupId
+      !== preset.replacementGroupId);
+  return reconcileDependencyContext(withPreset(queryRequest(request, {
+    presets: compatible,
+    terms,
+    requestedLimit: queryCandidateLimit(compatible, terms),
+  }), preset));
 }
 
 export function withTerm(
@@ -292,9 +301,15 @@ export function withTerm(
   value: string,
 ): QueryRequest {
   const terms = [...request.terms, { descriptor, operator, value }];
+  const presets = request.presets.filter(preset =>
+    descriptor.replacementGroupId === null
+    || descriptor.replacementGroupId === undefined
+    || preset.replacementGroupId
+      !== descriptor.replacementGroupId);
   return queryRequest(request, {
     terms,
-    requestedLimit: queryCandidateLimit(request.presets, terms),
+    presets,
+    requestedLimit: queryCandidateLimit(presets, terms),
   });
 }
 

@@ -135,6 +135,7 @@ function toQueryTermDescriptor(
     example: descriptor.example,
     multiline: descriptor.multiline,
     allowsCustomValue: descriptor.allowsCustomValue,
+    replacementGroupId: descriptor.replacementGroupId,
     options: descriptor.options.map(option => ({
       value: option.value,
       label: option.label,

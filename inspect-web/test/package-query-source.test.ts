@@ -1258,6 +1258,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
         example: "Windows",
         multiline: false,
         allowsCustomValue: true,
+        replacementGroupId: null,
         options: [],
       },
       {
@@ -1272,6 +1273,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
         example: "v2",
         multiline: false,
         allowsCustomValue: false,
+        replacementGroupId: "package.query.replacement.dotnet-tool",
         options: [
           {
             value: "v1",
@@ -1342,6 +1344,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
       example: "Windows",
       multiline: false,
       allowsCustomValue: true,
+      replacementGroupId: null,
       options: [],
     },
     {
@@ -1356,6 +1359,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
       example: "v2",
       multiline: false,
       allowsCustomValue: false,
+      replacementGroupId: "package.query.replacement.dotnet-tool",
       options: [
         {
           value: "v1",

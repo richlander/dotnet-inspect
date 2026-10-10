@@ -120,6 +120,7 @@ namespace DotnetInspect.Web.Interop.Package
                                     or PackageQueryTermControlKind.MultilineInput)
                                 && term.Descriptor.Key
                                     != PackageQuery.DependsEcosystemTermKey,
+                            term.Descriptor.ReplacementGroupId,
                             BrowserTermOptions(term.Descriptor))),
                 ]);
 

@@ -592,6 +592,9 @@ public sealed class BrowserPackageQueryOperationsTests
                     == PackageQueryTermControlKind.MultilineInput,
                 actual.Multiline);
             Assert.Equal(
+                expected.ReplacementGroupId,
+                actual.ReplacementGroupId);
+            Assert.Equal(
                 (expected.ControlKind
                     is PackageQueryTermControlKind.Input
                         or PackageQueryTermControlKind.MultilineInput)
@@ -625,6 +628,9 @@ public sealed class BrowserPackageQueryOperationsTests
             term => term.Key == PackageQuery.ToolFormatTermKey);
         Assert.Equal("DotnetCliTool", term.Label);
         Assert.False(term.AllowsCustomValue);
+        Assert.Equal(
+            PackageQuery.ToolReplacementGroupId,
+            term.ReplacementGroupId);
         Assert.Equal(["v1", "v2"], term.Options.Select(option => option.Value));
     }
 

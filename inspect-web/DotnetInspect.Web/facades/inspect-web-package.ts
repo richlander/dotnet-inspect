@@ -1048,6 +1048,7 @@ export interface BrowserPackageQueryTermDescriptor {
   readonly example: string;
   readonly multiline: boolean;
   readonly allowsCustomValue: boolean;
+  readonly replacementGroupId: string | null;
   readonly options: ReadonlyArray<BrowserPackageQueryTermOptionDescriptor>;
 }
 
