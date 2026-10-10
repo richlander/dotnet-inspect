@@ -106,7 +106,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
     internal override bool Settles(VisitFact fact) =>
         IsSettling(fact, _limits.MaximumOccurrences);
 
-    internal sealed record VisitFact(
+    internal readonly record struct VisitFact(
         BodyTypeUseMethodFact? Body,
         ProducerTerminal Terminal);
 
@@ -127,7 +127,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
         int _operandsLimited;
         bool _occurrenceLimitReported;
 
-        internal ImmutableArray<BodyTypeUseOccurrence> Add(
+        internal IReadOnlyList<BodyTypeUseOccurrence> Add(
             VisitFact visit) =>
             Add(
                 visit,
@@ -136,7 +136,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
                 retainBodies:
                     visit.Terminal == ProducerTerminal.Rows);
 
-        internal ImmutableArray<BodyTypeUseOccurrence> Add(
+        internal IReadOnlyList<BodyTypeUseOccurrence> Add(
             VisitFact visit,
             bool retainOccurrences,
             bool retainBodies)
@@ -152,7 +152,8 @@ internal sealed class AnalysisLibraryBodyUseProducer
             _operandsConsidered += body.OperandsConsidered;
             _operandsExamined += body.OperandsExamined;
             _operandsUnavailable += body.OperandsUnavailable;
-            _diagnostics.AddRange(body.Diagnostics);
+            if (body.Diagnostics is not null)
+                _diagnostics.AddRange(body.Diagnostics);
             if (retainBodies)
             {
                 _bodies!.Add(
@@ -173,11 +174,12 @@ internal sealed class AnalysisLibraryBodyUseProducer
                 return [];
             }
 
-            bool unavailable = body.Diagnostics.Any(
-                static diagnostic =>
-                    diagnostic.Kind
-                        == AnalysisLibraryBodyUseDiagnosticKind
-                            .MalformedBody);
+            bool unavailable = body.Diagnostics?.Any(
+                    static diagnostic =>
+                        diagnostic.Kind
+                            == AnalysisLibraryBodyUseDiagnosticKind
+                                .MalformedBody)
+                == true;
             if (unavailable)
             {
                 _bodiesUnavailable++;
@@ -186,7 +188,7 @@ internal sealed class AnalysisLibraryBodyUseProducer
 
             long attempted = checked(
                 (long)_occurrenceCount
-                    + body.Occurrences.Length);
+                    + (body.Occurrences?.Count ?? 0));
             if (attempted > maximumOccurrences)
             {
                 _bodiesLimited++;
@@ -213,10 +215,16 @@ internal sealed class AnalysisLibraryBodyUseProducer
             else
             {
                 _bodiesExamined++;
-                _occurrenceCount += body.Occurrences.Length;
-                if (retainOccurrences)
-                    _occurrences!.AddRange(body.Occurrences);
-                return body.Occurrences;
+                int occurrenceCount = body.Occurrences?.Count ?? 0;
+                _occurrenceCount += occurrenceCount;
+                if (retainOccurrences
+                    && body.Occurrences is { } occurrences)
+                {
+                    _occurrences!.AddRange(occurrences);
+                }
+                return body.Occurrences is { } retained
+                    ? retained
+                    : Array.Empty<BodyTypeUseOccurrence>();
             }
 
             return [];
@@ -284,13 +292,14 @@ internal sealed class AnalysisLibraryBodyUseProducer
         && !body.Limited
         && body.Fidelity
             == AnalysisLibraryBodyUseFidelity.LogicalOwner
-        && !body.Diagnostics.Any(
-            static diagnostic =>
-                diagnostic.Kind
-                    == AnalysisLibraryBodyUseDiagnosticKind
-                        .MalformedBody)
-        && body.Occurrences.Length > 0
-        && body.Occurrences.Length <= maximumOccurrences;
+        && body.Diagnostics?.Any(
+                static diagnostic =>
+                    diagnostic.Kind
+                        == AnalysisLibraryBodyUseDiagnosticKind
+                            .MalformedBody)
+            != true
+        && body.Occurrences is { Count: > 0 } occurrences
+        && occurrences.Count <= maximumOccurrences;
 
     internal sealed record Result(
         int OccurrenceCount,
