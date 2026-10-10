@@ -94,6 +94,8 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
             // The admission check reads by range whatever the archive's size:
             // a zero size cut, so a fallback never downloads an archive the
             // legacy path then downloads again. Realization keeps size first.
+            // This transitional exception is registered in the package cache
+            // policy's Size first contract; endpoint-scope step 4 retires it.
             PackageHouse checkHouse = composition.CreateRealizationHouse(
                 new PackagePayloadAcquisitionPlan(
                     stores.GetStore,
