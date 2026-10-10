@@ -182,9 +182,9 @@ export function withoutPreset(
   request: QueryRequest,
   presetId: string,
 ): QueryRequest {
-  return withPresets(
+  return reconcileDependencyContext(withPresets(
     request,
-    request.presets.filter(preset => preset.id !== presetId));
+    request.presets.filter(preset => preset.id !== presetId)));
 }
 
 function withPresets(
@@ -223,6 +223,30 @@ function queryRequest(
   return { ...request, ...changes };
 }
 
+function reconcileDependencyContext(request: QueryRequest): QueryRequest {
+  const hasDependencyPredicate = request.terms.some(term =>
+    term.descriptor.key === "depends"
+    || term.descriptor.key === "depends-transitive"
+    || term.descriptor.key === "depends-ecosystem")
+    || request.presets.some(preset => preset.key === "dependencies");
+  const hasTraversalPredicate = request.terms.some(term =>
+    (term.descriptor.key === "depends" && term.operator === "eq")
+    || term.descriptor.key === "depends-transitive");
+  const terms = hasDependencyPredicate
+    ? request.terms
+    : request.terms.filter(
+        term => term.descriptor.key !== "dependency-target");
+  const presets = hasTraversalPredicate
+    ? request.presets
+    : request.presets.filter(preset => preset.key !== "dependency-depth");
+  if (terms === request.terms && presets === request.presets) return request;
+  return queryRequest(request, {
+    terms,
+    presets,
+    requestedLimit: queryCandidateLimit(presets, terms),
+  });
+}
+
 export function togglePreset(
   request: QueryRequest,
   preset: QueryPreset,
@@ -246,7 +270,8 @@ export function togglePreset(
     return combines
       || (!replacesSelectionGroup && !replacesReplacementGroup);
   });
-  return withPreset(withPresets(request, compatible), preset);
+  return reconcileDependencyContext(
+    withPreset(withPresets(request, compatible), preset));
 }
 
 export function withTerm(
@@ -390,10 +415,10 @@ export function withoutTerm(
 ): QueryRequest {
   if (index < 0 || index >= request.terms.length) return request;
   const terms = request.terms.filter((_term, termIndex) => termIndex !== index);
-  return queryRequest(request, {
+  return reconcileDependencyContext(queryRequest(request, {
     terms,
     requestedLimit: queryCandidateLimit(request.presets, terms),
-  });
+  }));
 }
 
 export function withoutDependencyTerm(
@@ -402,24 +427,10 @@ export function withoutDependencyTerm(
 ): QueryRequest {
   if (request.terms[index]?.descriptor.key !== "depends") return request;
   const terms = request.terms.filter((_term, termIndex) => termIndex !== index);
-  const hasExactDependency = terms.some(term =>
-    term.descriptor.key === "depends" && term.operator === "eq");
-  const hasDependencyPredicate = terms.some(term =>
-    term.descriptor.key === "depends"
-    || term.descriptor.key === "depends-transitive"
-    || term.descriptor.key === "depends-ecosystem")
-    || request.presets.some(preset => preset.key === "dependencies");
-  const retainedTerms = hasDependencyPredicate
-    ? terms
-    : terms.filter(term => term.descriptor.key !== "dependency-target");
-  const presets = hasExactDependency
-    ? request.presets
-    : request.presets.filter(preset => preset.key !== "dependency-depth");
-  return queryRequest(request, {
-    presets,
-    terms: retainedTerms,
-    requestedLimit: queryCandidateLimit(presets, retainedTerms),
-  });
+  return reconcileDependencyContext(queryRequest(request, {
+    terms,
+    requestedLimit: queryCandidateLimit(request.presets, terms),
+  }));
 }
 
 export function synchronizeDependencyTermEdits(

@@ -1398,6 +1398,12 @@ test("Package query and Activity are routed Spotlight actions", () => {
   assert.match(
     appSource,
     /function synchronizePackageQueryDependencyDraft\([\s\S]*synchronizeDependencyTermEditor\(request, draft\)[\s\S]*function synchronizePackageQueryDependencyEditors\([\s\S]*synchronizeDependencyTermEdits\([\s\S]*synchronizePackageQueryDependencyDraft\(next\)[\s\S]*function applyPackageQueryTerm\([\s\S]*descriptor\.key === "dependency-target"[\s\S]*synchronizePackageQueryDependencyEditors\(current, request\)[\s\S]*function removePackageQueryTerm\([\s\S]*termKey === "dependency-target"[\s\S]*synchronizePackageQueryDependencyEditors\(current, request\)/);
+  assert.match(
+    appSource,
+    /function togglePackageQueryPreset\([\s\S]*preset\.key === "dependencies"[\s\S]*preset\.key === "dependency-depth"[\s\S]*synchronizePackageQueryDependencyEditors\(current, request\)/);
+  assert.match(
+    appSource,
+    /function removePackageQueryTerm\([\s\S]*termKey === "depends-transitive"[\s\S]*termKey === "depends-ecosystem"[\s\S]*synchronizePackageQueryDependencyEditors\(current, request\)/);
   assert.doesNotMatch(
     appSource,
     /state\.packageQuerySourceCatalog/);

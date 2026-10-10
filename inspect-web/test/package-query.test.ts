@@ -422,6 +422,68 @@ test("switching traversal to direct retains another dependency term's target", (
     ]);
 });
 
+test("removing the final dependency fact clears shared context", () => {
+  const ecosystemScoped = withDependencyTerm(
+    withTerm(
+      createQueryRequest("Contoso.*"),
+      DEPENDS_ECOSYSTEM_TERM,
+      "eq",
+      "ecosystem.aspire"),
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Contoso.Target",
+    "2",
+    "net10.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+  const ecosystemExactIndex = ecosystemScoped.terms.findIndex(
+    term => term.descriptor.key === "depends");
+  const ecosystemOnly = withoutDependencyTerm(
+    ecosystemScoped,
+    ecosystemExactIndex);
+
+  assert.deepEqual(
+    ecosystemOnly.terms.map(term => term.descriptor.key),
+    ["depends-ecosystem", "dependency-target"]);
+  assert.deepEqual(ecosystemOnly.presets, []);
+
+  const withoutEcosystem = withoutTerm(ecosystemOnly, 0);
+  assert.deepEqual(withoutEcosystem.terms, []);
+  assert.deepEqual(withoutEcosystem.presets, []);
+
+  const presetScoped = withDependencyTerm(
+    withPreset(
+      createQueryRequest("Contoso.*"),
+      HAS_DEPENDENCIES_FACET),
+    DEPENDS_TERM,
+    null,
+    "eq",
+    "Contoso.Target",
+    "2",
+    "net10.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+  const presetExactIndex = presetScoped.terms.findIndex(
+    term => term.descriptor.key === "depends");
+  const presetOnly = withoutDependencyTerm(
+    presetScoped,
+    presetExactIndex);
+
+  assert.deepEqual(
+    presetOnly.terms.map(term => term.descriptor.key),
+    ["dependency-target"]);
+  assert.deepEqual(
+    presetOnly.presets.map(preset => preset.id),
+    [HAS_DEPENDENCIES_FACET.id]);
+
+  const withoutPresetScope = togglePreset(
+    presetOnly,
+    HAS_DEPENDENCIES_FACET);
+  assert.deepEqual(withoutPresetScope.terms, []);
+  assert.deepEqual(withoutPresetScope.presets, []);
+});
+
 test("dependency reach is query-wide across repeated exact terms", () => {
     const traversed = withDependencyTerm(
       createQueryRequest("Contoso.*"),

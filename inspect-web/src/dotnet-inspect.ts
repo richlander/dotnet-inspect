@@ -20883,7 +20883,12 @@ function togglePackageQueryPreset(presetId: string, text: string) {
   }
 
   const current = preparePackageQueryControlRequest(text);
-  submitPackageQueryRequest(togglePreset(current, preset));
+  const request = togglePreset(current, preset);
+  if (preset.key === "dependencies"
+    || preset.key === "dependency-depth") {
+    synchronizePackageQueryDependencyEditors(current, request);
+  }
+  submitPackageQueryRequest(request);
 }
 
 function addPackageQueryTerm(termKey: string, initialValue = "") {
@@ -21015,6 +21020,8 @@ function removePackageQueryTerm(index: number, text: string) {
   const termKey = current.terms[index]?.descriptor.key;
   const dependency = termKey === "depends";
   const changesDependencyContext = dependency
+    || termKey === "depends-transitive"
+    || termKey === "depends-ecosystem"
     || termKey === "dependency-target";
   const request = dependency
     ? withoutDependencyTerm(current, index)
