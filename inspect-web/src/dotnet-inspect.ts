@@ -99,6 +99,7 @@ import {
   invalidateMemberDestinationWork,
   invalidateSourceDestinationWork,
   memberGroupUsesFamilySurface,
+  memberGroupVisibleCount,
   MEMBER_TRAITS,
   memberMatchesTrait,
   memberNavTargetIndex,
@@ -10754,8 +10755,7 @@ function renderMemberNavPane(type: AppTypeSurface) {
         ?? group.overloads.length),
       0),
     visibleMemberCount: visibleGroups.reduce(
-      (count, group) => count + (group.sourceOverloadCount
-        ?? group.overloads.length),
+      (count, group) => count + memberGroupVisibleCount(group),
       0),
     filterControlsHtml: renderMemberFilterControls(type),
     selectedMemberKey: state.selectedMemberKey,
@@ -13153,8 +13153,7 @@ function renderApiLens(item: AppTypeSurface) {
       ?? group.overloads.length),
     0);
   const visibleMemberCount = visibleGroups.reduce(
-    (count, group) => count + (group.sourceOverloadCount
-      ?? group.overloads.length),
+    (count, group) => count + memberGroupVisibleCount(group),
     0);
   const populationSummary =
     memberPopulationSummary(item, visibleMemberCount, memberCount);

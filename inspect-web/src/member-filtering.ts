@@ -236,6 +236,14 @@ export function memberKindCount(
     0);
 }
 
+export function memberGroupVisibleCount(
+  group: FilterableMemberGroup,
+): number {
+  return group.detailsPending
+    ? group.sourceOverloadCount ?? group.overloads.length
+    : group.overloads.length;
+}
+
 export interface MemberScopeState {
   atPackageRoot: boolean;
   atLibraryRoot?: boolean;

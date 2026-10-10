@@ -1470,12 +1470,21 @@ test("unavailable exact Member populations omit selector counts", () => {
 });
 
 test("type API reports the filtered member count once in its header", () => {
+  const renderNav =
+    appSource.match(/function renderMemberNavPane\([\s\S]*?\n}\n\nfunction renderScopeBar/)?.[0]
+    ?? "";
   const renderApi =
     appSource.match(/function renderApiLens\([\s\S]*?\n}\n\nfunction renderMember/)?.[0]
     ?? "";
   assert.match(
+    renderNav,
+    /visibleGroups\.reduce\(\s*\(count, group\) => count \+ memberGroupVisibleCount\(group\)/);
+  assert.match(
     renderApi,
     /<h1 id="api-surface-title">Members<\/h1>/);
+  assert.match(
+    renderApi,
+    /visibleGroups\.reduce\(\s*\(count, group\) => count \+ memberGroupVisibleCount\(group\)/);
   assert.match(
     renderApi,
     /<p>\$\{populationSummary}\$\{definingLibraryHtml}/);
