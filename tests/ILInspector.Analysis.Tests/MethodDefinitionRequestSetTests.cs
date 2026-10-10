@@ -8,6 +8,7 @@ using DotnetInspector.Fixtures;
 using ILInspector.Analysis.Classification;
 using ILInspector.Analysis.Fixtures;
 using ILInspector.Analysis.Planning;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 using QuerySpace;
 using QuerySpace.Composition;
@@ -229,6 +230,38 @@ public sealed class MethodDefinitionRequestSetTests
         Assert.True(
             retainedPhysical.InstructionsVisited
             < shallowPhysical.InstructionsVisited);
+    }
+
+    [Fact]
+    public void Execute_MaterializesOneSelectiveRetainedDecode()
+    {
+        MethodDefinitionSourceAssociation prefix =
+            Association(
+                PrefixRetainedInstructionProducer.Instance,
+                ProducerTerminal.Rows);
+        MethodDefinitionSourceAssociation materialized =
+            Association(
+                MaterializedInstructionProducer.Instance,
+                ProducerTerminal.Rows);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(AcceptedPlan([prefix, materialized]));
+        MethodDefinitionSourceGroupReceipt group =
+            Assert.Single(execution.GroupReceipts);
+        MethodDefinitionInstructionWorkCoverage materializedWork =
+            execution.ResultOf(materialized)
+                .SourceReceipt.Coverage.InstructionWork;
+        MethodDefinitionInstructionWorkCoverage work =
+            group.PhysicalCoverage.InstructionWork;
+
+        Assert.True(work.LazyRetainedSourcesOpened > 0);
+        Assert.True(
+            materializedWork.InstructionsVisited
+            > materializedWork.LazyRetainedSourcesOpened);
+        Assert.True(
+            work.InstructionsVisited
+            > work.LazyRetainedSourcesOpened);
+        Assert.Equal(0, work.NoRetentionSourcesOpened);
     }
 
     [Fact]
@@ -1637,6 +1670,53 @@ public sealed class MethodDefinitionRequestSetTests
 
         internal override int Accumulate(int accumulator, int fact) =>
             accumulator + fact;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+    }
+
+    sealed class MaterializedInstructionProducer
+        : MethodDefinitionProducer<int, int, int>
+    {
+        MaterializedInstructionProducer()
+            : base(
+                "MaterializedInstruction",
+                version: 1,
+                tier: 0,
+                MethodDefinitionLayers.Body)
+        {
+        }
+
+        public static MaterializedInstructionProducer Instance { get; } =
+            new();
+
+        internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
+            InstructionAnalyzers =>
+            [MethodBodyAnalyzerDeclarations.BoundedFlow];
+
+        internal override int Visit(scoped MethodDefinitionView view)
+        {
+            if (!view.HasManagedBody)
+                return 0;
+
+            MethodInstructions instructions =
+                view.MaterializeInstructions(out MethodBodyData _);
+            if (!instructions.IsComplete)
+            {
+                throw new BadImageFormatException(
+                    instructions.Blocks.IncompleteReason);
+            }
+            return instructions.Instructions.Length;
+        }
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + fact;
+
+        internal override bool Settles(int fact) => fact > 1;
 
         internal override int Complete(
             int accumulator,

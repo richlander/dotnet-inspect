@@ -1,0 +1,50 @@
+[
+  {
+    "trial": "baseline-literal",
+    "requests": 8,
+    "retrieved_bytes": 27625,
+    "product_rendered_bytes": 24396,
+    "guide_rendered_bytes": 88038,
+    "cli_failures": 0
+  },
+  {
+    "trial": "baseline-facets",
+    "requests": 7,
+    "retrieved_bytes": 38921,
+    "product_rendered_bytes": 33171,
+    "guide_rendered_bytes": 88038,
+    "cli_failures": 0
+  },
+  {
+    "trial": "baseline-style",
+    "requests": 7,
+    "retrieved_bytes": 128175,
+    "product_rendered_bytes": 55714,
+    "guide_rendered_bytes": 88038,
+    "cli_failures": 1
+  },
+  {
+    "trial": "refined-literal",
+    "requests": 1,
+    "retrieved_bytes": 16149,
+    "product_rendered_bytes": 6948,
+    "guide_rendered_bytes": 3560,
+    "cli_failures": 0
+  },
+  {
+    "trial": "refined-facets",
+    "requests": 1,
+    "retrieved_bytes": 15757,
+    "product_rendered_bytes": 21523,
+    "guide_rendered_bytes": 3560,
+    "cli_failures": 0
+  },
+  {
+    "trial": "refined-style",
+    "requests": 2,
+    "retrieved_bytes": 17465,
+    "product_rendered_bytes": 17103,
+    "guide_rendered_bytes": 3560,
+    "cli_failures": 0
+  }
+]

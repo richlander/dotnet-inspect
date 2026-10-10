@@ -29,7 +29,7 @@ public class SkillCommandTests
         Assert.Contains(
             "package query Microsoft.Azure.SignalR "
                 + "--where \"library-literal=https://\" "
-                + "--tfm net8.0 -S \"Literal Strings\"",
+                + "--tfm net8.0 --json",
             output);
     }
 

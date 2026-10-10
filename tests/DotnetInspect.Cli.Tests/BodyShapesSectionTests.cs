@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using QuerySpace.Rows;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -1780,6 +1781,25 @@ public sealed class BodyShapesSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal("1", result.Output.Trim());
+    }
+
+    [Fact]
+    public void SearchLimit_BoundsOnlyOccurrencePrefixes()
+    {
+        RowSelectionIntent<string> head = RowSelectionIntent<string>.Create(
+            [RowSelectionIntentOperation<string>.Head(3)]);
+        RowSelectionIntent<string> window = RowSelectionIntent<string>.Create(
+            [RowSelectionIntentOperation<string>.Window(2, 4)]);
+        RowSelectionIntent<string> tail = RowSelectionIntent<string>.Create(
+            [RowSelectionIntentOperation<string>.Tail(3)]);
+        string[] occurrences = [SectionNames.BodyShapes];
+        string[] summary = [SectionNames.BodyShapeSummary];
+
+        Assert.Equal(3, BodyShapeRowSelection.SearchLimit(head, occurrences));
+        Assert.Equal(4, BodyShapeRowSelection.SearchLimit(window, occurrences));
+        Assert.Null(BodyShapeRowSelection.SearchLimit(tail, occurrences));
+        Assert.Null(BodyShapeRowSelection.SearchLimit(head, summary));
+        Assert.Null(BodyShapeRowSelection.SearchLimit(null, occurrences));
     }
 
     [Fact]

@@ -2699,3 +2699,52 @@ when maintaining the embedded skill.
 ## License
 
 MIT
+
+## Exact explanation JSON
+
+`explain <resource> --json` returns compact resource facts and HAL navigation.
+The declared fact names are local to the resource type; ordered values remain
+arrays. Non-available facts appear in `fact_states`, and relationship states
+and truncation remain explicit. Integers and decimals are lossless decimal
+strings; octets are base64 strings.
+
+```bash
+dotnet-inspect explain vocabularies/csharp.body-kinds --json
+dotnet-inspect explain package-query/query/facets/library-literal --json
+dotnet-inspect explain vocabularies/csharp.style-choices --depth 1 --json
+dotnet-inspect explain vocabularies/csharp.body-kinds .contract --json
+```
+
+`.contract` explicitly selects the complete self-contained explanation Document
+with its schema declarations. It requires an exact resource and `--json`.
+HAL links use `inspect-resource:/<resource-path>` addresses; pass a returned
+`href` unchanged to `explain` to follow it. These addresses resolve locally,
+without HTTP access. Human explanation and capability search are unchanged.
+
+For vocabulary, query-space, and query-facet roots, `.data --json` selects a
+self-contained reading dataset rather than a graph depth. Vocabulary data
+includes referenced vocabularies, direct value properties, complete positive
+boolean sets, and optional-text membership groups. Facet data includes required
+context and exposing bindings; `exposed_facets` is the binding's intersection
+with the selected facets, not its entire term population.
+
+```bash
+dotnet-inspect explain vocabularies/csharp.style-choices .data --json
+dotnet-inspect explain package-query/query .data --json
+dotnet-inspect explain package-query/query/facets/library-literal .hal --json
+```
+
+`.hal` presents direct resource state, a titled `_links` menu, and related
+resources in `_embedded` arrays with simple, descriptive relation names. HAL links
+advertise `application/hal+json` and preserve the selection through
+`?projection=hal`; JSON detail links advertise `application/json`. A root
+`describedby` link selects the full contract through `?projection=contract`.
+Pass either address unchanged to `explain --json`. Receipt details stay in the
+contract representation; completeness and non-available data qualifications
+remain beside the data they affect. Both
+selections require `--json` and reject `--depth` and search operands. Selection
+closure is bounded to 256 resources and 4,096 observed targets; excess or
+incomplete selected observations fail visibly instead of producing sparse tables
+with ambiguous negatives. Neither selection supplies validation rules or host
+flag mappings that the catalog has not registered. The [worked reading comparison](../tools/ExplainReadingScenarios/README.md#actual-selected-data-comparison)
+includes runnable jq exploration and actual JSON examples.

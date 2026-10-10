@@ -1,0 +1,6 @@
+{"argv": ["--help"], "stdout_bytes": 2543, "stderr_bytes": 0, "exit": 0}
+{"argv": ["explain", "--help"], "stdout_bytes": 0, "stderr_bytes": 78, "exit": 1}
+{"argv": ["package", "query", "--help"], "stdout_bytes": 3098, "stderr_bytes": 0, "exit": 0}
+{"argv": ["package", "query", "-Q", "Packages", "--json"], "stdout_bytes": 7748, "stderr_bytes": 0, "exit": 0}
+{"argv": ["explain", "library-literal", "--help"], "stdout_bytes": 1379, "stderr_bytes": 0, "exit": 0}
+{"argv": ["explain", "package-query/query/facets/library-literal", ".data", "--json"], "stdout_bytes": 3950, "stderr_bytes": 0, "exit": 0}
