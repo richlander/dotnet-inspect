@@ -2145,8 +2145,7 @@ internal static class BrowserPlatformWorkspace
                         .BrowserPackageOperationTransferPolicy(
                             store,
                             deadline),
-                    access: PackagePayloadAccess.Ranged,
-                    rangedSizeCut: 0));
+                    access: PackagePayloadAccess.Ranged));
             var adapter = new PackagePlatformHouseAdapter(
                 source,
                 "browser-platform-workspace");

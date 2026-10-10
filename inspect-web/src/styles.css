@@ -3986,6 +3986,37 @@ kbd {
   white-space: nowrap;
   font: 10px var(--mono);
 }
+.legend-list {
+  min-height: 0;
+  padding: 8px 16px 16px;
+  overflow-y: auto;
+}
+.legend-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font: 11px/1.45 var(--mono);
+}
+.legend-row:last-child { border-bottom: 0; }
+.legend-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+}
+.legend-row strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--text);
+  font-weight: 600;
+}
 .settings-close {
   border: 1px solid var(--line-strong);
   border-radius: 6px;
