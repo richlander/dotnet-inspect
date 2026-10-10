@@ -32,6 +32,15 @@ export interface QueryPreset {
   replacementGroupId?: string | null;
   displayGroupId?: string | null;
   displayGroupLabel?: string | null;
+  categoryId?: string;
+  categoryLabel?: string;
+  categoryOrder?: number;
+}
+
+export interface QueryTermOption {
+  value: string;
+  label: string;
+  summary: string;
 }
 
 /** One product-issued operand-bearing package-query term descriptor. */
@@ -46,6 +55,9 @@ export interface QueryTermDescriptor {
   valueKind: string;
   example: string;
   multiline: boolean;
+  allowsCustomValue?: boolean;
+  replacementGroupId?: string | null;
+  options?: readonly QueryTermOption[];
 }
 
 export type DependencyReach = "direct" | "2" | "3" | "4";
@@ -270,8 +282,16 @@ export function togglePreset(
     return combines
       || (!replacesSelectionGroup && !replacesReplacementGroup);
   });
-  return reconcileDependencyContext(
-    withPreset(withPresets(request, compatible), preset));
+  const terms = request.terms.filter(term =>
+    preset.replacementGroupId === null
+    || preset.replacementGroupId === undefined
+    || term.descriptor.replacementGroupId
+      !== preset.replacementGroupId);
+  return reconcileDependencyContext(withPreset(queryRequest(request, {
+    presets: compatible,
+    terms,
+    requestedLimit: queryCandidateLimit(compatible, terms),
+  }), preset));
 }
 
 export function withTerm(
@@ -281,9 +301,15 @@ export function withTerm(
   value: string,
 ): QueryRequest {
   const terms = [...request.terms, { descriptor, operator, value }];
+  const presets = request.presets.filter(preset =>
+    descriptor.replacementGroupId === null
+    || descriptor.replacementGroupId === undefined
+    || preset.replacementGroupId
+      !== descriptor.replacementGroupId);
   return queryRequest(request, {
     terms,
-    requestedLimit: queryCandidateLimit(request.presets, terms),
+    presets,
+    requestedLimit: queryCandidateLimit(presets, terms),
   });
 }
 
@@ -301,19 +327,29 @@ export function dependencyTarget(request: QueryRequest): string {
     ?? request.targetFramework;
 }
 
+function dependencyContextChanged(
+  previous: QueryRequest,
+  next: QueryRequest,
+): boolean {
+  return dependencyReach(previous) !== dependencyReach(next)
+    || dependencyTarget(previous) !== dependencyTarget(next);
+}
+
 export function isTraversalDependencyTarget(value: string): boolean {
   const candidate = value.trim();
   return candidate.length > 0 && candidate.toLowerCase() !== "all";
 }
 
 export function synchronizeDependencyTermEditor(
-  request: QueryRequest,
+  previous: QueryRequest,
+  next: QueryRequest,
   editor: QueryTermEditor,
 ): QueryTermEditor {
+  if (!dependencyContextChanged(previous, next)) return editor;
   return {
     ...editor,
-    dependencyReach: dependencyReach(request),
-    dependencyTarget: dependencyTarget(request),
+    dependencyReach: dependencyReach(next),
+    dependencyTarget: dependencyTarget(next),
   };
 }
 
@@ -433,7 +469,7 @@ export function withoutDependencyTerm(
   }));
 }
 
-export function synchronizeDependencyTermEdits(
+export function synchronizeTermEdits(
   previous: QueryRequest,
   next: QueryRequest,
   edits: readonly (QueryTermEditor | null)[],
@@ -443,7 +479,7 @@ export function synchronizeDependencyTermEdits(
     if (previousIndex < 0) return null;
     const edit = edits[previousIndex] ?? null;
     if (!edit || term.descriptor.key !== "depends") return edit;
-    return synchronizeDependencyTermEditor(next, edit);
+    return synchronizeDependencyTermEditor(previous, next, edit);
   });
 }
 
