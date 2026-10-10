@@ -53,6 +53,22 @@ namespace DotnetInspect.Web.Interop.Package
                         StringComparer.Ordinal)),
         ];
 
+        private static readonly IReadOnlyDictionary<string, string[]>
+            RelatedOperationsByTerm =
+                PackageQueryCapability.Route.QueryTermRelatedOperations
+                    .GroupBy(
+                        static relationship => relationship.SourceTerm,
+                        StringComparer.Ordinal)
+                    .ToDictionary(
+                        static group => group.Key,
+                        static group =>
+                            group
+                                .Select(static relationship =>
+                                    relationship.Operation.Id.Value)
+                                .Distinct(StringComparer.Ordinal)
+                                .ToArray(),
+                        StringComparer.Ordinal);
+
         internal static BrowserPackageQueryCatalog Catalog() =>
             new(
                 [
@@ -93,7 +109,7 @@ namespace DotnetInspect.Web.Interop.Package
                             categoryId,
                             categoryLabel,
                             categoryOrder,
-                            WorkspaceLens(term.Descriptor.Key));
+                            RelatedOperations(term.Descriptor.Key));
                     })),
                 ],
                 [
@@ -133,7 +149,7 @@ namespace DotnetInspect.Web.Interop.Package
                                     != PackageQuery.DependsEcosystemTermKey,
                             term.Descriptor.ReplacementGroupId,
                             BrowserTermOptions(term.Descriptor),
-                            WorkspaceLens(term.Descriptor.Key))),
+                            RelatedOperations(term.Descriptor.Key))),
                 ]);
 
         private static bool IsFactTerm(PackageQueryRegisteredTerm term) =>
@@ -183,19 +199,12 @@ namespace DotnetInspect.Web.Interop.Package
                 value,
                 $"Use the exact NuGet target framework '{value}'.");
 
-        private static BrowserPackageQueryWorkspaceLens? WorkspaceLens(
-            string key) =>
-            key switch
-            {
-                PackageQuery.DependenciesTermKey
-                    or PackageQuery.DependencyDepthTermKey
-                    or PackageQuery.DependencyTargetTermKey
-                    or PackageQuery.DependsTermKey
-                    or PackageQuery.DependsTransitiveTermKey
-                    or PackageQuery.DependsEcosystemTermKey =>
-                    BrowserPackageQueryWorkspaceLens.Dependencies,
-                _ => null,
-            };
+        private static string[] RelatedOperations(string key) =>
+            RelatedOperationsByTerm.TryGetValue(
+                PackageQuery.TermBindingIdentity(key),
+                out string[]? operations)
+                ? [.. operations]
+                : [];
 
         private static (string Id, string Label, int Order) FactCategory(
             string key) =>
