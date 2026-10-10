@@ -8,8 +8,9 @@ import {
   filterMemberGroups,
   invalidateMemberCallGraphWork,
   invalidateSourceDestinationWork,
-  memberKindCount,
   memberGroupUsesFamilySurface,
+  memberGroupVisibleCount,
+  memberKindCount,
   memberMatchesTrait,
   memberGroupMatches,
   memberNavTargetIndex,
@@ -213,6 +214,7 @@ test("member filters compose locally after managed accessibility selection", () 
   assert.ok(staticGroup);
   assert.equal(staticGroup.overloads.length, 1);
   assert.equal(staticGroup.sourceOverloadCount, 2);
+  assert.equal(memberGroupVisibleCount(staticGroup), 1);
   assert.match(staticGroup.overloads[0]?.signature ?? "", /static/);
 
   const instanceGroups = filterMemberGroups(groups, {
@@ -226,6 +228,7 @@ test("member filters compose locally after managed accessibility selection", () 
   assert.ok(instanceGroup);
   assert.equal(instanceGroup.overloads.length, 1);
   assert.equal(instanceGroup.sourceOverloadCount, 2);
+  assert.equal(memberGroupVisibleCount(instanceGroup), 1);
   assert.doesNotMatch(instanceGroup.overloads[0]?.signature ?? "", /static/);
 });
 
@@ -292,7 +295,39 @@ test("only multiple visible declarations use the MemberGroup surface", () => {
     overloads: [{}],
     sourceOverloadCount: 3,
   }), false);
+  assert.equal(memberGroupUsesFamilySurface({
+    overloads: [],
+    sourceOverloadCount: 3,
+    detailsPending: true,
+  }), true);
   assert.equal(memberGroupUsesFamilySurface({ overloads: [{}, {}] }), true);
+});
+
+test("compact group traits filter names and exact counts before declarations load", () => {
+  const pending = [{
+    key: "method:Format",
+    name: "Format",
+    kind: "method",
+    overloads: [],
+    detailsPending: true,
+    completeCount: 3,
+    sourceOverloadCount: 3,
+    traitCounts: {
+      all: 3, static: 2, instance: 1, virtual: 1,
+      interface: 0, extensions: 0,
+    },
+  }];
+  const virtualGroups =
+    filterMemberGroups(pending, { trait: "virtual", query: "form" });
+  assert.deepEqual(
+    virtualGroups
+      .map(group => [group.key, group.sourceOverloadCount]),
+    [["method:Format", 1]]);
+  assert.equal(memberGroupVisibleCount(virtualGroups[0]!), 1);
+  assert.deepEqual(
+    filterMemberGroups(pending, { trait: "interface" }), []);
+  assert.deepEqual(
+    filterMemberGroups(pending, { trait: "", query: "missing" }), []);
 });
 
 test("member traits use the complete selector vocabulary", () => {

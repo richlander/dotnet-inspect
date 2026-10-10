@@ -69,6 +69,7 @@ import {
 import {
   MEMBER_TRAITS,
   memberKindCount,
+  memberMatchesTrait,
 } from "../src/member-filtering.ts";
 const engineCallGraphTarget = (
   fixture: CallGraphTarget & { typeFullName?: string },
@@ -1030,7 +1031,7 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     overview,
-    /ordinaryMethodGroup\(selectedMember\(selectedType\(\)\)\)[\s\S]*memberGroupUsesFamilySurface\(selectedMember\(selectedType\(\)\)\)[\s\S]*state\.selectedOverloadIndex === null[\s\S]*loadSelectedMemberGroupDocument\(\)[\s\S]*loadSelectedMemberDocumentation\(\)/);
+    /ordinaryMethodGroup\(group\)[\s\S]*memberGroupUsesFamilySurface\(group\) \|\| group\?\.detailsPending[\s\S]*state\.selectedOverloadIndex === null[\s\S]*loadSelectedMemberGroupDocument\(\)[\s\S]*loadUnsupportedMemberDeclarations\(\)[\s\S]*loadSelectedMemberDocumentation\(\)/);
 
   const applyView =
     appSource.match(/function applyView\([\s\S]*?\n}\n\nasync function restorePlatformHistoryView/)?.[0]
@@ -1052,7 +1053,10 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     groupDocument,
-    /member\.completeCountStatus === "available"[\s\S]*renderPreservingMemberFocus\(\);[\s\S]*return;/);
+    /member\.kind !== "method"[\s\S]*state\.memberSpelling !== "csharp"[\s\S]*member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*renderPreservingMemberFocus\(\);[\s\S]*return;/);
+  assert.match(
+    groupDocument,
+    /member\.name,[\s\S]*state\.memberAccessibilityFilter,[\s\S]*"all",[\s\S]*false/);
 
   const drillOut =
     appSource.match(/function drillOut\(\)[\s\S]*?\n}\n\nfunction exitMemberScope/)?.[0]
@@ -1162,6 +1166,224 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     /memberCount: groups\.reduce\([\s\S]*group\.overloads\.length/);
 });
 
+test("compact Type groups retain resident contextual extensions", () => {
+  const groupMembers =
+    appSource.match(/function groupMembers\([\s\S]*?(?=\nfunction typeMemberPopulationKey)/)?.[0]
+    ?? "";
+  const populationGroups =
+    appSource.match(/function currentTypeMemberPopulation\([\s\S]*?(?=\nfunction memberFilterState)/)?.[0]
+    ?? "";
+  const selectorCounts =
+    appSource.match(/function memberKinds\([\s\S]*?(?=\nfunction uploadedLibraryIsActive)/)?.[0]
+    ?? "";
+  assert.notEqual(groupMembers, "");
+  assert.notEqual(populationGroups, "");
+  assert.notEqual(selectorCounts, "");
+
+  const type = {
+    id: "Receiver",
+    definitionId: "T:Receiver",
+    api: [
+      {
+        name: "Declared",
+        kind: "method",
+        graphOnly: false,
+        isExtension: false,
+        isStatic: false,
+        declaringTypeDefinitionId: "T:Receiver",
+      },
+      {
+        name: "Examine",
+        kind: "extension-method",
+        graphOnly: false,
+        isExtension: true,
+        isStatic: true,
+        declaringTypeDefinitionId: "T:Extensions",
+      },
+      {
+        name: "GraphOnlyExtension",
+        kind: "extension-method",
+        graphOnly: true,
+        isExtension: true,
+        isStatic: true,
+        declaringTypeDefinitionId: "T:Extensions",
+      },
+    ],
+  };
+  const state = {
+    memberSpelling: "csharp",
+    memberAccessibilityFilter: "public",
+    memberKindFilter: "all",
+    typeMemberPopulationKey: "type-key",
+    typeMemberPopulation: {
+      outcome: "Available",
+      document: {
+        population: {
+          groups: [{
+            key: "method:Declared",
+            name: "Declared",
+            displayName: "Declared",
+            kind: "method",
+            completeCount: 1,
+            receivers: ["this"],
+            traits: {
+              all: 1,
+              static: 0,
+              instance: 1,
+              virtual: 0,
+              interface: 0,
+              extensions: 0,
+            },
+          }],
+          selectorCounts: {
+            kinds: [{ value: "method", count: 1 }],
+            traits: {
+              all: 1,
+              static: 0,
+              instance: 1,
+              virtual: 0,
+              interface: 0,
+              extensions: 0,
+            },
+          },
+        },
+      },
+    },
+    richMemberFallbackKey: "",
+    richMemberFallback: null,
+  };
+  const result: unknown = runInNewContext(
+    stripTypeScriptTypes(`${groupMembers}
+      ${populationGroups}
+      ${selectorCounts}
+      ({
+        groups: declaredMemberGroups(type),
+        kinds: memberKinds(type),
+        extensionKindCount:
+          selectedMemberKindCount(type, "extension-method"),
+        allCount: selectedMemberTraitCount(type, ""),
+        extensionTraitCount: selectedMemberTraitCount(type, "extensions"),
+        staticTraitCount: selectedMemberTraitCount(type, "static"),
+      });
+    `),
+    {
+      state,
+      type,
+      typeMemberPopulationKey: () => "type-key",
+      uploadedLibraryIsActive: () => true,
+      partitionGraphMembers: (members: unknown[]) => ({
+        publicMembers: members,
+        graphMembers: [],
+      }),
+      searchableMemberGroups: (groups: unknown[]) => groups,
+      createAppMemberSurface: (member: unknown) => member,
+      memberKindCount,
+      memberMatchesTrait,
+    });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    groups: [
+      {
+        key: "method:Declared",
+        name: "Declared",
+        displayName: "Declared",
+        kind: "method",
+        completeCount: 1,
+        completeCountStatus: "available",
+        overloads: [],
+        sourceOverloadCount: 1,
+        receivers: ["this"],
+        traitCounts: {
+          all: 1,
+          static: 0,
+          instance: 1,
+          virtual: 0,
+          interface: 0,
+          extensions: 0,
+        },
+        detailsPending: true,
+      },
+      {
+        key: "extension-method:Examine",
+        name: "Examine",
+        kind: "extension-method",
+        overloads: [type.api[1]],
+        completeCount: 1,
+        completeCountStatus: "pending",
+      },
+    ],
+    kinds: ["method", "extension-method"],
+    extensionKindCount: 1,
+    allCount: 2,
+    extensionTraitCount: 1,
+    staticTraitCount: 0,
+  });
+
+  state.memberAccessibilityFilter = "all";
+  state.typeMemberPopulationKey = "type-key";
+  const allResult: unknown = runInNewContext(
+    stripTypeScriptTypes(`${groupMembers}
+      ${populationGroups}
+      ${selectorCounts}
+      ({
+        groups: declaredMemberGroups(type),
+        extensionKindCount:
+          selectedMemberKindCount(type, "extension-method"),
+        allCount: selectedMemberTraitCount(type, ""),
+        extensionTraitCount: selectedMemberTraitCount(type, "extensions"),
+      });
+    `),
+    {
+      state,
+      type,
+      typeMemberPopulationKey: () => "type-key",
+      uploadedLibraryIsActive: () => true,
+      partitionGraphMembers: (members: unknown[]) => ({
+        publicMembers: members,
+        graphMembers: [],
+      }),
+      searchableMemberGroups: (groups: unknown[]) => groups,
+      createAppMemberSurface: (member: unknown) => member,
+      memberKindCount,
+      memberMatchesTrait,
+    });
+  assert.deepEqual(JSON.parse(JSON.stringify(allResult)), {
+    groups: [
+      {
+        key: "method:Declared",
+        name: "Declared",
+        displayName: "Declared",
+        kind: "method",
+        completeCount: 1,
+        completeCountStatus: "available",
+        overloads: [],
+        sourceOverloadCount: 1,
+        receivers: ["this"],
+        traitCounts: {
+          all: 1,
+          static: 0,
+          instance: 1,
+          virtual: 0,
+          interface: 0,
+          extensions: 0,
+        },
+        detailsPending: true,
+      },
+      {
+        key: "extension-method:Examine",
+        name: "Examine",
+        kind: "extension-method",
+        overloads: [type.api[1]],
+        completeCount: 1,
+        completeCountStatus: "pending",
+      },
+    ],
+    extensionKindCount: 1,
+    allCount: 2,
+    extensionTraitCount: 1,
+  });
+});
+
 test("unavailable exact Member populations omit selector counts", () => {
   const populationAndFilters =
     appSource.match(/function currentTypeMemberPopulation\([\s\S]*?(?=\nfunction renderTypeMemberPopulationStatus)/)?.[0]
@@ -1204,6 +1426,13 @@ test("unavailable exact Member populations omit selector counts", () => {
         type: { api: [] },
         MEMBER_TRAITS,
         memberKindCount,
+        partitionGraphMembers: () => ({
+          publicMembers: [],
+          graphMembers: [],
+        }),
+        searchableMemberGroups: (groups: unknown[]) => groups,
+        groupMembers: () => [],
+        uploadedLibraryIsActive: () => false,
         typeMemberPopulationKey: () =>
           `${state.memberSpelling}/${state.memberAccessibilityFilter}`,
         currentTypeMethodLeverageState: () => ({ status: "idle" }),
@@ -1246,23 +1475,26 @@ test("unavailable exact Member populations omit selector counts", () => {
     typeMemberPopulationKey: "csharp/public",
     typeMemberPopulation: {
       outcome: "Available",
-      population: {
-        groups: [],
-        composition: {
-          public: 0,
-          protected: 0,
-          internal: 0,
-          private: 0,
-        },
-        selectorCounts: {
-          kinds: [],
-          traits: {
-            all: 0,
-            static: 0,
-            instance: 0,
-            virtual: 0,
-            interface: 0,
-            extensions: 0,
+      document: {
+        population: {
+          groups: [],
+          composition: {
+            public: 0,
+            protected: 0,
+            internal: 0,
+            private: 0,
+          },
+          selectorCounts: {
+            kinds: [],
+            traits: {
+              all: 0,
+              bodyBacked: 0,
+              static: 0,
+              instance: 0,
+              virtual: 0,
+              interface: 0,
+              extensions: 0,
+            },
           },
         },
       },
@@ -1280,6 +1512,13 @@ test("unavailable exact Member populations omit selector counts", () => {
       type: { api: [] },
       MEMBER_TRAITS,
       memberKindCount,
+      partitionGraphMembers: () => ({
+        publicMembers: [],
+        graphMembers: [],
+      }),
+      searchableMemberGroups: (groups: unknown[]) => groups,
+      groupMembers: () => [],
+      uploadedLibraryIsActive: () => false,
       typeMemberPopulationKey: () => "csharp/public",
       escapeHtml: (value: string) => value,
     });
@@ -1292,15 +1531,132 @@ test("unavailable exact Member populations omit selector counts", () => {
   assert.match(
     exactZero,
     /data-member-jump-trait="interface"><strong>0<\/strong><span>interface<\/span>/);
+
+  const privateState = {
+    ...exactZeroState,
+    memberTraitFilter: "",
+    memberAccessibilityFilter: "private",
+    typeMemberPopulationKey: "csharp/private",
+    typeMemberPopulation: {
+      outcome: "Available",
+      document: {
+        population: {
+          groups: [{
+            key: "method:Private",
+            name: "Private",
+            displayName: "Private",
+            kind: "method",
+            completeCount: 1,
+            receivers: ["this"],
+            traits: {
+              all: 1,
+              static: 0,
+              instance: 1,
+              virtual: 0,
+              interface: 0,
+              extensions: 0,
+            },
+          }],
+          composition: {
+            public: 1,
+            protected: 0,
+            internal: 0,
+            private: 1,
+          },
+          selectorCounts: {
+            kinds: [{ value: "method", count: 1 }],
+            traits: {
+              all: 1,
+              bodyBacked: 1,
+              static: 0,
+              instance: 1,
+              virtual: 0,
+              interface: 0,
+              extensions: 0,
+            },
+          },
+        },
+      },
+    },
+  };
+  const contextualExtension = {
+    name: "Examine",
+    kind: "extension-method",
+    graphOnly: false,
+    isExtension: true,
+    isStatic: true,
+    declaringTypeDefinitionId: "T:Extensions",
+  };
+  const privateRendered: unknown = runInNewContext(
+    stripTypeScriptTypes(`${populationAndFilters}
+      ${compositionControls}
+      ({
+        filters: renderMemberFilterControls(type),
+        composition: renderMemberComposition(type),
+      });
+    `),
+    {
+      state: privateState,
+      type: {
+        definitionId: "T:Receiver",
+        api: [contextualExtension],
+      },
+      MEMBER_TRAITS,
+      memberKindCount,
+      partitionGraphMembers: (members: unknown[]) => ({
+        publicMembers: members,
+        graphMembers: [],
+      }),
+      searchableMemberGroups: (groups: unknown[]) => groups,
+      groupMembers: (members: unknown[]) => [{
+        key: "extension-method:Examine",
+        name: "Examine",
+        kind: "extension-method",
+        overloads: members,
+      }],
+      uploadedLibraryIsActive: () => false,
+      typeMemberPopulationKey: () => "csharp/private",
+      currentTypeMethodLeverageState: () => ({ status: "idle" }),
+      escapeHtml: (value: string) => value,
+    });
+  if (!privateRendered
+    || typeof privateRendered !== "object"
+    || !("filters" in privateRendered)
+    || typeof privateRendered.filters !== "string"
+    || !("composition" in privateRendered)
+    || typeof privateRendered.composition !== "string") {
+    assert.fail("private contextual counts: expected rendered Member controls");
+  }
+  assert.match(
+    privateRendered.filters,
+    /<option value="all"[^>]*>all · 3<\/option>/);
+  assert.match(
+    privateRendered.filters,
+    /<option value="public"[^>]*>public · 2<\/option>/);
+  assert.match(
+    privateRendered.composition,
+    /data-member-jump-access="all"><strong>3<\/strong><span>all<\/span>/);
+  assert.match(
+    privateRendered.composition,
+    /data-member-jump-access="public"><strong>2<\/strong><span>public<\/span>/);
 });
 
 test("type API reports the filtered member count once in its header", () => {
+  const renderNav =
+    appSource.match(/function renderMemberNavPane\([\s\S]*?\n}\n\nfunction renderScopeBar/)?.[0]
+    ?? "";
   const renderApi =
     appSource.match(/function renderApiLens\([\s\S]*?\n}\n\nfunction renderMember/)?.[0]
     ?? "";
   assert.match(
+    renderNav,
+    /visibleGroups\.reduce\(\s*\(count, group\) => count \+ memberGroupVisibleCount\(group\)/);
+  assert.match(
     renderApi,
     /<h1 id="api-surface-title">Members<\/h1>/);
+  assert.match(
+    renderApi,
+    /visibleGroups\.reduce\(\s*\(count, group\) => count \+ memberGroupVisibleCount\(group\)/);
   assert.match(
     renderApi,
     /<p>\$\{populationSummary}\$\{definingLibraryHtml}/);
@@ -1312,7 +1668,10 @@ test("member population status stays visible outside collapsed filters", () => {
   const filters =
     appSource.match(/function renderMemberFilterControls\([\s\S]*?\n}\n\nfunction renderTypeMemberPopulationStatus/)?.[0]
     ?? "";
-  assert.doesNotMatch(filters, /typeMemberPopulationError|inspection-error/);
+  assert.doesNotMatch(filters, /typeMemberPopulationError/);
+  assert.match(
+    filters,
+    /Signature search unavailable:[\s\S]*Loading exact signature matches/);
 
   const status =
     appSource.match(/function renderTypeMemberPopulationStatus\([\s\S]*?\n}\n\nfunction memberPopulationSummary/)?.[0]
@@ -1365,7 +1724,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.doesNotMatch(emptyMember, /typeHeadingHtml/);
   assert.match(
     renderMember,
-    /member\.kind === "method"[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*member\.completeCountStatus === "available"[\s\S]*completeMemberGroupHasBaselineOrdinals\(member\)[\s\S]*member\.overloads\.map\(\(overload, index\) =>[\s\S]*memberNavOverloadSourceIndex\(member, index\)[\s\S]*highlight\(overload\.signature\)/);
+    /member\.kind === "method"[\s\S]*state\.memberSpelling !== "csharp"[\s\S]*memberGroupUsesFamilySurface\(member\)[\s\S]*member\.overloads\.map\(\(overload, index\) =>[\s\S]*memberNavOverloadSourceIndex\(member, index\)[\s\S]*highlight\(overload\.signature\)/);
   assert.match(
     renderMember,
     /memberGroupDocumentLoading[\s\S]*Building the shared MemberGroup document/);
@@ -1374,7 +1733,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /memberGroupDocumentError[\s\S]*Overload query failed/);
   assert.match(
     renderMember,
-    /document\.rows\.map\(row =>[\s\S]*findIndex\(overload =>[\s\S]*row\.metadataToken[\s\S]*memberNavOverloadSourceIndex\(member, visibleIndex\)[\s\S]*data-overload="\$\{sourceIndex}"/);
+    /document\.rows\.filter\(row =>[\s\S]*\.map\(row =>[\s\S]*findIndex\(overload =>[\s\S]*row\.metadataToken[\s\S]*memberNavOverloadSourceIndex\(member, visibleIndex\)[\s\S]*data-overload="\$\{sourceIndex}"/);
   assert.doesNotMatch(
     renderMember,
     /Exact Member document|Resolving the shared Member document/);

@@ -242,7 +242,40 @@ public sealed record TypeMemberGroupShape(
     TypeMemberGroupRowBinding Binding,
     int BaselineOrdinal,
     MemberGroupReceiverForms Receivers,
-    int? ExactMemberCount);
+    int? ExactMemberCount,
+    ImmutableArray<InertString>? SharedGenericParameters = null,
+    TypeMemberTraitCounts? Traits = null)
+{
+    public bool Equals(TypeMemberGroupShape? other)
+        => other is not null
+            && Binding == other.Binding
+            && BaselineOrdinal == other.BaselineOrdinal
+            && Receivers == other.Receivers
+            && ExactMemberCount == other.ExactMemberCount
+            && SharedGenericParameters.HasValue
+                == other.SharedGenericParameters.HasValue
+            && (!SharedGenericParameters.HasValue
+                || SharedGenericParameters.Value.AsSpan().SequenceEqual(
+                    other.SharedGenericParameters!.Value.AsSpan()))
+            && Traits == other.Traits;
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Binding);
+        hash.Add(BaselineOrdinal);
+        hash.Add(Receivers);
+        hash.Add(ExactMemberCount);
+        hash.Add(SharedGenericParameters.HasValue);
+        if (SharedGenericParameters is { } parameters)
+        {
+            foreach (InertString parameter in parameters)
+                hash.Add(parameter);
+        }
+        hash.Add(Traits);
+        return hash.ToHashCode();
+    }
+}
 
 public sealed record TypeMemberCompositionCount(
     int Public,

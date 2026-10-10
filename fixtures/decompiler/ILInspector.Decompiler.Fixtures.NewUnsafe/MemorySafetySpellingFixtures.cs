@@ -96,6 +96,18 @@ public sealed class GenericCallerContractFixture<T>
     public T ContractChoice(T value) => value;
 
     public unsafe T ContractChoice<TMarker>(T value) => value;
+
+    public T MixedGenericArity(T value) => value;
+
+    public T MixedGenericArity<TMarker>(T value, int marker) => value;
+
+    public T MixedGenericNames<TMarker>(T value) => value;
+
+    public T MixedGenericNames<TAlternate>(T value, int marker) => value;
+
+    public T UniformGeneric<TMarker>(T value) => value;
+
+    public T UniformGeneric<TMarker>(T value, int marker) => value;
 }
 
 public static class GenericCallerContractCalls

@@ -56,7 +56,9 @@ public sealed partial class TypeOverviewDocumentInspectionOperationTests
             inspection = Execute(
                 library,
                 rows: new(maximumRows: int.MaxValue),
-                includeHidden: true);
+                includeHidden: true,
+                includeComposition: true,
+                includeSelectorCounts: true);
         TypeOverviewDocument document = Available(inspection);
         TypeMemberGroupRowsOutcome.Read rows =
             Assert.IsType<TypeMemberGroupRowsOutcome.Read>(
@@ -77,6 +79,19 @@ public sealed partial class TypeOverviewDocumentInspectionOperationTests
         Assert.Equal(10, rows.Items.Length);
         Assert.Null(rows.Continuation);
         Assert.Null(document.Members.Count);
+        TypeMemberSelectorCounts selectors =
+            Assert.IsType<TypeMemberSelectorCounts>(
+                document.Members.SelectorCounts);
+        Assert.Equal(
+            selectors.Traits.All,
+            rows.Items.Sum(row =>
+                Assert.IsType<TypeMemberTraitCounts>(
+                    row.Traits).All));
+        Assert.Equal(
+            selectors.Traits.All,
+            Assert.IsType<TypeMemberCompositionCount>(
+                    document.Members.Composition)
+                .Public);
         Assert.All(
             rows.Items,
             row =>
@@ -85,6 +100,10 @@ public sealed partial class TypeOverviewDocumentInspectionOperationTests
                     document.Members.Binding,
                     row.Binding.Population);
                 Assert.True(row.ExactMemberCount > 0);
+                Assert.Equal(
+                    row.ExactMemberCount,
+                    Assert.IsType<TypeMemberTraitCounts>(
+                        row.Traits).All);
             });
         Assert.Equal(
             104,
@@ -378,7 +397,9 @@ public sealed partial class TypeOverviewDocumentInspectionOperationTests
             TypeMemberGroupReceiverFilter receiver =
                 TypeMemberGroupReceiverFilter.All,
             bool includeHidden = false,
-            ApiSurfaceExtractionBounds? bounds = null) =>
+            ApiSurfaceExtractionBounds? bounds = null,
+            bool includeComposition = false,
+            bool includeSelectorCounts = false) =>
         TypeOverviewDocumentInspectionOperation.Execute(
             new(
                 library.Reference,
@@ -392,7 +413,9 @@ public sealed partial class TypeOverviewDocumentInspectionOperationTests
                     spelling,
                     accessibility,
                     receiver,
-                    includeHidden)),
+                    includeHidden,
+                    includeComposition: includeComposition,
+                    includeSelectorCounts: includeSelectorCounts)),
             library.IssueOperation(),
             TestContext.Current.CancellationToken);
 
