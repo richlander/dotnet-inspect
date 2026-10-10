@@ -330,8 +330,8 @@ public static class FastDiff
                         return false;
                     break;
                 case Operand.Token:
-                    if (a.Key(MetadataTokens.EntityHandle(readerA.ReadInt32()))
-                        != b.Key(MetadataTokens.EntityHandle(readerB.ReadInt32())))
+                    if (a.ReferenceKey(MetadataTokens.EntityHandle(readerA.ReadInt32()))
+                        != b.ReferenceKey(MetadataTokens.EntityHandle(readerB.ReadInt32())))
                     {
                         return false;
                     }
@@ -499,6 +499,7 @@ public static class FastDiff
         readonly Guid _mvid;
         readonly Dictionary<int, string> _keys = [];
         readonly Dictionary<int, string> _displayNames = [];
+        readonly HashSet<string> _duplicateTypeKeys = new(StringComparer.Ordinal);
         readonly SignatureKeys _signatures;
         readonly Dictionary<TypeDefinitionHandle, HashSet<MethodDefinitionHandle>> _explicitImplementations = [];
 
@@ -604,6 +605,7 @@ public static class FastDiff
                             // Two rows that spell one name cannot be told apart, so
                             // neither is decided.
                             units[key] = existing with { Malformed = true };
+                            _duplicateTypeKeys.Add(key);
                             AddMalformed(units, handle);
                             continue;
                         }
@@ -996,6 +998,46 @@ public static class FastDiff
             return name.ToString();
         }
 
+        /// <summary>
+        /// The key of an entity a fact refers to, rather than declares. A
+        /// reference to a Type row that shares its key with another row, or to
+        /// a compiler-controlled (<c>PrivateScope</c>) method or field, which
+        /// ECMA-335 lets share a name and signature, cannot say which
+        /// declaration it names, so the referring fact is not decided.
+        /// </summary>
+        public string ReferenceKey(EntityHandle handle)
+        {
+            switch (handle.Kind)
+            {
+                case HandleKind.TypeDefinition:
+                    RejectDuplicate((TypeDefinitionHandle)handle);
+                    break;
+                case HandleKind.MethodDefinition:
+                {
+                    MethodDefinition method = Md.GetMethodDefinition((MethodDefinitionHandle)handle);
+                    if ((method.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.PrivateScope)
+                        throw new BadImageFormatException("A reference names a compiler-controlled method.");
+                    RejectDuplicate(method.GetDeclaringType());
+                    break;
+                }
+                case HandleKind.FieldDefinition:
+                {
+                    FieldDefinition field = Md.GetFieldDefinition((FieldDefinitionHandle)handle);
+                    if ((field.Attributes & FieldAttributes.FieldAccessMask) == FieldAttributes.PrivateScope)
+                        throw new BadImageFormatException("A reference names a compiler-controlled field.");
+                    RejectDuplicate(field.GetDeclaringType());
+                    break;
+                }
+            }
+            return Key(handle);
+        }
+
+        void RejectDuplicate(TypeDefinitionHandle handle)
+        {
+            if (_duplicateTypeKeys.Count > 0 && _duplicateTypeKeys.Contains(TypeKey(handle)))
+                throw new BadImageFormatException("A reference names one of two Type rows that share a key.");
+        }
+
         /// <summary>The symbolic name of a metadata entity, resolved once per side.</summary>
         public string Key(EntityHandle handle)
         {
@@ -1086,7 +1128,7 @@ public static class FastDiff
         string MemberReferenceKey(MemberReferenceHandle handle)
         {
             MemberReference member = Md.GetMemberReference(handle);
-            string parent = Key(member.Parent);
+            string parent = ReferenceKey(member.Parent);
             if (member.GetKind() == MemberReferenceKind.Field)
             {
                 Guard(member.Signature, SignatureBlobGuard.Kind.Field);
@@ -1102,7 +1144,7 @@ public static class FastDiff
         {
             MethodSpecification specification = Md.GetMethodSpecification(handle);
             Guard(specification.Signature, SignatureBlobGuard.Kind.MethodSpecification);
-            return Key(specification.Method)
+            return ReferenceKey(specification.Method)
                 + "<" + string.Join(",", specification.DecodeSignature(_signatures, null)) + ">";
         }
 
@@ -1150,7 +1192,7 @@ public static class FastDiff
             => PrimitiveKeys[(byte)typeCode] ?? "#" + typeCode;
         public string GetSZArrayType(string elementType) => elementType + "[]";
         public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-            => side.TypeKey(handle);
+            => side.ReferenceKey(handle);
         public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
             => side.Key(handle);
         public string GetTypeFromSpecification(

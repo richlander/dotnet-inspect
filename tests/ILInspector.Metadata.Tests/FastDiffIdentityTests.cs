@@ -105,6 +105,35 @@ public sealed class FastDiffIdentityTests
     }
 
     [Fact]
+    public void CallerSwitchingBetweenCompilerControlledMethods_IsIndeterminate()
+    {
+        // ECMA-335 lets PrivateScope methods share a name and signature; a call
+        // to MethodDef 1 or 2 cannot say which one it names.
+        byte[] callFirst = [0x28, 0x01, 0x00, 0x00, 0x06, 0x2A];
+        byte[] callSecond = [0x28, 0x02, 0x00, 0x00, 0x06, 0x2A];
+        TypeSpec callee = new("N", "C", null, ReturnOne, ["M", "M"], PrivateScope: true);
+        FastDiffResult result = Compare(
+            [callee, new("N", "D", null, callFirst)],
+            [callee, new("N", "D", null, callSecond)]);
+
+        Assert.Equal(FastDiffState.Indeterminate, Single(result, "N.D").Body);
+    }
+
+    [Fact]
+    public void CallerSwitchingBetweenDuplicateTypeRows_IsIndeterminate()
+    {
+        // MethodDef 1 and 2 are N.C.M on two Type rows that share one name.
+        byte[] callFirst = [0x28, 0x01, 0x00, 0x00, 0x06, 0x2A];
+        byte[] callSecond = [0x28, 0x02, 0x00, 0x00, 0x06, 0x2A];
+        TypeSpec callee = new("N", "C", null, ReturnOne);
+        FastDiffResult result = Compare(
+            [callee, callee, new("N", "D", null, callFirst)],
+            [callee, callee, new("N", "D", null, callSecond)]);
+
+        Assert.Equal(FastDiffState.Indeterminate, Single(result, "N.D").Body);
+    }
+
+    [Fact]
     public void DuplicateGeneratedTypeNames_AreIndeterminate()
     {
         // Two nested <>c rows spell one key, so neither lambda body can be
@@ -180,7 +209,8 @@ public sealed class FastDiffIdentityTests
         int? Parameter = null,
         bool Public = true,
         AttributeTarget? FieldLikeEventAttribute = null,
-        int? VarargRequired = null);
+        int? VarargRequired = null,
+        bool PrivateScope = false);
 
     static FastDiffResult Compare(TypeSpec[] before, TypeSpec[] after)
     {
@@ -326,7 +356,8 @@ public sealed class FastDiffIdentityTests
                 var code = new InstructionEncoder(new BlobBuilder());
                 code.CodeBuilder.WriteBytes(i == 0 ? type.Body : ReturnOne);
                 metadata.AddMethodDefinition(
-                    MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+                    (type.PrivateScope ? MethodAttributes.PrivateScope : MethodAttributes.Public)
+                        | MethodAttributes.Static | MethodAttributes.HideBySig,
                     MethodImplAttributes.IL,
                     metadata.GetOrAddString(methods[i]),
                     methodSignature,
