@@ -11037,7 +11037,7 @@ function packageDependenciesSignature() {
 function renderPackageDependenciesSurface(content: string, status: string) {
   return `<section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
     <header class="api-surface-head package-dependencies-surface-head">
-      <h1 id="package-dependencies-surface-title">Dependencies</h1>
+      <h1 id="package-dependencies-surface-title">References</h1>
       <p data-package-dependencies-status>${escapeHtml(status)}</p>
     </header>
     <div class="package-dependencies-scroll">
@@ -12455,7 +12455,7 @@ function currentLibraryApiInspection() {
 
 async function loadLibraryApi(
   pkg: AppPackage,
-  library: { id: string; name: string },
+  library: ReturnType<typeof packageLibraries>[number],
 ) {
   const key = libraryApiSignature(pkg, library);
   if (state.libraryApiInspections.has(key)
@@ -12468,6 +12468,8 @@ async function loadLibraryApi(
       pkg.version,
       pkg.activeFramework,
       library.id,
+      !state.libraryEnablements.has(key)
+        && libraryEnablementsRequest(pkg, library) !== null,
     );
     state.libraryApiInspections.set(key, inspection);
   } catch (error) {

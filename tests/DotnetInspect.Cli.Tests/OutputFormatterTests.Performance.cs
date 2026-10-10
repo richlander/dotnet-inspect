@@ -634,6 +634,51 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
+    public void PerformanceGroupRows_ExcludesMigratedLegacySyncCallRows()
+    {
+        var view = new LibraryInspectionView(new LibraryInspection
+        {
+            PerformanceTriageOpportunities =
+            [
+                Opp(
+                    "StateMachine",
+                    inLoop: false,
+                    confidence: "high",
+                    rootReach: 1,
+                    shape: "async-state-machine"),
+                Opp(
+                    "LegacySyncCall",
+                    inLoop: false,
+                    confidence: "medium",
+                    rootReach: 1,
+                    shape: PerformanceKinds.SyncCallsInAsyncShape),
+            ],
+            SyncCallsInAsyncSummaries =
+            [
+                new SyncCallInAsyncSummary
+                {
+                    Caller = "Caller",
+                    Callee = "Callee",
+                    Alternative = "Alternative",
+                    PairKind = "Operation",
+                },
+            ],
+        });
+
+        var rows = view.PerformanceGroupRows(
+            PerformanceKinds.TabularSections);
+
+        Assert.Equal(
+            ["Async", "Sync Calls in Async"],
+            rows.Select(row => row.Kind));
+        Assert.DoesNotContain(
+            rows,
+            row => row.Member
+                == MarkoutInline.Code(
+                    "Ns.Type.LegacySyncCall()"));
+    }
+
+    [Fact]
     public void PerformanceTriageRowQuery_AppliesPaydirtPredicatesAfterRanking()
     {
         var opportunities = new[]
@@ -1399,6 +1444,40 @@ public partial class OutputFormatterTests
             PerformanceTriageRowQuery.Select(
                 available,
                 PerformanceTriageOptions.Default));
+    }
+
+    [Fact]
+    public void PerformanceTriageRowQuery_RemovesMigratedRowsBeforeTop()
+    {
+        var legacySyncCall = Opp(
+            "LegacySyncCall",
+            inLoop: true,
+            confidence: "high",
+            rootReach: 100,
+            shape: PerformanceKinds.SyncCallsInAsyncShape);
+        var asyncStateMachine = Opp(
+            "AsyncStateMachine",
+            inLoop: false,
+            confidence: "low",
+            rootReach: 1,
+            shape: "async-state-machine");
+        var available = new OptimizationOpportunitiesResult.Available(
+            [legacySyncCall, asyncStateMachine],
+            [],
+            [],
+            []);
+
+        Assert.Equal(
+            [asyncStateMachine],
+            PerformanceTriageRowQuery.Select(
+                available,
+                new PerformanceTriageOptions
+                {
+                    Top = 1,
+                }));
+        Assert.Equal(
+            [legacySyncCall, asyncStateMachine],
+            available.Opportunities);
     }
 
     [Fact]

@@ -1195,7 +1195,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryLibraryApi: valueOperation(
       "ordinary-package-query-library-api",
-      4,
+      5,
       (
         facades,
         ...args: Parameters<PackageFacade["queryLibraryApi"]>

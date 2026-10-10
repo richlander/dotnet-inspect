@@ -132,10 +132,16 @@ public static partial class WorkspaceCommand
                     composition,
                     runtimeSourceOptions,
                     options.Verbose ? CommandError.WriteLine : null);
+            using var manifestProvider =
+                new DesktopWorkspacePackageDependencyManifestProvider(
+                    composition,
+                    runtimeSourceOptions,
+                    loadOptions);
             return await ExecuteCoreAsync(
                 options,
                 loadOptions,
                 payloadProvider: null,
+                manifestProvider,
                 candidateSource,
                 cancellationToken).ConfigureAwait(false);
         }
@@ -146,6 +152,7 @@ public static partial class WorkspaceCommand
                 options,
                 loadOptions,
                 payloadProvider: null,
+                manifestProvider: null,
                 candidateSource: null,
                 cancellationToken).ConfigureAwait(false);
         }
@@ -163,6 +170,7 @@ public static partial class WorkspaceCommand
             options,
             loadOptions,
             payloadProvider,
+            manifestProvider: null,
             candidateSource: null,
             cancellationToken).ConfigureAwait(false);
     }
@@ -175,18 +183,21 @@ public static partial class WorkspaceCommand
             options,
             loadOptions,
             payloadProvider: null,
+            manifestProvider: null,
             candidateSource: null,
             cancellationToken);
 
     internal static Task<int> ExecuteAsync(
         WorkspaceOptions options,
         WorkspaceContextLoadOptions loadOptions,
+        IWorkspacePackageDependencyManifestProvider manifestProvider,
         IPackageDependencyCandidateSource candidateSource,
         CancellationToken cancellationToken = default) =>
         ExecuteCoreAsync(
             options,
             loadOptions,
             payloadProvider: null,
+            manifestProvider,
             candidateSource,
             cancellationToken);
 
@@ -194,6 +205,7 @@ public static partial class WorkspaceCommand
         WorkspaceOptions options,
         WorkspaceContextLoadOptions loadOptions,
         IPackageRootPayloadProvider? payloadProvider,
+        IWorkspacePackageDependencyManifestProvider? manifestProvider,
         IPackageDependencyCandidateSource? candidateSource,
         CancellationToken cancellationToken)
     {
@@ -220,11 +232,16 @@ public static partial class WorkspaceCommand
                     throw new InvalidOperationException(
                         "Package dependency enrichment requires a candidate source.");
                 }
+                if (manifestProvider is null)
+                {
+                    throw new InvalidOperationException(
+                        "Package dependency enrichment requires a manifest provider.");
+                }
 
                 return await WriteEnrichedPortableDefinitionAsync(
                     options,
                     definitionFormat,
-                    loadOptions,
+                    manifestProvider,
                     candidateSource,
                     cancellationToken).ConfigureAwait(false);
             }
@@ -482,7 +499,7 @@ public static partial class WorkspaceCommand
     static async Task<int> WriteEnrichedPortableDefinitionAsync(
         WorkspaceOptions options,
         WorkspaceShareFormat format,
-        WorkspaceContextLoadOptions loadOptions,
+        IWorkspacePackageDependencyManifestProvider manifestProvider,
         IPackageDependencyCandidateSource candidateSource,
         CancellationToken cancellationToken)
     {
@@ -500,7 +517,7 @@ public static partial class WorkspaceCommand
                         .ExecuteAsync(
                             new WorkspacePackageDependencyEnrichmentRequest(
                                 definitions,
-                                loadOptions,
+                                manifestProvider,
                                 candidateSource),
                             cancellationToken).ConfigureAwait(false);
             if (envelope.Content
@@ -528,6 +545,64 @@ public static partial class WorkspaceCommand
                 [ex.Message]);
             return 1;
         }
+    }
+
+    private sealed class DesktopWorkspacePackageDependencyManifestProvider(
+        DesktopPackageSourceComposition composition,
+        NuGetSourceOptions sourceOptions,
+        WorkspaceContextLoadOptions loadOptions) :
+        IWorkspacePackageDependencyManifestProvider,
+        IDisposable
+    {
+        private readonly DesktopPackageStoreScope _stores =
+            new("inspect-workspace-dependency");
+
+        public async Task<WorkspacePackageDependencyManifestResult>
+            GetManifestAsync(
+                PackageSourceCoordinate coordinate,
+                CancellationToken cancellationToken)
+        {
+            PackageHouseSettlement settlement =
+                await composition.AcquireContentAsync(
+                    coordinate,
+                    PackageHouseContentQuery.PackageNuspec(),
+                    _stores.Get,
+                    sourceOptions,
+                    loadOptions.Log,
+                    cancellationToken,
+                    loadOptions.PayloadLimits,
+                    loadOptions.PackageTransferPolicy)
+                    .ConfigureAwait(false);
+            if (settlement.Result is PackageHouseResult.Settled settled
+                && settled.Evidence.Nuspec is { } nuspec)
+            {
+                return new WorkspacePackageDependencyManifestResult.Available(
+                    nuspec.ToArray(),
+                    settled.Evidence);
+            }
+
+            return new WorkspacePackageDependencyManifestResult.Unavailable(
+                settlement.Result switch
+                {
+                    PackageHouseResult.NotFound value =>
+                        value.Reason.ToString(),
+                    PackageHouseResult.NoMatch value =>
+                        value.Reason.ToString(),
+                    PackageHouseResult.Ambiguous value =>
+                        value.Reason.ToString(),
+                    PackageHouseResult.Rejected value =>
+                        value.Reason.ToString(),
+                    PackageHouseResult.Unavailable value =>
+                        value.Reason.ToString(),
+                    PackageHouseResult.Incomplete value =>
+                        value.Reason.ToString(),
+                    PackageHouseResult.Failed value =>
+                        value.Reason.ToString(),
+                    _ => "The package nuspec acquisition did not settle.",
+                });
+        }
+
+        public void Dispose() => _stores.Dispose();
     }
 
     static bool TryPreparePortableDefinition(

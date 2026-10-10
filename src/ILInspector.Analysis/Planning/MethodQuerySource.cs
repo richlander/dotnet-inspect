@@ -906,6 +906,9 @@ public sealed record MethodDefinitionSourceCoverage(
 
     public MethodDefinitionInstructionWorkCoverage InstructionWork
     { get; init; } = MethodDefinitionInstructionWorkCoverage.Empty;
+
+    public MemorySafetyContractCoverage MemorySafetyContracts
+    { get; init; } = MemorySafetyContractCoverage.Empty;
 }
 
 /// <summary>Why one generated physical MethodDef entered source breadth.</summary>
@@ -1405,6 +1408,13 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
     readonly MethodDefinitionHandleCoverageBuilder _bodiesAttempted = new();
     readonly MethodDefinitionHandleCoverageBuilder _bodiesAcquired = new();
     readonly MethodDefinitionHandleCoverageBuilder _moduleLookupMethods = new();
+    readonly MethodDefinitionHandleCoverageBuilder _memorySafetyMethods = new();
+    bool _memorySafetyConstructed;
+    MemorySafetyMetadataWork _memorySafetyConstruction =
+        MemorySafetyMetadataWork.Empty;
+    MemorySafetyMetadataWork _memorySafetyQueries =
+        MemorySafetyMetadataWork.Empty;
+    int _memorySafetyQueryCount;
     MethodDefinitionGeneratedExpansionCoverage _generatedExpansion =
         MethodDefinitionGeneratedExpansionCoverage.Empty;
     int _noRetentionSourcesOpened;
@@ -1480,6 +1490,30 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
             _moduleLookupMethods.Add(handle);
     }
 
+    public void RecordMemorySafetyConstruction(
+        MemorySafetyMetadataWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _memorySafetyConstructed = true;
+        _memorySafetyConstruction = work;
+    }
+
+    public void RecordMemorySafetyQuery(
+        MethodDefinitionHandle handle,
+        MemorySafetyMetadataWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _memorySafetyMethods.Add(handle);
+        _memorySafetyQueries = _memorySafetyQueries.Plus(work);
+        _memorySafetyQueryCount = checked(_memorySafetyQueryCount + 1);
+    }
+
     public void RecordGeneratedExpansion(
         MethodDefinitionGeneratedExpansionCoverage coverage)
     {
@@ -1525,6 +1559,15 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
                     _noRetentionSourcesOpened,
                     _lazyRetainedSourcesOpened,
                     _instructionsVisited),
+            MemorySafetyContracts =
+                _memorySafetyConstructed || _memorySafetyQueryCount != 0
+                    ? new(
+                        _memorySafetyConstructed,
+                        _memorySafetyConstruction,
+                        _memorySafetyQueries,
+                        _memorySafetyQueryCount,
+                        _memorySafetyMethods.Build())
+                    : MemorySafetyContractCoverage.Empty,
         };
 }
 
