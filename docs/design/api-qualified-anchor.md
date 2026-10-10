@@ -1,19 +1,19 @@
-# Portable API declaration currency
+# API qualified anchor
 
 ## Status and ownership
 
 **Design only; no implementation or production adoption is claimed.**
-[`ILInspector.Metadata`](../overview.md) owns this focused currency contract,
+[`ILInspector.Metadata`](../overview.md) owns this focused anchor contract,
 tracked by [#9827](https://github.com/richlander/dotnet-inspect/issues/9827).
 
 The one claim is:
 
-> Metadata can issue one detached, structured declaration currency from one
-> admitted API image. The currency preserves the declaration evidence needed
+> Metadata can issue one detached, structured qualified anchor from one
+> admitted API image. The anchor preserves the declaration evidence needed
 > for high-fidelity reference/implementation and version-pair comparison
 > without carrying a reader-local location or claiming declaration lineage.
 
-This owner defines the currency's construction, completeness, projection
+This owner defines the anchor's construction, completeness, projection
 profile, and safe interpretation. It does not select image pairs, establish
 correspondence by itself, classify API changes, or choose a product subject.
 
@@ -25,7 +25,7 @@ boundary?**
 A reference image, its implementation image, and two versions `A` and `A'`
 can assign different MVIDs and metadata rows to the same logical API
 declaration. A raw token therefore cannot cross those boundaries. A
-`MemberAnchor` is portable selection currency, but deliberately omits facts
+`MemberAnchor` is a portable selection anchor, but deliberately omits facts
 needed to distinguish every metadata declaration. A display signature is
 neither.
 
@@ -33,26 +33,34 @@ The target handoff is:
 
 ```text
 Issue(image, declaration)
-  -> Complete(currency, local address)
+  -> Complete(anchor, local address)
    | Refused(reason)
    | Failed(stage, evidence)
 ```
 
-`currency` is detached from the reader. `local address` remains associated
+`anchor` is detached from the reader. `local address` remains associated
 with the issuing image and is not part of portable equality.
 
-The same complete currency can support three different operations:
+The same complete anchor can support three different operations:
 
 1. **Exact projected-shape equality.** Independently issued values that compare
-   equal under the same currency version establish equal projected declaration
+   equal under the same anchor format establish equal projected declaration
    shape.
 2. **Pair-scoped correspondence.** A correspondence owner consumes currencies
    and exact endpoint evidence to return its own categorical result.
-3. **Diff candidate evidence.** A diff owner uses structured currency fields to
+3. **Diff candidate evidence.** A diff owner uses structured anchor fields to
    form and explain candidate pairs under its own policy.
 
-These are different claims. Currency equality is positive shape evidence.
+These are different claims. Anchor equality is positive shape evidence.
 Inequality does not prove removal, renaming, or unrelated lineage.
+
+### Meaning of qualified
+
+`ApiQualifiedAnchor` uses **qualified** to mean that assembly family, exact
+definition name, and structured declaration shape remain together. It is not
+the existing `MemberAnchorFormat.Qualified` display mode, which formats
+`TypeFullName.StableSelector`. That display format retains its current name
+and contract; it does not produce this anchor.
 
 ## Motivating evidence
 
@@ -90,7 +98,7 @@ selector. Requiring both values to agree prevented a wrong-overload match but
 also rejected the one valid implementation location.
 
 That synthetic regression is the immediate consumer witness, not the sole
-motivation. The target browser path carries currency issued from the selected
+motivation. The target browser path carries an anchor issued from the selected
 declaration and a distinct local address for the image whose body or
 declaration is requested.
 
@@ -99,28 +107,28 @@ declaration is requested.
 The convention is a structured, versioned value with explicit erasure and
 typed non-success. Similar repository currencies establish the boundaries:
 
-| Existing currency | Useful property | Why it is not this contract |
+| Existing shape | Useful property | Why it is not this contract |
 | --- | --- | --- |
 | `MemberAnchor` | Durable `Name~fingerprint` selection and diff-row identity | Ordinary return type, reference scope, and other metadata distinctions are intentionally absent |
 | `MetadataMethodAddress` and `MetadataTypeDefinitionAddress` | MVID-bound physical re-location | Valid only for the issuing image; no cross-image correspondence claim |
 | `MethodBodyIdentity` | Version-stable structured identity for physical method bodies | Method-only, Analysis-owned, and shaped for body correspondence rather than all API declarations |
 | `MethodStructuralSignature` | Strict cross-reader method key | Method-only and stricter than a portable API projection; constraints and raw reference details can reject intended version pairs |
-| `ApiDeclarationCorrespondence` | Total pair-scoped declaration verdict with exact endpoint association | It is an operation result, not a detached single-image currency |
+| `ApiDeclarationCorrespondence` | Total pair-scoped declaration verdict with exact endpoint association | It is an operation result, not a detached single-image anchor |
 | `MemberSignatureShape` | Shared source/Metadata candidate discrimination | Deliberately lossy; a unique shape match is not authoritative identity |
 
-The new currency reuses applicable structured projection mechanics. It does
+The new anchor reuses applicable structured projection mechanics. It does
 not wrap one of these values and silently strengthen that value's claim.
 
-## Currency shape
+## Anchor shape
 
-`ApiDeclarationCurrency` is a closed Type-or-Member value. A Member value
-contains its declaring Type currency. The exact implementation shape is left
+`ApiQualifiedAnchor` is a closed Type-or-Member value. A Member value
+contains its declaring Type arm. The exact implementation shape is left
 to the implementation slice, but the value must expose typed structure
 equivalent to the following conceptual form:
 
 ```text
-ApiDeclarationCurrency
-  Version
+ApiQualifiedAnchor
+  Format
   AssemblyFamily
   Declaration
     Type
@@ -144,10 +152,11 @@ declaration is a Member. It remains useful for user-facing selection and joins
 with current API rows. It is not a substitute for the typed declaration
 structure and does not participate in portable structural equality.
 Source-facing facts such as nullable annotations can therefore change the
-companion anchor without changing the currency's metadata-declaration shape.
+companion anchor without changing the qualified anchor's metadata-declaration
+shape.
 Consumers use each projection only for its owned question.
 
-The currency carries no optional "best effort" structural slots. If required
+The anchor carries no optional "best effort" structural slots. If required
 evidence cannot be projected completely, issuance is non-success.
 
 ## Assembly family
@@ -168,7 +177,7 @@ facts in their endpoint evidence.
 
 Equal family values are necessary but not sufficient for declaration
 correspondence. Version erasure lets unchanged declarations in `A` and `A'`
-share currency; it does not authorize selecting an arbitrary assembly with
+share an anchor; it does not authorize selecting an arbitrary assembly with
 the same family.
 
 ## Type identity
@@ -184,7 +193,7 @@ A Type declaration retains:
 
 Generic parameter names are display, not identity. Metadata row numbers,
 layout, accessibility, base Type, implemented interfaces, attributes,
-documentation, and members are declaration facts outside Type currency
+documentation, and members are declaration facts outside Type-arm
 equality.
 
 A type use inside a Member signature is a structured tree. It retains:
@@ -219,16 +228,16 @@ An unresolved TypeRef, a module reference, an ambiguous forwarder, or a
 bounded-out resolution refuses portable issuance. The issuer never repairs
 one with display text or by erasing assembly scope.
 
-This requirement makes currency production more expensive than
+This requirement makes qualified-anchor production more expensive than
 `MemberAnchor`. Callers needing only same-surface selection continue to use the
-anchor and do not pay for portable currency.
+member anchor and do not pay for a qualified anchor.
 
 ## Member identity
 
-A Member currency retains the exact declaring Type currency and these
+A Member arm retains the exact declaring Type arm and these
 declaration discriminators:
 
-| Declaration | Currency structure |
+| Declaration | Anchor structure |
 | --- | --- |
 | MethodDef, constructor, or accessor | Raw name, static/instance form, signature header and calling convention, method generic arity, required vararg count, ordered parameter types and `In`/`Out` flags, return type, and signature modifiers |
 | Property | Raw name, static/instance form, ordered index parameters and `In`/`Out` flags, result type, and signature modifiers |
@@ -243,7 +252,7 @@ projection with its established return-type policy.
 Generic constraints, accessibility, virtual/newslot/final flags, parameter
 names and defaults, attributes, accessor availability, body presence, PDB
 source, documentation, and implementation are excluded. These are facts a
-diff may report after candidate pairing; including them in currency equality
+diff may report after candidate pairing; including them in anchor equality
 would make ordinary fact changes look like declaration identity changes.
 
 Explicit-interface and projected-extension declarations retain their physical
@@ -252,11 +261,11 @@ presentation or relationship evidence, not a replacement declaration owner.
 
 ## Comparison profiles
 
-### Exact currency equality
+### Exact anchor equality
 
 Two complete values are equal only when:
 
-- they use the same currency version;
+- they use the same anchor format;
 - their assembly families compare equal;
 - their Type-or-Member arms agree; and
 - every equality-bearing structured field compares equal.
@@ -269,37 +278,37 @@ selection or diff-row question.
 ### Reference/implementation correspondence
 
 The pair owner first designates one admitted reference/API image and one
-admitted implementation image. Equal currency is strong positive evidence for
+admitted implementation image. Equal anchors are strong positive evidence for
 an unchanged declaration. The target's local address supplies the physical
 destination.
 
 No source address, token, overload ordinal, or row position crosses the image
 boundary. Zero or multiple equal destination candidates remain typed
-non-success. An implementation-only declaration must use currency issued from
+non-success. An implementation-only declaration must use an anchor issued from
 that implementation declaration; a surface selector cannot manufacture it.
 
 ### Version-pair correspondence
 
-For `A` and `A'`, equal currency establishes unchanged projected declaration
+For `A` and `A'`, equal anchors establish unchanged projected declaration
 shape. A pair-scoped correspondence operation additionally retains both exact
 endpoints, complete candidate evaluation, and its own
 `Exact | Absent | Ambiguous | Refused | Failed` result.
 
-Currency inequality is not `Absent`. A changed constraint, accessibility,
-attribute, default, body, or documentation can preserve currency equality. A
-changed retained signature field produces different currency but can still be
+Anchor inequality is not `Absent`. A changed constraint, accessibility,
+attribute, default, body, or documentation can preserve anchor equality. A
+changed retained signature field produces a different anchor but can still be
 the declaration a diff should pair.
 
 ### Diff pairing
 
-A diff owner may use structured currency to:
+A diff owner may use structured anchor evidence to:
 
 - exact-join unchanged declarations;
 - bound changed-declaration candidates by declaring Type, declaration kind,
   raw name, and other policy-owned discriminators; and
 - explain why a candidate was accepted, rejected, or ambiguous.
 
-The currency does not define rename detection or lineage. Two overloads can
+The anchor does not define rename detection or lineage. Two overloads can
 exchange signatures, one declaration can split into two, or a producer can
 remove and re-add a same-shaped declaration. No snapshot-derived value can
 recover author intent in those cases. Diff policy must retain ambiguity or
@@ -309,7 +318,7 @@ classify additions/removals under its own documented contract.
 
 Issuance consumes one owner-authorized metadata image and one exact declaration
 location in that image. It validates the address against the image before
-projecting any currency.
+projecting any anchor.
 
 Projection is finite and cumulative. Metadata's existing limits bound
 relationship traversal, candidate resolution, decoded strings, generic
@@ -320,21 +329,21 @@ The closed issuance outcomes are:
 
 | Outcome | Meaning |
 | --- | --- |
-| `Complete` | Every required field was validated and projected; returns currency and the issuing image's local address |
+| `Complete` | Every required field was validated and projected; returns the qualified anchor and the issuing image's local address |
 | `Refused` | The declaration requires a recognized but unsupported portable form, such as unresolved module scope |
 | `Failed` | Malformed metadata, invalid association, or bounded-work exhaustion prevented complete projection |
 
 The result retains a typed reason and stage. Presentation text is not the
 discriminator. There is no degraded success arm. Cancellation remains
 cancellation under the invoking operation's convention; it is not a failed or
-refused currency result.
+refused anchor result.
 
 ## Persistence and transport
 
-The currency is inert, detached data. It holds no `MetadataReader`, handle,
+The anchor is inert, detached data. It holds no `MetadataReader`, handle,
 stream, borrowed content, acquisition registration, or capability.
 
-The version is part of the value and any serialized form. An incompatible
+The format version is part of the value and any serialized form. An incompatible
 projection change creates a new version; it does not reinterpret persisted
 values. Consumers compare only values whose versions they explicitly support.
 
@@ -351,20 +360,21 @@ outcome rather than flattening it into one display string.
 
 ## Relationship to existing owners
 
-- **Type/member representation** maps this currency beside selectors,
+- **Type/member representation** maps this anchor beside selectors,
   anchors, addresses, body identity, and correspondence. It does not redefine
   this projection.
-- **API declaration correspondence** may consume the currency as shared
+- **API declaration correspondence** may consume the anchor as shared
   declaration evidence. It still owns endpoint admission, complete candidate
   evaluation, strict pair policy, and categorical outcomes.
 - **Implementation Diff** keeps `MemberAnchor` as its row currency and
-  `MethodBodyIdentity` for body pairing. It may consume portable currency for
+  `MethodBodyIdentity` for body pairing. It may consume a qualified anchor for
   exact API-shape joins without replacing mechanism-native evidence.
 - **Member target resolution** keeps `MemberTargetSelector` in and
   `MemberAnchor` out for one API surface. Cross-image adoption is a separate
   consumer effort.
 - **Queries and hosts** choose acquired endpoints, operation lifetime, and
-  presentation. They do not reconstruct currency from API display models.
+  presentation. They do not reconstruct qualified anchors from API display
+  models.
 
 ## Delivery and production adoption
 
@@ -394,12 +404,12 @@ At minimum:
 
 | Gate | Required evidence |
 | --- | --- |
-| Ref/runtime parity | Independently compiled reference and implementation images issue equal currency for unchanged declarations despite reordered MethodDefs; destination addresses remain image-local |
-| Version parity | Independently compiled `A`/`A'` images issue equal currency across MVID, token, row-order, assembly-version, and generic-parameter-name changes |
+| Ref/runtime parity | Independently compiled reference and implementation images issue equal anchors for unchanged declarations despite reordered MethodDefs; destination addresses remain image-local |
+| Version parity | Independently compiled `A`/`A'` images issue equal anchors across MVID, token, row-order, assembly-version, and generic-parameter-name changes |
 | Retained discriminator boundaries | Nearby declarations differ for kind, raw name, staticness, generic arity, return-only shape, parameter shape, required modifiers, array kind/rank, function-pointer header, and named-type family |
-| Deliberate erasures | Accessibility, defaults, generic-parameter names, body, documentation, and assembly version changes leave currency equal |
-| Complete issuance | Malformed, unresolved, ambiguous, over-budget, and module-scoped inputs return typed non-success rather than partial currency |
-| Anchor compatibility | Member currency projects the same `MemberAnchor` as current Metadata identity for representative ordinary, conversion, constructor, property, field, event, explicit-interface, and extension declarations |
+| Deliberate erasures | Accessibility, defaults, generic-parameter names, body, documentation, and assembly version changes leave qualified anchors equal |
+| Complete issuance | Malformed, unresolved, ambiguous, over-budget, and module-scoped inputs return typed non-success rather than a partial anchor |
+| Anchor compatibility | The Member arm projects the same `MemberAnchor` as current Metadata identity for representative ordinary, conversion, constructor, property, field, event, explicit-interface, and extension declarations |
 | Real asset | `Microsoft.Extensions.Configuration@10.0.10` resolves the `Load()` runtime declaration without ordinal reuse; `System.Text.Json` version pairs retain unchanged methods across row churn |
 
 The Web implementation-only scenario and diff changed-signature scenarios are
@@ -422,4 +432,4 @@ and the two pinned real assets.
 - Permission to reuse an address, token, row, or handle in another image.
 - Permission to weaken an existing correspondence or diff profile.
 - A single canonical display spelling for Types or Members.
-- Automatic persistence compatibility across currency versions.
+- Automatic persistence compatibility across anchor format versions.
