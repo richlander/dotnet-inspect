@@ -111,10 +111,13 @@ public sealed partial class BrowserEngineBoundaryTests
             coordinate => Assert.Equal(originalVersion, coordinate.Version));
     }
 
-    [Fact]
-    public async Task PlatformWorkspace_ExactAssemblyUsesRangeAndReusesEntryCache()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PlatformWorkspace_ExactAssemblyFollowsSizePolicyAndReusesCache(
+        bool aboveCut)
     {
-        const string version = "11.0.7381";
+        string version = aboveCut ? "11.0.7381" : "11.0.7481";
         const string packageId =
             "microsoft.netcore.app.runtime.linux-x64";
         const string assemblyFileName =
@@ -133,7 +136,9 @@ public sealed partial class BrowserEngineBoundaryTests
 
         byte[] archive = RuntimePackage(
             assemblyFileName,
-            assembly);
+            assembly,
+            unrelatedBytes: aboveCut ? 4 * 1024 * 1024 : 4096);
+        Assert.Equal(aboveCut, archive.LongLength > PackageRangedRead.DefaultSizeCut);
         var handler = new ExactPlatformRangeHandler(
             packageId,
             version,
@@ -166,10 +171,18 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(identity.Name, first.Participant.Participant.Assembly.Identity.Name);
         Assert.Single(first.Scope.Members);
         Assert.Equal(1, handler.CompleteGetRequests);
-        Assert.True(handler.RangeRequests >= 1);
-        Assert.True(
-            handler.PackageBytesServed < archive.LongLength,
-            $"served {handler.PackageBytesServed} of {archive.LongLength} package bytes");
+        if (aboveCut)
+        {
+            Assert.True(handler.RangeRequests >= 1);
+            Assert.True(
+                handler.PackageBytesServed < archive.LongLength,
+                $"served {handler.PackageBytesServed} of {archive.LongLength} package bytes");
+        }
+        else
+        {
+            Assert.Equal(0, handler.RangeRequests);
+            Assert.True(handler.CompleteBodyReadBeforeRange);
+        }
 
         await first.DisposeAsync();
         await BrowserPackageWorkspace.RemoveScopeAsync(first.Scope);
@@ -1080,7 +1093,8 @@ public sealed partial class BrowserEngineBoundaryTests
     static byte[] RuntimePackage(
         string assemblyFileName,
         byte[] assembly,
-        string targetFramework = "net11.0")
+        string targetFramework = "net11.0",
+        int unrelatedBytes = 4 * 1024 * 1024)
     {
         using var bytes = new MemoryStream();
         using (var archive = new ZipArchive(
@@ -1115,7 +1129,7 @@ public sealed partial class BrowserEngineBoundaryTests
                       }
                       """));
             Write(archive, prefix + assemblyFileName, assembly);
-            var unrelated = new byte[4 * 1024 * 1024];
+            var unrelated = new byte[unrelatedBytes];
             new Random(42).NextBytes(unrelated);
             Write(archive, prefix + "Unrelated.Invalid.dll", unrelated);
         }

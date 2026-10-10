@@ -1,7 +1,7 @@
 {
   "schemaVersion": 7,
   "description": "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
-  "generatedUtc": "2026-10-10T02:58:35.766548+00:00",
+  "generatedUtc": "2026-10-10T05:38:05.3796446+00:00",
   "validityCompileCap": 4000,
   "fidelityCompileCap": 50,
   "methodCap": null,
@@ -2590,7 +2590,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "DotnetInspector.Core!DotnetInspector.Core.Downloader\u00601::.ctor#0"
@@ -6759,7 +6759,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.NuGetSourceOptions::.ctor#1"
@@ -10319,7 +10319,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "DotnetInspector.Services!DotnetInspector.Services.AssemblyRefInfo::.ctor#0"
@@ -141059,7 +141059,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.SampleReference::.ctor#0"
@@ -264294,7 +264294,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "dotnet-inspect!DotnetInspector.Models.MethodLeverageSummary::.ctor#1"
@@ -383199,7 +383199,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "Microsoft.ApplicationInsights!Microsoft.ApplicationInsights.Extensibility.Implementation.Tracing.SelfDiagnostics.MemoryMappedFileHandler::.ctor#0"
@@ -1350465,15 +1350465,11 @@
       "signature": "(Newtonsoft.Json:Newtonsoft.Json.ReadType, corelib:System.Threading.CancellationToken) -\u003E corelib:System.Threading.Tasks.Task",
       "fidelity": "Partial",
       "fullyRaised": false,
-      "residual": "fidelity: unsupported-node",
+      "residual": "fidelity: DEC0009",
       "passBug": null,
       "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
-        {
-          "code": "DEC0004",
-          "discriminator": "classic async"
-        },
         {
           "code": "DEC0009",
           "discriminator": "state-machine-type-name",
@@ -1412461,7 +1412457,7 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "Exact",
       "displayMethod": "System.CommandLine!System.CommandLine.Help.HelpAction::.ctor#0"
@@ -1424543,12 +1424539,12 @@
     "residualBuckets": {
       "eh: leave/endfinally": 19,
       "fidelity: DEC0006": 2,
-      "fidelity: DEC0009": 7136,
+      "fidelity: DEC0009": 7137,
       "fidelity: DEC0010": 13,
       "fidelity: DEC0013": 17,
       "fidelity: DEC0014": 12,
       "fidelity: unspellable C# type name \u0027__PrivateImplementationDetails_\u0027": 28,
-      "fidelity: unsupported-node": 256,
+      "fidelity: unsupported-node": 255,
       "structuring: conditional-branch": 2535,
       "structuring: switch-branch": 53,
       "structuring: unconditional-branch": 38
@@ -1424572,8 +1424568,8 @@
     "fidelity": {
       "contractVersion": 5,
       "checkedMethods": 682,
-      "exactMethods": 427,
-      "opcodeDiffMethods": 72,
+      "exactMethods": 434,
+      "opcodeDiffMethods": 65,
       "operandDiffMethods": 6,
       "fidelityUnavailableMethods": 0,
       "recompileFailMethods": 174,
@@ -1424585,11 +1424581,11 @@
         "nativeUnavailableMethods": 177,
         "legacyAvailableMethods": 503,
         "legacyUnavailableMethods": 179,
-        "exactLossMethods": 44,
+        "exactLossMethods": 37,
         "availabilityLossMethods": 42,
         "exactGainMethods": 43,
         "availabilityGainMethods": 44,
-        "sameStatusMethods": 580,
+        "sameStatusMethods": 587,
         "compileBackFloorAppliedMethods": 0
       }
     }
@@ -1424599,7 +1424595,7 @@
   "featureCoverage": {},
   "classicStateMachineCoverage": null,
   "runIdentity": {
-    "sourceRevision": "3703c5293e71528cf068e19bc010cb651074aeff",
+    "sourceRevision": "59668b0bc5127e0ac085950d67be76b7bca27c42",
     "sourceState": "clean",
     "compiler": "Microsoft.CodeAnalysis.CSharp, Version=5.9.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35",
     "runtime": ".NET 11.0.0-rc.1.26425.128",

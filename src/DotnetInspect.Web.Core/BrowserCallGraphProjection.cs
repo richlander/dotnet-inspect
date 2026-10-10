@@ -490,6 +490,8 @@ internal static class BrowserCallGraphProjection
         Analysis.MemberRef member = NodeMember(node);
         Analysis.TypeRef? definition =
             DeclaringTypeDefinition(member.DeclaringType);
+        Analysis.CallGraphMemberNavigationIdentity navigation =
+            Analysis.CallGraphMemberResolver.CreateNavigationIdentity(member);
         AssemblyReferenceIdentity? identity =
             definition?.Resolution?.Origin switch
             {
@@ -525,15 +527,15 @@ internal static class BrowserCallGraphProjection
             platformLibrary?.PublicKeyToken
                 ?? identity?.PublicKeyToken,
             member.DeclaringType.ToQualifiedDisplayString(),
-            definition is null ? null : LegacyMetadataTypeId(definition),
-            DefinitionTypeId(definition),
+            navigation.TypeMetadataId,
+            navigation.TypeDefinitionId,
             member.Name,
             [.. member.ParameterTypes.Select(
                 type => type.ToQualifiedDisplayString())],
             member.ReturnType.ToQualifiedDisplayString(),
             member.GenericArity,
             MetadataToken: null,
-            Analysis.CallGraphMemberResolver.CreateSelector(member).Key,
+            navigation.SelectorKey,
             kind,
             PlatformPack: platformSubject is null
                 ? null
@@ -754,6 +756,9 @@ internal static class BrowserCallGraphProjection
         ArgumentNullException.ThrowIfNull(node);
         ArgumentNullException.ThrowIfNull(loadedIdentities);
         Analysis.TypeRef? definition = DeclaringTypeDefinition(node.Member.DeclaringType);
+        Analysis.CallGraphMemberNavigationIdentity navigation =
+            Analysis.CallGraphMemberResolver.CreateNavigationIdentity(
+                node.Member);
         // The metadata origin may be a facade; the resolved definition identifies the browsable
         // assembly and must win when the catalog established it.
         AssemblyReferenceIdentity? identity =
@@ -798,14 +803,14 @@ internal static class BrowserCallGraphProjection
             identity?.Culture,
             identity?.PublicKeyToken,
             node.Member.DeclaringType.ToQualifiedDisplayString(),
-            definition is null ? null : LegacyMetadataTypeId(definition),
-            DefinitionTypeId(definition),
+            navigation.TypeMetadataId,
+            navigation.TypeDefinitionId,
             node.Member.Name,
             [.. node.Member.OpenSignatureParameters.Select(type => type.ToQualifiedDisplayString())],
             node.Member.OpenSignatureReturn.ToQualifiedDisplayString(),
             node.Member.GenericArity,
             null,
-            Analysis.CallGraphMemberResolver.CreateSelector(node.Member).Key,
+            navigation.SelectorKey,
             node.Kind.ToString().ToLowerInvariant(),
             platformPackForAssembly?.Invoke(assembly),
             surfaceAssemblyId,
@@ -828,7 +833,8 @@ internal static class BrowserCallGraphProjection
         ArgumentNullException.ThrowIfNull(member);
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
-        Analysis.TypeRef? definition = DeclaringTypeDefinition(member.DeclaringType);
+        Analysis.CallGraphMemberNavigationIdentity navigation =
+            Analysis.CallGraphMemberResolver.CreateNavigationIdentity(member);
         string? surfaceAssemblyId = null;
         if (surfaceParticipants is not null)
         {
@@ -847,14 +853,14 @@ internal static class BrowserCallGraphProjection
             identity.Culture,
             identity.PublicKeyToken,
             member.DeclaringType.ToQualifiedDisplayString(),
-            definition is null ? null : LegacyMetadataTypeId(definition),
-            DefinitionTypeId(definition),
+            navigation.TypeMetadataId,
+            navigation.TypeDefinitionId,
             member.Name,
             [.. member.ParameterTypes.Select(type => type.ToQualifiedDisplayString())],
             member.ReturnType.ToQualifiedDisplayString(),
             member.GenericArity,
             member.MetadataToken,
-            Analysis.CallGraphMemberResolver.CreateSelector(member).Key,
+            navigation.SelectorKey,
             "method",
             platformPackForAssembly?.Invoke(identity.Name),
             surfaceAssemblyId,
@@ -866,23 +872,6 @@ internal static class BrowserCallGraphProjection
             PlatformFramework: null,
             PlatformVersion: null);
     }
-
-    /// <summary>
-    /// The exact escaped structured identity of a call-graph target's declaring type — the same
-    /// identity the browsable type surface carries and the same one the product's resolver
-    /// matches. The product owns both projections; the host only carries them.
-    /// </summary>
-    static string? DefinitionTypeId(Analysis.TypeRef? type) =>
-        type is null ? null : Analysis.CallGraphMemberResolver.DefinitionIdentity(type);
-
-    /// <summary>
-    /// The legacy flattened metadata identity, published only where the product reports that it
-    /// names exactly one type. A nested <c>Outer+Inner</c> and a type whose own metadata name
-    /// contains a literal <c>+</c> share that spelling, so a consumer matching on it would
-    /// navigate to the wrong type.
-    /// </summary>
-    static string? LegacyMetadataTypeId(Analysis.TypeRef type) =>
-        Analysis.CallGraphMemberResolver.UnambiguousMetadataIdentity(type);
 
     static Analysis.TypeRef? DeclaringTypeDefinition(Analysis.TypeRef type)
     {

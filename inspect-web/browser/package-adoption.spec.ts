@@ -209,11 +209,12 @@ function packageQueryManifest(
   packageVersion: string,
   isTool: boolean,
   dependencies: readonly string[] = [],
+  targetFramework = "net10.0",
 ): Buffer {
   const dependencyMarkup = dependencies.length === 0
     ? ""
     : `<dependencies>
-      <group targetFramework="net10.0">
+      <group targetFramework="${targetFramework}">
         ${dependencies.map(
           dependency => `<dependency id="${dependency}" version="[1.0.0, )" />`,
         ).join("\n        ")}
@@ -517,7 +518,7 @@ async function installGalleryRoutes(
   };
   await context.route("https://globalcdn.nuget.org/**", serveFixture);
   await context.route("https://api.nuget.org/v3-flatcontainer/**", serveFixture);
-  await context.route("https://api.nuget.org/v3/index.json", async route => {
+  const serveServiceIndex = async (route: Route): Promise<void> => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -527,10 +528,16 @@ async function installGalleryRoutes(
         resources: [{
           "@id": "https://api.nuget.org/v3-flatcontainer/",
           "@type": "PackageBaseAddress/3.0.0",
+        }, {
+          "@id": "https://azuresearch-usnc.nuget.org/query",
+          "@type": "SearchQueryService/3.5.0",
         }],
       }),
     });
-  });
+  };
+  await context.route(
+    /^https:\/\/api\.nuget\.org(?::443)?\/v3\/index\.json$/u,
+    serveServiceIndex);
 }
 
 declare global {
@@ -1567,11 +1574,21 @@ test.describe("Package Query website over real Wasm", () => {
     await page.goto("/query");
     const input = page.locator("#package-query-prefix");
     await expect(input).toBeVisible({ timeout: 120_000 });
-    const toolFormatPreset = page.locator(
-      '[data-query-preset="tool-format:eq:v2"]',
+    const toolFact = page.locator('[data-query-preset="tool:eq:true"]');
+    await toolFact.click();
+    await expect(toolFact).toHaveAttribute("aria-pressed", "true");
+    await page.locator('[data-query-term-add="tool-format"]').click();
+    const toolFormat = page.locator(
+      '[data-query-term-form="draft"] [data-query-term-value]',
     );
-    await toolFormatPreset.click();
-    await expect(toolFormatPreset).toHaveAttribute("aria-pressed", "true");
+    await toolFormat.selectOption("v2");
+    await page.locator(
+      '[data-query-term-form="draft"] button[type="submit"]',
+    ).click();
+    await expect(page.locator(
+      '[data-query-term-form="0"] [data-query-term-value]',
+    )).toHaveValue("v2");
+    await expect(toolFact).toHaveAttribute("aria-pressed", "false");
     await expect(page.locator(".query-preset-disclosure", {
       hasText: "Candidate bound K:",
     }))
@@ -1589,6 +1606,24 @@ test.describe("Package Query website over real Wasm", () => {
     );
     expect(registry.downloadCount(tool)).toBe(1);
     expect(registry.downloadCount(library)).toBe(0);
+
+    await page.locator('[data-query-term-add="references"]').click();
+    const referenceDraft = page.locator(
+      '[data-query-term-form="draft"] [data-query-term-value]',
+    );
+    await referenceDraft.fill("Missing.Assembly");
+    await page.locator(
+      '[data-query-term-form="draft"] button[type="submit"]',
+    ).click();
+    const referenceEdit = page.locator(
+      '[data-query-term-form="1"] [data-query-term-value]',
+    );
+    await referenceEdit.fill("System.Runtime");
+    await toolFact.click();
+    await expect(toolFact).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(
+      '[data-query-term-form="0"] [data-query-term-value]',
+    )).toHaveValue("System.Runtime");
   });
 
   test("applies, edits, repeats, and removes product-issued dependency terms", async ({
@@ -1599,7 +1634,8 @@ test.describe("Package Query website over real Wasm", () => {
       "Contoso.HostingConsumer",
       version,
       false,
-      ["Microsoft.Extensions.Hosting"]);
+      ["Microsoft.Extensions.Hosting"],
+      "net9.0");
     const injectionManifest = packageQueryManifest(
       "Contoso.InjectionConsumer",
       version,
@@ -1609,13 +1645,25 @@ test.describe("Package Query website over real Wasm", () => {
       packageId: "Contoso.HostingConsumer",
       version,
       manifest: hostingManifest,
-      archive: healthyArchive,
+      archive: storedZip([
+        { name: "Contoso.HostingConsumer.nuspec", bytes: hostingManifest },
+        {
+          name: "lib/net9.0/Contoso.HostingConsumer.dll",
+          bytes: healthyAssembly,
+        },
+      ]),
     };
     const injection: FixtureCoordinate = {
       packageId: "Contoso.InjectionConsumer",
       version,
       manifest: injectionManifest,
-      archive: healthyArchive,
+      archive: storedZip([
+        { name: "Contoso.InjectionConsumer.nuspec", bytes: injectionManifest },
+        {
+          name: "lib/net10.0/Contoso.InjectionConsumer.dll",
+          bytes: brokenReferenceAssembly,
+        },
+      ]),
     };
     const registry = new GalleryFixtureRegistry([hosting, injection]);
     await installGalleryRoutes(context, registry);
@@ -1668,6 +1716,51 @@ test.describe("Package Query website over real Wasm", () => {
 
     const firstValue =
       page.locator('[data-query-term-form="0"] [data-query-term-value]');
+    const dependencyReach =
+      page.locator('[data-query-term-form="0"] [data-query-dependency-reach]');
+    const dependencyTarget =
+      page.locator('[data-query-term-form="0"] [data-query-dependency-target]');
+    await expect(dependencyTarget).toBeEnabled();
+    await expect(dependencyTarget).toHaveValue("");
+    await dependencyTarget.fill("net10.0");
+    await page.locator('[data-query-term-form="0"] button[type="submit"]').click();
+    await expect(page.locator(".query-row")).toHaveCount(0);
+    await dependencyTarget.fill("");
+    await page.locator('[data-query-term-form="0"] button[type="submit"]').click();
+    await expect(rows).toHaveText([hosting.packageId]);
+    await dependencyReach.selectOption("2");
+    await dependencyTarget.fill("net9.0");
+    await page.locator('[data-query-preset="readme:eq:true"]').click();
+    await expect(dependencyReach).toHaveValue("2");
+    await expect(dependencyTarget).toHaveValue("net9.0");
+    await page.locator('[data-query-preset="readme:eq:true"]').click();
+    await expect(dependencyReach).toHaveValue("2");
+    await expect(dependencyTarget).toHaveValue("net9.0");
+    await page.locator('[data-query-term-form="0"] button[type="submit"]').click();
+    await expect(page.getByRole("heading", { name: "Query failed" }))
+      .toBeVisible();
+
+    await page.locator('[data-query-term-add="depends"]').click();
+    const boundedPrefixDraft = page.locator('[data-query-term-form="draft"]');
+    await boundedPrefixDraft.locator("[data-query-term-operator]")
+      .selectOption("starts-with");
+    await boundedPrefixDraft.locator("[data-query-term-value]")
+      .fill("Microsoft.Extensions.");
+    const boundedPrefixTarget =
+      boundedPrefixDraft.locator("[data-query-dependency-target]");
+    await boundedPrefixTarget.fill("");
+    const beforeConflictedApply = searchRequests;
+    await boundedPrefixDraft.locator('button[type="submit"]').click();
+    await expect(boundedPrefixTarget).toHaveJSProperty(
+      "validationMessage",
+      "Enter an exact target framework while bounded reach is active.");
+    await expect(boundedPrefixDraft).toBeVisible();
+    expect(searchRequests).toBe(beforeConflictedApply);
+    await page.locator("[data-query-term-draft-cancel]").click();
+
+    await dependencyReach.selectOption("direct");
+    await dependencyTarget.fill("");
+
     await firstValue.fill("Microsoft.Extensions.DependencyInjection");
     await firstValue.evaluate(element => {
       if (!(element instanceof HTMLInputElement)) {
@@ -1756,6 +1849,114 @@ test.describe("Package Query website over real Wasm", () => {
       hosting.packageId,
       injection.packageId,
     ]);
+
+    await page.locator('[data-query-term-add="depends"]').click();
+    await page.locator("[data-query-term-draft-value]")
+      .fill("Microsoft.Extensions.Hosting");
+    await page.locator('[data-query-term-form="draft"] button[type="submit"]').click();
+    await expect(rows).toHaveText([hosting.packageId]);
+    await page.locator("[data-query-row-open]").click();
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/packages/${hosting.packageId}/${version}#pkg:dependencies$`,
+      ),
+      { timeout: 120_000 },
+    );
+    const dependenciesTab = page.locator(
+      '[data-inspector-tab][data-package-lens="dependencies"]',
+    );
+    await expect(dependenciesTab).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#inspector-panel"))
+      .toContainText("Microsoft.Extensions.Hosting", { timeout: 60_000 });
+
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="query"]').click();
+    await expect(page).toHaveURL(/\/query$/);
+    await page.locator('[data-query-term-remove="0"]').click();
+    await expect(rows).toHaveText([
+      hosting.packageId,
+      injection.packageId,
+    ]);
+    await page.locator(".query-row")
+      .filter({ hasText: injection.packageId })
+      .locator("[data-query-row-open]")
+      .click();
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/packages/${injection.packageId}/${version}#package$`,
+      ),
+      { timeout: 120_000 },
+    );
+    await expect(page.locator(".package-overview-surface")).toBeVisible();
+
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="workspace"]').click();
+    const hostingWorkspace = page.locator("[data-workspace-switch]")
+      .filter({ hasText: `${hosting.packageId}@${version}` });
+    await expect(hostingWorkspace).toBeVisible();
+    await hostingWorkspace.click();
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/packages/${hosting.packageId}/${version}#pkg:dependencies$`,
+      ),
+      { timeout: 120_000 },
+    );
+    await expect(dependenciesTab).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#inspector-panel"))
+      .toContainText("Microsoft.Extensions.Hosting", { timeout: 60_000 });
+
+    await page.goBack();
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/packages/${injection.packageId}/${version}#package$`,
+      ),
+      { timeout: 120_000 },
+    );
+    await expect(page.locator(".package-overview-surface")).toBeVisible();
+
+    await page.goForward();
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/packages/${hosting.packageId}/${version}#pkg:dependencies$`,
+      ),
+      { timeout: 120_000 },
+    );
+    await expect(dependenciesTab).toHaveAttribute("aria-selected", "true");
+
+    await page.locator(
+      '[data-inspector-tab][data-package-lens="overview"]',
+    ).click();
+    await expect(page.locator(".package-overview-surface")).toBeVisible();
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/packages/${hosting.packageId}/${version}#pkg:dependencies$`,
+      ),
+    );
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="query"]').click();
+    await expect(page).toHaveURL(/\/query$/);
+    await page.goBack();
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/packages/${hosting.packageId}/${version}#pkg:dependencies$`,
+      ),
+      { timeout: 120_000 },
+    );
+    await expect(dependenciesTab).toHaveAttribute("aria-selected", "true");
+
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="workspace"]').click();
+    await page.locator(".workspace-row")
+      .filter({ hasText: `${hosting.packageId}@${version}` })
+      .locator("[data-workspace-delete]")
+      .click();
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/packages/${injection.packageId}/${version}#package$`,
+      ),
+      { timeout: 120_000 },
+    );
+    await expect(page.locator(".package-overview-surface")).toBeVisible();
   });
 
   test("retains 100 prefix results while mounting a bounded row window", async ({

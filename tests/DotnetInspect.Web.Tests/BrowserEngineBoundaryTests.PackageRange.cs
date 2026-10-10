@@ -29,15 +29,99 @@ public sealed partial class BrowserEngineBoundaryTests
         var candidate = new PackageQueryPackage(id, version, [], 0, false, source.Source, manifest);
         using var deadline = new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
             TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-        PackageHouseFileList inventory = Assert.IsType<PackageQueryContentResult.InventoryAvailable>(
-            await BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
-                candidate, PackageQueryContentDemand.Inventory, source, deadline)).FileList;
+        PackageQueryContentInventory inventory =
+            Assert.IsType<PackageQueryContentResult.InventoryAvailable>(
+                await BrowserPackageWorkspace
+                    .AcquirePackageQueryInventoryAsync(
+                        candidate,
+                        source,
+                        deadline))
+            .Inventory;
 
         Assert.Equal(hasSkill, inventory.Entries.Any(entry => entry.Path == "skills/SKILL.md"));
         Assert.Equal(2, inventory.Entries.Count);
         Assert.True(handler.RangedPackageResponses > 0);
         Assert.True(handler.PackageBytesServed < 256 * 1024,
             $"served {handler.PackageBytesServed} of {package.Length} bytes");
+    }
+
+    [Fact]
+    public async Task PackageQueryEntryFiles_RangeTransfersOnlySelectedBodies()
+    {
+        string id = $"query.files.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        const string settingsPath =
+            "tools/net11.0/any/DotnetToolSettings.xml";
+        const string libraryPath = "lib/net11.0/Selected.dll";
+        const string unrelatedPath = "content/unrelated.bin";
+        byte[] manifestBytes = Encoding.UTF8.GetBytes(Nuspec(id, version));
+        byte[] settingsBytes = Encoding.UTF8.GetBytes(
+            """<DotNetCliTool Version="1" />""");
+        byte[] libraryBytes = new byte[16 * 1024];
+        byte[] package = PackageEntries(
+            ($"{id}.nuspec", manifestBytes),
+            (settingsPath, settingsBytes),
+            (libraryPath, libraryBytes),
+            (unrelatedPath, new byte[2 * 1024 * 1024]));
+        var handler = new GalleryPackageHandler(id, version, package);
+        using IPackageSourceClient source = Gallery(handler);
+        PackageManifestFacts manifest =
+            Assert.IsType<PackageManifestFactsResult.Available>(
+                PackageManifestFactsQuery.Execute(
+                    manifestBytes,
+                    PackageSourceCoordinate.Create(id, version)))
+            .Value;
+        var candidate = new PackageQueryPackage(
+            id,
+            version,
+            [],
+            0,
+            false,
+            source.Source,
+            manifest);
+        using var deadline =
+            new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
+                TimeSpan.FromSeconds(10),
+                TestContext.Current.CancellationToken);
+        PackageQueryContentInventory inventory =
+            Assert.IsType<PackageQueryContentResult.InventoryAvailable>(
+                await BrowserPackageWorkspace
+                    .AcquirePackageQueryInventoryAsync(
+                        candidate,
+                        source,
+                        deadline))
+            .Inventory;
+        PackageContentEntry settings = Assert.Single(
+            inventory.Entries,
+            entry => entry.Path == settingsPath);
+        PackageContentEntry library = Assert.Single(
+            inventory.Entries,
+            entry => entry.Path == libraryPath);
+
+        var available =
+            Assert.IsType<PackageQueryContentResult.Available>(
+                await BrowserPackageWorkspace
+                    .AcquirePackageQueryFilesAsync(
+                        candidate,
+                        inventory,
+                        [settings, library],
+                        source,
+                        deadline));
+
+        Assert.Equal(
+            [libraryPath, settingsPath],
+            available.Content.EnumerateEntries()
+                .Order(StringComparer.Ordinal));
+        Assert.NotNull(available.Evidence);
+        Assert.True(handler.RangedPackageResponses > 0);
+        Assert.True(
+            handler.PackageBytesServed < 512 * 1024,
+            $"served {handler.PackageBytesServed} of "
+            + $"{package.Length} package bytes");
+        Assert.DoesNotContain(
+            unrelatedPath,
+            available.Content.EnumerateEntries(),
+            StringComparer.Ordinal);
     }
 
     [Theory]

@@ -1,0 +1,12 @@
+{"id": 1, "argv": ["explain", "implementation library decoded literal contains dependency exact depth target", "-n", "8", "--json"], "exit": 0, "stdout_bytes": 216, "stderr_bytes": 0, "stdout_file": "response-01.out", "stderr_file": "response-01.err"}
+{"id": 2, "argv": ["explain", "implementation", "literal", "-n", "5", "--json"], "exit": 1, "stdout_bytes": 0, "stderr_bytes": 79, "stdout_file": "response-02.out", "stderr_file": "response-02.err"}
+{"id": 3, "argv": ["explain", "dependency", "predicate", "-n", "5", "--json"], "exit": 1, "stdout_bytes": 0, "stderr_bytes": 79, "stdout_file": "response-03.out", "stderr_file": "response-03.err"}
+{"id": 4, "argv": ["explain", "query", "-n", "8", "--json"], "exit": 0, "stdout_bytes": 5640, "stderr_bytes": 0, "stdout_file": "response-04.out", "stderr_file": "response-04.err"}
+{"id": 5, "argv": ["explain", "package-query/query", ".hal", "--json"], "exit": 0, "stdout_bytes": 18649, "stderr_bytes": 0, "stdout_file": "response-05.out", "stderr_file": "response-05.err"}
+{"id": 6, "argv": ["explain", "package-query", "--json"], "exit": 0, "stdout_bytes": 1474, "stderr_bytes": 0, "stdout_file": "response-06.out", "stderr_file": "response-06.err"}
+{"id": 7, "argv": ["explain", "package ID normalization", "-n", "10", "--json"], "exit": 0, "stdout_bytes": 163, "stderr_bytes": 0, "stdout_file": "response-07.out", "stderr_file": "response-07.err"}
+{"id": 8, "argv": ["explain", "dependency declaration edges", "-n", "10", "--json"], "exit": 0, "stdout_bytes": 167, "stderr_bytes": 0, "stdout_file": "response-08.out", "stderr_file": "response-08.err"}
+{"id": 9, "argv": ["explain", "decoded literal", "-n", "10", "--json"], "exit": 0, "stdout_bytes": 154, "stderr_bytes": 0, "stdout_file": "response-09.out", "stderr_file": "response-09.err"}
+{"id": 10, "argv": ["explain", "vocabularies", "--json"], "exit": 0, "stdout_bytes": 2637, "stderr_bytes": 0, "stdout_file": "response-10.out", "stderr_file": "response-10.err"}
+{"id": 11, "argv": ["explain", "package-query/routes/default", "--json"], "exit": 0, "stdout_bytes": 2431, "stderr_bytes": 0, "stdout_file": "response-11.out", "stderr_file": "response-11.err"}
+{"id": 12, "argv": ["explain", "normalization", "-n", "22", "--json"], "exit": 0, "stdout_bytes": 152, "stderr_bytes": 0, "stdout_file": "response-12.out", "stderr_file": "response-12.err"}

@@ -462,6 +462,7 @@ the unpatched control still publishes.
 | --- | --- | --- | --- |
 | `TypeRef` | Analysis evidence and caches | Structural IL/signature shape, call matching, and Analysis trust evidence | Exact forwarded-definition correspondence or compile-back fidelity |
 | `TypeReferenceOrigin`, `ResolvableTypeReference` | One decoded named type | Exact metadata lookup name and the assembly/current-assembly/core-library/module origin that supplied it | Resolution without the source candidate or structural `TypeRef` equality |
+| `CallGraphMemberNavigationIdentity` | One call-graph target handoff to an API surface | Unambiguous legacy metadata type identity when available, exact escaped definition type identity, and opaque member selector key | Assembly or Package ownership, display spelling, physical body identity, or proof that the destination surface contains the member |
 | `CallerScopeReachabilityPlan`, `CallerResolutionPlan` | One direct-caller query | Which scope candidates can reach the target and how decoded call-site types correspond to its definition | Transitive graph identity or cross-query persistence |
 | `MethodIdentity`, `MemberRef` | Body and call-site evidence | Which physical method body or decoded call site supplied evidence | API selector spelling or cross-version API identity |
 | `CatalogMethodDefinitionCorrespondencePlan` and `CatalogMethodDefinitionCorrespondenceOutcome` | One already-selected source/target acquisition pair and one source MethodDef | Which target `MetadataMethodAddress` has the same complete open member identity, or whether selection is missing, ambiguous, or unavailable | Source/runtime asset selection, platform forwarding, PDB acquisition, CLI policy, or durable API identity |
@@ -471,6 +472,15 @@ the unpatched control still publishes.
 | `MethodReturnFlow` | One non-void method body | The union of proven producers across every reachable `ret`, recovered through control-flow merges | Anything about a body with one unproven reachable return or reachable `jmp` completion; `IsResolved` is false and `Sources` is empty |
 | `AsyncStateMachineFieldResultSource` | One authenticated compiler async `MethodResultSink` in a complete unscoped body census | Which exact local state-machine field carried direct call results from one store dominating the initial suspension to the corresponding load after every authenticated suspension without a control-flow path to that load, with one exact matching framework builder field across suspension and completion | Scoped or incomplete censuses, custom or spoofed async builders, mismatched task/builder families or result types, unauthenticated or fall-through suspensions, conservative finally-flow joins, ambiguous or non-call stores, possible-alias stores or address escapes outside the physical body, loops, initially non-dominating paths, cleanup that can re-enter the load, foreign or unresolved fields, and unknown reachability |
 | `SpanArgumentElements` | One `ReadOnlySpan<T>` argument built by a recognized compiler lowering | The resolved element values in order | Spans built by any other lowering; `IsResolved` is false there |
+
+`CallGraphMemberResolver.CreateNavigationIdentity` issues the navigation
+currency from either a `MemberRef` or `MethodIdentity`. It unwraps a constructed
+declaring type to its definition, withholds a flattened metadata identity when
+it could name another type, retains the escaped structured definition identity,
+and carries the selector key as opaque text. Hosts may combine that identity
+with their own assembly, Package, Platform, and rendering policy; the
+[call-graph projection](call-graph-projection.md) continues to leave labels,
+trees, Mermaid, and other rendering vocabulary to each host.
 
 Exact API-to-runtime MethodDef correspondence is demand-scoped. Its caller
 supplies source and target `ResolvedAssemblyReference` descriptors, their

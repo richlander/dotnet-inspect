@@ -3171,7 +3171,7 @@ public sealed class StructuringPass : IIrPass
                 && ctx.FlowFacts.BranchTargets.Contains(block.StartOffset)
                 && result.Children.Count > resultStart)
             {
-                result.Children[resultStart].SetSourceOffset(block.StartOffset);
+                result.Children[resultStart].MoveSourceLabel(block.StartOffset);
             }
         }
         return result;

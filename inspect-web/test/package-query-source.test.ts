@@ -1206,7 +1206,18 @@ const toolMatchEvent: BrowserPackageQueryEvent = {
 };
 
 test("packageQueryCatalog preserves product descriptors and producer ordering", () => {
-  const catalog: BrowserPackageQueryCatalog = {
+  const catalog: {
+    presets: Array<
+      BrowserPackageQueryCatalog["presets"][number] & {
+        workspaceLens: "Dependencies" | null;
+      }
+    >;
+    terms: Array<
+      BrowserPackageQueryCatalog["terms"][number] & {
+        workspaceLens: "Dependencies" | null;
+      }
+    >;
+  } = {
     presets: [
       {
         key: "dependencies",
@@ -1222,6 +1233,10 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
         replacementGroupId: null,
         displayGroupId: null,
         displayGroupLabel: null,
+        categoryId: "dependencies",
+        categoryLabel: "Dependencies",
+        categoryOrder: 200,
+        workspaceLens: "Dependencies",
       },
       {
         key: "readme",
@@ -1237,35 +1252,57 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
         replacementGroupId: null,
         displayGroupId: null,
         displayGroupLabel: null,
+        categoryId: "package-metadata",
+        categoryLabel: "Package metadata",
+        categoryOrder: 100,
+        workspaceLens: null,
+      },
+    ],
+    terms: [
+      {
+        key: "references",
+        label: "Assembly reference",
+        summary: "Matches an AssemblyRef simple name.",
+        weight: 10,
+        tier: "PackageContent",
+        executionClass: "Metadata",
+        operators: ["eq"],
+        valueKind: "assembly simple name",
+        example: "Windows",
+        multiline: false,
+        allowsCustomValue: true,
+        replacementGroupId: null,
+        options: [],
+        workspaceLens: null,
       },
       {
         key: "tool-format",
-        operator: "eq",
-        value: "v2",
-        label: "v2",
-        summary: "RID-specific .NET tool format.",
+        label: "DotnetCliTool",
+        summary: "Matches the tool settings format.",
         weight: 30,
         tier: "PackageContent",
         executionClass: "PackageContent",
-        selectionGroupId: "tool-format",
-        combinesWithinSelectionGroup: true,
+        operators: ["eq"],
+        valueKind: "closed value",
+        example: "v2",
+        multiline: false,
+        allowsCustomValue: false,
         replacementGroupId: "package.query.replacement.dotnet-tool",
-        displayGroupId: "package.query.display.dotnet-tool",
-        displayGroupLabel: ".NET tool format",
+        options: [
+          {
+            value: "v1",
+            label: "v1",
+            summary: "Portable format.",
+          },
+          {
+            value: "v2",
+            label: "v2",
+            summary: "RID-specific format.",
+          },
+        ],
+        workspaceLens: null,
       },
     ],
-    terms: [{
-      key: "references",
-      label: "Assembly reference",
-      summary: "Matches an AssemblyRef simple name.",
-      weight: 10,
-      tier: "PackageContent",
-      executionClass: "Metadata",
-      operators: ["eq"],
-      valueKind: "assembly simple name",
-      example: "Windows",
-      multiline: false,
-    }],
   };
 
   const projected = packageQueryCatalog(catalog);
@@ -1285,6 +1322,10 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
       replacementGroupId: null,
       displayGroupId: null,
       displayGroupLabel: null,
+      categoryId: "dependencies",
+      categoryLabel: "Dependencies",
+      categoryOrder: 200,
+      workspaceLens: "dependencies",
     },
     {
       id: "readme:eq:true",
@@ -1301,36 +1342,57 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
       replacementGroupId: null,
       displayGroupId: null,
       displayGroupLabel: null,
+      categoryId: "package-metadata",
+      categoryLabel: "Package metadata",
+      categoryOrder: 100,
+      workspaceLens: null,
+    },
+  ]);
+  assert.deepEqual(projected.terms, [
+    {
+      key: "references",
+      label: "Assembly reference",
+      summary: "Matches an AssemblyRef simple name.",
+      weight: 10,
+      tier: "package-content",
+      executionClass: "metadata",
+      operators: ["eq"],
+      valueKind: "assembly simple name",
+      example: "Windows",
+      multiline: false,
+      allowsCustomValue: true,
+      replacementGroupId: null,
+      options: [],
+      workspaceLens: null,
     },
     {
-      id: "tool-format:eq:v2",
       key: "tool-format",
-      operator: "eq",
-      value: "v2",
-      label: "v2",
-      summary: "RID-specific .NET tool format.",
+      label: "DotnetCliTool",
+      summary: "Matches the tool settings format.",
       weight: 30,
       tier: "package-content",
       executionClass: "package-content",
-      selectionGroupId: "tool-format",
-      combinesWithinSelectionGroup: true,
+      operators: ["eq"],
+      valueKind: "closed value",
+      example: "v2",
+      multiline: false,
+      allowsCustomValue: false,
       replacementGroupId: "package.query.replacement.dotnet-tool",
-      displayGroupId: "package.query.display.dotnet-tool",
-      displayGroupLabel: ".NET tool format",
+      options: [
+        {
+          value: "v1",
+          label: "v1",
+          summary: "Portable format.",
+        },
+        {
+          value: "v2",
+          label: "v2",
+          summary: "RID-specific format.",
+        },
+      ],
+      workspaceLens: null,
     },
   ]);
-  assert.deepEqual(projected.terms, [{
-    key: "references",
-    label: "Assembly reference",
-    summary: "Matches an AssemblyRef simple name.",
-    weight: 10,
-    tier: "package-content",
-    executionClass: "metadata",
-    operators: ["eq"],
-    valueKind: "assembly simple name",
-    example: "Windows",
-    multiline: false,
-  }]);
 });
 
 test("Browser data source maps package-content rows and visible failures", async () => {
