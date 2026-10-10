@@ -395,6 +395,78 @@ public sealed class TypeShellProducerTests
         Assert.False(policy.Member.IsUnsafe);
     }
 
+    /// <summary>
+    /// C# forbids accessibility on a static constructor (CS0515). The shell declares
+    /// it as the metadata <c>.cctor</c>, so the shared declaration writer spells
+    /// <c>static T()</c> whatever identifier the caller sanitized the name into.
+    /// </summary>
+    /// <remarks>
+    /// Real asset: dotnet-inspect.any 0.14.0 <c>DotnetInspector.Core.CoreCache..cctor</c>
+    /// failed native RTS recompilation with CS0515 because the shell printed
+    /// <c>public static CoreCache()</c> (#9583).
+    /// </remarks>
+    [Theory]
+    [InlineData(CSharpShellAccessibility.Public)]
+    [InlineData(CSharpShellAccessibility.Protected)]
+    public void MemberShellProducer_StaticConstructorDeclaresNoAccessibility(
+        CSharpShellAccessibility accessibility)
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "_cctor",
+            Kind: CSharpShellMemberKind.Constructor,
+            IsStatic: true,
+            Parameters: [],
+            ReturnType: null,
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.TargetBody,
+            Body: "return;",
+            Accessibility: accessibility));
+
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "CoreCache",
+            Kind = "class",
+            Members = [policy.Member],
+        };
+        var result = Assert.IsType<CSharpTypePrintOutcome.Printed>(
+            new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
+                type,
+                memberPolicyOverrides: [policy]))).Result;
+        string source = Assert.Single(result.Units).Source;
+
+        Assert.Contains("static CoreCache()", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("public static CoreCache", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("protected static CoreCache", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("_cctor", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberShellProducer_RefusesStaticConstructorWithParametersOrInitializer()
+    {
+        Assert.Throws<ArgumentException>(() => CSharpMemberShellProducer.BuildPolicy(
+            new CSharpMemberShellSpec(
+                Name: "_cctor",
+                Kind: CSharpShellMemberKind.Constructor,
+                IsStatic: true,
+                Parameters: [new CSharpShellParameter("value", "int")],
+                ReturnType: null,
+                TypeParameters: [],
+                BodyKind: CSharpShellBodyKind.TargetBody,
+                Body: "return;")));
+        Assert.Throws<ArgumentException>(() => CSharpMemberShellProducer.BuildPolicy(
+            new CSharpMemberShellSpec(
+                Name: "_cctor",
+                Kind: CSharpShellMemberKind.Constructor,
+                IsStatic: true,
+                Parameters: [],
+                ReturnType: null,
+                TypeParameters: [],
+                BodyKind: CSharpShellBodyKind.TargetBody,
+                Body: "return;",
+                ConstructorInitializer: "this()")));
+    }
+
     [Fact]
     public void MemberShellProducer_ComposesExplicitInterfaceMethodDeclaration()
     {
