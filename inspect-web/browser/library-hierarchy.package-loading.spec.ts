@@ -124,7 +124,7 @@ const packageCoordinateViews = [{
   surface: ".package-overview-surface",
 }, {
   id: "dependencies",
-  name: "Dependencies",
+  name: "References",
   surface: ".package-dependencies-surface",
 }, {
   id: "vulnerabilities",

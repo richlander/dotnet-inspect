@@ -144,6 +144,32 @@ public sealed class PackageDependencyGroupsQueryTests
     }
 
     [Fact]
+    public void Execute_ProjectsAlreadySelectedManifestBytes()
+    {
+        byte[] manifest = Encoding.UTF8.GetBytes(
+            Manifest(
+                """
+                <group targetFramework="net8.0">
+                  <dependency id="First.Dependency" version="[1.0.0]" />
+                </group>
+                """));
+
+        PackageDependencyGroups groups = Available(
+            PackageDependencyGroupsQuery.Execute(
+                manifest,
+                "Example.Package",
+                "1.0.0",
+                "net8.0"));
+
+        Assert.Equal(
+            PackageDependencyGroupSelectionStatus.Selected,
+            groups.SelectionStatus);
+        Assert.Equal(
+            "First.Dependency",
+            Assert.Single(groups.SelectedGroup!.Dependencies).Id);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_UsesPackageOwnedFrameworkReferenceFacts()
     {
         const string manifest = """

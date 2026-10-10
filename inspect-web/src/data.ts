@@ -35,7 +35,7 @@ export function isTypeLens(
 export const packageLenses = [
   ["overview", "Overview"],
   ["compare", "Compare"],
-  ["dependencies", "Dependencies"],
+  ["dependencies", "References"],
   ["vulnerabilities", "Vulnerabilities"],
 ] as const;
 
