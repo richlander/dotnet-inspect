@@ -73,8 +73,8 @@ internal sealed class ApiQualifiedAnchorIssuer
         try
         {
             token.ThrowIfCancellationRequested();
-            _assemblyFamily = ReadAssemblyFamily();
             EntityHandle handle = ResolveLocation(location);
+            _assemblyFamily = ReadAssemblyFamily();
             ApiQualifiedAnchor anchor = handle.Kind switch
             {
                 HandleKind.TypeDefinition => IssueType(
@@ -136,8 +136,21 @@ internal sealed class ApiQualifiedAnchorIssuer
 
     ApiQualifiedAssemblyFamily ReadAssemblyFamily()
     {
+        if (!_reader.IsAssembly)
+        {
+            throw Refused(
+                ApiQualifiedAnchorStage.AssemblyFamily,
+                ApiQualifiedAnchorRefusalReason.UnsupportedImage,
+                "The metadata image is not an assembly.");
+        }
+
         try
         {
+            AssemblyDefinition definition =
+                _reader.GetAssemblyDefinition();
+            ChargeAssemblyString(definition.Name);
+            ChargeAssemblyString(definition.Culture);
+            ChargeAssemblyPublicKey(definition.PublicKey);
             AssemblyReferenceIdentity identity =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(_reader);
             return new(
@@ -145,13 +158,67 @@ internal sealed class ApiQualifiedAnchorIssuer
                 identity.Culture,
                 identity.PublicKeyToken);
         }
-        catch (BadImageFormatException exception)
+        catch (ApiQualifiedAnchorFailedException)
         {
-            throw Refused(
+            throw;
+        }
+        catch (MetadataOperationBudgetExceededException exception)
+        {
+            throw Failed(
                 ApiQualifiedAnchorStage.AssemblyFamily,
-                ApiQualifiedAnchorRefusalReason.UnsupportedImage,
+                ApiQualifiedAnchorFailureReason.WorkLimitExceeded,
                 exception.Message);
         }
+        catch (Exception exception) when (
+            exception is BadImageFormatException
+                or ArgumentException
+                or InvalidOperationException
+                or OverflowException)
+        {
+            throw Failed(
+                ApiQualifiedAnchorStage.AssemblyFamily,
+                ApiQualifiedAnchorFailureReason.MalformedMetadata,
+                exception.Message);
+        }
+    }
+
+    void ChargeAssemblyString(StringHandle handle)
+    {
+        if (handle.IsNil)
+        {
+            return;
+        }
+
+        ChargeAssemblyFamilyBytes(
+            _reader.GetBlobReader(handle).Length,
+            "assembly identity string");
+    }
+
+    void ChargeAssemblyPublicKey(BlobHandle handle)
+    {
+        if (handle.IsNil)
+        {
+            return;
+        }
+
+        ChargeAssemblyFamilyBytes(
+            _reader.GetBlobReader(handle).Length,
+            "assembly public key");
+    }
+
+    void ChargeAssemblyFamilyBytes(int bytes, string component)
+    {
+        if (bytes > MetadataSafetyPolicy.MaxStructuralSignatureChars)
+        {
+            throw Failed(
+                ApiQualifiedAnchorStage.AssemblyFamily,
+                ApiQualifiedAnchorFailureReason.WorkLimitExceeded,
+                $"The {component} exceeds the structural metadata limit.");
+        }
+
+        _operation.Charge(
+            MetadataOperationDimension.RetainedText,
+            bytes);
     }
 
     EntityHandle ResolveLocation(MetadataDeclarationLocation location)

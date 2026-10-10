@@ -518,6 +518,78 @@ public sealed class ApiQualifiedAnchorTests
     }
 
     [Fact]
+    public void InvalidLocation_DoesNotProjectOversizedAssemblyFamily()
+    {
+        (byte[] image, MetadataDeclarationLocation valid) =
+            BuildAssemblyKeyImage(
+                MetadataSafetyPolicy.MaxStructuralSignatureChars + 1);
+        MetadataDeclarationLocation invalid = valid with
+        {
+            MetadataToken = 0x02ffffff,
+        };
+        var policy = new MetadataOperationPolicy(
+            long.MaxValue,
+            maxRetainedText: 0);
+
+        ApiQualifiedAnchorResult result =
+            IssueResult(image, invalid, policy);
+
+        ApiQualifiedAnchorResult.Failed failed =
+            Assert.IsType<ApiQualifiedAnchorResult.Failed>(result);
+        Assert.Equal(
+            ApiQualifiedAnchorStage.AddressValidation,
+            failed.Failure.Stage);
+        Assert.Equal(
+            ApiQualifiedAnchorFailureReason.InvalidAddress,
+            failed.Failure.Reason);
+        Assert.Equal(0, result.Counters.RetainedText);
+    }
+
+    [Fact]
+    public void OversizedAssemblyFamily_FailsBeforeMaterialization()
+    {
+        int keyBytes =
+            MetadataSafetyPolicy.MaxStructuralSignatureChars + 1;
+        (byte[] image, MetadataDeclarationLocation location) =
+            BuildAssemblyKeyImage(keyBytes);
+
+        ApiQualifiedAnchorResult result =
+            IssueResult(image, location);
+
+        ApiQualifiedAnchorResult.Failed failed =
+            Assert.IsType<ApiQualifiedAnchorResult.Failed>(result);
+        Assert.Equal(
+            ApiQualifiedAnchorStage.AssemblyFamily,
+            failed.Failure.Stage);
+        Assert.Equal(
+            ApiQualifiedAnchorFailureReason.WorkLimitExceeded,
+            failed.Failure.Reason);
+        Assert.True(result.Counters.RetainedText < keyBytes);
+    }
+
+    [Fact]
+    public void AssemblyFamily_ConsumesCallerRetainedTextBudget()
+    {
+        (byte[] image, MetadataDeclarationLocation location) =
+            BuildAssemblyKeyImage(keyBytes: 32);
+        var policy = new MetadataOperationPolicy(
+            long.MaxValue,
+            maxRetainedText: 0);
+
+        ApiQualifiedAnchorResult result =
+            IssueResult(image, location, policy);
+
+        ApiQualifiedAnchorResult.Failed failed =
+            Assert.IsType<ApiQualifiedAnchorResult.Failed>(result);
+        Assert.Equal(
+            ApiQualifiedAnchorStage.AssemblyFamily,
+            failed.Failure.Stage);
+        Assert.Equal(
+            ApiQualifiedAnchorFailureReason.WorkLimitExceeded,
+            failed.Failure.Reason);
+    }
+
+    [Fact]
     public void ExhaustedStructuredWorkBudget_FailsWithoutDegradedAnchor()
     {
         string path = Pair.OldAssemblyPath();
@@ -630,13 +702,14 @@ public sealed class ApiQualifiedAnchorTests
 
     static ApiQualifiedAnchorResult IssueResult(
         byte[] image,
-        MetadataDeclarationLocation location)
+        MetadataDeclarationLocation location,
+        MetadataOperationPolicy? policy = null)
     {
         using AssemblyInspectionSession assembly =
             AssemblyInspectionSession.OpenPrefetched(
                 new MemoryStream(image, writable: false));
         using var operation = new MetadataOperationContext(
-            MetadataOperationPolicy.Unbounded);
+            policy ?? MetadataOperationPolicy.Unbounded);
         using MetadataDeclarationSession declarations =
             assembly.CreateDeclarationSession(operation);
         return declarations.PostApiQualifiedAnchor(location);
@@ -752,6 +825,51 @@ public sealed class ApiQualifiedAnchorTests
             "PinnedArtifacts",
             directory,
             file);
+
+    static (
+        byte[] Image,
+        MetadataDeclarationLocation Location)
+        BuildAssemblyKeyImage(int keyBytes)
+    {
+        var metadata = new MetadataBuilder();
+        Guid mvid = Guid.NewGuid();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString("assembly-family.dll"),
+            metadata.GetOrAddGuid(mvid),
+            default,
+            default);
+        var publicKey = new BlobBuilder(keyBytes);
+        publicKey.WriteBytes(new byte[keyBytes]);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("AssemblyFamily"),
+            new Version(1, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(publicKey),
+            AssemblyFlags.PublicKey,
+            AssemblyHashAlgorithm.Sha1);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle type = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Anchor"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        return (
+            Serialize(metadata),
+            new(
+                mvid,
+                ApiDeclarationMetadataTable.TypeDefinition,
+                MetadataTokens.GetToken(type)));
+    }
 
     static (
         byte[] Image,
