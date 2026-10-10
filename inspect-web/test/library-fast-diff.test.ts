@@ -114,7 +114,7 @@ test("a baseline result is held per exact request and keyed by identifier", asyn
   const entry = state.fastDiff.entry(baseline);
   assert.equal(entry?.status, "ready");
   assert.equal(
-    entry?.status === "ready" ? entry.types.get("Fixture.Outer+Inner")?.body : null,
+    entry?.status === "ready" ? entry.value.get("Fixture.Outer+Inner")?.body : null,
     "Changed");
   assert.equal(state.fastDiff.entry({ ...baseline, axes: "Api" }), null);
   assert.ok(state.renders() > 0);
