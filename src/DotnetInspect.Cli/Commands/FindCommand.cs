@@ -485,7 +485,10 @@ public partial class FindCommand
                         new([], rows, found.ExactRowCount
                             ?? found.InputRows?.AcceptedCount ?? rows.Length),
                         CountLayeredRows(options, [], rows),
-                        found.HasFailures, found.SourceSelectionIncomplete);
+                        found.HasFailures, found.SourceSelectionIncomplete)
+                    {
+                        Failure = EvaluationFailure(found.HasFailures),
+                    };
                 }
 
                 FindSearchResult<TypeFindResult> foundTypes =
@@ -517,7 +520,12 @@ public partial class FindCommand
                     CountLayeredRows(options, attributedTypes, attributedMembers),
                     foundTypes.HasFailures || foundMembers?.HasFailures is true,
                     foundTypes.SourceSelectionIncomplete
-                        || foundMembers?.SourceSelectionIncomplete is true);
+                        || foundMembers?.SourceSelectionIncomplete is true)
+                {
+                    Failure = EvaluationFailure(
+                        foundTypes.HasFailures
+                            || foundMembers?.HasFailures is true),
+                };
             }
             catch (Exception failure) when (failure is not OperationCanceledException)
             {
@@ -536,7 +544,10 @@ public partial class FindCommand
                     CountLayeredRows(options, result.Content.Types,
                         result.Content.Members),
                     result.HasFailures, result.IsIncomplete)
-                    { Failure = result.Failure };
+                {
+                    Failure = result.Failure
+                        ?? EvaluationFailure(result.HasFailures),
+                };
             });
         EcosystemFindBoundedOutcome<LayeredSearchBlock> bounded =
             await session.RunBoundedAsync(cancellationToken);
@@ -947,6 +958,11 @@ public partial class FindCommand
                 + failure.Message);
         }
     }
+
+    private static string? EvaluationFailure(bool hasFailures) =>
+        hasFailures
+            ? "Find evaluation reported one or more source failures."
+            : null;
 
     private static int CountLayeredRows(
         FindOptions options,

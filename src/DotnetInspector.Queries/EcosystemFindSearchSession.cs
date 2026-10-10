@@ -377,6 +377,17 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                             prefixRows + attributed.RowCount);
                     }
                 }
+                if (remainingRows is int completedRowLimit
+                    && prefixRows >= completedRowLimit)
+                {
+                    _prefixCoverage.Add(new(
+                        prefix.Prefix,
+                        EcosystemFindPrefixPageCompletion.RowLimitReached));
+                    return Complete(
+                        EcosystemFindCompletion.RowLimitReached,
+                        [.. Request.Prefixes.Skip(index)
+                            .Select(source => source.Prefix)]);
+                }
                 if (page.Completion is EcosystemFindPrefixPageCompletion.SourcePageLimit
                     or EcosystemFindPrefixPageCompletion.ClientPageLimit)
                 {
@@ -462,6 +473,7 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
         _completed = true;
         if (completion == EcosystemFindCompletion.Partial
             && _boundedBlocks.All(block => block.HasFailures)
+            && _boundedBlocks.All(block => block.RowCount == 0)
             && _prefixBlocks.Count == 0
             && _prefixCoverage.All(source =>
                 source.Completion == EcosystemFindPrefixPageCompletion.Failed))

@@ -99,7 +99,9 @@ public class EcosystemFindSearchSessionTests
         Assert.Contains(observations, value =>
             value.Contains("ecosystem.first,ecosystem.second",
                 StringComparison.Ordinal));
-        Assert.Equal(["Contoso.Special.", "Other."], completed.Unsearched);
+        Assert.Equal(
+            ["Contoso.", "Contoso.Special.", "Other."],
+            completed.Unsearched);
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             bounded.Continuation.ResumeAsync(
                 1, TestContext.Current.CancellationToken));
@@ -483,6 +485,59 @@ public class EcosystemFindSearchSessionTests
         var result = await session.ExecuteAsync(TestContext.Current.CancellationToken);
         Assert.Equal(EcosystemFindCompletion.Failed, result.Completion);
         Assert.Single(result.Failures);
+    }
+
+    [Fact]
+    public async Task UsefulBoundedRowsBesideFailureRemainPartial()
+    {
+        var layer = Layer("first", "First.Core");
+        using var session = new EcosystemFindSearchSession<int>(
+            new(TypeFindQuestion.Create(["Thing"], FindVisibility.Public),
+                [layer], [], 500),
+            (_, _) => Task.FromResult(new EcosystemFindBlock<int>(
+                1, 1, HasFailures: true, Incomplete: true)
+                { Failure = "One assembly failed." }),
+            (_, _, token) => Pages(new([]), token),
+            (_, _, _) => Task.FromResult(new EcosystemFindBlock<int>(0, 0)));
+
+        EcosystemFindSearchSummary<int> result =
+            await session.ExecuteAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(EcosystemFindCompletion.Partial, result.Completion);
+        Assert.Single(result.BoundedBlocks);
+    }
+
+    [Fact]
+    public async Task FilledWindowDoesNotRequestTheNextPrefixPage()
+    {
+        var layer = Layer("first", "First.Core", "Contoso.");
+        int pages = 0;
+        async IAsyncEnumerable<EcosystemFindPrefixPage> Enumerate(
+            [EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            pages++;
+            yield return new([new("Contoso.One", "1.0.0")]);
+            cancellationToken.ThrowIfCancellationRequested();
+            pages++;
+            yield return new([new("Contoso.Two", "1.0.0")]);
+            await Task.CompletedTask;
+        }
+        using var session = new EcosystemFindSearchSession<string>(
+            Request([layer], maximumRows: 1),
+            (_, _) => Task.FromResult(new EcosystemFindBlock<string>(
+                "core", 0)),
+            (_, _, token) => Enumerate(token),
+            (candidate, _, _) => Task.FromResult(
+                new EcosystemFindBlock<string>(candidate.PackageId, 1)));
+
+        EcosystemFindSearchSummary<string> result =
+            await session.ExecuteAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, pages);
+        Assert.Equal(EcosystemFindCompletion.RowLimitReached,
+            result.Completion);
+        Assert.Equal("Contoso.One",
+            Assert.Single(result.PrefixBlocks).Content);
     }
 
     [Fact]
