@@ -211,8 +211,9 @@ migrated queries. The boundary:
 - migrated neutral Analysis queries consume focused Analysis-owned safety,
   implementation-profile, optimization, leverage, and call-graph results
 - local and catalog member graphs compose
-  `LibraryCallGraphAnalysisResult` values, while optional graph annotations
-  consume `LibraryOptimizationAnalysisResult`
+  `LibraryCallGraphAnalysisResult` values, while the optional async-alternative
+  annotation executes `SyncCallsInAsyncQuery` Rows over each participating
+  assembly session
 - session methods exist only for composition requiring session-owned state,
   such as source attribution or multiple assembly scopes
 - the CLI composes and renders; it does not classify or infer Analysis facts
@@ -813,6 +814,12 @@ dispatch filtering. It consumes builder callbacks for synchronized external
 resolution and the shared local type-definition index without owning metadata
 lifetime. Orchestration, diagnostics, and result ordering remain
 assembly-builder policy.
+`AsyncSiblingProducer` publishes each positive match as an `AsyncSiblingRow`
+that retains the authenticated async source, exact physical `DirectCall`, and
+resolver-issued async candidate. `SyncCallsInAsyncQuery` exposes those rows to
+Library Analysis and Call Graph consumers through producer-planner and
+QuerySpace receipts; neither consumer requests the legacy
+`AsyncSiblingOpportunities` body-analysis feature.
 Every positive `sync-call-in-async` opportunity publishes
 `AsyncSiblingOpportunityEvidence`: the exact physical `DirectCall` selected by
 the orchestrator and resolver-issued async-candidate `MemberRef`. The parent

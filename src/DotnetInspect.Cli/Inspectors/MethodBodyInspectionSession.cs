@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using DotnetInspector.Services;
+using DotnetInspector.Queries;
 using DotnetInspect.Cli.Services;
 using ILInspector.CallGraph;
 using ILInspector.Metadata;
@@ -22,6 +23,8 @@ namespace DotnetInspect.Cli.Inspectors;
 /// </summary>
 public sealed class MethodBodyInspectionSession
 {
+    SyncCallsInAsyncResult? _syncCallsInAsync;
+
     MethodBodyInspectionSession(
         Analysis.LibraryBodyAnalysisExecution analysis,
         ResolvedAssemblyReference assembly,
@@ -67,8 +70,6 @@ public sealed class MethodBodyInspectionSession
     /// phases (escape-classified allocation occurrences and optimization opportunities); leave them
     /// on unless the caller knows no requested section consumes them (see
     /// <see cref="ApiAnalysisInspection.AnalysisScopeFor"/>).
-    /// <paramref name="includeAsyncSiblingOpportunities"/> selects only the
-    /// allocation-independent sync-call-in-async producer.
     /// <paramref name="bodyScope"/>, when non-null,
     /// restricts body decoding to the given method tokens (a single-member "targeted" build); it is
     /// only valid when every requested section's facts are local to those members (Calls / Unsafe
@@ -107,7 +108,6 @@ public sealed class MethodBodyInspectionSession
         bool includeOpportunities = true,
         IReadOnlySet<int>? bodyScope = null,
         Func<Analysis.TypeRef, bool>? bodyTypeScope = null,
-        bool includeAsyncSiblingOpportunities = false,
         bool includeImplementationProfiles = false)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
@@ -117,11 +117,6 @@ public sealed class MethodBodyInspectionSession
         {
             features |=
                 Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
-        }
-        if (includeAsyncSiblingOpportunities)
-        {
-            features |= Analysis.LibraryBodyAnalysisFeatures
-                .AsyncSiblingOpportunities;
         }
         if (includeImplementationProfiles)
         {
@@ -162,6 +157,22 @@ public sealed class MethodBodyInspectionSession
             assembly,
             Path.GetFileNameWithoutExtension(assemblyPath),
             BindingPolicyFor(resolver));
+    }
+
+    internal SyncCallsInAsyncResult SyncCallsInAsync()
+    {
+        if (_syncCallsInAsync is { } cached)
+            return cached;
+
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(Assembly);
+        _syncCallsInAsync = SyncCallsInAsyncQuery.Execute(
+            session,
+            new AssemblyReferenceBindingAccess(
+                Assembly,
+                BindingPolicy),
+            [SyncCallsInAsyncClosing.Rows]);
+        return _syncCallsInAsync;
     }
 
     internal static MethodBodyInspectionSession OpenWithPrefetchedImage(

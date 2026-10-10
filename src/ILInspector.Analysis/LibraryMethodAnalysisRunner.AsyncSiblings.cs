@@ -86,15 +86,12 @@ internal sealed partial class LibraryMethodAnalysisRunner
             cancellationToken.ThrowIfCancellationRequested();
             rows.Add(new(
                 asyncSource,
-                call.Callee,
+                call,
                 sibling,
                 call.Callee.Name == "Dispose"
                     && sibling.Name == "DisposeAsync"
                     ? AsyncSiblingPairKind.Dispose
-                    : AsyncSiblingPairKind.Operation,
-                call.ILOffset,
-                call.InLoop,
-                caller.MetadataToken));
+                    : AsyncSiblingPairKind.Operation));
         }
         var diagnostics = ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
         foreach (DirectCall call in unresolvedCalls)
