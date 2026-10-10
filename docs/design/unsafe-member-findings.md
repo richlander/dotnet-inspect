@@ -100,10 +100,11 @@ inspected unattributed body without evidence hides nothing. Display names and
 On [Assembly Analysis Operation](#execution), synchronous iterators attribute
 like async methods; the current accumulator path still reports their bodies
 as unattributed limitations until it is deleted. The declared iterator
-names its state machine through `IteratorStateMachineAttribute`, and the
-authenticated resolution associates that state machine's `MoveNext`, and every
-lifted body reached only through it, such as a lambda declared in the iterator
-or a `<>m__Finally1` helper, with the iterator method.
+names its state machine through `IteratorStateMachineAttribute`; the
+authenticated resolution associates every method of that state-machine type,
+its `MoveNext` and helpers such as `<>m__Finally1`, with the iterator method.
+Lambdas and local functions declared in an iterator are already attributed to
+it by lifted-owner resolution, as in any other method.
 
 A C# extension-block member is emitted twice: an implementation method on the
 enclosing `[Extension]` static class, which carries the source body and the
@@ -272,7 +273,7 @@ Every input comes from an owner-issued, receipted capability:
 | Input | Owner |
 | --- | --- |
 | Declared-source relation over both breadths, with unauthenticated candidates and typed bound outcomes | [#9864](https://github.com/richlander/dotnet-inspect/issues/9864), under [#8577](https://github.com/richlander/dotnet-inspect/issues/8577) |
-| Call-site population: each call's kind and callee reference identity, including an external member's declaring-type origin and decoded signature at the tier platform-contract lookup needs, and the same-image RVA status of an `ldsflda` field operand for constant-data span recognition | [#9868](https://github.com/richlander/dotnet-inspect/issues/9868), the Method Query Source Calls layer under [#8577](https://github.com/richlander/dotnet-inspect/issues/8577) |
+| Operand and signature resolution: each call's kind and callee reference identity, including an external member's declaring-type origin and decoded signature at the tier platform-contract lookup needs; member and field operands, with the same-image RVA status of an `ldsflda` field for constant-data span recognition; `calli` stand-alone signatures; and local-signature types | [#9868](https://github.com/richlander/dotnet-inspect/issues/9868), the Method Query Source Calls layer under [#8577](https://github.com/richlander/dotnet-inspect/issues/8577) |
 | Typed same-module callee resolution | [#8700](https://github.com/richlander/dotnet-inspect/issues/8700) |
 | Module memory-safety rules and the direct or associated caller-unsafe contract of a member or same-image callee | [#9831](https://github.com/richlander/dotnet-inspect/issues/9831) |
 | Semantic MethodDef identity for the finding key | [#9830](https://github.com/richlander/dotnet-inspect/issues/9830) |
@@ -281,7 +282,8 @@ Every input comes from an owner-issued, receipted capability:
 
 Body roles, constant-data and stack-allocation span lowering, extension
 skeleton classification, and call contract precedence keep their current
-owners and rules; moving them changes where they execute, not what they
+owners and rules, and read the module only through the capabilities above,
+never through the method view's module lookup; moving them changes where they execute, not what they
 admit. The census publishes the Method Query Source receipt beside its result,
 so a host can show the work it did.
 
@@ -297,13 +299,17 @@ Focused gates for the move:
 
 - the `UnsafeMemberFindingsTests` and platform-contract cases run against the
   new producer at Library scope with today's outcomes, except that iterator
-  evidence now folds into the iterator method;
+  state-machine evidence now folds into the iterator method, and the
+  token-scoped receipt case is replaced by the Type-scope and bound gates
+  below, since a scoped receipt now means the source covered less than the
+  requested scope;
 - Type and Library scope agree on every finding for types whose generated
   bodies all authenticate, including the
   [#9755](https://github.com/richlander/dotnet-inspect/issues/9755) shapes;
-- a synchronous iterator's `MoveNext`, a lambda declared in an iterator, and
-  a `<>m__Finally1` helper, each with evidence, fold into the iterator method
-  with physical provenance at both Library and Type scope;
+- a synchronous iterator's `MoveNext`, a `<>m__Finally1` helper, and a
+  static lambda, capturing lambda, and local function declared in an
+  iterator, each with evidence, fold into the iterator method with physical
+  provenance at both Library and Type scope;
 - a generated body in a nested compiler-generated type that no source member
   claims is an unattributed limitation at both scopes;
 - an expansion bound at Type scope yields an incomplete census with the
