@@ -384,6 +384,36 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void FindAssembliesInPackage_ReturnsEveryNamedMatchOrTheExactPath()
+    {
+        string net8 = WriteDll("lib/net8.0/Lib.dll");
+        string net10 = WriteDll("lib/net10.0/Lib.dll");
+        string other = WriteDll("lib/net10.0/Other.dll");
+        string core = WriteDll("lib/net10.0/Lib.Core.dll");
+        string[] dlls = [net8, net10, other, core];
+
+        Assert.Equal(
+            [net8, net10],
+            TfmSelector.FindAssembliesInPackage(dlls, _tempDir, "Lib"));
+        Assert.Equal(
+            [net8, net10],
+            TfmSelector.FindAssembliesInPackage(dlls, _tempDir, "LIB.DLL"));
+        Assert.Equal(
+            [core],
+            TfmSelector.FindAssembliesInPackage(dlls, _tempDir, "Lib.Core"));
+        Assert.Equal(
+            net10,
+            TfmSelector.FindAssemblyInPackage(dlls, _tempDir, "LIB.DLL", tfm: null).path);
+        Assert.Equal(
+            [net10],
+            TfmSelector.FindAssembliesInPackage(dlls, _tempDir, "lib/net10.0/Lib.dll"));
+        Assert.Empty(
+            TfmSelector.FindAssembliesInPackage(dlls, _tempDir, "Missing.dll"));
+        Assert.Empty(
+            TfmSelector.FindAssembliesInPackage(dlls, _tempDir, "lib/net9.0/Lib.dll"));
+    }
+
+    [Fact]
     public void SelectPackageLibrary_RequestedLibraryNotFound_ReturnsTfmCandidates()
     {
         var candidate = WriteDll("lib/net8.0/Actual.dll");
