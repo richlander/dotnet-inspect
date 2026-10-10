@@ -258,12 +258,15 @@ feed republishing is outside the immutable-feed contract and is not promised
 to be detected by a fresh directory comparison. Invalid cached directory or
 entry bytes remain visible and retain the existing cache-bypass policy.
 
-The motivating asset is `Newtonsoft.Json@13.0.4`, `net6.0`: the website Summary
-already retains its directory. Reopening for its exact Library previously cost
-another 65,557-byte tail before a 275,871-byte DLL span. Reuse removes that tail,
-so Summary plus Overview costs four archive requests and 343,246 consumed
-body bytes instead of five and 408,803. API and Enablements retain the shared
-acquisition introduced under semantic content demand. The production adopter
+The motivating asset is `Newtonsoft.Json@13.0.4`, `net6.0`. With the inventory-only
+Summary and joint exact-Library demand in successor #9834, Summary retains the
+directory before the Library body is requested. Reopening previously cost
+another 65,557-byte tail before a 275,871-byte DLL span. Directory reuse makes
+that successor flow cost four archive requests and 343,246 consumed body bytes
+instead of five and 408,803; its API and Enablements share acquisition under
+semantic content demand. Before #9834, the website's eager Summary already
+acquires the Library body, so Summary plus Overview uses four requests and
+395,672 bytes with or without directory reuse. The current production adopter
 is the common Package acquisition step, so Browser/Wasm and CLI entry-cache
 reads receive the same behavior. Focused gates cover a missing cached entry,
 invalid cached data, authority isolation, new operation cancellation, and
