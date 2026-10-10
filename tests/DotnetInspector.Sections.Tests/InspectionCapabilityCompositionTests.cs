@@ -180,6 +180,67 @@ public sealed class InspectionCapabilityCompositionTests
     }
 
     [Fact]
+    public void RouteRejectsInvalidQueryTermRelatedOperations()
+    {
+        InspectionDocumentRegistration<string> document =
+            Document("test/document");
+        InspectionQueryTermRelatedOperation relationship =
+            new(
+                PackageQuery.TermBindingIdentity(
+                    PackageQuery.DependsTermKey),
+                PackageRelatedOperationAffordances.InspectDependencies);
+
+        Assert.Throws<ArgumentException>(() =>
+            new InspectionRouteRegistration<object, string>(
+                new(
+                    "test/out-of-profile-route",
+                    "Out-of-profile route",
+                    "A route with an out-of-profile related operation."),
+                document,
+                PackageQuery.QuerySpace,
+                static (_, _) =>
+                    ValueTask.FromResult(
+                        new InspectionEnvelope<string>(
+                            "content",
+                            new InspectionShare.NonProjectable(
+                                "test/share",
+                                "Test content is not shareable."))),
+                queryTermRelatedOperations:
+                [
+                    new(
+                        "query.term.not-registered",
+                        PackageRelatedOperationAffordances
+                            .InspectDependencies),
+                ]));
+        Assert.Throws<ArgumentException>(() =>
+            new InspectionRouteRegistration<object, string>(
+                new(
+                    "test/duplicate-route",
+                    "Duplicate route",
+                    "A route with a duplicate related operation."),
+                document,
+                PackageQuery.QuerySpace,
+                static (_, _) =>
+                    ValueTask.FromResult(
+                        new InspectionEnvelope<string>(
+                            "content",
+                            new InspectionShare.NonProjectable(
+                                "test/share",
+                                "Test content is not shareable."))),
+                queryTermRelatedOperations:
+                [
+                    relationship,
+                    new(
+                        relationship.SourceTerm,
+                        new(
+                            new RelatedOperationAffordanceId(
+                                relationship.Operation.Id.Value),
+                            "Alternate title",
+                            "Alternate summary.")),
+                ]));
+    }
+
+    [Fact]
     public void CatalogConstructionIsDeterministicAcrossModuleOrder()
     {
         var cli =
@@ -285,6 +346,67 @@ public sealed class InspectionCapabilityCompositionTests
                 && HasTargetPath(
                     relationship,
                     PackageQueryCapabilityResourcePaths.Route));
+        Assert.Empty(
+            Assert.Single(
+                envelope.Content.Relationships,
+                relationship =>
+                    relationship.Source == root.Key
+                    && relationship.Relationship.Value
+                        == "related-operation")
+                .Targets);
+    }
+
+    [Fact]
+    public void DependencyFacetExplainsPackageDependenciesOperation()
+    {
+        InspectionCapabilityCatalog capabilityCatalog =
+            InspectionCapabilityCatalog.Create(
+                [PackageQueryCapability.ProductModule]);
+        ResourceExplanationCatalog explanation =
+            ResourceExplanationCatalog.CreateCapabilities(
+                capabilityCatalog,
+                PackageQueryCapabilityResourcePaths.Create(
+                    capabilityCatalog));
+        ResourcePath facetPath =
+            PackageQueryCapabilityResourcePaths.QueryFacet(
+                PackageQuery.DependsTermKey);
+        ResourcePath operationPath =
+            PackageQueryCapabilityResourcePaths.RelatedOperation(
+                PackageRelatedOperationAffordances
+                    .InspectDependencies.Id);
+
+        var resolved =
+            Assert.IsType<ResourcePathResolution.Resolved>(
+                explanation.Resolve(facetPath.Value));
+        InspectionEnvelope<ResourceExplanationDocument> envelope =
+            explanation.Explain(
+                resolved,
+                new(
+                    depth: 1,
+                    resourceLimit: 32,
+                    relationshipLimit: 64));
+        ResourceExplanationResource root =
+            Assert.Single(
+                envelope.Content.Resources,
+                resource => resource.Path == facetPath);
+
+        Assert.Contains(
+            envelope.Content.Relationships,
+            relationship =>
+                relationship.Source == root.Key
+                && relationship.Relationship.Value == "related-operation"
+                && HasTargetPath(relationship, operationPath));
+        ResourceExplanationResource operation =
+            Assert.Single(
+                envelope.Content.Resources,
+                resource => resource.Path == operationPath);
+        Assert.Equal(
+            PackageRelatedOperationAffordances
+                .InspectDependencies.Id.Value,
+            Text(operation, "identity"));
+        Assert.Equal(
+            "Inspect package dependencies",
+            Text(operation, "name"));
     }
 
     [Fact]
@@ -522,6 +644,14 @@ public sealed class InspectionCapabilityCompositionTests
                     PackageQuery.QuerySpace.Descriptor.Identity),
                 PackageQueryCapabilityResourcePaths.QueryFacet(term.Key));
         }
+        yield return new(
+            new(
+                InspectionCapabilityResourceKind.RelatedOperation,
+                PackageRelatedOperationAffordances
+                    .InspectDependencies.Id.Value),
+            PackageQueryCapabilityResourcePaths.RelatedOperation(
+                PackageRelatedOperationAffordances
+                    .InspectDependencies.Id));
     }
 
     private static QuerySpace.Explanation.ExplanationResourceKey

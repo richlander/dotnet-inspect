@@ -100,9 +100,12 @@ selection group, optional preset replacement group, display group, and
 Browser-issued fact category. Operand-bearing descriptors carry the same
 route-issued key and operators plus product-owned value-kind and example
 metadata. Presets and operand-bearing descriptors may also carry one
-product-issued Package Workspace lens hint. They may also carry product-issued
-choices or suggestions. A closed choice renders as a select; suggestions
-render as a dropdown-backed input that still admits an exact custom value.
+product-issued related-operation affordance identity projected from Resource
+Explanation. The Browser catalog is currently only a transport for that
+registered identity; it does not author a parallel lens hint. Descriptors may
+also carry product-issued choices or suggestions. A closed choice renders as a
+select; suggestions render as a dropdown-backed input that still admits an
+exact custom value.
 
 Acquisition tier and execution class are independent product facts. The former
 authorizes source search metadata, nuspec, or package-content work and retains
@@ -371,10 +374,12 @@ Interaction](inspect-web-shell-interaction.md#product-navigation-menu) and its
 - **Handoff, not duplication**: `Open in workspace` submits the row's
   product-issued package ID and exact version once through the standard typed
   Workspace transition. Active presets and terms contribute only their
-  product-issued Package Workspace lens hints. When every active hint agrees,
-  the transition opens that lens; dependency facts and value queries hint
-  Package Dependencies. No hint or conflicting hints open Package Overview.
-  The handoff never infers a framework, source, or fallback from display text,
+  product-issued related-operation affordance identities. When they identify
+  exactly one operation, the Browser may bind that exact identity to a
+  host-owned destination; `package.dependencies.inspect` opens Package
+  Dependencies. No operation, conflicting operations, or an unbound operation
+  opens Package Overview. The handoff never infers an operation, framework,
+  source, or fallback from term keys, labels, evidence, or other display text,
   so the funnel never grows its own type/member browser.
   Assembly match rows instead submit the evaluator's exact opaque Root
   reacquisition request. The Browser never reconstructs it from package ID,

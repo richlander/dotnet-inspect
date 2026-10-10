@@ -25,7 +25,6 @@ import type {
   BrowserPackageQueryCatalog,
   BrowserPackageQueryAcquisitionTier,
   BrowserPackageQueryExecutionClass,
-  BrowserPackageQueryWorkspaceLens,
 } from "./facades/inspect-web-package.d.ts";
 import type { BoundedPayloadDecoder } from "./worker-runtime-protocol.ts";
 
@@ -78,13 +77,6 @@ function executionClass(value: unknown): BrowserPackageQueryExecutionClass {
     || value === "PackageContent"
     || value === "Metadata"
     || value === "MetadataExpensive") return value;
-  return number(value);
-}
-
-function packageQueryWorkspaceLens(
-  value: unknown,
-): BrowserPackageQueryWorkspaceLens | null {
-  if (value === null || value === "Dependencies") return value;
   return number(value);
 }
 
@@ -426,7 +418,10 @@ export const engineStartupOperations = {
             categoryId: text(preset.categoryId),
             categoryLabel: text(preset.categoryLabel),
             categoryOrder: number(preset.categoryOrder),
-            workspaceLens: packageQueryWorkspaceLens(preset.workspaceLens),
+            relatedOperations: array(
+              preset.relatedOperations,
+              operation => text(operation),
+            ),
           };
         }),
         terms: array(data.terms, rawTerm => {
@@ -454,7 +449,10 @@ export const engineStartupOperations = {
                 summary: text(option.summary),
               };
             }),
-            workspaceLens: packageQueryWorkspaceLens(term.workspaceLens),
+            relatedOperations: array(
+              term.relatedOperations,
+              operation => text(operation),
+            ),
           };
         }),
       };

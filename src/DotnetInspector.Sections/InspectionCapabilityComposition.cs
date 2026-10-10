@@ -121,6 +121,23 @@ public sealed record InspectionQueryTermRelationship
     public string TargetTerm { get; }
 }
 
+public sealed record InspectionQueryTermRelatedOperation
+{
+    public InspectionQueryTermRelatedOperation(
+        string sourceTerm,
+        RelatedOperationAffordance operation)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceTerm);
+        SourceTerm = sourceTerm;
+        Operation = operation
+            ?? throw new ArgumentNullException(nameof(operation));
+    }
+
+    public string SourceTerm { get; }
+
+    public RelatedOperationAffordance Operation { get; }
+}
+
 public abstract class InspectionRouteRegistration
 {
     private protected InspectionRouteRegistration(
@@ -128,7 +145,9 @@ public abstract class InspectionRouteRegistration
         InspectionDocumentRegistration document,
         QuerySpaceBinding querySpace,
         IEnumerable<InspectionQueryTermRelationship>?
-            queryTermRelationships)
+            queryTermRelationships,
+        IEnumerable<InspectionQueryTermRelatedOperation>?
+            queryTermRelatedOperations)
     {
         Descriptor = descriptor
             ?? throw new ArgumentNullException(nameof(descriptor));
@@ -159,6 +178,10 @@ public abstract class InspectionRouteRegistration
         [
             .. queryTermRelationships ?? [],
         ];
+        QueryTermRelatedOperations =
+        [
+            .. queryTermRelatedOperations ?? [],
+        ];
         HashSet<string> queryTerms =
             querySpace.Descriptor.Operation.Terms
                 .Select(static term => term.Identity)
@@ -175,6 +198,32 @@ public abstract class InspectionRouteRegistration
                     + "Space.",
                     nameof(queryTermRelationships));
             }
+        }
+        foreach (InspectionQueryTermRelatedOperation relatedOperation
+                 in QueryTermRelatedOperations)
+        {
+            if (!queryTerms.Contains(relatedOperation.SourceTerm))
+            {
+                throw new ArgumentException(
+                    $"Inspection route '{descriptor.Identity}' declares a "
+                    + "query-term related operation outside its effective "
+                    + "Query Space.",
+                    nameof(queryTermRelatedOperations));
+            }
+        }
+        if (QueryTermRelatedOperations
+                .Select(static relationship =>
+                    (
+                        relationship.SourceTerm,
+                        relationship.Operation.Id.Value))
+                .Distinct()
+                .Count()
+            != QueryTermRelatedOperations.Length)
+        {
+            throw new ArgumentException(
+                "Inspection route query-term related-operation identities "
+                + "must be unique.",
+                nameof(queryTermRelatedOperations));
         }
         if (QueryTermRelationships.Distinct().Count()
             != QueryTermRelationships.Length)
@@ -193,6 +242,9 @@ public abstract class InspectionRouteRegistration
 
     public ImmutableArray<InspectionQueryTermRelationship>
         QueryTermRelationships { get; }
+
+    public ImmutableArray<InspectionQueryTermRelatedOperation>
+        QueryTermRelatedOperations { get; }
 }
 
 public sealed class InspectionRouteRegistration<TRequest, TContent> :
@@ -213,12 +265,15 @@ public sealed class InspectionRouteRegistration<TRequest, TContent> :
             CancellationToken,
             ValueTask<InspectionEnvelope<TContent>>> execute,
         IEnumerable<InspectionQueryTermRelationship>?
-            queryTermRelationships = null)
+            queryTermRelationships = null,
+        IEnumerable<InspectionQueryTermRelatedOperation>?
+            queryTermRelatedOperations = null)
         : base(
             descriptor,
             document,
             querySpace,
-            queryTermRelationships)
+            queryTermRelationships,
+            queryTermRelatedOperations)
     {
         _execute = execute
             ?? throw new ArgumentNullException(nameof(execute));

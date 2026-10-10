@@ -15,7 +15,7 @@ import {
   initialQueryState,
   isTraversalDependencyTarget,
   isLibraryLiteralQuery,
-  packageQueryWorkspaceLens,
+  packageQueryRelatedOperation,
   requiresTraversalDependencyTarget,
   shouldExecuteQuery,
   synchronizeDependencyTermEditor,
@@ -60,7 +60,7 @@ const HAS_DEPENDENCIES_FACET: QueryPreset = {
   tier: "nuspec",
   executionClass: "nuspec",
   selectionGroupId: "dependencies",
-  workspaceLens: "dependencies",
+  relatedOperations: ["package.dependencies.inspect"],
 };
 
 const NO_DEPENDENCIES_FACET: QueryPreset = {
@@ -72,7 +72,7 @@ const NO_DEPENDENCIES_FACET: QueryPreset = {
   tier: "nuspec",
   executionClass: "nuspec",
   selectionGroupId: "dependencies",
-  workspaceLens: "dependencies",
+  relatedOperations: ["package.dependencies.inspect"],
 };
 
 const SKILL_FACET: QueryPreset = {
@@ -152,7 +152,7 @@ const DEPENDS_TERM: QueryTermDescriptor = {
   valueKind: "package-id",
   example: "Microsoft.Extensions.Hosting",
   multiline: false,
-  workspaceLens: "dependencies",
+  relatedOperations: ["package.dependencies.inspect"],
 };
 
 const DEPENDENCY_TARGET_TERM: QueryTermDescriptor = {
@@ -507,23 +507,27 @@ test("switching traversal to direct retains another dependency term's target", (
     ]);
 });
 
-test("query workspace lens follows product-issued active hints", () => {
+test("query related operation follows product-issued active affordances", () => {
   const base = createQueryRequest("Contoso.*");
-  assert.equal(packageQueryWorkspaceLens(base), null);
+  assert.equal(packageQueryRelatedOperation(base), null);
 
   const dependencyTerm = withTerm(
     base,
     DEPENDS_TERM,
     "eq",
     "Contoso.Target");
-  assert.equal(packageQueryWorkspaceLens(dependencyTerm), "dependencies");
+  assert.equal(
+    packageQueryRelatedOperation(dependencyTerm),
+    "package.dependencies.inspect");
 
   const dependencyFact = withPreset(base, HAS_DEPENDENCIES_FACET);
-  assert.equal(packageQueryWorkspaceLens(dependencyFact), "dependencies");
+  assert.equal(
+    packageQueryRelatedOperation(dependencyFact),
+    "package.dependencies.inspect");
 
   assert.equal(
-    packageQueryWorkspaceLens(withPreset(dependencyTerm, TFM_FACET)),
-    "dependencies");
+    packageQueryRelatedOperation(withPreset(dependencyTerm, TFM_FACET)),
+    "package.dependencies.inspect");
 });
 
 test("removing the final dependency fact clears shared context", () => {
