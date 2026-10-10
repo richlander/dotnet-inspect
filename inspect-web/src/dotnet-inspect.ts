@@ -11007,7 +11007,7 @@ function packageDependenciesSignature() {
 function renderPackageDependenciesSurface(content: string, status: string) {
   return `<section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
     <header class="api-surface-head package-dependencies-surface-head">
-      <h1 id="package-dependencies-surface-title">Dependencies</h1>
+      <h1 id="package-dependencies-surface-title">References</h1>
       <p data-package-dependencies-status>${escapeHtml(status)}</p>
     </header>
     <div class="package-dependencies-scroll">

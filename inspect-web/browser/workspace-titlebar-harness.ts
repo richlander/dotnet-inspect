@@ -323,7 +323,7 @@ const packageStrip: readonly (
   readonly [PackageLens, string]
 )[] = [
   ["overview", "Overview"],
-  ["dependencies", "Dependencies"],
+  ["dependencies", "References"],
 ];
 const libraryStrip: readonly (
   readonly [LibraryLens, string]
@@ -541,7 +541,7 @@ function detailHtml() {
   if (packageDependenciesMode) {
     return `<section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
       <header class="api-surface-head package-dependencies-surface-head">
-        <h1 id="package-dependencies-surface-title">Dependencies</h1>
+        <h1 id="package-dependencies-surface-title">References</h1>
         <p>3 packages · 8 references</p>
       </header>
       <div class="package-dependencies-scroll">
