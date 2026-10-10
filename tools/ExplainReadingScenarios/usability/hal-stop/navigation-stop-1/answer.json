@@ -1,0 +1,46 @@
+{
+  "answer": "Use exact depends with dependency-depth=3 and dependency-target=net8.0. This asks whether the package has a direct or transitive declaration path to Newtonsoft.Json of at most three edges in the net8.0-selected dependency group. It does not establish that the package actually has such a path; no query was run.",
+  "unrun_command_argv": [
+    "dnx",
+    "dotnet-inspect",
+    "-y",
+    "--",
+    "package",
+    "query",
+    "Microsoft.Azure.SignalR",
+    "--where",
+    "depends=Newtonsoft.Json",
+    "--where",
+    "dependency-depth=3",
+    "--where",
+    "dependency-target=net8.0",
+    "--json"
+  ],
+  "depths_and_target": {
+    "accepted_depth_values": [2, 3, 4],
+    "depth_1_legal": false,
+    "depth_1_reason": "The dependency-depth facet has a closed value set of 2, 3, and 4. Exact depends without dependency-depth checks direct dependencies.",
+    "target_all_legal_for_this_command": false,
+    "target_all_reason": "Dependency traversal requires explicit dependency-target=<tfm>; all is rejected with dependency-depth or depends-transitive."
+  },
+  "gestures_and_limits": [
+    "package query takes the exact package ID as its positional argument; exposed facets use repeated --where key=value operands; --json requests structured output.",
+    "dependency-depth requires both an exact depends predicate and an explicit dependency-target TFM. A starts-with predicate alone does not qualify.",
+    "depends with depth matches direct or transitive declaration paths through the selected maximum. depends-transitive is the legacy spelling and matches only depths 2 through the selected maximum.",
+    "Depth traversal admits at most five package candidates; this exact package ID admits one. For a prefix or ecosystem population, set the candidate work bound explicitly with --take N; -n N only limits final rows.",
+    "The facet declares AcquisitionTier: nuspec. The command is prepared, not executed, so no package acquisition, resolution, or match result is claimed."
+  ],
+  "provenance": [
+    {"response": "response-01.out", "path": "package-query/query/facets/library-literal", "evidence": "HAL starting resource linked to the CLI binding and embedded its basic gesture."},
+    {"response": "response-02.out", "path": "package-query/bindings/cli", "evidence": "Full binding listed exposed facets, package query positional argument, --where key=value, --json, and --take versus -n."},
+    {"response": "response-07.out", "path": "package-query/query/facets/depends", "evidence": "Exact depends is direct by default and direct-or-transitive with depth 2, 3, or 4; candidate limit and target requirement."},
+    {"response": "response-08.out", "path": "package-query/query/facets/dependency-depth", "evidence": "Closed depth values 2, 3, 4; preferred exact depends plus depth; target and exact-predicate requirements."},
+    {"response": "response-06.out", "path": "package-query/query/facets/dependency-target", "evidence": "TFM target and rejection of all for traversal."},
+    {"response": "response-05.out", "path": "package-query/query/facets/depends-transitive", "evidence": "Legacy predicate begins at depth 2 and requires explicit target and depth."}
+  ],
+  "uncertainties": [
+    "The recorded explanations do not show whether Microsoft.Azure.SignalR actually depends on Newtonsoft.Json under net8.0 or which concrete package version would be selected."
+  ],
+  "schema_navigation_friction": "The initial HAL facet exposed only its own CLI binding; following that binding revealed links to the dependency facets. Those links resolved to full contract resources with facts and relationships rather than HAL projections. The contract resources reported traversal completeness as Truncated because requested_depth was 0, although the needed facet facts were present.",
+  "truncated_tool_rendering": "None observed."
+}

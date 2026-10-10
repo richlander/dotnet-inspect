@@ -1,0 +1,32 @@
+{
+  "source_commit": "536ce35bccbd6baa56d592fc6a8e944afd836d30",
+  "cli_version": "0.27.0+536ce35",
+  "sdk": "11.0.100-rc.1.26425.128",
+  "model": "gpt-6-sol",
+  "reasoning": "high",
+  "binary_sha256": {
+    "dotnet-inspect": "1a34006ea1f686839b798a99cc8fd276c105e67802a7fdfcf0065d5de1e26be3",
+    "dotnet-inspect.dll": "900a6b65a9b5e7b8a66f51c22869aa2dc12535fb53054ce2445d1f3e8ddc308d"
+  },
+  "previous_evidence_commit": "1921253d84e2ff06985aa54569d1fe36a79dea32",
+  "trials": [
+    "query-strong-1",
+    "style-strong-1",
+    "query-strong-2",
+    "style-strong-2",
+    "navigation-strong-1"
+  ],
+  "inputs": {
+    "participant.txt": "4f66f919b3d068d0ecc816a47f15081f8c0be7b0e781723836c039e32e8222c6",
+    "query-task.txt": "8e4340f28e59e074f9b612ac3ea56368f07721273364b267e7d74e82677f83b9",
+    "style-task.txt": "d395cdf800c77fa24ab51bb6863c6b85b7837f0e421c3b1a8ad415d34dd62b42",
+    "navigation-task.txt": "4cf156736aa748b19101e02bd1d5e721c38c51217996815e6e1f04e185e0bcf4",
+    "assessment-criteria.txt": "30757652a9962cb7c0c6c896655189a959d4870a5e1eb4b586a88568cb771d00",
+    "navigation-criteria.txt": "8d2f4b2d64c05daa7482defd2a4e6ff3604f5364a23975795874c8050e78ba9b",
+    "post-task-question.txt": "9a4ac8b072fd35897657b8482a2fde9195a5a5b811684aa02487ec45103ef7db",
+    "guide-stop.txt": "8290ef1944fd1d2d777cf3bf4b9584525b98a8cba0fd2115b07a65a82945212f",
+    "guide-strong.txt": "f7de68547495aa1b711858ec6957d22a54b6645afd220dc3210af7964963a5b8",
+    "verification-policy.txt": "6acc36eb230233b4e09198df8b8b85c1c9b6c8551978b46f244517fb7700e9c8",
+    "strong-assessment-criteria.txt": "892d0f1abcc7086096443f645de3c8460117cfee92dcfa5483f593deb1131aa7"
+  }
+}
