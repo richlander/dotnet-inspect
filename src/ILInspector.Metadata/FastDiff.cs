@@ -486,6 +486,7 @@ public static class FastDiff
         readonly Guid _mvid;
         readonly Dictionary<int, string> _keys = [];
         readonly Dictionary<int, string> _displayNames = [];
+        readonly Dictionary<int, string> _keyNames = [];
         readonly SignatureKeys _signatures;
         readonly Dictionary<TypeDefinitionHandle, HashSet<MethodDefinitionHandle>> _explicitImplementations = [];
 
@@ -924,7 +925,15 @@ public static class FastDiff
         /// character the key grammar uses as a separator escaped, so distinct
         /// names never spell the same key.
         /// </summary>
-        string KeyName(StringHandle handle) => EscapeKeyName(Md.GetString(handle));
+        string KeyName(StringHandle handle)
+        {
+            // Memoized by string heap offset: the census reads the same names
+            // for every compared Type.
+            int offset = MetadataTokens.GetHeapOffset(handle);
+            if (!_keyNames.TryGetValue(offset, out string? name))
+                _keyNames[offset] = name = EscapeKeyName(Md.GetString(handle));
+            return name;
+        }
 
         /// <summary>The symbolic name of a Type, with <c>/</c> between nested names.</summary>
         public string TypeKey(TypeDefinitionHandle handle)
