@@ -25,22 +25,35 @@ before acquisition instead.
 
 | Request with `--tfm all` | Result |
 | --- | --- |
-| `package <id>` default Library hierarchy | Every available slice in compile selection's inventory order, each with its `ref` and `lib` candidates by path and its explicit empty-group marker. A tool package shows every tool slice by path. |
+| `package <id>` default Tree | The discovery projection below. |
 | `-S Files` | Every admitted entry with no Target predicate, under [Package file inventory](package-file-inventory.md#selected-entry-set). |
 | `-S Dependencies` | Every dependency group from the package manifest. |
-| `-S "Target Frameworks"` and other manifest-only sections | Unchanged. |
-| `-S "Package Info"` | The section without its selected-framework fields: `Selected TFM` and the selected-TFM folder, library count, and size measurements. |
-| `--library`, `-S "Dependency Hierarchy"`, and sections whose producers read an assembly or a PDB, such as SourceLink, Signals, and Ecosystem Dependencies | Fails before acquisition and names the section or flag. |
+| `-S "Target Frameworks"` and other sections that read only archive entries or package metadata | Unchanged. |
+| `-S "Package Info"` | The section without every field that needs a selected framework or reads an assembly: `Selected TFM`, `Selected-TFM Status`, the selected-TFM folder, library count, and size measurements, `Ecosystem Dependencies`, and `Ecosystem Dependency Status`. |
+| `--library`, `-S "Dependency Hierarchy"`, and sections whose producers need a selected framework or read an assembly or a PDB, such as SourceLink, Signals, and Ecosystem Dependencies | Fails before acquisition and names the section or flag. |
 | A category whose expansion contains a failing member | Fails; the category does not drop members. |
-| `library`, `type`, `member`, `find`, `extensions`, `diff`, `depends`, or any other command with a package target | Fails before acquisition and names `package <id> --tfm all`. |
+| `package query` | Fails before acquisition, because it evaluates assemblies. |
+| `library`, `type`, `member`, `find`, `extensions`, `diff`, `depends`, `workspace`, or any other command with a package target | Fails before acquisition and names `package <id> --tfm all`. |
+
+The `--tfm all` default Tree is a discovery projection that this owner
+defines; it is not the Package children document of
+[Package library scope](package-library-scope.md), whose population stays the
+one selected compile projection. The projection groups compile selection's
+available-slice inventory by framework in descending framework priority, then
+by framework name. Each group lists that slice's `ref` and `lib` candidates by
+path and shows its explicit empty-group marker. A tool package groups its tool
+slices, as [Package Info tool measurements](package-info-tool-measurements.md)
+defines them, the same way. Every row carries its own framework, so following
+it uses `package <id> --tfm <framework> --library <path>`; no row implies a
+`--library` path that the selected default framework would reject.
 
 Failures are ordinary visible errors with exit code 1. No route treats `all`
 as a framework spelling or falls back to the highest framework.
 
 ## Non-claims
 
-This owner does not change compile selection, its slice order, or its
-available-slice inventory; it consumes them. It does not define which assets
+This owner does not change compile selection or its available-slice inventory;
+it consumes the inventory and orders only its own projection. It does not define which assets
 are Libraries when a package has no compile assets; #9833 and
 [Package library scope](package-library-scope.md) own that. It does not change
 `--tfm <TFM>` for a single framework.
@@ -60,13 +73,16 @@ The CLI does not yet meet this contract. Observed on main:
   no rows.
 - `-S "Dependency Hierarchy"` fails with an internal exception.
 - `type --package <id> --tfm all` fails after acquisition.
-- `library` and `type` recognize `all` at separate sites, and other commands
-  accept it.
+- `library` and `type` recognize `all` at separate sites. Package-mode
+  `depends` already fails before acquisition because `all` is not a NuGet
+  framework, while type-mode `depends`, `member`, and `workspace` accept it,
+  and `package query` returns zero matches.
 
 The adoption under #9833 adds one shared pre-acquisition admission check,
 classifies every `package` section against this table, and gates each row. It
 also retires the IL-reading `--tfm all` code paths and the current-mechanics
 descriptions in [Integrations](integrations.md), [Inspection
 space](../inspection-space.md), [Assembly inspection
-query](assembly-inspection-query.md), and [CLI row
-selection](cli-row-selection.md).
+query](assembly-inspection-query.md), [CLI row
+selection](cli-row-selection.md), [CLI architecture](../cli-architecture.md),
+and [Find search service](find-search-service.md).
