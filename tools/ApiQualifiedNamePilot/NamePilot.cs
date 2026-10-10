@@ -433,15 +433,21 @@ internal readonly record struct SpcSummary(
         double sigma = movingRange / 1.128;
         double lower = center - (3 * sigma);
         double upper = center + (3 * sigma);
+        double tolerance = Math.Max(
+            1e-12,
+            Math.Max(
+                Math.Abs(lower),
+                Math.Abs(upper)) * 1e-12);
         int outside = logs.Count(
-            value => value < lower || value > upper);
-        string direction = upper < 0
+            value => value < lower - tolerance
+                || value > upper + tolerance);
+        string direction = upper < -tolerance
             ? "win"
-            : lower > 0
+            : lower > tolerance
                 ? "loss"
                 : "inconclusive";
         string stability = outside == 0
-            ? "stable"
+            ? "in-control"
             : "special-cause";
         double[] ordered = [.. ratios.Order()];
         return new(
