@@ -8242,6 +8242,7 @@ function currentTypeApiDiffCueRequest(): TypeApiDiffCueRequest | null {
     packageModel: state.package,
     baseline: change.baseline,
     typeQueryIdentifier: typeQueryIdentifierOf(change.type),
+    typeIdentifier: typeIdentifierOf(change.type),
   };
 }
 
@@ -8260,7 +8261,7 @@ function memberChangeAchievements(
   const request = currentTypeApiDiffCueRequest();
   const entry = request ? typeApiDiffCues.entry(request) : null;
   return request && entry?.status === "ready"
-    ? memberApiDiffAchievements(entry.value, group, index, {
+    ? memberApiDiffAchievements(entry.value.memberFingerprints, group, index, {
         kind: "api-diff",
         description: `API changed since ${request.baseline.targetVersion}`,
       })
@@ -8277,6 +8278,8 @@ function selectedTypeChangeStatus(type: AppTypeSurface): string {
     {
       description: change.cue.description,
       api: change.cue.kind === "api-diff",
+      body: change.fastDiff.body === "Changed"
+        || change.fastDiff.body === "Indeterminate",
     },
     request ? typeApiDiffCues.entry(request) : null,
     escapeHtml);

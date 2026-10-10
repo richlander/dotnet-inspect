@@ -112,14 +112,23 @@ navigation status with a retry; a loading baseline shows nothing.
 
 Every Type cue leads to a view. When the selected Type has a cue, the Members
 header names the change and opens Library Compare against the same baseline:
-**Compare API** for an API cue and **Compare bodies**, Member Body Diff, for an
-implementation cue.
+**Compare API** for an API cue, **Compare bodies** (Member Body Diff) for an
+implementation cue, and both when both axes are reported.
 
-For an API cue, the queue runs the Type-surface Library API Diff of that one
-Type against the baseline as visible-subject work, and the member list and
-member navigation mark each Member it reports changed with the API glyph. When
-that diff reports no changed Member, the header says the change is in the
-Type's declaration; when it fails, the header shows the failure with a retry.
+For an API cue, the queue runs the Type-surface Library API Diff with
+Compare's Type-subject analyses (`api` and `api-attribute`) as
+visible-subject work. That diff's value lists every changed Type in the
+Library, so the cue keeps only the selected Type's row, joined by definition
+identity. The member list and member navigation mark each Member that row
+reports changed with the API glyph. The header adds one finding from the row:
+
+- when the row reports a declaration change and no changed Member, the change
+  is in the Type's declaration;
+- when the diff has no row for the Type, the complete API diff shows no change
+  for it, which happens when Fast Diff over-reports or leaves the API axis
+  undecided; and
+- when the diff fails, the failure, with a retry.
+
 Implementation cues are not placed on Members until Fast Diff has per-Member
 states ([Fast Diff adoption](fast-diff.md#adoption) step 7); until then the
 Members header's Compare bodies action is their view.

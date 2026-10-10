@@ -12,7 +12,6 @@ import {
 } from "./held-analysis.ts";
 import {
   createLibraryApiDiffRequest,
-  libraryApiDiffResultPresence,
   validateLibraryApiDiffResult,
   type LibraryApiDiffOperationInput,
 } from "./library-api-diff.ts";
@@ -32,6 +31,16 @@ export interface TypeApiDiffCueRequest {
   readonly baseline: LibraryFastDiffBaseline;
   /** The Type's query identity (`ApiType.FullName`). */
   readonly typeQueryIdentifier: string;
+  /** The Type's definition identity, which the diff's Type rows carry. */
+  readonly typeIdentifier: string;
+}
+
+/** What the complete API diff says about the one selected Type. */
+export interface TypeApiDiffCueValue {
+  /** The diff has a changed-Type row for this Type. */
+  readonly found: boolean;
+  readonly declarationChanged: boolean;
+  readonly memberFingerprints: ReadonlySet<string>;
 }
 
 export interface TypeApiDiffCuesDependencies {
@@ -47,14 +56,15 @@ export interface TypeApiDiffCuesDependencies {
   render(): void;
 }
 
-/** Held changed-Member fingerprints per Type and baseline. */
-export type TypeApiDiffCues = HeldAnalysis<TypeApiDiffCueRequest, ReadonlySet<string>>;
+/** The selected Type's API diff, held per Type and baseline. */
+export type TypeApiDiffCues = HeldAnalysis<TypeApiDiffCueRequest, TypeApiDiffCueValue>;
 
 export function typeApiDiffCueKey(request: TypeApiDiffCueRequest): string {
   return JSON.stringify([
     "type-api-diff",
     libraryFastDiffKey(request.baseline),
     request.typeQueryIdentifier,
+    request.typeIdentifier,
   ]);
 }
 
@@ -67,10 +77,11 @@ function operationInput(request: TypeApiDiffCueRequest): LibraryApiDiffOperation
     targetVersion: baseline.targetVersion,
     targetFramework: baseline.targetFramework,
     compileAssetId: baseline.compileAssetId,
-    // Member presence needs only the API changes of the one Type.
+    // The analyses of Compare's Type subject: Fast Diff's API axis includes
+    // member attributes, so attribute changes must place member cues too.
     query: {
       surface: "Type",
-      analyses: ["api"],
+      analyses: ["api", "api-attribute"],
       views: "Changes",
       typeNames: [request.typeQueryIdentifier],
       memberTargetIdentities: [],
@@ -81,7 +92,7 @@ function operationInput(request: TypeApiDiffCueRequest): LibraryApiDiffOperation
 export function createTypeApiDiffCues(
   dependencies: TypeApiDiffCuesDependencies,
 ): TypeApiDiffCues {
-  return createHeldAnalysis<TypeApiDiffCueRequest, ReadonlySet<string>>({
+  return createHeldAnalysis<TypeApiDiffCueRequest, TypeApiDiffCueValue>({
     ...dependencies,
     name: "Member change cues",
     order: "visible-subject",
@@ -91,11 +102,21 @@ export function createTypeApiDiffCues(
     read: (result, request) => {
       validateLibraryApiDiffResult(result, operationInput(request));
       switch (result.kind) {
-        case "Succeeded":
+        case "Succeeded": {
+          // The value lists every changed Type in the Library; keep the one
+          // selected Type's row.
+          const row = result.value?.types.find(type =>
+            type.after?.identifier === request.typeIdentifier);
           return {
             kind: "ready",
-            value: libraryApiDiffResultPresence(result).memberFingerprints,
+            value: {
+              found: row !== undefined,
+              declarationChanged: row?.typeDefinitionChanged === true,
+              memberFingerprints: new Set(row?.members.flatMap(member =>
+                member.after ? [member.after.fingerprint] : []) ?? []),
+            },
           };
+        }
         case "Canceled":
           return { kind: "canceled" };
         default:
@@ -115,20 +136,31 @@ export function createTypeApiDiffCues(
  * the member-cue state, and the Compare content that shows it.
  */
 export function renderTypeChangeStatus(
-  change: { readonly description: string; readonly api: boolean },
-  cues: HeldAnalysisEntry<ReadonlySet<string>> | null,
+  change: {
+    readonly description: string;
+    readonly api: boolean;
+    readonly body: boolean;
+  },
+  cues: HeldAnalysisEntry<TypeApiDiffCueValue> | null,
   escapeHtml: (value: unknown) => string,
 ): string {
+  const ready = cues?.status === "ready" ? cues.value : null;
   const detail = cues?.status === "failed"
     ? `<span class="type-change-detail">Member cues unavailable: ${escapeHtml(cues.error)}</span>
       <button type="button" class="type-change-action" data-type-change-retry>Retry</button>`
-    : cues?.status === "ready" && cues.value.size === 0
-      ? '<span class="type-change-detail">No member changed; Compare shows the Type-level change.</span>'
-      : "";
+    : ready && !ready.found
+      ? '<span class="type-change-detail">The complete API diff shows no change for this Type.</span>'
+      : ready && ready.memberFingerprints.size === 0 && ready.declarationChanged
+        ? '<span class="type-change-detail">The change is in the Type\'s declaration.</span>'
+        : "";
+  const actions = [
+    ...(change.api ? ['<button type="button" class="type-change-action" data-type-change-compare="api">Compare API</button>'] : []),
+    ...(change.body ? ['<button type="button" class="type-change-action" data-type-change-compare="member-body">Compare bodies</button>'] : []),
+  ].join("\n      ");
   return `<p class="type-change-status" role="status">
       <span class="item-achievement-glyph ${change.api ? "api-diff" : "body-diff"}" aria-hidden="true"></span>
       <span class="type-change-text">${escapeHtml(change.description)}</span>${detail}
-      <button type="button" class="type-change-action" data-type-change-compare="${change.api ? "api" : "member-body"}">${change.api ? "Compare API" : "Compare bodies"}</button></p>`;
+      ${actions}</p>`;
 }
 
 export function bindTypeChangeActions(
