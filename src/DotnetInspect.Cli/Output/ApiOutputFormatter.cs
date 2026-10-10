@@ -2699,9 +2699,12 @@ public static class ApiOutputFormatter
             .. BodyShapeSummary.FromMatches(result.Matches).Select(ApiBodyShapeSummaryRow.FromSummary),
         ];
 
-        if (result.Failures.Count == 0)
+        view.BodyShapeSearchIncomplete = BodyShapeCompleteness.IsIncomplete(result);
+        view.BodyShapeMatchesObserved = result.Matches.Count > 0;
+        if (!view.BodyShapeSearchIncomplete)
             return;
 
+        CommandError.WriteWarning(BodyShapeCompleteness.Warning(result));
         if (options.Verbose)
         {
             foreach (Decompiler.BodyShapeSearchFailure failure in result.Failures)
@@ -2709,13 +2712,6 @@ public static class ApiOutputFormatter
                 CommandError.WriteWarning(
                     $"Body Shapes skipped {failure.Subject}: {failure.Reason}");
             }
-        }
-
-        else
-        {
-            CommandError.WriteWarning(
-                $"Body Shapes skipped {result.Failures.Count} candidates; "
-                + "rerun with --verbose for details.");
         }
     }
 

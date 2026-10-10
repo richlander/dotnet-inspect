@@ -51,7 +51,9 @@ Given:
 - one explicit package target-selection request;
 - one product-issued assembly-semantic request;
 - the same transferred `PackageSourceOperationLease` whose issuer authorized
-  those candidates, plus caller-owned authority-scoped package stores; and
+  those candidates, as the population-ownership and total-deadline anchor;
+- one caller-supplied, payload-bounded `PackageHouse` acquisition capability
+  plus a same-generation source-operation issuer; and
 - finite candidate, acquisition, retained-image, semantic-work, and deadline
   bounds;
 
@@ -99,7 +101,8 @@ ordinary type search or moving package classification into Find.
 | --- | --- |
 | [Typed source intent](search-scope-domain.md) | Validated exact package and bounded literal package-prefix declarations. |
 | [Package Query input selection](package-query-input-selection.md) | Behavioral precedent for exact-ID versus prefix selection, ordering, version eligibility, and completion; its package-row events are not this query's candidate handoff. |
-| [Package source model](package-source-model.md) | Authority-bearing `PackageAcquisitionCandidate`, same-issuer `PackageSourceOperationLease`, candidate payload acquisition, retained payload results, deadlines, and typed source failures. |
+| [Package source model](package-source-model.md) | Authority-bearing `PackageAcquisitionCandidate`, same-issuer `PackageSourceOperationLease`, ownership validation, deadlines, and typed source failures. |
+| [PackageHouse](package-house.md) | Exact candidate demand, host-owned bounded payload acquisition, typed failures, and transfer evidence. |
 | [CLI search scope resolution](search-scope-resolution.md) | Existing CLI source declaration and prefix behavior that a separate literal-mode adoption must update without changing this L1 contract. |
 | [Package Query assembly-pattern evaluation](package-query-assembly-evaluation.md) | One-candidate selected-assembly evaluation, typed semantic outcomes, resource-free evidence, reopening request, bounds, and cleanup. |
 | [Metadata assembly inspection](assembly-inspection-query.md) | Managed-image admission and callback-scoped query authority. |
@@ -181,9 +184,11 @@ paths, delegates, readers, streams, analysis sessions, or callbacks.
 The query does not discover or resolve this population. A host or separately
 owned source adapter completes candidate discovery and selection first,
 freezes the population, and transfers the same still-live
-`PackageSourceOperationLease` into query execution. No later discovery or
-version-selection event can change the population, but candidate payload
-acquisition remains package-source work inside the query.
+`PackageSourceOperationLease` into query execution as its population-ownership
+and total-deadline anchor. The host also supplies one payload-bounded
+`PackageHouse` acquisition capability and a same-generation operation issuer.
+No later discovery or version-selection event can change the population;
+candidate acquisition remains House work inside the query.
 
 The first contract admits package candidates only. Local libraries, binary
 directories, restored projects, Platform libraries, package groups, and mixed
@@ -277,15 +282,18 @@ vocabulary through its own focused producer adoption and typed result arm.
 
 Execution is serial in candidate order. For each candidate, the query:
 
-1. asks the transferred `PackageSourceOperationLease` to acquire that exact
-   candidate's admitted retained payload into caller-owned authority-scoped
-   stores;
-2. maps the source owner's available payload result into
-   `PackageRootBinding.CreateFromSource` for the requested target;
-3. invokes the one-candidate evaluator;
-4. detaches the typed outcome and occurrence evidence;
-5. completes candidate-scoped cleanup; and
-6. reports the terminal candidate outcome through the optional nonterminal
+1. issues one source operation from the same settlement generation, bounded by
+   the transferred operation's total deadline;
+2. asks `PackageHouse` to Acquire the exact source-issued candidate under the
+   request's payload limits;
+3. projects the House settlement into the retained configured-payload evidence
+   shape;
+4. constructs the existing exact-target package Root without compatible TFM
+   fallback;
+5. invokes the one-candidate evaluator;
+6. detaches the typed outcome and occurrence evidence;
+7. completes candidate-scoped cleanup; and
+8. reports the terminal candidate outcome through the optional nonterminal
    sink before advancing.
 
 Serial execution preserves the measured five-candidate memory boundary and
@@ -299,15 +307,15 @@ prevent later admitted candidates from running. A cancellation or unexpected
 orchestration exception aborts the operation after required cleanup and
 publishes no normal completion.
 
-The candidate and operation lease must share the package owner's issuer
-identity and settlement generation, and the transferred lease must be live.
-A lease issued before root retirement retains the validity granted by the
-Package Source owner until that lease releases. Foreign, disposed, or otherwise
-invalid combinations follow that owner's rejection or misuse contract and
-never fall back to coordinate-only acquisition. Each payload step settles
-before the next lease use. The query owns the transferred lease through
-terminal completion, cancellation, or failure and releases it after the last
-payload step and all candidate-scoped cleanup.
+The candidate, transferred operation, and each House operation must share the
+package owner's issuer identity and settlement generation, and the transferred
+lease must be live. A lease issued before root retirement retains the validity
+granted by the Package Source owner until that lease releases. Foreign,
+disposed, or otherwise invalid combinations follow that owner's rejection or
+misuse contract and never fall back to coordinate-only acquisition. Each House
+realization settles before the next operation is issued. The query owns the
+transferred lease through terminal completion, cancellation, or failure and
+releases it after the last candidate-scoped cleanup.
 
 Occurrence order is:
 
