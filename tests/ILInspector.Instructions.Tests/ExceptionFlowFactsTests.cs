@@ -67,6 +67,50 @@ public class ExceptionFlowFactsTests
     }
 
     [Fact]
+    public void ResolvedSequenceMaterializesCanonicalLayerZero()
+    {
+        (MethodBodyData body, MethodInstructions expected) =
+            Decode(nameof(ExceptionFlowFactsSamples.SharedCatchExtent));
+        InstructionSequence sequence =
+            InstructionSequence.CreateResolved(body.IL);
+        InstructionCursor cursor = sequence.GetCursor();
+        Assert.True(cursor.MoveNext());
+        Assert.False(sequence.IsComplete);
+
+        MethodInstructions actual = sequence.Materialize(body);
+
+        Assert.True(sequence.IsComplete);
+        Assert.True(actual.IsComplete, actual.Blocks.IncompleteReason);
+        Assert.Equal(
+            expected.Instructions.Select(InstructionIdentity),
+            actual.Instructions.Select(InstructionIdentity));
+        Assert.Equal(
+            expected.Instructions.Select(
+                instruction => instruction.BranchTargets.ToArray()),
+            actual.Instructions.Select(
+                instruction => instruction.BranchTargets.ToArray()));
+        Assert.Equal(
+            AvailableFacts(expected).Body,
+            AvailableFacts(actual).Body);
+    }
+
+    [Fact]
+    public void ResolvedSequenceRejectsDifferentBodyEvidence()
+    {
+        (MethodBodyData retainedBody, _) =
+            Decode(nameof(ExceptionFlowFactsSamples.SharedCatchExtent));
+        (MethodBodyData differentBody, _) =
+            Decode(nameof(ExceptionFlowFactsSamples.NestedFinally));
+        InstructionSequence sequence =
+            InstructionSequence.CreateResolved(retainedBody.IL);
+
+        ArgumentException error = Assert.Throws<ArgumentException>(
+            () => sequence.Materialize(differentBody));
+
+        Assert.Equal("body", error.ParamName);
+    }
+
+    [Fact]
     public void IdentityLookupReturnsCanonicalFactsAcrossRematerialization()
     {
         (MethodBodyData body, MethodInstructions method) =
@@ -987,6 +1031,20 @@ public class ExceptionFlowFactsTests
                 InstructionExceptionFlowFacts>.Available>(
                     method.ExceptionFlow).Value;
     }
+
+    static (
+        int Offset,
+        ILOpCode OpCode,
+        OperandKind OperandKind,
+        long OperandValue,
+        int NextOffset) InstructionIdentity(
+            DecodedInstruction instruction) =>
+        (
+            instruction.Offset,
+            instruction.OpCode,
+            instruction.Operand,
+            instruction.OperandValue,
+            instruction.NextOffset);
 
     static InstructionNormalTransfer AvailableTransfer(
         InstructionExceptionFlowFacts facts,
