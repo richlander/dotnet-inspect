@@ -316,11 +316,11 @@ gates; this policy document does not redefine those internals.
 The Package children document preserves the exact ordered compile population
 issued by Package selection without entering Package Library Scope. It retains
 every compile asset ID and path but does not inspect the occurrence or carry
-facts from its Type population. Under `--tfm all`, the default Tree is instead
-the discovery projection that
-[All-frameworks package discovery](package-tfm-all-discovery.md) owns. The CLI uses that document for its native Tree,
-structured JSON and envelope, row formats, row windows, projections, and
-scalar Count. Every Library row carries the exact asset path used by
+facts from its Type population. Without `--tfm all`, the CLI uses that
+document for its native Tree, structured JSON and envelope, row formats, row
+windows, projections, and scalar Count. Under `--tfm all`, every one of those
+outputs instead comes from the discovery projection that
+[All-frameworks package discovery](package-tfm-all-discovery.md) owns. Every Library row carries the exact asset path used by
 `package P --library <path>`; every RID Package row carries its exact Package
 selector. Inspect Web carries the same document and uses its exact asset IDs
 for Library navigation. Tool-package
