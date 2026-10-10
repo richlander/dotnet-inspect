@@ -48,6 +48,18 @@ public static class LibrarySections
     public static InspectionQueryCatalog<AssemblyContextGroup> GroupQueryCatalog { get; } =
         BuildGroupQueryCatalog();
 
+    /// <summary>The authored Library dependency facets selected as one domain.</summary>
+    public static ViewFacetSetDescriptor DependenciesFacetSet { get; } =
+        new(
+            new ViewFacetSetId("dependencies"),
+            "Dependencies",
+            InspectionViewFacetCatalog.Registry,
+            [
+                new ViewFacetId("library.references"),
+                new ViewFacetId("library.ecosystem-dependencies"),
+                new ViewFacetId("library.reference-hierarchy"),
+            ]);
+
     /// <summary>The reusable fixed-domain catalog for library sections and query-demand plans.</summary>
     public static SectionCatalog<LibraryInspection> SectionCatalog { get; } =
         CreatePipeline().Compile();
@@ -239,8 +251,9 @@ public static class LibrarySections
                 SectionCategoryNames.Integrations,
                 IntegrationSectionNames.Integrations,
                 IntegrationSectionNames.Opportunities)
-            .AddCategory(
+            .AddFacetSetCategory(
                 SectionCategoryNames.Dependencies,
+                DependenciesFacetSet,
                 SectionNames.References,
                 SectionNames.EcosystemDependencies,
                 SectionNames.ReferenceHierarchy)
