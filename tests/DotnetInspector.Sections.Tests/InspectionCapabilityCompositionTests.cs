@@ -230,7 +230,13 @@ public sealed class InspectionCapabilityCompositionTests
                 queryTermRelatedOperations:
                 [
                     relationship,
-                    relationship,
+                    new(
+                        relationship.SourceTerm,
+                        new(
+                            new RelatedOperationAffordanceId(
+                                relationship.Operation.Id.Value),
+                            "Alternate title",
+                            "Alternate summary.")),
                 ]));
     }
 

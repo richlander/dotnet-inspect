@@ -211,12 +211,18 @@ public abstract class InspectionRouteRegistration
                     nameof(queryTermRelatedOperations));
             }
         }
-        if (QueryTermRelatedOperations.Distinct().Count()
+        if (QueryTermRelatedOperations
+                .Select(static relationship =>
+                    (
+                        relationship.SourceTerm,
+                        relationship.Operation.Id.Value))
+                .Distinct()
+                .Count()
             != QueryTermRelatedOperations.Length)
         {
             throw new ArgumentException(
-                "Inspection route query-term related operations must be "
-                + "unique.",
+                "Inspection route query-term related-operation identities "
+                + "must be unique.",
                 nameof(queryTermRelatedOperations));
         }
         if (QueryTermRelationships.Distinct().Count()
