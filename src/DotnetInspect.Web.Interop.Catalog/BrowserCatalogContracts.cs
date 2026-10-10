@@ -417,12 +417,12 @@ public enum BrowserVocabularyExplanationOutcome
     OutsideVocabularies,
     Unknown,
     InvalidDepth,
+    InvalidSelection,
 }
 
 /// <summary>
-/// A completed explanation. <c>Content</c> is the Resource Explanation
-/// Document exactly as its owner serializes it, which the CLI's
-/// <c>explain --json</c> also writes for the same path and depth.
+/// A completed explanation. <c>Content</c> uses the shared compact projection
+/// by default, or the explicitly requested data, HAL dataset, or full contract.
 /// </summary>
 public sealed record BrowserVocabularyExplanation(
     JsonElement Content,
