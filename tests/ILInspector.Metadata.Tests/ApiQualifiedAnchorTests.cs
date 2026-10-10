@@ -637,6 +637,28 @@ public sealed class ApiQualifiedAnchorTests
     }
 
     [Fact]
+    public void SignaturePreflightWorkLimit_StopsBeforeResolvedProjection()
+    {
+        (byte[] image, MetadataDeclarationLocation location) =
+            BuildAssemblyReferenceMethodImage(keyBytes: 1_100_000);
+
+        ApiQualifiedAnchorResult result =
+            IssueResult(
+                image,
+                location,
+                resolver: new ScopeAuthorizingResolver());
+
+        ApiQualifiedAnchorResult.Failed failed =
+            Assert.IsType<ApiQualifiedAnchorResult.Failed>(result);
+        Assert.Equal(
+            ApiQualifiedAnchorStage.NamedTypeResolution,
+            failed.Failure.Stage);
+        Assert.Equal(
+            ApiQualifiedAnchorFailureReason.WorkLimitExceeded,
+            failed.Failure.Reason);
+    }
+
+    [Fact]
     public void ExhaustedStructuredWorkBudget_FailsWithoutDegradedAnchor()
     {
         string path = Pair.OldAssemblyPath();
@@ -750,7 +772,8 @@ public sealed class ApiQualifiedAnchorTests
     static ApiQualifiedAnchorResult IssueResult(
         byte[] image,
         MetadataDeclarationLocation location,
-        MetadataOperationPolicy? policy = null)
+        MetadataOperationPolicy? policy = null,
+        IApiQualifiedTypeDefinitionResolver? resolver = null)
     {
         using AssemblyInspectionSession assembly =
             AssemblyInspectionSession.OpenPrefetched(
@@ -759,7 +782,7 @@ public sealed class ApiQualifiedAnchorTests
             policy ?? MetadataOperationPolicy.Unbounded);
         using MetadataDeclarationSession declarations =
             assembly.CreateDeclarationSession(operation);
-        return declarations.PostApiQualifiedAnchor(location);
+        return declarations.PostApiQualifiedAnchor(location, resolver);
     }
 
     static MetadataDeclarationLocation FindMethodByCompanionAnchor(

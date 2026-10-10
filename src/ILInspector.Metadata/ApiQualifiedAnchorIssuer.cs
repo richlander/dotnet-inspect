@@ -702,12 +702,25 @@ internal sealed class ApiQualifiedAnchorIssuer
                 metrics: null,
                 limits: null,
                 _operation);
-        if (decoded
-            is not SignatureOccurrenceDecodeResult.Decoded complete)
+        if (decoded is SignatureOccurrenceDecodeResult.Rejected rejected)
         {
-            return;
+            bool workLimit = rejected.Reason is
+                SignatureOccurrenceRejectionReason.TypeSpecificationBudget
+                or SignatureOccurrenceRejectionReason.TypeNameBudget
+                or SignatureOccurrenceRejectionReason.RelationshipTraversal
+                or SignatureOccurrenceRejectionReason.NodeBudget
+                or SignatureOccurrenceRejectionReason.OccurrenceCopyBudget
+                or SignatureOccurrenceRejectionReason.WorkBudget;
+            throw Failed(
+                ApiQualifiedAnchorStage.NamedTypeResolution,
+                workLimit
+                    ? ApiQualifiedAnchorFailureReason.WorkLimitExceeded
+                    : ApiQualifiedAnchorFailureReason.MalformedMetadata,
+                $"Named-type signature preflight was rejected: {rejected.Reason}.");
         }
 
+        SignatureOccurrenceDecodeResult.Decoded complete =
+            (SignatureOccurrenceDecodeResult.Decoded)decoded;
         foreach (SignatureNamedTypeOccurrence occurrence
             in complete.Occurrences)
         {
