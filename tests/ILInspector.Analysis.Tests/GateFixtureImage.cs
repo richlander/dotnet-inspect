@@ -118,6 +118,17 @@ internal sealed class GateFixtureImage
                 _metadata.AddCustomAttribute(handle, constructor, default);
             foreach ((EntityHandle constructor, BlobBuilder value) in type.ValuedAttributes)
                 _metadata.AddCustomAttribute(handle, constructor, _metadata.GetOrAddBlob(value));
+            for (int genericIndex = 0;
+                genericIndex < type.GenericParameterNames.Count;
+                genericIndex++)
+            {
+                _metadata.AddGenericParameter(
+                    handle,
+                    GenericParameterAttributes.None,
+                    _metadata.GetOrAddString(
+                        type.GenericParameterNames[genericIndex]),
+                    genericIndex);
+            }
             if (type.Enclosing is { } enclosing)
                 _metadata.AddNestedType(handle, typeHandles[enclosing]);
 
@@ -131,6 +142,17 @@ internal sealed class GateFixtureImage
                     -1,
                     MetadataTokens.ParameterHandle(nextParameter));
                 nextMethod++;
+                for (int genericIndex = 0;
+                    genericIndex < method.GenericParameterNames.Length;
+                    genericIndex++)
+                {
+                    _metadata.AddGenericParameter(
+                        methodHandle,
+                        GenericParameterAttributes.None,
+                        _metadata.GetOrAddString(
+                            method.GenericParameterNames[genericIndex]),
+                        genericIndex);
+                }
                 for (int p = 0; p < method.ParameterNames.Length; p++)
                 {
                     _metadata.AddParameter(
@@ -360,6 +382,13 @@ internal sealed class GateFixtureImage
         public StringHandle? NamespaceOverride { get; init; }
         public List<FixtureMethod> Methods { get; } = [];
         public List<EntityHandle> AttributeConstructors { get; } = [];
+        public List<string> GenericParameterNames { get; } = [];
+
+        public FixtureType GenericParameters(params string[] names)
+        {
+            GenericParameterNames.AddRange(names);
+            return this;
+        }
 
         /// <summary>Attaches custom attributes to the type itself.</summary>
         public FixtureType Attributes(params EntityHandle[] attributeConstructors)
@@ -387,6 +416,16 @@ internal sealed class GateFixtureImage
                 parameterNames ?? []));
             return this;
         }
+
+        /// <summary>Adds generic parameters to the most recently added method.</summary>
+        public FixtureType MethodGenericParameters(params string[] names)
+        {
+            Methods[^1] = Methods[^1] with
+            {
+                GenericParameterNames = names,
+            };
+            return this;
+        }
     }
 
     internal sealed record FixtureMethod(
@@ -399,6 +438,7 @@ internal sealed class GateFixtureImage
         string[]? ParameterNames = null)
     {
         public string[] ParameterNames { get; init; } = ParameterNames ?? [];
+        public string[] GenericParameterNames { get; init; } = [];
         public List<(EntityHandle Constructor, BlobBuilder Value)> ValuedAttributes { get; } = [];
     }
 }

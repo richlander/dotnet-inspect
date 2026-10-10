@@ -163,6 +163,156 @@ public sealed record MethodIdentity(
     }
 }
 
+/// <summary>
+/// Detached structural identity for one MethodDef. Caller-unsafe policy is a
+/// separately owned fact and is supplied only when constructing the current
+/// <see cref="MethodIdentity"/>.
+/// </summary>
+public sealed record MethodSemanticIdentity(
+    string AssemblyName,
+    Guid ModuleVersionId,
+    TypeRef DeclaringType,
+    string Name,
+    ImmutableArray<TypeRef> ParameterTypes,
+    TypeRef ReturnType,
+    int MetadataToken,
+    bool IsStatic,
+    bool IsExtension,
+    int GenericArity,
+    ImmutableArray<string> GenericParameterNames,
+    byte SignatureHeader,
+    int RequiredParameterCount,
+    bool HasInvalidGenericParameterDeclaration,
+    bool IsVirtualDispatchOpen)
+{
+    ImmutableArray<TypeRef> _parameterTypes =
+        ImmutableArrayValueEquality.RequireInitialized(
+            ParameterTypes,
+            nameof(ParameterTypes));
+    ImmutableArray<string> _genericParameterNames =
+        ImmutableArrayValueEquality.EmptyIfDefault(
+            GenericParameterNames,
+            nameof(GenericParameterNames));
+
+    public ImmutableArray<TypeRef> ParameterTypes
+    {
+        get => _parameterTypes;
+        init => _parameterTypes =
+            ImmutableArrayValueEquality.RequireInitialized(
+                value,
+                nameof(ParameterTypes));
+    }
+
+    public ImmutableArray<string> GenericParameterNames
+    {
+        get => _genericParameterNames;
+        init => _genericParameterNames =
+            ImmutableArrayValueEquality.EmptyIfDefault(
+                value,
+                nameof(GenericParameterNames));
+    }
+
+    /// <summary>Composes this structural identity with its separately owned caller-safety fact.</summary>
+    public MethodIdentity ToMethodIdentity(CallerUnsafeMode callerUnsafeMode) =>
+        new(
+            AssemblyName,
+            ModuleVersionId,
+            DeclaringType,
+            Name,
+            ParameterTypes,
+            ReturnType,
+            MetadataToken,
+            IsStatic,
+            IsExtension,
+            callerUnsafeMode,
+            GenericArity,
+            GenericParameterNames)
+        {
+            SignatureHeader = SignatureHeader,
+            RequiredParameterCount = RequiredParameterCount,
+            HasInvalidGenericParameterDeclaration =
+                HasInvalidGenericParameterDeclaration,
+            IsVirtualDispatchOpen = IsVirtualDispatchOpen,
+        };
+
+    public bool Equals(MethodSemanticIdentity? other) =>
+        other is not null
+        && AssemblyName == other.AssemblyName
+        && ModuleVersionId == other.ModuleVersionId
+        && Equals(DeclaringType, other.DeclaringType)
+        && Name == other.Name
+        && ImmutableArrayValueEquality.SequenceEqual(
+            ParameterTypes,
+            other.ParameterTypes)
+        && Equals(ReturnType, other.ReturnType)
+        && MetadataToken == other.MetadataToken
+        && IsStatic == other.IsStatic
+        && IsExtension == other.IsExtension
+        && GenericArity == other.GenericArity
+        && ImmutableArrayValueEquality.SequenceEqual(
+            GenericParameterNames,
+            other.GenericParameterNames)
+        && SignatureHeader == other.SignatureHeader
+        && RequiredParameterCount
+            == other.RequiredParameterCount
+        && HasInvalidGenericParameterDeclaration
+            == other.HasInvalidGenericParameterDeclaration
+        && IsVirtualDispatchOpen
+            == other.IsVirtualDispatchOpen;
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(AssemblyName);
+        hash.Add(ModuleVersionId);
+        hash.Add(DeclaringType);
+        hash.Add(Name);
+        ImmutableArrayValueEquality.AddToHash(
+            ref hash,
+            ParameterTypes);
+        hash.Add(ReturnType);
+        hash.Add(MetadataToken);
+        hash.Add(IsStatic);
+        hash.Add(IsExtension);
+        hash.Add(GenericArity);
+        ImmutableArrayValueEquality.AddToHash(
+            ref hash,
+            GenericParameterNames);
+        hash.Add(SignatureHeader);
+        hash.Add(RequiredParameterCount);
+        hash.Add(HasInvalidGenericParameterDeclaration);
+        hash.Add(IsVirtualDispatchOpen);
+        return hash.ToHashCode();
+    }
+}
+
+/// <summary>Why semantic MethodDef identity could not be decoded.</summary>
+public enum MethodSemanticIdentityUnavailableKind
+{
+    /// <summary>A guarded metadata shape is outside the supported decoding contract.</summary>
+    Unsupported,
+
+    /// <summary>The admitted row references malformed metadata.</summary>
+    Malformed,
+}
+
+/// <summary>Typed semantic-identity result for one admitted MethodDef.</summary>
+public abstract record MethodSemanticIdentityResult
+{
+    private MethodSemanticIdentityResult()
+    {
+    }
+
+    /// <summary>The semantic identity was decoded.</summary>
+    public sealed record Available(MethodSemanticIdentity Identity)
+        : MethodSemanticIdentityResult;
+
+    /// <summary>The row was admitted but its semantic identity was unavailable.</summary>
+    public sealed record Unavailable(
+        MethodSemanticIdentityUnavailableKind Kind)
+        : MethodSemanticIdentityResult;
+}
+
 public sealed record MemberRef(
     TypeRef DeclaringType,
     string Name,

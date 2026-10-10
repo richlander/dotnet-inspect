@@ -101,6 +101,324 @@ public sealed class MethodRowGateTests
     }
 
     [Fact]
+    public void SemanticIdentity_MatchesCurrentProjectionWithoutIdentityTextOrBody()
+    {
+        ImmutableArray<byte> image = SemanticIdentities();
+        var rows = new GateProducer<SemanticIdentityPredicate>(
+            "Semantic",
+            MethodDefinitionLayers.SemanticIdentity);
+        SemanticIdentityPredicate.Seen.Clear();
+
+        MethodDefinitionExecution execution =
+            Run(
+                image,
+                Plan(new ProducerRequest(rows)),
+                MethodDefinitionSourceBreadth.ExactMethods(
+                    MethodHandles(image)));
+
+        ImmutableArray<MethodSemanticIdentityResult> results =
+            [.. SemanticIdentityPredicate.Seen];
+        Assert.Equal(5, results.Length);
+        Assert.All(
+            results,
+            result =>
+            {
+                MethodSemanticIdentity semantic =
+                    Assert.IsType<
+                        MethodSemanticIdentityResult.Available>(
+                        result).Identity;
+                MethodIdentity current =
+                    CurrentMethodIdentity(
+                        image,
+                        semantic.MetadataToken);
+                Assert.Equal(
+                    current,
+                    semantic.ToMethodIdentity(
+                        current.CallerUnsafeMode));
+                Assert.Equal(
+                    current.IsVirtualDispatchOpen,
+                    semantic.IsVirtualDispatchOpen);
+            });
+
+        MethodSemanticIdentity generic =
+            AvailableNamed(results, "Generic");
+        Assert.Equal(1, generic.GenericArity);
+        Assert.Equal(["TMethod"], generic.GenericParameterNames);
+        Assert.False(generic.HasInvalidGenericParameterDeclaration);
+
+        MethodSemanticIdentity invalidGeneric =
+            AvailableNamed(results, "InvalidGeneric");
+        Assert.True(
+            invalidGeneric.HasInvalidGenericParameterDeclaration);
+
+        MethodSemanticIdentity vararg =
+            AvailableNamed(results, "Vararg");
+        Assert.Equal(0x05, vararg.SignatureHeader & 0x0F);
+        Assert.Equal(1, vararg.RequiredParameterCount);
+
+        MethodSemanticIdentity extension =
+            AvailableNamed(results, "Extension");
+        Assert.True(extension.IsExtension);
+
+        MethodSemanticIdentity nested =
+            AvailableNamed(results, "NestedVirtual");
+        Assert.Equal(TypeRefKind.Definition, nested.DeclaringType.Kind);
+        Assert.Contains("Outer`1+Inner`1", nested.DeclaringType.Name);
+        Assert.True(nested.IsVirtualDispatchOpen);
+
+        Assert.False(execution.Receipt.IdentityBudgetArmed);
+        Assert.Equal(0, execution.Receipt.IdentityWorkCharged);
+        Assert.True(
+            execution.Receipt.SemanticIdentityWork.BudgetArmed);
+        Assert.Equal(
+            5,
+            execution.Receipt.SemanticIdentityWork
+                .IdentitiesDecoded);
+        Assert.True(
+            execution.Receipt.SemanticIdentityWork.SignatureBytes > 0);
+        Assert.True(
+            execution.Receipt.SemanticIdentityWork.TypeWork > 0);
+        Assert.True(
+            execution.Receipt.SemanticIdentityWork
+                .GenericParameterRows > 0);
+        Assert.True(
+            execution.Receipt.SemanticIdentityWork.StringBytes > 0);
+        Assert.True(
+            execution.Receipt.SemanticIdentityWork.AssociationRows > 0);
+        Assert.Equal(
+            execution.Receipt.SemanticIdentityWork,
+            execution.SourceCoverage.SemanticIdentityWork);
+        Assert.Equal(0, execution.SourceCoverage.BodiesAttempted.Count);
+        Assert.Equal(0, execution.SourceCoverage.BodiesAcquired.Count);
+        ProducerLayerParticipation semanticLayer =
+            Assert.Single(
+                execution.Receipt.For(rows).Layers,
+                layer => layer.Layer
+                    == nameof(
+                        MethodDefinitionLayers.SemanticIdentity));
+        Assert.Equal(5, semanticLayer.Acquired);
+    }
+
+    [Fact]
+    public void SemanticIdentity_CoreLibExactMethodStaysSparse()
+    {
+        ImmutableArray<byte> image =
+            [.. File.ReadAllBytes(
+                typeof(System.Text.StringBuilder)
+                    .Assembly.Location)];
+        MethodDefinitionHandle target;
+        using (var peReader = new PEReader(image))
+        {
+            MetadataReader reader =
+                peReader.GetMetadataReader();
+            target = reader.MethodDefinitions
+                .First(
+                    handle =>
+                    {
+                        MethodDefinition method =
+                            reader.GetMethodDefinition(handle);
+                        if (reader.GetString(method.Name)
+                            != "AppendFormat")
+                        {
+                            return false;
+                        }
+
+                        TypeDefinition type =
+                            reader.GetTypeDefinition(
+                                method.GetDeclaringType());
+                        return reader.GetString(type.Namespace)
+                                == "System.Text"
+                            && reader.GetString(type.Name)
+                                == "StringBuilder";
+                    });
+        }
+
+        var rows = new GateProducer<SemanticIdentityPredicate>(
+            "Semantic",
+            MethodDefinitionLayers.SemanticIdentity);
+        SemanticIdentityPredicate.Seen.Clear();
+        MethodDefinitionExecution execution =
+            Run(
+                image,
+                Plan(new ProducerRequest(rows)),
+                MethodDefinitionSourceBreadth
+                    .ExactMethods(target));
+
+        MethodSemanticIdentity semantic =
+            Assert.IsType<
+                MethodSemanticIdentityResult.Available>(
+                Assert.Single(
+                    SemanticIdentityPredicate.Seen))
+                .Identity;
+        Assert.Equal("AppendFormat", semantic.Name);
+        Assert.Equal(
+            "System.Text",
+            semantic.DeclaringType.Namespace);
+        Assert.Equal(
+            "StringBuilder",
+            semantic.DeclaringType.Name);
+        Assert.Equal(
+            1,
+            execution.SourceCoverage
+                .DefinitionsExamined.Count);
+        Assert.Equal(
+            1,
+            execution.SourceCoverage.MethodsSelected.Count);
+        Assert.Equal(
+            0,
+            execution.SourceCoverage.BodiesAttempted.Count);
+        Assert.False(execution.Receipt.IdentityBudgetArmed);
+    }
+
+    [Fact]
+    public void SemanticIdentity_MalformedAndUnsupportedAreTyped()
+    {
+        var malformedBuilder = new GateFixtureImage();
+        malformedBuilder.Type(
+                "N",
+                "Malformed",
+                namespaceOverride:
+                    MetadataTokens.StringHandle(1))
+            .Method("M");
+        (
+            ImmutableArray<MethodSemanticIdentityResult>
+                malformedResults,
+            MethodSemanticIdentityWorkReceipt malformedWork) =
+                ReadSemanticIdentities(
+                    malformedBuilder.Build());
+        MethodSemanticIdentityResult malformed =
+            Assert.Single(malformedResults);
+        Assert.Equal(
+            MethodSemanticIdentityUnavailableKind.Malformed,
+            Assert.IsType<
+                MethodSemanticIdentityResult.Unavailable>(
+                    malformed).Kind);
+        Assert.Equal(1, malformedWork.MalformedResults);
+
+        var unsupportedBuilder = new GateFixtureImage();
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        int parameters =
+            MetadataSafetyPolicy.MaxSignatureTypeNodes + 1;
+        signature.WriteCompressedInteger(parameters);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < parameters; i++)
+            signature.WriteByte(0x08);
+        unsupportedBuilder.Type("N", "Unsupported")
+            .Method("M", signature);
+        (
+            ImmutableArray<MethodSemanticIdentityResult>
+                unsupportedResults,
+            MethodSemanticIdentityWorkReceipt unsupportedWork) =
+                ReadSemanticIdentities(
+                    unsupportedBuilder.Build());
+        MethodSemanticIdentityResult unsupported =
+            Assert.Single(unsupportedResults);
+        Assert.Equal(
+            MethodSemanticIdentityUnavailableKind.Unsupported,
+            Assert.IsType<
+                MethodSemanticIdentityResult.Unavailable>(
+                    unsupported).Kind);
+        Assert.Equal(
+            1,
+            unsupportedWork.UnsupportedResults);
+    }
+
+    [Fact]
+    public void SemanticIdentity_InvalidExactTargetExaminesNoMethodRow()
+    {
+        ImmutableArray<byte> image = Ordinary().Build();
+        var rows = new GateProducer<SemanticIdentityPredicate>(
+            "Semantic",
+            MethodDefinitionLayers.SemanticIdentity);
+        WorkDescription work =
+            Plan(new ProducerRequest(rows));
+        var breadth =
+            MethodDefinitionSourceBreadth.ExactMethods(
+                MetadataTokens.MethodDefinitionHandle(10_000));
+        SemanticIdentityPredicate.Seen.Clear();
+
+        MethodDefinitionExecution execution =
+            Run(image, work, breadth);
+
+        Assert.Empty(SemanticIdentityPredicate.Seen);
+        Assert.Equal(
+            0,
+            execution.SourceCoverage.DefinitionsExamined.Count);
+        Assert.Equal(
+            ProducerOutcome.Failed,
+            execution.ResultOf(rows).Outcome);
+        Assert.Equal(
+            0,
+            execution.Receipt.SemanticIdentityWork
+                .IdentitiesDecoded);
+    }
+
+    [Fact]
+    public void SemanticIdentity_RejectsBroadOrExpandedBreadth()
+    {
+        ImmutableArray<byte> image = Ordinary().Build();
+        var rows = new GateProducer<SemanticIdentityPredicate>(
+            "Semantic",
+            MethodDefinitionLayers.SemanticIdentity);
+        WorkDescription work =
+            Plan(new ProducerRequest(rows));
+
+        Assert.Throws<ProducerContractException>(
+            () => Run(
+                image,
+                work,
+                MethodDefinitionSourceBreadth
+                    .AllDefinitions));
+        Assert.Throws<ProducerContractException>(
+            () => Run(
+                image,
+                work,
+                MethodDefinitionSourceBreadth
+                    .ExactMethods(
+                        MethodHandles(image))
+                    .IncludeGeneratedExecutionBodies()));
+    }
+
+    [Fact]
+    public void SemanticIdentity_ExhaustedBoundIsTypedAndReceipted()
+    {
+        var builder = new GateFixtureImage();
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteBytes(
+            new byte[
+                MetadataSafetyPolicy
+                    .MaxClassificationScanWorkChars]);
+        builder.Type("N", "OverBudget")
+            .Method("M", signature);
+        ImmutableArray<byte> image = builder.Build();
+        var rows = new GateProducer<SemanticIdentityPredicate>(
+            "Semantic",
+            MethodDefinitionLayers.SemanticIdentity);
+
+        MethodDefinitionExecution execution =
+            Run(
+                image,
+                Plan(new ProducerRequest(rows)),
+                MethodDefinitionSourceBreadth.ExactMethods(
+                    MethodHandles(image)));
+
+        ProducerResult<int> result =
+            execution.ResultOf(rows);
+        Assert.Equal(ProducerOutcome.Aborted, result.Outcome);
+        Assert.Equal(
+            MethodRowGate.SemanticIdentityWork,
+            result.Critical!.Budget);
+        Assert.Equal(
+            MethodSemanticIdentityWorkLimitKind.SignatureBytes,
+            execution.Receipt.SemanticIdentityWork.ReachedLimit);
+        Assert.Equal(
+            execution.Receipt.SemanticIdentityWork,
+            execution.SourceCoverage.SemanticIdentityWork);
+    }
+
+    [Fact]
     public void IdentityBudget_HostileIdentitiesAbortRowsButNotCount()
     {
         // Legacy's hostile identity fixture: every method's identity is near
@@ -1106,6 +1424,156 @@ public sealed class MethodRowGateTests
         return builder;
     }
 
+    static ImmutableArray<byte> SemanticIdentities()
+    {
+        var builder = new GateFixtureImage();
+        TypeReferenceHandle extensionAttribute =
+            builder.TypeRef(
+                "System.Runtime.CompilerServices",
+                "ExtensionAttribute");
+        MemberReferenceHandle extensionConstructor =
+            builder.AttributeConstructor(
+                extensionAttribute);
+        GateFixtureImage.FixtureType extensions =
+            builder.Type("N", "Extensions")
+                .Attributes(extensionConstructor)
+                .Method(
+                    "Generic",
+                    GenericIdentitySignature())
+                .MethodGenericParameters("TMethod")
+                .Method(
+                    "InvalidGeneric",
+                    InvalidGenericIdentitySignature())
+                .MethodGenericParameters("TOnly")
+                .Method(
+                    "Vararg",
+                    VarargIdentitySignature())
+                .Method(
+                    "Extension",
+                    GateFixtureImage.VoidSignature(
+                        parameter => parameter.Int32()),
+                    attributeConstructors:
+                        extensionConstructor);
+        _ = extensions;
+
+        GateFixtureImage.FixtureType outer =
+            builder.Type("N", "Outer`1")
+                .GenericParameters("TOuter");
+        builder.Type("N", "Inner`1", outer)
+            .GenericParameters("TOuter")
+            .WithShape(TypeAttributes.NestedPublic)
+            .Method(
+                "NestedVirtual",
+                attributes:
+                    MethodAttributes.Public
+                    | MethodAttributes.Virtual);
+        return builder.Build();
+    }
+
+    static BlobBuilder GenericIdentitySignature()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x10);
+        signature.WriteCompressedInteger(1);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x1E);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x1E);
+        signature.WriteCompressedInteger(0);
+        return signature;
+    }
+
+    static BlobBuilder InvalidGenericIdentitySignature()
+    {
+        var signature = GenericIdentitySignature();
+        byte[] bytes = signature.ToArray();
+        bytes[1] = 2;
+        return Bytes(bytes);
+    }
+
+    static BlobBuilder VarargIdentitySignature()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x05);
+        signature.WriteCompressedInteger(2);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x08);
+        signature.WriteByte(0x41);
+        signature.WriteByte(0x0E);
+        return signature;
+    }
+
+    static MethodSemanticIdentity AvailableNamed(
+        ImmutableArray<MethodSemanticIdentityResult> results,
+        string name) =>
+        Assert.Single(
+            results
+                .OfType<
+                    MethodSemanticIdentityResult.Available>()
+                .Select(result => result.Identity),
+            identity => identity.Name == name);
+
+    static (
+        ImmutableArray<MethodSemanticIdentityResult> Results,
+        MethodSemanticIdentityWorkReceipt Work)
+        ReadSemanticIdentities(
+            ImmutableArray<byte> image)
+    {
+        var rows = new GateProducer<SemanticIdentityPredicate>(
+            "Semantic",
+            MethodDefinitionLayers.SemanticIdentity);
+        SemanticIdentityPredicate.Seen.Clear();
+        MethodDefinitionExecution execution =
+            Run(
+                image,
+                Plan(new ProducerRequest(rows)),
+                MethodDefinitionSourceBreadth.ExactMethods(
+                    MethodHandles(image)));
+        return (
+            [.. SemanticIdentityPredicate.Seen],
+            execution.Receipt.SemanticIdentityWork);
+    }
+
+    static ImmutableArray<MethodDefinitionHandle> MethodHandles(
+        ImmutableArray<byte> image)
+    {
+        using var peReader = new PEReader(image);
+        return [
+            .. peReader.GetMetadataReader()
+                .MethodDefinitions,
+        ];
+    }
+
+    static MethodIdentity CurrentMethodIdentity(
+        ImmutableArray<byte> image,
+        int token)
+    {
+        using var peReader = new PEReader(image);
+        MetadataReader reader =
+            peReader.GetMetadataReader();
+        var methodHandle =
+            (MethodDefinitionHandle)
+                MetadataTokens.EntityHandle(token);
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+        TypeDefinitionHandle typeHandle =
+            method.GetDeclaringType();
+        TypeDefinition type =
+            reader.GetTypeDefinition(typeHandle);
+        using var builder =
+            new LibraryBodyAnalysisBuilder(
+                "GateFixture.dll",
+                reader,
+                peReader);
+        var infrastructure =
+            (ILibraryMethodAnalysisInfrastructure)builder;
+        return infrastructure.CreateMethodIdentity(
+            typeHandle,
+            methodHandle,
+            method,
+            infrastructure.CreateScope(type, method));
+    }
+
     static ImmutableArray<byte> HostileIdentities(int methodCount, int parameterCount, int genericArity)
     {
         var builder = new GateFixtureImage();
@@ -1184,6 +1652,20 @@ public sealed class MethodRowGateTests
     {
         using var peReader = new PEReader(image);
         return MethodDefinitionExecution.Execute(description, "GateFixture.dll", peReader);
+    }
+
+    static MethodDefinitionExecution Run(
+        ImmutableArray<byte> image,
+        WorkDescription description,
+        MethodDefinitionSourceBreadth breadth)
+    {
+        using var peReader = new PEReader(image);
+        return MethodDefinitionExecution.Execute(
+            description,
+            "GateFixture.dll",
+            peReader,
+            breadth,
+            MethodDefinitionTerminalWorkLimits.Unbounded);
     }
 
     // ---- Producers ----
@@ -1285,6 +1767,19 @@ public sealed class MethodRowGateTests
     struct IdentityPredicate : IMethodDefinitionPredicate
     {
         public readonly bool Test(scoped MethodDefinitionView view) => view.Identity.Signature.ToString().Length > 0;
+    }
+
+    struct SemanticIdentityPredicate : IMethodDefinitionPredicate
+    {
+        public static readonly List<
+            MethodSemanticIdentityResult> Seen = [];
+
+        public readonly bool Test(
+            scoped MethodDefinitionView view)
+        {
+            Seen.Add(view.SemanticIdentity);
+            return true;
+        }
     }
 
     struct LoggingPredicate : IMethodDefinitionPredicate

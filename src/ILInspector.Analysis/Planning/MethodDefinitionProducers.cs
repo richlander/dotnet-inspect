@@ -69,6 +69,13 @@ public enum MethodDefinitionLayers
     /// access carries it.
     /// </summary>
     ReferenceBinding = 512,
+
+    /// <summary>
+    /// Tier 2: bounded detached structural identity for one admitted MethodDef.
+    /// This is independent from <see cref="IdentityText"/> and excludes the
+    /// separately owned caller-unsafe contract.
+    /// </summary>
+    SemanticIdentity = 1024,
 }
 
 /// <summary>
@@ -510,6 +517,21 @@ public readonly ref struct MethodDefinitionView
         {
             Require(MethodDefinitionLayers.IdentityText);
             return _unit.Gate.Identity();
+        }
+    }
+
+    /// <summary>Tier 2: detached structural identity for the admitted MethodDef.</summary>
+    public MethodSemanticIdentityResult SemanticIdentity
+    {
+        get
+        {
+            Require(MethodDefinitionLayers.SemanticIdentity);
+            MethodDefinitionExecution.ProducerState producer = Producer;
+            producer.CountUnit(
+                ref producer.LastSemanticIdentityUnit,
+                Token,
+                ref producer.SemanticIdentityAcquisitions);
+            return _unit.Gate.SemanticIdentity();
         }
     }
 

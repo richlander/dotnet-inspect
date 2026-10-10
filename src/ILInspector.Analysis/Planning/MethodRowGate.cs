@@ -194,9 +194,9 @@ internal sealed class ProducerAbortException(CriticalFailure failure)
 /// The method-row gate: part of the method-definition source. It is the only
 /// path by which a producer reads a row's fields. Tier 1 accessors charge no
 /// budget and memoize every structural walk per handle and per blob for the
-/// execution, with a per-row cap that aborts. Tier 2 identity text goes
-/// through one budget per execution, armed only when the plan declares
-/// <see cref="MethodDefinitionLayers.IdentityText"/>.
+/// execution, with a per-row cap that aborts. Tier 2 identity text and
+/// semantic identity use independent execution-scoped budgets, armed only
+/// when the plan declares their respective layers.
 /// </summary>
 internal sealed class MethodRowGate
 {
@@ -205,6 +205,7 @@ internal sealed class MethodRowGate
     internal const string TypeSpecificationGuard = "TypeSpecificationGuard";
     internal const string IdentityWork = "IdentityWork";
     internal const string IdentityDecodeFailures = "IdentityDecodeFailures";
+    internal const string SemanticIdentityWork = "SemanticIdentityWork";
     internal const string AttributeTypeChain = "AttributeTypeChain";
 
     readonly SignatureShapeWalker _signatures;
@@ -212,6 +213,7 @@ internal sealed class MethodRowGate
     readonly Dictionary<(EntityHandle Constructor, MetadataTypeNameTarget Target), bool> _attributeConstructors = [];
     readonly Dictionary<(EntityHandle Type, MetadataTypeNameTarget Target), bool> _attributeTypes = [];
     readonly Dictionary<(BlobHandle Signature, MetadataTypeNameTarget Target), bool> _attributeTypeSpecs = [];
+    readonly Dictionary<TypeDefinitionHandle, bool> _extensionTypes = [];
 
     // The identity budget: legacy's per-scan budgets, per execution.
     int _identityWorkRemaining = MetadataSafetyPolicy.MaxClassificationScanWorkChars;
@@ -231,11 +233,42 @@ internal sealed class MethodRowGate
     BudgetedStringDecoder? _identityDecoder;
     bool _identityExhausted;
 
-    internal MethodRowGate(PEReader peReader, MetadataReader reader, bool identityBudgetArmed)
+    readonly string _sourceName;
+    readonly TypeRefDecoder? _semanticTypeDecoder;
+    bool _semanticIdentityRead;
+    MethodSemanticIdentityResult? _semanticIdentity;
+    string? _semanticAssemblyName;
+    Guid _semanticModuleVersionId;
+    bool _semanticModuleIdentityRead;
+    int _semanticIdentitiesDecoded;
+    int _semanticUnsupportedResults;
+    int _semanticMalformedResults;
+    long _semanticSignatureBytes;
+    long _semanticTypeWork;
+    long _semanticGenericParameterRows;
+    long _semanticStringBytes;
+    long _semanticAssociationRows;
+    MethodSemanticIdentityWorkLimitKind? _semanticReachedLimit;
+
+    internal MethodRowGate(
+        string sourceName,
+        PEReader peReader,
+        MetadataReader reader,
+        bool identityBudgetArmed,
+        bool semanticIdentityBudgetArmed)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+        _sourceName = sourceName;
         _peReader = peReader;
         Reader = reader;
         IdentityBudgetArmed = identityBudgetArmed;
+        SemanticIdentityBudgetArmed = semanticIdentityBudgetArmed;
+        _semanticTypeDecoder = semanticIdentityBudgetArmed
+            ? new TypeRefDecoder(
+                amount => ChargeSemanticIdentityWork(
+                    MethodSemanticIdentityWorkLimitKind.TypeWork,
+                    amount))
+            : null;
         _signatures = new SignatureShapeWalker(this);
     }
 
@@ -243,10 +276,25 @@ internal sealed class MethodRowGate
 
     public bool IdentityBudgetArmed { get; }
 
+    public bool SemanticIdentityBudgetArmed { get; }
+
     public long IdentityWorkCharged =>
         MetadataSafetyPolicy.MaxClassificationScanWorkChars - (long)_identityWorkRemaining;
 
     public long SignatureShapeNodesWalked => _signatures.TotalNodes;
+
+    public MethodSemanticIdentityWorkReceipt SemanticIdentityWorkReceipt =>
+        new(
+            SemanticIdentityBudgetArmed,
+            _semanticIdentitiesDecoded,
+            _semanticUnsupportedResults,
+            _semanticMalformedResults,
+            _semanticSignatureBytes,
+            _semanticTypeWork,
+            _semanticGenericParameterRows,
+            _semanticStringBytes,
+            _semanticAssociationRows,
+            _semanticReachedLimit);
 
     internal void MoveTo(
         TypeDefinitionHandle typeHandle,
@@ -265,6 +313,8 @@ internal sealed class MethodRowGate
         _rowToken = MetadataTokens.GetToken(methodHandle);
         _identityRead = false;
         _identity = null;
+        _semanticIdentityRead = false;
+        _semanticIdentity = null;
     }
 
     internal static ProducerContractException Undeclared(
@@ -801,6 +851,322 @@ internal sealed class MethodRowGate
             anchor is null ? null : Inert(anchor.ReturnType));
         _identityRead = true;
         return _identity;
+    }
+
+    /// <summary>
+    /// Decodes one admitted MethodDef's detached structural identity through
+    /// independent semantic-identity bounds. It never acquires a body or arms
+    /// the identity-text budget.
+    /// </summary>
+    internal MethodSemanticIdentityResult SemanticIdentity()
+    {
+        if (_semanticIdentityRead)
+            return _semanticIdentity!;
+
+        try
+        {
+            MethodDefinition method = _methodDefinition;
+            TypeDefinition type = _typeDefinition;
+            BlobReader signatureBlob =
+                Reader.GetBlobReader(method.Signature);
+            ChargeSemanticIdentityWork(
+                MethodSemanticIdentityWorkLimitKind.SignatureBytes,
+                signatureBlob.Length);
+            if (!SignatureBlobGuard.IsSafeToDecode(
+                    Reader,
+                    method.Signature,
+                    SignatureBlobGuard.Kind.Method))
+            {
+                return CacheSemanticIdentity(
+                    new MethodSemanticIdentityResult.Unavailable(
+                        MethodSemanticIdentityUnavailableKind.Unsupported));
+            }
+
+            GenericParameterHandleCollection typeParameters =
+                type.GetGenericParameters();
+            GenericParameterHandleCollection methodParameters =
+                method.GetGenericParameters();
+            ImmutableArray<string> typeParameterNames =
+                ReadGenericParameterNames(typeParameters);
+            ImmutableArray<string> methodParameterNames =
+                ReadGenericParameterNames(methodParameters);
+            var scope = new GenericScope(
+                typeParameterNames,
+                methodParameterNames);
+            TypeRefDecoder decoder =
+                _semanticTypeDecoder
+                ?? throw new ProducerContractException(
+                    "Semantic identity was read without arming its budget.");
+            MethodSignature<TypeRef> signature =
+                method.DecodeSignature(decoder, scope);
+
+            ChargeSemanticIdentityWork(
+                MethodSemanticIdentityWorkLimitKind.AssociationRows,
+                1);
+            TypeRef declaringType =
+                decoder.GetTypeFromDefinition(
+                    Reader,
+                    _typeHandle,
+                    0);
+            if (ContainsUnsupportedType(declaringType)
+                || ContainsUnsupportedType(
+                    signature.ReturnType)
+                || signature.ParameterTypes.Any(
+                    ContainsUnsupportedType))
+            {
+                return CacheSemanticIdentity(
+                    new MethodSemanticIdentityResult.Unavailable(
+                        MethodSemanticIdentityUnavailableKind.Unsupported));
+            }
+
+            (string assemblyName, Guid moduleVersionId) =
+                SemanticModuleIdentity();
+            string methodName = ReadSemanticString(method.Name);
+            bool invalidGenericDeclaration =
+                !MemberResolver.HasExactGenericParameters(
+                    Reader,
+                    methodParameters,
+                    signature.GenericParameterCount,
+                    () => ChargeSemanticIdentityWork(
+                        MethodSemanticIdentityWorkLimitKind
+                            .GenericParameterRows,
+                        1));
+            bool isExtension =
+                IsSemanticExtensionMethod(type, method);
+
+            var identity = new MethodSemanticIdentity(
+                assemblyName,
+                moduleVersionId,
+                declaringType,
+                methodName,
+                signature.ParameterTypes,
+                signature.ReturnType,
+                _rowToken,
+                (method.Attributes & MethodAttributes.Static) != 0,
+                isExtension,
+                methodParameters.Count,
+                methodParameterNames,
+                signature.Header.RawValue,
+                signature.RequiredParameterCount,
+                invalidGenericDeclaration,
+                LibraryBodyPrimaryMetadataResolver
+                    .DispatchCanTargetOverride(type, method));
+            _semanticIdentitiesDecoded++;
+            return CacheSemanticIdentity(
+                new MethodSemanticIdentityResult.Available(identity));
+        }
+        catch (ProducerAbortException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            _semanticMalformedResults++;
+            return CacheSemanticIdentity(
+                new MethodSemanticIdentityResult.Unavailable(
+                    MethodSemanticIdentityUnavailableKind.Malformed));
+        }
+    }
+
+    MethodSemanticIdentityResult CacheSemanticIdentity(
+        MethodSemanticIdentityResult result)
+    {
+        if (result is MethodSemanticIdentityResult.Unavailable
+            {
+                Kind: MethodSemanticIdentityUnavailableKind.Unsupported,
+            })
+        {
+            _semanticUnsupportedResults++;
+        }
+
+        _semanticIdentity = result;
+        _semanticIdentityRead = true;
+        return result;
+    }
+
+    ImmutableArray<string> ReadGenericParameterNames(
+        GenericParameterHandleCollection handles)
+    {
+        if (handles.Count == 0)
+            return [];
+
+        var names =
+            ImmutableArray.CreateBuilder<string>(handles.Count);
+        foreach (GenericParameterHandle handle in handles)
+        {
+            ChargeSemanticIdentityWork(
+                MethodSemanticIdentityWorkLimitKind.GenericParameterRows,
+                1);
+            GenericParameter parameter =
+                Reader.GetGenericParameter(handle);
+            names.Add(ReadSemanticString(parameter.Name));
+        }
+
+        return names.MoveToImmutable();
+    }
+
+    (string AssemblyName, Guid ModuleVersionId)
+        SemanticModuleIdentity()
+    {
+        if (!_semanticModuleIdentityRead)
+        {
+            ChargeSemanticIdentityWork(
+                MethodSemanticIdentityWorkLimitKind.AssociationRows,
+                Reader.IsAssembly ? 2 : 1);
+            _semanticAssemblyName =
+                Reader.IsAssembly
+                    ? ReadSemanticString(
+                        Reader.GetAssemblyDefinition().Name)
+                    : Path.GetFileNameWithoutExtension(_sourceName);
+            _semanticModuleVersionId =
+                Reader.GetGuid(
+                    Reader.GetModuleDefinition().Mvid);
+            _semanticModuleIdentityRead = true;
+        }
+
+        return (
+            _semanticAssemblyName!,
+            _semanticModuleVersionId);
+    }
+
+    bool IsSemanticExtensionMethod(
+        TypeDefinition type,
+        MethodDefinition method)
+    {
+        if ((type.Attributes & TypeAttributes.Abstract) == 0
+            || (type.Attributes & TypeAttributes.Sealed) == 0
+            || (method.Attributes & MethodAttributes.Static) == 0)
+        {
+            return false;
+        }
+
+        if (!_extensionTypes.TryGetValue(
+                _typeHandle,
+                out bool extensionType))
+        {
+            extensionType =
+                HasSemanticExtensionAttribute(
+                    type.GetCustomAttributes());
+            _extensionTypes.Add(_typeHandle, extensionType);
+        }
+
+        return extensionType
+            && HasSemanticExtensionAttribute(
+                method.GetCustomAttributes());
+    }
+
+    bool HasSemanticExtensionAttribute(
+        CustomAttributeHandleCollection attributes)
+    {
+        foreach (CustomAttributeHandle handle in attributes)
+        {
+            ChargeSemanticIdentityWork(
+                MethodSemanticIdentityWorkLimitKind.AssociationRows,
+                1);
+            CustomAttribute attribute =
+                Reader.GetCustomAttribute(handle);
+            string? name =
+                AttributeReader.GetAttributeTypeName(
+                    Reader,
+                    attribute.Constructor,
+                    amount => ChargeSemanticIdentityWork(
+                        MethodSemanticIdentityWorkLimitKind.StringBytes,
+                        amount));
+            AbortIfSemanticIdentityWorkExhausted();
+            if (name == KnownAttributeNames.ExtensionAttribute)
+                return true;
+        }
+
+        return false;
+    }
+
+    string ReadSemanticString(StringHandle handle)
+    {
+        if (handle.IsNil)
+            return string.Empty;
+
+        ChargeSemanticIdentityWork(
+            MethodSemanticIdentityWorkLimitKind.StringBytes,
+            Reader.GetBlobReader(handle).Length);
+        return MetadataSafetyPolicy.ReadStructuralString(
+            Reader,
+            handle);
+    }
+
+    static bool ContainsUnsupportedType(TypeRef type)
+    {
+        if (type.Kind == TypeRefKind.Unsupported)
+            return true;
+        if (type.ElementType is { } element
+            && ContainsUnsupportedType(element))
+        {
+            return true;
+        }
+        foreach (TypeRef argument in type.TypeArguments)
+        {
+            if (ContainsUnsupportedType(argument))
+                return true;
+        }
+
+        return false;
+    }
+
+    void ChargeSemanticIdentityWork(
+        MethodSemanticIdentityWorkLimitKind kind,
+        int amount)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(amount);
+        ref long charged =
+            ref SemanticIdentityCounter(kind);
+        charged += amount;
+        long limit =
+            kind is MethodSemanticIdentityWorkLimitKind
+                .GenericParameterRows
+                or MethodSemanticIdentityWorkLimitKind
+                    .AssociationRows
+                ? MetadataSafetyPolicy
+                    .MaxMemorySafetyProjectionIntegrityRows
+                : MetadataSafetyPolicy
+                    .MaxClassificationScanWorkChars;
+        if (charged <= limit)
+            return;
+
+        _semanticReachedLimit ??= kind;
+        Abort(
+            SemanticIdentityWork,
+            $"The semantic-identity {kind} bound is exhausted.");
+    }
+
+    void AbortIfSemanticIdentityWorkExhausted()
+    {
+        if (_semanticReachedLimit is { } reached)
+        {
+            Abort(
+                SemanticIdentityWork,
+                $"The semantic-identity {reached} bound is exhausted.");
+        }
+    }
+
+    ref long SemanticIdentityCounter(
+        MethodSemanticIdentityWorkLimitKind kind)
+    {
+        switch (kind)
+        {
+            case MethodSemanticIdentityWorkLimitKind.SignatureBytes:
+                return ref _semanticSignatureBytes;
+            case MethodSemanticIdentityWorkLimitKind.TypeWork:
+                return ref _semanticTypeWork;
+            case MethodSemanticIdentityWorkLimitKind.GenericParameterRows:
+                return ref _semanticGenericParameterRows;
+            case MethodSemanticIdentityWorkLimitKind.StringBytes:
+                return ref _semanticStringBytes;
+            case MethodSemanticIdentityWorkLimitKind.AssociationRows:
+                return ref _semanticAssociationRows;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(kind));
+        }
     }
 
     readonly Dictionary<StringHandle, InertString> _moduleNames = [];
