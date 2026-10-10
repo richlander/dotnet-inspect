@@ -76,13 +76,18 @@ public class ClosureDiagnosticEvidenceTests
     /// missing-type diagnostic per spelling. Real witness: Microsoft.CodeAnalysis 5.0.0
     /// structs carry <c>[Microsoft.CodeAnalysis.NonCopyable]</c>, whose type is the
     /// internal <c>Microsoft.CodeAnalysis.NonCopyableAttribute</c>; closure growth
-    /// searched only for <c>NonCopyable</c> and stalled. An already-suffixed name is not
-    /// suffixed again.
+    /// searched only for <c>NonCopyable</c> and stalled. Each diagnostic yields exactly the
+    /// name it reports: a namespace argument named <c>XAttribute</c> does not change the
+    /// <c>X</c> lookup, a generic name drops only its arity suffix, and an already-suffixed
+    /// name gets the second suffix Roslyn tried (the product renders metadata
+    /// <c>FooAttributeAttribute</c> as <c>[FooAttribute]</c>).
     /// </remarks>
     [Theory]
     [InlineData("CS0234", "[Root.NonCopyable] struct S {} namespace Root { public class Existing {} }", "NonCopyable", "NonCopyableAttribute", "Root")]
     [InlineData("CS0246", "[NonCopyable] struct S {}", "NonCopyable", "NonCopyableAttribute", null)]
-    [InlineData("CS0246", "[MissingAttribute] struct S {}", "MissingAttribute", "MissingAttribute", null)]
+    [InlineData("CS0234", "[XAttribute.X] struct S {} namespace XAttribute { class Existing {} }", "X", "XAttribute", "XAttribute")]
+    [InlineData("CS0246", "[X<int>] struct S {}", "X", "XAttribute", null)]
+    [InlineData("CS0246", "[MissingAttribute] struct S {}", "MissingAttribute", "MissingAttributeAttribute", null)]
     public void Extract_AttributeNameReportsEachSpellingLookupTried(
         string diagnosticId,
         string source,
