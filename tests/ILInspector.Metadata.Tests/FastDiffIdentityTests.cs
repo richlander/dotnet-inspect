@@ -91,6 +91,20 @@ public sealed class FastDiffIdentityTests
     }
 
     [Fact]
+    public void ExternalVarargOverloadSwitch_IsChanged()
+    {
+        // VLib.C.M(int, __arglist) called with a long, then VLib.C.M(int, long,
+        // __arglist) called with nothing: both call sites carry (int, long),
+        // and only the sentinel position differs.
+        byte[] callExternal = [0x28, 0x01, 0x00, 0x00, 0x0A, 0x2A]; // call MemberRef 1; ret
+        FastDiffResult result = Compare(
+            [new("N", "Caller", null, callExternal, VarargRequired: 1)],
+            [new("N", "Caller", null, callExternal, VarargRequired: 2)]);
+
+        Assert.Equal(FastDiffState.Changed, Single(result, "N.Caller").Body);
+    }
+
+    [Fact]
     public void DuplicateGeneratedTypeNames_AreIndeterminate()
     {
         // Two nested <>c rows spell one key, so neither lambda body can be
@@ -165,7 +179,8 @@ public sealed class FastDiffIdentityTests
         string[]? Methods = null,
         int? Parameter = null,
         bool Public = true,
-        AttributeTarget? FieldLikeEventAttribute = null);
+        AttributeTarget? FieldLikeEventAttribute = null,
+        int? VarargRequired = null);
 
     static FastDiffResult Compare(TypeSpec[] before, TypeSpec[] after)
     {
@@ -220,6 +235,30 @@ public sealed class FastDiffIdentityTests
         BlobHandle voidSignature = metadata.GetOrAddBlob(signature);
 
         BlobHandle emptyAttribute = metadata.GetOrAddBlob(new byte[] { 0x01, 0x00, 0x00, 0x00 });
+
+        // One external vararg call site, MemberRef 1: VLib.C.M(int, long) with
+        // the sentinel after the given number of required parameters.
+        if (types.Select(type => type.VarargRequired).OfType<int>().FirstOrDefault() is int required and > 0)
+        {
+            AssemblyReferenceHandle library = metadata.AddAssemblyReference(
+                metadata.GetOrAddString("VLib"), new Version(1, 0, 0, 0), default, default, default, default);
+            TypeReferenceHandle parent = metadata.AddTypeReference(
+                library, metadata.GetOrAddString("VLib"), metadata.GetOrAddString("C"));
+            var callSite = new BlobBuilder();
+            new BlobEncoder(callSite)
+                .MethodSignature(SignatureCallingConvention.VarArgs)
+                .Parameters(
+                    2,
+                    returnType => returnType.Void(),
+                    parameters =>
+                    {
+                        parameters.AddParameter().Type().Int32();
+                        if (required == 1)
+                            parameters = parameters.StartVarArgs();
+                        parameters.AddParameter().Type().Int64();
+                    });
+            metadata.AddMemberReference(parent, metadata.GetOrAddString("M"), metadata.GetOrAddBlob(callSite));
+        }
 
         var handles = new List<TypeDefinitionHandle>();
         int nextMethod = 1;
