@@ -105,7 +105,7 @@ public sealed class BooleanFoldingPass : IIrPass
             bool evidence = candidateStores.Any(s => s.Value is not Constant && IsBool(s.Value.ResultType));
             var loads = loadsBySlot.GetValueOrDefault(slot) ?? [];
             var candidateLoads = loads
-                .Where(load => IsBool(load.Type) || load.Type is { } type && TypeFamilies.IsIntegerLike(type))
+                .Where(load => IsBool(load.Type) || TypeFamilies.Of(load.Type) == StackFamily.I4)
                 .ToList();
             if (loads.Except(candidateLoads).Any(load =>
                 SharesBooleanStorageFamily(load.Type, function.TypeShapes)))
