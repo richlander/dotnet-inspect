@@ -94,6 +94,13 @@ internal sealed record ClassicInverseIfNode(
     internal override string Signature => $"if({Condition.Signature},{Then.Signature})";
 }
 
+internal sealed record ClassicInverseInitObjectNode(TypeRef Type, ClassicInverseBodyNode Address)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new InitObject(Type, Expr(Address));
+    internal override string Signature => $"init[{TypeText(Type)}]({Address.Signature})";
+}
+
 internal sealed record ClassicInverseReturnNode(ClassicInverseBodyNode? Value)
     : ClassicInverseBodyNode
 {
@@ -778,6 +785,12 @@ internal sealed class ClassicInverseBodyCaptureSession(ClassicInverseTypeBinding
                 return condition is null || then is null
                     ? null
                     : new ClassicInverseIfNode(condition, then);
+            }
+
+            case InitObject init:
+            {
+                var address = TryCapture(init.Address, budget);
+                return address is null ? null : new ClassicInverseInitObjectNode(binding.Type(init.Type, budget), address);
             }
 
             case Return ret:

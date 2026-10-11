@@ -143,11 +143,43 @@ materialization and visible budget failure. `SingleAwaitGuards_CompileBackExact`
 gates Exact product whole-member compilation.
 
 The motivating writer still has a two-condition reference guard and a default
-cancellation-token initialization. Those obligations remain separate; this
-slice does not claim Full fidelity for `Utf8JsonWriter.DisposeAsync`.
-`ClassicInverseDeclinesCompoundAwaitGuard` retains the compound-guard boundary.
+cancellation-token initialization. The Boolean-only proof does not establish
+Full fidelity for `Utf8JsonWriter.DisposeAsync`; the next section owns that
+compound correspondence.
+`ClassicInverseDeclinesCompoundAwaitGuard` retains the Boolean-pair boundary.
 Splitting the Boolean prerequisite from the writer's compound guard makes
 twelve currently planned slices under #9625.
+
+## Compound reference guard before a void await
+
+The single-void-await recipe may extend the closed guard shell to two
+short-circuit reference tests. Each true edge enters the same await block;
+the second test runs only after the first is false, and two false tests reach
+the empty early completion. The output retains that order in one logical OR.
+Raw and planning graphs must agree on all eight blocks, branch identities,
+entries, successors and completion leaves. Boolean pairs and arbitrary guard
+chains remain outside this extension.
+
+A typed local default initialization immediately before await acquisition may
+be reproduced as an explicit local initialization in the output guard arm.
+The local must have exactly the initializer address and one typed value load
+in the acquired await operand, with no other use or escape. The raw initializer
+and use must match planning; it remains semantic work with its own statement
+receipt, not compiler protocol. The output local is remapped independently and
+retained in the detached plan. These rules target the RC1 writer's two
+reference tests and default CancellationToken without granting general CFG
+proof or suppressing other declines.
+
+`ClassicInversePreservesCompoundReferenceGuard` gates Full output for the
+minimal reference pair and a ValueTask cleanup body with default token.
+`ClassicInverseCompoundGuardCannotBeHealed` gates raw/planning target, predicate,
+entry, nesting, effect, completion and initialization boundaries.
+`ClassicInverseCompoundGuardPlanIsDetachedAndBudgeted` gates detached logical
+operands/default-local initialization and visible budget failure.
+`CompoundReferenceGuards_CompileBackExact` gates two immutable product
+whole-member Exact results. RC1 DisposeAsync is a separate real witness:
+Full and compilable, with a retained OperandDiff for generated state-machine
+name numbering, not an Exact claim. FlushAsync remains outside this shell.
 
 ## Demo
 

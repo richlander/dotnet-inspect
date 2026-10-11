@@ -1274,7 +1274,10 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /if \(rootRequest !== undefined\) \{\s*await openExactPackageQueryRow\(packageId, version, rootRequest\);[\s\S]*const controller = requireRetainedWorkspaceActivation\(\);[\s\S]*controller\.retain\(\{[\s\S]*packageQuery: \{ packageId, version \},[\s\S]*controller\.activate\([\s\S]*completeRetainedActivationPresentation\(/);
   assert.match(
     handoff,
-    /const initialPackageLens: PackageLens = origin === "query"\s*\? packageQueryWorkspaceLens\(state\.packageQueryState\.request\) \?\? "overview"[\s\S]*url\.hash = initialPackageLens === "overview"\s*\? "package"\s*: `pkg:\$\{initialPackageLens\}`;/);
+    /const initialPackageLens: PackageLens = origin === "query"\s*\? packageQueryInitialLens\(state\.packageQueryState\.request\)[\s\S]*url\.hash = initialPackageLens === "overview"\s*\? "package"\s*: `pkg:\$\{initialPackageLens\}`;/);
+  assert.match(
+    appSource,
+    /packageQueryRelatedOperationBindings =\s*new Map<string, PackageLens>\(\[\s*\["package\.dependencies\.inspect", "dependencies"\],\s*\]\)/);
   assert.match(
     handoff,
     /installRetainedWorkspacePosting\(\s*posting,\s*locationIntent,\s*undefined,\s*initialPackageLens\)/);
