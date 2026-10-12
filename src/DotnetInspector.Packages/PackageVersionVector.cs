@@ -28,6 +28,9 @@ public sealed record PackageVersionRange
 {
     PackageVersionRange(string packageId, NuGetVersion start, NuGetVersion end)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentNullException.ThrowIfNull(start);
+        ArgumentNullException.ThrowIfNull(end);
         PackageId = packageId;
         Start = start;
         End = end;
@@ -39,6 +42,12 @@ public sealed record PackageVersionRange
     public string StartVersion => Start.ToNormalizedString();
     public string EndVersion => End.ToNormalizedString();
     public bool IncludesPrerelease => Start.IsPrerelease || End.IsPrerelease;
+
+    internal static PackageVersionRange Create(
+        string packageId,
+        NuGetVersion start,
+        NuGetVersion end)
+        => new(packageId, start, end);
 
     /// <summary>
     /// Parses a package range. A false result with no error means the reference is not a range.
@@ -115,6 +124,12 @@ public enum PackageVersionMajorRepresentativePolicy
 
     /// <summary>Select the highest admitted version in each major.</summary>
     Latest,
+
+    /// <summary>
+    /// Select the highest admitted stable version in each major, falling back
+    /// to the highest admitted prerelease when that major has no stable version.
+    /// </summary>
+    LatestStable,
 }
 
 /// <summary>
@@ -413,6 +428,16 @@ public sealed class PackageVersionVector
                                 .FirstOrDefault(),
                         PackageVersionMajorRepresentativePolicy.Latest =>
                             group.OrderByDescending(
+                                    address => address.Version,
+                                    SortComparer)
+                                .FirstOrDefault(),
+                        PackageVersionMajorRepresentativePolicy.LatestStable =>
+                            stable.OrderByDescending(
+                                    address => address.Version,
+                                    SortComparer)
+                                .FirstOrDefault()
+                            ?? group
+                                .OrderByDescending(
                                     address => address.Version,
                                     SortComparer)
                                 .FirstOrDefault(),

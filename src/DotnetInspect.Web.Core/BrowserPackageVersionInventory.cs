@@ -1,3 +1,4 @@
+using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using NuGet.Versioning;
 
@@ -8,8 +9,16 @@ internal sealed record BrowserPackageVersionInventory(
     string[] UnlistedVersions,
     int CurrentVersionInsertionIndex,
     string? PreviousVersion,
-    string? PreviousVersionUnavailableReason)
+    string? PreviousVersionUnavailableReason,
+    string[]? SupplyChainVersions,
+    string[]? ApiEvolutionVersions)
 {
+    /// <summary>
+    /// The deepest window a compare scenario offers
+    /// (inspect-web-diff-targets.md#diff).
+    /// </summary>
+    public const int MaximumWindowDepth = 6;
+
     public static BrowserPackageVersionInventory Create(
         PackageVersionListingDocument document,
         string currentVersion)
@@ -39,16 +48,41 @@ internal sealed record BrowserPackageVersionInventory(
                 currentVersionInsertionIndex,
                 null,
                 "Automatic selection is unavailable because authoritative listing state "
-                + "could not be read. You can still select an exact version.");
+                + "could not be read. You can still select an exact version.",
+                null,
+                null);
         }
 
-        string? previous = candidates
-            .Where(row =>
+        string[] supplyChain = EarlierPoints(PackageVersionWindowPolicy.SupplyChain);
+        string[] apiEvolution = EarlierPoints(PackageVersionWindowPolicy.ApiEvolution);
+        return new(
+            versions,
+            unlistedVersions,
+            currentVersionInsertionIndex,
+            supplyChain.Length == 0 ? null : supplyChain[0],
+            null,
+            supplyChain,
+            apiEvolution);
+
+        // The window's earlier points, nearest first, so a depth-n window is
+        // the first n.
+        string[] EarlierPoints(PackageVersionWindowPolicy policy) =>
+            PackageVersionWindow.TryProject(
+                document.Request.PackageId,
+                policy,
+                MaximumWindowDepth,
+                current,
+                document.Versions,
+                listingIsAuthoritative: true,
+                out PackageVersionWindow? window,
+                out _)
+                ? [.. window!.Points[..^1].Reverse().Select(point => Original(point.Version))]
+                : [];
+
+        string Original(NuGetVersion version) => candidates
+            .First(row =>
                 row.Candidate.Listed
-                && (current.IsPrerelease || !row.Version.IsPrerelease)
-                && VersionComparer.VersionRelease.Compare(row.Version, current) < 0)
-            .Select(row => row.Candidate.Version)
-            .FirstOrDefault();
-        return new(versions, unlistedVersions, currentVersionInsertionIndex, previous, null);
+                && VersionComparer.VersionRelease.Equals(row.Version, version))
+            .Candidate.Version;
     }
 }
