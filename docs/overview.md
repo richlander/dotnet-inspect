@@ -668,8 +668,9 @@ producers that will extend that space.
   locator evidence, and active-realization authority without adding Platform
   subjects to shared Navigation.
 - [Browser Diff targets](design/inspect-web-diff-targets.md) owns the
-  session-local Package Diff baseline, inheritance during subject navigation,
-  and target-setting controls. Clone candidate scope has transferred to the
+  session-local Package comparison targets (the Supply chain and API evolution
+  scenarios, their depths, and the Specific version baseline), inheritance
+  during subject navigation, and target-setting controls. Clone candidate scope has transferred to the
   shared [Structural Clone Search Scope](design/structural-clone-search-scope.md)
   owner. The Browser owner does not own acquisition authority, comparison
   execution, or portable Workspace fields.

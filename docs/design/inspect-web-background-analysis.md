@@ -5,8 +5,8 @@
 This document owns **background analysis** in the website: Library and Type
 analysis the page starts on its own, without a user action, to give a reader
 immediate context. It owns the page-side queue, its order, relevance and
-de-duplication, the foreground-first rule, and the default comparison
-baselines. It is tracked by
+de-duplication, and the foreground-first rule. It runs the comparison targets
+that [Browser Diff targets](inspect-web-diff-targets.md#diff) owns. It is tracked by
 [#9716](https://github.com/richlander/dotnet-inspect/issues/9716).
 
 It consumes the single-threaded Worker contract in
@@ -73,29 +73,35 @@ Library analysis tabs stay on demand and are not queued.
 
 ### Default baselines
 
-A Gallery package's Library page compares its current version against:
+A Gallery package's Library page runs the Package's checked
+[comparison targets](inspect-web-diff-targets.md#diff). At their defaults
+these are two windows of depth 1:
 
-1. **Last patch version**, both axes: the highest listed version below the
-   current one with the same major and minor version. When there is none, as
-   for an `X.Y.0` release, it is the highest listed version below the current
-   one. Both cases are the inventory's existing `previousVersion`.
-2. **Last major version**, API axis only: the highest listed version with a
-   lower major version.
+1. **Supply chain**, both axes: the active version against the highest
+   candidate below it, the automatic previous version that
+   [Browser Diff targets](inspect-web-diff-targets.md#specific-version)
+   defines once.
+2. **API evolution**, API axis only: the active version against the highest
+   stable version of the previous major.
 
-Prereleases are candidates only when the current version is a prerelease. A
-baseline that resolves to the same version as an earlier one runs once. An
-explicit Library Compare targets the single version the user selects and does
-not change these defaults.
+The [version window projection](version-resolution.md#version-window-projection)
+selects both points. A point that both windows name, as for an `X.0.0`
+release, is acquired once. An explicit Library Compare targets the versions
+the user selects and does not change these defaults.
 
-The background run acquires each baseline package without a user action. That
-is an approved exception to explicit network work, limited to these baseline
-packages.
+The background run acquires the default windows' packages without a user
+action. That is an approved exception to explicit network work, limited to
+the depth-1 windows. A deeper window, or a Specific version, is acquired only
+after the reader chooses it.
 
 ### Navigation cues
 
-Outside Library Compare, the Type navigation marks each Type that the
-last-patch baseline reports with an axis `Changed` or `Indeterminate`. The
-cue names the baseline version and each reported axis, and an
+Outside Library Compare, the Type navigation marks each Type that the last
+step of the Supply chain window, the active version against the automatic
+previous version, reports with an axis `Changed` or `Indeterminate`. When
+Supply chain is unchecked, the navigation shows no cue. Cues over a whole
+window belong to [#9920](https://github.com/richlander/dotnet-inspect/issues/9920).
+The cue names the baseline version and each reported axis, and an
 `Indeterminate` axis is described as undecided rather than changed. Inside
 Library Compare, cues come from the Compare result for the user's target, as
 before.
@@ -154,7 +160,7 @@ Members header's Compare bodies action is their view.
    background binding, and the navigation cues.
 2. **Member cues for the Type on screen** (#9826): the first
    visible-subject task and the Members header's Compare actions.
-3. **Library Compare lists and last-major baseline:** with
+3. **Library Compare lists and the API evolution default window:** with
    [Fast Diff adoption step 5](fast-diff.md#adoption).
 4. **Type heat and method leverage:** move their pumps onto the queue's
    visible-subject class and retire their own pumps.
