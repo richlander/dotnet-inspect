@@ -75,7 +75,7 @@ comparison.
 
 | Layer | Owns | Assemblies |
 | --- | --- | --- |
-| **1. Comparison kernels** | Pairwise producers over two images or bodies, and the infrastructure they share: correspondence of Types and Members across two images, the axis state vocabulary (`Changed`, `Unchanged`, `Indeterminate`, `NotCompared`) and how states combine across steps, and producer-internal slicing that yields under a work bound | `Inspector.Findings`, `Inspector.Text`, `ILInspector.MetadataPrimitives`, `ILInspector.Metadata`, `ILInspector.ILDiff`, `ILInspector.Research`, `ILInspector.Decompiler` |
+| **1. Comparison kernels** | Pairwise producers over two images or bodies, and the infrastructure they share: correspondence of Types and Members across two images, the axis state vocabulary (`Changed`, `Unchanged`, `Indeterminate`, `NotCompared`) and how states combine across steps, and producer-internal slicing that yields under a work bound | `Inspector.Findings`, `Inspector.Text`, `ILInspector.MetadataPrimitives`, `ILInspector.Metadata`, `ILInspector.Analysis`, `ILInspector.ILDiff`, `ILInspector.Research`, `ILInspector.Decompiler` |
 | **2. Selection, acquisition and queries** | Version selection (exact pairs, ranges, populations, version windows), PackageHouse cells, the package endpoint scope, Platform realization, the package Root and Workspace, assembly-context queries over participants, and compile-asset correspondence across versions | `DotnetInspector.Packages`, `DotnetInspector.PackageHouse.*`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.PlatformHouse.*`, `DotnetInspector.PlatformQueries` |
 | **3. Results and presentation** | Content owners' result contracts, such as the per-analysis outcomes and Library API Diff outcomes, Research-backed queries, and lowering to portable documents, JSON and Markout | `DotnetInspector.Sections`, `DotnetInspector.ResearchQueries`, the result contracts in `DotnetInspector.ResearchSections`, `DotnetInspector.Presentation` |
 | **4. Diff system** | The diff request, the diff operation, its two execution modes, Library pairing, analysis and population selection, and assembling each request's result from layer 3 contracts | `DotnetInspector.Diff` (new), absorbing orchestration now in `DotnetInspector.PackageQueries`, `DotnetInspector.ResearchQueries`, `DotnetInspector.ResearchSections`, `DotnetInspector.Presentation` and both hosts |
@@ -145,22 +145,32 @@ the set diverges today.
 
 Correspondence across two images uses identity structures that also live in
 layer 1: `MemberAnchor` and its fingerprint, `MethodBodyIdentity`, Fast Diff's
-`SymbolKey`, `ResearchTargetCorrespondence`, and `ApiQualifiedAnchor`, which
+`SymbolKey`, the `ResearchTargetCorrespondence` family, and
+`ApiQualifiedAnchor`, which
 claims no diff adoption yet.
 
 ### Change vocabulary
 
-The canonical vocabulary is the [Finding](finding-nomenclature.md) one, with
-two facets that every structure can express:
+The canonical vocabulary follows [Finding](finding-nomenclature.md)
+transitions, with five states and two facets:
 
 | Canonical | Meaning | Native spellings today |
 | --- | --- | --- |
 | **Added** | Only After has it | Addition (`AnalysisDiff`, `ComparisonSubjectChange`), Add (`IlDiffKind`, `CSharpDiffKind`), `TypeAdded`, `MemberAdded` |
 | **Removed** | Only Before has it | Removal, Deletion, Remove, `TypeRemoved`, `MemberRemoved` |
 | **Changed** | Corresponding items differ | `Changed` in most; IL has no changed kind and emits a removal and an addition in one hunk |
-| **Unchanged** | Corresponding items are equal | Present, Unchanged, Context, Exact, and Diff in `ComparisonSubjectChange` |
+| **Unchanged** | Corresponding items are equal | Present (`PairKind`), Unchanged, Context, Exact |
+| **Undetermined** | The comparison could not decide | `Indeterminate` and `NotCompared` (`FastDiffState`, History window states), failed comparisons |
 | **Moved** (placement facet) | Corresponding items changed position | `FindingDifferenceKind.Moved`, `AnalysisDiffPlacementKind.Moved`, `TextMove`, `CSharpStructuralChangeKind.Moved` |
 | **Renamed** (identity facet) | Corresponding items changed name | `ComparisonSubjectChange.Rename`, with no producer |
+
+`ComparisonSubjectChange.Diff` means the subject corresponds, with no
+composition-level change; as [Comparison
+document](comparison-document.md#subject-changes) owns, its payload decides
+whether it is Changed or Unchanged. Undetermined is carried as itself and is
+never projected into Changed or Unchanged, which keeps
+[History's rule](diff-history.md#window-states) that an undecided or failed
+comparison is never read as unchanged.
 
 Producers keep their native rows, which carry facts the canonical vocabulary
 does not, such as an IL offset or a breaking classification. Every document
@@ -177,8 +187,9 @@ way for every producer.
   [structural clone search scope](structural-clone-search-scope.md#future-clone-assisted-diff).
 - **Moves inside IL and C# line diffs.** Only Findings, text and C# structure
   detect moves.
-- **One alignment kernel.** Three LCS implementations exist: `FindingMatcher`,
-  and private ones in `IlBodyDiff` and `CSharpBodyDiff`. The two body
+- **One alignment kernel.** Three product LCS implementations exist:
+  `FindingMatcher`, and private ones in `IlBodyDiff` and `CSharpBodyDiff`. A
+  fourth, `DiffHunks` in the decompiler pipeline tool, is developer tooling. The two body
   representations are compared twice on purpose, under
   [implementation diff's dual representation](implementation-diff.md#deliberate-dual-representation-decision);
   that decision needs two representations, not two algorithms.
@@ -217,9 +228,8 @@ never a rendered line number.
 Its [fact comparison](annotated-source-diff-document.md#fact-comparison), which
 compares the facts themselves across versions, is designed but not
 implemented, so today each side's facts are annotations on that side only. The
-document is also the target for Implementation Diff's C# lane and for the IL
-medium, which today is a plain text diff of printed IL rather than
-`IlBodyDiff` output.
+document is also the target for Implementation Diff's C# lane. Its IL medium is
+a text diff of printed IL; `IlBodyDiff` stays Implementation Diff's IL lane.
 
 ### Rules
 
@@ -265,9 +275,9 @@ whitespace and move labels. The rules:
   rendering.
 - **The browser renders the same mapping.** It receives `MappedTextDiff` data
   through the [source diff transport](inspect-web-source-diff-transport.md) and
-  renders HTML from it, so both hosts present one mapping. The transport must
-  carry change labels and annotations; today it drops labels and carries no
-  annotations.
+  renders HTML from it, so both hosts present one mapping. The transport
+  carries annotations, though no producer issues one yet, and drops change
+  labels, which it must carry.
 
 ## Rendering models
 
@@ -438,7 +448,7 @@ first, so later steps retire duplicates rather than add adapters.
 | 10 | Align documents: Fast Diff's adoption baselines, the census's analysis-set status, and each focused owner's orchestration claims | Stale claims |
 | 11 | Every diff document exposes the canonical change vocabulary at its boundary, and the browser projections carry it | Per-host vocabulary mapping, such as the browser's three-state Library API Diff Type state |
 | 12 | IL and C# body diffs lower through `MappedTextDiff` and render in the GNU diff model in both hosts | `IlDiffPrinter` and `CSharpDiffPrinter` hunk strings in CLI table cells |
-| 13 | The [annotated source diff document](annotated-source-diff-document.md#adoption) completes its fact comparison; Presentation lowers facts to `TextDiffAnnotation`; both hosts render the annotated model; the source diff transport carries change labels and annotations | JSON-only CLI output for the annotated source diff; `CSharpStructuralDiffPrinter.RenderAnnotatedBody` as a test-only renderer; label-dropping projections |
+| 13 | The [annotated source diff document](annotated-source-diff-document.md#adoption) completes its fact comparison and owns the lowering of its facts to `TextDiffAnnotation`, amending its non-claim and Hosts table; Presentation runs that lowering; both hosts render the annotated model; the source diff transport carries change labels | JSON-only CLI output for the annotated source diff; `CSharpStructuralDiffPrinter.RenderAnnotatedBody` as a test-only renderer; label-dropping projections |
 | 14 | `IlBodyDiff` and `CSharpBodyDiff` align through the shared alignment kernel, keeping their two representations and cross-check | The two private LCS implementations |
 
 [#9920](https://github.com/richlander/dotnet-inspect/issues/9920)'s remaining
@@ -467,8 +477,9 @@ by the step that establishes it:
   Count, before and after step 2;
 - a failed step is never combined as `Unchanged`;
 - no host assembly references a producer directly for a comparison;
-- every diff document reports additions, removals, changes and moves in the
-  canonical vocabulary;
+- every diff document reports additions, removals, changes, moves and
+  undetermined comparisons in the canonical vocabulary, and never reports an
+  undetermined comparison as unchanged;
 - every text diff a host renders is a `MappedTextDiff`, and every annotation
   on it a `TextDiffAnnotation` targeting a document coordinate; and
 - implementation slices carry exact-head NativeAOT numbers, compared with the
