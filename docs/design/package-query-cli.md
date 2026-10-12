@@ -272,7 +272,20 @@ incompatible with either specific format. Equivalent normalized bindings
 collapse, including case variants of NuGet package IDs. Distinct values for
 the exclusive `downloads` and `prerelease` families are incompatible.
 
-The CLI spells inspection terms through the existing predicate grammar:
+The CLI spells inspection terms through the existing predicate grammar.
+
+The installed CLI binding's `input_rules` pair comparison identities with
+their CLI forms: `eq` uses `--where "key=value"`; `starts-with` uses
+`--where "key starts-with value"`. A spelling does not admit an operator for
+every facet; the facet's exposed operators remain authoritative.
+
+The [landed Package Query trials](../../tools/ExplainReadingScenarios/usability/package-query-adoption/README.md)
+retain Microsoft.Extensions.Http.Polly@10.0.12 and an agent's fallback to `-Q`
+for the non-equality spelling after reading HAL. This motivates exposing syntax
+in the existing binding rather than extending the query grammar or skill.
+`PackageQueryExplanationTests.InstalledComparisonSpelling_PreparesOnlyFacetAdmittedPredicates`
+reads installed HAL to prepare equality and prefix predicates through the CLI
+parser, with an equality-only facet as the negative control, without acquisition.
 
 ```console
 dotnet-inspect package query 'Microsoft.Extensions.*' \
