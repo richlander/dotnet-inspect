@@ -71,6 +71,12 @@ export interface PackageQueryEcosystemOption {
   readonly summary: string;
 }
 
+export interface PackageQueryExternalCatalogs {
+  readonly productEcosystems:
+    | readonly PackageQueryEcosystemOption[]
+    | null;
+}
+
 type PackageQueryManifestFailureReason = Extract<
   BrowserPackageQueryFailurePayload["manifestFailureReason"],
   string
@@ -127,7 +133,7 @@ export interface BrowserPackageQueryDataSourceOptions {
 
 export function packageQueryFacets(
   data: PackageQueryFacetData,
-  ecosystems: readonly PackageQueryEcosystemOption[],
+  externalCatalogs: PackageQueryExternalCatalogs,
 ): {
   readonly presets: QueryPreset[];
   readonly terms: QueryTermDescriptor[];
@@ -148,10 +154,10 @@ export function packageQueryFacets(
   for (const facet of facets) {
     switch (facet.presentationKind) {
       case "fact":
-        presets.push(...toQueryPresets(facet, ecosystems));
+        presets.push(...toQueryPresets(facet, externalCatalogs));
         break;
       case "value-query":
-        terms.push(toQueryTermDescriptor(facet, ecosystems));
+        terms.push(toQueryTermDescriptor(facet, externalCatalogs));
         break;
       default:
         throw new TypeError(
@@ -163,7 +169,7 @@ export function packageQueryFacets(
 
 function toQueryPresets(
   descriptor: PackageQueryFacetDescriptor,
-  ecosystems: readonly PackageQueryEcosystemOption[],
+  externalCatalogs: PackageQueryExternalCatalogs,
 ): QueryPreset[] {
   if (descriptor.controlKind !== "toggle"
     && descriptor.controlKind !== "choice") {
@@ -176,7 +182,7 @@ function toQueryPresets(
   }
   const tier = toFacetTier(descriptor.effects);
   const category = factCategory(tier, descriptor.relatedOperations);
-  return facetOptions(descriptor, ecosystems).map(option => ({
+  return facetOptions(descriptor, externalCatalogs).map(option => ({
     id: `${descriptor.key}:${descriptor.operators[0]}:${option.value}`,
     key: descriptor.key,
     operator: descriptor.operators[0]!,
@@ -200,7 +206,7 @@ function toQueryPresets(
 
 function toQueryTermDescriptor(
   descriptor: PackageQueryFacetDescriptor,
-  ecosystems: readonly PackageQueryEcosystemOption[],
+  externalCatalogs: PackageQueryExternalCatalogs,
 ): QueryTermDescriptor {
   if (descriptor.controlKind !== "input"
     && descriptor.controlKind !== "multiline-input"
@@ -224,18 +230,22 @@ function toQueryTermDescriptor(
         ? descriptor.optionSource === null
         : false,
     replacementGroupId: descriptor.replacementGroup,
-    options: facetOptions(descriptor, ecosystems),
+    options: facetOptions(descriptor, externalCatalogs),
     relatedOperations: [...descriptor.relatedOperations],
   };
 }
 
 function facetOptions(
   descriptor: PackageQueryFacetDescriptor,
-  ecosystems: readonly PackageQueryEcosystemOption[],
+  externalCatalogs: PackageQueryExternalCatalogs,
 ): PackageQueryFacetOption[] {
   if (descriptor.optionSource === null) return [...descriptor.options];
   if (descriptor.optionSource === "product-ecosystems") {
-    return ecosystems.map(ecosystem => ({
+    if (externalCatalogs.productEcosystems === null) {
+      throw new TypeError(
+        `Package-query facet '${descriptor.key}' requires unavailable option source 'product-ecosystems'.`);
+    }
+    return externalCatalogs.productEcosystems.map(ecosystem => ({
       value: ecosystem.id,
       label: ecosystem.title,
       summary: ecosystem.summary,

@@ -1289,7 +1289,7 @@ test("packageQueryFacets preserves owner-issued presentation and facet ordering"
     },
   };
 
-  const projected = packageQueryFacets(data, []);
+  const projected = packageQueryFacets(data, { productEcosystems: [] });
   assert.deepEqual(projected.presets, [
     {
       id: "dependencies:eq:none",
@@ -1382,7 +1382,7 @@ test("packageQueryFacets preserves owner-issued presentation and facet ordering"
     () => packageQueryFacets({
       ...data,
       bindings: {},
-    }, []),
+    }, { productEcosystems: [] }),
     /exactly one Browser binding/);
   assert.throws(
     () => packageQueryFacets({
@@ -1394,8 +1394,51 @@ test("packageQueryFacets preserves owner-issued presentation and facet ordering"
           presentationKind: "unknown",
         },
       },
-    }, []),
+    }, { productEcosystems: [] }),
     /Unsupported package-query presentation kind/);
+
+  const ecosystemData: PackageQueryFacetData = {
+    ...data,
+    facetOrder: [...data.facetOrder, "depends-ecosystem"],
+    bindings: {
+      browser: {
+        ...data.bindings.browser!,
+        exposedFacets: [
+          ...data.bindings.browser!.exposedFacets,
+          "depends-ecosystem",
+        ],
+      },
+    },
+    facets: {
+      ...data.facets,
+      "depends-ecosystem": facet({
+        key: "depends-ecosystem",
+        name: "Depends on ecosystem",
+        summary: "Matches dependencies in a product ecosystem.",
+        presentationOrder: 40,
+        controlKind: "input",
+        presentationKind: "value-query",
+        executionClass: "nuspec",
+        optionSource: "product-ecosystems",
+      }),
+    },
+  };
+  assert.throws(
+    () => packageQueryFacets(ecosystemData, { productEcosystems: null }),
+    /facet 'depends-ecosystem' requires unavailable option source 'product-ecosystems'/);
+  assert.deepEqual(
+    packageQueryFacets(ecosystemData, {
+      productEcosystems: [{
+        id: "ecosystem.aspire",
+        title: "Aspire",
+        summary: "Packages in the Aspire ecosystem.",
+      }],
+    }).terms.find(term => term.key === "depends-ecosystem")?.options,
+    [{
+      value: "ecosystem.aspire",
+      label: "Aspire",
+      summary: "Packages in the Aspire ecosystem.",
+    }]);
 });
 
 test("Browser data source maps package-content rows and visible failures", async () => {

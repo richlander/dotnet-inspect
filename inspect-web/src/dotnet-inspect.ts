@@ -1059,6 +1059,7 @@ let inspectEncodeWorkspaceShareState:
 let inspectRunHomeDemo: EngineClient["catalog"]["runHomeDemo"];
 let productHomeDemoCatalogError = "";
 let productEcosystemCatalogError = "";
+let productEcosystemCatalogAvailable = false;
 
 // The Worker client stays off the first-paint path. It is imported after the
 // home view paints, then starts exactly one epoch when bootstrap supplies the
@@ -26761,10 +26762,12 @@ async function bootstrap() {
       setProductEcosystemCatalog(
         (await engineClient.catalog.listEcosystems()).ecosystems ?? []);
       productEcosystemCatalogError = "";
+      productEcosystemCatalogAvailable = true;
     } catch (error) {
       setProductEcosystemCatalog([]);
       productEcosystemCatalogError =
         `Ecosystems are unavailable: ${errorMessage(error) || "Unknown error."}`;
+      productEcosystemCatalogAvailable = false;
     }
     try {
       state.packageChangesEcosystems = packageChangesEcosystems(
@@ -26778,7 +26781,11 @@ async function bootstrap() {
     try {
       const catalog = packageQueryFacets(
         await engineClient.package.inspectPackageQueryFacets(),
-        productEcosystemCatalog());
+        {
+          productEcosystems: productEcosystemCatalogAvailable
+            ? productEcosystemCatalog()
+            : null,
+        });
       state.packageQueryPresets = catalog.presets;
       state.packageQueryTerms = catalog.terms;
     } catch (error) {
