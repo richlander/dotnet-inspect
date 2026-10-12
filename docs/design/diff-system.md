@@ -129,19 +129,59 @@ kinds of differencing it supports. Each is owned by its focused design; this
 section names them as one set, states the shared vocabulary, and records where
 the set diverges today.
 
-### Kinds of differencing
+### The Finding ladder
 
-| Kind | Structure | Granularity | Owner |
+The base is the Finding ladder that
+[Finding nomenclature](finding-nomenclature.md#information-types-and-operation-outcomes)
+owns. Its information types are ordered by how many versions they span, and
+each rung has the operation that produces it:
+
+| Versions | Information type | Operation and outcome | Question |
 | --- | --- | --- | --- |
-| **Ordered sequence alignment** | `FindingMatcher` (an LCS core, then a scored move pass) producing `FindingComparison<T>` and `PairFinding<T>` | Any ordered stream of keyed observations: text lines, IL Findings, C# Findings, string literal uses | [Finding nomenclature](finding-nomenclature.md) |
-| **Identity-set correspondence** | `FindingMatcher` in its identity-set mode, a multiset bijection with no order or moves | Unordered facts, such as metadata Findings | [Finding nomenclature](finding-nomenclature.md) |
-| **Sequence relations** | `AnalysisDiff<T>`: a complete partition of two sequences into additions, removals and correspondences, where a correspondence may be N:M | Any sequence a producer has aligned | [Analysis diff](analysis-diff.md#correspondence-facets) |
-| **Text characterization** | `TextDiffCharacterization` (`TextRegion`, `TextChange`, `TextMove`) over an `AnalysisDiff<string>` | Lines, with whitespace-only and moved changes | [Text whitespace](text-whitespace-characterization.md), [text moves](text-move-characterization.md) |
-| **Canonical IL comparison** | `IlBodyDiff` rows over `CanonicalIlOperation` | One method body | [IL diff canonicalization](il-diff-canonicalization.md) |
-| **C# body comparison** | `CSharpBodyDiff` line rows; `CSharpStructuralComparison` node matches within one body | One method body | [Implementation diff](implementation-diff.md#structural-body-comparison) |
-| **API surface comparison** | `ApiDiffAnalyzer` `ApiChange` with `ChangeKind` and `ChangeClassification` | API Type or member | [Library API diff presentation](library-api-diff-presentation.md) |
-| **Axis summary** | `FastDiffState` per Type and axis | Type, with Member and residual partitions designed | [Fast Diff](fast-diff.md#levels) |
-| **Subject composition** | `ComparisonSubjectChange`: Diff, Addition, Deletion, Rename, Move, RenameAndMove | A root or subject in a composed comparison | [Comparison document](comparison-document.md#subject-changes) |
+| One | `Finding<T>`: one observation with a typed payload | **Inspect**: `FindingInspection<T>`, which is Complete, Absent or Failed | What does this version contain? |
+| Two | `PairFinding<T>`: one classified transition, Present, Changed, Added or Removed, with a Moved facet and match provenance | **Compare**: `FindingComparison<T>` over two inspections | How does one observation relate to its counterpart? |
+| Two | `AnalysisDiff<T>`: complete Before and After sequences partitioned into additions, removals and N:M correspondences | Compare, then relation over the whole population | How are all items in two sequences related? |
+| More than two | `CorrelatedFinding<T>`: one exact identity's occurrences, labelled with their evaluated versions | **Correlate**: `FindingCensusCorrelation<T>`, then `FindingCorrelation<T>` per identity, which is Present, Missing, SubjectAbsent, NoApplicableInput or Failed | Where across versions is this identity? |
+
+`ComparisonDocument<T>` is not a rung: it composes a root and subjects around
+any payload, and adds subject-level addition, deletion, rename and move.
+Markout's `MappedTextDiff` is the presentation format an `AnalysisDiff<T>`
+lowers to, and `AnnotatedSourceDocument` carries annotations on one rendered
+artifact, as [Analysis diff](analysis-diff.md#relationship-to-adjacent-formats)
+describes.
+
+The ladder maps onto the diff system's requests:
+
+- **Every point is an Inspect.** A version's observations are its census.
+- **Change is Compare.** An exact pair is one Compare. A window, a History
+  population and an adaptive bisection are sequences of Compares between
+  adjacent evaluated points, which History calls transitions; bisection
+  chooses its next point from them. Library-scope History over Fast Diff is
+  this shape: each step is a comparison, and its window states derive from the
+  step transitions.
+- **Identity across versions is Correlate.** "Where is this identity, and
+  when did it appear or disappear?" is a presence question over sparse
+  evaluated points; unevaluated versions are never manufactured as Missing.
+  Correlate records presence; it does not detect a changed payload, which is a
+  Compare.
+
+A producer's native rows are payloads on the ladder: a `Finding<T>` payload,
+or an `AnalysisDiff<T>` item. A producer whose results are not Findings can
+take part in Compare through its own result, but not in Correlate.
+
+### Producers
+
+| Kind | Structure | Granularity | On the ladder | Owner |
+| --- | --- | --- | --- | --- |
+| **Ordered sequence alignment** | `FindingMatcher` (an LCS core, then a scored move pass) producing `FindingComparison<T>` and `PairFinding<T>` | Any ordered stream of keyed observations: text lines, IL Findings, C# Findings, string literal uses | Compare | [Finding nomenclature](finding-nomenclature.md) |
+| **Identity-set correspondence** | `FindingMatcher` in its identity-set mode, a multiset bijection with no order or moves | Unordered facts, such as metadata Findings | Compare | [Finding nomenclature](finding-nomenclature.md) |
+| **Sequence relations** | `AnalysisDiff<T>`: a complete partition of two sequences into additions, removals and correspondences, where a correspondence may be N:M | Any sequence a producer has aligned | Two-version relation | [Analysis diff](analysis-diff.md#correspondence-facets) |
+| **Text characterization** | `TextDiffCharacterization` (`TextRegion`, `TextChange`, `TextMove`) over an `AnalysisDiff<string>` | Lines, with whitespace-only and moved changes | Facts over an `AnalysisDiff<string>` | [Text whitespace](text-whitespace-characterization.md), [text moves](text-move-characterization.md) |
+| **Canonical IL comparison** | `IlBodyDiff` rows over `CanonicalIlOperation` | One method body | No: native rows; IL Findings take the ladder separately | [IL diff canonicalization](il-diff-canonicalization.md) |
+| **C# body comparison** | `CSharpBodyDiff` line rows; `CSharpStructuralComparison` node matches within one body | One method body | No: native rows; C# Findings take the ladder separately | [Implementation diff](implementation-diff.md#structural-body-comparison) |
+| **API surface comparison** | `ApiDiffAnalyzer` `ApiChange` with `ChangeKind` and `ChangeClassification` | API Type or member | No: `ApiChange` rows; API member Findings, which History correlates, take the ladder separately | [Library API diff presentation](library-api-diff-presentation.md) |
+| **Axis summary** | `FastDiffState` per Type and axis | Type, with Member and residual partitions designed | No: per-pair states | [Fast Diff](fast-diff.md#levels) |
+| **Subject composition** | `ComparisonSubjectChange`: Diff, Addition, Deletion, Rename, Move, RenameAndMove | A root or subject in a composed comparison | Composition, not a rung | [Comparison document](comparison-document.md#subject-changes) |
 
 Correspondence across two images uses identity structures that also live in
 layer 1: `MemberAnchor` and its fingerprint, `MethodBodyIdentity`, Fast Diff's
@@ -187,6 +227,10 @@ way for every producer.
   [structural clone search scope](structural-clone-search-scope.md#future-clone-assisted-diff).
 - **Moves inside IL and C# line diffs.** Only Findings, text and C# structure
   detect moves.
+- **Correlation for non-Finding producers.** Fast Diff, `ApiDiffAnalyzer`,
+  and the IL and C# body diffs return native rows rather than Findings, so
+  their results cannot be correlated across versions; only their Finding
+  projections can.
 - **One alignment kernel.** Three product LCS implementations exist:
   `FindingMatcher`, and private ones in `IlBodyDiff` and `CSharpBodyDiff`. A
   fourth, `DiffHunks` in the decompiler pipeline tool, is developer tooling. The two body
