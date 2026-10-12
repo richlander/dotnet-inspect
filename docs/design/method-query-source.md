@@ -143,7 +143,7 @@ take the name a future source that does enumerate members would need. As
 states, Type and Member sources belong to their own owners.
 
 The code uses the ECMA-335 and `System.Reflection.Metadata` name for the same
-population, `MethodDefinition`. The implementation is in
+population, `MethodDefinition`. The implementation is mainly in
 `src/ILInspector.Analysis/Planning/`:
 
 | Code | Role |
@@ -152,7 +152,7 @@ population, `MethodDefinition`. The implementation is in
 | `MethodQuerySource` (internal) in `MethodQuerySource.cs` | Entry point |
 | `MethodDefinitionExecution.cs` | Traversal and on-demand layer acquisition |
 | `MethodDefinitionLayers` and `MethodDefinitionView` in `MethodDefinitionProducers.cs` | Declared layers and the per-method view producers read through |
-| `MethodDefinitionGeneratedExpansion.cs` | Declared generated-body expansion |
+| `MethodDefinitionGeneratedExpansion.cs` | Generated-expansion bounds and coverage; discovery and authentication delegate to the relationship owners' resolvers |
 | `MethodRowGate.cs`, `MethodDefinitionPredicates.cs`, and `MethodDefinitionTerminalWorkBudget.cs` | Source gate, predicates, and terminal work bounds |
 | `MemorySafetyContractSupport.cs` | Memory-safety contract and accessor association support |
 | `SameModuleCallTargetSupport.cs` | `CallTargets` support |

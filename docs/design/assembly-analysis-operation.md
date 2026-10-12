@@ -110,20 +110,22 @@ The stack answers each question in stages, and each stage has one owner:
 | What does this consumer need? | The adopting query | Which producers to request and which terminal (for example `Exists`, Count, or rows) each answer uses. |
 | What does each producer depend on, and when is it done? | [Producer Planning](producer-planning.md) | The closed producer description: dependencies, declared source layers, visits, outcomes, and `WorkReceipt`. |
 | Which requests share one traversal? | [Query Space Composition](query-space-composition.md) | Request-set grouping of owner-issued source plans, preservation of each request's terminal, and result association. |
-| How does it run against one assembly? | This owner | Binds the closed description and Query Space plan to exact owner-issued access, executes once, and publishes a detached `AssemblyAnalysisExecution`. |
+| How does it run against one assembly? | This owner | Binds the closed description, and for a request set its Query Space plan, to exact owner-issued access, executes once, and publishes a detached `AssemblyAnalysisExecution`. |
 | Which methods, and what is read for each? | [Method Query Source](method-query-source.md) | The ordered physical MethodDef population, breadth, declared expansion, on-demand layers, bounds, and the exact source-work receipt. |
 | What does the evidence mean? | Analysis evidence owners | Producer algorithms and focused result types. |
 
 For example, "Does type `T` have unsafe members?" runs as follows:
 
-1. The type Unsafe Members query requests the unsafe-evidence producer,
-   closed with `Exists`, over `T`'s TypeDef.
+1. The type Unsafe Members check
+   (`UnsafeEvidencePresenceQuery.ExecuteExactTypes`) requests the
+   unsafe-evidence producer, closed with `Exists`, over `T`'s TypeDef.
 2. Producer Planning closes that producer's description: it reads
    declarations, and a body and module lookup only on demand.
-3. Query Space places the request in its own execution group, since sparse
-   breadth is not yet grouped with other requests.
-4. This owner binds the plan to the access issued for the assembly and runs it
-   once.
+3. Query Space resolves the `Exists` request into the work the closed
+   description carries. The request is direct, so it enters no request set
+   and needs no grouping.
+4. This owner binds that closed description to the access issued for the
+   assembly and runs it once.
 5. Method Query Source first adds the authenticated generated bodies of
    `T`'s methods, such as async and iterator state machines, lambdas, and
    local functions
@@ -140,8 +142,10 @@ planner. It reads only what the plan declares, and receipts what it reads.
 How each layer and each execution-scoped support is acquired and shared across
 lanes is owned by [Method Query Source](method-query-source.md#depth).
 
-One legacy service still combines these stages;
-[Role map](#role-map) records where each of its roles moves.
+One legacy service still combines these stages.
+[Why Library Body Analysis is retired](#why-library-body-analysis-is-retired)
+explains the change in direction, and [Role map](#role-map) records where each
+role moves.
 
 ## Contract shape
 
@@ -354,14 +358,39 @@ A migrated producer computes its focused result from its declaration and
 visits. Filtering a broad legacy aggregate after construction does not count
 as migration.
 
-### Role map
+### Why Library Body Analysis is retired
 
 Library Body Analysis combines the stages of the
 [Analysis stack](#analysis-stack) in one service. It chooses what to compute
 from a feature set, walks every MethodDef once, builds its derived structures
 in one execution for the selected features, and publishes the results from
-that one execution. The retired `LibraryBodyIndex` was an aggregate facade over
-those results. Each role moves to its stage owner:
+that one execution. That shape has four problems:
+
+- **Cost follows the assembly, not the question.** Whole-assembly identity,
+  generated-body discovery, state-machine mapping, and the method map are built
+  before any answer, so a request for one method costs about as much as one
+  for sixteen.
+- **Its results don't decompose.** Declaration counts, the call-resolution map,
+  and declared-source publication span more than any one source selection, so
+  they cannot be cut down to the methods a request asks about.
+- **The hubs are closed.** A fixed feature set, plan, and runner decide what
+  can be computed. Every new producer edits the hub instead of declaring its
+  own needs.
+- **Its receipt can't prove scope.** The stage receipt records what ran after
+  the fact. It cannot show that a scoped request stayed scoped, and it cannot
+  drive planning.
+
+`LibraryBodyIndex`, already retired, made this worse. It put every feature's
+result behind one facade, so each consumer depended on the whole build and
+on result shapes it never used, and its actual needs were invisible.
+
+The stack reverses each problem. The question declares what is read, the
+source reads only that and proves it in a receipt, and each producer
+publishes its own focused result.
+
+### Role map
+
+Each Library Body Analysis role moves to its stage owner:
 
 | Library Body Analysis role | Target owner |
 | --- | --- |
