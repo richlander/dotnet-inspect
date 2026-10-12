@@ -188,7 +188,9 @@ prereleases are enabled. The default `ExactEndpoints` policy is unchanged.
 `PackageVersionMajorRepresentativePolicy.FirstStable` projects the lowest
 admitted stable address in each major, falling back to that major's latest
 admitted prerelease only when no stable address exists. `Latest` projects the
-highest admitted address in each major. Both projections preserve the
+highest admitted address in each major. `LatestStable` projects the highest
+admitted stable address, with the same prerelease fallback as `FirstStable`.
+Each projection preserves the
 caller-directed order of major buckets and return the original vector
 addresses, so the retained discovery and its source correspondence remain the
 handoff currency. These projections acquire no package payloads.
@@ -214,11 +216,11 @@ steps back from A. It defaults to 1, and the typed request rejects any n below
 | Policy | Question | Points, ascending | Axes |
 | --- | --- | --- | --- |
 | `SupplyChain` | What changed in the releases I would take? | The n highest candidates strictly below A, then A | API and Body on every step |
-| `ApiEvolution` | How did the API reach its current shape? | The `Latest` major representative of each of the n highest majors below A's, then A | API on every step |
+| `ApiEvolution` | How did the API reach its current shape? | The `LatestStable` major representative of each of the n highest majors below A's, then A | API on every step |
 
-A lower major's representative is `Latest` over that major's stable candidates:
-its highest stable version, whatever its minor. Only a major with no stable
-candidate falls back to its highest prerelease, which a prerelease A admits.
+A lower major's representative is `LatestStable`: its highest stable version,
+whatever its minor. Only a major with no stable candidate falls back to its
+highest prerelease, which a prerelease A admits.
 Within A's own major, A stands for that major, so both policies end at A. For a
 package whose current version is `10.0.9`, depth 3 gives:
 
@@ -270,19 +272,35 @@ History adoption in
 a change on such a step to the whole step: a change reported at `9.0.12` is
 relative to `8.0.18`, not to `9.0.0`.
 
-Gates: each policy at depth 1 and depth 3 for a servicing release (`10.0.9`), an
-`X.Y.0` release, and an `X.0.0` release whose `SupplyChain` walk crosses into
-the previous major; a package with releases on several minors of one major,
-where `Latest` takes the highest minor; a depth beyond the available points,
-which reports the reached depth; a first release and a package with no lower
-major, each a typed non-success for the policy with no earlier point; a
-prerelease A that admits prerelease candidates and a stable A that excludes
-them; a prerelease A under `ApiEvolution`, where a lower major with a stable
-candidate is represented by it; a depth below 1, which the request rejects; an
-unlisted candidate that is skipped; an unlisted A and an A absent from the
-listing, each acquired through its exact pin and ending a vector whose other
-points are listed and acquired through `SelectCandidate`; both policies in one
-host request with independent outcomes; and a non-authoritative listing.
+`PackageVersionWindow.TryProject` implements this projection. It returns the
+population vector, the points as addresses from it, and the requested and
+reached depths, or a `PackageVersionWindowFailure`. A window evaluates through
+the existing Diff History plans, not a separate orchestration:
+`DiffHistoryEvaluationPlan.For` makes a `SupplyChain` window, which is
+contiguous, a `FullPopulation` plan, and an `ApiEvolution` window an
+`ExplicitCheckpoints` plan over its points. The browser version inventory
+derives its automatic previous version, which is the `SupplyChain` point at
+depth 1, and both windows' earlier points from the same projection.
+
+Gates: each policy at the default depth and at a depth greater than 1 for a
+servicing release (`10.0.9`), an `X.Y.0` release, and an `X.0.0` release whose
+`SupplyChain` walk crosses into the previous major; a package with releases on
+several minors of one major, where `LatestStable` takes the highest minor; a depth
+beyond the available points, which reports the reached depth; a first release
+and a package with no lower major, each a typed non-success for the policy with
+no earlier point; a prerelease A that admits prerelease candidates and a stable
+A that excludes them; a prerelease A under `ApiEvolution`, where a lower major
+with a stable candidate is represented by it; a depth below 1, which the request
+rejects; an unlisted candidate that is skipped; an unlisted A and an A absent
+from the listing, each acquired through its exact pin and ending a vector whose
+other points are listed and acquired through `SelectCandidate`; both policies in
+one host request with independent outcomes; and a non-authoritative listing.
+`PackageVersionWindowTests`, `DiffHistoryWindowPlanTests`, the `LatestStable`
+case in `PackageVersionVectorTests`, and `BrowserPackageVersionInventoryTests`
+gate the projection's cases. Acquisition of A through its exact pin and of the
+other points through `SelectCandidate` is gated with the House adoption, and
+both policies in one host request with the compare controls, both under
+[#9920](https://github.com/richlander/dotnet-inspect/issues/9920).
 
 ## Resolution receipt
 
