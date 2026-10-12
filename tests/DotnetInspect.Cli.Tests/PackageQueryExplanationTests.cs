@@ -128,16 +128,15 @@ public sealed class PackageQueryExplanationTests : IDisposable
         Assert.Equal(0, requests);
     }
 
-    [Theory]
-    [InlineData(new[] { "--offline" }, "only --json may accompany")]
-    [InlineData(new[] { "--http-timeout", "30" }, "Unrecognized option '--http-timeout'")]
-    public async Task RootOptions_HaveNoUndocumentedAdmissionException(string[] prefix, string expectedError)
+    [Fact]
+    public async Task RootOfflineControl_PreservesInstalledExplanation()
     {
-        var result = await Run([.. prefix, "package", "query", "--explain"]);
+        var expected = await Run("package", "query", "--explain");
+        var result = await Run("--offline", "package", "query", "--explain");
 
-        Assert.NotEqual(0, result.ExitCode);
-        Assert.Contains(expectedError, result.Error);
-        Assert.DoesNotContain("\"_embedded\"", result.Output);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(expected.Output, result.Output);
+        Assert.Empty(result.Error);
         Assert.Equal(0, requests);
     }
 

@@ -1030,7 +1030,8 @@ population inputs.
 `package query --explain` returns installed query facets and CLI bindings as
 HAL JSON without contacting NuGet. `--json` is optional. This command-only
 terminal rejects package arguments, query/execution options, other output
-formats, and dotted projections. Select needed embedded facets locally with
+formats, and dotted projections. Process-wide controls such as `--offline`
+and `--http-timeout` remain available. Select needed embedded facets locally with
 jq, or use `explain package-query/query/facets/depends .hal --json` for a
 focused dependency-facet response. See
 [Installed capability explanation](design/package-query-cli.md#installed-capability-explanation)

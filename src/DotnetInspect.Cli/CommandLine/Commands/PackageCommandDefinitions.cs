@@ -673,6 +673,8 @@ public static class PackageCommandDefinitions
                     unsupportedOption = scope.Command.Options.FirstOrDefault(
                         option => option != explainOption
                         && option != opts.Json
+                        && !(scope.Command is RootCommand
+                            && option.Name is "--offline" or HttpTimeoutConfiguration.Flag)
                         && scope.GetResult(option) is { Implicit: false });
                     if (unsupportedOption is not null)
                         break;
@@ -681,7 +683,8 @@ public static class PackageCommandDefinitions
                 {
                     result.AddError(
                         $"{unsupportedOption.Name} is not available with package query --explain; "
-                        + "only --json may accompany the installed-query explanation.");
+                        + "only --json and process-wide controls may accompany "
+                        + "the installed-query explanation.");
                 }
                 return;
             }

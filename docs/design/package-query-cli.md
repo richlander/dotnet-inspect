@@ -164,6 +164,9 @@ intended for local jq selection of complete query rules. It reuses the existing
 dataset serializer rather than a new Markout view; the generic human resource
 view currently omits input rules. Ordinary query output retains its existing
 format behavior.
+Process-wide controls such as `--offline` and `--http-timeout` remain valid:
+the executable configures these controls before command parsing; they do not select
+explanation Content. Explicit root output modifiers such as `-v q` are rejected.
 The normal environment-format precedence applies: a non-JSON
 `DOTNET_INSPECT_FORMAT` fails visibly unless overridden with `--json`.
 
@@ -211,7 +214,8 @@ trials after landing will assess whether this entrance improves adoption.
 
 Release gates assert byte equality with root `.hal`, complete dependency
 rules and host bindings, zero requests through a fail-fast network handler,
-and visible rejection of conflicting inputs and unsupported projections.
+and visible rejection of conflicting inputs and unsupported projections,
+including explicit root output modifiers. Offline mode retains the same HAL.
 Existing Package Query CLI and root-explain tests cover their adjacent behavior.
 
 ## Package Query term binding
