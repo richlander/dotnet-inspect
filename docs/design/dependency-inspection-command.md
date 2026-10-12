@@ -789,7 +789,7 @@ The retail base section ladder is:
 | `Dependency Hierarchy` | One rooted dependency relationship occurrence. | Minimal |
 | `Dependencies` | One normalized direct declaration. | Normal when applicable |
 | `Licenses` | One distinct dependency package coordinate and its nuspec-derived semantic license answer. | Explicit only |
-| `Pruning` | One direct declaration's pruning applicability or candidate-bound policy result. | Explicit only |
+| `Pruning` | One direct declaration's pruning applicability, candidate-bound policy result, or restored-resolution policy result. | Explicit only |
 | `Latest Versions` | One direct declaration's current version and latest listed versions. | Explicit only |
 | `Failures` | One typed root, acquisition, projection, or traversal failure occurrence. | Normal when present |
 
@@ -1201,25 +1201,32 @@ Dependency Evidence:
 - one typed failure occurrence.
 
 `Pruning` composes one additional CLI row over those owner-issued currencies:
-one normalized direct declaration plus its PackageHouse pruning applicability
-or candidate-bound policy result. When a root has a selected declaration
-group, only that group's declarations participate. A post-processing root such
-as a restored project may report its earlier application-authored or already-
-processed outcome without manufacturing a selected package-manifest group.
+one normalized direct declaration plus its PackageHouse pruning applicability,
+candidate-bound policy result, or restored-resolution policy result. When a
+root has a selected declaration group, only that group's declarations
+participate. A post-processing root such as a restored project may report its
+already-processed outcome without manufacturing a selected package-manifest
+group; its application-authored declarations follow the
+[library pruning policy](#library-pruning-policy-for-application-authored-declarations).
 
 Candidate-free applicability runs before inventory or package-source work. It
 preserves application-authored exemption, unattributed authorship, unavailable
 or incomplete processing, runtime projection, and prior pruning evaluation as
-distinct outcomes. Only a package-manifest declaration that reaches
-`CandidateRequired` and whose root authorizes package-source candidate
-resolution proceeds to inventory and candidate acquisition. Direct nuspec and
-package-prefix roots remain source-bounded.
+distinct outcomes. Two paths reach the inventory. A package-manifest
+declaration that reaches `CandidateRequired` and whose root authorizes
+package-source candidate resolution proceeds to inventory and candidate
+acquisition. An application-authored declaration with an owner-issued restored
+resolution proceeds to the inventory alone under the library pruning policy.
+No other outcome reads the inventory. Direct nuspec and package-prefix roots
+remain source-bounded.
 
 The comparison uses one exact target-bound installed inventory per request.
 Candidate resolution remains declaration- and source-authorized. A policy
 result of `Subsumed` projects `PlatformDelegation`; every other completed
-policy result projects `PackageRetained`. `PlatformDelegation` means the policy
-receipt authorizes delegation; it does not claim that PackageHouse execution,
+policy result projects `PackageRetained`. For a candidate-bound row,
+`PlatformDelegation` means the policy receipt authorizes delegation; for a
+restored-resolution row it means the owner-issued comparison found the package
+subsumed, and no receipt is issued. Neither claims that PackageHouse execution,
 PlatformHouse execution, payload acquisition, or dependency-edge pruning ran.
 
 The candidate version and the platform-provided version are separate fields.
@@ -1271,15 +1278,23 @@ against the request's one exact target-bound inventory. The requested version
 is the declaration's owner-issued restored resolution, the same association
 that populates `Resolved` in `Dependencies`. The row performs no package-source
 candidate resolution, because the restored graph already names the version.
-`Subsumed` projects `PlatformDelegation` and `NotSubsumed` projects
-`PackageRetained`, each with reason `ApplicationAuthored` so the basis stays
-visible. The row's Candidate is that restored version. For these rows
-`PlatformDelegation` is the section's policy result over the owner-issued
-comparison; no PackageHouse delegation receipt is issued, and the graph is
-unchanged. Inventory failure affects them exactly as it affects
-candidate-bound rows. A declaration without a restored resolution keeps `NotEvaluated` with
-reason `ApplicationAuthoredExemption`, because an absent version is not a
-comparison and cannot be subsumed.
+`Subsumed` projects `PlatformDelegation`; `NotSubsumed` and `NotComparable`
+project `PackageRetained`, because uncertainty resolves away from subsumed.
+Each carries reason `ApplicationAuthored`. For candidate-bound rows `Reason`
+names the comparison answer; for these rows the disposition carries that answer
+and `Reason` names the authorship basis. The row's Candidate is that restored
+version. For these rows `PlatformDelegation` is the section's policy result
+over the owner-issued comparison; no PackageHouse delegation receipt is issued,
+and the graph is unchanged. The typed pruning result carries these rows as a
+receipt-free restored-resolution comparison, counted in the pruning summary as
+evaluated and as delegated or retained exactly like candidate-bound rows.
+Inventory failure affects them exactly as it affects candidate-bound rows. The
+comparison runs only when the selected restored target's processing is
+complete; incomplete or failed processing keeps its existing non-evaluating
+outcome and typed failure, so a partial graph never produces a delegation. A
+declaration without a restored resolution keeps `NotEvaluated` with reason
+`ApplicationAuthoredExemption`, because an absent version is not a comparison
+and cannot be subsumed.
 
 For example, a restored `net10.0` application that references
 `System.Text.Json` 8.0.5 reports `PlatformDelegation` with reason
@@ -1840,7 +1855,7 @@ targeted Debug-build probe.
 | License manifest acquisition failures retain unavailable answer rows and enter `Failures` with the exact package coordinate and typed reason. | Release restored-project test with one available and one missing exact manifest, asserted across JSON, nonzero status, and exact-count rejection. |
 | Pruning is explicit-only and does not enter `@Dependencies`, verbosity, or bare effective discovery. | Release catalog, category, structural/effective discovery, and no-inventory tests. |
 | Candidate-free pruning outcomes perform no inventory or candidate work. | Direct-nuspec source-boundary and unattributed-authorship tests with throwing producers. |
-| Application-authored declarations use the library pruning policy without package-source work. | Restored-project fixtures for a `net10.0` application referencing `System.Text.Json` 8.0.5 (`PlatformDelegation`, `ApplicationAuthored`) and 12.0.0 (`PackageRetained`, `ApplicationAuthored`), plus a declaration without a restored resolution (`NotEvaluated`, `ApplicationAuthoredExemption`), with a throwing package-source producer and an instrumented inventory producer called once. |
+| Application-authored declarations use the library pruning policy without package-source work. | Restored-project fixtures for a `net10.0` application referencing `System.Text.Json` 8.0.5 (`PlatformDelegation`, `ApplicationAuthored`) and 12.0.0 (`PackageRetained`, `ApplicationAuthored`), plus a declaration without a restored resolution (`NotEvaluated`, `ApplicationAuthoredExemption`) and an incomplete restored graph (existing non-evaluating outcome, no delegation), with a throwing package-source producer, an instrumented inventory producer called once, and summary counts asserting evaluated, delegated, and retained totals. |
 | `Subsumed` delegates, while an older platform-supplied version retains the newer package candidate. | CLI projection test for `System.Text.Json@9.0.0` against platform `11.0.0` and `System.Runtime@4.3.2` against platform `4.3.1`. |
 | Inventory failure and target mismatch remain typed failures and prevent candidate work. | Instrumented inventory tests asserting nonzero status, affected declarations, and `Failures` rows. |
 | Row windows and rendering formats do not reinterpret pruning policy. | Markdown, table, typed JSON, and one-row window tests over the same two policy outcomes. |
