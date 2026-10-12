@@ -1776,6 +1776,15 @@ Member's text/companion adoption from Package Query and Extensions gaps.
 This is descriptive evidence of available reading paths and narrow adoption;
 it does not validate agent use of primary/companion explanation or rank formats.
 
+The [landed Package Query entrance trials](../../tools/ExplainReadingScenarios/usability/package-query-adoption/README.md)
+observe three of four fresh agents using command-local HAL, with all four
+answering from bounded direct-dependency evidence. HAL users read embedded
+data without link or schema fetches, but their guidance retrieval and local
+reading remain larger than the `-Q` path. One agent seeks non-equality CLI
+syntax through query help; #9962 preserves that binding-registration gap.
+These observations establish usable adoption, not format superiority or a
+causal efficiency improvement.
+
 ## Demo scenario
 
 `System.Text.Json@10.0.0` motivates the complete production flow:
