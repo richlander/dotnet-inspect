@@ -2,9 +2,9 @@
 
 This document owns the browser's Package-scoped comparison targets inherited
 while navigating within that Package: the two compare scenarios, their depths,
-the Specific version baseline, and the defaults that
+the Specific version baseline, and which checked scenarios
 [background analysis](inspect-web-background-analysis.md#default-baselines)
-runs. It does not own comparison execution, version window projection, or
+runs at depth 1. It does not own comparison execution, version window projection, or
 acquisition authority. The production consumer is the Library Diff experience
 tracked by
 [#7213](https://github.com/richlander/dotnet-inspect/issues/7213).
@@ -203,8 +203,10 @@ focus.
 coordinators with the production snapshot functions to gate successful
 retirement and rollback after acquisition or view-selection failure.
 
-Those gates cover Specific version and its inventory. The scenario targets
-are design only at this head; their gates arrive with the controls under
+Those gates cover Specific version and its inventory. Until the scenario
+controls ship, Specific version remains the single active target, as those gates
+define its defaults. The scenario targets are design only at this head; their
+gates arrive with the controls under
 [#9920](https://github.com/richlander/dotnet-inspect/issues/9920):
 
 - scenario defaults, both checked at depth 1 and Specific version unchecked;

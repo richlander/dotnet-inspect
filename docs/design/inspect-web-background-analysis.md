@@ -5,8 +5,9 @@
 This document owns **background analysis** in the website: Library and Type
 analysis the page starts on its own, without a user action, to give a reader
 immediate context. It owns the page-side queue, its order, relevance and
-de-duplication, and the foreground-first rule. It runs the comparison targets
-that [Browser Diff targets](inspect-web-diff-targets.md#diff) owns. It is tracked by
+de-duplication, and the foreground-first rule. It runs the depth-1 step of the
+comparison targets that [Browser Diff targets](inspect-web-diff-targets.md#diff)
+owns. It is tracked by
 [#9716](https://github.com/richlander/dotnet-inspect/issues/9716).
 
 It consumes the single-threaded Worker contract in
@@ -73,26 +74,27 @@ Library analysis tabs stay on demand and are not queued.
 
 ### Default baselines
 
-A Gallery package's Library page runs the Package's checked
-[comparison targets](inspect-web-diff-targets.md#diff). At their defaults
-these are two windows of depth 1:
+A Gallery package's Library page runs, for each checked scenario among the
+Package's [comparison targets](inspect-web-diff-targets.md#diff), that
+scenario's depth-1 step, whatever depth the reader has chosen. With both
+scenarios checked, as by default, that is two comparisons:
 
 1. **Supply chain**, both axes: the active version against the highest
    candidate below it, the automatic previous version that
    [Browser Diff targets](inspect-web-diff-targets.md#specific-version)
    defines once.
-2. **API evolution**, API axis only: the active version against the highest
-   stable version of the previous major.
+2. **API evolution**, API axis only: the active version against the
+   projection's representative of the highest major below it.
 
 The [version window projection](version-resolution.md#version-window-projection)
 selects both points. A point that both windows name, as for an `X.0.0`
 release, is acquired once. An explicit Library Compare targets the versions
 the user selects and does not change these defaults.
 
-The background run acquires the default windows' packages without a user
-action. That is an approved exception to explicit network work, limited to
-the depth-1 windows. A deeper window, or a Specific version, is acquired only
-after the reader chooses it.
+The background run acquires these packages without a user action. That is an
+approved exception to explicit network work, limited to the depth-1 steps.
+The rest of a deeper window, and a Specific version, run and acquire only when
+the reader enters Compare; choosing them does not.
 
 ### Navigation cues
 
