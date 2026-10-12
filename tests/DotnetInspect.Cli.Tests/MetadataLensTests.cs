@@ -966,52 +966,6 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// A package that resolves to several assemblies rejects metadata rows rather than rendering
-    /// them. Row ids are image-relative and the section names carry no assembly, so a
-    /// multi-assembly document would repeat <c>## Metadata: TypeDef</c> with rows silently belonging
-    /// to different images. A count is safe because it aggregates the rows without exposing their
-    /// image-relative identities.
-    /// </summary>
-    [Fact]
-    public async Task MetadataLens_MultipleAssemblies_IsRejected()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"metadata-multitfm-{Guid.NewGuid():N}");
-        try
-        {
-            var content = Path.Combine(tempDir, "content");
-            foreach (var tfm in new[] { "net8.0", "net10.0" })
-            {
-                var dir = Path.Combine(content, "lib", tfm);
-                Directory.CreateDirectory(dir);
-                File.Copy(TestAssemblyPath, Path.Combine(dir, "Lib.dll"));
-            }
-            var packagePath = Path.Combine(tempDir, "Metadata.MultiTfm.1.0.0.nupkg");
-            ZipFile.CreateFromDirectory(content, packagePath);
-
-            var (exit, output, error) = await RunAppAsync(
-                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", SectionCategoryNames.Metadata);
-
-            Assert.Equal(1, exit);
-            Assert.Contains("single assembly", error, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("--library", error, StringComparison.Ordinal);
-            Assert.DoesNotContain(MetadataHeadingPrefix, output, StringComparison.Ordinal);
-
-            var (countExit, countOutput, countError) = await RunAppAsync(
-                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Metadata: TypeDef", "--count");
-
-            Assert.Equal(0, countExit);
-            Assert.True(int.Parse(countOutput) > 0);
-            Assert.Empty(countError);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    /// <summary>
     /// The Vector rung of the shape ladder: <c>--columns</c> narrows a table section to the named
     /// ECMA-335 columns, and the schema that <c>-D</c> reports is the same list, so the remedy the
     /// projection error suggests is not a dead end.

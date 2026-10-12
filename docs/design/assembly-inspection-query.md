@@ -781,8 +781,8 @@ source-neutral correspondence currency described above.
 **Multi-assembly locations (one query type).** There is a **single** `InspectionQuery`; there is
 no separate `PackageInspectionQuery`. Resolving `Target.Location` yields
 `IReadOnlyList<ResolvedAssemblyReference>` — one entry for a `file` or `platform` location, many
-for a `package` or `project` (today `LibraryCommand` inspects every DLL in a package, and
-`--tfm all` returns all candidates). The service opens and inspects each, and the response is a
+for a `package` or `project` (today the package Library aggregate inspects each selected compile
+Library). The service opens and inspects each, and the response is a
 collection — `InspectionReport(IReadOnlyList<AssemblyInspection>)`, with the single-assembly case
 just a one-element report.
 

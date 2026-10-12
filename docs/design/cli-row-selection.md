@@ -860,7 +860,7 @@ Error: Type row selection stage 1 requires row 93, but only 91 rows are availabl
 ```
 
 Exact-type inspection, explicit section selection, structural or effective
-discovery, query help, shape, `--tfm all`, performance and row-query filters,
+discovery, query help, shape, performance and row-query filters,
 pairwise `--match`, and commandless requests without an explicit source remain
 outside this declaration. Those surfaces use rendered-line fallback for bare
 `-n`. Numeric `-t` is an ordinary Type filter literal, not a hidden count;
@@ -1030,8 +1030,8 @@ $ dotnet-inspect library System.Text.Json \
 Error: Library reference row selection stage 1 requires row 1000, but only 6 direct reference rows are available.
 ```
 
-`Reference Hierarchy`, mixed sections, discovery/schema, `--tfm all`,
-print and shape projections, and embedded or aggregate Package Library modes
+`Reference Hierarchy`, mixed sections, discovery/schema, print and shape
+projections, and embedded or aggregate Package Library modes
 remain outside this declaration. Those surfaces retain their existing row
 contracts and use rendered-line fallback for bare `-n`.
 
@@ -1133,7 +1133,7 @@ Error: Body Shapes row selection stage 1 requires row 201, but only 108 occurren
 
 Each library of an aggregate `library --package <package>` inspection selects
 its own rows, as each renders its own section. Selecting both views, a glob or
-category, `--references`, a `-t` type filter, `--tfm all`, discovery, and
+category, `--references`, a `-t` type filter, discovery, and
 print or shape projections remain outside this declaration and use their
 existing row contracts or rendered-line fallback for bare `-n`.
 
@@ -1529,7 +1529,7 @@ The Body Shapes adoption is enforced by:
 | --- | --- |
 | `BodyShapeSearchTests.Search_LimitReturnsThePrefixOfTheCompleteSearch` and `BodyShapesSectionTests.SearchLimit_BoundsOnlyOccurrencePrefixes` | The search stops after the required prefix of occurrences and returns exactly the complete search's prefix while inspecting fewer bodies; Tail and the summary search everything. |
 | `BodyShapesSectionTests.LibraryKindPredicate_RowSelectionSelectsOccurrencesInEveryFormat`, `TypeKindPredicate_HeadAndTailSelectOccurrences`, `MemberKindPredicate_RowSelectionSelectsScopedOccurrences`, `PackageLibraryRoutes_ObserveSemanticSelection`, and `BodyShapeSummaryApiTests.SummaryRowWindow_SelectsGroupsWithoutTruncatingCounts` | Head, Tail, and Window select the same occurrences before Markdown, TSV, JSONL, Library JSON, or Count lowering on Library, delegated and aggregate package Library, Type, and Member hosts; summary selection keeps each group's complete Count. |
-| `BodyShapesSectionTests.LibraryKindPredicate_UnavailableWindowWithholdsOutput`, `MemberKindPredicate_BodylessMemberConsumesSemanticSelection`, `LibraryKindPredicate_RejectsNumericRows`, `LibraryKindPredicate_LinesKeepRenderedLineSelection`, `LibraryBothViews_RetainRenderedLineFallback`, and `TfmAll_StaysOutsideTheDeclaration` | One unavailable strict Window emits no partial payload, including for a member without a body; numeric legacy `--rows` is rejected; explicit Lines clip rendered text; and selecting both views or `--tfm all` keeps the existing row contracts. |
+| `BodyShapesSectionTests.LibraryKindPredicate_UnavailableWindowWithholdsOutput`, `MemberKindPredicate_BodylessMemberConsumesSemanticSelection`, `LibraryKindPredicate_RejectsNumericRows`, `LibraryKindPredicate_LinesKeepRenderedLineSelection`, and `LibraryBothViews_RetainRenderedLineFallback` | One unavailable strict Window emits no partial payload, including for a member without a body; numeric legacy `--rows` is rejected; explicit Lines clip rendered text; and selecting both views keeps the existing row contracts. |
 
 The Member Callers adoption is enforced by:
 

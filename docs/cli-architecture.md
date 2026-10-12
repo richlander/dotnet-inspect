@@ -259,7 +259,7 @@ invocation-owned asynchronous
   reference whose version is an exact NuGet version;
 - the resolved request contains that package and no assembly, platform,
   project, or directory sources;
-- the request has one explicit target framework other than `all`; and
+- the request has one explicit target framework; and
 - `find` and member-find have no numeric result limit.
 
 The host acquires one package Root, commits it with `ReplaceScopeAsync`, retains
@@ -273,8 +273,8 @@ acquisition. Package results project library and source provenance from
 host filesystem paths for package-relative assets.
 
 Floating, `@latest`, and wildcard package versions; package archives, package
-groups and prefixes; multiple or mixed sources; implicit and `all` target
-frameworks; and limited searches retain the `AssemblySetResolver` and
+groups and prefixes; multiple or mixed sources; implicit target frameworks;
+and limited searches retain the `AssemblySetResolver` and
 `AssemblySetInspectionWorkspace` path. That boundary preserves the CLI's
 existing version-selection and streaming-limit behavior rather than making
 Workspace acquisition redefine either contract. Type-mode `depends` preserves
@@ -311,9 +311,8 @@ participants.
 `LibraryAddressCommand_FileRejectsMissingFileBeforeLibraryAcquisition`,
 `LibraryAddressCommand_FileRejectsMalformedDescriptorBeforeResolvingCoordinates`,
 `LibraryAddressCommand_PackageFileRejectsMalformedDescriptorBeforeResolvingCoordinates`,
-`LibraryAddressCommand_PlatformFileRejectsMalformedAssemblyBeforeResolvingCoordinates`,
 and
-`LibraryCommand_TfmAll_PreservesHealthyResultsWhenDescriptorSelectionIsRejected`
+`LibraryAddressCommand_PlatformFileRejectsMalformedAssemblyBeforeResolvingCoordinates`
 gate this composition.
 
 ### Type API-surface selection
