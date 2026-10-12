@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using DotnetInspect.Web.Interop.Package;
+using DotnetInspect.Web.Interop.Metadata;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -10,6 +11,44 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserEngineBoundaryTests
 {
+    [Theory]
+    [InlineData(BrowserFastDiffAxes.Api)]
+    [InlineData(BrowserFastDiffAxes.ApiAndBody)]
+    public async Task FastDiffDemand_DoesNotMaterializeUnrelatedLibraries(BrowserFastDiffAxes axes)
+    {
+        string id = $"fast.diff.range.{Guid.NewGuid():N}";
+        byte[] assembly = File.ReadAllBytes(typeof(PackageSource).Assembly.Location);
+        var handler = new GalleryPackageHandler(id, "1.0.0", PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(Nuspec(id, "1.0.0"))),
+            ("ref/net11.0/Chosen.dll", assembly),
+            ("lib/net11.0/Chosen.dll", assembly),
+            ("ref/net11.0/Unrelated.dll", new byte[2 * MiB]),
+            ("lib/net11.0/Unrelated.dll", new byte[2 * MiB]),
+            ("lib/net8.0/Chosen.dll", assembly)));
+        using IPackageSourceClient source = Gallery(handler);
+        var request = new BrowserLibraryFastDiffRequest(
+            BrowserLibraryFastDiffSchema.Version, id, "1.0.0", "1.0.0", "net11.0",
+            "compile:ref/net11.0/Chosen.dll", axes);
+        BrowserLibraryFastDiffResult result = await MetadataExports.QueryLibraryFastDiffCore(
+            request, TestContext.Current.CancellationToken, source);
+        Assert.Equal(BrowserLibraryFastDiffResultKind.Succeeded, result.Kind);
+        Assert.Empty(result.Value!.Types);
+        Assert.True(result.Value.ComparedTypeCount > 0);
+        var plan = PackageLibraryInspectionDemandPlanner.Plan(
+            new PackageLibrarySelector(request.CompileAssetId, PackageLibrarySelectionKind.AssetId),
+            PackageLibraryInspectionRequirement.PublicApi,
+            PackageLibraryInspectionRequirement.ImplementationFacts);
+        await using var lease = await BrowserPackageWorkspace.OpenLibraryScopeAsync(
+            id, "1.0.0", "net11.0", plan, source, TimeSpan.FromSeconds(10),
+            TestContext.Current.CancellationToken);
+        RangedPackageContent content = Assert.IsType<RangedPackageContent>(
+            lease.Scope.Coordinates[0].Package.Content);
+        Assert.True(content.IsMaterialized("lib/net11.0/Chosen.dll"));
+        Assert.False(content.IsMaterialized("ref/net11.0/Unrelated.dll"));
+        Assert.False(content.IsMaterialized("lib/net11.0/Unrelated.dll"));
+        Assert.False(content.IsMaterialized("lib/net8.0/Chosen.dll"));
+    }
+
     // PR-fast: managed fixture images and deterministic gated HTTP responses.
     [Theory]
     [InlineData(false)]

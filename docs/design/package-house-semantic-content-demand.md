@@ -933,3 +933,32 @@ This design does not:
 - define command syntax, output shape, rendering, or presentation;
 - migrate all callers in one PR; or
 - change Platform-shaped package acquisition or local-file inspection.
+
+## Exact Library comparison acquisition
+
+Website Fast Diff carries an exact current Library identity. Its consumer
+must pass that identity and its implementation requirement through the shared
+Library demand planner before acquiring image content. The target endpoint
+first requests compile inventory; the asset-selection owner's
+`FindComparisonAsset` chooses its unique counterpart. Only that counterpart's
+Library demand is then realized. PackageHouse retains acquisition policy;
+hosts neither choose transport nor reconstruct counterpart paths.
+
+Fast Diff continues to compare implementation assemblies on both axes,
+including API-only requests. This acquisition change does not redefine the
+comparison's evidence or its treatment of reference assemblies.
+
+The motivating real asset is Avalonia 12.1.3, net10.0, exact
+`compile:ref/net10.0/Avalonia.Base.dll`. Its package has multiple Libraries and
+framework slices, while a Library comparison requires one implementation
+pair. Comparing this version with itself provides a stable unchanged oracle.
+Before this adoption the website's comparison opens general package scopes;
+the planned consumer uses exact Library realization and target inventory.
+Durable evidence will include range-capable source tests with unrelated entry
+controls, retained reference/implementation correspondence tests, and paired
+Release NativeAOT measurements of the same export with output parity.
+
+This is a website adoption of existing shared APIs. CLI exact-Library demand
+adoption remains tracked under #9754; the overall package-read program is
+[#8386](https://github.com/richlander/dotnet-inspect/issues/8386).
+Package assembly-pattern Query acquisition is a separate successor.

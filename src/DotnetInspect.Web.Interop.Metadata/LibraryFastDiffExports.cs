@@ -3,9 +3,11 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspect.Web;
 using ILInspector.Metadata;
 using NuGet.Versioning;
+using NuGetFetch;
 
 namespace DotnetInspect.Web.Interop.Metadata;
 
@@ -63,7 +65,7 @@ public static partial class MetadataExports
                         if (requestError is not null)
                             throw requestError;
                         return new BrowserManagedOperationBodyResult<BrowserLibraryFastDiffResult, string, string>
-                            .Succeeded(await QueryLibraryFastDiffCore(request!, token));
+                            .Succeeded(await QueryLibraryFastDiffCore(request!, token, BrowserPackageWorkspace.Gallery));
                     }
                     catch (Exception error) when (
                         error is ArgumentException or JsonException or BrowserLibraryApiDiffRequestException)
@@ -90,26 +92,49 @@ public static partial class MetadataExports
         return JsonSerializer.Serialize(projected, BrowserMetadataJsonContext.Default.BrowserLibraryFastDiffResult);
     }
 
-    static async Task<BrowserLibraryFastDiffResult> QueryLibraryFastDiffCore(
+    internal static async Task<BrowserLibraryFastDiffResult> QueryLibraryFastDiffCore(
         BrowserLibraryFastDiffRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IPackageSourceClient source)
     {
-        await using BrowserScopeLease<BrowserInspectionScope> targetLease =
-            await BrowserPackageWorkspace.OpenScopeAsync(
-                request.PackageId, request.TargetVersion, request.TargetFramework, cancellationToken);
+        PackageLibraryInspectionDemandPlan currentDemand =
+            PackageLibraryInspectionDemandPlanner.Plan(
+                new PackageLibrarySelector(request.CompileAssetId, PackageLibrarySelectionKind.AssetId),
+                PackageLibraryInspectionRequirement.PublicApi,
+                PackageLibraryInspectionRequirement.ImplementationFacts);
         await using BrowserScopeLease<BrowserInspectionScope> currentLease =
-            await BrowserPackageWorkspace.OpenScopeAsync(
-                request.PackageId, request.CurrentVersion, request.TargetFramework, cancellationToken);
-        BrowserInspectionScope targetScope = targetLease.Scope;
+            await BrowserPackageWorkspace.OpenLibraryScopeAsync(
+                request.PackageId, request.CurrentVersion, request.TargetFramework,
+                currentDemand, source, BrowserPackageWorkspace.PackageOperationTimeout, cancellationToken);
         BrowserInspectionScope currentScope = currentLease.Scope;
-        BrowserPackageCoordinate targetCoordinate = targetScope.Coordinates[0];
         BrowserPackageCoordinate currentCoordinate = currentScope.Coordinates[0];
         PackageCompileAsset currentAsset =
             RequireExactCompileAsset(currentCoordinate, request.CompileAssetId, "current");
-        PackageCompileAsset targetAsset = targetCoordinate.Selection.FindComparisonAsset(currentAsset)
+
+        BrowserPackageRealizationResult targetInventory =
+            await BrowserPackageWorkspace.InventoryWithSettlementAsync(
+                request.PackageId, request.TargetVersion, request.TargetFramework,
+                source, BrowserPackageWorkspace.PackageOperationTimeout, cancellationToken);
+        if (targetInventory is not BrowserPackageRealizationResult.Realized inventory)
+            throw new BrowserLibraryApiDiffRequestException(
+                "The target package endpoint could not be settled for Library comparison.");
+        PackageCompileAsset targetAsset = inventory.Realization.Coordinate.Selection
+            .FindComparisonAsset(currentAsset)
             ?? throw new BrowserLibraryApiDiffRequestException(
-                $"The target package endpoint {targetCoordinate.PackageId} {targetCoordinate.Version} "
+                $"The target package endpoint {request.PackageId} {request.TargetVersion} "
                     + $"has no unique selected compile counterpart for '{currentAsset.Id}'.");
+        PackageLibraryInspectionDemandPlan targetDemand =
+            PackageLibraryInspectionDemandPlanner.Plan(
+                new PackageLibrarySelector(targetAsset.Id, PackageLibrarySelectionKind.AssetId),
+                PackageLibraryInspectionRequirement.PublicApi,
+                PackageLibraryInspectionRequirement.ImplementationFacts);
+        await using BrowserScopeLease<BrowserInspectionScope> targetLease =
+            await BrowserPackageWorkspace.OpenLibraryScopeAsync(
+                request.PackageId, request.TargetVersion, request.TargetFramework,
+                targetDemand, source, BrowserPackageWorkspace.PackageOperationTimeout, cancellationToken);
+        BrowserInspectionScope targetScope = targetLease.Scope;
+        BrowserPackageCoordinate targetCoordinate = targetScope.Coordinates[0];
+        targetAsset = RequireExactCompileAsset(targetCoordinate, targetAsset.Id, "target");
 
         // Fast Diff compares bodies, so both endpoints use their implementation
         // assemblies, not reference assemblies.
