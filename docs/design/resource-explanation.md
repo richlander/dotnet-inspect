@@ -1741,6 +1741,16 @@ and traces distinguish domain-task correctness from navigation and
 schema-exploration mistakes; this remains diagnostic evidence rather than a
 spontaneous-recognition gate or a general format ranking.
 
+The [HAL stopping-rule trials](../../tools/ExplainReadingScenarios/usability/hal-stop/README.md)
+add one local-data-first instruction without changing product responses. Query
+retrieval falls in this diagnostic sample; Style agents recognize embedded
+tiers but still fetch schema contracts. A follow-up adds the user's explicit
+low-latency preference and prohibition of verification-only reads. Correct
+answers and necessary navigation persist, but the stronger wording does not
+establish reliable adherence. Neutral questions are asked only after answers
+and logs are frozen; reflections distinguish confirmation from semantic
+uncertainty without changing results or establishing a causal effect.
+
 ## Demo scenario
 
 `System.Text.Json@10.0.0` motivates the complete production flow:

@@ -1,0 +1,27 @@
+{
+  "commands_unrun_argv": [
+    ["dnx", "dotnet-inspect", "-y", "--", "package", "query", "Microsoft.Azure.SignalR", "--where", "library-literal=https://", "--tfm", "net8.0", "--json"],
+    ["dnx", "dotnet-inspect", "-y", "--", "package", "query", "Microsoft.Azure.SignalR", "--where", "depends=Newtonsoft.Json", "--where", "dependency-depth=3", "--where", "dependency-target=net8.0", "--json"]
+  ],
+  "answer": {
+    "literal": "The library-literal predicate downloads package content and searches decoded string-literal uses in the implementation libraries selected by the exact --tfm net8.0 gesture. Its operand is matched as an ordinal substring of each decoded literal. Preserve case, whitespace, newlines, and all other operand text; there is no normalization. Exactly one distinct operand is allowed: identical repetitions collapse, while distinct operands conflict. A literal needs 1 through 1024 UTF-16 code units. Six hundred astral Unicode characters occupy 1200 UTF-16 code units and are rejected. The empty listed values array is not an allow list and does not mean unrestricted input; the stated constraints govern acceptance. --tfm and library-literal require each other, and the target goes through --tfm rather than --where.",
+    "dependency": "The preferred exact predicate is depends=Newtonsoft.Json with dependency-depth=3 and dependency-target=net8.0. With depth, exact depends matches direct paths and transitive declaration paths through the maximum of three edges. Without depth, exact depends matches direct dependencies; starts-with also remains direct and cannot alone admit depth. Legacy depends-transitive=Newtonsoft.Json with the same target and depth matches only paths of depth 2 through 3, so it excludes direct-only hits. Allowed depth values are 2, 3, and 4. Depth 1 is invalid. A depth query requires an exact depends term or legacy depends-transitive and an explicit framework target; dependency-target=all is invalid for this command. Repeated exact terms are ANDed and share traversal. Dependency target scopes dependency predicates to the selected manifest group. No additional normalization of package IDs or target frameworks is asserted by the inspected resources.",
+    "candidate_vs_rows": "For a Microsoft.Azure.* prefix population, use positional Microsoft.Azure.* with --take 5 to cap package candidates admitted for inspection and -n 2 to return at most two final rows, plus the desired --where terms and --json. A smaller --take such as 2 also satisfies the candidate cap but may miss later qualifying packages. -n 2 alone does not bound candidate work. These inspection predicates admit at most five candidates; an exact package ID admits one.",
+    "completeness_and_unavailable_data": "The HAL query-space and selected facet data scopes report Complete for the installed contract. This does not establish that any live package content or dependency data is available or that a particular package matches. The result document is described as carrying matches, failures, and a completion summary; inspect those fields when a command is eventually run. Package-content inspection entails download and a package-content provider; dependency inspection uses nuspec data. The legacy predicate is described as source-authorized reachability. No inspection was executed here."
+  },
+  "provenance": [
+    {"response": "response-06.out", "path": "package-query/query", "facts": "HAL query space; embedded CLI binding and facets; Complete data scope"},
+    {"response": "response-12.out", "path": "package-query/query/facets/library-literal", "facts": "operand limits and matching; embedded library target and CLI binding"},
+    {"response": "response-14.out", "path": "package-query/query/facets/depends", "facts": "direct and bounded traversal behavior"},
+    {"response": "response-13.out", "path": "package-query/query/facets/dependency-depth", "facts": "closed depth values, prerequisites, candidate cap"},
+    {"response": "response-10.out", "path": "package-query/query/facets/depends-transitive", "facts": "legacy depth-2-or-greater meaning"},
+    {"response": "response-11.out", "path": "package-query/query/facets/dependency-target", "facts": "target scope and all restriction"},
+    {"response": "response-08.out", "path": "package-query/bindings/cli", "facts": "CLI gesture, --where, --tfm, --take, -n, --json"},
+    {"response": "response-09.out", "path": "package-query", "facts": "result document includes matches, failures, completion summary"}
+  ],
+  "uncertainties": [
+    "The inspected contract does not specify package-ID or TFM canonicalization beyond the displayed operators, examples, and target requirement; no such rule is inferred.",
+    "No live package query was run, so package availability and match outcome are unknown."
+  ],
+  "schema_navigation_friction": "Discovery did not match broad 'query text', 'literal contains', or 'query-space' searches; 'package query' revealed the query-space path. HAL embedded the needed facet rules and binding, so required-context links did not need further navigation. Generic contract responses showed traversal completeness Truncated because requested depth was zero; their direct facts and relationships were readable, and HAL selected resources reported Complete. No product response view rendering was truncated. The final JSON validation display was truncated by its deliberately small output budget; validation exited successfully."
+}
