@@ -249,7 +249,7 @@ public static class ApiCoordinateMatchQuery
             target,
             PackageHouseAssetSelectionKind.Compile,
             PackageHouseLibraryHandoffMode.PackageOnly,
-            assetDemand: PackageAssetDemand.SurfaceAndImplementation);
+            assetDemand: PackageAssetDemand.Surface);
         PackageHouseSettlement settlement =
             await execution.Executor.ExecuteAsync(
                 houseRequest,
@@ -292,8 +292,7 @@ public static class ApiCoordinateMatchQuery
 
         return new(
             new AcquiredEndpoint(
-                binding.WithAssetDemand(
-                    PackageAssetDemand.SurfaceAndImplementation),
+                binding.WithAssetDemand(PackageAssetDemand.Surface),
                 realization.Acquisition.Producer),
             Failure: null);
     }

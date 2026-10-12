@@ -53,7 +53,7 @@ public sealed class ApiCoordinateMatchInspectionTests
     }
 
     [Fact]
-    public async Task ExactEndpointsUseHouseRealizationAndPinTheDestinationProducer()
+    public async Task ExactEndpointsUseHouseSurfaceRealizationAndPinTheDestinationProducer()
     {
         using var packages = new ApiCoordinateMatchTestPackages();
         await packages.AddAsync("Avalonia", "11.3.14");
@@ -85,7 +85,7 @@ public sealed class ApiCoordinateMatchInspectionTests
                 PackageHouseAssetSelectionKind.Compile,
                 item.Request.AssetSelection);
             Assert.Equal(
-                PackageAssetDemand.SurfaceAndImplementation,
+                PackageAssetDemand.Surface,
                 item.Request.AssetDemand);
             Assert.Equal(
                 PackageHouseLibraryHandoffMode.PackageOnly,
