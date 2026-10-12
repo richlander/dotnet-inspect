@@ -120,15 +120,20 @@ For example, "Does type `T` have unsafe members?" runs as follows:
    closed with `Exists`, over `T`'s TypeDef.
 2. Producer Planning closes that producer's description: it reads
    declarations, and a body and module lookup only on demand.
-3. Query Space places the request in an execution group, alone or with
-   compatible requests.
+3. Query Space places the request in its own execution group, since sparse
+   breadth is not yet grouped with other requests.
 4. This owner binds the plan to the access issued for the assembly and runs it
    once.
-5. Method Query Source visits only `T`'s MethodDefs in metadata order, reads a
-   body only when the declaration does not settle the answer, and stops at the
-   first evidence.
+5. Method Query Source first adds the authenticated generated bodies of
+   `T`'s methods, such as async and iterator state machines, lambdas, and
+   local functions
+   ([Declared expansion](method-query-source.md#declared-expansion)), under
+   finite bounds. It then visits that population in metadata order. Each visit
+   reads a body only when the declaration does not settle the answer, and
+   visits stop at the first evidence.
 6. The execution publishes the answer with source and producer receipts that
-   show the work stayed within `T`.
+   show the work stayed within `T` and its generated bodies, with the
+   expansion work receipted separately.
 
 Method Query Source is therefore one source under this operation, not its
 planner. It reads only what the plan declares, and receipts what it reads.
