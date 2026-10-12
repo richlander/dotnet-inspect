@@ -63,5 +63,9 @@
     "No reliable-adoption or narrowed-HAL-read result",
     "No cumulative-40-budget claim for reader-2",
     "No product timing/token/context/NuGet-transfer claim"
-  ]
+  ],
+  "gesture_friction": {
+    "reader-4": "--help advertises --explain <explain> despite bare-only admission; --explain true --json rejected, bare flag recovered; causation not established",
+    "followup_issue": 9973
+  }
 }

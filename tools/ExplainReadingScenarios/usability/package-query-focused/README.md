@@ -58,9 +58,13 @@ rendering are different measurements.
 All start with `package query --help`. Readers 1–3 then read `-Q`, followed by
 `-Q Packages`. Reader 4 tries `--explain true --json`; `true` is interpreted as
 a package argument and the command-only terminal rejects it. The already read
-guide says to omit the package argument. The reader recovers with
-`--explain --json`, reads HAL and performs the prefix query without `-Q`.
-This is failure to apply an available gesture rule, not missing registration.
+guide shows the bare gesture and says to omit the package argument. The reader
+recovers with `--explain --json`, reads HAL and performs the prefix query
+without `-Q`. Help nevertheless displays `--explain <explain>` although the
+terminal admits no operand. [#9973](https://github.com/richlander/dotnet-inspect/issues/9973)
+records that help/admission mismatch separately. The trace does not establish
+that the placeholder caused the guess; the failed invocation is gesture
+friction, not missing prefix-comparison registration.
 
 The HAL reader first inspects root and embedded keys, including a guessed
 `members` property, then prints all embedded facets and bindings (17,997 B in

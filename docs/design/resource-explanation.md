@@ -1794,6 +1794,8 @@ an evidenced package scope before adding another match; retained traces expose
 that additional work and an ambiguous cumulative candidate budget. Supported
 answers and one usable HAL path do not establish reliable adoption, causal
 improvement or a guide-efficiency ranking.
+The same trace motivates #9973's separate CLI help/admission consistency work;
+it does not establish why the reader supplied an explicit value to the flag.
 
 ## Demo scenario
 
