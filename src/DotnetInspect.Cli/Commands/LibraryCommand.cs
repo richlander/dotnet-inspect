@@ -2960,9 +2960,9 @@ public partial class LibraryCommand
     /// <c>## Metadata: TypeDef</c> headings whose rows silently belong to different images and
     /// whose row numbering restarts without saying so. Aggregate counts remain safe because they
     /// do not expose image-relative row identities. Package Library aggregate output is a separate
-    /// renderer that suffixes each metadata heading with the package-relative assembly path. The
-    /// direct-library rejection and count allowance are gated by
-    /// <c>MetadataLens_MultipleAssemblies_IsRejected</c> in DotnetInspect.Cli.Tests; all-libraries
+    /// renderer that suffixes each metadata heading with the package-relative assembly path.
+    /// Since <c>--tfm all</c> left <c>library</c>, no current route resolves a direct-library
+    /// package to more than one assembly, so this rejection remains only as a guard; all-libraries
     /// provenance is gated by
     /// <c>PackageCommand_AllLibraries_BareSelectCount_MapDescribesBareSelectRender</c>.
     /// </summary>

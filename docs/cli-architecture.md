@@ -735,7 +735,7 @@ typed-library document, with narrowed Integration properties: `-S` scopes
 producer demand, not JSON member selection. Row, column, and count projections
 apply to the narrowed table. `@Integrations` remains heterogeneous because it
 also contains `Integration Opportunities`; category output therefore requires
-Markdown/JSON. Existing all-TFM format restrictions remain unchanged.
+Markdown/JSON.
 
 Replacing the published `Integration: <concept>` sections and the bare
 `Integrations` category alias is intentionally breaking. Current guidance uses
