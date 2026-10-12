@@ -140,7 +140,7 @@ each rung has the operation that produces it:
 | --- | --- | --- | --- |
 | One | `Finding<T>`: one observation with a typed payload | **Inspect**: `FindingInspection<T>`, which is Complete, Absent or Failed | What does this version contain? |
 | Two | `PairFinding<T>`: one classified transition, Present, Changed, Added or Removed, with a Moved facet and match provenance | **Compare**: `FindingComparison<T>` over two inspections | How does one observation relate to its counterpart? |
-| Two | `AnalysisDiff<T>`: complete Before and After sequences partitioned into additions, removals and N:M correspondences | Compare, then relation over the whole population | How are all items in two sequences related? |
+| Two | `AnalysisDiff<T>`: complete Before and After sequences partitioned into additions, removals and N:M correspondences | None: complete information a producer issues, derived from a completed Compare or built from a native differ, as [Analysis diff](analysis-diff.md#purpose) owns | How are all items in two sequences related? |
 | More than two | `CorrelatedFinding<T>`: one exact identity's occurrences, labelled with their evaluated versions | **Correlate**: `FindingCensusCorrelation<T>`, then `FindingCorrelation<T>` per identity, which is Present, Missing, SubjectAbsent, NoApplicableInput or Failed | Where across versions is this identity? |
 
 `ComparisonDocument<T>` is not a rung: it composes a root and subjects around
@@ -152,13 +152,15 @@ describes.
 
 The ladder maps onto the diff system's requests:
 
-- **Every point is an Inspect.** A version's observations are its census.
+- **Every point is an Inspect** for a Finding producer: a version's
+  observations are its census. A non-Finding producer, such as Fast Diff,
+  evaluates pairs only.
 - **Change is Compare.** An exact pair is one Compare. A window, a History
   population and an adaptive bisection are sequences of Compares between
   adjacent evaluated points, which History calls transitions; bisection
   chooses its next point from them. Library-scope History over Fast Diff is
-  this shape: each step is a comparison, and its window states derive from the
-  step transitions.
+  the same shape: each step is one comparison, and its window states derive
+  from the step states.
 - **Identity across versions is Correlate.** "Where is this identity, and
   when did it appear or disappear?" is a presence question over sparse
   evaluated points; unevaluated versions are never manufactured as Missing.
