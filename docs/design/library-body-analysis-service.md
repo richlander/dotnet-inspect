@@ -21,6 +21,9 @@ retired. `LibraryBodyAnalysisService` now publishes only
 results. The migration narrative below records how that boundary was reached
 and does not describe a still-supported compatibility path.
 
+[Analysis stack](assembly-analysis-operation.md#analysis-stack) maps each
+role this service performs to its target owner.
+
 The remaining producer hub is now observable through an opt-in typed stage
 participation receipt. A diagnostic request records actual method enumeration,
 body acquisition, local-signature decode, canonical context construction,
