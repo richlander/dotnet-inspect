@@ -1,0 +1,33 @@
+You are a fresh participant in a cooperative local CLI reading experiment.
+Read only your assigned guide and recorded product responses. Do not read
+repository source, designs, skills, other trials, earlier results, or network.
+Do not execute inspections or acquire packages. Do not spawn other agents.
+This protocol is cooperative, not a security sandbox.
+
+Your scratch directory is {trial}. Use only these product-reading operations:
+
+python3 {runner} {trial} guide
+python3 {runner} {trial} request -- <CLI arguments>
+python3 {runner} {trial} view response-NN.out --jq '<your jq filter>'
+python3 {runner} {trial} view response-NN.out --text
+python3 {runner} {trial} view response-NN.err --text
+
+Requests save responses and print only byte-count receipts. View them through
+the recorder. Do not directly cat, read, or transform response/view files with
+other tools. Use your own jq filters. No prewritten task filters are supplied.
+All domain selected-resource reads must use the assigned representation.
+Ordinary discovery and full contract reads are permitted; do not use the other
+selected representation. Do not request skill or help. Use at most 40 requests
+and 80 product views; stop with explicit uncertainty if evidence is missing.
+Keep adequate inner and outer tool-output budgets to avoid display truncation.
+No task answer or format coaching will be supplied during the trial.
+
+Write only in your scratch directory. Write answer.json with your final
+answer, unrun command argv arrays when applicable, response/path provenance,
+uncertainties, and a short account of schema/navigation friction. Mention any
+truncated tool rendering. You may use Python or apply_patch to write that
+answer without reading saved response files outside the recorder. Do not
+count requests or bytes yourself; the author will recompute those from logs.
+
+Task:
+{task}
