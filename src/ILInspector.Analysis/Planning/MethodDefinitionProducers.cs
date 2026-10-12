@@ -84,6 +84,13 @@ public enum MethodDefinitionLayers
     /// <see cref="ModuleLookup"/>.
     /// </summary>
     CallTargets = 2048,
+
+    /// <summary>
+    /// Per-method depth: the detached semantic identity of the unit's
+    /// MethodDef, decoded at most once per physical MethodDef and receipted.
+    /// It acquires no body and does not imply <see cref="ModuleLookup"/>.
+    /// </summary>
+    SemanticIdentity = 4096,
 }
 
 /// <summary>
@@ -540,6 +547,31 @@ public readonly ref struct MethodDefinitionView
         }
     }
 
+    /// <summary>
+    /// The unit's semantic identity through the declared semantic-identity
+    /// depth, decoded once per physical MethodDef. Unreadable metadata is a
+    /// typed <see cref="MethodSemanticIdentityResult.Malformed"/> outcome.
+    /// </summary>
+    public MethodSemanticIdentityResult SemanticIdentity
+    {
+        get
+        {
+            MethodDefinitionExecution.ProducerState producer = Producer;
+            if (!producer.HasSemanticIdentityLayer)
+            {
+                throw MethodRowGate.Undeclared(
+                    _owner,
+                    MethodDefinitionLayers.SemanticIdentity);
+            }
+
+            producer.CountUnit(
+                ref producer.LastSemanticIdentityUnit,
+                Token,
+                ref producer.SemanticIdentityUses);
+            return _unit.GetSemanticIdentity();
+        }
+    }
+
     void Require(MethodDefinitionLayers field)
     {
         if ((_declared & field) == 0)
@@ -919,6 +951,10 @@ internal struct MethodDefinitionUnit(
     LibraryMethodAnalysisRunner? _lookup;
     MemorySafetyContractSupport? _memorySafety;
     SameModuleCallTargetSupport? _callTargets;
+    MethodSemanticIdentitySupport? _semanticIdentity;
+    MethodSemanticIdentityResult? _semanticIdentityResult;
+    MethodSemanticIdentityWork _semanticIdentityWork;
+    MethodDefinitionSourceCoverageBuilder? _semanticIdentityReadBy;
     MethodRowGate? _gate;
     bool _positionsRequestOnMove;
     MethodBodyBlock? _body;
@@ -970,6 +1006,7 @@ internal struct MethodDefinitionUnit(
         LibraryMethodAnalysisRunner? lookup,
         MemorySafetyContractSupport? memorySafety,
         SameModuleCallTargetSupport? callTargets,
+        MethodSemanticIdentitySupport? semanticIdentity,
         MethodDefinitionSourceCoverageBuilder sourceCoverage,
         int ordinal)
     {
@@ -979,6 +1016,7 @@ internal struct MethodDefinitionUnit(
         _lookup = lookup;
         _memorySafety = memorySafety;
         _callTargets = callTargets;
+        _semanticIdentity = semanticIdentity;
         _requestSourceCoverage = sourceCoverage;
         Ordinal = ordinal;
         gate.MoveTo(
@@ -1018,6 +1056,9 @@ internal struct MethodDefinitionUnit(
         _body = null;
         _bodyData = null;
         _instructions = null;
+        _semanticIdentityResult = null;
+        _semanticIdentityWork = MethodSemanticIdentityWork.Empty;
+        _semanticIdentityReadBy = null;
         _physicalSourceCoverage.RecordMethodSelected(methodHandle);
         if (_positionsRequestOnMove)
         {
@@ -1051,6 +1092,58 @@ internal struct MethodDefinitionUnit(
             MethodHandle,
             body);
         return body;
+    }
+
+    /// <summary>
+    /// Decodes the unit's semantic identity once per physical MethodDef,
+    /// recording the decode for the physical source once and the read for
+    /// each request.
+    /// </summary>
+    public MethodSemanticIdentityResult GetSemanticIdentity()
+    {
+        if (_semanticIdentityResult is null)
+        {
+            MethodSemanticIdentitySupport support =
+                _semanticIdentity ?? throw new InvalidOperationException(
+                    "Semantic identity was not declared by any planned "
+                    + "producer.");
+            _semanticIdentityResult = support.Decode(
+                TypeHandle,
+                TypeDefinition,
+                MethodHandle,
+                MethodDefinition,
+                out bool constructed,
+                out _semanticIdentityWork);
+            if (constructed)
+            {
+                _physicalSourceCoverage.RecordSemanticIdentityConstruction();
+                if (!ReferenceEquals(
+                        _requestSourceCoverage,
+                        _physicalSourceCoverage))
+                {
+                    _requestSourceCoverage
+                        ?.RecordSemanticIdentityConstruction();
+                }
+            }
+
+            _physicalSourceCoverage.RecordSemanticIdentity(
+                MethodHandle,
+                _semanticIdentityResult,
+                _semanticIdentityWork);
+        }
+
+        if (_requestSourceCoverage is { } request
+            && !ReferenceEquals(request, _physicalSourceCoverage)
+            && !ReferenceEquals(request, _semanticIdentityReadBy))
+        {
+            _semanticIdentityReadBy = request;
+            request.RecordSemanticIdentity(
+                MethodHandle,
+                _semanticIdentityResult,
+                _semanticIdentityWork);
+        }
+
+        return _semanticIdentityResult;
     }
 
     public MethodBodyData GetBodyData()
