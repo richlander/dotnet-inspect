@@ -1037,9 +1037,11 @@ rules, this document describes subsystem ownership, and
   portable Library-root changed-Type composition, complete compatibility
   changes, and distinct changed-member summaries for shared host adoption.
 - [Diff system](design/diff-system.md): the one vertical diff path both hosts
-  call, its layers, its host-neutral request and operation, the rule
-  that reusable comparison infrastructure lives in `ILInspector`, and the
-  adoption steps that retire per-host diff orchestration.
+  call, its layers, its base data structures and change vocabulary, its diff
+  documents and annotations, Markout lowering, the GNU diff and annotated
+  rendering models, its host-neutral request and operation, the rule that
+  reusable comparison infrastructure lives in `ILInspector`, and the adoption
+  steps that retire per-host diff orchestration.
 - [Diff observability](design/diff-observability.md): the cross-cutting
   pattern that a reported change is observable in a complete diff view at that
   view's level, and how diff producers and views reason about subtle
