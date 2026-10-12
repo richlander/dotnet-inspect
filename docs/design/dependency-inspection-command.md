@@ -1289,12 +1289,17 @@ and the graph is unchanged. The typed pruning result carries these rows as a
 receipt-free restored-resolution comparison, counted in the pruning summary as
 evaluated and as delegated or retained exactly like candidate-bound rows.
 Inventory failure affects them exactly as it affects candidate-bound rows. The
-comparison runs only when the selected restored target's processing is
-complete; incomplete or failed processing keeps its existing non-evaluating
-outcome and typed failure, so a partial graph never produces a delegation. A
-declaration without a restored resolution keeps `NotEvaluated` with reason
-`ApplicationAuthoredExemption`, because an absent version is not a comparison
-and cannot be subsumed.
+comparison runs only when the selected restored target's owner-issued
+processing result is available and complete. PackageHouse precedence is not
+reordered: the exemption is still decided first, and the section then checks
+processing completeness before comparing. Unavailable, incomplete, or failed
+processing leaves the row at today's outcome, `NotEvaluated` with reason
+`ApplicationAuthoredExemption`, counted as not evaluated and successful, with
+no added failure and no exit-status change; any processing failure the evidence
+owner issues remains reported where it is today. A partial graph therefore
+never produces a delegation. A declaration without a restored resolution keeps
+`NotEvaluated` with reason `ApplicationAuthoredExemption`, because an absent
+version is not a comparison and cannot be subsumed.
 
 For example, a restored `net10.0` application that references
 `System.Text.Json` 8.0.5 reports `PlatformDelegation` with reason
@@ -1854,8 +1859,8 @@ targeted Debug-build probe.
 | License completion includes root-set admission and treats an explicit depth boundary as a successful bounded inventory. | Release CLI tests combining one valid and one missing nuspec root, plus a depth-one direct-nuspec graph with a known deeper frontier. |
 | License manifest acquisition failures retain unavailable answer rows and enter `Failures` with the exact package coordinate and typed reason. | Release restored-project test with one available and one missing exact manifest, asserted across JSON, nonzero status, and exact-count rejection. |
 | Pruning is explicit-only and does not enter `@Dependencies`, verbosity, or bare effective discovery. | Release catalog, category, structural/effective discovery, and no-inventory tests. |
-| Candidate-free pruning outcomes perform no inventory or candidate work. | Direct-nuspec source-boundary and unattributed-authorship tests with throwing producers. |
-| Application-authored declarations use the library pruning policy without package-source work. | Restored-project fixtures for a `net10.0` application referencing `System.Text.Json` 8.0.5 (`PlatformDelegation`, `ApplicationAuthored`) and 12.0.0 (`PackageRetained`, `ApplicationAuthored`), plus a declaration without a restored resolution (`NotEvaluated`, `ApplicationAuthoredExemption`) and an incomplete restored graph (existing non-evaluating outcome, no delegation), with a throwing package-source producer, an instrumented inventory producer called once, and summary counts asserting evaluated, delegated, and retained totals. |
+| Candidate-free applicability outcomes other than the restored-resolution comparison perform no inventory or candidate work. | Direct-nuspec source-boundary and unattributed-authorship tests with throwing producers. |
+| Application-authored declarations use the library pruning policy without package-source work. | Restored-project fixtures for a `net10.0` application referencing `System.Text.Json` 8.0.5 (`PlatformDelegation`, `ApplicationAuthored`) and 12.0.0 (`PackageRetained`, `ApplicationAuthored`), plus a declaration without a restored resolution (`NotEvaluated`, `ApplicationAuthoredExemption`) and an incomplete restored graph (`NotEvaluated`, `ApplicationAuthoredExemption`, counted not evaluated and successful, unchanged exit status, no inventory read), with a throwing package-source producer, an instrumented inventory producer called once, and summary counts asserting evaluated, delegated, and retained totals. |
 | `Subsumed` delegates, while an older platform-supplied version retains the newer package candidate. | CLI projection test for `System.Text.Json@9.0.0` against platform `11.0.0` and `System.Runtime@4.3.2` against platform `4.3.1`. |
 | Inventory failure and target mismatch remain typed failures and prevent candidate work. | Instrumented inventory tests asserting nonzero status, affected declarations, and `Failures` rows. |
 | Row windows and rendering formats do not reinterpret pruning policy. | Markdown, table, typed JSON, and one-row window tests over the same two policy outcomes. |
