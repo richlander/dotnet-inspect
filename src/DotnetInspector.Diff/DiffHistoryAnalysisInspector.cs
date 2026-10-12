@@ -1,12 +1,13 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using Inspector.Findings;
 
-namespace DotnetInspector.PackageQueries;
+namespace DotnetInspector.Diff;
 
 static class DiffHistoryAnalysisEngine
 {

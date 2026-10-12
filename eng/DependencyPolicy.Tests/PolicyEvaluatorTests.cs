@@ -985,6 +985,7 @@ public sealed class PolicyEvaluatorTests
             [
                 "CSharpText",
                 "DotnetInspector.Cache",
+                "DotnetInspector.Diff",
                 "DotnetInspector.Ecosystems",
                 "DotnetInspector.Libraries",
                 "DotnetInspector.LibraryMetadata",
@@ -1060,6 +1061,7 @@ public sealed class PolicyEvaluatorTests
                 "$platform",
                 "CSharpText",
                 "DotnetInspector.Cache",
+                "DotnetInspector.Diff",
                 "DotnetInspector.DocumentationHouse.Contracts",
                 "DotnetInspector.Ecosystems",
                 "DotnetInspector.InspectionContracts",

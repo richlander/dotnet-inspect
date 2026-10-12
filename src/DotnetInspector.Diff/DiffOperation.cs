@@ -1,10 +1,11 @@
 using DotnetInspector.PackageQueries;
+using DotnetInspector.Sections;
 using QuerySpace.Rows;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using Inspector.Findings;
 
-namespace DotnetInspector.Sections;
+namespace DotnetInspector.Diff;
 
 /// <summary>One admitted Count request over Diff History Changed Versions.</summary>
 public sealed class DiffHistoryCountRequest
@@ -39,178 +40,135 @@ public sealed class DiffHistoryCountRequest
 }
 
 /// <summary>One normalized API Member History operation.</summary>
-public sealed class DiffHistoryApiMemberOperationRequest
+public sealed class DiffHistoryApiMemberOperationRequest : DiffHistoryRequest
 {
     public DiffHistoryApiMemberOperationRequest(
         DiffHistoryApiMemberInspectionRequest inspection,
         DiffHistoryCountRequest? count = null)
+        : base(count)
     {
         Inspection =
             inspection ?? throw new ArgumentNullException(nameof(inspection));
-        Count = count;
     }
 
     public DiffHistoryApiMemberInspectionRequest Inspection { get; }
-
-    public DiffHistoryCountRequest? Count { get; }
 }
 
 /// <summary>One normalized API Finding History operation.</summary>
-public sealed class DiffHistoryApiOperationRequest
+public sealed class DiffHistoryApiOperationRequest : DiffHistoryRequest
 {
     public DiffHistoryApiOperationRequest(
         DiffHistoryApiInspectionRequest inspection,
         DiffHistoryCountRequest? count = null)
+        : base(count)
     {
         Inspection =
             inspection ?? throw new ArgumentNullException(nameof(inspection));
-        Count = count;
     }
 
     public DiffHistoryApiInspectionRequest Inspection { get; }
-
-    public DiffHistoryCountRequest? Count { get; }
 }
 
 /// <summary>One normalized exact-Member Analysis History operation.</summary>
-public sealed class DiffHistoryAnalysisOperationRequest
+public sealed class DiffHistoryAnalysisOperationRequest : DiffHistoryRequest
 {
     public DiffHistoryAnalysisOperationRequest(
         DiffHistoryAnalysisInspectionRequest inspection,
         DiffHistoryCountRequest? count = null)
+        : base(count)
     {
         Inspection =
             inspection ?? throw new ArgumentNullException(nameof(inspection));
-        Count = count;
     }
 
     public DiffHistoryAnalysisInspectionRequest Inspection { get; }
-
-    public DiffHistoryCountRequest? Count { get; }
 }
 
-/// <summary>Completes shared Diff History through the envelope boundary.</summary>
-public static class DiffHistoryInspection
+/// <summary>
+/// The host's acquisition capabilities for one diff
+/// (diff-system.md#operation). Acquisition authority stays with the host;
+/// every decision stays in the operation.
+/// </summary>
+public sealed class DiffAcquisition
 {
-    public static Task<InspectionEnvelope<DiffHistoryOutcome>>
-        InspectAnalysisAsync(
-            DiffHistoryAnalysisInspectionRequest request,
-            IPackageHouseVersionPopulationCellExecutor executor,
-            CancellationToken cancellationToken = default) =>
-        InspectAnalysisAsync(
-            new DiffHistoryAnalysisOperationRequest(request),
-            executor,
-            cancellationToken);
-
-    public static async Task<InspectionEnvelope<DiffHistoryOutcome>>
-        InspectAnalysisAsync(
-            DiffHistoryAnalysisOperationRequest request,
-            IPackageHouseVersionPopulationCellExecutor executor,
-            CancellationToken cancellationToken = default)
+    public DiffAcquisition(IPackageHouseVersionPopulationCellExecutor cells)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        DiffHistoryOutcome outcome =
-            await DiffHistoryInspector.InspectAnalysisAsync(
-                    request.Inspection,
-                    executor,
-                    cancellationToken)
-                .ConfigureAwait(false);
-        return Envelope(BindCount(outcome, request.Count));
+        Cells = cells ?? throw new ArgumentNullException(nameof(cells));
     }
 
-    public static Task<InspectionEnvelope<DiffHistoryOutcome>>
-        InspectApiMembersAsync(
-            DiffHistoryApiMemberInspectionRequest request,
-            IPackageHouseVersionPopulationCellExecutor executor,
-            CancellationToken cancellationToken = default) =>
-        InspectApiMembersAsync(
-            new DiffHistoryApiMemberOperationRequest(request),
-            executor,
-            cancellationToken);
+    /// <summary>Opens population addresses as candidate-bound cells.</summary>
+    public IPackageHouseVersionPopulationCellExecutor Cells { get; }
+}
 
+/// <summary>
+/// The one host-neutral diff operation (diff-system.md#operation). Each
+/// request returns its content owner's terminal; Diff History returns
+/// <see cref="DiffHistoryOutcome"/> in the shared inspection envelope.
+/// </summary>
+public static class DiffOperation
+{
     public static async Task<InspectionEnvelope<DiffHistoryOutcome>>
-        InspectApiMembersAsync(
-            DiffHistoryApiMemberOperationRequest request,
-            IPackageHouseVersionPopulationCellExecutor executor,
+        ExecuteAsync(
+            DiffHistoryRequest request,
+            DiffAcquisition acquisition,
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        DiffHistoryOutcome outcome =
-            await DiffHistoryInspector.InspectApiMembersAsync(
-                    request.Inspection,
-                    executor,
-                    cancellationToken)
-                .ConfigureAwait(false);
-        return Envelope(BindCount(outcome, request.Count));
-    }
-
-    public static Task<InspectionEnvelope<DiffHistoryOutcome>>
-        InspectApiAsync(
-            DiffHistoryApiInspectionRequest request,
-            IPackageHouseVersionPopulationCellExecutor executor,
-            CancellationToken cancellationToken = default) =>
-        InspectApiAsync(
-            new DiffHistoryApiOperationRequest(request),
-            executor,
-            cancellationToken);
-
-    public static async Task<InspectionEnvelope<DiffHistoryOutcome>>
-        InspectApiAsync(
-            DiffHistoryApiOperationRequest request,
-            IPackageHouseVersionPopulationCellExecutor executor,
-            CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        DiffHistoryOutcome outcome =
-            await DiffHistoryInspector.InspectApiAsync(
-                    request.Inspection,
-                    executor,
-                    cancellationToken)
-                .ConfigureAwait(false);
-        return Envelope(BindCount(outcome, request.Count));
+        ArgumentNullException.ThrowIfNull(acquisition);
+        IPackageHouseVersionPopulationCellExecutor cells = acquisition.Cells;
+        DiffHistoryOutcome outcome = request switch
+        {
+            DiffHistoryAnalysisOperationRequest analysis =>
+                await DiffHistoryEngine.InspectAnalysisAsync(
+                        analysis.Inspection,
+                        cells,
+                        cancellationToken)
+                    .ConfigureAwait(false),
+            DiffHistoryApiMemberOperationRequest members =>
+                await DiffHistoryEngine.InspectApiMembersAsync(
+                        members.Inspection,
+                        cells,
+                        cancellationToken)
+                    .ConfigureAwait(false),
+            DiffHistoryApiOperationRequest api =>
+                await DiffHistoryEngine.InspectApiAsync(
+                        api.Inspection,
+                        cells,
+                        cancellationToken)
+                    .ConfigureAwait(false),
+            _ => throw new ArgumentOutOfRangeException(nameof(request)),
+        };
+        return DiffHistoryResults.Envelope(
+            DiffHistoryResults.BindCount(outcome, request.Count));
     }
 
     /// <summary>
-    /// Completes Analysis History and captures the House acquisitions its
-    /// cells made.
+    /// Runs the request and captures the House acquisitions its cells made.
     /// </summary>
     public static async Task<EvidenceInspectionEnvelope<
         DiffHistoryOutcome,
         PackageAcquisitionEvidence>>
-        InspectAnalysisWithEvidenceAsync(
-            DiffHistoryAnalysisOperationRequest request,
-            IPackageHouseVersionPopulationCellExecutor executor,
+        ExecuteWithEvidenceAsync(
+            DiffHistoryRequest request,
+            DiffAcquisition acquisition,
             CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(executor);
-        var recorder = new PackageAcquisitionEvidenceRecorder(executor);
+        ArgumentNullException.ThrowIfNull(acquisition);
+        var recorder = new PackageAcquisitionEvidenceRecorder(acquisition.Cells);
         InspectionEnvelope<DiffHistoryOutcome> inspection =
-            await InspectAnalysisAsync(request, recorder, cancellationToken)
+            await ExecuteAsync(
+                    request,
+                    new DiffAcquisition(recorder),
+                    cancellationToken)
                 .ConfigureAwait(false);
         return new(inspection, recorder.ToEvidence());
     }
+}
 
-    /// <summary>
-    /// Completes API History and captures the House acquisitions its cells
-    /// made.
-    /// </summary>
-    public static async Task<EvidenceInspectionEnvelope<
-        DiffHistoryOutcome,
-        PackageAcquisitionEvidence>>
-        InspectApiWithEvidenceAsync(
-            DiffHistoryApiOperationRequest request,
-            IPackageHouseVersionPopulationCellExecutor executor,
-            CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(executor);
-        var recorder = new PackageAcquisitionEvidenceRecorder(executor);
-        InspectionEnvelope<DiffHistoryOutcome> inspection =
-            await InspectApiAsync(request, recorder, cancellationToken)
-                .ConfigureAwait(false);
-        return new(inspection, recorder.ToEvidence());
-    }
-
-    static InspectionEnvelope<DiffHistoryOutcome> Envelope(
+/// <summary>Envelope, Count and diagnostics for Diff History results.</summary>
+internal static class DiffHistoryResults
+{
+    internal static InspectionEnvelope<DiffHistoryOutcome> Envelope(
         DiffHistoryOutcome outcome) =>
         new(
             outcome,
@@ -219,7 +177,7 @@ public static class DiffHistoryInspection
                 "Diff History does not yet have a canonical Workspace Share projection."),
             Diagnostics(outcome));
 
-    static DiffHistoryOutcome BindCount(
+    internal static DiffHistoryOutcome BindCount(
         DiffHistoryOutcome outcome,
         DiffHistoryCountRequest? request)
     {
