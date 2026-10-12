@@ -184,8 +184,8 @@ payloads. These are the main `T` types in production on `main` in October
 | Text lines | `string` | Inspect, Compare, `AnalysisDiff<string>` | `TextFindings`: member source diff, the authored source pair, the annotated source diff |
 | Source | `SourceDocumentObservation`, `MemberSourceObservation` | Inspect, Compare | SourceLink and source Findings |
 | Body semantics in History | `AllocationOccurrence`, `DirectCall`, `UnsafetyOccurrence` | Inspect, Compare, census Correlate, History transitions | Analysis producers that `diff --history` accepts |
-| Other body semantics | `UnsafeEvidence`, `UnsafeMemberFinding`, `StringLiteralUseOccurrence`, `SwitchInfo` compare; `StringMaterializationOccurrence`, `ResourceLifecycleOccurrence`, `ResourceOwnershipPathWitness`, `CallGraphCycleWitness` are inspected only | Inspect, and Compare where noted | Analysis producers in the [analysis catalog](command-transition-model.md#analysis-selection) |
-| Assembly metadata | `AssemblySurfaceClassification`, `AssemblyReference`, `AssemblyAttributeInfo`, `TypeForwarderInfo`, `ManifestResourceInfo`, `CompilationOptionInfo`, `CompilationReferenceInfo`, `UnionTypeInfo`, `ExtensionMemberObservation`, `ClassifiedMethodObservation` | Inspect, Compare, mostly in identity-set mode | Metadata Findings |
+| Other body semantics | `UnsafeEvidence`, `StringLiteralUseOccurrence`, `SwitchInfo` compare; `StringMaterializationOccurrence`, `ResourceLifecycleOccurrence`, `ResourceOwnershipPathWitness`, `CallGraphCycleWitness` are inspected only; `UnsafeMemberFinding` is not yet adopted ([unsafe member Findings](unsafe-member-findings.md)) | Inspect, and Compare where noted | Analysis producers in the [analysis catalog](command-transition-model.md#analysis-selection) |
+| Assembly metadata | `AssemblyReference`, `AssemblyAttributeInfo`, `TypeForwarderInfo`, `ManifestResourceInfo`, `CompilationOptionInfo`, `CompilationReferenceInfo`, `UnionTypeInfo`, `ExtensionMemberObservation`, `ClassifiedMethodObservation` compare; `AssemblySurfaceClassification` is inspected only | Inspect, and Compare where noted, mostly in identity-set mode | Metadata Findings |
 | Ecosystem signals | `OpenTelemetrySignalInfo`, `EcosystemIntegrationSignalInfo` | Inspect, Compare | Ecosystem producers |
 | Decompiler | `DecompilerFidelityCause` | Inspect, Compare | Decompiler fidelity |
 | Annotations | `IAnnotation` | Inspect | Annotated source facts |
@@ -199,7 +199,10 @@ The other generic types have few payloads in production:
 | `FindingCensusCorrelation<T>` | `ApiTypeHandle`, `ApiMemberHandle`, `ApiAttributeHandle`, `AllocationOccurrence`, `DirectCall`, `UnsafetyOccurrence` | History's census over evaluated points |
 | `CorrelatedFinding<T>`, `FindingCorrelation<T>` | `ApiMemberHandle` | History's exact-member track |
 
-So Compare carries most diff content today, across about thirty payloads,
+"In production" means a shipped library API: several metadata Compare
+operations, such as switches, union Types and extension members, have no host
+caller yet beyond the analysis catalog. So Compare carries most diff content
+today, across about thirty payloads,
 while the other rungs serve narrow domains: `AnalysisDiff` is text only,
 `ComparisonDocument` is API only, census Correlate covers History's six
 payloads, and exact-identity Correlate is API members only. The
