@@ -1751,6 +1751,14 @@ establish reliable adherence. Neutral questions are asked only after answers
 and logs are frozen; reflections distinguish confirmation from semantic
 uncertainty without changing results or establishing a causal effect.
 
+The [selective-link trials](../../tools/ExplainReadingScenarios/usability/selective-links/README.md)
+hold that strong guide fixed and project only HAL link exposure in the recorder.
+Neither new Style reader fetches the large schema; both still retrieve already
+embedded tiers. Query reads remain mixed, while a retained partial-binding link
+keeps missing dependency facts reachable. Original and projected bytes, frozen
+feedback, and representation overrides are retained separately. This is a
+production-policy candidate, not shipped behavior or reliable stopping evidence.
+
 ## Demo scenario
 
 `System.Text.Json@10.0.0` motivates the complete production flow:
