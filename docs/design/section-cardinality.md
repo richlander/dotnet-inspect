@@ -232,10 +232,10 @@ The pattern stages through focused owners rather than sweeping every section:
 3. Under #8228, the Library owner first associates the declaration with exact
    and aggregate routes: single-Library `Library Info` rejects Count and Rows
    before acquisition, while all-libraries `Library Info` remains an
-   independently declared library-row inventory. The `--tfm all` package
-   gesture is that aggregate over every framework, one Table under [Output
-   shapes](output-shapes.md#flag-families); its Count and Rows observe the
-   aggregate row unit and do not inherit the exact scalar declaration.
+   independently declared library-row inventory. `--tfm all` is package
+   discovery under
+   [All-frameworks package discovery](package-tfm-all-discovery.md),
+   so it never reaches a Library section; Library routes reject it.
    Aggregate detailed Discovery is initially limited to `Library Info`, whose
    supported formats and Rows/Count terminals are known.
    Mixed Package `--library` aggregate JSON plus semantic Rows fails visibly
