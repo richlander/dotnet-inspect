@@ -345,8 +345,11 @@ public class ResidualSlotBindingPassTests
         Assert.DoesNotContain(function.ResidualSlotBindings, static entry => entry.Value.Slot == 256);
         string output = DecidedPrint.Print(function).Output!;
 
-        Assert.Contains("int S_256 = (LoopControlVariable is not null ? 1 : 0) + (Collection is not null ? 1 : 0);", output);
-        Assert.Contains("return S_256 + V_0.Length + (base.Body is not null ? 1 : 0);", output);
+        Assert.Contains(
+            "return (LoopControlVariable is not null ? 1 : 0) + (Collection is not null ? 1 : 0) + NextVariables.Length + (base.Body is not null ? 1 : 0);",
+            output);
+        Assert.DoesNotContain("S_256", output);
+        Assert.DoesNotContain("V_0", output);
         Assert.DoesNotContain("S_256_1", output);
     }
 

@@ -33,6 +33,22 @@ public class StructReceiverInliningPassTests
 
     static LoadProperty Inner(IrExpression receiver) => new(GetInner, receiver, []);
     static LoadProperty Value(IrExpression receiver) => new(GetValue, receiver, []);
+    static Conditional CountTerm(int argument)
+        => new(
+            new LoadArgument(argument, $"condition{argument}", Bool),
+            new Constant(1, Int32),
+            new Constant(0, Int32))
+        {
+            MergedType = Int32,
+        };
+
+    static Binary BooleanCount()
+        => new(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            CountTerm(1),
+            CountTerm(2));
 
     static IrFunction BuildFunction(params IrNode[] statements)
     {
@@ -63,6 +79,10 @@ public class StructReceiverInliningPassTests
     }
 
     static void RunPass(IrFunction function) => new StructReceiverInliningPass().Run(function, PassContext.None);
+
+    static void RunLatePass(IrFunction function)
+        => new StructReceiverInliningPass(lateStackCarrierTail: true)
+            .Run(function, PassContext.None);
 
     static int StoreCount(IrFunction function, int index)
         => function.Descendants.OfType<StoreLocal>().Count(s => s.Index == index);
@@ -192,9 +212,68 @@ public class StructReceiverInliningPassTests
             // Left operand (an effectful call) evaluates before the receiver read.
             new Return(new Comparison(ComparisonKind.Equal, false, effect, Value(new LoadLocalAddress(0, S)))));
 
-        RunPass(function);
+        RunLatePass(function);
 
         Assert.Equal(1, StoreCount(function, 0));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void LateStableStackReadBeforeReceiver_IsFolded()
+    {
+        IrFunction Make() => BuildFunction(
+            new StoreStackSlot(256, BooleanCount()),
+            new StoreLocal(0, S, Inner(new LoadArgument(0, "outer", Outer))),
+            new Return(new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadStackSlot(256, Int32),
+                Value(new LoadLocalAddress(0, S)))));
+
+        var early = Make();
+        RunPass(early);
+        Assert.Equal(1, StoreCount(early, 0));
+
+        var late = Make();
+        RunLatePass(late);
+        Assert.Equal(0, StoreCount(late, 0));
+        Assert.Empty(late.Descendants.OfType<LoadLocalAddress>());
+        Assert.Single(late.Descendants.OfType<LoadStackSlot>());
+        late.CheckInvariant();
+    }
+
+    [Fact]
+    public void LateModeWithoutStackCarrierTail_DoesNotRediscoverEarlyFold()
+    {
+        var function = BuildFunction(
+            new StoreLocal(0, S, Inner(new LoadArgument(0, "outer", Outer))),
+            new Return(Value(new LoadLocalAddress(0, S))));
+
+        RunLatePass(function);
+
+        Assert.Equal(1, StoreCount(function, 0));
+        Assert.Single(function.Descendants.OfType<LoadLocalAddress>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void LateNonBooleanCountCarrier_DoesNotFold()
+    {
+        var function = BuildFunction(
+            new StoreStackSlot(256, new Constant(7, Int32)),
+            new StoreLocal(0, S, Inner(new LoadArgument(0, "outer", Outer))),
+            new Return(new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadStackSlot(256, Int32),
+                Value(new LoadLocalAddress(0, S)))));
+
+        RunLatePass(function);
+
+        Assert.Equal(1, StoreCount(function, 0));
+        Assert.Single(function.Descendants.OfType<LoadLocalAddress>());
         function.CheckInvariant();
     }
 
