@@ -314,6 +314,24 @@ public sealed class PackageVersionVector
                 return parsed;
             })
             .ToArray();
+        return Create(range, parsedVersions, includePrerelease, policy);
+    }
+
+    /// <summary>
+    /// Creates a vector from already parsed versions, with the same admission
+    /// and ordering as the text overload.
+    /// </summary>
+    internal static PackageVersionVector Create(
+        PackageVersionRange range,
+        IReadOnlyList<NuGetVersion> parsedVersions,
+        bool includePrerelease,
+        PackageVersionPopulationPolicy policy = PackageVersionPopulationPolicy.ExactEndpoints)
+    {
+        ArgumentNullException.ThrowIfNull(range);
+        ArgumentNullException.ThrowIfNull(parsedVersions);
+        if (!Enum.IsDefined(policy))
+            throw new ArgumentOutOfRangeException(nameof(policy));
+
         var seen = new HashSet<NuGetVersion>(VersionComparer);
         var versions = parsedVersions.Where(seen.Add).ToArray();
 

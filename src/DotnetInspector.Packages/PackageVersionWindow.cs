@@ -120,11 +120,7 @@ public sealed class PackageVersionWindow
             return false;
         }
 
-        string[] admitted =
-        [
-            .. candidates.Select(version => version.ToFullString()),
-            current.ToFullString(),
-        ];
+        NuGetVersion[] admitted = [.. candidates, current];
         bool includePrerelease = current.IsPrerelease;
         NuGetVersion[] earlier = policy switch
         {
@@ -175,7 +171,7 @@ public sealed class PackageVersionWindow
 
         PackageVersionVector all = PackageVersionVector.Create(
             PackageVersionRange.Create(packageId, lower[0], lower[^1]),
-            [.. lower.Select(version => version.ToFullString())],
+            lower,
             includePrerelease);
         return
         [
