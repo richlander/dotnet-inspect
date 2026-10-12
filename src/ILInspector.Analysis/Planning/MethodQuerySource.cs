@@ -909,6 +909,9 @@ public sealed record MethodDefinitionSourceCoverage(
 
     public MemorySafetyContractCoverage MemorySafetyContracts
     { get; init; } = MemorySafetyContractCoverage.Empty;
+
+    public SameModuleCallTargetCoverage CallTargets
+    { get; init; } = SameModuleCallTargetCoverage.Empty;
 }
 
 /// <summary>Why one generated physical MethodDef entered source breadth.</summary>
@@ -1415,6 +1418,11 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
     MemorySafetyMetadataWork _memorySafetyQueries =
         MemorySafetyMetadataWork.Empty;
     int _memorySafetyQueryCount;
+    readonly MethodDefinitionHandleCoverageBuilder _callTargetMethods = new();
+    bool _callTargetsConstructed;
+    SameModuleCallTargetWork _callTargetQueries =
+        SameModuleCallTargetWork.Empty;
+    int _callTargetQueryCount;
     MethodDefinitionGeneratedExpansionCoverage _generatedExpansion =
         MethodDefinitionGeneratedExpansionCoverage.Empty;
     int _noRetentionSourcesOpened;
@@ -1514,6 +1522,25 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
         _memorySafetyQueryCount = checked(_memorySafetyQueryCount + 1);
     }
 
+    public void RecordCallTargetConstruction()
+    {
+        if (_enabled)
+            _callTargetsConstructed = true;
+    }
+
+    public void RecordCallTargetQuery(
+        MethodDefinitionHandle handle,
+        SameModuleCallTargetWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _callTargetMethods.Add(handle);
+        _callTargetQueries = _callTargetQueries.Plus(work);
+        _callTargetQueryCount = checked(_callTargetQueryCount + 1);
+    }
+
     public void RecordGeneratedExpansion(
         MethodDefinitionGeneratedExpansionCoverage coverage)
     {
@@ -1568,6 +1595,14 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
                         _memorySafetyQueryCount,
                         _memorySafetyMethods.Build())
                     : MemorySafetyContractCoverage.Empty,
+            CallTargets =
+                _callTargetsConstructed || _callTargetQueryCount != 0
+                    ? new(
+                        _callTargetsConstructed,
+                        _callTargetQueries,
+                        _callTargetQueryCount,
+                        _callTargetMethods.Build())
+                    : SameModuleCallTargetCoverage.Empty,
         };
 }
 
