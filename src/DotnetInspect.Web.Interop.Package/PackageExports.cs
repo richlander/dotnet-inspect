@@ -1152,7 +1152,9 @@ public static partial class PackageExports
                 inventory.CurrentVersionInsertionIndex,
                 inventory.PreviousVersion,
                 inventory.PreviousVersionUnavailableReason,
-                inventory.UnlistedVersions),
+                inventory.UnlistedVersions,
+                inventory.SupplyChainVersions,
+                inventory.ApiEvolutionVersions),
             BrowserPackageJsonContext.Default.BrowserPackageVersions);
     }
 

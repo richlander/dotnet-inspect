@@ -1465,7 +1465,11 @@ public sealed record BrowserPackageVersions(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     string? PreviousVersionUnavailableReason,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    string[]? UnlistedVersions = null);
+    string[]? UnlistedVersions = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string[]? SupplyChainVersions = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string[]? ApiEvolutionVersions = null);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageVersions))]
