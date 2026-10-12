@@ -220,8 +220,7 @@ public static class DiffHistoryPresentation
                 Title = "Diff History",
                 Range =
                     $"{population.PackageId}@"
-                    + $"{population.StartVersion}.."
-                    + population.EndVersion,
+                    + population.FormatRange(),
                 Type = type,
                 Member = member,
                 Finding = finding,

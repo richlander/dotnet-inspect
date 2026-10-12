@@ -202,8 +202,6 @@ public sealed class PackageVersionVector
     public string PackageId { get; }
     public NuGetVersion Start { get; }
     public NuGetVersion End { get; }
-    public string StartVersion => Start.ToNormalizedString();
-    public string EndVersion => End.ToNormalizedString();
     public ImmutableArray<PackageVersionAddress> Addresses { get; }
 
     public static async Task<PackageVersionVector> ResolveAsync(
@@ -352,6 +350,14 @@ public sealed class PackageVersionVector
 
         return new PackageVersionVector(range.PackageId, range.Start, range.End, addresses);
     }
+
+    /// <summary>
+    /// The normalized range text, Start..End, for a caller that presents the
+    /// vector without depending on NuGet versioning. It is a method, not a
+    /// property, so serialized vectors are unchanged.
+    /// </summary>
+    public string FormatRange() =>
+        $"{Start.ToNormalizedString()}..{End.ToNormalizedString()}";
 
     /// <summary>
     /// Creates an ascending vector from versions its caller already admitted,
