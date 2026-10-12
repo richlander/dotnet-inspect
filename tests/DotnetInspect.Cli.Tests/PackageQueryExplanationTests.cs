@@ -118,6 +118,30 @@ public sealed class PackageQueryExplanationTests : IDisposable
     }
 
     [Fact]
+    public async Task RootOutputModifier_FailsRatherThanBeingIgnored()
+    {
+        var result = await Run("-v", "q", "package", "query", "--explain");
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("-v is not available with package query --explain", result.Error);
+        Assert.DoesNotContain("\"_embedded\"", result.Output);
+        Assert.Equal(0, requests);
+    }
+
+    [Theory]
+    [InlineData(new[] { "--offline" }, "only --json may accompany")]
+    [InlineData(new[] { "--http-timeout", "30" }, "Unrecognized option '--http-timeout'")]
+    public async Task RootOptions_HaveNoUndocumentedAdmissionException(string[] prefix, string expectedError)
+    {
+        var result = await Run([.. prefix, "package", "query", "--explain"]);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains(expectedError, result.Error);
+        Assert.DoesNotContain("\"_embedded\"", result.Output);
+        Assert.Equal(0, requests);
+    }
+
+    [Fact]
     public async Task EnvironmentFormat_IsRejectedUnlessJsonOverridesIt()
     {
         string? original = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");

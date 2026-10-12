@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Output;
 using System.CommandLine;
+using System.CommandLine.Parsing;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Sections;
@@ -664,11 +665,18 @@ public static class PackageCommandDefinitions
                         "Package Query --explain is command-only and cannot be "
                         + "combined with a package argument.");
                 }
-                var unsupportedOption = queryCommand.Options
-                    .Concat(packageCommand.Options)
-                    .FirstOrDefault(option => option != explainOption
+                Option? unsupportedOption = null;
+                for (CommandResult? scope = result;
+                     scope is not null;
+                     scope = scope.Parent as CommandResult)
+                {
+                    unsupportedOption = scope.Command.Options.FirstOrDefault(
+                        option => option != explainOption
                         && option != opts.Json
-                        && result.GetResult(option) is { Implicit: false });
+                        && scope.GetResult(option) is { Implicit: false });
+                    if (unsupportedOption is not null)
+                        break;
+                }
                 if (unsupportedOption is not null)
                 {
                     result.AddError(
