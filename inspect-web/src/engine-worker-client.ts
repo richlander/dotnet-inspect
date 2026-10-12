@@ -47,6 +47,14 @@ import {
   type EngineWorkerPackageChangesTerminalFailure,
 } from "./engine-worker-package-changes.ts";
 import {
+  createEngineWorkerLibraryPerformanceHostRegistration,
+  engineWorkerLibraryPerformanceInput,
+  type EngineWorkerLibraryPerformanceDurableEvent,
+  type EngineWorkerLibraryPerformanceTerminalFailure,
+  type LibraryPerformanceLoadRequest,
+} from "./engine-worker-library-performance.ts";
+import type { BrowserPackagePerformanceSummary } from "./facades/inspect-web-analysis.d.ts";
+import {
   createEngineWorkerPackageQueryHostRegistration,
   type EngineWorkerPackageQueryDurableEvent,
   type EngineWorkerPackageQueryTerminal,
@@ -184,6 +192,24 @@ export function registerEngineWorkerPackageChangesAdapter(
 ): EngineWorkerPackageChangesAdapter {
   return host.registerOperation(
     createEngineWorkerPackageChangesHostRegistration(),
+  );
+}
+
+export type EngineWorkerLibraryPerformanceAdapter =
+  OperationProducerAdapter<
+    LibraryPerformanceLoadRequest,
+    BrowserPackagePerformanceSummary,
+    EngineWorkerLibraryPerformanceTerminalFailure,
+    never,
+    WorkerRuntimePreparationError,
+    EngineWorkerLibraryPerformanceDurableEvent
+  >;
+
+export function registerEngineWorkerLibraryPerformanceAdapter(
+  host: EngineWorkerHost,
+): EngineWorkerLibraryPerformanceAdapter {
+  return host.registerOperation(
+    createEngineWorkerLibraryPerformanceHostRegistration(),
   );
 }
 
@@ -910,6 +936,148 @@ export function bindPackageChangesFacade(
   };
 }
 
+export function bindLibraryPerformanceFacade(
+  adapter: EngineWorkerLibraryPerformanceAdapter,
+  reportDiagnostic: (diagnostic: OperationDiagnostic) => undefined,
+  authority: SharedEngineOperationAuthority,
+): Pick<
+  EngineClient["analysis"],
+  "queryPackagePerformanceStreaming" | "cancelLibraryPerformanceAnalysis"
+> & { readonly dispose: () => void } {
+  interface ActiveLibraryPerformance {
+    readonly handle: OperationHandle<
+      BrowserPackagePerformanceSummary,
+      EngineWorkerLibraryPerformanceTerminalFailure
+    >;
+    readonly session: OperationSession<
+      LibraryPerformanceLoadRequest,
+      BrowserPackagePerformanceSummary,
+      EngineWorkerLibraryPerformanceTerminalFailure,
+      never,
+      WorkerRuntimePreparationError,
+      EngineWorkerLibraryPerformanceDurableEvent
+    >;
+  }
+  const active = new Map<string, ActiveLibraryPerformance>();
+
+  return {
+    cancelLibraryPerformanceAnalysis(operationId, reason) {
+      active.get(operationId)?.handle.cancel(operationCancelReason(reason));
+    },
+    async queryPackagePerformanceStreaming(
+      operationId,
+      packageId,
+      version,
+      targetFramework,
+      assemblyName,
+      eventSink,
+    ) {
+      if (active.has(operationId)) {
+        throw new Error(
+          `Library Performance operation '${operationId}' is already active.`);
+      }
+      const decodedRequest = engineWorkerLibraryPerformanceInput.decode({
+        packageId,
+        version,
+        targetFramework,
+        assemblyName,
+      });
+      if (decodedRequest.kind === "rejected") {
+        throw new TypeError(decodedRequest.message, {
+          cause: decodedRequest.cause,
+        });
+      }
+      const session = authority.page.createSession<
+        LibraryPerformanceLoadRequest,
+        BrowserPackagePerformanceSummary,
+        EngineWorkerLibraryPerformanceTerminalFailure,
+        never,
+        WorkerRuntimePreparationError,
+        EngineWorkerLibraryPerformanceDurableEvent
+      >({
+        feature: {
+          publish: event => {
+            if (event.kind === "durable") {
+              publishLibraryPerformanceEvent(
+                eventSink, event.durable.value.item);
+            }
+            return undefined;
+          },
+        },
+        diagnostic: { report: reportDiagnostic },
+      });
+      const started = authority.startWithId(
+        operationId,
+        () => session.start(decodedRequest.value, adapter),
+      );
+      if (started.kind === "rejected") {
+        session.dispose();
+        throw new Error(
+          `Library Performance could not start: ${
+            startFailureReason(started.reason)
+          }.`);
+      }
+      active.set(operationId, { handle: started.handle, session });
+      try {
+        const outcome = await started.handle.outcome;
+        await started.handle.quiesced;
+        if (outcome.kind === "succeeded") {
+          return {
+            version: 1,
+            kind: "Succeeded",
+            summary: outcome.value,
+            failureKind: null,
+            error: null,
+            diagnostic: null,
+            reason: null,
+          };
+        }
+        if (outcome.kind === "failed") {
+          return {
+            version: 1,
+            kind: "Failed",
+            summary: null,
+            failureKind: outcome.error.failureKind,
+            error: outcome.error.error,
+            diagnostic: outcome.error.diagnostic,
+            reason: null,
+          };
+        }
+        return {
+          version: 1,
+          kind: "Canceled",
+          summary: null,
+          failureKind: null,
+          error: null,
+          diagnostic: null,
+          reason: outcome.reason,
+        };
+      } finally {
+        active.delete(operationId);
+        session.dispose();
+      }
+    },
+    dispose() {
+      for (const operation of active.values())
+        operation.session.dispose();
+      active.clear();
+    },
+  };
+}
+
+function publishLibraryPerformanceEvent(
+  eventSink: unknown,
+  item: import("./facades/inspect-web-analysis.d.ts").BrowserPerformanceMember,
+): void {
+  if ((typeof eventSink !== "object" && typeof eventSink !== "function")
+    || eventSink === null) {
+    throw new TypeError("Library Performance event sink is unavailable.");
+  }
+  if (!Reflect.set(eventSink, "event", JSON.stringify({ kind: "Item", item }))) {
+    throw new TypeError("Library Performance event sink rejected an event.");
+  }
+}
+
 // The existing managed canary is an explicit diagnostic consumer, not a feature
 // migration or a claim that application operations already run in this Worker.
 export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
@@ -1034,6 +1202,11 @@ export function createProductionEngineWorkerClient(
     options.operationDiagnostic,
     authority,
   );
+  const libraryPerformance = bindLibraryPerformanceFacade(
+    registerEngineWorkerLibraryPerformanceAdapter(host),
+    options.operationDiagnostic,
+    authority,
+  );
   const identity = startup.host.buildIdentity();
   // The eager startup read may settle before the page awaits it. Observe that
   // rejection now; the retained promise still rejects to the Build consumer.
@@ -1050,7 +1223,10 @@ export function createProductionEngineWorkerClient(
     },
     library: ordinary.library,
     metadata: ordinary.metadata,
-    analysis: ordinary.analysis,
+    analysis: {
+      ...ordinary.analysis,
+      ...libraryPerformance,
+    },
     source: {
       ...ordinary.source,
       ...typeSource,
@@ -1070,6 +1246,7 @@ export function createProductionEngineWorkerClient(
     dispose() {
       readinessSession.dispose();
       packageChanges.dispose();
+      libraryPerformance.dispose();
       packageQuery.dispose();
       typeExplorer.dispose();
       typeSource.dispose();
