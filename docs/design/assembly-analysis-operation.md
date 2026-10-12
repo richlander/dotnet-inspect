@@ -98,10 +98,11 @@ issued for one invocation.
 ## Analysis stack
 
 Library Body Analysis does four jobs in one service. It chooses what to
-compute from a feature set, walks every MethodDef once, builds every derived
-structure eagerly, and returns one aggregate that callers filter. The retired
-`LibraryBodyIndex` was a facade over that aggregate. The target stack assigns
-each of those jobs, and the questions around them, to one owner:
+compute from a feature set, walks every MethodDef once, builds its derived
+structures in one execution for the selected features, and publishes the
+results from that one execution. The retired `LibraryBodyIndex` was an
+aggregate facade over those results. The target stack assigns each of those
+jobs, and the questions around them, to one owner:
 
 | Question | Owner | What it decides |
 | --- | --- | --- |
@@ -123,11 +124,11 @@ Each Library Body Analysis role moves to one of those owners:
 | --- | --- |
 | Feature selection (`LibraryBodyAnalysisFeatures`) | Producer declarations in Producer Planning, grouped by Query Space |
 | One whole-assembly MethodDef walk | Method Query Source breadth and traversal, narrowed to the requested scope |
-| Body, local-signature, and module-lookup acquisition | Method Query Source depth layers, acquired on demand |
+| Body, local-signature, and module-lookup acquisition | Method Query Source depth layers (body, local signature) and declared shared lookup support (module lookup), acquired on demand |
 | Eager method map and direct-call target resolution | Method Query Source `CallTargets` support over the shared `SameModuleMethodResolver` ([#8700](https://github.com/richlander/dotnet-inspect/issues/8700)), then the `Calls` layer ([#9868](https://github.com/richlander/dotnet-inspect/issues/9868)) |
 | Declared-source and generated-body publication | Method Query Source declared expansion and the declared-source relation ([#9864](https://github.com/richlander/dotnet-inspect/issues/9864)) |
 | Safety, allocation, optimization, leverage, call-graph, and the other hub producers | Focused producers on Producer Planning, each executed through this owner |
-| The aggregate result and `LibraryBodyIndex` | Focused, declaration-keyed results in `AssemblyAnalysisExecution` |
+| The aggregate result and `LibraryBodyIndex` (retired) | Focused, declaration-keyed results in `AssemblyAnalysisExecution` |
 | Stage participation receipt | Method Query Source receipts plus Producer Planning `WorkReceipt` |
 | `LibraryBodyAnalysisService` | `AssemblyAnalysisService` |
 

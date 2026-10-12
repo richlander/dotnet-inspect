@@ -123,7 +123,8 @@ two properties it is built on: a physical row identity and a body.
 
 - A MethodDef row is the unit of identity, order, and receipt. Per-method
   depth hangs off one MethodDef. Shared lookup support, such as call targets,
-  is execution-scoped and receipted per querying MethodDef.
+  is execution-scoped and receipted per group and request, with the
+  MethodDefs that queried it.
 - Properties and events have no IL of their own. Their accessors are
   MethodDefs, which this source already visits. The source can supply the
   accessor association; reporting an accessor's facts on its property is
