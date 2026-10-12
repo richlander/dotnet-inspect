@@ -132,8 +132,8 @@ two properties it is built on: a physical row identity and a body.
 - Fields have no body. Field facts come from metadata rows and, for
   initialized data, PE section data. That is a different population with a
   different cost model.
-- Types are breadth, not population. Exact-TypeDef breadth selects that
-  type's methods.
+- For this source, types are breadth, not population. Exact-TypeDef breadth
+  selects that type's methods.
 
 "Member" is the product vocabulary. Unsafe Members, Member Metrics, and
 member-scoped commands attribute method facts back to members. A `Member`

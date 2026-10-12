@@ -108,15 +108,15 @@ jobs, and the questions around them, to one owner:
 | --- | --- | --- |
 | What does this consumer need? | The adopting query | Which producers to request and which terminal (for example `Exists`, Count, or rows) each answer uses. |
 | What does each producer depend on, and when is it done? | [Producer Planning](producer-planning.md) | The closed producer description: dependencies, declared source layers, visits, outcomes, and `WorkReceipt`. |
-| Which requests share one traversal? | [Query Space Composition](query-space-composition.md) | Request-set grouping, terminal-specialized source plans, and result association. |
+| Which requests share one traversal? | [Query Space Composition](query-space-composition.md) | Request-set grouping of owner-issued source plans, preservation of each request's terminal, and result association. |
 | How does it run against one assembly? | This owner | Binds the closed description and Query Space plan to exact owner-issued access, executes once, and publishes a detached `AssemblyAnalysisExecution`. |
 | Which methods, and what is read for each? | [Method Query Source](method-query-source.md) | The ordered physical MethodDef population, breadth, declared expansion, on-demand layers, bounds, and the exact source-work receipt. |
 | What does the evidence mean? | Analysis evidence owners | Producer algorithms and focused result types. |
 
 Method Query Source is therefore one source under this operation, not its
-planner. It reads only what a planned producer declares, and receipts what it
-reads. How each layer and each execution-scoped support is acquired and shared
-across lanes is owned by [Method Query Source](method-query-source.md#depth).
+planner. It reads only what the plan declares, and receipts what it reads.
+How each layer and each execution-scoped support is acquired and shared across
+lanes is owned by [Method Query Source](method-query-source.md#depth).
 
 Each Library Body Analysis role moves to one of those owners:
 
@@ -124,7 +124,7 @@ Each Library Body Analysis role moves to one of those owners:
 | --- | --- |
 | Feature selection (`LibraryBodyAnalysisFeatures`) | Producer declarations in Producer Planning, grouped by Query Space |
 | One whole-assembly MethodDef walk | Method Query Source breadth and traversal, narrowed to the requested scope |
-| Body, local-signature, and module-lookup acquisition | Method Query Source depth layers (body, local signature) and declared shared lookup support (module lookup), acquired on demand |
+| Body, local-signature, and module-lookup acquisition | Method Query Source `Body` depth (the managed body and its local-signature handle) and declared shared lookup support (module lookup), acquired on demand; local-signature decode stays with the producer that reads it |
 | Eager method map and direct-call target resolution | Method Query Source `CallTargets` support over the shared `SameModuleMethodResolver` ([#8700](https://github.com/richlander/dotnet-inspect/issues/8700)), then the `Calls` layer ([#9868](https://github.com/richlander/dotnet-inspect/issues/9868)) |
 | Declared-source and generated-body publication | Method Query Source declared expansion and the declared-source relation ([#9864](https://github.com/richlander/dotnet-inspect/issues/9864)) |
 | Safety, allocation, optimization, leverage, call-graph, and the other hub producers | Focused producers on Producer Planning, each executed through this owner |
