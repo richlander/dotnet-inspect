@@ -64,9 +64,49 @@ internal sealed class ConfiguredApiCoordinateMatchHouseExecutor
     {
         if (!_stores.TryGetValue(authority, out IPackageStore? store))
         {
-            store = new InMemoryPackageStore();
+            store = new OperationLocalPackageStore();
             _stores.Add(authority, store);
         }
         return store;
+    }
+
+    private sealed class OperationLocalPackageStore : IPackageStore
+    {
+        readonly InMemoryPackageStore _inner = new();
+
+        public IPackageContent? TryGetCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null) =>
+            _inner.TryGetCached(
+                packageName,
+                version,
+                allowedSourceKeys,
+                log);
+
+        public IEnumerable<IPackageContent> EnumerateCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null) =>
+            _inner.EnumerateCached(
+                packageName,
+                version,
+                allowedSourceKeys,
+                log);
+
+        public ValueTask<IPackageContent> CommitAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            Stream nupkg,
+            CancellationToken cancellationToken = default) =>
+            _inner.CommitAsync(
+                packageName,
+                version,
+                sourceKey,
+                nupkg,
+                cancellationToken);
     }
 }

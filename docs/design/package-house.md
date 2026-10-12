@@ -289,7 +289,10 @@ selection when creating each Package Root, and requires the destination host
 execution to retain the source acquisition's typed producer identity. The host
 supplies store, transfer, source-authorization, and operation-lifetime policy;
 the query neither requests a complete payload nor reruns package asset
-selection. `ApiCoordinateMatchInspectionTests` gates the existing Avalonia
+selection. The CLI's operation-local store does not persist ranged entries:
+distinct endpoints are each realized once, and an equal destination reuses the
+source Root without another acquisition. The settlement-owned ranged content
+therefore remains the one retained copy of selected entry bytes. `ApiCoordinateMatchInspectionTests` gates the existing Avalonia
 forwarder result, exact House request shape, and destination producer affinity.
 
 This is the adopted PackageHouse operation-ownership step 17b under
