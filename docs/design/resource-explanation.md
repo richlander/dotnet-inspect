@@ -1046,6 +1046,80 @@ fewer navigation tips remains an agent usability evaluation, not an asserted
 outcome. Existing default output and explicit `.contract` remain comparison
 surfaces.
 
+### Query-preparation reading selection
+
+Status: **proposed; executable examples, no installed behavior change** under
+[#9975](https://github.com/richlander/dotnet-inspect/issues/9975), continuing
+[#9762](https://github.com/richlander/dotnet-inspect/issues/9762).
+The [worked reading proposal](../../tools/ExplainReadingScenarios/query-preparation/README.md)
+starts with the dependency and literal preparation questions rather than a
+website-shaped descriptor or a graph-depth expansion.
+
+The proposed claim is: a query-preparation selection preserves the selected
+facets' issued meaning, operators, operand kinds, examples, listed values,
+effects, registered input rules, declared required context, and applicable
+consumer-binding syntax and exposure. Its stated preparation questions resolve
+locally. Direct JSON and HAL carry equivalent selected knowledge; lowering
+vocabulary does not choose a larger population or add domain meaning.
+Completeness qualifies the selected population and semantic profile, not every
+facet in the installed catalog or every validation rule in the operation.
+An unselected facet remains unknown, including when the returned selection is
+complete. Unsupported or non-available selected data must retain visible
+outcomes or fail explicitly; it cannot become known empty data.
+
+Owner declarations remain the source of truth. One selected assembly consumes
+Query Space's facet facts and the binding's host syntax, rather than separately
+maintaining an agent summary or `-Q` inventory. This owner supplies the shared
+selection boundary; CLI admission and narrowing gestures remain with the CLI
+owner. A narrowing gesture can reduce the work left for jq without selecting a
+second schema or changing the facts' meaning. Full contract inspection and
+richer website authoring descriptors remain independent consumers.
+
+A selected reading document normalizes prerequisite records and shared binding
+rules once. A small binding exposure index is justified by the critical query
+that distinguishes authorable terms from required context. Keys inherit an
+explicit resource scope. Arrays or keyed tables are lowering choices; both
+must preserve the selected semantic fields and declared order. Empty-array
+omission needs an explicit fixed-profile convention and complete available
+observations; it never licenses omission of unknown or failed facts. Display
+names, internal receipt IDs, and repeated membership navigation need not be
+included when none of the stated reading questions uses them.
+
+HAL places selected facets and bindings in `_embedded`, with population
+qualifications in resource state. Ordinary navigation advertises missing
+knowledge rather than repeating links to every already embedded record.
+An example `collection` link leads to the larger installed facet dataset when
+a new question needs an unselected facet. The generated examples have no
+implemented self address. This proposal does not redefine generic graph
+inspection, remove explicit contract inspection, or claim that HAL vocabulary
+supplies input semantics. Selection, shared knowledge, and HAL lowering are
+independent decisions.
+
+The motivating production asset is `Microsoft.Extensions.Http.Polly` 10.0.12,
+whose direct dependency evidence appears in the
+[landed Package Query trials](../../tools/ExplainReadingScenarios/usability/package-query-adoption/README.md).
+The example source is the retained NativeAOT command-local HAL response from
+`88500f2d8298e3ede5640c9284ad00ddbdb86c15`. The local projector recovers every
+selected semantic field, compares five jq questions across both lowerings,
+checks source answers, and rejects unresolved required context. All 19 facets
+and binding rules occupy 8,198 B in direct JSON or 8,450 B in HAL, compared with
+18,509 B for the minified source. A direct-dependency preparation selection
+occupies 2,170 B or 2,320 B respectively. These are byte measurements, not
+runtime or agent-performance claims. The examples retain whole prose rules;
+they do not trim conditional constraints by guessing which sentences matter.
+
+Production adoption is staged in four slices: this focused owner proposal and
+examples; shared Resource Explanation implementation with cross-host gates;
+CLI adoption and retirement of its superseded ordinary reading projection;
+and Browser/Wasm adoption and retirement of its superseded reading projection.
+The tracker counts both hosts. Host-specific admission changes are separately
+owned adoption work. Production gates must preserve semantic equality,
+required-context closure, selected completeness, non-available outcomes, and
+usable host addresses before smaller defaults ship. Agent usability testing
+then measures valid preparation, whole-task content, and necessary navigation.
+The local examples neither enforce that production contract nor establish an
+optimal minimum or complete coverage of unregistered rules.
+
 ### Compact resource projection contract
 
 Status: **implemented for CLI and the Browser vocabulary facade** under
