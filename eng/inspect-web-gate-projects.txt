@@ -19,6 +19,8 @@ src/DotnetInspector.DocumentationHouse
 src/DotnetInspector.DocumentationHouse.Contracts
 src/DotnetInspector.EcosystemLoading
 src/DotnetInspector.Ecosystems
+src/DotnetInspector.InspectionContracts
+src/DotnetInspector.JsonSchema
 src/DotnetInspector.LibraryMetadata
 src/DotnetInspector.Libraries
 src/DotnetInspector.Networking
