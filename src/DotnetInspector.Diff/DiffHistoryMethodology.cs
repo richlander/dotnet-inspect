@@ -1,9 +1,10 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using Inspector.Findings;
 
-namespace DotnetInspector.PackageQueries;
+namespace DotnetInspector.Diff;
 
 interface IDiffHistoryPoint<T>
     where T : notnull

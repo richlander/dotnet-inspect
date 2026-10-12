@@ -1,14 +1,18 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using Inspector.Findings;
 
-namespace DotnetInspector.PackageQueries;
+namespace DotnetInspector.Diff;
 
-/// <summary>Evaluates Count-free API Finding Diff History.</summary>
-public static class DiffHistoryInspector
+/// <summary>
+/// The per-point census mode of the diff operation: evaluates Count-free
+/// Diff History for one request family.
+/// </summary>
+internal static class DiffHistoryEngine
 {
     public static Task<DiffHistoryOutcome> InspectAnalysisAsync(
         DiffHistoryAnalysisInspectionRequest request,

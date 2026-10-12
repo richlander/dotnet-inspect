@@ -474,6 +474,7 @@
       "allowOnly": [
         "CSharpText",
         "DotnetInspector.Cache",
+        "DotnetInspector.Diff",
         "DotnetInspector.Ecosystems",
         "DotnetInspector.Libraries",
         "DotnetInspector.LibraryMetadata",
@@ -528,6 +529,7 @@
         "$platform",
         "CSharpText",
         "DotnetInspector.Cache",
+        "DotnetInspector.Diff",
         "DotnetInspector.DocumentationHouse.Contracts",
         "DotnetInspector.Ecosystems",
         "DotnetInspector.InspectionContracts",
