@@ -207,8 +207,9 @@ package. It reads version metadata only and acquires no package payloads. Its
 candidates are listed versions in NuGet release precedence, stable only unless
 A is a prerelease.
 
-Two named policies each answer one question with a depth, n, which defaults to
-1 and counts steps back from A:
+Two named policies each answer one question with a depth, n, which counts
+steps back from A. It defaults to 1, and the typed request rejects any n below
+1:
 
 | Policy | Question | Points, ascending | Axes |
 | --- | --- | --- | --- |
@@ -216,9 +217,11 @@ Two named policies each answer one question with a depth, n, which defaults to
 | `ApiEvolution` | How did the API reach its current shape? | The `Latest` major representative of each of the n highest majors below A's, then A | API on every step |
 
 `Latest` is the existing major representative: the highest candidate in that
-major, whatever its minor. Within A's own major, A stands for that major, so
-both policies end at A. For a package whose current version is `10.0.9`, depth
-3 gives:
+major, whatever its minor. When a prerelease A admits prerelease candidates, a
+lower major is still represented by its highest stable candidate, and by a
+prerelease only when that major has no stable one. Within A's own major, A
+stands for that major, so both policies end at A. For a package whose current
+version is `10.0.9`, depth 3 gives:
 
 | Policy | Points |
 | --- | --- |
@@ -240,9 +243,10 @@ never a window built from partial evidence.
 The two policies are independent History requests. A host that asks for both
 submits them as two associations of one
 [request set](query-space-composition.md#request-sets-and-source-plan-collapse).
-The planner may share the acquisition of A, and of any version both windows
-name, but neither result derives from the other, and a failure in one leaves
-the other's outcome intact. That adoption belongs to
+The planner may share the acquisition of A, and of any version both windows name,
+but not a body-decoding traversal, so `ApiEvolution` stays in the metadata cost
+class. Neither result derives from the other, and a failure in one leaves the
+other's outcome intact. That adoption belongs to
 [#9920](https://github.com/richlander/dotnet-inspect/issues/9920).
 
 A is the caller's bound exact coordinate, so it is never a candidate and need
@@ -268,17 +272,20 @@ History adoption in
 a change on such a step to the whole step: a change reported at `9.0.12` is
 relative to `8.0.18`, not to `9.0.0`.
 
-Gates: each policy at depth 1 and depth 3 for a servicing release (`10.0.9`),
-an `X.Y.0` release, and an `X.0.0` release whose `SupplyChain` walk crosses into
+Gates: each policy at depth 1 and depth 3 for a servicing release (`10.0.9`), an
+`X.Y.0` release, and an `X.0.0` release whose `SupplyChain` walk crosses into
 the previous major; a package with releases on several minors of one major,
 where `Latest` takes the highest minor; a depth beyond the available points,
 which reports the reached depth; a first release and a package with no lower
 major, each a typed non-success for the policy with no earlier point; a
 prerelease A that admits prerelease candidates and a stable A that excludes
-them; an unlisted candidate that is skipped; an unlisted A and an A absent from
-the listing, each ending a vector whose other points are listed-only and
-acquired through its exact pin; both policies in one request set sharing A's
-acquisition with independent outcomes; and a non-authoritative listing.
+them; a prerelease A under `ApiEvolution`, where a lower major with a stable
+candidate is represented by it; a depth below 1, which the request rejects; an
+unlisted candidate that is skipped; an unlisted A and an A absent from the
+listing, each acquired through its exact pin and ending a vector whose other
+points are listed and acquired through `SelectCandidate`; both policies in one
+request set sharing A's acquisition with independent outcomes; and a
+non-authoritative listing.
 
 ## Resolution receipt
 
