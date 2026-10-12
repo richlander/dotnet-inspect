@@ -88,11 +88,32 @@ internal static class ClassicInverseRealizationRules
                 return Lockstep(claim.Source, claim.Output, context, out failure);
 
             case ClassicInverseRealizationRule.AwaitGuardCondition:
+            case ClassicInverseRealizationRule.AwaitGuardSecondCondition:
                 if (claim.Source is not ConditionalBranch branch
-                    || claim.Output is not IrExpression condition
-                    || condition.Parent is not IfStatement guarded
-                    || !ReferenceEquals(guarded.Condition, condition)
-                    || guarded.HasElse)
+                    || claim.Output is not IrExpression condition)
+                {
+                    failure = "await guard is not a condition";
+                    return false;
+                }
+                IrNode owner = condition;
+                if (condition.Parent is LogicalBinary { Kind: LogicalKind.Or } logical)
+                {
+                    IrExpression expected = claim.Rule == ClassicInverseRealizationRule.AwaitGuardSecondCondition
+                        ? logical.Right : logical.Left;
+                    if (!ReferenceEquals(expected, condition))
+                    {
+                        failure = "await guard changed short-circuit operand order";
+                        return false;
+                    }
+                    owner = logical;
+                }
+                else if (claim.Rule == ClassicInverseRealizationRule.AwaitGuardSecondCondition)
+                {
+                    failure = "second await guard has no short-circuit OR";
+                    return false;
+                }
+                if (owner.Parent is not IfStatement guarded
+                    || !ReferenceEquals(guarded.Condition, owner) || guarded.HasElse)
                 {
                     failure = "await guard does not realize as a single-arm condition";
                     return false;
@@ -108,6 +129,7 @@ internal static class ClassicInverseRealizationRules
 
             case ClassicInverseRealizationRule.Statement:
                 if (!((claim.Source is ExpressionStatement && claim.Output is ExpressionStatement)
+                    || (claim.Source is InitObject { Address: LoadLocalAddress } && claim.Output is InitObject)
                     || (claim.Source is StoreField store && claim.Output is StoreField
                         && !ClassicInverseNodeFacts.IsMachineField(store.Field, shell.Machine))))
                 {
@@ -635,6 +657,7 @@ internal static class ClassicInverseRealizationRules
             (IsInstance left, IsInstance right) => Equals(left.Type, right.Type),
             (TypeOf left, TypeOf right) => Equals(left.Type, right.Type),
             (DefaultValue left, DefaultValue right) => Equals(left.Type, right.Type),
+            (InitObject left, InitObject right) => Equals(left.Type, right.Type),
             (NewArray left, NewArray right) =>
                 Equals(left.ElementType, right.ElementType),
             (StackAllocArray left, StackAllocArray right) =>
