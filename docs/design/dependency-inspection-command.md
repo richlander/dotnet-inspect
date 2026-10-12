@@ -456,7 +456,7 @@ authority that the root did not grant.
 | `.csproj` or project directory | Existing located `project.assets.json`, with locator provenance | The selected restored graph is traversed without package or project acquisition. Explicit `Licenses` may acquire only the exact manifests named by that graph. Explicit `Latest Versions` may discover versions only for the root's direct declarations. |
 | Direct `project.assets.json` | Exact restored-project facts with direct-assets provenance | The selected restored graph is traversed without package or project acquisition. Explicit `Licenses` may acquire only the exact manifests named by that graph. Explicit `Latest Versions` may discover versions only for the root's direct declarations. |
 | Library | Owner-issued assembly identity and direct references | Existing library-reference resolution may follow resolvable references up to the requested depth. |
-| Package prefix | Bounded package-profile roots and their manifest declarations | Profile acquisition authorizes the bounded manifests, not recursive expansion from every match. |
+| Package prefix | Bounded package-profile roots and their manifest declarations | Profile acquisition authorizes the bounded manifests, not recursive expansion from every match. It grants no version discovery, so `Latest Versions` is rejected for a package-prefix request. |
 | Type | Owner-issued type and hierarchy relationships in the selected scope | Traversal stays within the admitted search scope. |
 
 A `.csproj` and a direct assets path that select identical bytes produce the
@@ -904,7 +904,7 @@ these roles:
 | --- | --- |
 | Root-set completion, requested and admitted counts, per-root admission, traversal and pruning completion, graph counts, and selected-plan phase completion | Required baseline Content. |
 | `Dependency Hierarchy`, `Dependencies`, `Pruning`, and `Latest Versions` rows | Baseline Content selected by the command contract. |
-| Root, acquisition, declaration, relationship, traversal, pruning, and version-discovery failures | Typed baseline Content; required operational context may also remain in ordinary Diagnostics. |
+| Root, acquisition, declaration, relationship, traversal, pruning, and admitted per-package version-discovery failures | Typed baseline Content; required operational context may also remain in ordinary Diagnostics. |
 | Package root identity, provenance, declaration groups, group selection, restored package nodes, restored edges, processing observations, and their owner-issued phase states | Supplemental Package Dependency Evidence retained in `TEvidence`. |
 | CLI root labels, section membership, row windows, display ordering, and Markout or JSON lowering | Host presentation, not service evidence. |
 | `--offline` rejection or other network failure | Ordinary operation failure, not evidence-only data. |
@@ -1271,8 +1271,7 @@ row, and callers narrow with `--where`.
 | Latest | Highest listed version under the row's prerelease policy. |
 | Behind | `None`, `Major`, `Minor`, `Patch`, `Revision`, or `Prerelease`: the first of major, minor, patch, revision, and prerelease label at which Latest exceeds Current. |
 | Majors Behind | Count of distinct listed major versions above Current's major, through Latest. |
-| Current Published / Latest Published | Publication timestamps when the discovery observations supply them for a listed version. |
-| State | `Compared`, or a typed failure such as a discovery failure, package not found, or no current version. |
+| State | `Compared`, `NoCurrentVersion`, `NoListedVersion`, or `DiscoveryFailed` with the receipt's typed failure. |
 
 Current never claims a resolution that did not occur. Package and direct-nuspec
 declaration rows leave `Resolved` empty, as the evidence association rules
@@ -1280,7 +1279,8 @@ above require, so their Current is the constraint's inclusive minimum, labeled
 `LowerBound`. That value is the declared minimum, not a claim about what NuGet
 would restore: it need not be a listed version, and restore may select a
 higher one when it is unavailable. A constraint with no inclusive lower bound
-has no Current; its row reports `NoCurrentVersion` and no Behind value.
+has no Current; its row reports `NoCurrentVersion` with empty Latest In Major,
+Latest, Behind, and Majors Behind, and no discovery runs for it.
 
 Each row's versions come from one `AlwaysLatest` selection request whose
 prerelease policy excludes prereleases unless Current is a prerelease. The
@@ -1294,16 +1294,29 @@ member of it. When Latest does not exceed Current, Behind is `None` and Majors
 Behind is zero.
 
 Each distinct package identity and prerelease policy is discovered once per
-request even when several roots or groups declare it. Selecting the section
-under `--offline` is an ordinary operation failure before discovery, as the
-role table above classifies offline rejection. Any other discovery failure
-fails only that package's rows and adds a typed `Failures` occurrence; sibling
-rows and the dependency document remain usable. A row window reduces rendered
-rows but not discovery work, failure retention, or exit status.
+request even when several roots or groups declare it. Latest uses the
+command's configured package sources; it does not claim the sources a restored
+project used. A complete discovery with no listed version under the row's
+prerelease policy reports `NoListedVersion`. `NoCurrentVersion` and
+`NoListedVersion` are facts about the declaration and its package, not
+failures.
 
-The section reports facts. It does not evaluate target-framework compatibility
-of Latest, recommend an upgrade, evaluate API or behavioral change between
-Current and Latest, or modify a project.
+Selecting the section under `--offline` is an ordinary operation failure before
+discovery, as the role table above classifies offline rejection. Selecting it
+for a package-prefix request is rejected before acquisition because that root
+kind grants no version discovery. After admission, a failed or incomplete
+discovery reports `DiscoveryFailed`, fails only that package's rows, and adds a
+typed `Failures` occurrence; sibling rows and the dependency document remain
+usable. A row window reduces rendered rows but not discovery work, failure
+retention, or exit status.
+
+Count projects one row per participating declaration. As for `Licenses`, an
+exact count is rejected when any row reports `DiscoveryFailed`, because its
+version fields are incomplete.
+
+The section reports facts. It does not report publication dates, evaluate
+target-framework compatibility of Latest, recommend an upgrade, evaluate API or
+behavioral change between Current and Latest, or modify a project.
 
 ## Partial results, completion, and exit status
 
@@ -1757,7 +1770,7 @@ targeted Debug-build probe.
 | `Latest Versions` is explicit-only and does not enter `@Dependencies`, verbosity, or bare effective discovery. | Release catalog, category, structural/effective discovery tests, plus an instrumented source test proving `Dependencies` alone performs no version discovery. |
 | `Latest Versions` reports `Resolved` only from owner-issued restored associations and `LowerBound` otherwise. | Restored-project and package-root fixtures declaring the same constraint, including an unlisted lower bound, asserting Current and Current Basis, and an open-lower-bound `NoCurrentVersion` row. |
 | Latest, Latest In Major, Behind, and Majors Behind derive from one discovery result. | Fixed version-index fixture spanning several majors, a four-part revision, and prereleases, with stable and prerelease Current values, asserting every field, each Behind value, and exactly one discovery per package identity and prerelease policy across duplicate declarations. |
-| Discovery failure stays visible per package. | Version-service fixtures for unauthorized and not-found discovery, asserting State, `Failures`, sibling rows, nonzero status, and exact-count rejection; and an `--offline` request asserting an ordinary operation failure before discovery. |
+| Discovery failure stays visible per package. | Version-service fixtures for unauthorized, not-found, and incomplete discovery, asserting `DiscoveryFailed`, `Failures`, sibling rows, nonzero status, and exact-count rejection; a prerelease-only package with stable Current asserting `NoListedVersion` without a failure; an `--offline` request asserting an ordinary operation failure before discovery; and a package-prefix request asserting rejection before acquisition. |
 | A local `.nupkg` root consumes source options for `Latest Versions`. | Release CLI test selecting only `Latest Versions` over a local package with a local feed source. |
 | Multi-root depth is preserved per root occurrence rather than by one global distance. | Cyclic DAG fixture in which one shared node is reached at different depths from two roots. |
 | A semantic node that is both a transitive child and a later explicit root does not duplicate or suppress either root's occurrence rows. | Depth-asymmetric two-root fixture run in both root orders, asserting independent per-root expansion and equal tree/table/JSON/count cardinality. |
@@ -1784,9 +1797,9 @@ This design does not:
 - add automatic restore, build, project evaluation, or package mutation;
 - apply pruning to dependency graph edges or claim that PackageHouse or
   PlatformHouse execution occurred;
-- report latest versions for transitive dependencies, evaluate their
-  target-framework compatibility, classify build-only asset scope, or
-  recommend upgrades from `Latest Versions`;
+- report latest versions for transitive dependencies, report publication
+  dates or target-framework compatibility of a latest version, classify
+  build-only asset scope, or recommend upgrades from `Latest Versions`;
 - add a Browser/Wasm command or presentation contract;
 - make package-prefix discovery an exhaustive package universe;
 - guarantee that every root kind can expand beyond the evidence it owns; or
