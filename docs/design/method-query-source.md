@@ -121,13 +121,16 @@ This owner does not define:
 The source is named for methods, not members, because only methods have the
 two properties it is built on: a physical row identity and a body.
 
-- A MethodDef row is the unit of identity, order, and receipt. Every layer
-  this source acquires, from the body to call targets, hangs off one MethodDef.
+- A MethodDef row is the unit of identity, order, and receipt. Per-method
+  depth hangs off one MethodDef. Shared lookup support, such as call targets,
+  is execution-scoped and receipted per querying MethodDef.
 - Properties and events have no IL of their own. Their accessors are
-  MethodDefs, which this source already visits. Reporting an accessor's facts
-  on its property is attribution, a later step owned by the consumer.
-- Fields have no body. Field facts come from metadata rows alone, which is a
-  different population with a different cost model.
+  MethodDefs, which this source already visits. The source can supply the
+  accessor association; reporting an accessor's facts on its property is
+  attribution, owned by the consumer.
+- Fields have no body. Field facts come from metadata rows and, for
+  initialized data, PE section data. That is a different population with a
+  different cost model.
 - Types are breadth, not population. Exact-TypeDef breadth selects that
   type's methods.
 
@@ -150,6 +153,7 @@ population, `MethodDefinition`. The implementation is in
 | `MethodDefinitionLayers` and `MethodDefinitionView` in `MethodDefinitionProducers.cs` | Declared layers and the per-method view producers read through |
 | `MethodDefinitionGeneratedExpansion.cs` | Declared generated-body expansion |
 | `MethodRowGate.cs`, `MethodDefinitionPredicates.cs`, and `MethodDefinitionTerminalWorkBudget.cs` | Source gate, predicates, and terminal work bounds |
+| `MemorySafetyContractSupport.cs` | Memory-safety contract and accessor association support |
 | `SameModuleCallTargetSupport.cs` | `CallTargets` support |
 
 Where this source sits among Query Space, Producer Planning, and Assembly
