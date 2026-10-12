@@ -287,6 +287,16 @@ An implementation that scans every MethodDef to expand an exact-method seed
 must receipt that whole-table work and does not satisfy the sparse-breadth
 proportionality gate.
 
+Generated-body discovery runs on `DeclaredSourceAttribution`, which composes
+the declared-source, async state-machine, and lifted-owner resolvers, with the
+metadata resolvers and classifiers they read, from the subject's metadata and
+PE readers alone. The source constructs it only when a request declares
+expansion and builds no `LibraryBodyAnalysisBuilder` for it. When a producer
+also declares the module lookup, that lookup's builder is given the same
+attribution, so expansion and lookup share one set of resolver caches. Library
+Body Analysis composes its own attribution the same way, so authentication has
+one implementation.
+
 Referenced-body expansion is discovery-dependent. Serial reference execution
 uses waves:
 
