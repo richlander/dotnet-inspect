@@ -40,7 +40,7 @@ export interface LibraryApiDiffSelection {
   readonly query?: LibraryApiDiffQuerySelection;
 }
 
-export interface LibraryApiDiffQuerySelection {
+interface LibraryApiDiffQuerySelection {
   readonly surface: BrowserLibraryApiDiffRequest["surface"];
   readonly analyses: readonly string[];
   readonly views: BrowserLibraryApiDiffRequest["views"];
@@ -105,7 +105,7 @@ export function libraryApiDiffPresence(
 }
 
 /** The changed Types and Members one settled Library API Diff result names. */
-export function libraryApiDiffResultPresence(
+function libraryApiDiffResultPresence(
   result: BrowserLibraryApiDiffResult,
 ): LibraryApiDiffPresence {
   if (result.kind !== "Succeeded" || result.value === null)
