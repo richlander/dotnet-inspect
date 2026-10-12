@@ -1,0 +1,37 @@
+{
+  "source_commit": "536ce35bccbd6baa56d592fc6a8e944afd836d30",
+  "cli_version": "0.27.0+536ce35",
+  "sdk": "11.0.100-rc.1.26425.128",
+  "model": "gpt-6-sol",
+  "reasoning": "high",
+  "binary_sha256": {
+    "dotnet-inspect": "1a34006ea1f686839b798a99cc8fd276c105e67802a7fdfcf0065d5de1e26be3",
+    "dotnet-inspect.dll": "8cc253ad45155c0212ab669f0407a4062e0809d7d75ade56a020be2536689835"
+  },
+  "parent_evidence_commit": "d09778ca79b9af98e5cffa73f9233e6ea943dac5",
+  "historical_dispatch_sha256": "25ee43b291b0da33ee88509a2f3b342ada46424eeb29b3d21511eb1910eac2fe",
+  "trials": [
+    "query-links-1",
+    "style-links-1",
+    "query-links-2",
+    "style-links-2",
+    "navigation-links-1"
+  ],
+  "inputs": {
+    "assessment-criteria.txt": "30757652a9962cb7c0c6c896655189a959d4870a5e1eb4b586a88568cb771d00",
+    "criteria.txt": "af672b35fece9c7e51cf0ba156197b18734cf4ed5722cff6297631dd303be88a",
+    "freeze.py": "0b62cddea6e81603b66e28efa23c5a5e0b4b63976fe980a92ba6a3d859a29cce",
+    "guide.txt": "f7de68547495aa1b711858ec6957d22a54b6645afd220dc3210af7964963a5b8",
+    "link-policy.txt": "b5764e7e6d5e8c848a1a88482676d0748d18ddb1449bb96d8efd02b656898bdd",
+    "navigation-criteria.txt": "8d2f4b2d64c05daa7482defd2a4e6ff3604f5364a23975795874c8050e78ba9b",
+    "navigation-task.txt": "4cf156736aa748b19101e02bd1d5e721c38c51217996815e6e1f04e185e0bcf4",
+    "participant.txt": "4f66f919b3d068d0ecc816a47f15081f8c0be7b0e781723836c039e32e8222c6",
+    "post-task-question.txt": "9a4ac8b072fd35897657b8482a2fde9195a5a5b811684aa02487ec45103ef7db",
+    "project.py": "32c28abfd020c2b1fb246647bb36568f53a6b336cf3097708efea53cda2001ad",
+    "query-task.txt": "8e4340f28e59e074f9b612ac3ea56368f07721273364b267e7d74e82677f83b9",
+    "runner.py": "20da4ba723f92075baa4014d89fa76b3469f663e92ad78a39f06f84f32ffe01b",
+    "strong-assessment-criteria.txt": "892d0f1abcc7086096443f645de3c8460117cfee92dcfa5483f593deb1131aa7",
+    "style-task.txt": "d395cdf800c77fa24ab51bb6863c6b85b7837f0e421c3b1a8ad415d34dd62b42"
+  },
+  "source_equivalence_requests": 29
+}

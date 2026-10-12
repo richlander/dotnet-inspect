@@ -3541,6 +3541,9 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("| Performance: Boxing | section", output);
         Assert.Contains("| Performance: Async | section", output);
+        Assert.Contains(
+            "| Performance: Sync Calls in Async | section",
+            output);
 
         Assert.Equal(0, treeExit);
         Assert.Empty(treeError);
@@ -3551,10 +3554,24 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, countExit);
         Assert.Empty(countError);
-        Assert.Equal("11", countOutput.Trim());
+        Assert.Equal("12", countOutput.Trim());
 
-        Assert.Equal(0, effectiveExit);
-        AssertOnlyPerformanceAnalysisWarnings(effectiveError);
+        Assert.Equal(1, effectiveExit);
+        Assert.Contains(
+            "Warning: Array Pool Escapes inspection incomplete "
+                + "(analysis.resource-lifecycle):",
+            effectiveError,
+            StringComparison.Ordinal);
+        AssertOnlyPerformanceAnalysisWarnings(
+            string.Join(
+                '\n',
+                effectiveError.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries
+                        | StringSplitOptions.TrimEntries)
+                    .Where(line => !line.StartsWith(
+                        "Warning: Array Pool Escapes inspection incomplete ",
+                        StringComparison.Ordinal))));
         Assert.Contains("| Performance: Boxing | section", effectiveOutput);
     }
 

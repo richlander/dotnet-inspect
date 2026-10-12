@@ -56,6 +56,74 @@ public sealed partial class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task ArchiveRange_RetainedDirectory_ReopensWithFreshOperationAndNoDirectoryRequest()
+    {
+        byte[] archive = FixtureArchive();
+        var server = new RangeServer(archive) { ETag = "\"v1\"" };
+        var handler = new RecordingHandler { [ServiceIndex] = ServiceIndexWithFlatContainer };
+        handler.SetResponse(Package, server.Respond);
+        using IPackageSourceClient runtime = PackageSourceClientFactory.Create(
+            new PackageSource("feed", ServiceIndex, new PackageSourceCredential("user", "token")), handler);
+        var limits = new ZipReadLimits(entryReadSlack: 1024);
+        ZipDirectory directory;
+        using (var firstOperation = new NuGetOperationContext(TestContext.Current.CancellationToken))
+        {
+            await using PackageArchiveReader first = await Opened(
+                await Ranged(runtime).OpenArchiveAsync("contoso", "1.0.0", limits,
+                    TestContext.Current.CancellationToken, operationContext: firstOperation));
+            directory = first.Directory;
+        }
+        int before = server.Requests;
+        using var nextOperation = new NuGetOperationContext(TestContext.Current.CancellationToken);
+        await using PackageArchiveReader next = await Opened(
+            await Ranged(runtime).OpenArchiveAsync("contoso", "1.0.0", limits,
+                TestContext.Current.CancellationToken, operationContext: nextOperation, knownDirectory: directory));
+        Assert.Equal(before, server.Requests);
+        Assert.Equal(directory.Region.ToArray(), next.Directory.Region.ToArray());
+        ZipEntry entry = next.Directory.Entries.First(e => e.Name.EndsWith(".nuspec", StringComparison.Ordinal));
+        PackageArchiveEntryContent content = (await Opened(await next.ReadEntriesAsync(
+            [entry], cancellationToken: TestContext.Current.CancellationToken)))[0];
+        Assert.Equal(before + 1, server.Requests);
+        Assert.Contains("PCLStorage", Encoding.UTF8.GetString(content.Content.Span));
+        Assert.Equal(runtime.Source, next.Source);
+        Assert.NotNull(handler.Authentication[^1]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ArchiveRange_RetainedDirectory_EnforcesNewLimitsAndCancellation(bool cancel)
+    {
+        byte[] archive = FixtureArchive();
+        var server = new RangeServer(archive);
+        var handler = new RecordingHandler { [ServiceIndex] = ServiceIndexWithFlatContainer };
+        handler.SetResponse(Package, server.Respond);
+        using IPackageSourceClient runtime = PackageSourceClientFactory.Create(new PackageSource("feed", ServiceIndex), handler);
+        ZipDirectory directory;
+        await using (PackageArchiveReader first = await Opened(
+            await Ranged(runtime).OpenArchiveAsync("contoso", "1.0.0", ZipReadLimits.Default,
+                TestContext.Current.CancellationToken)))
+            directory = first.Directory;
+        int before = server.Requests;
+        using var cancellation = new CancellationTokenSource();
+        if (cancel)
+        {
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Ranged(runtime).OpenArchiveAsync(
+                "contoso", "1.0.0", ZipReadLimits.Default, cancellation.Token, knownDirectory: directory));
+        }
+        else
+        {
+            PackageArchiveReadResult<PackageArchiveReader> result = await Ranged(runtime).OpenArchiveAsync(
+                "contoso", "1.0.0", new ZipReadLimits(maxArchiveBytes: archive.Length - 1),
+                TestContext.Current.CancellationToken, knownDirectory: directory);
+            Assert.Null(result.Value);
+            Assert.NotNull(result.Failure);
+        }
+        Assert.Equal(before, server.Requests);
+    }
+
+    [Fact]
     public async Task ArchiveRange_V3_ReadsDirectoryAndEntry_WithCredentialAndValidator()
     {
         byte[] archive = FixtureArchive();

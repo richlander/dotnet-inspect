@@ -906,6 +906,12 @@ public sealed record MethodDefinitionSourceCoverage(
 
     public MethodDefinitionInstructionWorkCoverage InstructionWork
     { get; init; } = MethodDefinitionInstructionWorkCoverage.Empty;
+
+    public MemorySafetyContractCoverage MemorySafetyContracts
+    { get; init; } = MemorySafetyContractCoverage.Empty;
+
+    public SameModuleCallTargetCoverage CallTargets
+    { get; init; } = SameModuleCallTargetCoverage.Empty;
 }
 
 /// <summary>Why one generated physical MethodDef entered source breadth.</summary>
@@ -1405,6 +1411,18 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
     readonly MethodDefinitionHandleCoverageBuilder _bodiesAttempted = new();
     readonly MethodDefinitionHandleCoverageBuilder _bodiesAcquired = new();
     readonly MethodDefinitionHandleCoverageBuilder _moduleLookupMethods = new();
+    readonly MethodDefinitionHandleCoverageBuilder _memorySafetyMethods = new();
+    bool _memorySafetyConstructed;
+    MemorySafetyMetadataWork _memorySafetyConstruction =
+        MemorySafetyMetadataWork.Empty;
+    MemorySafetyMetadataWork _memorySafetyQueries =
+        MemorySafetyMetadataWork.Empty;
+    int _memorySafetyQueryCount;
+    readonly MethodDefinitionHandleCoverageBuilder _callTargetMethods = new();
+    bool _callTargetsConstructed;
+    SameModuleCallTargetWork _callTargetQueries =
+        SameModuleCallTargetWork.Empty;
+    int _callTargetQueryCount;
     MethodDefinitionGeneratedExpansionCoverage _generatedExpansion =
         MethodDefinitionGeneratedExpansionCoverage.Empty;
     int _noRetentionSourcesOpened;
@@ -1480,6 +1498,49 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
             _moduleLookupMethods.Add(handle);
     }
 
+    public void RecordMemorySafetyConstruction(
+        MemorySafetyMetadataWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _memorySafetyConstructed = true;
+        _memorySafetyConstruction = work;
+    }
+
+    public void RecordMemorySafetyQuery(
+        MethodDefinitionHandle handle,
+        MemorySafetyMetadataWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _memorySafetyMethods.Add(handle);
+        _memorySafetyQueries = _memorySafetyQueries.Plus(work);
+        _memorySafetyQueryCount = checked(_memorySafetyQueryCount + 1);
+    }
+
+    public void RecordCallTargetConstruction()
+    {
+        if (_enabled)
+            _callTargetsConstructed = true;
+    }
+
+    public void RecordCallTargetQuery(
+        MethodDefinitionHandle handle,
+        SameModuleCallTargetWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _callTargetMethods.Add(handle);
+        _callTargetQueries = _callTargetQueries.Plus(work);
+        _callTargetQueryCount = checked(_callTargetQueryCount + 1);
+    }
+
     public void RecordGeneratedExpansion(
         MethodDefinitionGeneratedExpansionCoverage coverage)
     {
@@ -1525,6 +1586,23 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
                     _noRetentionSourcesOpened,
                     _lazyRetainedSourcesOpened,
                     _instructionsVisited),
+            MemorySafetyContracts =
+                _memorySafetyConstructed || _memorySafetyQueryCount != 0
+                    ? new(
+                        _memorySafetyConstructed,
+                        _memorySafetyConstruction,
+                        _memorySafetyQueries,
+                        _memorySafetyQueryCount,
+                        _memorySafetyMethods.Build())
+                    : MemorySafetyContractCoverage.Empty,
+            CallTargets =
+                _callTargetsConstructed || _callTargetQueryCount != 0
+                    ? new(
+                        _callTargetsConstructed,
+                        _callTargetQueries,
+                        _callTargetQueryCount,
+                        _callTargetMethods.Build())
+                    : SameModuleCallTargetCoverage.Empty,
         };
 }
 

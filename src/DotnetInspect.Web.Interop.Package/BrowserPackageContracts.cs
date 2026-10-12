@@ -448,7 +448,8 @@ public sealed record BrowserPackageQueryPresetDescriptor(
     string? DisplayGroupLabel,
     string CategoryId,
     string CategoryLabel,
-    int CategoryOrder);
+    int CategoryOrder,
+    string[] RelatedOperations);
 
 public sealed record BrowserPackageQueryCatalog(
     BrowserPackageQueryPresetDescriptor[] Presets,
@@ -467,7 +468,8 @@ public sealed record BrowserPackageQueryTermDescriptor(
     bool Multiline,
     bool AllowsCustomValue,
     string? ReplacementGroupId,
-    BrowserPackageQueryTermOptionDescriptor[] Options);
+    BrowserPackageQueryTermOptionDescriptor[] Options,
+    string[] RelatedOperations);
 
 public sealed record BrowserPackageQueryTermOptionDescriptor(
     string Value,

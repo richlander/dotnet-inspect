@@ -17,7 +17,7 @@ using QuerySpace.Rows;
 
 namespace ILInspector.Analysis.Tests;
 
-public sealed class MethodDefinitionRequestSetTests
+public sealed partial class MethodDefinitionRequestSetTests
 {
     [Fact]
     public void Plan_PreservesDistinctClosingsInOnePhysicalGroup()

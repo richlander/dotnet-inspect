@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using DotnetInspector.PackageQueries;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using NuGetFetch;
@@ -21,7 +22,7 @@ public static class WorkspacePackageDependencyEnrichmentInspection
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(request.Definitions);
-        ArgumentNullException.ThrowIfNull(request.LoadOptions);
+        ArgumentNullException.ThrowIfNull(request.ManifestProvider);
         ArgumentNullException.ThrowIfNull(request.CandidateSource);
 
         WorkspaceDefinition? workspace = request.Definitions.Workspace;
@@ -40,8 +41,10 @@ public static class WorkspacePackageDependencyEnrichmentInspection
         var resolvedRoots = new List<ResolvedRoot>();
         var contextTargets =
             new EffectiveWorkspaceContextTarget[workspace.Contexts.Count];
-        var acquiredRoots =
-            new Dictionary<string, PackageRootBinding>(
+        var acquiredManifests =
+            new Dictionary<
+                string,
+                WorkspacePackageDependencyManifestResult.Available>(
                 StringComparer.Ordinal);
         for (int contextIndex = 0;
             contextIndex < workspace.Contexts.Count;
@@ -117,54 +120,39 @@ public static class WorkspacePackageDependencyEnrichmentInspection
 
                 string coordinateKey =
                     coordinate.PackageId + "\0" + coordinate.Version;
-                if (!acquiredRoots.TryGetValue(
+                if (!acquiredManifests.TryGetValue(
                     coordinateKey,
-                    out PackageRootBinding? packageRoot))
+                    out WorkspacePackageDependencyManifestResult.Available?
+                        manifest))
                 {
-                    var rootInput = new WorkspaceContextInput
-                    {
-                        Framework = framework,
-                        RuntimeIdentifier = runtimeIdentifier,
-                        Members =
-                        [
-                            WorkspaceMemberCoordinate.Package(
-                                package.Id,
-                                package.Version),
-                        ],
-                    };
-                    WorkspacePackageRootAcquisitionOutcome acquisition =
-                        await WorkspaceContextLoader.AcquirePackageRootAsync(
-                            rootInput,
-                            request.LoadOptions,
+                    WorkspacePackageDependencyManifestResult acquisition =
+                        await request.ManifestProvider.GetManifestAsync(
+                            coordinate,
                             cancellationToken).ConfigureAwait(false);
                     if (acquisition
-                        is not WorkspacePackageRootAcquisitionOutcome.Acquired
-                            acquired)
+                        is not WorkspacePackageDependencyManifestResult
+                            .Available acquired)
                     {
-                        var failed =
-                            (WorkspacePackageRootAcquisitionOutcome.Failed)
-                                acquisition;
+                        var unavailable =
+                            (WorkspacePackageDependencyManifestResult
+                                .Unavailable)acquisition;
                         return Failure(
                             WorkspacePackageDependencyEnrichmentFailureKind
-                                .RootAcquisition,
+                                .ManifestAcquisition,
                             path,
-                            string.Join(
-                                "; ",
-                                failed.Failures.Select(
-                                    failure => failure.Message)));
+                            unavailable.Message);
                     }
 
-                    packageRoot = acquired.Root;
-                    acquiredRoots.Add(coordinateKey, packageRoot);
+                    manifest = acquired;
+                    acquiredManifests.Add(coordinateKey, manifest);
                 }
 
                 PackageDependencyGroupsResult groups =
-                    await PackageDependencyGroupsQuery.ExecuteAsync(
-                        packageRoot.Root.Content,
+                    PackageDependencyGroupsQuery.Execute(
+                        manifest.Content,
                         coordinate.PackageId,
                         coordinate.Version,
-                        framework,
-                        cancellationToken).ConfigureAwait(false);
+                        framework);
                 if (groups is not PackageDependencyGroupsResult.Available
                     availableGroups)
                 {
@@ -175,10 +163,22 @@ public static class WorkspacePackageDependencyEnrichmentInspection
                         DescribeGroupsFailure(groups));
                 }
 
+                PackageHouseNuspec? houseNuspec =
+                    manifest.HouseEvidence?.Nuspec;
+                bool sourceManifest =
+                    houseNuspec?.Origin
+                        == PackageHouseNuspecOrigin.SourceManifest;
                 PackageDependencyEvidenceInput.Package evidenceInput =
                     PackageDependencyEvidenceQuery.CreatePackageInput(
                         availableGroups,
-                        PackageDependencyEvidenceAcquisitionForm.PackageArchive);
+                        sourceManifest
+                            ? PackageDependencyEvidenceAcquisitionForm
+                                .PackageSourceManifest
+                            : PackageDependencyEvidenceAcquisitionForm
+                                .PackageArchive,
+                        source: sourceManifest
+                            ? houseNuspec!.Source
+                            : null);
                 PackageDependencyEvidenceOutcome evidence =
                     PackageDependencyEvidenceQuery.Execute(
                         new PackageDependencyEvidenceRequest([evidenceInput]));
@@ -703,8 +703,32 @@ public static class WorkspacePackageDependencyEnrichmentInspection
 /// <summary>Input for portable direct-Package dependency enrichment.</summary>
 public sealed record WorkspacePackageDependencyEnrichmentRequest(
     CommittedScenarioDefinitionSet Definitions,
-    WorkspaceContextLoadOptions LoadOptions,
+    IWorkspacePackageDependencyManifestProvider ManifestProvider,
     IPackageDependencyCandidateSource CandidateSource);
+
+/// <summary>Supplies one bounded root nuspec for an exact package coordinate.</summary>
+public interface IWorkspacePackageDependencyManifestProvider
+{
+    Task<WorkspacePackageDependencyManifestResult> GetManifestAsync(
+        PackageSourceCoordinate coordinate,
+        CancellationToken cancellationToken);
+}
+
+/// <summary>The typed result of one dependency-manifest request.</summary>
+public abstract record WorkspacePackageDependencyManifestResult
+{
+    private WorkspacePackageDependencyManifestResult()
+    {
+    }
+
+    public sealed record Available(
+        ReadOnlyMemory<byte> Content,
+        PackageHouseEvidence? HouseEvidence = null) :
+        WorkspacePackageDependencyManifestResult;
+
+    public sealed record Unavailable(string Message) :
+        WorkspacePackageDependencyManifestResult;
+}
 
 /// <summary>Completed result of portable direct-Package dependency enrichment.</summary>
 public abstract record WorkspacePackageDependencyEnrichmentOutcome
@@ -734,7 +758,7 @@ public enum WorkspacePackageDependencyEnrichmentFailureKind
 {
     NoPackageRoots,
     InvalidDefinition,
-    RootAcquisition,
+    ManifestAcquisition,
     DependencyManifest,
     CandidateResolution,
     PacketProjection,

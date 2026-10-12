@@ -865,10 +865,29 @@ public static class OutputFormatter
             return;
         }
 
-        if (writerOpts.IncludeSections is { Count: > 1 }
-            && Sections.PerformanceKinds.AllShareCommonView(writerOpts.IncludeSections))
+        bool performanceGroupRequested =
+            options.SelectExplicitlySet
+            && options.IncludeSections is { Count: > 1 } requestedSections
+            && Sections.PerformanceKinds.AllShareCommonView(
+                requestedSections);
+        bool multiplePerformanceSectionsEffective =
+            writerOpts.IncludeSections is { Count: > 1 } effectiveSections
+            && Sections.PerformanceKinds.AllShareCommonView(
+                effectiveSections);
+        if (performanceGroupRequested
+            || multiplePerformanceSectionsEffective)
         {
-            var groupRows = auditView.PerformanceGroupRows(writerOpts.IncludeSections);
+            IReadOnlyCollection<string> groupSections =
+                writerOpts.IncludeSections
+                    ?? options.IncludeSections
+                    ?? [];
+            var projectedSections =
+                ProjectPerformanceGroupSections(
+                    groupSections,
+                    options.Fields,
+                    options.Columns);
+            var groupRows = auditView.PerformanceGroupRows(
+                projectedSections);
             var groupView = new PerformanceGroupView(groupRows);
             var groupOpts = ConfigureTableWriterOptions(
                 new MarkoutWriterOptions { Projection = writerOpts.Projection }, options.Tsv, options.Jsonl);
@@ -882,6 +901,32 @@ public static class OutputFormatter
                 (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts),
                 options.Rows);
         }
+    }
+
+    private static IReadOnlyCollection<string>
+        ProjectPerformanceGroupSections(
+            IReadOnlyCollection<string> sections,
+            string[]? fields,
+            string[]? columns)
+    {
+        if (fields is not { Length: > 0 }
+            && columns is not { Length: > 0 })
+        {
+            return sections;
+        }
+
+        DocumentSchema schema = InspectionContext.Default
+            .GetSchemaInfo<LibraryInspectionView>()!
+            .ToDocumentSchema();
+        return
+        [
+            .. sections.Where(section =>
+                ProjectionMatchesSection(
+                    schema,
+                    section,
+                    fields,
+                    columns)),
+        ];
     }
 
     public static void WriteLibraryResults(List<LibraryInspection> inspections, LibraryOptions options,
@@ -1455,6 +1500,13 @@ public static class OutputFormatter
                 count);
         }
         ApplyClassificationCounts(projection, inspection, writerOptions.IncludeSections, rows);
+        ApplySyncCallsInAsyncCount(
+            projection,
+            inspection,
+            writerOptions.IncludeSections,
+            rows,
+            fields,
+            columns);
         ApplyArchitecturalFamilyCounts(
             projection,
             inspection,
@@ -1527,6 +1579,41 @@ public static class OutputFormatter
             && inspection.PInvokeMethodCount is int pInvokeCount)
         {
             projection.SetRows(SectionNames.PInvokeMethods, WindowedCount(pInvokeCount, rows));
+        }
+    }
+
+    internal static void ApplySyncCallsInAsyncCount(
+        CountProjection projection,
+        LibraryInspection inspection,
+        IReadOnlyCollection<string>? includedSections,
+        RowWindow? rows,
+        string[]? fields = null,
+        string[]? columns = null)
+    {
+        if (includedSections?.Contains(
+                SectionNames.PerformanceSyncCallsInAsync) == true
+            && inspection.SyncCallsInAsyncRows.IsEmpty
+            && inspection.SyncCallsInAsyncCount is int count)
+        {
+            if (fields is { Length: > 0 }
+                || columns is { Length: > 0 })
+            {
+                DocumentSchema schema = InspectionContext.Default
+                    .GetSchemaInfo<LibraryInspectionView>()!
+                    .ToDocumentSchema();
+                if (!ProjectionMatchesSection(
+                        schema,
+                        SectionNames.PerformanceSyncCallsInAsync,
+                        fields,
+                        columns))
+                {
+                    count = 0;
+                }
+            }
+
+            projection.SetRows(
+                SectionNames.PerformanceSyncCallsInAsync,
+                WindowedCount(count, rows));
         }
     }
 

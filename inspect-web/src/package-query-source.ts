@@ -117,6 +117,7 @@ function toQueryPreset(
     categoryId: descriptor.categoryId,
     categoryLabel: descriptor.categoryLabel,
     categoryOrder: descriptor.categoryOrder,
+    relatedOperations: [...descriptor.relatedOperations],
   };
 }
 
@@ -141,6 +142,7 @@ function toQueryTermDescriptor(
       label: option.label,
       summary: option.summary,
     })),
+    relatedOperations: [...descriptor.relatedOperations],
   };
 }
 

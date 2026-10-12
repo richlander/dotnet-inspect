@@ -1733,6 +1733,58 @@ byte/hash receipts distinguish retrieval from rendered content. This
 diagnostic sample supports a focused reading-guide/discovery experiment, not
 a general format ranking or retirement of the broader skill.
 
+The [minimal-instruction trials](../../tools/ExplainReadingScenarios/usability/minimal/README.md)
+remove table-name, HAL-vocabulary and sparse-property coaching. Two fresh
+participants per task and representation compare unfamiliar direct JSON with
+identified HAL using shared discovery instructions. Their retained answers
+and traces distinguish domain-task correctness from navigation and
+schema-exploration mistakes; this remains diagnostic evidence rather than a
+spontaneous-recognition gate or a general format ranking.
+
+The [HAL stopping-rule trials](../../tools/ExplainReadingScenarios/usability/hal-stop/README.md)
+add one local-data-first instruction without changing product responses. Query
+retrieval falls in this diagnostic sample; Style agents recognize embedded
+tiers but still fetch schema contracts. A follow-up adds the user's explicit
+low-latency preference and prohibition of verification-only reads. Correct
+answers and necessary navigation persist, but the stronger wording does not
+establish reliable adherence. Neutral questions are asked only after answers
+and logs are frozen; reflections distinguish confirmation from semantic
+uncertainty without changing results or establishing a causal effect.
+
+The [selective-link trials](../../tools/ExplainReadingScenarios/usability/selective-links/README.md)
+hold that strong guide fixed and project only HAL link exposure in the recorder.
+Neither new Style reader fetches the large schema; both still retrieve already
+embedded tiers. Query reads remain mixed, while a retained partial-binding link
+keeps missing dependency facts reachable. Original and projected bytes, frozen
+feedback, and representation overrides are retained separately. This is a
+production-policy candidate, not shipped behavior or reliable stopping evidence.
+
+The [mainline relationship trials](../../tools/ExplainReadingScenarios/usability/relations/README.md)
+execute bounded Polly package searches and installed-platform JSON extension
+inspections. Both package formats support the answer; HAL repeats locally
+available facets. Extension discovery requires help and exercises neither
+selected format, identifying a coverage boundary rather than a format ranking.
+Frozen evidence separates guidance from inspection bytes and retains search,
+output-selection, and platform qualifications. These diagnostic observations
+change no production behavior or shipped skill guidance.
+
+The [command-bound entrance trials](../../tools/ExplainReadingScenarios/usability/command-bound/README.md)
+offer accurate primary/companion syntax alongside help, query help and root
+recovery. Four agents answer the same relation questions with help and `-Q`,
+without requesting any explain entrance. A pinned support audit distinguishes
+Member's text/companion adoption from Package Query and Extensions gaps.
+This is descriptive evidence of available reading paths and narrow adoption;
+it does not validate agent use of primary/companion explanation or rank formats.
+
+The [landed Package Query entrance trials](../../tools/ExplainReadingScenarios/usability/package-query-adoption/README.md)
+observe three of four fresh agents using command-local HAL, with all four
+answering from bounded direct-dependency evidence. HAL users read embedded
+data without link or schema fetches, but their guidance retrieval and local
+reading remain larger than the `-Q` path. One agent seeks non-equality CLI
+syntax through query help; #9962 preserves that binding-registration gap.
+These observations establish usable adoption, not format superiority or a
+causal efficiency improvement.
+
 ## Demo scenario
 
 `System.Text.Json@10.0.0` motivates the complete production flow:

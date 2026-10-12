@@ -72,8 +72,9 @@ remains owned by
 [Package Query assembly-pattern evaluation](package-query-assembly-evaluation.md).
 `package query` uses [CLI execution bounds](cli-execution-bounds.md):
 `--take` bounds candidate work and semantic `-n` selects final package rows.
-Without explicit `--take`, a single semantic Head is delegated to the shared
-query's optional `matches` bound; direct package rows also use that Head as
+A single semantic Head within the 1,000 match-budget maximum is delegated to
+the shared query's optional `matches` bound, with or without explicit
+`--take`; without explicit `--take`, direct package rows also use that Head as
 their candidate bound. Browser requests author the same Head stage and explicit
 match bound through the same planner.
 
@@ -124,6 +125,99 @@ Related docs:
 - [Inspection graph document](inspection-graph-document.md) — owns the
   relational (`graph integrations`) shape a subset of "wide query" questions
   actually need, instead of this document's flat, per-package row model.
+
+## Installed capability explanation
+
+The CLI adoption tracked by
+[#9952](https://github.com/richlander/dotnet-inspect/issues/9952) admits
+`package query --explain` as a command-only terminal operation. Its exact claim
+is: return the existing complete HAL reading dataset for the owner-issued
+`PackageQueryCapabilityResourcePaths.QuerySpace`, without query planning,
+candidate enumeration, or package acquisition. The command token is not a
+resource identity; the binding uses the registered path directly.
+
+The motivating asset is
+[Microsoft.Extensions.Http.Polly@10.0.12](https://www.nuget.org/packages/Microsoft.Extensions.Http.Polly/10.0.12).
+The retained
+[command-bound trials](../../tools/ExplainReadingScenarios/usability/command-bound/README.md)
+observed its direct Polly dependency and four agents using help/`-Q` rather than
+explain. One attempted dependency depth four with 40 candidates, exceeding the
+registered five-candidate bound. These observations motivate making installed
+dependency semantics and bounds directly available at the command; they do
+not establish an agent-efficiency improvement.
+
+[Resource Explanation](resource-explanation.md) supplies the existing catalog,
+normalized reading dataset, HAL projection, and addresses.
+[Contextual Resource Explanation](contextual-resource-explanation.md#command-level-resource)
+supplies the command-resource admission and terminal-placement contract.
+[The companion-family grammar](view-facet-query-composition.md#companion-family)
+supplies option placement and dotted projection ownership. This terminal
+admits no subject selectors: any package argument, query filter, execution
+bound, source override, selection, or competing output operation fails before
+acquisition. It never falls back from a rejected target to command explanation.
+`.tips`, `.references`, and other projections fail visibly; `-E` adoption and
+resolved-query explanation remain outside this slice.
+
+HAL JSON is this installed-query terminal's natural output; `--json` is
+optional. Other explicit formats and output modifiers are rejected. This differs
+from Member's textual contextual explanation because the installed dataset is
+intended for local jq selection of complete query rules. It reuses the existing
+dataset serializer rather than a new Markout view; the generic human resource
+view currently omits input rules. Ordinary query output retains its existing
+format behavior.
+Process-wide controls such as `--offline` and `--http-timeout` remain valid:
+the executable configures these controls before command parsing; they do not select
+explanation Content. Explicit root output modifiers such as `-v q` are rejected.
+The normal environment-format precedence applies: a non-JSON
+`DOTNET_INSPECT_FORMAT` fails visibly unless overridden with `--json`.
+
+An agent can read one response and select the dependency rules locally:
+
+```bash
+dotnet-inspect package query --explain > query.hal.json
+jq '{
+  bindings: [._embedded.bindings[] | {input_rules}],
+  facets: [._embedded.facets[]
+    | select(.key == "depends" or .key == "dependency-target"
+        or .key == "dependency-depth")
+    | {key, summary, operators, input_rules, requires}]
+}' query.hal.json
+```
+
+The embedded facets carry their input rules and the bindings describe CLI
+lowering. Read those before choosing target scope, depth, and `--take`; avoid
+following links for information already embedded. When only one facet is
+needed, root explain remains the focused entrance:
+
+```bash
+dotnet-inspect explain package-query/query/facets/depends .hal --json
+```
+
+For the retained Polly scenario, the selected rules permit a direct query:
+
+```bash
+dotnet-inspect package query 'Microsoft.Extensions.*' \
+  --where 'depends=Polly' --where 'dependency-target=net10.0' \
+  --take 40 --json
+```
+
+Adding `--where 'dependency-depth=4'` requires reducing `--take` to at most
+five. `-n 5` alone does not replace that inspection work bound. The response
+describes installed capabilities, not live matches or a guarantee that a
+bounded prefix scan exhausts Microsoft.Extensions packages.
+
+This follow-up has one production slice: the CLI binding, documentation, and
+offline gates. It adds no shared substrate or replacement architecture.
+Browser already consumes the same descriptors through its capability catalog
+facade; no browser gesture or migration/retirement is required here. The
+overall compact-data delivery remains complete under #9762; fresh agent
+trials after landing will assess whether this entrance improves adoption.
+
+Release gates assert byte equality with root `.hal`, complete dependency
+rules and host bindings, zero requests through a fail-fast network handler,
+and visible rejection of conflicting inputs and unsupported projections,
+including explicit root output modifiers. Offline mode retains the same HAL.
+Existing Package Query CLI and root-explain tests cover their adjacent behavior.
 
 ## Package Query term binding
 
@@ -537,13 +631,19 @@ evaluation before its match status is known. The manifest-only default remains
 200 candidates and an explicit value may raise it to 1,000. Package-content
 queries default to and reject values above 20; a `metadata-expensive`
 `library-literal` query instead defaults to and rejects values above five.
-Reaching either default or explicit candidate bound remains visible bounded
-incompleteness; the integer is not a matched-row count.
+A default candidate bound that stops evaluation before the package-ID scope is
+exhausted is visible bounded incompleteness: a partial view with observed rows
+and Count, a disclosure, and a nonzero exit. An
+explicit `--take` instead fixes the requested candidate population: when every
+candidate in it was evaluated without failure, its matches are the complete
+answer for that population, and the result names the bound as its scope rather
+than warning that the package-ID scope was not exhausted. Neither integer is a
+matched-row count.
 
-`-n` is semantic Head over final matched-package rows. When no explicit
-`--take` is present and the row plan is one Head operation, the CLI pushes that
-head into execution. A direct metadata row path uses N as both the candidate
-and match bound, so `package query 'Foo*' -n 2` has the effective work shape
+`-n` is semantic Head over final matched-package rows. When the row plan is one
+Head operation within the match-budget maximum, the CLI pushes that head into
+execution, with or without an explicit `--take`. Without explicit `--take`, a direct metadata row path uses N
+as both the candidate and match bound, so `package query 'Foo*' -n 2` has the effective work shape
 `--take 2 -n 2`. An inspection-term-filtered path retains its default candidate ceiling
 and stops after finding N matches. Failures encountered before the Nth match
 remain visible; later candidates are outside the requested Head evaluation.
@@ -556,11 +656,14 @@ valid: direct prefix queries infer the maximum 1,000-candidate work bound,
 filtered queries retain their normal candidate ceiling, and the final Head is
 applied after execution with ordinary incompleteness disclosure.
 
-An explicit `--take` disables this pushdown. `--take 100 -n 2` evaluates the
-authorized population of up to 100 candidates, including its failures and
-intermediate query work, before L2 selects two rows. Tail, open-ended windows,
-aggregation, and global ordering likewise require their bounded input before
-selection and cannot infer `--take N` from their final row count.
+An explicit `--take` keeps this pushdown inside its window, as
+[CLI execution bounds](cli-execution-bounds.md#three-query-shapes) defines:
+`--take 100 -n 2` stops at the second match or the 100th candidate, whichever
+comes first, and candidates after the second match are outside the requested
+Head evaluation. The window is never materialized before selection for a lone
+Head. Tail, open-ended windows, aggregation, and global ordering require their
+whole bounded input before selection and cannot infer `--take N` from their
+final row count.
 
 When `-n` is absent, the semantic row-selection plan is empty and every match
 from the authorized candidate population reaches row shaping. The historical
@@ -577,12 +680,13 @@ as aliases; `find PATTERN --package-prefix PREFIX` remains API search.
 One semantic result row is one matched package, carrying its exact version,
 source, semantic answers, and structured evidence. `-n` and `--rows` select those
 rows before projection and Count. `--count` composes with `-n`: finding N
-ordered matches can witness exact `Head(N) -> Count` while candidate-bound
-incompleteness remains visible. Fewer than N matches at a reached candidate
-bound is not exact, and without `-n`, Count is exact only with completion
-evidence for the candidate population. Otherwise Count reports the observed
-matches with the same candidate-bound disclosure and exit status as the rows,
-under the section-row owner's
+ordered matches can witness exact `Head(N) -> Count`. Otherwise Count is exact
+only with completion evidence for the requested candidate population: an
+exhausted search, or an explicit `--take` population whose every candidate was
+evaluated without failure. Fewer matches at a default candidate bound, a page
+limit, or a failure are not exact; Count then reports the observed matches
+with the same disclosure and exit status as the rows, under the section-row
+owner's
 [incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation).
 Partial failures that leave matches usable are incomplete in the same way;
 empty exhausted success remains exact zero, and cancellation remains a failed
@@ -591,8 +695,8 @@ operation rather than empty success.
 The low-compatibility migration removes `--candidates` and `--matches`; they do
 not remain aliases or retirement shims. The shared query engine may retain its
 host-neutral match-budget capability. The CLI does not expose that budget as
-another option; it infers one only from a lone semantic Head when no explicit
-`--take` is present.
+another option; it infers one only from a lone semantic Head within the
+match-budget maximum, with or without explicit `--take`.
 
 The owner-issued query request, accepted plan, execution state, and summary
 therefore carry the same optional match budget end to end. Planning preserves
@@ -607,10 +711,12 @@ and the typed summary carries no match-limit denominator. Presentation reports
 the observed match count without manufacturing an infinite or candidate-equal
 ceiling.
 
-The CLI requests an absent match budget when `-n` is absent or explicit
-`--take` fixes the candidate population. A lone semantic Head supplies its N
-as the match budget; a direct prefix-metadata path also uses N as its candidate
-budget. The semantic row intent still reaches L2 after execution as a
+The CLI requests an absent match budget when the row plan is not one Head
+operation or when that Head's N exceeds the 1,000 match-budget maximum; the
+larger Head then applies after execution as the semantic backstop. A lone
+semantic Head within the maximum supplies its N as the match budget, with or
+without explicit `--take`; without explicit `--take`, a direct prefix-metadata
+path also uses N as its candidate budget. The semantic row intent still reaches L2 after execution as a
 backstop. This optional state is required rather than a sentinel: with
 `--take 1000`, all 1,000 candidates may match, so no larger valid integer
 exists under the owner's 1,000 match-budget maximum.
@@ -1066,12 +1172,14 @@ not need to translate a differently-shaped CLI completion signal.
 Package Query composes candidate admission and semantic selection in this
 order:
 
-- **Nuspec-tier `--where`** evaluates every candidate admitted by `--take` or
-  the default candidate ceiling, then `-n` selects matched-package rows. For
+- **Nuspec-tier `--where`** evaluates candidates admitted by `--take` or the
+  default candidate ceiling in order, and a lone `-n` stops evaluation at the
+  Nth match. For
   example, `--take 500 -n 20` means "inspect at most 500 candidates, then keep
-  the first 20 matches," not "inspect 20 candidates." If only seven match
-  before the candidate bound is reached, the command returns seven and
-  preserves bounded incompleteness.
+  the first 20 matches," not "inspect 20 candidates." If only seven of those
+  500 candidates match, the command returns seven as the complete answer for
+  that population; at a default candidate ceiling, the seven remain an
+  observed result with bounded incompleteness.
 - **`library-literal` with ordinary terms** admits at most five candidates,
   evaluates ordinary terms first, and runs selected-library semantic work only
   for those prequalified matches. Semantic `-n` then selects final package
@@ -1090,8 +1198,8 @@ separate `MaximumCandidates` and `MaximumMatches` and stops before later
 candidate acquisition when the match budget is reached.
 `ExecuteAsync_FiltersBeforeMatchLimitAndStopsManifestAcquisition` and
 `ExecuteAsync_ExactExhaustionAtMatchLimitIsConservative` gate that shared
-behavior. The CLI supplies that budget for a lone semantic Head only when no
-explicit `--take` fixes a larger candidate population. A
+behavior. The CLI supplies that budget for a lone semantic Head, including
+inside an explicit `--take` window. A
 `MatchLimitReached` completion produced by this lowering is successful
 completion of the requested Head and does not warn that the package-ID scope
 was not exhausted. Existing Browser callers retain their current match-stop
@@ -1110,8 +1218,10 @@ parity.
 accepted plan and summary unchanged without defaulting or sentinel conversion.
 `SemanticHeadWithoutTake_BoundsDirectRowsAndMatches` must prove the direct
 one-row-per-candidate lowering, while
-`ExplicitTake_PreventsSemanticHeadPushdown` must preserve the full explicit
-candidate population.
+`ExplicitTake_KeepsSemanticHeadPushdownInsideWindow` must stop at the Nth
+match inside an explicit candidate window, never evaluate past the window, and
+evaluate the whole window when the row plan is not one Head or the Head
+exceeds the match-budget maximum, such as `--take 20 -n 1001`.
 `PresentMatchBudget_PreservesExistingStopBehavior` must retain the current
 product behavior for Browser and other budgeted callers, including the
 numeric summary denominator and completion mapping. Existing Package Query gates continue to own the shared product match-budget

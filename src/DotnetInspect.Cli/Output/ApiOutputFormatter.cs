@@ -2293,7 +2293,7 @@ public static class ApiOutputFormatter
             $"{method.ModuleVersionId:N}:0x{method.MetadataToken:X8}",
             FormatMethod(method));
 
-    static string FormatCallee(Analysis.MemberRef member)
+    internal static string FormatCallee(Analysis.MemberRef member)
     {
         if (member.Kind == Analysis.MemberKind.Unsupported)
             return member.DeclaringType.ToDisplayString();

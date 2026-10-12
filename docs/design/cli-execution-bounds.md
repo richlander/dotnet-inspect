@@ -9,8 +9,9 @@ prerequisite for continuing command adoption under
 
 This document owns how `dotnet-inspect` classifies, spells, validates, and
 lowers explicit CLI execution bounds. An execution bound limits one
-owner-named dimension of upstream work. It is not semantic row selection, and
-reaching it does not by itself prove exhaustion or an exact result.
+owner-named dimension of upstream work. It is not semantic row selection. An
+explicit bound defines the population the request covers; reaching it never
+proves that any wider scope was exhausted.
 
 The design is intentionally host-specific. During #4677 design review, the
 user selected a typed CLI option family rather than one universal scalar
@@ -33,6 +34,16 @@ issue #6768.
 
 Other command-owned bounds are evidence for the family, not implicit
 participants in that adoption path.
+
+The 2026-10-10 decision in
+[#9892](https://github.com/richlander/dotnet-inspect/issues/9892) revises how a
+reached explicit bound reports completeness: the bounded population is part of
+the request, so an answer that covers it is complete for that request rather
+than an explicitly incomplete answer. The same decision lets a lone semantic
+Head stop evaluation early inside an explicit bound, and makes a default
+ceiling that constrains the result a partial view.
+[Three query shapes](#three-query-shapes), [Count](#count), and
+[Disclosure](#disclosure) record the result.
 
 Related owners:
 
@@ -65,6 +76,13 @@ bound with its owner-issued dimension identity and requested maximum. The
 adopting operation returns its own bound and completion evidence. L3 preserves
 and discloses that evidence; it never turns "the bound was reached" into "the
 source was exhausted."
+
+A reached explicit bound is complete for the request when every item inside it
+was evaluated without failure. The user asked about that bounded population, so
+the rows and Count over it are not a partial view; the wider scope is outside
+the question. A default operational ceiling the user did not set remains
+incompleteness when it constrains the result, under the section-row owner's
+[incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation).
 
 A command exposes both intentions only when varying them independently serves
 a named scenario. Merely passing a different integer to an upstream API does
@@ -169,6 +187,28 @@ L3 must not silently clamp an explicit value to a known smaller supported
 maximum. A statically known maximum is a validation boundary. A limit learned
 only during execution remains owner-issued outcome evidence.
 
+### Three query shapes
+
+`package query 'dotnet-*' --where "tool-format=v2" --take 20 -n 5` can be read
+three ways:
+
+| Shape | What the 20 is | Role |
+| --- | --- | --- |
+| `Window(20).Where(match).Head(5)` | The declared candidate population the question is about | The meaning of an explicit execution bound |
+| `Take(20).Where(match).Take(5)` | A lazily pulled prefix of the candidate stream | One valid execution of that meaning: it stops at the fifth match or the 20th candidate, whichever comes first |
+| `Where(match).Take(5).Max(20)` | A governor that watches how many candidates are considered, outside the question | The meaning of an operational ceiling |
+
+An explicit bound is the window. Reaching it completes the requested
+population. An operational ceiling is the governor. When it constrains the
+result, the answer is a partial view of an unbounded question.
+
+The window does not require eager evaluation. Materializing it before
+selection, as in `Window(20).ToList().Where(match).Head(5)`, is not a semantic
+requirement and gives up the early stop that makes a lone Head cheap. Only a
+request whose answer depends on every candidate in the window evaluates all of
+it: Rows or Count without a satisfied Head or closed row window, Tail, Top,
+global ordering, and aggregation.
+
 ### Why `-n` and `--take` remain distinct
 
 `-n` can reduce physical work through
@@ -180,21 +220,24 @@ inspection-term-filtered path may inspect more than two candidates, but may
 stop after finding two matches. Failures before the second match remain
 visible; candidates after the requested Head are outside that evaluation.
 
-An execution bound answers the different question: how much work may be
-attempted before the user accepts an explicitly incomplete answer? For
-example:
+An execution bound answers a different question: which bounded population
+should the answer cover? For example:
 
 ```console
 dotnet-inspect package query 'dotnet-*' \
   --where "tool-format=v2" --take 20 -n 5
 ```
 
-The explicit `--take 20` disables Head pushdown: it requests evaluation of that
-candidate population before `-n 5` selects final rows. This preserves
-intermediate aggregation, ordering, and diagnostic evidence over the
-user-authorized population. If fewer than five matches are found before the
-candidate bound is reached, the command returns them with visible
-incompleteness rather than scanning indefinitely or claiming exhaustion.
+The explicit `--take 20` declares the candidate window the answer covers, and
+`-n 5` selects final rows within it. A lone Head may still stop at the fifth
+match, because the first five matches in the window are the same rows either
+way; candidates after the fifth match are outside the requested Head
+evaluation. Operations that need the whole window evaluate all of it, as
+described in [Three query shapes](#three-query-shapes). If fewer than five
+matches are found among the 20
+candidates, the command returns them as the complete answer for that
+population, with the bound visible as its scope, rather than scanning further
+or claiming that the prefix was exhausted.
 
 The operation may attempt up to 20 archive-backed tool classifications while
 selecting five matched package rows. Candidate failures remain diagnostic
@@ -403,9 +446,10 @@ dotnet-inspect package query 'dotnet-*' \
 
 It authorizes inspection of at most 20 package candidates, then selects up to
 five final matched-package rows. If the operation reaches 20 with only three
-matches, the three displayed rows remain part of an incomplete query outcome.
-Because `--take` explicitly fixes this candidate population, finding five
-matches earlier does not stop its evaluation.
+matches, the three displayed rows are the complete answer for that requested
+population; they make no claim about the wider prefix.
+Finding five matches earlier may stop evaluation: the first five matches in
+the window are the same rows either way.
 
 The inverse numeric relationship is also valid:
 
@@ -420,22 +464,25 @@ questions.
 
 ### Count
 
-An execution bound neither selects Count's input nor proves its exactness.
-`--count` may compose syntactically with an execution bound, but
+An execution bound does not select Count's input. `--count` may compose
+syntactically with an execution bound, and
 [Section-row shaping](section-row-shaping.md#count-semantics) and the adopting
 source owner decide whether the returned completion evidence is complete for
-the request. An incomplete Count reports the observed rows' cardinality with
-the same disclosure as Rows.
+the request. The explicit bound is part of that request: when every item
+inside it was evaluated without failure, Count is exact for the bounded
+population. A failure, a provider or page limit, or a ceiling the user did not
+set leaves the request incomplete, and Count then reports the observed rows'
+cardinality with the same disclosure and exit status as Rows.
 
-In particular, reaching `--take 10` does not make `10` an exact corpus count.
-If the owner cannot produce the exact Count contract, it preserves the bounded
-or unavailable outcome instead of publishing the ceiling as a total.
+Exact for the bounded population is not a corpus count. Neither the bound nor
+a Count over it is published as a total for the wider scope, and the result
+keeps the bounded population visible so a consumer cannot read it as one.
 
-After semantic Head, Count may still be exact for that selected result. A
-requirement witness for 20 ordered matches makes
-`--take 500 -n 20 --count` equal to 20 while the result separately discloses
-that the underlying population was bounded. If the candidate bound is reached
-after only seven matches, exhaustion is absent and exact Count 7 is forbidden.
+`--take 500 -n 20 --count` equals 20 when the evaluation witnesses 20 ordered
+matches. If all 500 candidates complete with seven matches, Count is exactly 7
+for those 500 candidates. If a candidate failure or page limit stops short of
+the requested population, the seven are an observed count with that
+incompleteness.
 
 ### Failures and diagnostics
 
@@ -462,12 +509,18 @@ distinguish:
 
 This design does not prescribe one result type or one sentence. The
 [progressive-disclosure](progressive-disclosure.md) owner determines placement
-and verbosity. The invariant is that bounded incompleteness remains
-user-observable in every format that represents the affected result.
+and verbosity. The invariant is that the bounded population, and any
+incompleteness within it, remain user-observable in every format that
+represents the affected result. A reached explicit bound is disclosed as the
+scope of the answer, not as incompleteness.
 
-A default operational ceiling follows the same disclosure rule when it
-constrains the result, even though no explicit CLI intent exists. Ordinary
-successful execution need not narrate every ceiling that was not reached.
+A default operational ceiling the user did not set is incompleteness when it
+constrains the result, even though no explicit CLI intent exists. The result
+is a partial view: observed rows and Count, a disclosure, and a nonzero exit,
+under the section-row owner's
+[incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation). A
+reached explicit bound exits zero. Ordinary successful execution need not
+narrate every ceiling that was not reached.
 
 ## Convention and deliberate divergence
 
@@ -541,10 +594,11 @@ work dimension. Its adoption:
 
 - exposes `--take` for package candidates and `-n` for final matched packages;
 - removes `--candidates` and `--matches` without aliases;
-- carries an absent shared match budget when `-n` is absent or explicit
-  `--take` fixes the candidate population;
-- delegates a lone semantic Head through the shared match budget and, for the
-  direct row path, the candidate budget; and
+- carries an absent shared match budget when the row plan is not one Head
+  operation;
+- delegates a lone semantic Head within the owner's match-budget maximum
+  through the shared match budget, with or without explicit `--take`, and, for
+  the direct row path without explicit `--take`, the candidate budget; and
 - still applies `-n` after owner-defined result construction as the semantic
   backstop.
 
@@ -585,9 +639,17 @@ Every adopting command must gate at least:
   selection;
 - unchanged execution-bound intent when `-n` changes;
 - unchanged row-selection intent when the execution bound changes;
-- semantics-preserving Head pushdown when no explicit execution bound exists;
-- visible owner-issued incompleteness when the bound constrains execution;
-- refusal to publish the bound as an exact Count without completion evidence;
+- semantics-preserving Head pushdown with and without an explicit execution
+  bound, with no eager materialization of the bounded population for a lone
+  Head;
+- nonzero exit with observed rows and Count when a default ceiling constrains
+  the result, and zero exit when a reached explicit bound does;
+- the bounded population visible as the answer's scope when the explicit
+  bound constrains execution, and visible incompleteness when a default
+  ceiling, failure, or other constraint does;
+- exact Count only when semantic selection establishes it, such as a
+  witnessed `Head(N)`, or when every item inside the bound was evaluated
+  without failure, and never presented as a total for the wider scope;
 - preservation of failures observed before the bound stops work;
 - preservation of failures encountered before a source-delegated Head is
   satisfied;
@@ -601,15 +663,18 @@ equivalence gates. Bound tests do not substitute for those proofs.
 
 | Request or condition | Required result |
 | --- | --- |
-| `--take 10 --count` reaches ten without exhaustion evidence | Do not publish ten as an exact corpus total. |
-| `--take 10 -n 20` | Valid independent intents; return at most the available final rows and preserve incompleteness. |
+| `--take 10 --count` reaches the bound | Count the matches among those ten candidates, exact when each was evaluated without failure; never publish the bound or the Count as a total for the wider scope. |
+| `--take 10 -n 20` | Valid independent intents; return at most the available final rows and preserve any owner-issued incompleteness. |
 | `--take 100 -n 10` reaches the work bound | Select ten final rows while retaining the owner-issued bounded outcome. |
-| Selective query finds 7 matches after inspecting 500 candidates | Return seven semantic rows and disclose that the candidate bound prevented exhaustion. |
-| The Nth match precedes a later failing candidate within explicit `--take K` | Evaluate the explicit candidate population and preserve the failure; explicit `--take` disables Head pushdown. |
+| Selective query finds 7 matches after inspecting an explicit `--take 500` | Return seven semantic rows as the complete answer for those 500 candidates, with the bound visible as its scope. |
+| Selective query finds 7 matches when a default candidate ceiling stops it | Return seven semantic rows with incompleteness disclosure; Count is observed. |
+| The Nth match precedes a later failing candidate within explicit `--take K` | Stop at the Nth match; the later candidate is outside the requested Head evaluation, and Count N is exact. |
+| `--take K` with Tail, Top, global ordering, aggregation, or Count without `-n` | Evaluate the whole window; these operations need every candidate in it. |
+| A default candidate ceiling constrains the result | Return observed rows and Count with a disclosure and a nonzero exit. |
 | The Nth match is reached with no explicit `--take` | Stop the proven direct or filtered path; later candidates are outside the requested Head evaluation. |
 | Direct ordered provider rows correspond to final rows | Use semantic `-n` and proven source delegation; do not expose `--take` solely for the provider parameter. |
 | `--take 500 -n 20 --count` witnesses 20 ordered matches | Count may be exactly 20 after semantic Head while bounded-population disclosure remains visible. |
-| `--take 500 -n 20 --count` reaches the candidate bound with 7 matches | Do not publish exact Count 7 without exhaustion evidence. |
+| `--take 500 -n 20 --count` reaches the candidate bound with 7 matches | Count is exactly 7 for those 500 candidates when each was evaluated without failure; a failure among them makes 7 observed. |
 | Provider hard ceiling is lower than the explicit request | Reject when statically known; otherwise report the actual provider constraint without rewriting the user's request. |
 | Failure occurs before the bound is reached | Preserve the failure; the bound is not a success fallback. |
 | Source returns exactly N rows for `--take N` | Row count alone proves neither that the user bound constrained execution nor that the source is exhausted. |
@@ -625,7 +690,8 @@ This design does not:
 - define default values or maximums for any adopting command;
 - promise that requesting more work produces more semantic rows;
 - authorize unbounded network, source-content, exhaustive, or graph work;
-- make a bounded result complete or failure-free;
+- make a bounded result failure-free, or complete for any scope wider than the
+  requested population;
 - define package-search ordering, Package Query budgets, `find` row sets, or
   graph traversal; or
 - preserve obsolete flags solely for compatibility.

@@ -80,6 +80,6 @@ internal static class LibraryOutputCapabilities
 
         return new OutputCapabilityCatalog(
             sections,
-            [PerformanceKinds.Sections]);
+            [[.. PerformanceKinds.TabularSections]]);
     }
 }

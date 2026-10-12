@@ -84,6 +84,7 @@ const catalog: BrowserPackageQueryCatalog = {
     categoryId: "package-metadata",
     categoryLabel: "Package metadata",
     categoryOrder: 100,
+    relatedOperations: [],
   }],
   terms: [{
     key: "depends",
@@ -99,6 +100,7 @@ const catalog: BrowserPackageQueryCatalog = {
     allowsCustomValue: true,
     replacementGroupId: null,
     options: [],
+    relatedOperations: ["package.dependencies.inspect"],
   }],
 };
 const ecosystems: BrowserPackageChangesEcosystemCatalog = {

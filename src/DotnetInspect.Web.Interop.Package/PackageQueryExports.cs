@@ -33,6 +33,16 @@ namespace DotnetInspect.Web.Interop.Package
             TargetFrameworkOption("net472"),
         ];
 
+        private static readonly BrowserPackageQueryTermOptionDescriptor[]
+            DependencyTargetOptions =
+        [
+            new(
+                "all",
+                "All target frameworks",
+                "Do not filter declared dependency groups by target framework."),
+            .. TargetFrameworkOptions,
+        ];
+
         private static readonly PackageQueryRegisteredTerm[] ExposedTerms =
         [
             .. PackageQuery.RegisteredTerms.Where(term =>
@@ -42,6 +52,22 @@ namespace DotnetInspect.Web.Interop.Package
                             term.Descriptor.Key),
                         StringComparer.Ordinal)),
         ];
+
+        private static readonly IReadOnlyDictionary<string, string[]>
+            RelatedOperationsByTerm =
+                PackageQueryCapability.Route.QueryTermRelatedOperations
+                    .GroupBy(
+                        static relationship => relationship.SourceTerm,
+                        StringComparer.Ordinal)
+                    .ToDictionary(
+                        static group => group.Key,
+                        static group =>
+                            group
+                                .Select(static relationship =>
+                                    relationship.Operation.Id.Value)
+                                .Distinct(StringComparer.Ordinal)
+                                .ToArray(),
+                        StringComparer.Ordinal);
 
         internal static BrowserPackageQueryCatalog Catalog() =>
             new(
@@ -82,7 +108,8 @@ namespace DotnetInspect.Web.Interop.Package
                             term.Descriptor.DisplayGroupLabel,
                             categoryId,
                             categoryLabel,
-                            categoryOrder);
+                            categoryOrder,
+                            RelatedOperations(term.Descriptor.Key));
                     })),
                 ],
                 [
@@ -121,7 +148,8 @@ namespace DotnetInspect.Web.Interop.Package
                                 && term.Descriptor.Key
                                     != PackageQuery.DependsEcosystemTermKey,
                             term.Descriptor.ReplacementGroupId,
-                            BrowserTermOptions(term.Descriptor))),
+                            BrowserTermOptions(term.Descriptor),
+                            RelatedOperations(term.Descriptor.Key))),
                 ]);
 
         private static bool IsFactTerm(PackageQueryRegisteredTerm term) =>
@@ -150,8 +178,9 @@ namespace DotnetInspect.Web.Interop.Package
                                 pack.Title,
                                 pack.Summary)),
                 ],
-                PackageQuery.DependencyTargetTermKey
-                    or PackageQuery.LibraryTargetTermKey =>
+                PackageQuery.DependencyTargetTermKey =>
+                    [.. DependencyTargetOptions],
+                PackageQuery.LibraryTargetTermKey =>
                     [.. TargetFrameworkOptions],
                 _ =>
                 [
@@ -169,6 +198,13 @@ namespace DotnetInspect.Web.Interop.Package
                 value,
                 value,
                 $"Use the exact NuGet target framework '{value}'.");
+
+        private static string[] RelatedOperations(string key) =>
+            RelatedOperationsByTerm.TryGetValue(
+                PackageQuery.TermBindingIdentity(key),
+                out string[]? operations)
+                ? [.. operations]
+                : [];
 
         private static (string Id, string Label, int Order) FactCategory(
             string key) =>

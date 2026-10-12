@@ -1,0 +1,3225 @@
+{
+  "schema_version": 2,
+  "requested_path": "vocabularies/csharp.style-choices",
+  "root": {
+    "owner": {
+      "value": "product-vocabulary"
+    },
+    "resource_type": {
+      "schema": {
+        "owner": {
+          "value": "product-vocabulary"
+        },
+        "value": "installed"
+      },
+      "value": "value-vocabulary"
+    },
+    "identity_value": {
+      "kind": "scalar",
+      "value": {
+        "kind": "Text",
+        "text": "20:csharp.style-choices"
+      }
+    }
+  },
+  "schemas": [
+    {
+      "identity": {
+        "owner": {
+          "value": "resource-explanation"
+        },
+        "value": "installed"
+      },
+      "version": {
+        "value": 1
+      },
+      "data_shapes": [
+        {
+          "kind": "scalar",
+          "scalar_kind": "Text",
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "resource-explanation"
+              },
+              "value": "installed"
+            },
+            "value": "text"
+          },
+          "display_name": "Text",
+          "meaning": "Well-formed Unicode text.",
+          "budget": {
+            "maximum_canonical_byte_count": 65536,
+            "maximum_depth": 8,
+            "maximum_node_count": 4096
+          }
+        },
+        {
+          "kind": "scalar",
+          "scalar_kind": "Integer",
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "resource-explanation"
+              },
+              "value": "installed"
+            },
+            "value": "integer"
+          },
+          "display_name": "Integer",
+          "meaning": "An arbitrary-precision integer.",
+          "budget": {
+            "maximum_canonical_byte_count": 65536,
+            "maximum_depth": 8,
+            "maximum_node_count": 4096
+          }
+        },
+        {
+          "kind": "scalar",
+          "scalar_kind": "Boolean",
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "resource-explanation"
+              },
+              "value": "installed"
+            },
+            "value": "boolean"
+          },
+          "display_name": "Boolean",
+          "meaning": "A Boolean value.",
+          "budget": {
+            "maximum_canonical_byte_count": 65536,
+            "maximum_depth": 8,
+            "maximum_node_count": 4096
+          }
+        }
+      ],
+      "resource_types": [],
+      "address_kinds": [
+        {
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "resource-explanation"
+              },
+              "value": "installed"
+            },
+            "value": "resource-path"
+          },
+          "display_name": "Resource path",
+          "meaning": "A canonical Resource Explanation navigation path.",
+          "value_shape": {
+            "schema": {
+              "owner": {
+                "value": "resource-explanation"
+              },
+              "value": "installed"
+            },
+            "value": "text"
+          }
+        }
+      ]
+    },
+    {
+      "identity": {
+        "owner": {
+          "value": "query-space"
+        },
+        "value": "installed"
+      },
+      "version": {
+        "value": 1
+      },
+      "data_shapes": [
+        {
+          "kind": "scalar",
+          "scalar_kind": "Text",
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "query-space"
+              },
+              "value": "installed"
+            },
+            "value": "opaque-external-identity"
+          },
+          "display_name": "Opaque external identity",
+          "meaning": "An identity issued by an owner that has not yet published an explanation resource type and key.",
+          "budget": {
+            "maximum_canonical_byte_count": 65536,
+            "maximum_depth": 8,
+            "maximum_node_count": 4096
+          }
+        }
+      ],
+      "resource_types": [],
+      "address_kinds": []
+    },
+    {
+      "identity": {
+        "owner": {
+          "value": "product-vocabulary"
+        },
+        "value": "installed"
+      },
+      "version": {
+        "value": 1
+      },
+      "data_shapes": [
+        {
+          "kind": "record",
+          "fields": [
+            {
+              "identity": {
+                "record_shape": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "map-declaration"
+                },
+                "value": "identity"
+              },
+              "display_name": "Identity",
+              "meaning": "The map identity within its vocabulary.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne"
+            },
+            {
+              "identity": {
+                "record_shape": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "map-declaration"
+                },
+                "value": "name"
+              },
+              "display_name": "Name",
+              "meaning": "The owner-issued display label.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne"
+            },
+            {
+              "identity": {
+                "record_shape": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "map-declaration"
+                },
+                "value": "summary"
+              },
+              "display_name": "Summary",
+              "meaning": "The owner-issued summary.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne"
+            },
+            {
+              "identity": {
+                "record_shape": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "map-declaration"
+                },
+                "value": "value-kind"
+              },
+              "display_name": "Value kind",
+              "meaning": "text, integer, boolean, or term.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne"
+            },
+            {
+              "identity": {
+                "record_shape": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "map-declaration"
+                },
+                "value": "target-vocabulary"
+              },
+              "display_name": "Target vocabulary",
+              "meaning": "The vocabulary a term map targets.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "OptionalOne"
+            },
+            {
+              "identity": {
+                "record_shape": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "map-declaration"
+                },
+                "value": "cardinality"
+              },
+              "display_name": "Cardinality",
+              "meaning": "exactly-one, optional-one, one-or-more, or zero-or-more values per value.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne"
+            },
+            {
+              "identity": {
+                "record_shape": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "map-declaration"
+                },
+                "value": "coverage"
+              },
+              "display_name": "Coverage",
+              "meaning": "complete or partial.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne"
+            }
+          ],
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "product-vocabulary"
+              },
+              "value": "installed"
+            },
+            "value": "map-declaration"
+          },
+          "display_name": "Map declaration",
+          "meaning": "One owner-declared vocabulary map.",
+          "budget": {
+            "maximum_canonical_byte_count": 65536,
+            "maximum_depth": 8,
+            "maximum_node_count": 4096
+          }
+        },
+        {
+          "kind": "choice",
+          "cases": [
+            {
+              "identity": {
+                "choice_shape": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "map-value"
+                },
+                "value": "text"
+              },
+              "display_name": "Text",
+              "meaning": "A text map value.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              }
+            },
+            {
+              "identity": {
+                "choice_shape": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "map-value"
+                },
+                "value": "integer"
+              },
+              "display_name": "Integer",
+              "meaning": "A integer map value.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "integer"
+              }
+            },
+            {
+              "identity": {
+                "choice_shape": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "map-value"
+                },
+                "value": "boolean"
+              },
+              "display_name": "Boolean",
+              "meaning": "A boolean map value.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "boolean"
+              }
+            },
+            {
+              "identity": {
+                "choice_shape": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "map-value"
+                },
+                "value": "term"
+              },
+              "display_name": "Term",
+              "meaning": "The exact identity of a value in the map\u0027s target vocabulary.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              }
+            }
+          ],
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "product-vocabulary"
+              },
+              "value": "installed"
+            },
+            "value": "map-value"
+          },
+          "display_name": "Map value",
+          "meaning": "One owner-issued map value.",
+          "budget": {
+            "maximum_canonical_byte_count": 65536,
+            "maximum_depth": 8,
+            "maximum_node_count": 4096
+          }
+        },
+        {
+          "kind": "record",
+          "fields": [
+            {
+              "identity": {
+                "record_shape": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "map-entry"
+                },
+                "value": "map"
+              },
+              "display_name": "Map",
+              "meaning": "The map identity within the value\u0027s vocabulary.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne"
+            },
+            {
+              "identity": {
+                "record_shape": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "map-entry"
+                },
+                "value": "value"
+              },
+              "display_name": "Value",
+              "meaning": "The map value.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "product-vocabulary"
+                  },
+                  "value": "installed"
+                },
+                "value": "map-value"
+              },
+              "cardinality": "RequiredOne"
+            }
+          ],
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "product-vocabulary"
+              },
+              "value": "installed"
+            },
+            "value": "map-entry"
+          },
+          "display_name": "Map entry",
+          "meaning": "One map value a vocabulary value carries.",
+          "budget": {
+            "maximum_canonical_byte_count": 65536,
+            "maximum_depth": 8,
+            "maximum_node_count": 4096
+          }
+        }
+      ],
+      "resource_types": [
+        {
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "product-vocabulary"
+              },
+              "value": "installed"
+            },
+            "value": "value-vocabulary"
+          },
+          "display_name": "Value vocabulary",
+          "meaning": "One product vocabulary whose values rich-query inputs accept.",
+          "identity_shape": {
+            "schema": {
+              "owner": {
+                "value": "resource-explanation"
+              },
+              "value": "installed"
+            },
+            "value": "text"
+          },
+          "facts": [
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "value-vocabulary"
+                },
+                "value": "identity"
+              },
+              "display_name": "Identity",
+              "meaning": "The identity fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "value-vocabulary"
+                },
+                "value": "name"
+              },
+              "display_name": "Name",
+              "meaning": "The name fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "value-vocabulary"
+                },
+                "value": "summary"
+              },
+              "display_name": "Summary",
+              "meaning": "The optional summary fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "OptionalOne",
+              "admitted_states": "Available, Absent"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "value-vocabulary"
+                },
+                "value": "members"
+              },
+              "display_name": "Members",
+              "meaning": "The members fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "integer"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "value-vocabulary"
+                },
+                "value": "accepted-by"
+              },
+              "display_name": "Accepted by",
+              "meaning": "The ordered accepted by facts.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "query-space"
+                  },
+                  "value": "installed"
+                },
+                "value": "opaque-external-identity"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available",
+              "maximum_value_count": 64
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "value-vocabulary"
+                },
+                "value": "maps"
+              },
+              "display_name": "Maps",
+              "meaning": "The ordered maps facts.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "product-vocabulary"
+                  },
+                  "value": "installed"
+                },
+                "value": "map-declaration"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available",
+              "maximum_value_count": 64
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "value-vocabulary"
+                },
+                "value": "defaults"
+              },
+              "display_name": "Defaults",
+              "meaning": "The ordered defaults facts.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available",
+              "maximum_value_count": 64
+            }
+          ],
+          "relationships": [
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "value-vocabulary"
+                },
+                "value": "vocabulary-value"
+              },
+              "display_name": "Value",
+              "meaning": "The value relationship.",
+              "target_resource_type": {
+                "schema": {
+                  "owner": {
+                    "value": "product-vocabulary"
+                  },
+                  "value": "installed"
+                },
+                "value": "vocabulary-value"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "value-vocabulary"
+                },
+                "value": "term-map-target"
+              },
+              "display_name": "Term map target",
+              "meaning": "The term map target relationship.",
+              "target_resource_type": {
+                "schema": {
+                  "owner": {
+                    "value": "product-vocabulary"
+                  },
+                  "value": "installed"
+                },
+                "value": "value-vocabulary"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available"
+            }
+          ],
+          "address_kinds": [
+            {
+              "schema": {
+                "owner": {
+                  "value": "resource-explanation"
+                },
+                "value": "installed"
+              },
+              "value": "resource-path"
+            }
+          ]
+        },
+        {
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "product-vocabulary"
+              },
+              "value": "installed"
+            },
+            "value": "vocabulary-value"
+          },
+          "display_name": "Vocabulary value",
+          "meaning": "One stable value of a product vocabulary.",
+          "identity_shape": {
+            "schema": {
+              "owner": {
+                "value": "resource-explanation"
+              },
+              "value": "installed"
+            },
+            "value": "text"
+          },
+          "facts": [
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "vocabulary-value"
+                },
+                "value": "identity"
+              },
+              "display_name": "Identity",
+              "meaning": "The identity fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "vocabulary-value"
+                },
+                "value": "name"
+              },
+              "display_name": "Name",
+              "meaning": "The name fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "vocabulary-value"
+                },
+                "value": "summary"
+              },
+              "display_name": "Summary",
+              "meaning": "The optional summary fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "OptionalOne",
+              "admitted_states": "Available, Absent"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "vocabulary-value"
+                },
+                "value": "map-entries"
+              },
+              "display_name": "Map entries",
+              "meaning": "The ordered map entries facts.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "product-vocabulary"
+                  },
+                  "value": "installed"
+                },
+                "value": "map-entry"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available",
+              "maximum_value_count": 256
+            }
+          ],
+          "relationships": [
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "product-vocabulary"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "vocabulary-value"
+                },
+                "value": "term-map-value"
+              },
+              "display_name": "Term map value",
+              "meaning": "The term map value relationship.",
+              "target_resource_type": {
+                "schema": {
+                  "owner": {
+                    "value": "product-vocabulary"
+                  },
+                  "value": "installed"
+                },
+                "value": "vocabulary-value"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available"
+            }
+          ],
+          "address_kinds": [
+            {
+              "schema": {
+                "owner": {
+                  "value": "resource-explanation"
+                },
+                "value": "installed"
+              },
+              "value": "resource-path"
+            }
+          ]
+        }
+      ],
+      "address_kinds": []
+    }
+  ],
+  "resources": [
+    {
+      "path": "vocabularies/csharp.style-choices",
+      "key": {
+        "owner": {
+          "value": "product-vocabulary"
+        },
+        "resource_type": {
+          "schema": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "value": "installed"
+          },
+          "value": "value-vocabulary"
+        },
+        "identity_value": {
+          "kind": "scalar",
+          "value": {
+            "kind": "Text",
+            "text": "20:csharp.style-choices"
+          }
+        }
+      },
+      "schema_version": {
+        "value": 1
+      },
+      "scope": "Installed",
+      "addresses": [
+        {
+          "kind": {
+            "schema": {
+              "owner": {
+                "value": "resource-explanation"
+              },
+              "value": "installed"
+            },
+            "value": "resource-path"
+          },
+          "value": {
+            "kind": "scalar",
+            "value": {
+              "kind": "Text",
+              "text": "vocabularies/csharp.style-choices"
+            }
+          }
+        }
+      ],
+      "facts": [
+        {
+          "fact": {
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "value-vocabulary"
+            },
+            "value": "identity"
+          },
+          "state": "Available",
+          "values": [
+            {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "csharp.style-choices"
+              }
+            }
+          ]
+        },
+        {
+          "fact": {
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "value-vocabulary"
+            },
+            "value": "name"
+          },
+          "state": "Available",
+          "values": [
+            {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "C# Style Choices"
+              }
+            }
+          ]
+        },
+        {
+          "fact": {
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "value-vocabulary"
+            },
+            "value": "summary"
+          },
+          "state": "Available",
+          "values": [
+            {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "Selectable product-owned C# rendering choices."
+              }
+            }
+          ]
+        },
+        {
+          "fact": {
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "value-vocabulary"
+            },
+            "value": "members"
+          },
+          "state": "Available",
+          "values": [
+            {
+              "kind": "scalar",
+              "value": {
+                "kind": "Integer",
+                "integer": "17"
+              }
+            }
+          ]
+        },
+        {
+          "fact": {
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "value-vocabulary"
+            },
+            "value": "accepted-by"
+          },
+          "state": "Available",
+          "values": [
+            {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "decompiler.style-picker"
+              }
+            },
+            {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "decompiler.render"
+              }
+            }
+          ]
+        },
+        {
+          "fact": {
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "value-vocabulary"
+            },
+            "value": "maps"
+          },
+          "state": "Available",
+          "values": [
+            {
+              "kind": "record",
+              "fields": [
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "identity"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "option"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "name"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "Option"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "summary"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "Owning style option identity."
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "value-kind"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "text"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "target-vocabulary"
+                  },
+                  "values": []
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "cardinality"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "exactly-one"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "coverage"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "complete"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "record",
+              "fields": [
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "identity"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "value"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "name"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "Value"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "summary"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "Selected value token on the owning option axis."
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "value-kind"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "text"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "target-vocabulary"
+                  },
+                  "values": []
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "cardinality"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "exactly-one"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "coverage"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "complete"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "record",
+              "fields": [
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "identity"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "tier"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "name"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "Tier"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "summary"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "Owning fidelity/presentation tier."
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "value-kind"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "term"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "target-vocabulary"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "csharp.style-tiers"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "cardinality"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "exactly-one"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "coverage"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "complete"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "record",
+              "fields": [
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "identity"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "byte_divergent"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "name"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "Byte Divergent"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "summary"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "Whether this choice may change emitted IL bytes."
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "value-kind"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "boolean"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "target-vocabulary"
+                  },
+                  "values": []
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "cardinality"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "exactly-one"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "coverage"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "complete"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "record",
+              "fields": [
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "identity"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "oracle_endorsed"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "name"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "Oracle Endorsed"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "summary"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "Whether the declared runtime style oracle endorses this choice."
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "value-kind"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "boolean"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "target-vocabulary"
+                  },
+                  "values": []
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "cardinality"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "exactly-one"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "coverage"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "complete"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "record",
+              "fields": [
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "identity"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "corpus_endorsed"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "name"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "Corpus Endorsed"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "summary"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "Whether the runtime source corpus endorses this choice."
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "value-kind"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "boolean"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "target-vocabulary"
+                  },
+                  "values": []
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "cardinality"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "exactly-one"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "coverage"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "complete"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "record",
+              "fields": [
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "identity"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "conflict_group"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "name"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "Conflict Group"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "summary"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "Product-owned mutually-exclusive selection group."
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "value-kind"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "text"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "target-vocabulary"
+                  },
+                  "values": []
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "cardinality"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "optional-one"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": {
+                    "record_shape": {
+                      "schema": {
+                        "owner": {
+                          "value": "product-vocabulary"
+                        },
+                        "value": "installed"
+                      },
+                      "value": "map-declaration"
+                    },
+                    "value": "coverage"
+                  },
+                  "values": [
+                    {
+                      "kind": "scalar",
+                      "value": {
+                        "kind": "Text",
+                        "text": "complete"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "fact": {
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "value-vocabulary"
+            },
+            "value": "defaults"
+          },
+          "state": "Available",
+          "values": []
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "source": {
+        "owner": {
+          "value": "product-vocabulary"
+        },
+        "resource_type": {
+          "schema": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "value": "installed"
+          },
+          "value": "value-vocabulary"
+        },
+        "identity_value": {
+          "kind": "scalar",
+          "value": {
+            "kind": "Text",
+            "text": "20:csharp.style-choices"
+          }
+        }
+      },
+      "relationship": {
+        "resource_type": {
+          "schema": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "value": "installed"
+          },
+          "value": "value-vocabulary"
+        },
+        "value": "vocabulary-value"
+      },
+      "state": "Available",
+      "targets": [
+        {
+          "resource": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "vocabulary-value"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "20:csharp.style-choices16:slot-local-names"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "vocabularies/csharp.style-choices/values/slot-local-names"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "vocabulary-value"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "20:csharp.style-choices27:approximate-pdb-local-names"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "vocabularies/csharp.style-choices/values/approximate-pdb-local-names"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "vocabulary-value"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "20:csharp.style-choices27:wrap-splittable-expressions"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "vocabularies/csharp.style-choices/values/wrap-splittable-expressions"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "vocabulary-value"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "20:csharp.style-choices26:disable-one-liner-wrapping"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "vocabularies/csharp.style-choices/values/disable-one-liner-wrapping"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "vocabulary-value"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "20:csharp.style-choices26:wrap-expression-body-arrow"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "vocabularies/csharp.style-choices/values/wrap-expression-body-arrow"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "vocabulary-value"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "20:csharp.style-choices20:qualify-field-access"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "vocabularies/csharp.style-choices/values/qualify-field-access"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "vocabulary-value"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "20:csharp.style-choices23:qualify-property-access"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "vocabularies/csharp.style-choices/values/qualify-property-access"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "vocabulary-value"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "20:csharp.style-choices21:qualify-method-access"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "vocabularies/csharp.style-choices/values/qualify-method-access"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "vocabulary-value"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "20:csharp.style-choices20:qualify-event-access"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "vocabularies/csharp.style-choices/values/qualify-event-access"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "vocabulary-value"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "20:csharp.style-choices51:guarded-boolean-return-style:conditional-expression"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "vocabularies/csharp.style-choices/values/guarded-boolean-return-style.conditional-expression"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "vocabulary-value"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "20:csharp.style-choices39:guarded-boolean-return-style:branchless"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "vocabularies/csharp.style-choices/values/guarded-boolean-return-style.branchless"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "vocabulary-value"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "20:csharp.style-choices41:var-spelling-style:var-for-built-in-types"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "vocabularies/csharp.style-choices/values/var-spelling-style.var-for-built-in-types"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "vocabulary-value"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "20:csharp.style-choices41:var-spelling-style:var-when-type-apparent"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "vocabularies/csharp.style-choices/values/var-spelling-style.var-when-type-apparent"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "vocabulary-value"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "20:csharp.style-choices32:var-spelling-style:var-elsewhere"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "vocabularies/csharp.style-choices/values/var-spelling-style.var-elsewhere"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "vocabulary-value"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "20:csharp.style-choices24:explicit-object-creation"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "vocabularies/csharp.style-choices/values/explicit-object-creation"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "vocabulary-value"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "20:csharp.style-choices21:enum-case-label-order"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "vocabularies/csharp.style-choices/values/enum-case-label-order"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "vocabulary-value"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "20:csharp.style-choices26:explicit-long-literal-cast"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "vocabularies/csharp.style-choices/values/explicit-long-literal-cast"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "target_completeness": "Complete"
+    },
+    {
+      "source": {
+        "owner": {
+          "value": "product-vocabulary"
+        },
+        "resource_type": {
+          "schema": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "value": "installed"
+          },
+          "value": "value-vocabulary"
+        },
+        "identity_value": {
+          "kind": "scalar",
+          "value": {
+            "kind": "Text",
+            "text": "20:csharp.style-choices"
+          }
+        }
+      },
+      "relationship": {
+        "resource_type": {
+          "schema": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "value": "installed"
+          },
+          "value": "value-vocabulary"
+        },
+        "value": "term-map-target"
+      },
+      "state": "Available",
+      "targets": [
+        {
+          "resource": {
+            "owner": {
+              "value": "product-vocabulary"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "product-vocabulary"
+                },
+                "value": "installed"
+              },
+              "value": "value-vocabulary"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "18:csharp.style-tiers"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "vocabularies/csharp.style-tiers"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "target_completeness": "Complete"
+    }
+  ],
+  "traversal": {
+    "requested_depth": 0,
+    "requested_resource_limit": 256,
+    "requested_relationship_limit": 2048,
+    "requested_relationship_target_limit": 4096,
+    "requested_schema_declaration_limit": 4096,
+    "completed_depth": 0,
+    "visited_resource_count": 1,
+    "emitted_relationship_count": 2,
+    "emitted_relationship_target_count": 18,
+    "emitted_schema_declaration_count": 40,
+    "completeness": "Truncated",
+    "truncation_reasons": [
+      "Depth"
+    ]
+  }
+}

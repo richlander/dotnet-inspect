@@ -457,6 +457,10 @@ export const engineStartupOperations = {
             categoryId: text(preset.categoryId),
             categoryLabel: text(preset.categoryLabel),
             categoryOrder: number(preset.categoryOrder),
+            relatedOperations: array(
+              preset.relatedOperations,
+              operation => text(operation),
+            ),
           };
         }),
         terms: array(data.terms, rawTerm => {
@@ -484,6 +488,10 @@ export const engineStartupOperations = {
                 summary: text(option.summary),
               };
             }),
+            relatedOperations: array(
+              term.relatedOperations,
+              operation => text(operation),
+            ),
           };
         }),
       };

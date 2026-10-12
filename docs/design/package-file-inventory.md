@@ -89,7 +89,11 @@ order.
 inventory. When both are present, an entry must satisfy both. `--tfm` matches
 the requested value case-insensitively as one complete directory segment at any
 depth; it does not match a filename, a segment substring, or only known NuGet
-roots. `--tfm all` retains the existing unfiltered package behavior.
+roots.
+
+`--tfm all` adds no predicate;
+[All-frameworks package discovery](package-tfm-all-discovery.md)
+owns what that request admits.
 
 The target-framework value is validated before package acquisition through the
 package target-context validation used by other `--tfm` consumers.

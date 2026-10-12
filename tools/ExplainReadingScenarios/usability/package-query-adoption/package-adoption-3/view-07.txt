@@ -1,0 +1,4 @@
+jq: error: syntax error, unexpected '.' at <top-level>, line 1, column 13:
+    {keys:keys, .}
+                ^
+jq: 1 compile error
