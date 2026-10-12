@@ -14,6 +14,7 @@ using ILInspector.Metadata;
 using Inspector.Findings;
 using Markout;
 using NuGetFetch;
+using DotnetInspector.Presentation;
 
 namespace DotnetInspect.Cli.Commands;
 

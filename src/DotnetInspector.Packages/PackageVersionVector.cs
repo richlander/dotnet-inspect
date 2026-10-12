@@ -202,6 +202,8 @@ public sealed class PackageVersionVector
     public string PackageId { get; }
     public NuGetVersion Start { get; }
     public NuGetVersion End { get; }
+    public string StartVersion => Start.ToNormalizedString();
+    public string EndVersion => End.ToNormalizedString();
     public ImmutableArray<PackageVersionAddress> Addresses { get; }
 
     public static async Task<PackageVersionVector> ResolveAsync(
