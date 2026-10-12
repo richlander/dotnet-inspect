@@ -1153,13 +1153,7 @@ export interface BrowserPackageVersions {
   readonly previousVersion?: string;
   readonly previousVersionUnavailableReason?: string;
   readonly unlistedVersions?: ReadonlyArray<string>;
-  /**
-   * The Supply chain window's earlier points, nearest first, up to the
-   * deepest offered depth; a depth-n window is the first n. Absent when the
-   * listing is not authoritative.
-   */
   readonly supplyChainVersions?: ReadonlyArray<string>;
-  /** The API evolution window's earlier points, in the same form. */
   readonly apiEvolutionVersions?: ReadonlyArray<string>;
 }
 
