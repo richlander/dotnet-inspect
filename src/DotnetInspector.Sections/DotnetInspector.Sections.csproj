@@ -18,6 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="DotnetInspector.Diff" />
     <InternalsVisibleTo Include="DotnetInspector.Services.Tests" />
   </ItemGroup>
 
