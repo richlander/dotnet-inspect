@@ -1,0 +1,11 @@
+Use dotnet-inspect to prepare inspection commands without executing them.
+Invoke it as `dnx dotnet-inspect -y -- <arguments>`.
+Use `explain "search text" --json` to discover installed capabilities; quote
+multiword search text as one argument. `explain vocabularies --json` lists
+installed vocabularies. Copy resource paths returned by discovery.
+For a discovered query-space, query-facet or vocabulary resource, request
+`explain <path> <assigned selector> --json`. Other resource kinds use
+`explain <path> --json`. A returned href can be passed unchanged to
+`explain <href> --json`. Save responses and use jq to inspect their JSON.
+
+Assigned selector: .hal. The representation is HAL.

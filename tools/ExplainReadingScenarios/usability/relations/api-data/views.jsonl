@@ -1,0 +1,14 @@
+{"source": "assigned guide", "operation": "guide", "file": "view-01.txt", "bytes": 1132, "sha256": "e1fd7071e946cde2f863ca8779c4fb9bb0e91a726bcae1216473b8dd620b0c2d"}
+{"source": "response-01.out", "operation": "text", "file": "view-02.txt", "bytes": 156, "sha256": "e036e72598254b52976179ecb1c8fc8e772978702184f866fef70611c16a5aa2"}
+{"source": "response-02.out", "operation": "text", "file": "view-03.txt", "bytes": 157, "sha256": "e2a8cdb8a5bb1063c31cf0fd0b2c4b839912f5819da195740b0c469fb19e75a9"}
+{"source": "response-03.out", "operation": "text", "file": "view-04.txt", "bytes": 143, "sha256": "7957821c2e845cc9e9c1fd58ac77731c1585fc23dd922d7cf8470853e548fee3"}
+{"source": "response-04.out", "operation": "text", "file": "view-05.txt", "bytes": 3307, "sha256": "bb9827a9710b3f84fb446d94fd2690870bf325f951b8caee3e4fb5cf071f122a"}
+{"source": "response-05.out", "operation": "jq: keys", "file": "view-06.txt", "bytes": 14, "sha256": "75064a7bf5bb1f71ed68f579b270af91ca536d23fa443ad3c4e1a1dbbb917171"}
+{"source": "response-05.out", "operation": "jq: map({type, keys: (keys)})", "file": "view-07.txt", "bytes": 746, "sha256": "0ef0c7d47ab18605fdc5c27b3a17f018e162c4ba909b2baf6b7972c7a67b5cd4"}
+{"source": "response-05.out", "operation": "jq: map({method, class, library, extended_type, overloads, signatures})", "file": "view-08.txt", "bytes": 12714, "sha256": "09686010850970852c238d214574a0fba88bd68626b9bc6ffbe8e9a9c9040f2a"}
+{"source": "response-06.out", "operation": "jq: map({method, class, library, extended_type, signatures})", "file": "view-09.txt", "bytes": 2253, "sha256": "a1ef1b700e2bceaf862431edba1e3031a88581b3c059cfa02cd922806a86a81c"}
+{"source": "response-07.out", "operation": "text", "file": "view-10.txt", "bytes": 7875, "sha256": "859cf2aa25dcb22b895508deafafdfc14b4464571453a1111ef81914fc98e3eb"}
+{"source": "response-08.out", "operation": "jq: keys", "file": "view-11.txt", "bytes": 378, "sha256": "8bd9dc83ef8fa9d5d914443115b151128006ef37b35b5226bcc4dde6f4a44976"}
+{"source": "response-08.out", "operation": "jq: {full_name, documentation, members: [.members[] | {name, signature, documentation}]} | .members |= map(select(.name == \"GetFromJsonAsync\"))", "file": "view-12.txt", "bytes": 6572, "sha256": "af7fea9e3ac3c452ae36b8ebab6fe61f7e3cae7f24cc6a1b40a3a8720ccead90"}
+{"source": "response-10.out", "operation": "jq: {full_name, documentation, members: [.members[] | select(.name == \"ReadFromJsonAsync\") | {signature, summary: .documentation.summary}]} ", "file": "view-13.txt", "bytes": 2339, "sha256": "967334a049b554bf1c293c3f53bca1d3be65cfefea2a3000d65413ce8fa2ed7e"}
+{"source": "response-09.out", "operation": "jq: {full_name, documentation, members: [.members[] | select(.name == \"PostAsJsonAsync\") | {signature, summary: .documentation.summary}]} ", "file": "view-14.txt", "bytes": 2558, "sha256": "e7d5a879f1bd6a9aed7b530628cbcb47b47a60171c1f02be57e1d943a4d4e308"}

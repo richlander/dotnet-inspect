@@ -109,6 +109,7 @@
       "allowOnly": [
         "$platform",
         "DotnetInspector.DocumentationHouse.Contracts",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.Libraries",
         "DotnetInspector.PackageQueries",
         "DotnetInspector.Packages",
@@ -153,6 +154,7 @@
       "allowOnly": [
         "$platform",
         "DotnetInspect.Web.Core",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.Queries",
         "DotnetInspector.Sections"
       ]
@@ -172,13 +174,15 @@
       "allowOnly": [
         "DotnetInspect.Web.Core",
         "DotnetInspector.Ecosystems",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.PackageQueries",
         "DotnetInspector.Packages",
         "DotnetInspector.Presentation",
         "DotnetInspector.Queries",
         "DotnetInspector.Sections",
         "DotnetInspector.Services",
-        "QuerySpace"
+        "QuerySpace",
+        "TsJsExport.Contracts"
       ]
     },
     {
@@ -197,6 +201,7 @@
         "$platform",
         "DotnetInspect.Web.Core",
         "DotnetInspector.Ecosystems",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.PackageQueries",
         "DotnetInspector.Packages",
         "DotnetInspector.PlatformHouse",
@@ -209,7 +214,8 @@
         "InertText",
         "NuGetFetch",
         "QuerySpace",
-        "QuerySpace.Primitives"
+        "QuerySpace.Primitives",
+        "TsJsExport.Contracts"
       ]
     },
     {
@@ -246,6 +252,7 @@
       "allowOnly": [
         "$platform",
         "DotnetInspect.Web.Core",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.Libraries",
         "DotnetInspector.LibraryMetadata",
         "DotnetInspector.Packages",
@@ -290,6 +297,7 @@
         "$platform",
         "DotnetInspect.Web.Core",
         "DotnetInspector.Ecosystems",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.Packages",
         "DotnetInspector.Platforms",
         "DotnetInspector.Queries",
@@ -344,6 +352,7 @@
         "$platform",
         "DotnetInspect.Web.Core",
         "DotnetInspector.DocumentationHouse.Contracts",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.Libraries",
         "DotnetInspector.LibraryMetadata",
         "DotnetInspector.Packages",
@@ -408,6 +417,7 @@
         "$platform",
         "CSharpText",
         "DotnetInspect.Web.Core",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.Packages",
         "DotnetInspector.Presentation",
         "DotnetInspector.Queries",
@@ -520,6 +530,7 @@
         "DotnetInspector.Cache",
         "DotnetInspector.DocumentationHouse.Contracts",
         "DotnetInspector.Ecosystems",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.Libraries",
         "DotnetInspector.LibraryMetadata",
         "DotnetInspector.MetadataRendering",

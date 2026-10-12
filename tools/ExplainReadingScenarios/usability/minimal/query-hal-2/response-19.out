@@ -1,0 +1,2518 @@
+{
+  "schema_version": 2,
+  "requested_path": "package-query/query",
+  "root": {
+    "owner": {
+      "value": "query-space"
+    },
+    "resource_type": {
+      "schema": {
+        "owner": {
+          "value": "query-space"
+        },
+        "value": "installed"
+      },
+      "value": "query-space"
+    },
+    "identity_value": {
+      "kind": "scalar",
+      "value": {
+        "kind": "Text",
+        "text": "10:QuerySpace28:package-query/query-space/v1-1:"
+      }
+    }
+  },
+  "schemas": [
+    {
+      "identity": {
+        "owner": {
+          "value": "resource-explanation"
+        },
+        "value": "installed"
+      },
+      "version": {
+        "value": 1
+      },
+      "data_shapes": [
+        {
+          "kind": "scalar",
+          "scalar_kind": "Text",
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "resource-explanation"
+              },
+              "value": "installed"
+            },
+            "value": "text"
+          },
+          "display_name": "Text",
+          "meaning": "Well-formed Unicode text.",
+          "budget": {
+            "maximum_canonical_byte_count": 65536,
+            "maximum_depth": 8,
+            "maximum_node_count": 4096
+          }
+        },
+        {
+          "kind": "scalar",
+          "scalar_kind": "Integer",
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "resource-explanation"
+              },
+              "value": "installed"
+            },
+            "value": "integer"
+          },
+          "display_name": "Integer",
+          "meaning": "An arbitrary-precision integer.",
+          "budget": {
+            "maximum_canonical_byte_count": 65536,
+            "maximum_depth": 8,
+            "maximum_node_count": 4096
+          }
+        }
+      ],
+      "resource_types": [],
+      "address_kinds": [
+        {
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "resource-explanation"
+              },
+              "value": "installed"
+            },
+            "value": "resource-path"
+          },
+          "display_name": "Resource path",
+          "meaning": "A canonical Resource Explanation navigation path.",
+          "value_shape": {
+            "schema": {
+              "owner": {
+                "value": "resource-explanation"
+              },
+              "value": "installed"
+            },
+            "value": "text"
+          }
+        }
+      ]
+    },
+    {
+      "identity": {
+        "owner": {
+          "value": "inspection-capability-composition"
+        },
+        "value": "installed"
+      },
+      "version": {
+        "value": 1
+      },
+      "data_shapes": [],
+      "resource_types": [
+        {
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "inspection-capability-composition"
+              },
+              "value": "installed"
+            },
+            "value": "inspection-document"
+          },
+          "display_name": "Inspection document",
+          "meaning": "One host-neutral inspection result contract.",
+          "identity_shape": {
+            "schema": {
+              "owner": {
+                "value": "resource-explanation"
+              },
+              "value": "installed"
+            },
+            "value": "text"
+          },
+          "facts": [
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "inspection-capability-composition"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "inspection-document"
+                },
+                "value": "identity"
+              },
+              "display_name": "Identity",
+              "meaning": "The identity fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "inspection-capability-composition"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "inspection-document"
+                },
+                "value": "name"
+              },
+              "display_name": "Name",
+              "meaning": "The name fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "inspection-capability-composition"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "inspection-document"
+                },
+                "value": "summary"
+              },
+              "display_name": "Summary",
+              "meaning": "The summary fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "inspection-capability-composition"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "inspection-document"
+                },
+                "value": "result-contract"
+              },
+              "display_name": "Result contract",
+              "meaning": "The result contract fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "query-space"
+                  },
+                  "value": "installed"
+                },
+                "value": "opaque-external-identity"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            }
+          ],
+          "relationships": [
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "inspection-capability-composition"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "inspection-document"
+                },
+                "value": "route"
+              },
+              "display_name": "Route",
+              "meaning": "The route relationship.",
+              "target_resource_type": {
+                "schema": {
+                  "owner": {
+                    "value": "inspection-capability-composition"
+                  },
+                  "value": "installed"
+                },
+                "value": "host-neutral-route"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available"
+            }
+          ],
+          "address_kinds": [
+            {
+              "schema": {
+                "owner": {
+                  "value": "resource-explanation"
+                },
+                "value": "installed"
+              },
+              "value": "resource-path"
+            }
+          ]
+        },
+        {
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "inspection-capability-composition"
+              },
+              "value": "installed"
+            },
+            "value": "host-neutral-route"
+          },
+          "display_name": "Host-neutral route",
+          "meaning": "One executable host-neutral inspection route.",
+          "identity_shape": {
+            "schema": {
+              "owner": {
+                "value": "resource-explanation"
+              },
+              "value": "installed"
+            },
+            "value": "text"
+          },
+          "facts": [
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "inspection-capability-composition"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "host-neutral-route"
+                },
+                "value": "identity"
+              },
+              "display_name": "Identity",
+              "meaning": "The identity fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "inspection-capability-composition"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "host-neutral-route"
+                },
+                "value": "name"
+              },
+              "display_name": "Name",
+              "meaning": "The name fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "inspection-capability-composition"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "host-neutral-route"
+                },
+                "value": "summary"
+              },
+              "display_name": "Summary",
+              "meaning": "The summary fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "inspection-capability-composition"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "host-neutral-route"
+                },
+                "value": "subject-role"
+              },
+              "display_name": "Subject role",
+              "meaning": "The subject role fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "inspection-capability-composition"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "host-neutral-route"
+                },
+                "value": "result-grain"
+              },
+              "display_name": "Result grain",
+              "meaning": "The result grain fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "inspection-capability-composition"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "host-neutral-route"
+                },
+                "value": "profile"
+              },
+              "display_name": "Profile",
+              "meaning": "The profile fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "inspection-capability-composition"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "host-neutral-route"
+                },
+                "value": "result-contract"
+              },
+              "display_name": "Result contract",
+              "meaning": "The result contract fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "query-space"
+                  },
+                  "value": "installed"
+                },
+                "value": "opaque-external-identity"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            }
+          ],
+          "relationships": [
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "inspection-capability-composition"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "host-neutral-route"
+                },
+                "value": "produces"
+              },
+              "display_name": "Produces",
+              "meaning": "The produces relationship.",
+              "target_resource_type": {
+                "schema": {
+                  "owner": {
+                    "value": "inspection-capability-composition"
+                  },
+                  "value": "installed"
+                },
+                "value": "inspection-document"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "inspection-capability-composition"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "host-neutral-route"
+                },
+                "value": "query-surface"
+              },
+              "display_name": "Query surface",
+              "meaning": "The query surface relationship.",
+              "target_resource_type": {
+                "schema": {
+                  "owner": {
+                    "value": "query-space"
+                  },
+                  "value": "installed"
+                },
+                "value": "query-space"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "inspection-capability-composition"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "host-neutral-route"
+                },
+                "value": "consumer-binding"
+              },
+              "display_name": "Consumer binding",
+              "meaning": "The consumer binding relationship.",
+              "target_resource_type": {
+                "schema": {
+                  "owner": {
+                    "value": "consumer"
+                  },
+                  "value": "installed"
+                },
+                "value": "consumer-binding"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available"
+            }
+          ],
+          "address_kinds": [
+            {
+              "schema": {
+                "owner": {
+                  "value": "resource-explanation"
+                },
+                "value": "installed"
+              },
+              "value": "resource-path"
+            }
+          ]
+        }
+      ],
+      "address_kinds": []
+    },
+    {
+      "identity": {
+        "owner": {
+          "value": "query-space"
+        },
+        "value": "installed"
+      },
+      "version": {
+        "value": 1
+      },
+      "data_shapes": [
+        {
+          "kind": "scalar",
+          "scalar_kind": "Text",
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "query-space"
+              },
+              "value": "installed"
+            },
+            "value": "opaque-external-identity"
+          },
+          "display_name": "Opaque external identity",
+          "meaning": "An identity issued by an owner that has not yet published an explanation resource type and key.",
+          "budget": {
+            "maximum_canonical_byte_count": 65536,
+            "maximum_depth": 8,
+            "maximum_node_count": 4096
+          }
+        }
+      ],
+      "resource_types": [
+        {
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "query-space"
+              },
+              "value": "installed"
+            },
+            "value": "query-space"
+          },
+          "display_name": "Query Space",
+          "meaning": "One effective executable Query Space.",
+          "identity_shape": {
+            "schema": {
+              "owner": {
+                "value": "resource-explanation"
+              },
+              "value": "installed"
+            },
+            "value": "text"
+          },
+          "facts": [
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "query-space"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "query-space"
+                },
+                "value": "identity"
+              },
+              "display_name": "Identity",
+              "meaning": "The identity fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "query-space"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "query-space"
+                },
+                "value": "name"
+              },
+              "display_name": "Name",
+              "meaning": "The name fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "query-space"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "query-space"
+                },
+                "value": "summary"
+              },
+              "display_name": "Summary",
+              "meaning": "The summary fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "query-space"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "query-space"
+                },
+                "value": "members"
+              },
+              "display_name": "Members",
+              "meaning": "The members fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "integer"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            }
+          ],
+          "relationships": [
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "query-space"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "query-space"
+                },
+                "value": "query-facet"
+              },
+              "display_name": "Query facet",
+              "meaning": "The query facet relationship.",
+              "target_resource_type": {
+                "schema": {
+                  "owner": {
+                    "value": "query-space"
+                  },
+                  "value": "installed"
+                },
+                "value": "query-facet"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available"
+            }
+          ],
+          "address_kinds": [
+            {
+              "schema": {
+                "owner": {
+                  "value": "resource-explanation"
+                },
+                "value": "installed"
+              },
+              "value": "resource-path"
+            }
+          ]
+        },
+        {
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "query-space"
+              },
+              "value": "installed"
+            },
+            "value": "query-facet"
+          },
+          "display_name": "Query facet",
+          "meaning": "One queryable operation term.",
+          "identity_shape": {
+            "schema": {
+              "owner": {
+                "value": "resource-explanation"
+              },
+              "value": "installed"
+            },
+            "value": "text"
+          },
+          "facts": [
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "query-space"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "query-facet"
+                },
+                "value": "identity"
+              },
+              "display_name": "Identity",
+              "meaning": "The identity fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "query-space"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "query-facet"
+                },
+                "value": "key"
+              },
+              "display_name": "Key",
+              "meaning": "The key fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "query-space"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "query-facet"
+                },
+                "value": "name"
+              },
+              "display_name": "Name",
+              "meaning": "The name fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "query-space"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "query-facet"
+                },
+                "value": "summary"
+              },
+              "display_name": "Summary",
+              "meaning": "The summary fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "query-space"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "query-facet"
+                },
+                "value": "operators"
+              },
+              "display_name": "Operators",
+              "meaning": "The ordered operators facts.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available",
+              "maximum_value_count": 32
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "query-space"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "query-facet"
+                },
+                "value": "value-kind"
+              },
+              "display_name": "Value kind",
+              "meaning": "The value kind fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "query-space"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "query-facet"
+                },
+                "value": "values"
+              },
+              "display_name": "Values",
+              "meaning": "The ordered values facts.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available",
+              "maximum_value_count": 256
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "query-space"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "query-facet"
+                },
+                "value": "examples"
+              },
+              "display_name": "Examples",
+              "meaning": "The ordered examples facts.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available",
+              "maximum_value_count": 256
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "query-space"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "query-facet"
+                },
+                "value": "effects"
+              },
+              "display_name": "Effects",
+              "meaning": "The ordered effects facts.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available",
+              "maximum_value_count": 256
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "query-space"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "query-facet"
+                },
+                "value": "input-rules"
+              },
+              "display_name": "Input rules",
+              "meaning": "The ordered input rules facts.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available",
+              "maximum_value_count": 64
+            }
+          ],
+          "relationships": [
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "query-space"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "query-facet"
+                },
+                "value": "route"
+              },
+              "display_name": "Route",
+              "meaning": "The route relationship.",
+              "target_resource_type": {
+                "schema": {
+                  "owner": {
+                    "value": "inspection-capability-composition"
+                  },
+                  "value": "installed"
+                },
+                "value": "host-neutral-route"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "query-space"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "query-facet"
+                },
+                "value": "required-context"
+              },
+              "display_name": "Required context",
+              "meaning": "The required context relationship.",
+              "target_resource_type": {
+                "schema": {
+                  "owner": {
+                    "value": "query-space"
+                  },
+                  "value": "installed"
+                },
+                "value": "query-facet"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "query-space"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "query-facet"
+                },
+                "value": "exposed-by"
+              },
+              "display_name": "Exposed by",
+              "meaning": "The exposed by relationship.",
+              "target_resource_type": {
+                "schema": {
+                  "owner": {
+                    "value": "consumer"
+                  },
+                  "value": "installed"
+                },
+                "value": "consumer-binding"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available"
+            }
+          ],
+          "address_kinds": [
+            {
+              "schema": {
+                "owner": {
+                  "value": "resource-explanation"
+                },
+                "value": "installed"
+              },
+              "value": "resource-path"
+            }
+          ]
+        }
+      ],
+      "address_kinds": []
+    },
+    {
+      "identity": {
+        "owner": {
+          "value": "consumer"
+        },
+        "value": "installed"
+      },
+      "version": {
+        "value": 1
+      },
+      "data_shapes": [],
+      "resource_types": [
+        {
+          "identity": {
+            "schema": {
+              "owner": {
+                "value": "consumer"
+              },
+              "value": "installed"
+            },
+            "value": "consumer-binding"
+          },
+          "display_name": "Consumer binding",
+          "meaning": "One production host binding.",
+          "identity_shape": {
+            "schema": {
+              "owner": {
+                "value": "resource-explanation"
+              },
+              "value": "installed"
+            },
+            "value": "text"
+          },
+          "facts": [
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "consumer"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "consumer-binding"
+                },
+                "value": "identity"
+              },
+              "display_name": "Identity",
+              "meaning": "The identity fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "consumer"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "consumer-binding"
+                },
+                "value": "name"
+              },
+              "display_name": "Name",
+              "meaning": "The name fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "consumer"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "consumer-binding"
+                },
+                "value": "summary"
+              },
+              "display_name": "Summary",
+              "meaning": "The summary fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "consumer"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "consumer-binding"
+                },
+                "value": "consumer-kind"
+              },
+              "display_name": "Consumer kind",
+              "meaning": "The consumer kind fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "consumer"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "consumer-binding"
+                },
+                "value": "gesture"
+              },
+              "display_name": "Gesture",
+              "meaning": "The gesture fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "consumer"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "consumer-binding"
+                },
+                "value": "input-rules"
+              },
+              "display_name": "Input rules",
+              "meaning": "The ordered input rules facts.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "text"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available",
+              "maximum_value_count": 64
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "consumer"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "consumer-binding"
+                },
+                "value": "members"
+              },
+              "display_name": "Members",
+              "meaning": "The members fact.",
+              "value_shape": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "integer"
+              },
+              "cardinality": "RequiredOne",
+              "admitted_states": "Available"
+            }
+          ],
+          "relationships": [
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "consumer"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "consumer-binding"
+                },
+                "value": "invokes"
+              },
+              "display_name": "Invokes",
+              "meaning": "The invokes relationship.",
+              "target_resource_type": {
+                "schema": {
+                  "owner": {
+                    "value": "inspection-capability-composition"
+                  },
+                  "value": "installed"
+                },
+                "value": "host-neutral-route"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available"
+            },
+            {
+              "identity": {
+                "resource_type": {
+                  "schema": {
+                    "owner": {
+                      "value": "consumer"
+                    },
+                    "value": "installed"
+                  },
+                  "value": "consumer-binding"
+                },
+                "value": "exposes"
+              },
+              "display_name": "Exposes",
+              "meaning": "The exposes relationship.",
+              "target_resource_type": {
+                "schema": {
+                  "owner": {
+                    "value": "query-space"
+                  },
+                  "value": "installed"
+                },
+                "value": "query-facet"
+              },
+              "cardinality": "OrderedMany",
+              "admitted_states": "Available"
+            }
+          ],
+          "address_kinds": [
+            {
+              "schema": {
+                "owner": {
+                  "value": "resource-explanation"
+                },
+                "value": "installed"
+              },
+              "value": "resource-path"
+            }
+          ]
+        }
+      ],
+      "address_kinds": []
+    }
+  ],
+  "resources": [
+    {
+      "path": "package-query/query",
+      "key": {
+        "owner": {
+          "value": "query-space"
+        },
+        "resource_type": {
+          "schema": {
+            "owner": {
+              "value": "query-space"
+            },
+            "value": "installed"
+          },
+          "value": "query-space"
+        },
+        "identity_value": {
+          "kind": "scalar",
+          "value": {
+            "kind": "Text",
+            "text": "10:QuerySpace28:package-query/query-space/v1-1:"
+          }
+        }
+      },
+      "schema_version": {
+        "value": 1
+      },
+      "scope": "Installed",
+      "addresses": [
+        {
+          "kind": {
+            "schema": {
+              "owner": {
+                "value": "resource-explanation"
+              },
+              "value": "installed"
+            },
+            "value": "resource-path"
+          },
+          "value": {
+            "kind": "scalar",
+            "value": {
+              "kind": "Text",
+              "text": "package-query/query"
+            }
+          }
+        }
+      ],
+      "facts": [
+        {
+          "fact": {
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-space"
+            },
+            "value": "identity"
+          },
+          "state": "Available",
+          "values": [
+            {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "package-query/query-space/v1"
+              }
+            }
+          ]
+        },
+        {
+          "fact": {
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-space"
+            },
+            "value": "name"
+          },
+          "state": "Available",
+          "values": [
+            {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "package-query"
+              }
+            }
+          ]
+        },
+        {
+          "fact": {
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-space"
+            },
+            "value": "summary"
+          },
+          "state": "Available",
+          "values": [
+            {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "The effective executable Query Space for this route."
+              }
+            }
+          ]
+        },
+        {
+          "fact": {
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-space"
+            },
+            "value": "members"
+          },
+          "state": "Available",
+          "values": [
+            {
+              "kind": "scalar",
+              "value": {
+                "kind": "Integer",
+                "integer": "19"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "source": {
+        "owner": {
+          "value": "query-space"
+        },
+        "resource_type": {
+          "schema": {
+            "owner": {
+              "value": "query-space"
+            },
+            "value": "installed"
+          },
+          "value": "query-space"
+        },
+        "identity_value": {
+          "kind": "scalar",
+          "value": {
+            "kind": "Text",
+            "text": "10:QuerySpace28:package-query/query-space/v1-1:"
+          }
+        }
+      },
+      "relationship": {
+        "resource_type": {
+          "schema": {
+            "owner": {
+              "value": "query-space"
+            },
+            "value": "installed"
+          },
+          "value": "query-space"
+        },
+        "value": "query-facet"
+      },
+      "state": "Available",
+      "targets": [
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet26:package-query.term.package28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/package"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet25:package-query.term.prefix28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/prefix"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet28:package-query.term.ecosystem28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/ecosystem"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet29:package-query.term.prerelease28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/prerelease"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet31:package-query.term.dependencies28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/dependencies"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet36:package-query.term.dependency-target28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/dependency-target"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet26:package-query.term.depends28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/depends"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet36:package-query.term.depends-ecosystem28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/depends-ecosystem"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet37:package-query.term.depends-transitive28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/depends-transitive"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet35:package-query.term.dependency-depth28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/dependency-depth"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet26:package-query.term.license28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/license"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet28:package-query.term.downloads28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/downloads"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet25:package-query.term.readme28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/readme"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet23:package-query.term.tool28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/tool"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet30:package-query.term.tool-format28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/tool-format"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet29:package-query.term.references28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/references"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet24:package-query.term.skill28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/skill"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet34:package-query.term.library-literal28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/library-literal"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "resource": {
+            "owner": {
+              "value": "query-space"
+            },
+            "resource_type": {
+              "schema": {
+                "owner": {
+                  "value": "query-space"
+                },
+                "value": "installed"
+              },
+              "value": "query-facet"
+            },
+            "identity_value": {
+              "kind": "scalar",
+              "value": {
+                "kind": "Text",
+                "text": "10:QueryFacet33:package-query.term.library-target28:package-query/query-space/v1"
+              }
+            }
+          },
+          "addresses": [
+            {
+              "kind": {
+                "schema": {
+                  "owner": {
+                    "value": "resource-explanation"
+                  },
+                  "value": "installed"
+                },
+                "value": "resource-path"
+              },
+              "value": {
+                "kind": "scalar",
+                "value": {
+                  "kind": "Text",
+                  "text": "package-query/query/facets/library-target"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "target_completeness": "Complete"
+    }
+  ],
+  "traversal": {
+    "requested_depth": 0,
+    "requested_resource_limit": 256,
+    "requested_relationship_limit": 2048,
+    "requested_relationship_target_limit": 4096,
+    "requested_schema_declaration_limit": 4096,
+    "completed_depth": 0,
+    "visited_resource_count": 1,
+    "emitted_relationship_count": 1,
+    "emitted_relationship_target_count": 19,
+    "emitted_schema_declaration_count": 55,
+    "completeness": "Truncated",
+    "truncation_reasons": [
+      "Depth"
+    ]
+  }
+}

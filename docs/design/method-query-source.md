@@ -116,6 +116,51 @@ This owner does not define:
 - caching across operations; or
 - a universal Analysis scheduler.
 
+## Name and scope
+
+The source is named for methods, not members, because only methods have the
+two properties it is built on: a physical row identity and a body.
+
+- A MethodDef row is the unit of identity, order, and receipt. Per-method
+  depth hangs off one MethodDef. Shared lookup support, such as call targets,
+  is execution-scoped and receipted per group and request, with the
+  MethodDefs that queried it.
+- Properties and events have no IL of their own. Their accessors are
+  MethodDefs, which this source already visits. The source can supply the
+  accessor association; reporting an accessor's facts on its property is
+  attribution, owned by the consumer.
+- Fields have no body. Field facts come from metadata rows and, for
+  initialized data, PE section data. That is a different population with a
+  different cost model.
+- For this source, types are breadth, not population. Exact-TypeDef breadth
+  selects that type's methods.
+
+"Member" is the product vocabulary. Unsafe Members, Member Metrics, and
+member-scoped commands attribute method facts back to members. A `Member`
+prefix here would claim coverage this source does not have. It would also
+take the name a future source that does enumerate members would need. As
+[`AssemblyAnalysisSource`](assembly-analysis-operation.md#assemblyanalysissource)
+states, Type and Member sources belong to their own owners.
+
+The code uses the ECMA-335 and `System.Reflection.Metadata` name for the same
+population, `MethodDefinition`. The implementation is mainly in
+`src/ILInspector.Analysis/Planning/`:
+
+| Code | Role |
+| --- | --- |
+| `MethodDefinitionSource*` types in `MethodQuerySource.cs` | Breadth, requests, request-set plans, coverage, and receipts |
+| `MethodQuerySource` (internal) in `MethodQuerySource.cs` | Entry point |
+| `MethodDefinitionExecution.cs` | Traversal and on-demand layer acquisition |
+| `MethodDefinitionLayers` and `MethodDefinitionView` in `MethodDefinitionProducers.cs` | Declared layers and the per-method view producers read through |
+| `MethodDefinitionGeneratedExpansion.cs` | Generated-expansion bounds and coverage; discovery and authentication delegate to the relationship owners' resolvers |
+| `MethodRowGate.cs`, `MethodDefinitionPredicates.cs`, and `MethodDefinitionTerminalWorkBudget.cs` | Source gate, predicates, and terminal work bounds |
+| `MemorySafetyContractSupport.cs` | Memory-safety contract and accessor association support |
+| `SameModuleCallTargetSupport.cs` | `CallTargets` support |
+
+Where this source sits among Query Space, Producer Planning, and Assembly
+Analysis Operation is described in
+[Analysis stack](assembly-analysis-operation.md#analysis-stack).
+
 ## Normative basis and adjacent owners
 
 | Owner | Imported contract |
