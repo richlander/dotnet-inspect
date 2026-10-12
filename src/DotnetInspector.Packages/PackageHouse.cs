@@ -1898,9 +1898,19 @@ public sealed partial class PackageHouse
 
     private static PackageCompileAssetSelectionPolicy CompilePolicy(
         PackageHouseRequest request) =>
-        request.TargetContext?.RequestedFramework is null
-            ? PackageCompileAssetSelectionPolicy.HighestAvailable
-            : PackageCompileAssetSelectionPolicy.ExplicitTarget;
+        request.TargetContext?.Mode switch
+        {
+            PackageHouseTargetSelectionMode.Exact =>
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
+            PackageHouseTargetSelectionMode.ExactTarget =>
+                PackageCompileAssetSelectionPolicy.ExactTarget,
+            PackageHouseTargetSelectionMode.OwnerDefault or null =>
+                PackageCompileAssetSelectionPolicy.HighestAvailable,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(request),
+                request.TargetContext?.Mode,
+                null),
+        };
 
     private enum PackageHouseContentNarrowingCompletion
     {

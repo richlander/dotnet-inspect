@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using NuGetFetch;
+using NuGetFetch.Plugins;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -50,14 +51,15 @@ public sealed class WorkspaceRootRequestTests
     public async Task RootRequest_CannotBeCombinedWithAPackageSelection()
     {
         var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
+            () => ExecuteAsync(
                 new WorkspaceOptions
                 {
                     RootRequest = "pkgroot1.a.b.c.d.e.f.g",
                     Packages = [$"{PackageId}@{Version}"],
                     Tfm = Framework,
                 },
-                LoadOptions(new InMemoryPackageStore(), [Source]),
+                new InMemoryPackageStore(),
+                [Source],
                 TestContext.Current.CancellationToken));
 
         Assert.Equal(1, captured.ExitCode);
@@ -75,9 +77,10 @@ public sealed class WorkspaceRootRequestTests
     public async Task RootRequest_RefusesATokenThisToolDidNotIssue(string token)
     {
         var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
+            () => ExecuteAsync(
                 new WorkspaceOptions { RootRequest = token },
-                LoadOptions(new InMemoryPackageStore(), [Source]),
+                new InMemoryPackageStore(),
+                [Source],
                 TestContext.Current.CancellationToken));
 
         Assert.Equal(1, captured.ExitCode);
@@ -99,12 +102,13 @@ public sealed class WorkspaceRootRequestTests
             await IssueTokenAsync();
 
         var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
+            () => ExecuteAsync(
                 new WorkspaceOptions { RootRequest = token },
-                LoadOptions(store, [Source]),
+                store,
+                [Source],
                 TestContext.Current.CancellationToken));
 
-        Assert.Equal(0, captured.ExitCode);
+        Assert.True(captured.ExitCode == 0, captured.Error);
         Assert.Contains("# Workspace", captured.Output, StringComparison.Ordinal);
         Assert.Contains(
             issued.Coordinate.PackageId,
@@ -121,13 +125,14 @@ public sealed class WorkspaceRootRequestTests
         (InMemoryPackageStore store, string token, _) = await IssueTokenAsync();
 
         var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
+            () => ExecuteAsync(
                 new WorkspaceOptions
                 {
                     RootRequest = token,
                     Format = OutputFormat.Json,
                 },
-                LoadOptions(store, [Source]),
+                store,
+                [Source],
                 TestContext.Current.CancellationToken));
 
         Assert.Equal(0, captured.ExitCode);
@@ -148,16 +153,17 @@ public sealed class WorkspaceRootRequestTests
             await IssueTokenAsync(selectionStatus);
 
         var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
+            () => ExecuteAsync(
                 new WorkspaceOptions
                 {
                     RootRequest = token,
                     Format = OutputFormat.Json,
                 },
-                LoadOptions(store, [Source]),
+                store,
+                [Source],
                 TestContext.Current.CancellationToken));
 
-        Assert.Equal(0, captured.ExitCode);
+        Assert.True(captured.ExitCode == 0, captured.Error);
         Assert.Empty(captured.Error);
         using JsonDocument document = JsonDocument.Parse(captured.Output);
         JsonElement root = Assert.Single(
@@ -182,9 +188,10 @@ public sealed class WorkspaceRootRequestTests
         (InMemoryPackageStore store, string token, _) = await IssueTokenAsync();
 
         var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
+            () => ExecuteAsync(
                 new WorkspaceOptions { RootRequest = token },
-                LoadOptions(store, [OtherSource]),
+                store,
+                [OtherSource],
                 TestContext.Current.CancellationToken));
 
         Assert.Equal(1, captured.ExitCode);
@@ -202,9 +209,10 @@ public sealed class WorkspaceRootRequestTests
         (_, string token, _) = await IssueTokenAsync();
 
         var captured = await ConsoleCapture.RunAsync(
-            () => WorkspaceCommand.ExecuteAsync(
+            () => ExecuteAsync(
                 new WorkspaceOptions { RootRequest = token },
-                LoadOptions(new InMemoryPackageStore(), [Source]),
+                new InMemoryPackageStore(),
+                [Source],
                 TestContext.Current.CancellationToken));
 
         Assert.Equal(1, captured.ExitCode);
@@ -248,18 +256,46 @@ public sealed class WorkspaceRootRequestTests
             await store.CommitAsync(
                 PackageId,
                 Version,
-                NuGetCache.GetSourceKey(Source.Url),
+                PackageSourceClientFactory
+                    .GetProducerIdentity(Source).Key,
                 stream,
                 TestContext.Current.CancellationToken);
         }
 
+        WorkspaceContextLoadOptions loadOptions =
+            LoadOptions(store, [Source]);
+        DesktopPackageSourceComposition composition =
+            CreateComposition();
+        await using var executor =
+            new ConfiguredPackageRootHouseExecutor(
+                composition,
+                new NuGetSourceOptions
+                {
+                    Sources = [Source.Url],
+                },
+                loadOptions,
+                (_, _) => store);
         PackageRootAcquisitionOutcome outcome =
             await PackageRootAcquisition.AcquireAsync(
                 PackageRootAcquisitionRequest.Create(PackageId, Version, Framework),
-                LoadOptions(store, [Source]),
+                executor.Execution,
                 TestContext.Current.CancellationToken);
         var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(outcome);
         Assert.Equal(selectionStatus, acquired.Binding.Root.AssetSelection.Status);
+        if (selectionStatus
+            == PackageCompileAssetSelectionStatus.EmptyCompileGroup)
+        {
+            Assert.Equal(
+                Framework,
+                acquired.Request.CompileTargetFramework);
+            Assert.Equal(
+                "net8.0",
+                acquired.Request.SelectionTargetFramework);
+            Assert.False(
+                acquired.Request.AllowsCompatibleTargetSelection);
+            Assert.False(
+                acquired.Request.UsesCompatibleImplementationSelection);
+        }
         return (store, acquired.Request.Encode(), acquired.Request);
     }
 
@@ -273,6 +309,42 @@ public sealed class WorkspaceRootRequestTests
             PackageStore = store,
         };
 
+    static async Task<int> ExecuteAsync(
+        WorkspaceOptions options,
+        IPackageStore store,
+        PackageSource[] sources,
+        CancellationToken cancellationToken)
+    {
+        WorkspaceContextLoadOptions loadOptions =
+            LoadOptions(store, sources);
+        DesktopPackageSourceComposition composition =
+            CreateComposition();
+        await using var executor =
+            new ConfiguredPackageRootHouseExecutor(
+                composition,
+                new NuGetSourceOptions
+                {
+                    Sources =
+                    [
+                        .. sources.Select(
+                            static source => source.Url),
+                    ],
+                },
+                loadOptions,
+                (_, _) => store);
+        return await WorkspaceCommand.ExecuteAsync(
+            options,
+            loadOptions,
+            executor.Execution,
+            cancellationToken);
+    }
+
+    static DesktopPackageSourceComposition CreateComposition() =>
+        new(
+            TimeSpan.FromSeconds(5),
+            new UnavailableCredentials(),
+            (_, _) => new FailingHandler());
+
     sealed class FailingHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
@@ -283,5 +355,16 @@ public sealed class WorkspaceRootRequestTests
                 {
                     RequestMessage = request,
                 });
+    }
+
+    sealed class UnavailableCredentials : ICredentialSource
+    {
+        public bool HasCredentialSources => false;
+
+        public Task<PackageSourceCredential?> GetCredentialsAsync(
+            Uri source,
+            bool isRetry,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<PackageSourceCredential?>(null);
     }
 }

@@ -11,6 +11,7 @@ public static partial class WorkspaceCommand
     static async Task<int> ExecuteReplacementAsync(
         WorkspaceOptions options,
         WorkspaceContextLoadOptions loadOptions,
+        PackageRootHouseExecution rootHouse,
         CancellationToken cancellationToken)
     {
         CommittedScenarioDefinitionSet definitions;
@@ -47,6 +48,7 @@ public static partial class WorkspaceCommand
                 new CompleteRestorationExecutionOptions
                 {
                     ContextLoad = loadOptions,
+                    PackageRootHouse = rootHouse,
                     ScopeDeadline = DateTimeOffset.UtcNow.AddMinutes(5),
                     Facets = facets,
                     FacetAvailability = (_, _) => entries,

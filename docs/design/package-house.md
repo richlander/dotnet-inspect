@@ -599,14 +599,18 @@ or asset-selection algorithm:
 | Package-local request | PackageHouse selection policy |
 | --- | --- |
 | No requested target framework | `HighestAvailable` |
-| Explicit requested target framework | `ExplicitTarget` |
+| Compatible explicit target framework | `ExplicitTarget` |
+| Exact-target-only framework | `ExactTarget` |
 
 `HighestAvailable` asks the owner to select its highest available compile
-slice. An explicit target asks the owner to select the applicable compile
-slice for that request. In both cases PackageHouse preserves the policy source,
-the requested framework when present, the selected framework when one exists,
-and the exact selector receipt. It does not choose a framework by sorting
-strings, infer one from a host default, or rerun selection over rendered paths.
+slice. `ExplicitTarget` asks the owner to select the applicable compatible
+compile slice for that request. `ExactTarget` accepts only the requested
+compile slice while retaining the same typed no-match evidence when only
+neighboring compatible slices exist. In every case PackageHouse preserves the
+policy source, the requested framework when present, the selected framework
+when one exists, and the exact selector receipt. It does not choose a framework
+by sorting strings, infer one from a host default, or rerun selection over
+rendered paths.
 
 The selected projection preserves these distinct outcomes:
 
@@ -1412,8 +1416,12 @@ rather than throwing, guessing another identity, or weakening correspondence.
 
 An exact package Root reacquisition request from
 [#5837](https://github.com/richlander/dotnet-inspect/issues/5837) re-enters the
-same House realization path. It retains the original selection request while
-allowing a replacement physical generation.
+same House realization path. Ordinary targeted Roots use the exact-target-only
+mode; durable requests use compatible explicit selection only when their token
+authorizes it; untargeted Roots remain owner-default. Root acquisition consumes
+the House compile receipt directly, retains the original acquisition framework
+and producer spelling, and rejects a replacement generation whose receipt does
+not reproduce the durable selection request.
 
 ## Host boundaries
 
@@ -1726,12 +1734,12 @@ focused successor slices rather than broadening the owner document.
 | Pruning correspondence | Platform delegation consumes the policy-issued inventory/coordinate/supply receipt, compares the coordinate through the package owner's normalization, and matches the actual supplier family and exact target version. |
 | Payload authority | Discovered payload comes only from a reporting authority; pinned payload follows the Package Source Model's eligible-authority rule; the acquisition receipt and live payload match source, producer, origin, and generation. |
 | Selection correspondence | Realization consumes a selector-issued generation/request/outcome receipt matching the exact acquisition and target context. |
-| Package-local policy | Owner-default compile realization records `HighestAvailable`; explicit-target realization records `ExplicitTarget`, the requested framework, and the separately selected framework. |
+| Package-local policy | Owner-default compile realization records `HighestAvailable`; compatible explicit-target realization records `ExplicitTarget`; exact-target-only realization records `ExactTarget` and does not select a neighboring compatible compile slice. |
 | Compile inventory | Selected, selected-empty, no-slice, no-applicable-slice, and invalid-selection outcomes retain every owner-issued available compile slice and candidate from the acquired generation through the final House result. |
 | Projection cardinality | Zero, one, and many selected compile assets remain distinct valid projections; no path or package-name heuristic chooses a representative asset. |
 | Selected-slice measurements | Multi-Library selection measures the retained archive and exactly one owner-paired payload entry per selected compile asset, including RID-specific implementation preference. Selected-empty, no-slice, no-applicable-slice, invalid-selection, House-failure, and unavailable entry-manifest outcomes remain typed and retain the acquisition and selection receipts. |
 | Multi-slice isolation | A coordinator selecting multiple target frameworks receives separately associated projections and cannot merge their assets into one selected universe. |
-| Selection completion | `ExactCompileRealizeBindsSelectionAndLibraryHandoff`, `ExactRuntimeRealizeAppliesExactRidOverlay`, `ExactCompileRealizePreservesExplicitEmptyGroup`, `ExactCompileRealizePreservesNoMatchWithPayload`, `RuntimeRealizeKeepsRequestedAndSelectedFrameworksDistinct`, `SameCoordinateWithTwoTargetsKeepsDistinctRealizations`, `NonSubsumedCandidateRealizeRetainsPruningAndSelection`, and `RuntimeOwnerDefaultRealizeIsVisiblyRejected` compose selector-issued outcomes through execution. Selector suites gate ambiguity and invalid-layout classification; `PackageHouseContractTests` gate their corresponding House terminal arms. |
+| Selection completion | `ExactCompileRealizeBindsSelectionAndLibraryHandoff`, `ExactTargetCompileRealizeDoesNotSelectCompatibleFramework`, `ExactRuntimeRealizeAppliesExactRidOverlay`, `ExactCompileRealizePreservesExplicitEmptyGroup`, `ExactCompileRealizePreservesNoMatchWithPayload`, `RuntimeRealizeKeepsRequestedAndSelectedFrameworksDistinct`, `SameCoordinateWithTwoTargetsKeepsDistinctRealizations`, `NonSubsumedCandidateRealizeRetainsPruningAndSelection`, and `RuntimeOwnerDefaultRealizeIsVisiblyRejected` compose selector-issued outcomes through execution. Selector suites gate ambiguity and invalid-layout classification; `PackageHouseContractTests` gate their corresponding House terminal arms. |
 | Selection timeout | `TimeoutAfterSelectionRetainsPayloadAndRealization` proves that operation timeout remains terminal after synchronous selection while retaining the caller-owned payload and completed acquisition and realization receipts. |
 | Target-aware realization | A `net10.0` dependency with `net10.0` and `net11.0` folders selects `net10.0` and retains requested-versus-selected evidence. |
 | Context separation | The same coordinate realized under two target contexts retains two realization receipts and cannot share one selected asset universe. |

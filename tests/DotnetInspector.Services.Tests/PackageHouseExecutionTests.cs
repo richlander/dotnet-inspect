@@ -1206,6 +1206,54 @@ public sealed partial class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task ExactTargetCompileRealizeDoesNotSelectCompatibleFramework()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                PayloadEntries:
+                [
+                    $"lib/net8.0/{PackageId}.dll",
+                ]));
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(
+                    PackageId,
+                    Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.ExactTarget("net10.0"),
+            PackageHouseAssetSelectionKind.Compile);
+
+        PackageHouseSettlement settlement =
+            await environment.CreateHouse(
+                (_, _) => new InMemoryPackageStore())
+                .ExecuteAsync(
+                    request,
+                    environment.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken));
+
+        PackageHouseSettlement.Acquired acquired =
+            Assert.IsType<PackageHouseSettlement.Acquired>(settlement);
+        PackageHouseRealizationReceipt.Compile realization =
+            Assert.IsType<PackageHouseRealizationReceipt.Compile>(
+                Assert.IsType<PackageHouseResult.NoMatch>(
+                    acquired.Result).Evidence.Realization);
+
+        Assert.Equal(
+            PackageCompileAssetSelectionPolicy.ExactTarget,
+            realization.Receipt.Policy);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
+            realization.Selection.Status);
+        Assert.Equal("net10.0", realization.Receipt.RequestedTargetFramework);
+        Assert.Equal(["net8.0"], realization.Selection.AvailableTargetFrameworks);
+        Assert.False(realization.Selection.IsSelected);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
     public async Task
         ExactCompileRealizePreservesCompatibleImplementationUniverse()
     {

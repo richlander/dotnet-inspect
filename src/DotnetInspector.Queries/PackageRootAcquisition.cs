@@ -711,6 +711,46 @@ public abstract record PackageRootRebindingOutcome
         : PackageRootRebindingOutcome;
 }
 
+/// <summary>
+/// Host-owned execution of one exact package Root realization through
+/// PackageHouse.
+/// </summary>
+public interface IPackageRootHouseExecutor
+{
+    Task<PackageHouseSettlement> ExecuteAsync(
+        PackageHouseRequest request,
+        string? requiredProducerKey,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// The fixed PackageHouse operation contract and host executor used for exact
+/// package Root acquisition.
+/// </summary>
+public sealed class PackageRootHouseExecution
+{
+    public PackageRootHouseExecution(
+        PackageHouseOperation operation,
+        IPackageRootHouseExecutor executor)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(executor);
+        if (operation.Profile != PackageHouseOperationProfile.Realize)
+        {
+            throw new ArgumentException(
+                "Package Root acquisition requires a PackageHouse Realize operation.",
+                nameof(operation));
+        }
+
+        Operation = operation;
+        Executor = executor;
+    }
+
+    public PackageHouseOperation Operation { get; }
+
+    public IPackageRootHouseExecutor Executor { get; }
+}
+
 /// <summary>The typed result of one package Root acquisition.</summary>
 /// <remarks>
 /// Cancellation is not an outcome arm; it propagates with the caller's token.
@@ -756,7 +796,7 @@ public abstract class PackageRootAcquisitionOutcome
     {
         internal Acquired(
             PackageRootBinding binding,
-            AcquiredPackagePayload payload,
+            AcquiredPackageSourcePayload payload,
             PackageRootReacquisitionRequest request)
         {
             Binding = binding;
@@ -771,7 +811,7 @@ public abstract class PackageRootAcquisitionOutcome
         /// exact retained content instance, its producer identity, and whether
         /// a store entry or a download answered.
         /// </summary>
-        public AcquiredPackagePayload Payload { get; }
+        public AcquiredPackageSourcePayload Payload { get; }
 
         public PackageRootReacquisitionRequest Request { get; }
     }
@@ -804,11 +844,10 @@ public abstract class PackageRootAcquisitionOutcome
 /// <see cref="WorkspaceContextLoader.LoadRealizedAsync"/>: it realizes no
 /// assembly role universe, requires no acquisition target, and creates no
 /// workspace group. Both entries share one authorization, resolution, and
-/// payload-acquisition path — the same
-/// <see cref="PackageCoordinateResolver"/> and
-/// <see cref="PackagePayloadAcquisition"/> the loader uses — so neither invents
-/// a source policy. Source authorization, transfer policy, payload limits, and
-/// the package store remain the destination host's own; neither request form
+/// PackageHouse realization path, so neither repeats source selection, payload
+/// acquisition, or compile-asset selection outside their owners. Source
+/// authorization, transfer policy, payload limits, package stores, and
+/// operation lifetime remain the destination host's own; neither request form
 /// carries them.
 /// </para>
 /// <para>
@@ -869,7 +908,7 @@ public static class PackageRootAcquisition
     /// <summary>Acquires a Root for one explicit, exact coordinate.</summary>
     public static Task<PackageRootAcquisitionOutcome> AcquireAsync(
         PackageRootAcquisitionRequest request,
-        WorkspaceContextLoadOptions options,
+        PackageRootHouseExecution execution,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -881,14 +920,14 @@ public static class PackageRootAcquisition
             request.SelectionTargetFramework,
             pinnedProducer: null,
             expected: null,
-            options,
+            execution,
             cancellationToken);
     }
 
     /// <summary>Reacquires the exact logical Root an owner-issued request names.</summary>
     public static Task<PackageRootAcquisitionOutcome> AcquireAsync(
         PackageRootReacquisitionRequest request,
-        WorkspaceContextLoadOptions options,
+        PackageRootHouseExecution execution,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -898,10 +937,10 @@ public static class PackageRootAcquisition
             pinned.Version,
             pinned.Framework,
             pinned.RuntimeIdentifier,
-            request.SelectionTargetFramework,
+            request.CompileTargetFramework,
             pinned.Producer,
             request,
-            options,
+            execution,
             cancellationToken);
     }
 
@@ -913,127 +952,82 @@ public static class PackageRootAcquisition
         string? selectionTargetFramework,
         string? pinnedProducer,
         PackageRootReacquisitionRequest? expected,
-        WorkspaceContextLoadOptions options,
+        PackageRootHouseExecution execution,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(options.HttpClient);
-        ArgumentNullException.ThrowIfNull(options.SourceAuthorization);
-        ArgumentNullException.ThrowIfNull(options.PackageStore);
+        ArgumentNullException.ThrowIfNull(execution);
         cancellationToken.ThrowIfCancellationRequested();
 
-        PackageSourceAuthorization authorization =
-            options.SourceAuthorization.AuthorizeSourcesFor(packageId);
-        IReadOnlyList<PackageSource> sources = authorization.Sources;
-        IReadOnlyList<PackageRootProducerAuthorization.Candidate>?
-            pinnedCandidates = null;
-        if (pinnedProducer is not null)
-        {
-            // The intersection, not a preference: only the producer the request
-            // names may answer, so a host authorizing several producers for
-            // this id still reacquires the Root the binding was realized from.
-            PackageRootProducerAuthorization.MatchResult producerMatch =
-                PackageRootProducerAuthorization.Match(
-                    sources,
-                    pinnedProducer);
-            if (producerMatch.Ambiguous)
-            {
-                return Failed(
-                    PackageRootAcquisitionFailureKind.ProducerNotAuthorized,
-                    $"The producer recorded for package '{packageId}' matches multiple authorized package-source identities.");
-            }
-            if (producerMatch.Candidates.Count == 0)
-            {
-                return Failed(
-                    PackageRootAcquisitionFailureKind.ProducerNotAuthorized,
-                    authorization.DenialReason
-                    ?? $"The producer recorded for package '{packageId}' is not authorized by this host.");
-            }
-
-            pinnedCandidates = producerMatch.Candidates;
-            sources = [.. producerMatch.Candidates.Select(static candidate =>
-                candidate.Source)];
-        }
-        else if (sources.Count == 0)
-        {
-            return Failed(
-                PackageRootAcquisitionFailureKind.PackageUnavailable,
-                authorization.DenialReason
-                ?? $"No producer is authorized to serve package '{packageId}'.");
-        }
-
-        PackageCoordinateResolution resolution =
-            await PackageCoordinateResolver.ResolveAsync(
-                    options.HttpClient,
-                    new PackageCoordinate(
-                        packageId,
-                        version,
-                        acquisitionFramework,
-                        runtimeIdentifier),
-                    sources,
-                    options.Log,
-                    options.IncludePrerelease,
-                    options.UseVersionCache,
-                    requireStableFloating: true,
+        PackageHouseTargetContext target =
+            selectionTargetFramework is null
+                ? PackageHouseTargetContext.OwnerDefault(runtimeIdentifier)
+                : expected?.AllowsCompatibleTargetSelection == true
+                    ? PackageHouseTargetContext.Exact(
+                        selectionTargetFramework,
+                        runtimeIdentifier)
+                    : PackageHouseTargetContext.ExactTarget(
+                        selectionTargetFramework,
+                        runtimeIdentifier);
+        var coordinate = PackageSourceCoordinate.Create(packageId, version);
+        var houseRequest = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(coordinate),
+            execution.Operation,
+            target,
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.PackageOnly,
+            assetDemand: PackageAssetDemand.SurfaceAndImplementation);
+        PackageHouseSettlement settlement =
+            await execution.Executor.ExecuteAsync(
+                    houseRequest,
+                    pinnedProducer,
                     cancellationToken)
-                .ConfigureAwait(false);
-        switch (resolution)
+                .ConfigureAwait(false)
+            ?? throw new InvalidOperationException(
+                "The package Root House executor returned no settlement.");
+        if (!ReferenceEquals(settlement.Result.Request, houseRequest))
         {
-            case PackageCoordinateResolution.Invalid invalid:
-                return Failed(
-                    PackageRootAcquisitionFailureKind.InvalidCoordinate,
-                    invalid.Message);
-            case PackageCoordinateResolution.Unavailable unavailable:
-                return Failed(
-                    PackageRootAcquisitionFailureKind.PackageUnavailable,
-                    unavailable.Message);
+            throw new InvalidOperationException(
+                "The package Root House settlement belongs to another request.");
         }
 
-        PackagePayloadResult payload =
-            await PackagePayloadAcquisition.AcquireAsync(
-                    options.HttpClient,
-                    ((PackageCoordinateResolution.Resolved)resolution)
-                        .Coordinate,
-                    options.PackageStore,
-                    options.Log,
-                    options.PayloadLimits,
-                    cancellationToken,
-                    options.PackageTransferPolicy)
-                .ConfigureAwait(false);
-        if (payload is PackagePayloadResult.Unavailable payloadFailure)
+        if (settlement is not PackageHouseSettlement.Acquired acquired
+            || settlement.Result.Evidence.Realization
+                is not PackageHouseRealizationReceipt.Compile realization
+            || settlement.Result
+                is not (PackageHouseResult.Settled
+                    or PackageHouseResult.NoMatch
+                    or PackageHouseResult.Rejected))
+        {
+            return ProjectFailure(
+                settlement,
+                $"PackageHouse could not realize package '{packageId}' as a compile Root.",
+                pinnedProducer is not null);
+        }
+
+        if (expected is not null
+            && !expected.MatchesCompileSelectionRequest(
+                realization.Receipt))
         {
             return Failed(
-                PackageRootAcquisitionFailureKind.PackageUnavailable,
-                payloadFailure.Message);
+                PackageRootAcquisitionFailureKind
+                    .SelectionRequestNotReproduced,
+                $"Reacquiring package '{packageId}' produced a different exact Root selection: "
+                + $"expected compile '{expected.CompileTargetFramework ?? "(none)"}', "
+                + $"selection '{expected.SelectionTargetFramework ?? "(none)"}', "
+                + $"runtime '{expected.SelectionRuntimeIdentifier ?? "(none)"}', "
+                + $"compatible '{expected.AllowsCompatibleTargetSelection}'; "
+                + $"observed compile '{PackageRootBinding.ReceiptCompileTargetFramework(realization.Receipt) ?? "(none)"}', "
+                + $"selection '{PackageRootBinding.ReceiptSelectionTargetFramework(realization.Receipt) ?? "(none)"}', "
+                + $"runtime '{realization.Receipt.RequestedRuntimeIdentifier ?? "(none)"}', "
+                + $"policy '{realization.Receipt.Policy}'.");
         }
 
-        AcquiredPackagePayload acquired =
-            ((PackagePayloadResult.Acquired)payload).Payload;
-        PackageProducerIdentity? acquiredProducer = null;
-        if (pinnedCandidates is not null)
-        {
-            PackageRootProducerAuthorization.Candidate? acquiredCandidate =
-                pinnedCandidates.FirstOrDefault(
-                    candidate => acquired.ProducerKey.Equals(
-                        candidate.LegacyProducerKey,
-                        StringComparison.Ordinal));
-            if (acquiredCandidate is null)
-            {
-                return Failed(
-                    PackageRootAcquisitionFailureKind.ProducerNotAuthorized,
-                    $"Package '{packageId}' was served by a producer other than the one the request names.");
-            }
-            acquiredProducer = acquiredCandidate.Producer;
-        }
-
-        PackageRootBinding binding = expected is null
-            ? PackageRootBinding.CreateFromResolved(
-                acquired,
-                selectionTargetFramework)
-            : PackageRootBinding.CreateFromReacquiredResolved(
-                acquired,
-                expected,
-                acquiredProducer);
+        PackageRootBinding binding =
+            PackageRootBinding.CreateFromRootRequestSelection(
+                acquired.Payload,
+                realization.Receipt,
+                acquisitionFramework,
+                expected?.Coordinate.Producer);
         PackageRootReacquisitionRequest issued =
             binding.CreateReacquisitionRequest();
         if (expected is not null && !expected.Equals(issued))
@@ -1048,8 +1042,40 @@ public static class PackageRootAcquisition
 
         return new PackageRootAcquisitionOutcome.Acquired(
             binding,
-            acquired,
+            acquired.Payload,
             issued);
+    }
+
+    static PackageRootAcquisitionOutcome ProjectFailure(
+        PackageHouseSettlement settlement,
+        string fallback,
+        bool requiresProducer)
+    {
+        ConfiguredPackagePayloadResult projected =
+            PackageHousePayloadResultAdapter.Create(settlement);
+        string message = projected.Failures.Count > 0
+            ? string.Join(
+                "; ",
+                projected.Failures.Select(static failure => failure.Message))
+            : projected.NotFoundAuthorities.Count > 0
+                ? "The selected package was not found on "
+                    + string.Join(
+                        ", ",
+                        projected.NotFoundAuthorities.Select(authority =>
+                            PackageSourceDisplay.ForDiagnostics(
+                                authority.Source)))
+                    + "."
+                : fallback;
+        PackageRootAcquisitionFailureKind kind =
+            projected.Failures.Any(static failure =>
+                failure.IsRequiredProducerUnavailable)
+            || (requiresProducer
+                && projected.Failures.Count == 0
+                && projected.NotFoundAuthorities.Count == 0
+                && settlement.Result.Evidence.Acquisition is null)
+                ? PackageRootAcquisitionFailureKind.ProducerNotAuthorized
+                : PackageRootAcquisitionFailureKind.PackageUnavailable;
+        return Failed(kind, message);
     }
 
     static PackageRootAcquisitionOutcome Failed(

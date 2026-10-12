@@ -35,14 +35,19 @@ public sealed class PackageRootAcquisitionTests
     {
         using var http = new HttpClient(new FailingHandler());
         IPackageStore store = await CachedStoreAsync(LibraryPackage());
-        var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+        PackageRootAcquisitionOutcome outcome =
             await PackageRootAcquisition.AcquireAsync(
                 PackageRootAcquisitionRequest.Create(
                     PackageId,
                     Version,
                     Framework),
                 Options(http, store),
-                TestContext.Current.CancellationToken));
+                TestContext.Current.CancellationToken);
+        Assert.True(
+            outcome is PackageRootAcquisitionOutcome.Acquired,
+            (outcome as PackageRootAcquisitionOutcome.Failed)?.Message);
+        var acquired =
+            (PackageRootAcquisitionOutcome.Acquired)outcome;
         PackageRootBinding full = acquired.Binding;
         Assert.Equal(PackageAssetDemand.SurfaceAndImplementation, full.Root.AssetDemand);
 
@@ -128,7 +133,7 @@ public sealed class PackageRootAcquisitionTests
         Assert.Equal(PackageId, binding.Coordinate.PackageId);
         Assert.Equal(Version, binding.Coordinate.Version);
         Assert.Equal(
-            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            PackageProducerIdentity.NuGetOrg.PortableKey,
             binding.Coordinate.Producer);
         Assert.Equal(Framework, binding.Coordinate.Framework);
         Assert.Null(binding.Coordinate.RuntimeIdentifier);
@@ -148,7 +153,7 @@ public sealed class PackageRootAcquisitionTests
     {
         using var http = new HttpClient(new FailingHandler());
         IPackageStore store = await CachedStoreAsync(LibraryPackage());
-        WorkspaceContextLoadOptions options = Options(http, store);
+        PackageRootHouseExecution options = Options(http, store);
 
         var first = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
             await PackageRootAcquisition.AcquireAsync(
@@ -169,7 +174,7 @@ public sealed class PackageRootAcquisitionTests
             first.Binding.ContentGenerationIdentity);
         Assert.Equal(
             first.Binding.Coordinate.Producer,
-            first.Payload.ProducerKey);
+            first.Payload.Producer!.PortableKey);
         Assert.Equal(content.ProducerKey, first.Payload.ProducerKey);
 
         var second = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
@@ -195,7 +200,7 @@ public sealed class PackageRootAcquisitionTests
     {
         using var http = new HttpClient(new FailingHandler());
         IPackageStore store = await CachedStoreAsync(LibraryPackage());
-        WorkspaceContextLoadOptions options = Options(http, store);
+        PackageRootHouseExecution options = Options(http, store);
 
         var first = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
             await PackageRootAcquisition.AcquireAsync(
@@ -234,7 +239,7 @@ public sealed class PackageRootAcquisitionTests
                 PackageSourceAssociation.Create(),
                 new FailingHandler());
         PackageProducerIdentity producer = source.Source.Producer;
-        string contentProducerKey = NuGetCache.GetSourceKey(Private.Url);
+        string contentProducerKey = producer.Key;
         var store = new InMemoryPackageStore();
         await store.CommitAsync(
             PackageId,
@@ -308,7 +313,7 @@ public sealed class PackageRootAcquisitionTests
     [Fact]
     public async Task CurrentNuGetProducerKey_ReacquiresWithoutRewritingRequest()
     {
-        string contentProducerKey = NuGetCache.GetSourceKey(NuGetOrg.Url);
+        string contentProducerKey = PackageProducerIdentity.NuGetOrg.Key;
         IPackageStore store = await CachedStoreAsync(LibraryPackage());
         using var http = new HttpClient(new FailingHandler());
         PackageRootReacquisitionRequest request = RequestForProducer(
@@ -365,7 +370,7 @@ public sealed class PackageRootAcquisitionTests
         using var http = new HttpClient(new FailingHandler());
         IPackageStore store = await CachedStoreAsync(
             LibraryPackage("netstandard2.0"));
-        WorkspaceContextLoadOptions options = Options(http, store);
+        PackageRootHouseExecution options = Options(http, store);
 
         PackageRootAcquisitionRequest explicitRequest =
             PackageRootAcquisitionRequest.CreateFrameworkNeutral(
@@ -414,14 +419,14 @@ public sealed class PackageRootAcquisitionTests
     {
         using var http = new HttpClient(new FailingHandler());
         var store = new InMemoryPackageStore();
-        string producer = NuGetCache.GetSourceKey(NuGetOrg.Url);
+        string producer = PackageProducerIdentity.NuGetOrg.Key;
         await store.CommitAsync(
             PackageId,
             Version,
             producer,
             new MemoryStream(SplitPackage("net8.0")),
             TestContext.Current.CancellationToken);
-        WorkspaceContextLoadOptions options = Options(http, store);
+        PackageRootHouseExecution options = Options(http, store);
 
         var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
             await PackageRootAcquisition.AcquireAsync(
@@ -454,11 +459,48 @@ public sealed class PackageRootAcquisitionTests
     }
 
     [Fact]
+    public async Task ExactRequest_ReacquiresEmptyCompileGroup()
+    {
+        using var http = new HttpClient(new FailingHandler());
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            PackageProducerIdentity.NuGetOrg.Key,
+            new MemoryStream(EmptyCompileGroupPackage()),
+            TestContext.Current.CancellationToken);
+        PackageRootHouseExecution execution = Options(http, store);
+
+        var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                PackageRootAcquisitionRequest.Create(
+                    PackageId,
+                    Version,
+                    "net10.0"),
+                execution,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+            acquired.Binding.Root.AssetSelection.Status);
+
+        var reacquired =
+            Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+                await PackageRootAcquisition.AcquireAsync(
+                    acquired.Request,
+                    Options(http, store),
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(acquired.Request, reacquired.Request);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+            reacquired.Binding.Root.AssetSelection.Status);
+    }
+
+    [Fact]
     public async Task ExactRequest_ReopensAfterCandidateWorkspaceDisposal()
     {
         using var http = new HttpClient(new FailingHandler());
         IPackageStore store = await CachedStoreAsync(LibraryPackage());
-        WorkspaceContextLoadOptions options = Options(http, store);
+        PackageRootHouseExecution options = Options(http, store);
 
         var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
             await PackageRootAcquisition.AcquireAsync(
@@ -629,7 +671,7 @@ public sealed class PackageRootAcquisitionTests
         string legacyToken = LegacyToken(
             PackageId,
             Version,
-            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            PackageProducerIdentity.NuGetOrg.Key,
             Framework,
             null,
             Framework,
@@ -1137,17 +1179,18 @@ public sealed class PackageRootAcquisitionTests
         return builder.ToString();
     }
 
-    static WorkspaceContextLoadOptions Options(
+    static PackageRootHouseExecution Options(
         HttpClient client,
         IPackageStore store,
         IPackageSourceAuthorization? authorization = null) =>
-        new()
+        PackageRootTestHouseExecution.Create(
+            new()
         {
             HttpClient = client,
             SourceAuthorization = authorization
                 ?? new UniformPackageSourceAuthorization([NuGetOrg]),
             PackageStore = store,
-        };
+        });
 
     static async Task<IPackageStore> CachedStoreAsync(byte[] nupkg)
     {
@@ -1155,7 +1198,7 @@ public sealed class PackageRootAcquisitionTests
         await store.CommitAsync(
             PackageId,
             Version,
-            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            PackageProducerIdentity.NuGetOrg.Key,
             new MemoryStream(nupkg),
             TestContext.Current.CancellationToken);
         return store;
@@ -1201,6 +1244,25 @@ public sealed class PackageRootAcquisitionTests
             {
                 implementation.Write(image);
             }
+        }
+
+        return buffer.ToArray();
+    }
+
+    static byte[] EmptyCompileGroupPackage()
+    {
+        byte[] image = IntegrationAssembly();
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            archive.CreateEntry("ref/net10.0/_._");
+            using Stream implementation = archive
+                .CreateEntry($"lib/net8.0/{AssemblyName}.dll")
+                .Open();
+            implementation.Write(image);
         }
 
         return buffer.ToArray();

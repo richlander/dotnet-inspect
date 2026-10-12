@@ -209,6 +209,48 @@ public sealed class PackageRootBinding
     }
 
     /// <summary>
+    /// Binds a typed-source payload to a House-issued compile selection while
+    /// preserving the acquisition framework stated by the Root request.
+    /// </summary>
+    internal static PackageRootBinding CreateFromRootRequestSelection(
+        AcquiredPackageSourcePayload payload,
+        PackageCompileAssetSelectionReceipt receipt,
+        string? acquisitionFramework,
+        string? coordinateProducer = null,
+        string? displayPackageId = null)
+    {
+        ValidateSourceSelectionReceipt(payload, receipt);
+        if (receipt.RequestedRuntimeIdentifier is not null
+            && acquisitionFramework is null)
+        {
+            throw new ArgumentException(
+                "A package Root runtime identifier requires a canonical acquisition framework.",
+                nameof(acquisitionFramework));
+        }
+
+        return Create(
+            payload,
+            payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            coordinateProducer ?? SourceCoordinateProducer(payload),
+            payload.Producer,
+            payload.LegacyProducerKey,
+            acquisitionFramework,
+            ReceiptSelectionTargetFramework(receipt),
+            receipt.RequestedRuntimeIdentifier,
+            assetSelection: receipt.Selection,
+            compileTargetFramework: ReceiptCompileTargetFramework(receipt),
+            usesCompatibleImplementationSelection:
+                ReceiptUsesCompatibleImplementationSelection(receipt),
+            allowsCompatibleTargetSelection:
+                receipt.Policy
+                    == PackageCompileAssetSelectionPolicy.ExplicitTarget);
+    }
+
+    /// <summary>
     /// Attempts to bind a typed-source payload to its exact compile selection
     /// when the complete package Root coordinate is representable.
     /// </summary>
@@ -265,8 +307,9 @@ public sealed class PackageRootBinding
             ? receipt.Selection.ImplementationTargetFramework
                 ?? receipt.Selection.TargetFramework
                 ?? receipt.RequestedTargetFramework
-            : receipt.Selection.TargetFramework
-                ?? receipt.RequestedTargetFramework;
+            : receipt.Selection.ImplementationTargetFramework
+                ?? receipt.RequestedTargetFramework
+                ?? receipt.Selection.TargetFramework;
 
     internal static string? ReceiptCompileTargetFramework(
         PackageCompileAssetSelectionReceipt receipt) =>
@@ -294,6 +337,17 @@ public sealed class PackageRootBinding
         PackageCompileAssetSelectionReceipt receipt,
         out string? acquisitionFramework)
     {
+        ValidateSourceSelectionReceipt(payload, receipt);
+        acquisitionFramework =
+            SourceAcquisitionFramework(receipt.RequestedTargetFramework);
+        return receipt.RequestedRuntimeIdentifier is null
+            || acquisitionFramework is not null;
+    }
+
+    private static void ValidateSourceSelectionReceipt(
+        AcquiredPackageSourcePayload payload,
+        PackageCompileAssetSelectionReceipt receipt)
+    {
         ArgumentNullException.ThrowIfNull(payload);
         ArgumentNullException.ThrowIfNull(receipt);
         if (!payload.Coordinate.PackageId.Equals(
@@ -320,10 +374,6 @@ public sealed class PackageRootBinding
                 "A package Root runtime identifier must be a canonical lowercase moniker.",
                 nameof(receipt));
         }
-        acquisitionFramework =
-            SourceAcquisitionFramework(receipt.RequestedTargetFramework);
-        return receipt.RequestedRuntimeIdentifier is null
-            || acquisitionFramework is not null;
     }
 
     /// <summary>

@@ -43,6 +43,7 @@ public enum PackageHouseEvidenceDemand
 public enum PackageHouseTargetSelectionMode
 {
     Exact,
+    ExactTarget,
     OwnerDefault,
 }
 
@@ -231,6 +232,23 @@ public sealed class PackageHouseTargetContext
                 runtimeIdentifier,
                 nameof(runtimeIdentifier)),
             platformTarget: null);
+
+    public static PackageHouseTargetContext ExactTarget(
+        string requestedFramework,
+        string? runtimeIdentifier = null)
+    {
+        string framework = NormalizeFramework(
+            requestedFramework,
+            nameof(requestedFramework));
+        string? runtime = ValidateRuntimeIdentifier(
+            runtimeIdentifier,
+            nameof(runtimeIdentifier));
+        return new PackageHouseTargetContext(
+            PackageHouseTargetSelectionMode.ExactTarget,
+            framework,
+            runtime,
+            platformTarget: null);
+    }
 
     internal static string NormalizeFramework(
         string value,

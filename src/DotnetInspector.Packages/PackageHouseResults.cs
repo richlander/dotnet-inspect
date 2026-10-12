@@ -958,6 +958,8 @@ internal static class PackageHouseRealizationCorrespondence
         {
             PackageHouseTargetSelectionMode.Exact =>
                 policy == PackageCompileAssetSelectionPolicy.ExplicitTarget,
+            PackageHouseTargetSelectionMode.ExactTarget =>
+                policy == PackageCompileAssetSelectionPolicy.ExactTarget,
             PackageHouseTargetSelectionMode.OwnerDefault or null =>
                 policy == PackageCompileAssetSelectionPolicy.HighestAvailable,
             _ => false,
@@ -970,7 +972,8 @@ internal static class PackageHouseRealizationCorrespondence
     {
         bool frameworkMatches = target?.Mode switch
         {
-            PackageHouseTargetSelectionMode.Exact =>
+            PackageHouseTargetSelectionMode.Exact
+                or PackageHouseTargetSelectionMode.ExactTarget =>
                 target.RequestedFramework!.Equals(
                     framework,
                     StringComparison.OrdinalIgnoreCase),

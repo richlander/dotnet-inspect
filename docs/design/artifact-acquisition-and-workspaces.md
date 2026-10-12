@@ -3309,14 +3309,33 @@ same thing: one package Root, acquired under the destination host's own policy,
 without full-role assembly realization.
 
 Artifact Acquisition therefore exposes **one** acquisition entry with two
-request forms rather than two acquisition paths. Both forms run the same
-authorization, resolution, and payload acquisition the Workspace loader
-already runs, so neither invents a source policy, a producer preference, or a
-second set of payload bounds. The entry creates no Workspace group and
-realizes no assembly universe, which is what separates it from
-`WorkspaceContextLoader`: that loader realizes every assembly in the Root and
-requires an acquisition target, so it cannot serve framework-neutral
+request forms rather than two acquisition paths. Both forms issue one exact
+PackageHouse `Realize` request with compile selection and
+`SurfaceAndImplementation` demand, consume its exact compile receipt, and bind
+the Root without reacquiring raw payload or rerunning asset selection.
+Authorization, source composition, transfer policy, payload limits, package
+stores, and operation lifetime remain host capabilities. The entry creates no
+Workspace group and realizes no assembly universe, which is what separates it
+from `WorkspaceContextLoader`: that loader realizes every assembly in the Root
+and requires an acquisition target, so it cannot serve framework-neutral
 acquisition paired with a real selection target.
+
+The House target mode follows the request's owned selection intent:
+
+- no compile target uses owner-default `HighestAvailable`;
+- an ordinary explicit Root request uses exact-target-only `ExactTarget`, so a
+  neighboring compatible compile slice cannot replace the requested slice;
+  and
+- a durable request that explicitly authorizes compatible target selection
+  uses `ExplicitTarget`.
+
+The host passes a durable producer token as a required producer, not a
+preference. PackageHouse intersects it with current authorization and returns
+typed producer-unavailable evidence when no authorized authority matches.
+Root acquisition validates request identity, receipt identity, compile and
+implementation targets, runtime, compatibility authorization and observed
+compatibility before issuing the rebound request. A different selection is
+`SelectionRequestNotReproduced`, never a substitute Root.
 
 The caller-authored form names an exact package id and version, because this
 owner performs no gallery, prefix, or floating-version discovery — a request
@@ -3433,6 +3452,7 @@ In `PackageRootAcquisitionTests`:
 `ExplicitCoordinate_AcquiresRootAndIssuesExactRequest`,
 `Acquired_ExposesTheLiveContentTheBindingReads`,
 `ExactRequest_ReacquiresSameLogicalRootThroughToken`,
+`ExactRequest_ReacquiresEmptyCompileGroup`,
 `ExactRequest_SeparatesAcquisitionAndSelectionTargets`,
 `ExactRequest_RejectsReplacementImplementationTarget`,
 `ExactRequest_ReopensAfterCandidateWorkspaceDisposal`,

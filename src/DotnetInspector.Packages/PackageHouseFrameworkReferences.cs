@@ -465,7 +465,9 @@ public static class PackageHouseFrameworkReferenceProjection
         PackageHouseRequest request,
         PackageHouseRealizationReceipt.Compile realization) =>
         request.TargetContext is
-            { Mode: PackageHouseTargetSelectionMode.Exact,
+            { Mode:
+                PackageHouseTargetSelectionMode.Exact
+                    or PackageHouseTargetSelectionMode.ExactTarget,
               RequestedFramework: { } requested }
             ? new PackageHouseFrameworkReferenceTargetBasis.Exact(requested)
             : realization.Selection.TargetFramework is { } selected
