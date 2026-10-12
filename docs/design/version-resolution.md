@@ -205,25 +205,45 @@ A version window selects the points of a
 from one current version, A, and the complete, authoritative listing of its
 package. It reads version metadata only and acquires no package payloads. Its
 candidates are listed versions in NuGet release precedence, stable only unless
-A is a prerelease:
+A is a prerelease.
 
-| Point | Rule |
+Two named policies each answer one question with a depth, n, which defaults to
+1 and counts steps back from A:
+
+| Policy | Question | Points, ascending | Axes |
+| --- | --- | --- | --- |
+| `SupplyChain` | What changed in the releases I would take? | The n highest candidates strictly below A, then A | API and Body on every step |
+| `ApiEvolution` | How did the API reach its current shape? | The `Latest` major representative of each of the n highest majors below A's, then A | API on every step |
+
+`Latest` is the existing major representative: the highest candidate in that
+major, whatever its minor. Within A's own major, A stands for that major, so
+both policies end at A. For a package whose current version is `10.0.9`, depth
+3 gives:
+
+| Policy | Points |
 | --- | --- |
-| A′ | The highest candidate strictly below A. This is the existing automatic previous version, which is also the highest lower candidate on A's major.minor line when that line has one. |
-| A″ | The highest candidate whose major is lower than A's. |
+| `SupplyChain` | `10.0.6`, `10.0.7`, `10.0.8`, `10.0.9` |
+| `ApiEvolution` | `7.0.20`, `8.0.18`, `9.0.12`, `10.0.9` |
 
-Two named windows use these points:
+The `SupplyChain` walk follows release precedence, not a major.minor line, so
+from `X.0.0` it continues into the previous major, and from `10.6.0` into
+`10.5.x`. Every `SupplyChain` point takes part in Body comparison, and no
+`ApiEvolution` point does, which are the two ends of the Body participant rule
+in [Library-scope History](diff-history.md#library-scope-history-over-fast-diff).
 
-| Window | Points, ascending |
-| --- | --- |
-| `LastPatch` | A′, A |
-| `LastMajor` | A″, A′, A |
+When fewer than n earlier points exist, the window holds those that do and
+reports the depth it reached beside the depth requested. A window with no point
+before A is a typed non-success that names the policy, not a one-point History.
+When the listing is not authoritative, the projection is a typed non-success,
+never a window built from partial evidence.
 
-When A′ and A″ are the same version, as for an `X.0.0` release, that point
-appears once. A point that does not exist is omitted. A window left with fewer
-than two points is a typed non-success that names the missing point, not a
-one-point History. When the listing is not authoritative, the projection is a
-typed non-success, never a window built from partial evidence.
+The two policies are independent History requests. A host that asks for both
+submits them as two associations of one
+[request set](query-space-composition.md#request-sets-and-source-plan-collapse).
+The planner may share the acquisition of A, and of any version both windows
+name, but neither result derives from the other, and a failure in one leaves
+the other's outcome intact. That adoption belongs to
+[#9920](https://github.com/richlander/dotnet-inspect/issues/9920).
 
 A is the caller's bound exact coordinate, so it is never a candidate and need
 not be listed. The projection admits A, with the listed candidates, as the
@@ -244,19 +264,21 @@ population cell carries that pinned end address belongs to the House and Diff
 History adoption in
 [#9920](https://github.com/richlander/dotnet-inspect/issues/9920).
 
-Versions between two points remain unevaluated gaps, so History attributes a
-change on such a step to the gap. The projection does not choose which points
-take part in Body comparison; [Library-scope
-History](diff-history.md#library-scope-history-over-fast-diff) and its consumers
-do.
+`ApiEvolution` steps span versions they do not evaluate, so History attributes
+a change on such a step to the whole step: a change reported at `9.0.12` is
+relative to `8.0.18`, not to `9.0.0`.
 
-Gates: `LastPatch` and `LastMajor` for a servicing release (`10.0.2`), an
-`X.Y.0` release, an `X.0.0` release where A′ and A″ coincide, a package with
-no lower major, a first release, a prerelease A that admits prerelease
-candidates, a stable A that excludes them, an unlisted A′ candidate that is
-skipped, an unlisted A and an A absent from the listing, each ending a vector
-whose points other than A are listed-only and acquired through its exact pin,
-and a non-authoritative listing.
+Gates: each policy at depth 1 and depth 3 for a servicing release (`10.0.9`),
+an `X.Y.0` release, and an `X.0.0` release whose `SupplyChain` walk crosses into
+the previous major; a package with releases on several minors of one major,
+where `Latest` takes the highest minor; a depth beyond the available points,
+which reports the reached depth; a first release and a package with no lower
+major, each a typed non-success for the policy with no earlier point; a
+prerelease A that admits prerelease candidates and a stable A that excludes
+them; an unlisted candidate that is skipped; an unlisted A and an A absent from
+the listing, each ending a vector whose other points are listed-only and
+acquired through its exact pin; both policies in one request set sharing A's
+acquisition with independent outcomes; and a non-authoritative listing.
 
 ## Resolution receipt
 
