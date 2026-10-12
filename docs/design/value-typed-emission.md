@@ -367,6 +367,60 @@ bugs remain unchanged. Exact `reference-slot-target-binding` impact grows from
 the retired population. The five non-reference `UnrenderableStoreType` split
 webs remain outside this claim.
 
+### Bounded I4 slot identity preservation
+
+An evaluation-stack I4 carrier does not acquire Boolean storage identity merely
+because one store is the canonical integer zero or one and one load is observed
+as a condition. `BooleanFoldingPass` may retype the I4 family of one slot to
+`bool` only when **every** store in that family is already Boolean or a
+canonical `0`/`1` integer constant, every I4 load has Boolean-or-integer stack
+identity, and every such load is consumed where Boolean is valid. Proven
+reference and other non-I4 uses of the same numeric slot are unrelated reuse
+and remain outside the decision. A non-Boolean I4 producer, including a count,
+declines the whole retype; candidate subsets are not proof of the slot's
+Boolean identity.
+
+Integer arithmetic over comparison results supplies the complementary bounded
+case. IL comparison results are I4 values, so a compiler may add several of
+them, spill the sum, and later add that carrier to another integer. Before
+`ArithmeticBoolOperandPass` spells each Boolean operand as `condition ? 1 : 0`,
+it preserves the carrier's `int` result identity only when, within one function
+scope:
+
+- every store is an arithmetic Boolean/`int` mix that the pass itself will
+  normalize to `int` arithmetic; and
+- every load is Boolean-typed only because it is an operand of the same
+  integer-arithmetic domain.
+
+The load is then retagged `int` before arithmetic normalization. This keeps the
+producer normalization while preventing the slot load from becoming a second
+`? 1 : 0`, which would collapse a multi-term count to zero-or-one and sever it
+from its integer store.
+
+These two owner-local checks do not form a general bidirectional slot-typing
+rule. They exclude arbitrary Boolean producers, partial store or load subsets,
+mixed scopes, enum identity, and loads outside the owning Boolean or arithmetic
+domain. In particular, they do not admit
+`TypeRef.FunctionPointerParameterText`, whose Boolean branch joins an
+`ArgumentRefKind` producer and requires separate enum-specific proof.
+
+The pinned Microsoft.CodeAnalysis 5.0.0 witnesses are
+`ForEachLoopOperation.get_ChildOperationsCount` and
+`ForToLoopOperation.get_ChildOperationsCount` for arithmetic-result identity,
+and Microsoft.CodeAnalysis.CSharp 5.0.0
+`EarlyWellKnownAttributeBinder.CanBeValidAttributeArgument` plus the
+repository's `EhStructuringPass.InlineFilterLocalLoads` for complete-store
+Boolean-folding decline. Synthetic gates require all stores and loads to belong
+to the admitted domain and reject an arbitrary Boolean producer.
+
+On the fixed 14-assembly, 89,065-method corpus at base `de207b24a`, the four
+admitted webs retire. Residual-bound webs fall from 61 to 57, residual-bound
+locals from 104 to 96, affected methods from 35 to 31, and split webs from 30
+to 26. The `UnrenderableStoreType` split group falls from five webs and ten
+locals to the one two-local Boolean-to-enum web above. Every other residual
+group, zero late-decidable and nested webs, and the same four known pass bugs
+remain unchanged.
+
 ### Join target testimony
 
 Join target compatibility is decided before printing (#2095). Its
