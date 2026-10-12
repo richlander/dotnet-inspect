@@ -97,12 +97,13 @@ issued for one invocation.
 
 ## Analysis stack
 
-Library Body Analysis does four jobs in one service. It chooses what to
-compute from a feature set, walks every MethodDef once, builds its derived
-structures in one execution for the selected features, and publishes the
-results from that one execution. The retired `LibraryBodyIndex` was an
-aggregate facade over those results. The target stack assigns each of those
-jobs, and the questions around them, to one owner:
+Analysis answers questions about the code in one assembly. Does this type
+have unsafe members? How many calls does this method make? Which members carry
+the most leverage? Each answer is evidence derived from method metadata and
+bodies. The work for a request should be proportional to the methods it asks
+about, not to the size of the assembly, and the receipt should prove it.
+
+The stack answers each question in stages, and each stage has one owner:
 
 | Question | Owner | What it decides |
 | --- | --- | --- |
@@ -113,29 +114,29 @@ jobs, and the questions around them, to one owner:
 | Which methods, and what is read for each? | [Method Query Source](method-query-source.md) | The ordered physical MethodDef population, breadth, declared expansion, on-demand layers, bounds, and the exact source-work receipt. |
 | What does the evidence mean? | Analysis evidence owners | Producer algorithms and focused result types. |
 
+For example, "Does type `T` have unsafe members?" runs as follows:
+
+1. The type Unsafe Members query requests the unsafe-evidence producer,
+   closed with `Exists`, over `T`'s TypeDef.
+2. Producer Planning closes that producer's description: it reads
+   declarations, and a body and module lookup only on demand.
+3. Query Space places the request in an execution group, alone or with
+   compatible requests.
+4. This owner binds the plan to the access issued for the assembly and runs it
+   once.
+5. Method Query Source visits only `T`'s MethodDefs in metadata order, reads a
+   body only when the declaration does not settle the answer, and stops at the
+   first evidence.
+6. The execution publishes the answer with source and producer receipts that
+   show the work stayed within `T`.
+
 Method Query Source is therefore one source under this operation, not its
 planner. It reads only what the plan declares, and receipts what it reads.
 How each layer and each execution-scoped support is acquired and shared across
 lanes is owned by [Method Query Source](method-query-source.md#depth).
 
-Each Library Body Analysis role moves to one of those owners:
-
-| Library Body Analysis role | Target owner |
-| --- | --- |
-| Feature selection (`LibraryBodyAnalysisFeatures`) | Producer declarations in Producer Planning, grouped by Query Space |
-| One whole-assembly MethodDef walk | Method Query Source breadth and traversal, narrowed to the requested scope |
-| Body, local-signature, and module-lookup acquisition | Method Query Source `Body` depth (the managed body and its local-signature handle) and declared shared lookup support (module lookup), acquired on demand; local-signature decode stays with the producer that reads it |
-| Eager method map and direct-call target resolution | Method Query Source `CallTargets` support over the shared `SameModuleMethodResolver` ([#8700](https://github.com/richlander/dotnet-inspect/issues/8700)), then the `Calls` layer ([#9868](https://github.com/richlander/dotnet-inspect/issues/9868)) |
-| Declared-source and generated-body publication | Method Query Source declared expansion and the declared-source relation ([#9864](https://github.com/richlander/dotnet-inspect/issues/9864)) |
-| Safety, allocation, optimization, leverage, call-graph, and the other hub producers | Focused producers on Producer Planning, each executed through this owner |
-| The aggregate result and `LibraryBodyIndex` (retired) | Focused, declaration-keyed results in `AssemblyAnalysisExecution` |
-| Stage participation receipt | Method Query Source receipts plus Producer Planning `WorkReceipt` |
-| `LibraryBodyAnalysisService` | `AssemblyAnalysisService` |
-
-Producers and their consumers move one at a time under the drain rule in
-[Exact-member scoped producers](#exact-member-scoped-producers). A role leaves
-Library Body Analysis when its last consumer has moved. Moving never wraps
-`LibraryBodyAnalysisBuilder.Build` or filters its aggregate.
+One legacy service still combines these stages;
+[Role map](#role-map) records where each of its roles moves.
 
 ## Contract shape
 
@@ -347,6 +348,32 @@ Migration uses a strangler:
 A migrated producer computes its focused result from its declaration and
 visits. Filtering a broad legacy aggregate after construction does not count
 as migration.
+
+### Role map
+
+Library Body Analysis combines the stages of the
+[Analysis stack](#analysis-stack) in one service. It chooses what to compute
+from a feature set, walks every MethodDef once, builds its derived structures
+in one execution for the selected features, and publishes the results from
+that one execution. The retired `LibraryBodyIndex` was an aggregate facade over
+those results. Each role moves to its stage owner:
+
+| Library Body Analysis role | Target owner |
+| --- | --- |
+| Feature selection (`LibraryBodyAnalysisFeatures`) | Producer declarations in Producer Planning, grouped by Query Space |
+| One whole-assembly MethodDef walk | Method Query Source breadth and traversal, narrowed to the requested scope |
+| Body, local-signature, and module-lookup acquisition | Method Query Source `Body` depth (the managed body and its local-signature handle) and declared shared lookup support (module lookup), acquired on demand; local-signature decode stays with the producer that reads it |
+| Eager method map and direct-call target resolution | Method Query Source `CallTargets` support over the shared `SameModuleMethodResolver` ([#8700](https://github.com/richlander/dotnet-inspect/issues/8700)), then the `Calls` layer ([#9868](https://github.com/richlander/dotnet-inspect/issues/9868)) |
+| Declared-source and generated-body publication | Method Query Source declared expansion and the declared-source relation ([#9864](https://github.com/richlander/dotnet-inspect/issues/9864)) |
+| Safety, allocation, optimization, leverage, call-graph, and the other hub producers | Focused producers on Producer Planning, each executed through this owner |
+| The aggregate result and `LibraryBodyIndex` (retired) | Focused, declaration-keyed results in `AssemblyAnalysisExecution` |
+| Stage participation receipt | Method Query Source receipts plus Producer Planning `WorkReceipt` |
+| `LibraryBodyAnalysisService` | `AssemblyAnalysisService` |
+
+Producers and their consumers move one at a time under the drain rule in
+[Exact-member scoped producers](#exact-member-scoped-producers). A role leaves
+Library Body Analysis when its last consumer has moved. Moving never wraps
+`LibraryBodyAnalysisBuilder.Build` or filters its aggregate.
 
 ### Exact-member scoped producers
 
