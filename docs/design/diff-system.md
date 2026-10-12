@@ -23,8 +23,12 @@ Focused owners keep their contracts:
   projection](version-resolution.md#version-window-projection);
 - [command transition model](command-transition-model.md) keeps the analysis
   catalog, analysis selection and the per-analysis outcome contract;
-- [package endpoint scope](package-endpoint-scope.md) keeps how one package
-  version opens as an inspection scope; and
+- [package endpoint scope](package-endpoint-scope.md) keeps how one exact
+  package version opens as an inspection scope, and
+  [PackageHouse](package-house.md#version-population-settlement) keeps how a
+  population address opens as a cell;
+- [package-backed Platform realization](package-backed-platform-realization.md)
+  keeps how a Platform endpoint opens; and
 - presentation owners such as [Comparison document](comparison-document.md)
   and [Library API diff presentation](library-api-diff-presentation.md) keep
   lowering.
@@ -72,16 +76,18 @@ comparison.
 | Layer | Owns | Assemblies |
 | --- | --- | --- |
 | **1. Comparison kernels** | Pairwise producers over two images or bodies, and the infrastructure they share: correspondence of Types and Members across two images, the axis state vocabulary (`Changed`, `Unchanged`, `Indeterminate`, `NotCompared`) and how states combine across steps, and producer-internal slicing that yields under a work bound | `ILInspector.Metadata`, `ILInspector.ILDiff`, `ILInspector.Research`, `ILInspector.Decompiler` |
-| **2. Selection and acquisition** | Version selection (exact pairs, ranges, populations, version windows), PackageHouse cells, the package endpoint scope, and compile-asset correspondence across versions | `DotnetInspector.Packages`, `DotnetInspector.PackageHouse.*`, `PackageEndpointScope` in `DotnetInspector.PackageQueries` |
-| **3. Results and presentation** | Each content owner's result contracts, such as the per-analysis outcomes, `DiffHistoryOutcome` and Library API Diff outcomes, and their lowering to portable documents, JSON and Markout | `DotnetInspector.Sections`, `DotnetInspector.Queries`, `DotnetInspector.Presentation` |
+| **2. Selection, acquisition and queries** | Version selection (exact pairs, ranges, populations, version windows), PackageHouse cells, the package endpoint scope, Platform realization, the package Root and Workspace, assembly-context queries over participants, and compile-asset correspondence across versions | `DotnetInspector.Packages`, `DotnetInspector.PackageHouse.*`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.PlatformHouse.*` |
+| **3. Results and presentation** | Each content owner's result contracts, such as the per-analysis outcomes, `DiffHistoryOutcome` and Library API Diff outcomes, and their lowering to portable documents, JSON and Markout | `DotnetInspector.Sections`, the result contracts in `DotnetInspector.ResearchSections`, `DotnetInspector.Presentation` |
 | **4. Diff system** | The diff request, the diff operation, its two execution modes, Library pairing, analysis and population selection, and assembling each request's result from layer 3 contracts | `DotnetInspector.Diff` (new), absorbing orchestration now in `DotnetInspector.PackageQueries`, `DotnetInspector.ResearchSections`, `DotnetInspector.Presentation` and both hosts |
 | **5. Hosts** | Parsing and routing (CLI); scheduling, caching per page, and rendering (browser) | `DotnetInspect.Cli`, `DotnetInspect.Web*`, `inspect-web` |
 
 Each layer depends only on layers above it in the table, so the diff system
 references result contracts and Presentation, and Presentation never
-references the diff system. This matches today's references, where
-`DotnetInspector.ResearchSections` already references
-`DotnetInspector.Presentation`. Presentation lowers results and never
+references the diff system. This matches today's references:
+`DotnetInspector.PackageQueries` references `DotnetInspector.Queries`,
+`DotnetInspector.Sections` references both, `DotnetInspector.Presentation`
+references `DotnetInspector.Queries` and `DotnetInspector.Sections`, and
+`DotnetInspector.ResearchSections` references `DotnetInspector.Presentation`. Presentation lowers results and never
 orchestrates. Hosts reference the diff system and Presentation, and nothing in
 a host chooses versions, pairs Libraries, acquires endpoints for a comparison,
 or combines comparison results.
@@ -123,6 +129,9 @@ A `DiffRequest` names:
 
 - **Subject:** a Package with a framework, a Library, a Type, or a Member.
   Identity uses the existing portable currencies.
+- **Endpoint kind:** package coordinates, Platform coordinates, or local
+  files. Version windows and History populations apply to package endpoints;
+  Platform and local-file requests name an exact pair.
 - **Versions:** exactly one of
   - an exact pair, Before and After;
   - a version window, a `PackageVersionWindowPolicy` and depth, projected by
@@ -145,18 +154,28 @@ already define.
 
 ### Operation
 
-`DiffOperation.ExecuteAsync(request, house, cancellationToken)` runs every
-diff. The host supplies its PackageHouse, so acquisition authority stays with
-the host while the decisions stay in the operation. Every point opens through
-one seam, the [package endpoint scope](package-endpoint-scope.md): one exact
-coordinate, one framework and one asset demand, realized through the House,
-in any host. The operation:
+`DiffOperation.ExecuteAsync(request, acquisition, cancellationToken)` runs
+every diff. The host supplies its acquisition capabilities: its PackageHouse,
+its source operation lease and settlement root, and its population cell
+executor. Acquisition authority therefore stays with the host, while every
+decision stays in the operation. Each point opens through the existing seam
+for its kind, and each seam keeps its owner:
+
+| Point | Opens through |
+| --- | --- |
+| An exact package pin, including a request's pinned current version | The [package endpoint scope](package-endpoint-scope.md) |
+| A population address, such as a window or History point other than the current version | Its prepared cell execution, issued through the retained discovery's `SelectCandidate`, as [PackageHouse](package-house.md#version-population-settlement) and the [version window projection](version-resolution.md#version-window-projection) require |
+| A Platform endpoint | [Package-backed Platform realization](package-backed-platform-realization.md) |
+| A local file | A direct load, with no scope |
+
+The operation:
 
 1. resolves the request's versions into a population and its initial points;
-2. opens each point as an endpoint scope, reusing a scope that two steps or
-   two requests share;
+2. opens each point through its seam, reusing an opened point that two steps
+   or two requests share;
 3. in paired mode, pairs Libraries across each step through one
-   correspondence query;
+   correspondence query; a request that names a compile asset pins it on the
+   current point, and the query finds its counterpart on every other point;
 4. runs the content in one of two execution modes, where the per-point mode
    may choose further points from observed results, as History's adaptive
    methodology does; and
@@ -183,9 +202,10 @@ in the shared inspection envelope:
 
 - a Diff History request returns `InspectionEnvelope<DiffHistoryOutcome>`,
   including its Count component, as [Diff History](diff-history.md) owns it;
-- Library-scope History over Fast Diff returns the Library-scope Document that
-  [Diff History](diff-history.md#library-scope-history-over-fast-diff) owns;
-  and
+- Library-scope History over Fast Diff returns
+  `InspectionEnvelope<DiffHistoryOutcome>` whose Document carries the window,
+  as [Diff History](diff-history.md#library-scope-history-over-fast-diff) owns
+  it; and
 - a pair or window request over the analysis catalog returns the per-analysis
   outcomes that the [command transition
   model](command-transition-model.md#content-and-failure) owns, one set per
@@ -223,21 +243,21 @@ first, so later steps retire duplicates rather than add adapters.
 | --- | --- | --- |
 | 1 | This design | None |
 | 2 | Create `DotnetInspector.Diff` with `DiffRequest` and `DiffOperation`. Move Diff History's orchestration into it as the per-point mode, returning `DiffHistoryOutcome` unchanged. `diff --history` calls it. History's lowering moves from the CLI host into Presentation. | `DiffHistoryInspector`, `DiffHistoryMethodology` and History request types in `PackageQueries`; `DiffHistoryInspection` in `DotnetInspector.Sections`; `DiffHistoryOutput` and `DiffHistoryJsonOutput` in the CLI |
-| 3 | Every point opens through the package endpoint scope, in both hosts, finishing [package endpoint scope](package-endpoint-scope.md#adoption) adoption. The browser gains the scope; History's cell executor becomes the scope. | `ApiSurfaceEndpointResolver` diff routes; `PackageEndpointDiffSession`; the browser's per-export `OpenScopeAsync` pairs; the CLI-only `IPackageHouseVersionPopulationCellExecutor` implementation |
+| 3 | Every point opens through its kind's seam, in both hosts, finishing [package endpoint scope](package-endpoint-scope.md#adoption) adoption. The browser gains the endpoint scope and a population cell executor; both hosts share one Root and Workspace composition behind the two seams. Prerequisites: the [package cache policy](package-cache-policy.md) decision that endpoint scope adoption names, and Platform endpoints from Platform realization. | `ApiSurfaceEndpointResolver` diff routes; `PackageEndpointDiffSession`; the browser's per-export `OpenScopeAsync` pairs; the duplicate Root and Workspace composition in the CLI's cell executor |
 | 4 | Add the paired-steps mode and version-window requests. Run Fast Diff as a paired producer, with its slicing driven by the operation. Rename Fast Diff steps to slices. | The browser's own Fast Diff slice loop in `LibraryFastDiffExports` |
 | 5 | One Library correspondence query for paired-mode steps, owned by [compile-asset correspondence](package-asset-selection-correspondence.md#comparison-counterparts). Per-point focus resolution stays History's rule. | `LibraryApiDiffRunner`'s `.Single()` pairing; per-export `FindComparisonAsset` calls |
 | 6 | Move the analysis-set runner and its single input builder into the operation. Single-Library API Diff has one terminal. | `RunAnalysisSet`'s separate input builder; `LibraryApiDiffRunner` and `LibraryApiDiffInspection` as a separate terminal |
 | 7 | Member body content uses one selected-population request | `MemberBodyDiffInspection` as a browser-only path; CLI Implementation Diff's separate population |
 | 8 | Browser exports become thin adapters over the operation; the background cue requests window policies | TypeScript version choice (`resolveEffectiveDiffTarget` choosing versions); per-export pairing and aggregation code; the whole-Library API Diff behind the one-Type cue once Fast Diff's Type level lands |
-| 9 | CLI `diff` routes collapse onto the operation; the three command-owned routes are owned here | Command-owned routes in the [adoption census](diff-command-adoption-census.md) |
+| 9 | CLI `diff` routes, including Platform and local-file diff, collapse onto the operation; the three command-owned routes are owned here | Command-owned routes in the [adoption census](diff-command-adoption-census.md) |
 | 10 | Align documents: Fast Diff's adoption baselines, the census's analysis-set status, and each focused owner's orchestration claims | Stale claims |
 
 [#9920](https://github.com/richlander/dotnet-inspect/issues/9920)'s remaining
 slices consume this system: its Library cue over a window needs steps 4 and 8,
 its Type compare rows need step 4 and Fast Diff's Type level, its compare
 controls need step 8, and its CLI `diff --history` at Library scope needs steps
-2 and 4. Its pinned current version is opened through the endpoint scope by
-step 3. The version window projection
+2 and 4. Its pinned current version opens through the endpoint scope, and its
+other points through their cells, from step 3. The version window projection
 ([#9954](https://github.com/richlander/dotnet-inspect/pull/9954)) is version
 selection and stays in layer 2.
 
@@ -250,7 +270,9 @@ by the step that establishes it:
   browser's managed host;
 - an exact-pair request and the corresponding one-step window produce the same
   step result;
-- a point that two steps share opens one endpoint scope;
+- a point that two steps share opens once;
+- a population address opens only through its candidate-bound cell, and only
+  the pinned current version opens through its exact pin;
 - a Diff History request returns the same `DiffHistoryOutcome`, including
   Count, before and after step 2;
 - a failed step is never combined as `Unchanged`;
