@@ -22,7 +22,7 @@ import type {
   OperationId,
 } from "./operation-authority.ts";
 
-export const LIBRARY_FAST_DIFF_SCHEMA_VERSION = 2;
+const LIBRARY_FAST_DIFF_SCHEMA_VERSION = 2;
 
 export interface LibraryFastDiffBaseline {
   readonly packageId: string;
