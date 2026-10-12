@@ -314,11 +314,8 @@ public sealed class PackageVersionVector
                 return parsed;
             })
             .ToArray();
-        var versions = parsedVersions
-            .Where((version, index) => !parsedVersions
-                .Take(index)
-                .Any(previous => VersionComparer.Equals(previous, version)))
-            .ToArray();
+        var seen = new HashSet<NuGetVersion>(VersionComparer);
+        var versions = parsedVersions.Where(seen.Add).ToArray();
 
         if (policy == PackageVersionPopulationPolicy.ExactEndpoints)
         {

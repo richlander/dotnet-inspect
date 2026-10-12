@@ -130,7 +130,7 @@ public sealed class PackageVersionWindow
         {
             PackageVersionWindowPolicy.SupplyChain => [.. candidates.TakeLast(depth)],
             PackageVersionWindowPolicy.ApiEvolution => LowerMajorRepresentatives(
-                packageId, candidates, admitted, current, includePrerelease, depth),
+                packageId, candidates, current, includePrerelease, depth),
             _ => throw new ArgumentOutOfRangeException(nameof(policy)),
         };
         if (earlier.Length == 0)
@@ -156,25 +156,32 @@ public sealed class PackageVersionWindow
     static NuGetVersion[] LowerMajorRepresentatives(
         string packageId,
         NuGetVersion[] candidates,
-        string[] admitted,
         NuGetVersion current,
         bool includePrerelease,
         int depth)
     {
-        if (candidates[0].Major >= current.Major)
+        HashSet<int> majors =
+        [
+            .. candidates
+                .Select(version => version.Major)
+                .Where(major => major < current.Major)
+                .Distinct()
+                .OrderDescending()
+                .Take(depth),
+        ];
+        NuGetVersion[] lower = [.. candidates.Where(version => majors.Contains(version.Major))];
+        if (lower.Length == 0)
             return [];
 
         PackageVersionVector all = PackageVersionVector.Create(
-            PackageVersionRange.Create(packageId, candidates[0], current),
-            admitted,
+            PackageVersionRange.Create(packageId, lower[0], lower[^1]),
+            [.. lower.Select(version => version.ToFullString())],
             includePrerelease);
         return
         [
             .. all.ProjectMajorRepresentatives(
                     PackageVersionMajorRepresentativePolicy.LatestStable)
                 .Addresses
-                .Where(address => address.Version.Major < current.Major)
-                .TakeLast(depth)
                 .Select(address => address.Version),
         ];
     }
