@@ -212,9 +212,36 @@ public class StructReceiverInliningPassTests
             // Left operand (an effectful call) evaluates before the receiver read.
             new Return(new Comparison(ComparisonKind.Equal, false, effect, Value(new LoadLocalAddress(0, S)))));
 
+        RunPass(function);
+
+        Assert.Equal(1, StoreCount(function, 0));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void LateBarrierAfterCarrierBeforeReceiver_IsNotFolded()
+    {
+        var effect = new Call(new MethodRef(Holder, "Effect", Int32, [], HasThis: false), isVirtual: false, []);
+        var function = BuildFunction(
+            new StoreStackSlot(256, BooleanCount()),
+            new StoreLocal(0, S, Inner(new LoadArgument(0, "outer", Outer))),
+            new Return(new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadStackSlot(256, Int32),
+                new Binary(
+                    BinaryKind.Add,
+                    isChecked: false,
+                    isUnsigned: false,
+                    effect,
+                    Value(new LoadLocalAddress(0, S))))));
+
         RunLatePass(function);
 
         Assert.Equal(1, StoreCount(function, 0));
+        Assert.Single(function.Descendants.OfType<LoadLocalAddress>());
+        Assert.Single(function.Descendants.OfType<LoadStackSlot>());
         function.CheckInvariant();
     }
 
