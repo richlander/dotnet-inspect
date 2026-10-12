@@ -216,12 +216,11 @@ steps back from A. It defaults to 1, and the typed request rejects any n below
 | `SupplyChain` | What changed in the releases I would take? | The n highest candidates strictly below A, then A | API and Body on every step |
 | `ApiEvolution` | How did the API reach its current shape? | The `Latest` major representative of each of the n highest majors below A's, then A | API on every step |
 
-`Latest` is the existing major representative: the highest candidate in that
-major, whatever its minor. When a prerelease A admits prerelease candidates, a
-lower major is still represented by its highest stable candidate, and by a
-prerelease only when that major has no stable one. Within A's own major, A
-stands for that major, so both policies end at A. For a package whose current
-version is `10.0.9`, depth 3 gives:
+A lower major's representative is `Latest` over that major's stable candidates:
+its highest stable version, whatever its minor. Only a major with no stable
+candidate falls back to its highest prerelease, which a prerelease A admits.
+Within A's own major, A stands for that major, so both policies end at A. For a
+package whose current version is `10.0.9`, depth 3 gives:
 
 | Policy | Points |
 | --- | --- |
@@ -240,13 +239,12 @@ before A is a typed non-success that names the policy, not a one-point History.
 When the listing is not authoritative, the projection is a typed non-success,
 never a window built from partial evidence.
 
-The two policies are independent History requests. A host that asks for both
-submits them as two associations of one
-[request set](query-space-composition.md#request-sets-and-source-plan-collapse).
-The planner may share the acquisition of A, and of any version both windows name,
-but not a body-decoding traversal, so `ApiEvolution` stays in the metadata cost
-class. Neither result derives from the other, and a failure in one leaves the
-other's outcome intact. That adoption belongs to
+The two policies are independent History requests, not one merged window.
+Neither result derives from the other, and a failure in one leaves the other's
+outcome intact. A host that asks for both composes them under [Query Space
+composition](query-space-composition.md#request-sets-and-source-plan-collapse),
+whose rules, including the cost class of a request set, decide what they may
+share. That adoption belongs to
 [#9920](https://github.com/richlander/dotnet-inspect/issues/9920).
 
 A is the caller's bound exact coordinate, so it is never a candidate and need
@@ -284,8 +282,7 @@ candidate is represented by it; a depth below 1, which the request rejects; an
 unlisted candidate that is skipped; an unlisted A and an A absent from the
 listing, each acquired through its exact pin and ending a vector whose other
 points are listed and acquired through `SelectCandidate`; both policies in one
-request set sharing A's acquisition with independent outcomes; and a
-non-authoritative listing.
+host request with independent outcomes; and a non-authoritative listing.
 
 ## Resolution receipt
 
