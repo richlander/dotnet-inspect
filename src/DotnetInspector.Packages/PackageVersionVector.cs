@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using NuGet.Versioning;
 
 namespace DotnetInspector.Packages;
@@ -28,9 +29,6 @@ public sealed record PackageVersionRange
 {
     PackageVersionRange(string packageId, NuGetVersion start, NuGetVersion end)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
-        ArgumentNullException.ThrowIfNull(start);
-        ArgumentNullException.ThrowIfNull(end);
         PackageId = packageId;
         Start = start;
         End = end;
@@ -42,12 +40,6 @@ public sealed record PackageVersionRange
     public string StartVersion => Start.ToNormalizedString();
     public string EndVersion => End.ToNormalizedString();
     public bool IncludesPrerelease => Start.IsPrerelease || End.IsPrerelease;
-
-    internal static PackageVersionRange Create(
-        string packageId,
-        NuGetVersion start,
-        NuGetVersion end)
-        => new(packageId, start, end);
 
     /// <summary>
     /// Parses a package range. A false result with no error means the reference is not a range.
@@ -314,24 +306,6 @@ public sealed class PackageVersionVector
                 return parsed;
             })
             .ToArray();
-        return Create(range, parsedVersions, includePrerelease, policy);
-    }
-
-    /// <summary>
-    /// Creates a vector from already parsed versions, with the same admission
-    /// and ordering as the text overload.
-    /// </summary>
-    internal static PackageVersionVector Create(
-        PackageVersionRange range,
-        IReadOnlyList<NuGetVersion> parsedVersions,
-        bool includePrerelease,
-        PackageVersionPopulationPolicy policy = PackageVersionPopulationPolicy.ExactEndpoints)
-    {
-        ArgumentNullException.ThrowIfNull(range);
-        ArgumentNullException.ThrowIfNull(parsedVersions);
-        if (!Enum.IsDefined(policy))
-            throw new ArgumentOutOfRangeException(nameof(policy));
-
         var seen = new HashSet<NuGetVersion>(VersionComparer);
         var versions = parsedVersions.Where(seen.Add).ToArray();
 
@@ -375,6 +349,33 @@ public sealed class PackageVersionVector
             .ToImmutableArray();
 
         return new PackageVersionVector(range.PackageId, range.Start, range.End, addresses);
+    }
+
+    /// <summary>
+    /// Creates an ascending vector from versions its caller already admitted,
+    /// deduplicated, and ordered, such as a version window's population.
+    /// </summary>
+    internal static PackageVersionVector CreateOrdered(
+        string packageId,
+        ReadOnlySpan<NuGetVersion> ascending)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        if (ascending.IsEmpty)
+            throw new ArgumentException("An ordered vector requires a version.", nameof(ascending));
+
+        var addresses = ImmutableArray.CreateBuilder<PackageVersionAddress>(ascending.Length);
+        for (int position = 0; position < ascending.Length; position++)
+        {
+            Debug.Assert(position == 0
+                || VersionComparer.Compare(ascending[position - 1], ascending[position]) < 0);
+            addresses.Add(new PackageVersionAddress(position, ascending[position]));
+        }
+
+        return new PackageVersionVector(
+            packageId,
+            ascending[0],
+            ascending[^1],
+            addresses.MoveToImmutable());
     }
 
     /// <summary>

@@ -218,6 +218,23 @@ public sealed class PackageVersionWindowTests
     }
 
     [Theory]
+    [InlineData("10.0.9", 3)]
+    [InlineData("10.0.0", 6)]
+    [InlineData("8.0.18", 1)]
+    public void ApiEvolutionPointsAreThePopulationsLatestStableRepresentatives(string current, int depth)
+    {
+        string[] listing = [.. Releases, "9.1.0-preview.1", "8.1.0-rc.1"];
+        PackageVersionWindow window = Project(PackageVersionWindowPolicy.ApiEvolution, depth, current, listing);
+
+        Assert.Equal(
+            window.Points[..^1],
+            window.Population
+                .ProjectMajorRepresentatives(PackageVersionMajorRepresentativePolicy.LatestStable)
+                .Addresses
+                .Where(address => address.Version.Major < window.Current.Version.Major));
+    }
+
+    [Theory]
     [InlineData(PackageVersionWindowPolicy.SupplyChain)]
     [InlineData(PackageVersionWindowPolicy.ApiEvolution)]
     public void NonAuthoritativeListingHasNoWindow(PackageVersionWindowPolicy policy)

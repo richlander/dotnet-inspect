@@ -53,6 +53,9 @@ internal sealed record BrowserPackageVersionInventory(
                 null);
         }
 
+        NuGetVersion[] windowCandidates = PackageVersionWindow.Candidates(
+            current,
+            candidates.Select(row => (row.Version, row.Candidate.Listed)));
         string[] supplyChain = EarlierPoints(PackageVersionWindowPolicy.SupplyChain);
         string[] apiEvolution = EarlierPoints(PackageVersionWindowPolicy.ApiEvolution);
         return new(
@@ -72,17 +75,15 @@ internal sealed record BrowserPackageVersionInventory(
                 policy,
                 MaximumWindowDepth,
                 current,
-                candidates.Select(row => (row.Version, row.Candidate.Listed)),
-                listingIsAuthoritative: true,
+                windowCandidates,
                 out PackageVersionWindow? window,
                 out _)
                 ? [.. window!.Points[..^1].Reverse().Select(point => Original(point.Version))]
                 : [];
 
+        // Window points are the listing's own parsed versions.
         string Original(NuGetVersion version) => candidates
-            .First(row =>
-                row.Candidate.Listed
-                && VersionComparer.VersionRelease.Equals(row.Version, version))
+            .First(row => ReferenceEquals(row.Version, version))
             .Candidate.Version;
     }
 }

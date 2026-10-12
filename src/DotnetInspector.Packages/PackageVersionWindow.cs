@@ -88,123 +88,128 @@ public sealed class PackageVersionWindow
         out PackageVersionWindow? window,
         out PackageVersionWindowFailure failure)
     {
+        ArgumentNullException.ThrowIfNull(current);
         ArgumentNullException.ThrowIfNull(listing);
-        return TryProject(
-            packageId,
-            policy,
-            depth,
+        if (!listingIsAuthoritative)
+        {
+            Validate(packageId, policy, depth);
+            window = null;
+            failure = PackageVersionWindowFailure.ListingNotAuthoritative;
+            return false;
+        }
+
+        NuGetVersion[] candidates = Candidates(
             current,
-            listing.Select(info => (NuGetVersion.Parse(info.Version), info.Listed)),
-            listingIsAuthoritative,
-            out window,
-            out failure);
+            listing
+                .Select(info => (Version: NuGetVersion.Parse(info.Version), info.Listed))
+                .OrderByDescending(row => row.Version, ReleaseOrder));
+        return TryProject(packageId, policy, depth, current, candidates, out window, out failure);
     }
 
     /// <summary>
-    /// Projects a window from an already parsed listing, for a caller that
-    /// parsed it for its own use.
+    /// The window candidates, ascending, from a listing already in descending
+    /// release order. Equal releases keep their first listed row.
+    /// </summary>
+    internal static NuGetVersion[] Candidates(
+        NuGetVersion current,
+        IEnumerable<(NuGetVersion Version, bool Listed)> descending)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(descending);
+
+        var candidates = new List<NuGetVersion>();
+        foreach ((NuGetVersion version, bool listed) in descending)
+        {
+            if (!listed
+                || (!current.IsPrerelease && version.IsPrerelease)
+                || VersionComparer.VersionRelease.Compare(version, current) >= 0
+                || (candidates.Count > 0
+                    && VersionComparer.VersionRelease.Equals(candidates[^1], version)))
+            {
+                continue;
+            }
+
+            candidates.Add(version);
+        }
+
+        candidates.Reverse();
+        return [.. candidates];
+    }
+
+    /// <summary>
+    /// Projects a window over candidates from <see cref="Candidates"/>, which
+    /// come from an authoritative listing.
     /// </summary>
     internal static bool TryProject(
         string packageId,
         PackageVersionWindowPolicy policy,
         int depth,
         NuGetVersion current,
-        IEnumerable<(NuGetVersion Version, bool Listed)> listing,
-        bool listingIsAuthoritative,
+        NuGetVersion[] candidates,
         out PackageVersionWindow? window,
         out PackageVersionWindowFailure failure)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        Validate(packageId, policy, depth);
         ArgumentNullException.ThrowIfNull(current);
-        ArgumentNullException.ThrowIfNull(listing);
-        if (!Enum.IsDefined(policy))
-            throw new ArgumentOutOfRangeException(nameof(policy));
-        ArgumentOutOfRangeException.ThrowIfLessThan(depth, 1);
+        ArgumentNullException.ThrowIfNull(candidates);
 
         window = null;
-        failure = default;
-        if (!listingIsAuthoritative)
-        {
-            failure = PackageVersionWindowFailure.ListingNotAuthoritative;
-            return false;
-        }
-
-        NuGetVersion[] candidates =
-        [
-            .. listing
-                .Where(row => row.Listed)
-                .Select(row => row.Version)
-                .Where(version =>
-                    (current.IsPrerelease || !version.IsPrerelease)
-                    && VersionComparer.VersionRelease.Compare(version, current) < 0)
-                .Distinct<NuGetVersion>(VersionComparer.VersionRelease)
-                .Order(ReleaseOrder),
-        ];
-        if (candidates.Length == 0)
-        {
-            failure = PackageVersionWindowFailure.NoEarlierVersion;
-            return false;
-        }
-
-        NuGetVersion[] admitted = [.. candidates, current];
-        bool includePrerelease = current.IsPrerelease;
-        NuGetVersion[] earlier = policy switch
-        {
-            PackageVersionWindowPolicy.SupplyChain => [.. candidates.TakeLast(depth)],
-            PackageVersionWindowPolicy.ApiEvolution => LowerMajorRepresentatives(
-                packageId, candidates, current, includePrerelease, depth),
-            _ => throw new ArgumentOutOfRangeException(nameof(policy)),
-        };
+        failure = PackageVersionWindowFailure.NoEarlierVersion;
+        int[] earlier = policy == PackageVersionWindowPolicy.SupplyChain
+            ? [.. Enumerable.Range(0, candidates.Length).TakeLast(depth)]
+            : LowerMajorRepresentatives(candidates, current, depth);
         if (earlier.Length == 0)
-        {
-            failure = PackageVersionWindowFailure.NoEarlierVersion;
             return false;
-        }
 
-        PackageVersionVector population = PackageVersionVector.Create(
-            PackageVersionRange.Create(packageId, earlier[0], current),
-            admitted,
-            includePrerelease);
+        int first = earlier[0];
+        PackageVersionVector population = PackageVersionVector.CreateOrdered(
+            packageId,
+            [.. candidates.AsSpan(first), current]);
         ImmutableArray<PackageVersionAddress> points =
         [
-            .. earlier.Select(version => population.Addresses.Single(
-                address => VersionComparer.VersionRelease.Equals(address.Version, version))),
+            .. earlier.Select(index => population.Addresses[index - first]),
             population.Addresses[^1],
         ];
         window = new PackageVersionWindow(policy, depth, population, points);
         return true;
     }
 
-    static NuGetVersion[] LowerMajorRepresentatives(
-        string packageId,
+    // The LatestStable representative of each of the n highest majors below
+    // the current version's, as ascending candidate indexes: the highest
+    // stable version in the major, else its highest prerelease.
+    static int[] LowerMajorRepresentatives(
         NuGetVersion[] candidates,
         NuGetVersion current,
-        bool includePrerelease,
         int depth)
     {
-        HashSet<int> majors =
-        [
-            .. candidates
-                .Select(version => version.Major)
-                .Where(major => major < current.Major)
-                .Distinct()
-                .OrderDescending()
-                .Take(depth),
-        ];
-        NuGetVersion[] lower = [.. candidates.Where(version => majors.Contains(version.Major))];
-        if (lower.Length == 0)
-            return [];
+        var representatives = new List<int>(depth);
+        int index = candidates.Length - 1;
+        while (index >= 0 && candidates[index].Major >= current.Major)
+            index--;
 
-        PackageVersionVector all = PackageVersionVector.Create(
-            PackageVersionRange.Create(packageId, lower[0], lower[^1]),
-            lower,
-            includePrerelease);
-        return
-        [
-            .. all.ProjectMajorRepresentatives(
-                    PackageVersionMajorRepresentativePolicy.LatestStable)
-                .Addresses
-                .Select(address => address.Version),
-        ];
+        while (index >= 0 && representatives.Count < depth)
+        {
+            int major = candidates[index].Major;
+            int representative = index;
+            while (index >= 0 && candidates[index].Major == major)
+            {
+                if (candidates[representative].IsPrerelease && !candidates[index].IsPrerelease)
+                    representative = index;
+                index--;
+            }
+
+            representatives.Add(representative);
+        }
+
+        representatives.Reverse();
+        return [.. representatives];
+    }
+
+    static void Validate(string packageId, PackageVersionWindowPolicy policy, int depth)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        if (!Enum.IsDefined(policy))
+            throw new ArgumentOutOfRangeException(nameof(policy));
+        ArgumentOutOfRangeException.ThrowIfLessThan(depth, 1);
     }
 }
