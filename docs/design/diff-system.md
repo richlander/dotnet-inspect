@@ -76,14 +76,17 @@ comparison.
 | Layer | Owns | Assemblies |
 | --- | --- | --- |
 | **1. Comparison kernels** | Pairwise producers over two images or bodies, and the infrastructure they share: correspondence of Types and Members across two images, the axis state vocabulary (`Changed`, `Unchanged`, `Indeterminate`, `NotCompared`) and how states combine across steps, and producer-internal slicing that yields under a work bound | `ILInspector.Metadata`, `ILInspector.ILDiff`, `ILInspector.Research`, `ILInspector.Decompiler` |
-| **2. Selection, acquisition and queries** | Version selection (exact pairs, ranges, populations, version windows), PackageHouse cells, the package endpoint scope, Platform realization, the package Root and Workspace, assembly-context queries over participants, and compile-asset correspondence across versions | `DotnetInspector.Packages`, `DotnetInspector.PackageHouse.*`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.PlatformHouse.*` |
-| **3. Results and presentation** | Each content owner's result contracts, such as the per-analysis outcomes, `DiffHistoryOutcome` and Library API Diff outcomes, and their lowering to portable documents, JSON and Markout | `DotnetInspector.Sections`, the result contracts in `DotnetInspector.ResearchSections`, `DotnetInspector.Presentation` |
-| **4. Diff system** | The diff request, the diff operation, its two execution modes, Library pairing, analysis and population selection, and assembling each request's result from layer 3 contracts | `DotnetInspector.Diff` (new), absorbing orchestration now in `DotnetInspector.PackageQueries`, `DotnetInspector.ResearchSections`, `DotnetInspector.Presentation` and both hosts |
+| **2. Selection, acquisition and queries** | Version selection (exact pairs, ranges, populations, version windows), PackageHouse cells, the package endpoint scope, Platform realization, the package Root and Workspace, assembly-context queries over participants, and compile-asset correspondence across versions | `DotnetInspector.Packages`, `DotnetInspector.PackageHouse.*`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.PlatformHouse.*`, `DotnetInspector.PlatformQueries` |
+| **3. Results and presentation** | Content owners' result contracts, such as the per-analysis outcomes and Library API Diff outcomes, Research-backed queries, and lowering to portable documents, JSON and Markout | `DotnetInspector.Sections`, `DotnetInspector.ResearchQueries`, the result contracts in `DotnetInspector.ResearchSections`, `DotnetInspector.Presentation` |
+| **4. Diff system** | The diff request, the diff operation, its two execution modes, Library pairing, analysis and population selection, and assembling each request's result from layer 3 contracts | `DotnetInspector.Diff` (new), absorbing orchestration now in `DotnetInspector.PackageQueries`, `DotnetInspector.ResearchQueries`, `DotnetInspector.ResearchSections`, `DotnetInspector.Presentation` and both hosts |
 | **5. Hosts** | Parsing and routing (CLI); scheduling, caching per page, and rendering (browser) | `DotnetInspect.Cli`, `DotnetInspect.Web*`, `inspect-web` |
 
 Each layer depends only on layers above it in the table, so the diff system
 references result contracts and Presentation, and Presentation never
-references the diff system. This matches today's references:
+references the diff system. A result contract may live in a lower layer:
+History's `DiffHistoryOutcome` and Document stay in
+`DotnetInspector.PackageQueries`, where Presentation can lower them. This
+matches today's references:
 `DotnetInspector.PackageQueries` references `DotnetInspector.Queries`,
 `DotnetInspector.Sections` references both, `DotnetInspector.Presentation`
 references `DotnetInspector.Queries` and `DotnetInspector.Sections`, and
@@ -172,7 +175,7 @@ The operation:
 
 1. resolves the request's versions into a population and its initial points;
 2. opens each point through its seam, reusing an opened point that two steps
-   or two requests share;
+   of the request share;
 3. in paired mode, pairs Libraries across each step through one
    correspondence query; a request that names a compile asset pins it on the
    current point, and the query finds its counterpart on every other point;
@@ -191,7 +194,14 @@ The two execution modes:
 An exact pair is a request with two points and one step. Diff History's
 existing methodology, including adaptive bisection, surveys and next actions,
 becomes the per-point mode. Library-scope History over Fast Diff is the paired
-mode over a version window. A step's failure keeps its typed outcome, and
+mode over a version window. Sharing across requests, such as a host that asks for both a Supply chain
+and an API evolution window, goes through a
+[request set](query-space-composition.md#request-sets-and-source-plan-collapse).
+The operation's set entry accepts a request set that Query Space composition
+formed, and shares only what that composition admits, including its cost-class
+rule. The operation never shares work between requests on its own.
+
+A step's failure keeps its typed outcome, and
 [History's rule](diff-history.md#window-states) that a failed step is never
 read as `Unchanged` applies in both modes.
 
@@ -270,7 +280,8 @@ by the step that establishes it:
   browser's managed host;
 - an exact-pair request and the corresponding one-step window produce the same
   step result;
-- a point that two steps share opens once;
+- a point that two steps of one request share opens once, and two requests
+  share a point only as their Query Space request set admits;
 - a population address opens only through its candidate-bound cell, and only
   the pinned current version opens through its exact pin;
 - a Diff History request returns the same `DiffHistoryOutcome`, including
