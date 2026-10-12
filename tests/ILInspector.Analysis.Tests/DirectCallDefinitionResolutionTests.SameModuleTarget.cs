@@ -19,6 +19,11 @@ public sealed partial class DirectCallDefinitionResolutionTests
             graph,
             MethodDefinitionRequestSetTests.ProbeCallTargets(
                 [.. synthetic.Image]));
+        // Its semantic identity matches every published MethodIdentity.
+        MethodDefinitionRequestSetTests.AssertSemanticIdentityParity(
+            graph,
+            MethodDefinitionRequestSetTests.ProbeSemanticIdentities(
+                [.. synthetic.Image]));
         return graph.ResolveTarget(Assert.Single(graph.DirectCalls));
     }
 
