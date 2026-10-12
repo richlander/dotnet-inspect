@@ -450,11 +450,11 @@ authority that the root did not grant.
 
 | Root | Admitted evidence | Expansion authority |
 | --- | --- | --- |
-| Remote package ID or coordinate | Exact package identity and manifest dependency groups | Authorized package sources may resolve reachable package manifests up to the requested depth. Explicit `Latest Versions` additionally authorizes depth-independent version discovery for each direct declaration's package ID. |
-| Local `.nupkg` | Validated archive identity and root manifest | Ordinary package-source policy may resolve reachable package dependencies up to the requested depth. Explicit `Latest Versions` additionally authorizes depth-independent version discovery for each direct declaration's package ID. |
-| Direct `.nuspec` | Self-attested manifest identity and dependency groups | The file gesture alone authorizes only that nuspec, so ordinary dependency edges terminate as unresolved boundaries. Explicit `Licenses` additionally authorizes dependency-range resolution and exact manifest acquisition through the configured package sources. Explicit `Latest Versions` additionally authorizes version discovery for each direct declaration's package ID. |
-| `.csproj` or project directory | Existing located `project.assets.json`, with locator provenance | The selected restored graph is traversed without package or project acquisition. Explicit `Licenses` may acquire only the exact manifests named by that graph. Explicit `Latest Versions` may discover versions only for the root's direct declarations. |
-| Direct `project.assets.json` | Exact restored-project facts with direct-assets provenance | The selected restored graph is traversed without package or project acquisition. Explicit `Licenses` may acquire only the exact manifests named by that graph. Explicit `Latest Versions` may discover versions only for the root's direct declarations. |
+| Remote package ID or coordinate | Exact package identity and manifest dependency groups | Authorized package sources may resolve reachable package manifests up to the requested depth. Explicit `Latest Versions` additionally authorizes depth-independent version discovery for each direct declaration's package ID and directory-only acquisition of each resulting Latest coordinate. |
+| Local `.nupkg` | Validated archive identity and root manifest | Ordinary package-source policy may resolve reachable package dependencies up to the requested depth. Explicit `Latest Versions` additionally authorizes depth-independent version discovery for each direct declaration's package ID and directory-only acquisition of each resulting Latest coordinate. |
+| Direct `.nuspec` | Self-attested manifest identity and dependency groups | The file gesture alone authorizes only that nuspec, so ordinary dependency edges terminate as unresolved boundaries. Explicit `Licenses` additionally authorizes dependency-range resolution and exact manifest acquisition through the configured package sources. Explicit `Latest Versions` additionally authorizes version discovery for each direct declaration's package ID and directory-only acquisition of each resulting Latest coordinate. |
+| `.csproj` or project directory | Existing located `project.assets.json`, with locator provenance | The selected restored graph is traversed without package or project acquisition. Explicit `Licenses` may acquire only the exact manifests named by that graph. Explicit `Latest Versions` may discover versions only for the root's direct declarations and acquire only each resulting Latest coordinate's archive directory. |
+| Direct `project.assets.json` | Exact restored-project facts with direct-assets provenance | The selected restored graph is traversed without package or project acquisition. Explicit `Licenses` may acquire only the exact manifests named by that graph. Explicit `Latest Versions` may discover versions only for the root's direct declarations and acquire only each resulting Latest coordinate's archive directory. |
 | Library | Owner-issued assembly identity and direct references | Existing library-reference resolution may follow resolvable references up to the requested depth. |
 | Package prefix | Bounded package-profile roots and their manifest declarations | Profile acquisition authorizes the bounded manifests, not recursive expansion from every match. It grants no version discovery, so `Latest Versions` is rejected for a package-prefix request. |
 | Type | Owner-issued type and hierarchy relationships in the selected scope | Traversal stays within the admitted search scope. |
@@ -796,7 +796,8 @@ interpret the result. `Licenses` is unbounded because it may resolve dependency
 ranges and acquire every exact dependency manifest. `Pruning` is unbounded
 because it may read an installed platform inventory and resolve exact package
 candidates. `Latest Versions` is unbounded because it performs fresh version
-discovery for every distinct direct-declaration package. None of the three
+discovery for every distinct direct-declaration package and reads each distinct
+Latest coordinate's archive directory. None of the three
 enters a verbosity level, including `-v:d`.
 
 The `@Dependencies` category contains `Dependency Hierarchy`, `Dependencies`,
@@ -904,7 +905,7 @@ these roles:
 | --- | --- |
 | Root-set completion, requested and admitted counts, per-root admission, traversal and pruning completion, graph counts, and selected-plan phase completion | Required baseline Content. |
 | `Dependency Hierarchy`, `Dependencies`, `Pruning`, and `Latest Versions` rows | Baseline Content selected by the command contract. |
-| Root, acquisition, declaration, relationship, traversal, pruning, and admitted per-package version-discovery failures | Typed baseline Content; required operational context may also remain in ordinary Diagnostics. |
+| Root, acquisition, declaration, relationship, traversal, pruning, and admitted per-package version-discovery and Latest-compatibility failures | Typed baseline Content; required operational context may also remain in ordinary Diagnostics. |
 | Package root identity, provenance, declaration groups, group selection, restored package nodes, restored edges, processing observations, and their owner-issued phase states | Supplemental Package Dependency Evidence retained in `TEvidence`. |
 | CLI root labels, section membership, row windows, display ordering, and Markout or JSON lowering | Host presentation, not service evidence. |
 | `--offline` rejection or other network failure | Ordinary operation failure, not evidence-only data. |
@@ -1271,6 +1272,8 @@ row, and callers narrow with `--where`.
 | Latest | Highest listed version under the row's prerelease policy. |
 | Behind | `None`, `Major`, `Minor`, `Patch`, `Revision`, or `Prerelease`: the first of major, minor, patch, revision, and prerelease label at which Latest exceeds Current. |
 | Majors Behind | Count of distinct listed major versions above Current's major, through Latest. |
+| Compatibility Target | The request's traversal target framework against which Latest is evaluated. |
+| Latest Compatible | `Yes`, `No`, `NoAssets`, or `Unavailable`: whether Latest has a compile asset slice compatible with the Compatibility Target. |
 | State | `Compared`, `NoCurrentVersion`, `NoListedVersion`, or `DiscoveryFailed` with the receipt's typed failure. |
 
 Current never claims a resolution that did not occur. Package and direct-nuspec
@@ -1292,6 +1295,32 @@ result's admitted listed observations under the same prerelease policy, so all
 three values describe one candidate population, and Current need not be a
 member of it. When Latest does not exceed Current, Behind is `None` and Majors
 Behind is zero.
+
+Latest Compatible answers one question about one version: can Latest be
+consumed by the Compatibility Target? The target is the request's traversal
+target framework policy described in
+[Target framework and restored target selection](#target-framework-and-restored-target-selection):
+the supplied `--tfm`, otherwise `TraversalTargetFrameworkPolicy.ProductDefault`
+(`net11.0`). A project whose framework differs supplies it with `--tfm`. The
+answer is PackageHouse's package-local compile selection, specified by
+[Package asset-selection correspondence](package-asset-selection-correspondence.md),
+evaluated for the target over Latest's validated archive directory. A selected
+compile slice, including a selected explicit empty reference group, is `Yes`; a
+typed no-match against a non-empty slice inventory is `No`; and an empty slice
+inventory, as in a dependency-only or tools package, is `NoAssets` rather than
+an incompatibility claim. The directory is acquired directory-only under the
+shared [package cache policy](package-cache-policy.md), once per distinct
+Latest coordinate, without extracting entry bodies. An acquisition or selection
+failure reports `Unavailable` and adds a typed `Failures` occurrence without
+changing the row's discovery State. Rows without a Latest leave the field
+empty.
+
+Latest Compatible never selects a different version. Current, Latest, and
+Latest Compatible are reported together because Latest alone hides whether the
+target can move to it, while a compatible older version alone hides that
+upstream has moved past the target. Finding the newest compatible version is a
+different question, tracked for `diff` by
+[#9972](https://github.com/richlander/dotnet-inspect/issues/9972).
 
 Each distinct package identity and prerelease policy is discovered once per
 request even when several roots or groups declare it. Latest uses the
@@ -1316,11 +1345,12 @@ usable. A row window reduces rendered rows but not discovery work, failure
 retention, or exit status.
 
 Count projects one row per participating declaration. As for `Licenses`, an
-exact count is rejected when any row reports `DiscoveryFailed`, because its
-version fields are incomplete.
+exact count is rejected when any row reports `DiscoveryFailed` or Latest
+Compatible `Unavailable`, because its version fields are incomplete.
 
 The section reports facts. It does not report publication dates, evaluate
-target-framework compatibility of Latest, recommend an upgrade, evaluate API or
+compatibility of any version other than Latest, find the newest compatible
+version, recommend an upgrade, evaluate API or
 behavioral change between Current and Latest, or modify a project.
 
 ## Partial results, completion, and exit status
@@ -1411,7 +1441,8 @@ uses `TraversalTargetFrameworkPolicy.ProductDefault(net11.0)`. Supplying
 `--tfm` configures the traversal policy as well as the command's existing root
 selection gesture. Candidate-acquired manifests use compatible selection
 against that one traversal target; a selected lower framework never replaces
-the target on a later edge.
+the target on a later edge. `Latest Versions` evaluates Latest Compatible
+against the same traversal target.
 
 This design does not add `--rid`. A restored target selected by existing
 owner policy retains and discloses its RID. A future explicit RID gesture would
@@ -1776,6 +1807,7 @@ targeted Debug-build probe.
 | `Latest Versions` reports `Resolved` only from owner-issued restored associations and `LowerBound` otherwise. | Restored-project and package-root fixtures declaring the same constraint, including an unlisted lower bound, asserting Current and Current Basis, and an open-lower-bound `NoCurrentVersion` row. |
 | Latest, Latest In Major, Behind, and Majors Behind derive from one discovery result. | Fixed version-index fixture spanning several majors, a four-part revision, and prereleases, with stable and prerelease Current values, asserting every field, each Behind value, and exactly one discovery per package identity and prerelease policy across duplicate declarations. |
 | Discovery failure stays visible per package. | Version-service fixtures for unauthorized, not-found, and incomplete discovery, asserting `DiscoveryFailed`, `Failures`, sibling rows, nonzero status, and exact-count rejection; a prerelease-only package with stable Current asserting `NoListedVersion` without a failure; an `--offline` request asserting an ordinary operation failure before discovery; and a package-prefix request asserting rejection before acquisition. |
+| Latest Compatible evaluates only Latest against the traversal target. | Fixtures whose Latest drops the target (`No`, Latest unchanged), keeps it (`Yes`), selects an explicit empty reference group (`Yes`), has no compile slices (`NoAssets`), and fails directory acquisition (`Unavailable`, `Failures`, State unchanged, exact-count rejection); an omitted `--tfm` asserting Compatibility Target `net11.0`; and an instrumented source test asserting exactly one directory-only read per distinct Latest coordinate and no entry-body extraction. |
 | A local `.nupkg` root consumes source options for `Latest Versions`. | Release CLI test selecting only `Latest Versions` over a local package with a local feed source. |
 | Multi-root depth is preserved per root occurrence rather than by one global distance. | Cyclic DAG fixture in which one shared node is reached at different depths from two roots. |
 | A semantic node that is both a transitive child and a later explicit root does not duplicate or suppress either root's occurrence rows. | Depth-asymmetric two-root fixture run in both root orders, asserting independent per-root expansion and equal tree/table/JSON/count cardinality. |
@@ -1803,7 +1835,7 @@ This design does not:
 - apply pruning to dependency graph edges or claim that PackageHouse or
   PlatformHouse execution occurred;
 - report latest versions for transitive dependencies, report publication
-  dates or target-framework compatibility of a latest version, classify
+  dates, find the newest version compatible with a target framework, classify
   build-only asset scope, or recommend upgrades from `Latest Versions`;
 - add a Browser/Wasm command or presentation contract;
 - make package-prefix discovery an exhaustive package universe;
