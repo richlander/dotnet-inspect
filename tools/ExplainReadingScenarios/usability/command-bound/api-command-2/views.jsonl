@@ -1,0 +1,6 @@
+{"source": "common guide", "operation": "guide", "file": "view-01.txt", "bytes": 1845, "sha256": "d83b493486ede755ba8b4cc32424171aa20b35ee4c979d1409adfb6f422d5c6e"}
+{"source": "response-01.out", "operation": "text", "file": "view-02.txt", "bytes": 3307, "sha256": "bb9827a9710b3f84fb446d94fd2690870bf325f951b8caee3e4fb5cf071f122a"}
+{"source": "response-02.out", "operation": "jq: keys", "file": "view-03.txt", "bytes": 14, "sha256": "75064a7bf5bb1f71ed68f579b270af91ca536d23fa443ad3c4e1a1dbbb917171"}
+{"source": "response-02.out", "operation": "jq: .[0]", "file": "view-04.txt", "bytes": 2971, "sha256": "688bb284adc8ff4a7e07fa9b06d188ed81de1a0cf73364886df3f4e14c8f3029"}
+{"source": "response-02.out", "operation": "jq: map({method, class, extended_type, library, overloads, source, source_version, signatures: [.signatures[] | select(test(\"GetFromJsonAsync|PostAsJsonAsync|PutAsJsonAsync\"))]})", "file": "view-05.txt", "bytes": 7325, "sha256": "5f27ed68f473446528e736398d71a433753f2aa5e17d64db85444bc605623acd"}
+{"source": "response-03.out", "operation": "jq: map({method, class, extended_type, library, source, source_version, signatures})", "file": "view-06.txt", "bytes": 2373, "sha256": "e140ff06e0f8a31641496bc75b8e6ef75a3bb86c52037e68553bb89340518864"}
