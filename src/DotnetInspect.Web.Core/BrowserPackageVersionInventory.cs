@@ -72,7 +72,7 @@ internal sealed record BrowserPackageVersionInventory(
                 policy,
                 MaximumWindowDepth,
                 current,
-                document.Versions,
+                candidates.Select(row => (row.Version, row.Candidate.Listed)),
                 listingIsAuthoritative: true,
                 out PackageVersionWindow? window,
                 out _)

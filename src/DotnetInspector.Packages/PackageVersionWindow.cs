@@ -88,6 +88,32 @@ public sealed class PackageVersionWindow
         out PackageVersionWindow? window,
         out PackageVersionWindowFailure failure)
     {
+        ArgumentNullException.ThrowIfNull(listing);
+        return TryProject(
+            packageId,
+            policy,
+            depth,
+            current,
+            listing.Select(info => (NuGetVersion.Parse(info.Version), info.Listed)),
+            listingIsAuthoritative,
+            out window,
+            out failure);
+    }
+
+    /// <summary>
+    /// Projects a window from an already parsed listing, for a caller that
+    /// parsed it for its own use.
+    /// </summary>
+    internal static bool TryProject(
+        string packageId,
+        PackageVersionWindowPolicy policy,
+        int depth,
+        NuGetVersion current,
+        IEnumerable<(NuGetVersion Version, bool Listed)> listing,
+        bool listingIsAuthoritative,
+        out PackageVersionWindow? window,
+        out PackageVersionWindowFailure failure)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(current);
         ArgumentNullException.ThrowIfNull(listing);
@@ -106,8 +132,8 @@ public sealed class PackageVersionWindow
         NuGetVersion[] candidates =
         [
             .. listing
-                .Where(info => info.Listed)
-                .Select(info => NuGetVersion.Parse(info.Version))
+                .Where(row => row.Listed)
+                .Select(row => row.Version)
                 .Where(version =>
                     (current.IsPrerelease || !version.IsPrerelease)
                     && VersionComparer.VersionRelease.Compare(version, current) < 0)
