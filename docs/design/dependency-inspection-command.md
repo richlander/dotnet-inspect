@@ -21,6 +21,9 @@ sidecar delivery is implemented under
 Browser/Wasm adoption remains proposed.
 The explicit `Latest Versions` section is designed under
 [#9967](https://github.com/richlander/dotnet-inspect/issues/9967) and not yet
+implemented. The `Pruning` section's library pruning policy for
+application-authored declarations is designed under
+[#9981](https://github.com/richlander/dotnet-inspect/issues/9981) and not yet
 implemented.
 
 ## Owner and claim
@@ -76,6 +79,9 @@ It consumes owner-issued facts and does not redefine their construction:
 - [Package House](package-house.md) owns the candidate-bound pruning
   applicability, policy result, receipt, and distinction between package
   retention and platform delegation.
+- [Platform/package pruning](platform-package-pruning.md) owns the exact
+  target prune inventory and the subsumption comparison of a requested
+  package version against it.
 - [Package Dependency Traversal](package-dependency-traversal.md) owns
   package-manifest graph identity, direct source boundaries, root-relative
   reachability, failures, and completion while preserving owner-issued
@@ -1251,6 +1257,40 @@ Human output may use document-stable occurrence numbers where an opaque typed
 identity would not be useful. Machine output retains the typed identity and
 association fields.
 
+### Library pruning policy for application-authored declarations
+
+The section applies one library pruning policy to every root kind: a direct
+declaration whose package the target platform supplies is reported as pruned,
+whoever authored it. PackageHouse's application-authored exemption is a
+graph-delegation rule and remains unchanged; it no longer ends the section's
+evaluation.
+
+An application-authored declaration that PackageHouse exempts continues to the
+[Platform/package pruning](platform-package-pruning.md) subsumption comparison
+against the request's one exact target-bound inventory. The requested version
+is the declaration's owner-issued restored resolution, the same association
+that populates `Resolved` in `Dependencies`. The row performs no package-source
+candidate resolution, because the restored graph already names the version.
+`Subsumed` projects `PlatformDelegation` and `NotSubsumed` projects
+`PackageRetained`, each with reason `ApplicationAuthored` so the basis stays
+visible. The row's Candidate is that restored version. For these rows
+`PlatformDelegation` is the section's policy result over the owner-issued
+comparison; no PackageHouse delegation receipt is issued, and the graph is
+unchanged. Inventory failure affects them exactly as it affects
+candidate-bound rows. A declaration without a restored resolution keeps `NotEvaluated` with
+reason `ApplicationAuthoredExemption`, because an absent version is not a
+comparison and cannot be subsumed.
+
+For example, a restored `net10.0` application that references
+`System.Text.Json` 8.0.5 reports `PlatformDelegation` with reason
+`ApplicationAuthored`: the platform supplies a higher version. NuGet keeps that
+direct reference in the restored graph and warns with `NU1510`, while the
+framework copy is what the application binds to. The section reports the
+library policy, under which the reference is unnecessary. It does not replicate
+NuGet's direct-reference restore exemption or the SDK's build-time conflict
+resolution; an agent that needs those observes them by running restore and
+build.
+
 ### Latest Versions
 
 `Latest Versions` composes one CLI row per normalized direct declaration of an
@@ -1799,7 +1839,8 @@ targeted Debug-build probe.
 | License completion includes root-set admission and treats an explicit depth boundary as a successful bounded inventory. | Release CLI tests combining one valid and one missing nuspec root, plus a depth-one direct-nuspec graph with a known deeper frontier. |
 | License manifest acquisition failures retain unavailable answer rows and enter `Failures` with the exact package coordinate and typed reason. | Release restored-project test with one available and one missing exact manifest, asserted across JSON, nonzero status, and exact-count rejection. |
 | Pruning is explicit-only and does not enter `@Dependencies`, verbosity, or bare effective discovery. | Release catalog, category, structural/effective discovery, and no-inventory tests. |
-| Candidate-free pruning outcomes perform no inventory or candidate work. | Restored-project application-authorship and direct-nuspec source-boundary tests with throwing producers. |
+| Candidate-free pruning outcomes perform no inventory or candidate work. | Direct-nuspec source-boundary and unattributed-authorship tests with throwing producers. |
+| Application-authored declarations use the library pruning policy without package-source work. | Restored-project fixtures for a `net10.0` application referencing `System.Text.Json` 8.0.5 (`PlatformDelegation`, `ApplicationAuthored`) and 12.0.0 (`PackageRetained`, `ApplicationAuthored`), plus a declaration without a restored resolution (`NotEvaluated`, `ApplicationAuthoredExemption`), with a throwing package-source producer and an instrumented inventory producer called once. |
 | `Subsumed` delegates, while an older platform-supplied version retains the newer package candidate. | CLI projection test for `System.Text.Json@9.0.0` against platform `11.0.0` and `System.Runtime@4.3.2` against platform `4.3.1`. |
 | Inventory failure and target mismatch remain typed failures and prevent candidate work. | Instrumented inventory tests asserting nonzero status, affected declarations, and `Failures` rows. |
 | Row windows and rendering formats do not reinterpret pruning policy. | Markdown, table, typed JSON, and one-row window tests over the same two policy outcomes. |
@@ -1834,6 +1875,8 @@ This design does not:
 - add automatic restore, build, project evaluation, or package mutation;
 - apply pruning to dependency graph edges or claim that PackageHouse or
   PlatformHouse execution occurred;
+- replicate NuGet's direct-reference restore exemption (`NU1510`) or the SDK's
+  build-time conflict resolution in the `Pruning` section;
 - report latest versions for transitive dependencies, report publication
   dates, find the newest version compatible with a target framework, classify
   build-only asset scope, or recommend upgrades from `Latest Versions`;
