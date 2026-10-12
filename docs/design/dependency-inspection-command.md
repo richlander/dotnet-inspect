@@ -742,14 +742,14 @@ and restored-edge projections. Adding or removing the graph section therefore
 never changes those already-selected evidence row sets. `Pruning` evaluates
 only normalized direct declarations from explicit roots; it neither admits
 transitive roots nor deletes graph edges. `Failures` is plan-relative:
-selecting traversal or license or pruning work can add typed failures that a
-declaration-only plan never produced. `Licenses` intentionally uses a different
-currency: distinct exact dependent package coordinates supplied by package
-traversal or the selected restored-project graph. It acquires only those
-coordinates' nuspec manifests and never adds the resulting manifests as
-dependency roots or declaration rows. For restored-project roots, the explicit
-root's owner-issued evidence already contains the selected restored package
-nodes and edges.
+selecting traversal, license, pruning, or version-discovery work can add typed
+failures that a declaration-only plan never produced. `Licenses` intentionally
+uses a different currency: distinct exact dependent package coordinates
+supplied by package traversal or the selected restored-project graph. It
+acquires only those coordinates' nuspec manifests and never adds the resulting
+manifests as dependency roots or declaration rows. For restored-project roots,
+the explicit root's owner-issued evidence already contains the selected
+restored package nodes and edges.
 
 The same semantic node may be reached from several parents. It appears once in
 the canonical node set and once under each explaining parent in the hierarchy.
@@ -864,7 +864,7 @@ the graph when the effective root plan can produce it; the explicit remote
 package traversal they request.
 
 Type and library roots may not have package-declaration sections. Release
-static discovery lists the five retail sections. Effective discovery excludes
+static discovery lists the six retail sections. Effective discovery excludes
 `Pruning` and `Latest Versions` because they are explicit-only and unbounded;
 exact or wildcard selection may request either, and `Pruning` therefore
 requires `--tfm`. Effective discovery otherwise reports which sections are
@@ -1296,8 +1296,13 @@ Behind is zero.
 Each distinct package identity and prerelease policy is discovered once per
 request even when several roots or groups declare it. Latest uses the
 command's configured package sources; it does not claim the sources a restored
-project used. A complete discovery with no listed version under the row's
-prerelease policy reports `NoListedVersion`. `NoCurrentVersion` and
+project used. State follows the receipt arm that
+[Version Resolution](version-resolution.md#resolution-receipt) issues:
+`Resolved` is `Compared`; `NoMatch`, where the package exists but no listed
+version satisfies the row's prerelease policy, is `NoListedVersion`; and
+`NotFound`, `Incomplete`, `Rejected`, `Unavailable`, `Failed`, and the reserved
+`Ambiguous` arm are `DiscoveryFailed`. A package absent from every configured
+source is therefore a failure, not a fact. `NoCurrentVersion` and
 `NoListedVersion` are facts about the declaration and its package, not
 failures.
 
