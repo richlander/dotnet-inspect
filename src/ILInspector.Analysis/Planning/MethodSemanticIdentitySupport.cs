@@ -89,7 +89,7 @@ internal sealed class MethodSemanticIdentitySupport(
                 counter);
         }
         catch (Exception ex)
-            when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+            when (MethodSemanticIdentityReader.IsUnreadableMetadata(ex))
         {
             result = new MethodSemanticIdentityResult.Malformed(
                 ex.GetType().Name);

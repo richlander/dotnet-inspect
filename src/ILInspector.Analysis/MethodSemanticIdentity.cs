@@ -335,6 +335,16 @@ internal static class MethodSemanticIdentityReader
             DispatchCanTargetOverride(type, method));
     }
 
+    /// <summary>
+    /// Whether <paramref name="ex"/> reports metadata that cannot be read,
+    /// the same failures that fail a visited method elsewhere in Analysis.
+    /// </summary>
+    internal static bool IsUnreadableMetadata(Exception ex) =>
+        ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException
+            or IndexOutOfRangeException;
+
     internal static bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
         MethodDefinition method) =>
