@@ -65,6 +65,10 @@ public static partial class AttributeReader
         "TsJsExport.JsExportJsonInputAttribute";
     private const string JsExportJsonOutputAttributeName =
         "TsJsExport.JsExportJsonOutputAttribute";
+    private const string JsExportJsonSchemaAttributeName =
+        "TsJsExport.JsExportJsonSchemaAttribute";
+    private const string JsExportJsonSchemaSlotAttributeName =
+        "TsJsExport.JsExportJsonSchemaSlotAttribute";
     private const string JsonPolymorphicAttributeName =
         "System.Text.Json.Serialization.JsonPolymorphicAttribute";
     private const string JsonDerivedTypeAttributeName =
@@ -1734,6 +1738,258 @@ public static partial class AttributeReader
         return declarations;
     }
 
+    public static ApiJsExportJsonSchemaDeclaration?
+        ReadJsExportJsonSchemaDeclaration(
+            MetadataReader reader,
+            CustomAttributeHandleCollection attributes,
+            Action<int>? beforeMaterialize = null)
+    {
+        var declarations =
+            new List<ApiJsExportJsonSchemaDeclaration>();
+        foreach (CustomAttributeHandle handle in attributes)
+        {
+            CustomAttribute attribute = reader.GetCustomAttribute(handle);
+            if (!IsTopLevelAttributeType(
+                    reader,
+                    attribute.Constructor,
+                    JsExportJsonSchemaAttributeName,
+                    beforeMaterialize))
+            {
+                continue;
+            }
+
+            ApiAssemblyIdentity? attributeAssembly = null;
+            string? unsupportedReason = null;
+            try
+            {
+                if (!TryGetAuthenticAttributeAssembly(
+                        reader,
+                        attribute.Constructor,
+                        JsExportJsonSchemaAttributeName,
+                        beforeMaterialize,
+                        out attributeAssembly))
+                {
+                    unsupportedReason =
+                        "attribute assembly identity is unavailable";
+                }
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                unsupportedReason =
+                    "attribute assembly identity is malformed";
+            }
+
+            string? contractIdentity = null;
+            string? direction = null;
+            string? vocabularyCatalog = null;
+            string? vocabularySnapshotIdentity = null;
+            if (!HasExpectedConstructor(
+                    reader,
+                    attribute.Constructor,
+                    FrameworkConstructorKind.StringStringStringString,
+                    beforeMaterialize)
+                || AttributeDecoder.TryDecode(
+                    reader,
+                    attribute,
+                    beforeMaterialize) is not
+                    {
+                        FixedArguments.Length: 4,
+                        NamedArguments.Length: 0,
+                    } decoded
+                || decoded.FixedArguments[0].Value
+                    is not string decodedContractIdentity
+                || decoded.FixedArguments[1].Value
+                    is not string decodedDirection
+                || decoded.FixedArguments[2].Value
+                    is not string decodedVocabularyCatalog
+                || decoded.FixedArguments[3].Value
+                    is not string decodedVocabularySnapshotIdentity)
+            {
+                unsupportedReason ??=
+                    "attribute constructor or value is malformed";
+            }
+            else
+            {
+                contractIdentity = decodedContractIdentity;
+                direction = decodedDirection;
+                vocabularyCatalog = decodedVocabularyCatalog;
+                vocabularySnapshotIdentity =
+                    decodedVocabularySnapshotIdentity;
+                if (string.IsNullOrWhiteSpace(contractIdentity)
+                    || string.IsNullOrWhiteSpace(direction)
+                    || string.IsNullOrWhiteSpace(vocabularyCatalog)
+                    || string.IsNullOrWhiteSpace(
+                        vocabularySnapshotIdentity))
+                {
+                    unsupportedReason ??=
+                        "contract or vocabulary identity is unsupported";
+                }
+            }
+
+            declarations.Add(new(
+                attributeAssembly,
+                contractIdentity,
+                direction,
+                vocabularyCatalog,
+                vocabularySnapshotIdentity,
+                unsupportedReason));
+        }
+
+        return declarations switch
+        {
+            [] => null,
+            [var declaration] => declaration,
+            _ => new(
+                AttributeAssembly: null,
+                ContractIdentity: null,
+                Direction: null,
+                VocabularyCatalog: null,
+                VocabularySnapshotIdentity: null,
+                UnsupportedReason:
+                    "multiple JSON Schema contract declarations are unsupported"),
+        };
+    }
+
+    public static ApiJsExportJsonSchemaSlotDeclaration?
+        ReadJsExportJsonSchemaSlotDeclaration(
+            MetadataReader reader,
+            CustomAttributeHandleCollection attributes,
+            Action<int>? beforeMaterialize = null)
+    {
+        var declarations =
+            new List<ApiJsExportJsonSchemaSlotDeclaration>();
+        foreach (CustomAttributeHandle handle in attributes)
+        {
+            CustomAttribute attribute = reader.GetCustomAttribute(handle);
+            if (!IsTopLevelAttributeType(
+                    reader,
+                    attribute.Constructor,
+                    JsExportJsonSchemaSlotAttributeName,
+                    beforeMaterialize))
+            {
+                continue;
+            }
+
+            ApiAssemblyIdentity? attributeAssembly = null;
+            string? unsupportedReason = null;
+            try
+            {
+                if (!TryGetAuthenticAttributeAssembly(
+                        reader,
+                        attribute.Constructor,
+                        JsExportJsonSchemaSlotAttributeName,
+                        beforeMaterialize,
+                        out attributeAssembly))
+                {
+                    unsupportedReason =
+                        "attribute assembly identity is unavailable";
+                }
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                unsupportedReason =
+                    "attribute assembly identity is malformed";
+            }
+
+            int? order = null;
+            string? nodeIdentity = null;
+            string? vocabulary = null;
+            string? term = null;
+            bool displayable = true;
+            if (!HasExpectedConstructor(
+                    reader,
+                    attribute.Constructor,
+                    FrameworkConstructorKind.Int32StringStringString,
+                    beforeMaterialize)
+                || AttributeDecoder.TryDecode(
+                    reader,
+                    attribute,
+                    beforeMaterialize) is not
+                    {
+                        FixedArguments.Length: 4,
+                    } decoded
+                || !TryReadInt32(
+                    decoded.FixedArguments[0].Value,
+                    out int decodedOrder)
+                || decoded.FixedArguments[1].Value
+                    is not string decodedNodeIdentity
+                || decoded.FixedArguments[2].Value
+                    is not string decodedVocabulary
+                || decoded.FixedArguments[3].Value
+                    is not string decodedTerm
+                || !TryReadDisplayable(
+                    decoded.NamedArguments,
+                    out displayable))
+            {
+                unsupportedReason ??=
+                    "attribute constructor or value is malformed";
+            }
+            else
+            {
+                order = decodedOrder;
+                nodeIdentity = decodedNodeIdentity;
+                vocabulary = decodedVocabulary;
+                term = decodedTerm;
+                if (order < 0
+                    || string.IsNullOrWhiteSpace(nodeIdentity)
+                    || string.IsNullOrWhiteSpace(vocabulary)
+                    || string.IsNullOrWhiteSpace(term))
+                {
+                    unsupportedReason ??=
+                        "slot order or identity is unsupported";
+                }
+            }
+
+            declarations.Add(new(
+                attributeAssembly,
+                order,
+                nodeIdentity,
+                vocabulary,
+                term,
+                displayable,
+                unsupportedReason));
+        }
+
+        return declarations switch
+        {
+            [] => null,
+            [var declaration] => declaration,
+            _ => new(
+                AttributeAssembly: null,
+                Order: null,
+                NodeIdentity: null,
+                Vocabulary: null,
+                Term: null,
+                Displayable: true,
+                UnsupportedReason:
+                    "multiple JSON Schema slot declarations are unsupported"),
+        };
+    }
+
+    static bool TryReadDisplayable(
+        ImmutableArray<CustomAttributeNamedArgument<string>> arguments,
+        out bool displayable)
+    {
+        displayable = true;
+        if (arguments.Length == 0)
+            return true;
+        if (arguments is not [var argument]
+            || argument.Kind != CustomAttributeNamedArgumentKind.Property
+            || argument.Name != "Displayable"
+            || argument.Type != "bool"
+            || argument.Value is not bool value)
+        {
+            return false;
+        }
+
+        displayable = value;
+        return true;
+    }
+
     static bool TryGetJsonSerializableTypeInfoPropertyName(
         ImmutableArray<CustomAttributeNamedArgument<string>> arguments,
         out string? typeInfoPropertyName,
@@ -2175,6 +2431,8 @@ public static partial class AttributeReader
         String,
         StringString,
         StringStringString,
+        StringStringStringString,
+        Int32StringStringString,
         StringSystemType,
         StringSystemTypeBoolean,
         StringStringSystemType,
@@ -2345,6 +2603,22 @@ public static partial class AttributeReader
                 FrameworkConstructorKind.StringStringString =>
                     signature.ParameterTypes is
                     [
+                        PrimitiveTypeNode { Name: "string" },
+                        PrimitiveTypeNode { Name: "string" },
+                        PrimitiveTypeNode { Name: "string" },
+                    ],
+                FrameworkConstructorKind.StringStringStringString =>
+                    signature.ParameterTypes is
+                    [
+                        PrimitiveTypeNode { Name: "string" },
+                        PrimitiveTypeNode { Name: "string" },
+                        PrimitiveTypeNode { Name: "string" },
+                        PrimitiveTypeNode { Name: "string" },
+                    ],
+                FrameworkConstructorKind.Int32StringStringString =>
+                    signature.ParameterTypes is
+                    [
+                        PrimitiveTypeNode { Name: "int" },
                         PrimitiveTypeNode { Name: "string" },
                         PrimitiveTypeNode { Name: "string" },
                         PrimitiveTypeNode { Name: "string" },

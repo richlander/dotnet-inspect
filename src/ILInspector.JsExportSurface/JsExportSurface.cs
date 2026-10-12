@@ -83,6 +83,15 @@ public sealed class JsExportSurface
         new Dictionary<ApiType, JsonWireDirection>();
 
     /// <summary>
+    /// JSON Schema declarations authenticated as direct roots of this
+    /// surface's serializer contexts.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyDictionary<ApiType, JsonWireDirection> JsonSchemaRoots
+        { get; init; } =
+        new Dictionary<ApiType, JsonWireDirection>();
+
+    /// <summary>
     /// Authenticated effective serializer-context defaults for discovered
     /// types.
     /// </summary>

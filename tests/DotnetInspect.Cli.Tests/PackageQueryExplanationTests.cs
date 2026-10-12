@@ -1,5 +1,8 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
+using DotnetInspect.Cli.Options;
 using DotnetInspector.Networking;
+using QuerySpace;
 using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 
 namespace DotnetInspect.Cli.Tests;
@@ -13,6 +16,55 @@ public sealed class PackageQueryExplanationTests : IDisposable
     {
         CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
             _ => new RejectNetworkHandler(() => requests++));
+    }
+
+    // PR-fast: installed metadata and query preparation only; no acquisition.
+    [Theory]
+    [InlineData("depends", "eq", "Polly", true)]
+    [InlineData("depends", "starts-with", "Polly", true)]
+    [InlineData("downloads", "starts-with", "1m", false)]
+    public async Task InstalledComparisonSpelling_PreparesOnlyFacetAdmittedPredicates(
+        string key, string comparison, string value, bool admitted)
+    {
+        var result = await Run("package", "query", "--explain");
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement embedded = document.RootElement.GetProperty("_embedded");
+        JsonElement facet = Assert.Single(embedded.GetProperty("facets").EnumerateArray(),
+            facet => facet.GetProperty("key").GetString() == key);
+        Assert.Equal(admitted, facet.GetProperty("operators").EnumerateArray()
+            .Any(op => op.GetString() == comparison));
+        JsonElement binding = Assert.Single(embedded.GetProperty("bindings").EnumerateArray());
+        string rule = Assert.Single(binding.GetProperty("input_rules").EnumerateArray()
+            .Select(rule => rule.GetString()!),
+            rule => rule.Contains($"for {comparison}", StringComparison.Ordinal));
+        Assert.Contains("use only operators exposed by the facet", rule);
+        Match form = Regex.Match(rule, "--where \"([^\"]+)\" for " + comparison);
+        Assert.True(form.Success, rule);
+        string expression = form.Groups[1].Value
+            .Replace("key", key, StringComparison.Ordinal)
+            .Replace("value", value, StringComparison.Ordinal);
+
+        bool accepted = PackageQueryOptions.TryCreate(
+            "Microsoft.Extensions.Http.Polly", [expression],
+            nuspecOnly: false, take: 1, rowSelection: null, includePrerelease: false,
+            out PackageQueryOptions? options, out OptionError error);
+        Assert.True(accepted == admitted, error.Message);
+        if (admitted)
+        {
+            PackageQueryOptions prepared = Assert.IsType<PackageQueryOptions>(options);
+            PortableQueryTerm term = Assert.Single(prepared.Plan.Terms);
+            Assert.Equal(key, term.Key);
+            Assert.Equal(comparison, PortableQueryModel.TextOf(term.Operator));
+            Assert.Equal(value, term.Value);
+            Assert.False(prepared.Plan.RequiresDependencyTraversal);
+        }
+        else
+        {
+            Assert.Null(options);
+            Assert.Contains("does not support 'starts-with' predicates", error.ToString());
+        }
+        Assert.Equal(0, requests);
     }
 
     public void Dispose()
