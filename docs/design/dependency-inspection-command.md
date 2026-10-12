@@ -19,6 +19,9 @@ implemented under
 sidecar delivery is implemented under
 [#7293](https://github.com/richlander/dotnet-inspect/issues/7293);
 Browser/Wasm adoption remains proposed.
+The explicit `Latest Versions` section is designed under
+[#9967](https://github.com/richlander/dotnet-inspect/issues/9967) and not yet
+implemented.
 
 ## Owner and claim
 
@@ -298,6 +301,17 @@ resolved dependency node within the requested traversal boundary; explicit
 roots themselves are omitted. The license inventory then acquires only each
 coordinate's nuspec and never downloads or reads package payload content.
 
+Current and latest dependency versions are another explicit projection:
+
+```console
+dotnet-inspect depends --project ./App.csproj -S "Latest Versions"
+dotnet-inspect depends --package Some.Package@1.2.3 --tfm net11.0 \
+  -S "Latest Versions,Failures"
+```
+
+Its rows are the explicit roots' direct declarations, as specified in
+[Latest Versions](#latest-versions).
+
 Each row answers `Package`, `Version`, and `License`. SPDX-expression
 declarations answer with their expression. A declared `OSMFEULA.*` basename
 answers `OSMF`; other file and URL declarations answer `unknown`, absent
@@ -438,9 +452,9 @@ authority that the root did not grant.
 | --- | --- | --- |
 | Remote package ID or coordinate | Exact package identity and manifest dependency groups | Authorized package sources may resolve reachable package manifests up to the requested depth. |
 | Local `.nupkg` | Validated archive identity and root manifest | Ordinary package-source policy may resolve reachable package dependencies up to the requested depth. |
-| Direct `.nuspec` | Self-attested manifest identity and dependency groups | The file gesture alone authorizes only that nuspec, so ordinary dependency edges terminate as unresolved boundaries. Explicit `Licenses` additionally authorizes dependency-range resolution and exact manifest acquisition through the configured package sources. |
-| `.csproj` or project directory | Existing located `project.assets.json`, with locator provenance | The selected restored graph is traversed without package or project acquisition. Explicit `Licenses` may acquire only the exact manifests named by that graph. |
-| Direct `project.assets.json` | Exact restored-project facts with direct-assets provenance | The selected restored graph is traversed without package or project acquisition. Explicit `Licenses` may acquire only the exact manifests named by that graph. |
+| Direct `.nuspec` | Self-attested manifest identity and dependency groups | The file gesture alone authorizes only that nuspec, so ordinary dependency edges terminate as unresolved boundaries. Explicit `Licenses` additionally authorizes dependency-range resolution and exact manifest acquisition through the configured package sources. Explicit `Latest Versions` additionally authorizes version discovery for each direct declaration's package ID. |
+| `.csproj` or project directory | Existing located `project.assets.json`, with locator provenance | The selected restored graph is traversed without package or project acquisition. Explicit `Licenses` may acquire only the exact manifests named by that graph. Explicit `Latest Versions` may discover versions only for the root's direct declarations. |
+| Direct `project.assets.json` | Exact restored-project facts with direct-assets provenance | The selected restored graph is traversed without package or project acquisition. Explicit `Licenses` may acquire only the exact manifests named by that graph. Explicit `Latest Versions` may discover versions only for the root's direct declarations. |
 | Library | Owner-issued assembly identity and direct references | Existing library-reference resolution may follow resolvable references up to the requested depth. |
 | Package prefix | Bounded package-profile roots and their manifest declarations | Profile acquisition authorizes the bounded manifests, not recursive expansion from every match. |
 | Type | Owner-issued type and hierarchy relationships in the selected scope | Traversal stays within the admitted search scope. |
@@ -451,10 +465,11 @@ provenance. A `.csproj` is not parsed as the dependency graph and does not
 authorize project evaluation; it is a locator for already-restored assets.
 
 Supplying package-source options when no root can consume them fails rather
-than silently accepting an inert gesture. Direct nuspec and restored-project requests consume source options only when
-`Licenses` explicitly authorizes manifest acquisition. Library-only, type-only,
-and package-prefix requests do not acquire package manifests merely because a
-source option is present.
+than silently accepting an inert gesture. Direct nuspec and restored-project
+requests consume source options only when `Licenses` explicitly authorizes
+manifest acquisition or `Latest Versions` explicitly authorizes version
+discovery. Library-only, type-only, and package-prefix requests do not acquire
+package manifests merely because a source option is present.
 
 A local `.nupkg` can consume source options only when `Dependency Hierarchy` is
 selected and traversal may expand beyond its direct declarations. An
@@ -721,18 +736,19 @@ consumes the CLI projection or presentation model.
 Normalized evidence currencies have one stable universe: explicit admitted
 roots only. Selecting `Dependency Hierarchy` may acquire or admit transitive
 subjects, but it does not add those subjects' manifests to `Dependencies` or
-`Pruning`, or to the diagnostic group, restored-package, and restored-edge
-projections. Adding or removing the graph section therefore never changes
-those already-selected evidence row sets. `Pruning` evaluates only normalized
-direct declarations from explicit roots; it neither admits transitive roots nor
-deletes graph edges. `Failures` is plan-relative: selecting traversal or
-license or pruning work can add typed failures that a declaration-only plan
-never produced. `Licenses` intentionally uses a different currency: distinct
-exact dependent package coordinates supplied by package traversal or the
-selected restored-project graph. It acquires only those coordinates' nuspec
-manifests and never adds the resulting manifests as dependency roots or
-declaration rows. For restored-project roots, the explicit root's owner-issued
-evidence already contains the selected restored package nodes and edges.
+`Pruning` or `Latest Versions`, or to the diagnostic group, restored-package,
+and restored-edge projections. Adding or removing the graph section therefore
+never changes those already-selected evidence row sets. `Pruning` evaluates
+only normalized direct declarations from explicit roots; it neither admits
+transitive roots nor deletes graph edges. `Failures` is plan-relative:
+selecting traversal or license or pruning work can add typed failures that a
+declaration-only plan never produced. `Licenses` intentionally uses a different
+currency: distinct exact dependent package coordinates supplied by package
+traversal or the selected restored-project graph. It acquires only those
+coordinates' nuspec manifests and never adds the resulting manifests as
+dependency roots or declaration rows. For restored-project roots, the explicit
+root's owner-issued evidence already contains the selected restored package
+nodes and edges.
 
 The same semantic node may be reached from several parents. It appears once in
 the canonical node set and once under each explaining parent in the hierarchy.
@@ -767,6 +783,7 @@ The retail base section ladder is:
 | `Dependencies` | One normalized direct declaration. | Normal when applicable |
 | `Licenses` | One distinct dependency package coordinate and its nuspec-derived semantic license answer. | Explicit only |
 | `Pruning` | One direct declaration's pruning applicability or candidate-bound policy result. | Explicit only |
+| `Latest Versions` | One direct declaration's current version and latest listed versions. | Explicit only |
 | `Failures` | One typed root, acquisition, projection, or traversal failure occurrence. | Normal when present |
 
 `Dependency Hierarchy` is the asset route's single high-value minimal section. It
@@ -777,13 +794,16 @@ depends on what.
 interpret the result. `Licenses` is unbounded because it may resolve dependency
 ranges and acquire every exact dependency manifest. `Pruning` is unbounded
 because it may read an installed platform inventory and resolve exact package
-candidates. Neither enters a verbosity level, including `-v:d`.
+candidates. `Latest Versions` is unbounded because it performs version
+discovery for every direct declaration and may read each latest coordinate's
+framework evidence. None of the three enters a verbosity level, including
+`-v:d`.
 
 The `@Dependencies` category contains `Dependency Hierarchy`, `Dependencies`,
-and `Failures`. It deliberately excludes `Licenses` and `Pruning`, so selecting
-the category preserves its established cost and acquisition contract. A caller
-that wants declaration evidence without traversal selects the public evidence
-and failure sections it needs:
+and `Failures`. It deliberately excludes `Licenses`, `Pruning`, and `Latest
+Versions`, so selecting the category preserves its established cost and
+acquisition contract. A caller that wants declaration evidence without
+traversal selects the public evidence and failure sections it needs:
 
 ```console
 dotnet-inspect graph dependencies --project ./App.csproj \
@@ -844,14 +864,15 @@ the graph when the effective root plan can produce it; the explicit remote
 package traversal they request.
 
 Type and library roots may not have package-declaration sections. Release
-static discovery lists the four retail sections. Effective discovery
-excludes `Pruning` because it is explicit-only and unbounded; exact or wildcard
-selection may request it and therefore requires `--tfm`. Effective discovery
-otherwise reports which sections are applicable to the admitted root kinds
-and available evidence. In a Debug build, bare `-D` also lists the four
-registered diagnostic sections, and effective discovery reports the applicable
-diagnostic sections. This visible Release/Debug difference is the direct
-demonstration that diagnostic registration disappears from retail compilation.
+static discovery lists the five retail sections. Effective discovery excludes
+`Pruning` and `Latest Versions` because they are explicit-only and unbounded;
+exact or wildcard selection may request either, and `Pruning` therefore
+requires `--tfm`. Effective discovery otherwise reports which sections are
+applicable to the admitted root kinds and available evidence. In a Debug build,
+bare `-D` also lists the four registered diagnostic sections, and effective
+discovery reports the applicable diagnostic sections. This visible
+Release/Debug difference is the direct demonstration that diagnostic
+registration disappears from retail compilation.
 
 ## Debug service-evidence enrichment
 
@@ -1229,6 +1250,63 @@ Human output may use document-stable occurrence numbers where an opaque typed
 identity would not be useful. Machine output retains the typed identity and
 association fields.
 
+### Latest Versions
+
+`Latest Versions` composes one CLI row per normalized direct declaration of an
+explicit root, the same universe as `Dependencies` and `Pruning`, plus version
+facts issued by [Version Resolution](version-resolution.md) and the
+[Package Version Service](package-version-service.md). It answers the
+conventional `dotnet package list --outdated` question without filtering:
+every declaration has a row, and callers narrow with `--where`.
+
+| Field | Meaning |
+| --- | --- |
+| Package | Canonical dependency package identity from the declaration. |
+| Requested | The declared NuGet version constraint. |
+| Current | The version the declaration currently selects. |
+| Current Basis | `Resolved` when owner-issued restored-project evidence associates the declaration with a resolved package edge; `LowerBound` when the value is the constraint's inclusive minimum; `Unavailable` otherwise. |
+| Latest In Major | Highest listed version in Current's major version. |
+| Latest | Highest listed version under the row's prerelease policy. |
+| Behind | `None`, `Patch`, `Minor`, or `Major`: the most significant NuGet version component at which Latest exceeds Current. |
+| Majors Behind | Count of listed major versions above Current's major, through Latest. |
+| Current Published / Latest Published | Publication timestamps when the source supplies them. |
+| Latest Supports TFM | `Yes`, `No`, or `Unknown` for the selected target framework; `NotRequested` without one. |
+| Freshness | The version settlement's receipt arm and discovery freshness, including `ServedPrior` and its age. |
+| State | `Compared`, or a typed failure such as unauthorized source, package not found, or no current version. |
+
+Current never claims a resolution that did not occur. Package and direct-nuspec
+declaration rows leave `Resolved` empty, as the evidence association rules
+above require, so their Current is the declared lower bound, labeled
+`LowerBound`; that matches NuGet's lowest-applicable-version resolution for a
+direct reference. A constraint with no inclusive lower bound has no Current and
+reports `NoCurrentVersion`.
+
+Latest is one `LatestStable` selection settlement, or `LatestPrerelease` when
+Current is a prerelease. The section never
+parses `latest` or chooses between prior and discovered settlements itself; the
+Package Version Service owns that decision and the row discloses its receipt.
+When Latest exceeds Current, Latest In Major and Majors Behind come from the
+addressable `Current..Latest` vector projected with
+`PackageVersionMajorRepresentativePolicy.Latest`. The vector ends at Latest, so
+neither value can describe a version beyond the row's Latest. When Latest does
+not exceed Current, Latest In Major equals Latest, Behind is `None`, and Majors
+Behind is zero.
+
+Latest Supports TFM is evaluated only when the request selects one target
+framework, from the latest coordinate's owner-issued package target-framework
+evidence. It acquires no package payload beyond that evidence. Compatibility
+is reported, not used to choose a different Latest, so a newest release that
+drops the selected framework remains visible.
+
+Each distinct package identity and prerelease policy is settled once per
+request even when several roots or groups declare it. One failed settlement fails only its rows and adds
+a typed `Failures` occurrence; sibling rows and the dependency document remain
+usable. A row window reduces rendered rows but not settlement work, failure
+retention, or exit status.
+
+The section reports facts. It does not recommend an upgrade, evaluate API or
+behavioral change between Current and Latest, or modify a project.
+
 ## Partial results, completion, and exit status
 
 Every explicit root gesture completes independently. A malformed, unavailable,
@@ -1343,6 +1421,7 @@ Count follows the selected section's declared row currency:
 - `Dependency Hierarchy` counts selected non-root relationship occurrences;
 - `Dependencies` counts normalized direct declarations;
 - `Pruning` counts projected direct-declaration policy rows;
+- `Latest Versions` counts projected direct-declaration version rows;
 - `Failures` counts failure occurrences.
 
 In a Debug build, explicitly selected diagnostic sections retain their natural
@@ -1354,11 +1433,11 @@ Several selected row sets produce the existing ordered section/count table;
 they do not collapse into one request-wide scalar.
 
 Traversal depth never filters `Dependencies` or the diagnostic group,
-`Pruning`, restored-package, and restored-edge projections. Those projections
-describe direct owner-issued evidence for the explicit roots. Depth applies
-only to `Dependency Hierarchy`. A row window may reduce rendered pruning rows, but
-it does not change acquisition, the pruning summary, failure retention, or exit
-status.
+`Pruning`, `Latest Versions`, restored-package, and restored-edge projections.
+Those projections describe direct owner-issued evidence for the explicit roots.
+Depth applies only to `Dependency Hierarchy`. A row window may reduce rendered
+pruning rows, but it does not change acquisition, the pruning summary, failure
+retention, or exit status.
 
 Count is exact only when the selected row set's completion supports an exact
 answer. A depth-bounded graph can be counted exactly within that explicit
@@ -1677,6 +1756,11 @@ targeted Debug-build probe.
 | `Subsumed` delegates, while an older platform-supplied version retains the newer package candidate. | CLI projection test for `System.Text.Json@9.0.0` against platform `11.0.0` and `System.Runtime@4.3.2` against platform `4.3.1`. |
 | Inventory failure and target mismatch remain typed failures and prevent candidate work. | Instrumented inventory tests asserting nonzero status, affected declarations, and `Failures` rows. |
 | Row windows and rendering formats do not reinterpret pruning policy. | Markdown, table, typed JSON, and one-row window tests over the same two policy outcomes. |
+| `Latest Versions` is explicit-only and does not enter `@Dependencies`, verbosity, or bare effective discovery. | Release catalog, category, structural/effective discovery tests, plus an instrumented source test proving `Dependencies` alone performs no version discovery. |
+| `Latest Versions` reports `Resolved` only from owner-issued restored associations and `LowerBound` otherwise. | Restored-project and package-root fixtures declaring the same constraint, asserting Current, Current Basis, and an open-lower-bound `NoCurrentVersion` row. |
+| Latest In Major, Behind, and Majors Behind are consistent with Latest. | Fixed version-index fixture spanning several majors and prereleases, with stable and prerelease Current values, asserting every field and one discovery per package identity across duplicate declarations. |
+| Version freshness and per-package failure stay visible. | Version-service fixtures for discovered, `ServedPrior`, unauthorized, and not-found settlements, asserting Freshness, State, `Failures`, nonzero status, and exact-count rejection. |
+| Latest Supports TFM reports without reselecting Latest. | Fixture whose newest version drops the selected framework, asserting `No` and an unchanged Latest; and a no-TFM request asserting `NotRequested` without framework evidence acquisition. |
 | Multi-root depth is preserved per root occurrence rather than by one global distance. | Cyclic DAG fixture in which one shared node is reached at different depths from two roots. |
 | A semantic node that is both a transitive child and a later explicit root does not duplicate or suppress either root's occurrence rows. | Depth-asymmetric two-root fixture run in both root orders, asserting independent per-root expansion and equal tree/table/JSON/count cardinality. |
 | Shared DAG targets retain every parent occurrence and roots survive Mermaid lowering. | #3320 fixture across Markdown tree, Mermaid, occurrence table, JSON, count, and row selection. |
@@ -1702,6 +1786,8 @@ This design does not:
 - add automatic restore, build, project evaluation, or package mutation;
 - apply pruning to dependency graph edges or claim that PackageHouse or
   PlatformHouse execution occurred;
+- report latest versions for transitive dependencies, classify build-only
+  asset scope, or recommend upgrades from `Latest Versions`;
 - add a Browser/Wasm command or presentation contract;
 - make package-prefix discovery an exhaustive package universe;
 - guarantee that every root kind can expand beyond the evidence it owns; or
