@@ -1,7 +1,7 @@
 {
   "schemaVersion": 7,
   "description": "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
-  "generatedUtc": "2026-10-10T20:52:55.489047+00:00",
+  "generatedUtc": "2026-10-11T00:20:19.5967045+00:00",
   "validityCompileCap": 4000,
   "fidelityCompileCap": 50,
   "methodCap": null,
@@ -16610,7 +16610,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|21|0|1;conditional-branch|37|0|1;conditional-branch|48|0|1;conditional-branch|63|0|1",
       "displayMethod": "DotnetInspector.Services!DotnetInspector.Services.ProjectAssetsParser::TryGetFrameworkDependencies#0"
@@ -27592,9 +27592,9 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
-      "fidelityReference": "OpcodeDiff",
+      "fidelityReference": "Exact",
       "controlFlowSites": "conditional-branch|11|0|1;conditional-branch|29|0|1",
       "displayMethod": "ILInspector.Analysis!ILInspector.Analysis.TypeRef::ArityOf#0"
     },
@@ -27690,7 +27690,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "OpcodeDiff",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
       "fidelityReference": "OpcodeDiff",
@@ -39490,7 +39490,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|13|0|1;conditional-branch|54|0|1;conditional-branch|64|0|1;branch|76|0|1",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.CSharpPrinter::BitwiseUnsignedOperand#0"
@@ -40214,7 +40214,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|13|0|1;conditional-branch|46|0|1;conditional-branch|58|0|1",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.CSharpPrinter::EnumMemberName#0"
@@ -40230,7 +40230,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|1|0|1;conditional-branch|22|0|1",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.CSharpPrinter::EnumUnderlyingType#0"
@@ -40746,7 +40746,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|13|0|1;conditional-branch|23|0|1",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.CSharpPrinter::IsOutOfRangeUnsignedConstant#0"
@@ -49692,7 +49692,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|23|0|1;conditional-branch|37|0|1;conditional-branch|50|0|1;conditional-branch|74|0|1;conditional-branch|86|0|1;conditional-branch|90|0|1;branch|93|0|1;leave|97|0|1;conditional-branch|105|0|1;branch|109|0|1;conditional-branch|120|0|1;conditional-branch|129|0|1;conditional-branch|138|0|1;branch|143|0|1;end-filter|153|0|1;leave|158|0|1",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.CrossAssemblyTypeResolver::Implements#0"
@@ -76928,7 +76928,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "branch|22|0|1;branch|42|0|1;conditional-branch|56|0|1;conditional-branch|75|0|1;conditional-branch|95|0|1;conditional-branch|113|0|1;conditional-branch|131|0|1;conditional-branch|140|0|1;conditional-branch|151|0|1;leave|188|0|1;conditional-branch|203|0|1;conditional-branch|215|0|1;leave|220|0|1;end-finally|235|0|1",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.IsPatternPass::FoldPositionalPatternReturnOne#0"
@@ -77536,7 +77536,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|6|0|1;conditional-branch|17|0|1;conditional-branch|27|0|1;conditional-branch|67|0|1;conditional-branch|70|0|1;conditional-branch|83|0|1;conditional-branch|104|0|1;conditional-branch|119|0|1;conditional-branch|181|0|1;conditional-branch|195|0|1;branch|375|0|1;conditional-branch|402|0|1;leave|404|0|1;end-finally|419|0|1",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.IteratorReconstructionPass::Run#0"
@@ -92557,7 +92557,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "branch|17|0|1;branch|36|0|1;conditional-branch|55|0|1;conditional-branch|78|0|1;conditional-branch|98|0|1;conditional-branch|119|0|1;conditional-branch|133|0|1;conditional-branch|154|0|1;conditional-branch|173|0|1;conditional-branch|194|0|1;conditional-branch|209|0|1;conditional-branch|229|0|1;leave|304|0|1;conditional-branch|319|0|1;conditional-branch|330|0|1;leave|335|0|1;conditional-branch|338|0|1;end-finally|346|0|1",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.NullConditionalPass::RaiseSpilled#0"
@@ -99159,7 +99159,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|12|0|1;branch|36|0|1;conditional-branch|55|0|1;conditional-branch|70|0|1;conditional-branch|80|0|1;conditional-branch|110|0|1;conditional-branch|122|0|1;conditional-branch|199|0|1;leave|204|0|1;end-finally|219|0|1",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.RangeFromGetSubArrayPass::Run#0"
@@ -109128,7 +109128,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|2|0|1;conditional-branch|16|0|1;conditional-branch|45|0|1;conditional-branch|68|0|1;conditional-branch|89|0|1",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.StructuringPass::EndsWithBranchTo#0"
@@ -113087,7 +113087,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|19|0|1;conditional-branch|36|0|1;conditional-branch|60|0|1;conditional-branch|69|0|1;branch|85|0|1;conditional-branch|109|0|1;conditional-branch|124|0|1;conditional-branch|142|0|1;conditional-branch|153|0|1;conditional-branch|162|0|1;conditional-branch|196|0|1;conditional-branch|212|0|1;conditional-branch|230|0|1;conditional-branch|242|0|1;conditional-branch|258|0|1;branch|290|0|1;conditional-branch|348|0|1;leave|350|0|1;end-finally|365|0|1;conditional-branch|380|0|1;conditional-branch|399|0|1;conditional-branch|424|0|1;branch|450|0|1;conditional-branch|489|0|1;conditional-branch|494|0|1;leave|499|0|1;conditional-branch|511|0|1;leave|513|0|1;end-finally|528|0|1;branch|608|0|1;conditional-branch|629|0|1;leave|631|0|1;end-finally|646|0|1",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.TupleBinaryOperatorPass::TryRaiseOperandComparisonAt#0"
@@ -113103,7 +113103,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|14|0|1;conditional-branch|37|0|1;conditional-branch|53|0|1;conditional-branch|76|0|1",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.TupleBinaryOperatorPass::TryRaiseReturnAt#0"
@@ -113119,7 +113119,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|14|0|1;conditional-branch|38|0|1;conditional-branch|55|0|1;conditional-branch|80|0|1;conditional-branch|98|0|1;conditional-branch|113|0|1;conditional-branch|123|0|1;conditional-branch|128|0|1;conditional-branch|152|0|1",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.TupleBinaryOperatorPass::TryRaiseSlotAt#0"
@@ -114452,10 +114452,10 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "validity": "semantic-defect:CS0165",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
-      "fidelityReference": "OpcodeDiff",
+      "fidelityReference": "Exact",
       "controlFlowSites": "conditional-branch|16|0|1;conditional-branch|34|0|1;conditional-branch|54|0|1;conditional-branch|74|0|1;branch|90|0|1",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.TypeRef::DisplayName#0"
     },
@@ -122560,7 +122560,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|1|0|1;conditional-branch|4|0|1;conditional-branch|28|0|1;conditional-branch|33|0|1;conditional-branch|41|0|1;conditional-branch|51|0|1;conditional-branch|88|0|1;branch|97|0|1;conditional-branch|105|0|1;branch|114|0|1;conditional-branch|126|0|1;conditional-branch|134|0|1;branch|144|0|1;conditional-branch|152|0|1;branch|162|0|1;conditional-branch|170|0|1;branch|180|0|1;conditional-branch|183|0|1;branch|190|0|1;branch|199|0|1;branch|209|0|1;branch|220|0|1;branch|246|0|1;branch|272|0|1;branch|288|0|1;conditional-branch|297|0|1",
       "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.ApiSurfaceExtractor::FormatDefaultValue#0"
@@ -123007,7 +123007,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "branch|8|0|1;conditional-branch|51|0|1;conditional-branch|62|0|1;leave|76|0|1;conditional-branch|89|0|1;conditional-branch|100|0|1;leave|114|0|1;conditional-branch|123|0|1;leave|125|0|1;end-finally|140|0|1",
       "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.ApiSurfaceExtractor::TryReadAttributedParameterDefault#0"
@@ -123039,7 +123039,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|16|0|1;conditional-branch|46|0|1;conditional-branch|86|0|1;conditional-branch|134|0|1;conditional-branch|177|0|1;conditional-branch|212|0|1;conditional-branch|247|0|1;conditional-branch|252|0|1;conditional-branch|256|0|1",
       "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.ApiSurfaceExtractor::TryReadDecimalConstantAttribute#0"
@@ -131506,7 +131506,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|11|0|1;conditional-branch|21|0|1;conditional-branch|48|0|1;conditional-branch|58|0|1;conditional-branch|85|0|1;conditional-branch|95|0|1;conditional-branch|122|0|1;conditional-branch|132|0|1;conditional-branch|159|0|1;conditional-branch|169|0|1;conditional-branch|197|0|1;conditional-branch|207|0|1;conditional-branch|232|0|1;conditional-branch|255|0|1;conditional-branch|276|0|1;conditional-branch|297|0|1;conditional-branch|318|0|1;conditional-branch|341|0|1",
       "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.EcosystemIntegrationScanner::AddType#0"
@@ -148078,7 +148078,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|6|0|1;conditional-branch|25|0|1;conditional-branch|35|0|1;conditional-branch|50|0|1;conditional-branch|65|0|1;conditional-branch|120|0|1;branch|127|0|1",
       "displayMethod": "ILInspector.Metadata!ILInspector.Metadata.TypeMatcher::Normalize#0"
@@ -150313,9 +150313,9 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
-      "fidelityReference": "OpcodeDiff",
+      "fidelityReference": "Exact",
       "controlFlowSites": "conditional-branch|8|0|1;conditional-branch|16|0|1;branch|67|0|1;conditional-branch|81|0|1;branch|97|0|1;branch|109|0|1;conditional-branch|125|0|1;conditional-branch|140|0|1;conditional-branch|145|0|1;conditional-branch|165|0|1;conditional-branch|170|0|1;branch|181|0|1;branch|212|0|1;conditional-branch|217|0|1;conditional-branch|258|0|1;conditional-branch|290|0|1",
       "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.TypeResolver::ApplyGenericArguments#0"
     },
@@ -150331,9 +150331,9 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
-      "fidelityReference": "OpcodeDiff",
+      "fidelityReference": "Exact",
       "controlFlowSites": "conditional-branch|6|0|1;conditional-branch|16|0|1;branch|36|0|1;conditional-branch|50|0|1;branch|66|0|1;branch|77|0|1;conditional-branch|90|0|1;conditional-branch|104|0|1;conditional-branch|108|0|1;conditional-branch|127|0|1;conditional-branch|132|0|1;branch|148|0|1;branch|162|0|1;conditional-branch|167|0|1;conditional-branch|185|0|1;branch|224|0|1;conditional-branch|247|0|1;conditional-branch|273|0|1",
       "displayMethod": "ILInspector.MetadataPrimitives!ILInspector.Metadata.TypeResolver::FormatDisplayName#0"
     },
@@ -224438,7 +224438,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "branch|8|0|1;conditional-branch|23|0|1;conditional-branch|36|0|1;conditional-branch|44|0|1;conditional-branch|55|0|1",
       "displayMethod": "dotnet-inspect!DotnetInspector.Inspectors.PackageFileLister::ResolvePackageReadme#0"
@@ -377869,7 +377869,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|8|0|1;conditional-branch|11|0|1;conditional-branch|31|0|1;conditional-branch|41|0|1",
       "displayMethod": "Microsoft.ApplicationInsights!Microsoft.ApplicationInsights.Extensibility.Implementation.Telemetry::IsDeveloperMode#0"
@@ -466894,7 +466894,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|22|0|1;conditional-branch|32|0|1;leave|53|0|1;leave|74|0|1;conditional-branch|77|0|1;end-finally|85|0|1;leave|121|0|1",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.CommonCompiler::TryReadEmbeddedFileContent#0"
@@ -494293,7 +494293,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|64|0|1;conditional-branch|68|0|1",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.AnalyzerDriver::GetFilteredDiagnostic#0"
@@ -501268,7 +501268,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|30|0|1;conditional-branch|46|0|1;leave|50|0|1;conditional-branch|67|0|1;conditional-branch|75|0|1;conditional-branch|90|0|1;leave|94|0|1;leave|111|0|1;conditional-branch|114|0|1;end-finally|122|0|1",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Diagnostics.AnalyzerManager.AnalyzerExecutionContext::TryProcessCompletedMemberAndGetPendingSymbolEndActionsForContainer#0"
@@ -520607,7 +520607,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|27|0|1;conditional-branch|62|0|1;conditional-branch|83|0|1",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Emit.DefinitionMap::TryGetMethodHandle#0"
@@ -529167,7 +529167,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|6|0|1;conditional-branch|21|0|1;conditional-branch|37|0|1;conditional-branch|49|0|1;conditional-branch|65|0|1;branch|77|0|1;conditional-branch|80|0|1;branch|83|0|1",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Emit.EncVariableSlotAllocator::TryGetPreviousLambda#0"
@@ -529217,7 +529217,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|6|0|1;conditional-branch|17|0|1;conditional-branch|38|0|1",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.Emit.EncVariableSlotAllocator::TryGetPreviousStateMachineState#0"
@@ -550941,7 +550941,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|6|0|1;conditional-branch|21|0|1",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.GreenNode::GetDiagnostics#0"
@@ -601756,7 +601756,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|20|0|1;conditional-branch|36|0|1;conditional-branch|49|0|1;conditional-branch|62|0|1;branch|71|0|1",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.PEModule::HasDateTimeConstantAttribute#0"
@@ -601925,7 +601925,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|25|0|1;conditional-branch|46|0|1",
       "displayMethod": "Microsoft.CodeAnalysis!Microsoft.CodeAnalysis.PEModule::HasInlineArrayAttribute#0"
@@ -932607,7 +932607,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|19|0|1;conditional-branch|29|0|1;branch|41|0|1;conditional-branch|101|0|1;conditional-branch|113|0|1;conditional-branch|123|0|1;branch|133|0|1;conditional-branch|136|0|1;conditional-branch|141|0|1;branch|161|0|1;conditional-branch|172|0|1",
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.ObjectDisplay::FormatLiteral#2"
@@ -1294895,7 +1294895,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|12|0|1;conditional-branch|23|0|1;branch|33|0|1;conditional-branch|49|0|1;conditional-branch|61|0|1;conditional-branch|81|0|1",
       "displayMethod": "Microsoft.CodeAnalysis.CSharp!Microsoft.CodeAnalysis.CSharp.SyntaxAndDeclarationManager::UpdateSyntaxTreesAndOrdinalMapOnly#0"
@@ -1383408,7 +1383408,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|26|0|1;conditional-branch|39|0|1;branch|67|0|1;branch|70|0|1;conditional-branch|84|0|1;conditional-branch|160|0|1;branch|176|0|1;branch|184|0|1;conditional-branch|210|0|1;conditional-branch|242|0|1;branch|263|0|1;conditional-branch|303|0|1;conditional-branch|333|0|1;branch|387|0|1;conditional-branch|419|0|1;conditional-branch|464|0|1;conditional-branch|487|0|1;conditional-branch|546|0|1;branch|616|0|1;conditional-branch|644|0|1;conditional-branch|684|0|1;conditional-branch|707|0|1;branch|830|0|1;conditional-branch|858|0|1;conditional-branch|898|0|1;conditional-branch|982|0|1;conditional-branch|1010|0|1;branch|1035|0|1;branch|1094|0|1;conditional-branch|1124|0|1;conditional-branch|1147|0|1",
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.Serialization.JsonArrayContract::.ctor#0"
@@ -1384326,7 +1384326,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|41|0|1;conditional-branch|95|0|1;branch|132|0|1;conditional-branch|145|0|1;conditional-branch|173|0|1;branch|209|0|1;conditional-branch|241|0|1;conditional-branch|292|0|1;branch|336|0|1;conditional-branch|374|0|1;conditional-branch|399|0|1;conditional-branch|411|0|1;conditional-branch|497|0|1;conditional-branch|520|0|1;conditional-branch|577|0|1;conditional-branch|612|0|1;conditional-branch|626|0|1;conditional-branch|655|0|1",
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.Serialization.JsonDictionaryContract::.ctor#0"
@@ -1387197,7 +1387197,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|8|0|1;conditional-branch|25|0|1;conditional-branch|31|0|1;conditional-branch|40|0|1;conditional-branch|52|0|1;conditional-branch|72|0|1;conditional-branch|82|0|1;leave|100|0|1;conditional-branch|121|0|1;leave|137|0|1;conditional-branch|164|0|1;conditional-branch|176|0|1;conditional-branch|205|0|1;leave|226|0|1;conditional-branch|234|0|1;leave|257|0|1;leave|274|0|1;leave|291|0|1",
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.Serialization.JsonSerializerInternalReader::EnsureType#0"
@@ -1387721,7 +1387721,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|7|0|1;switch-branch|30|0|1;branch|67|0|1;conditional-branch|254|0|1;conditional-branch|271|0|1;conditional-branch|302|0|1",
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.Serialization.JsonSerializerInternalWriter::GetPropertyName#0"
@@ -1404144,7 +1404144,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|4|0|1;conditional-branch|40|0|1;leave|45|0|1;leave|50|0|1;conditional-branch|54|0|1;end-finally|63|0|1;conditional-branch|87|0|1;conditional-branch|100|0|1;conditional-branch|106|0|1;branch|111|0|1;conditional-branch|123|0|1;conditional-branch|138|0|1;conditional-branch|141|0|1;conditional-branch|150|0|1;conditional-branch|167|0|1;conditional-branch|193|0|1;conditional-branch|243|0|1;leave|268|0|1;conditional-branch|272|0|1;end-finally|281|0|1",
       "displayMethod": "NuGet.Versioning!NuGet.Versioning.NuGetVersion::TryParse#0"
@@ -1404885,7 +1404885,7 @@
       "fullyRaised": true,
       "residual": null,
       "passBug": null,
-      "validity": "valid",
+      "validity": "semantic-defect:CS0165",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|1|0|1;conditional-branch|13|0|1",
       "displayMethod": "NuGet.Versioning!NuGet.Versioning.SemanticVersion::ToString#1"
@@ -1424534,7 +1424534,7 @@
     "forwardMergeBasisPoints": 240,
     "fullMalformedMethods": 1,
     "semanticCheckedMethods": 25354,
-    "semanticDefectMethods": 217,
+    "semanticDefectMethods": 257,
     "passBugs": 8,
     "residualBuckets": {
       "eh: leave/endfinally": 19,
@@ -1424568,8 +1424568,8 @@
     "fidelity": {
       "contractVersion": 5,
       "checkedMethods": 682,
-      "exactMethods": 437,
-      "opcodeDiffMethods": 67,
+      "exactMethods": 441,
+      "opcodeDiffMethods": 63,
       "operandDiffMethods": 6,
       "fidelityUnavailableMethods": 0,
       "recompileFailMethods": 169,
@@ -1424595,11 +1424595,11 @@
   "featureCoverage": {},
   "classicStateMachineCoverage": null,
   "runIdentity": {
-    "sourceRevision": "c284c519cbc99aa07be6c6305ab7accc2ff518d1",
+    "sourceRevision": "1f729e607396d376eca918a56c8a8d007071782b",
     "sourceState": "clean",
     "compiler": "Microsoft.CodeAnalysis.CSharp, Version=5.9.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35",
     "runtime": ".NET 11.0.0-rc.1.26425.128",
-    "operatingSystem": "Ubuntu 24.04.4 LTS",
+    "operatingSystem": "Ubuntu 26.04.1 LTS",
     "processArchitecture": "X64"
   }
 }
