@@ -765,8 +765,10 @@ public static partial class CompileBackSourceComposer
                 if (reader.GetString(method.Name) != "Invoke")
                     continue;
 
-                // The product's declaration query carries parameter modifiers (ref, out,
-                // in, params) and defaults; the bare signature does not.
+                // The shell takes the product's declaration spelling, including parameter
+                // modifiers, params, and defaults, which the bare signature drops. RTS does
+                // not correct that spelling: a product misspelling (such as [In] ref rendered
+                // as in, #3537) surfaces as a verdict difference.
                 var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
                 var declaration = MetadataDeclarationQuery.GetMethod(reader, typeDef, method, signature);
                 string factId = IsGeneratedDynamicDelegate(reader, typeDef)
