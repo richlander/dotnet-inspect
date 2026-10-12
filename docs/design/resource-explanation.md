@@ -1768,6 +1768,14 @@ Frozen evidence separates guidance from inspection bytes and retains search,
 output-selection, and platform qualifications. These diagnostic observations
 change no production behavior or shipped skill guidance.
 
+The [command-bound entrance trials](../../tools/ExplainReadingScenarios/usability/command-bound/README.md)
+offer accurate primary/companion syntax alongside help, query help and root
+recovery. Four agents answer the same relation questions with help and `-Q`,
+without requesting any explain entrance. A pinned support audit distinguishes
+Member's text/companion adoption from Package Query and Extensions gaps.
+This is descriptive evidence of available reading paths and narrow adoption;
+it does not validate agent use of primary/companion explanation or rank formats.
+
 ## Demo scenario
 
 `System.Text.Json@10.0.0` motivates the complete production flow:
