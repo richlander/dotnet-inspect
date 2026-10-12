@@ -171,6 +171,40 @@ A producer's native rows are payloads on the ladder: a `Finding<T>` payload,
 or an `AnalysisDiff<T>` item. A producer whose results are not Findings can
 take part in Compare through its own result, but not in Correlate.
 
+### Payloads in use
+
+The ladder's types are generic, so the system is easiest to see through its
+payloads. These are the `T` types in production on `main` in October 2026:
+
+| Family | Typical `T` | Rungs used | Producers |
+| --- | --- | --- | --- |
+| API surface | `ApiTypeHandle`, `ApiMemberHandle`, `ApiAttributeHandle` | Inspect, Compare, Correlate, History transitions | Metadata API Findings; the only payloads History correlates |
+| Body text | `CanonicalIlOperation`, `CSharpCanonicalLine` | Inspect, Compare | IL and C# Findings, the Finding half of Implementation Diff |
+| Text lines | `string` | Inspect, Compare, `AnalysisDiff<string>` | `TextFindings`: member source diff, the authored source pair, the annotated source diff |
+| Source | `SourceDocumentObservation`, `MemberSourceObservation` | Inspect, Compare | SourceLink and source Findings |
+| Body semantics | `DirectCall`, `AllocationOccurrence`, `UnsafetyOccurrence`, `UnsafeEvidence`, `StringLiteralUseOccurrence`, `StringMaterializationOccurrence`, `ResourceLifecycleOccurrence`, `ResourceOwnershipPathWitness`, `CallGraphCycleWitness`, `SwitchInfo` | Inspect, Compare | Analysis producers in the [analysis catalog](command-transition-model.md#analysis-selection) |
+| Assembly metadata | `AssemblyReference`, `AssemblyAttributeInfo`, `TypeForwarderInfo`, `ManifestResourceInfo`, `CompilationOptionInfo`, `CompilationReferenceInfo`, `UnionTypeInfo`, `ExtensionMemberObservation`, `ClassifiedMethodObservation` | Inspect, Compare, mostly in identity-set mode | Metadata Findings |
+| Ecosystem signals | `OpenTelemetrySignalInfo`, `EcosystemIntegrationSignalInfo` | Inspect, Compare | Ecosystem producers |
+| Decompiler | `DecompilerFidelityCause` | Inspect, Compare | Decompiler fidelity |
+| Annotations | `IAnnotation` | Inspect | Annotated source facts |
+
+The other generic types each have one payload in production:
+
+| Type | Payload | Use |
+| --- | --- | --- |
+| `AnalysisDiff<T>` | `string` | Text lines |
+| `ComparisonDocument<T>` | `LibraryApiTypeDiff` | Library API Diff |
+| `CorrelatedFinding<T>`, `FindingCorrelation<T>` | `ApiMemberHandle` | History's exact-member track |
+
+So Compare carries most diff content today, across about thirty payloads,
+while the other rungs each serve one domain: `AnalysisDiff` is text only,
+`ComparisonDocument` is API only, and Correlate is API members only. The
+designed `ComparisonDocument<AnalysisDiff<TItem>>` and
+`ComparisonDocument<MappedTextDiff>` forms have no production instantiation.
+Fast Diff's `FastDiffState`, `ApiDiffAnalyzer`'s `ApiChange`, and the IL and
+C# body rows have no `T` at all; they are the producers that the next table
+marks as off the ladder.
+
 ### Producers
 
 | Kind | Structure | Granularity | On the ladder | Owner |
