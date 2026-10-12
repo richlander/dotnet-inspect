@@ -1027,6 +1027,15 @@ the complete directed version Document. `--preview`, `--include-unlisted`,
 configured source options, and `--versions-with-feed` remain semantic
 population inputs.
 
+`package query --explain` returns installed query facets and CLI bindings as
+HAL JSON without contacting NuGet. `--json` is optional. This command-only
+terminal rejects package arguments, query/execution options, other output
+formats, and dotted projections. Select needed embedded facets locally with
+jq, or use `explain package-query/query/facets/depends .hal --json` for a
+focused dependency-facet response. See
+[Installed capability explanation](design/package-query-cli.md#installed-capability-explanation)
+for the worked workflow.
+
 `package query ID` selects one exact package ID. A single terminal `*` selects
 a literal package-ID prefix. Explicit `--take` bounds candidate work before
 `-n` selects final package rows. Without explicit `--take`, a simple `-n N`

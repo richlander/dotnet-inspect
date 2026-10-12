@@ -12,6 +12,17 @@ public static class ResourceExplanationCommand
 {
     public const string Name = "explain";
 
+    internal static int ExplainPackageQuery() => ExplainFromCatalog(
+        CreatePackageQueryExplanation(),
+        PackageQueryCapabilityResourcePaths.QuerySpace,
+        depth: 0,
+        maximumResults: null,
+        format: OutputFormat.Json,
+        envelopeOutput: false,
+        outputPath: null,
+        contract: false,
+        selection: ".hal");
+
     public static int Execute(
         string operand,
         int depth,
