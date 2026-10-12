@@ -91,28 +91,38 @@ through the shared
 Blank package input stays idle. Spotlight owns open-text package discovery; the
 Browser query surface exposes no Gallery search, browse, package-type, or
 source-order gesture.
-The Browser catalog projects `PackageQuery.RegisteredTerms`, the
-Package-specific projection of the effective Query Operation route; it does
-not own an independent predicate table. Fact options become preset controls
-carrying the explicit product-issued `(key, operator, value)` triple plus
-label, summary, weight, acquisition tier, execution class, optional resolver
-selection group, optional preset replacement group, display group, and
-Browser-issued fact category. Operand-bearing descriptors carry the same
-route-issued key and operators plus product-owned value-kind and example
-metadata. Presets and operand-bearing descriptors may also carry one
-product-issued related-operation affordance identity projected from Resource
-Explanation. The Browser catalog is currently only a transport for that
-registered identity; it does not author a parallel lens hint. Descriptors may
-also carry product-issued choices or suggestions. A closed choice renders as a
-select; suggestions render as a dropdown-backed input that still admits an
-exact custom value.
+The Browser reads one complete Resource Explanation `query-facets` data
+selection for the Package Query route. The selection projects
+`PackageQuery.RegisteredTerms`, their effective Query Operation facts,
+owner-issued presentation declarations, related-operation affordances, and
+consumer exposure. Browser code does not own an independent term inventory or
+reshape a dedicated managed catalog.
+
+Presentation declarations carry control order, input kind, fact versus
+value-query placement, execution class, selection and replacement groups,
+combining behavior, inline options, and an optional external option-source
+identity. Inline option values must equal the effective Query Space values, so
+presentation cannot drift from executable admission. The Browser filters the
+complete selection through its exact consumer binding, lowers the declared
+facts into controls, and owns interaction and layout. It may join an explicitly
+named shared product catalog: `product-ecosystems` resolves through the same
+Ecosystem catalog used by the rest of the site. It does not reproduce
+Ecosystem declarations.
+
+Related-operation affordance identity and acquisition tier provide semantic
+layout facts without a term-key switch. A fact related to
+`package.dependencies.inspect` appears in Dependencies; other nuspec or search
+metadata facts appear in Package metadata; package-content facts appear in
+Package contents. A closed choice renders as a select. Suggestions render as a
+dropdown-backed input that still admits an exact custom value when the issued
+control kind permits it.
 
 Acquisition tier and execution class are independent product facts. The former
 authorizes source search metadata, nuspec, or package-content work and retains
 its candidate limits. The latter is the UI taxonomy:
 `search-metadata`, `nuspec`, `nuspec-expensive`, `package-content`, `metadata`,
-or `metadata-expensive`. The Browser preserves the class through its generated
-facade and TypeScript catalog instead of deriving it from acquisition tier.
+or `metadata-expensive`. Resource Explanation preserves the class as an owner-issued presentation fact;
+the Browser does not derive it from acquisition tier.
 For example, `references` has package-content acquisition and metadata
 execution, while bounded dependency reach uses nuspec acquisition with
 `nuspec-expensive` execution. Selecting a dependency depth lowers the Browser's

@@ -1,4 +1,5 @@
 import type { EngineClient } from "./engine-client.ts";
+import type { PackageQueryFacetData } from "./package-query-source.ts";
 import {
   createOperationAuthorityPage,
   type OperationDiagnostic,
@@ -24,10 +25,12 @@ export interface EngineStartupClient {
     EngineClient["catalog"],
     "inspectVocabulary" | "listEcosystems" | "listHomeDemos"
   >;
-  readonly package: Pick<
-    EngineClient["package"],
-    "listPackageActivityEcosystems" | "listPackageQueryCatalog"
-  >;
+  readonly package:
+    Pick<EngineClient["package"], "listPackageActivityEcosystems">
+    & {
+      readonly inspectPackageQueryFacets:
+        () => Promise<PackageQueryFacetData>;
+    };
 }
 
 interface StartupReads {
@@ -37,7 +40,8 @@ interface StartupReads {
   readonly listHomeDemos: EngineStartupClient["catalog"]["listHomeDemos"];
   readonly listPackageActivityEcosystems:
     EngineStartupClient["package"]["listPackageActivityEcosystems"];
-  readonly listPackageQueryCatalog: EngineStartupClient["package"]["listPackageQueryCatalog"];
+  readonly inspectPackageQueryFacets:
+    () => Promise<unknown>;
 }
 
 interface StartupOperation<TValue> {
@@ -49,7 +53,10 @@ export function registerEngineWorkerStartupOperations(
   operations: WorkerOperationCatalog,
   reads: StartupReads,
 ): void {
-  function register<TValue>(operation: StartupOperation<TValue>, read: () => Promise<TValue>) {
+  function register<TValue>(
+    operation: StartupOperation<TValue>,
+    read: () => Promise<unknown>,
+  ) {
     operations.register({
       kind: operation.kind,
       allowance: { kind: "unbounded" },
@@ -72,7 +79,9 @@ export function registerEngineWorkerStartupOperations(
   register(
     engineStartupOperations.listPackageActivityEcosystems,
     reads.listPackageActivityEcosystems);
-  register(engineStartupOperations.listPackageQueryCatalog, reads.listPackageQueryCatalog);
+  register(
+    engineStartupOperations.inspectPackageQueryFacets,
+    reads.inspectPackageQueryFacets);
 }
 
 export function bindEngineWorkerStartupClient(
@@ -156,7 +165,8 @@ export function bindEngineWorkerStartupClient(
     package: {
       listPackageActivityEcosystems:
         bind(engineStartupOperations.listPackageActivityEcosystems),
-      listPackageQueryCatalog: bind(engineStartupOperations.listPackageQueryCatalog),
+      inspectPackageQueryFacets:
+        bind(engineStartupOperations.inspectPackageQueryFacets),
     },
   };
 }

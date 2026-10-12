@@ -744,7 +744,7 @@ import {
 } from "./package-query-announcements.ts";
 import {
   createBrowserPackageQueryDataSource,
-  packageQueryCatalog,
+  packageQueryFacets,
   type BrowserPackageQueryInspection,
 } from "./package-query-source.ts";
 import {
@@ -26776,8 +26776,9 @@ async function bootstrap() {
         `Package Activity ecosystems are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
-      const catalog =
-        packageQueryCatalog(await engineClient.package.listPackageQueryCatalog());
+      const catalog = packageQueryFacets(
+        await engineClient.package.inspectPackageQueryFacets(),
+        productEcosystemCatalog());
       state.packageQueryPresets = catalog.presets;
       state.packageQueryTerms = catalog.terms;
     } catch (error) {

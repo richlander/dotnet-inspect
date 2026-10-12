@@ -54,7 +54,7 @@ public sealed class ResourceExplanationDataset
                 : resource.Key.ResourceType == ResourceExplanationVocabulary.QuerySpaceType
                     ? ["query-facet"]
                     : resource.Key.ResourceType == ResourceExplanationVocabulary.QueryFacetType
-                        ? ["required-context", "exposed-by"] : [];
+                        ? ["required-context", "related-operation", "exposed-by"] : [];
             foreach (string relation in relations)
             {
                 foreach (ResourceExplanationRelationship edge in catalog.Relationships.Where(edge =>
@@ -212,8 +212,18 @@ public sealed class ResourceExplanationDataset
             order.Add((JsonNode?)JsonValue.Create(key));
         }
         foreach ((ExplanationResourceKey identity, string key) in keys)
+        {
             facets[key]!["requires"] = new JsonArray(Targets(identity, "required-context")
                 .Select(target => (JsonNode?)JsonValue.Create(keys[target])).ToArray());
+            facets[key]!["related_operations"] = new JsonArray(
+                Targets(identity, "related-operation")
+                    .Select(target =>
+                        (JsonNode?)JsonValue.Create(
+                            Text(
+                                nodes[target]["facts"]!,
+                                "identity")))
+                    .ToArray());
+        }
         var bindings = new JsonObject();
         foreach (ResourceExplanationResource resource in _resources.Where(r =>
             r.Key.ResourceType == ResourceExplanationVocabulary.ConsumerBindingType))

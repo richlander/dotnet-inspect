@@ -1207,11 +1207,19 @@ validation task benefits from that structure. Both `.data` and `.hal` retain
 these declarations; HAL's navigation does not supply operand semantics.
 
 A facet response preserves its issued key, operand kind, operators, values,
-examples, effects, and declared relationship targets. Vocabulary navigation
-does not mean the facet accepts all vocabulary terms. An empty values list
-does not establish an open domain. Query-local constraints remain Query Space
-facts; an accepted subset or open-domain assertion requires that owner's
-explicit declaration.
+examples, effects, input rules, related operations, and declared relationship
+targets. When the route owner registers presentation, selected facet data also
+preserves order, control and presentation kinds, execution class, selection and
+replacement groups, combining behavior, structured inline options, and an
+external option-source identity. Missing presentation remains explicit absent
+state; Resource Explanation does not infer it from operators or display text.
+
+Vocabulary navigation does not mean the facet accepts all vocabulary terms. An
+empty values list does not establish an open domain. Query-local constraints
+remain Query Space facts; an accepted subset or open-domain assertion requires
+that owner's explicit declaration. Inline presentation option values equal the
+effective Query Space values; an external option-source identity delegates
+choice population to another owner-issued product catalog.
 
 Acceptance uses three current production witnesses:
 

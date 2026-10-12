@@ -80,6 +80,71 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task SelectedFacetData_PreservesPackageQueryPresentationAndAffordances()
+    {
+        var result = await RunAsync(
+            "explain",
+            "package-query/query/facets/dependency-target",
+            ".data",
+            "--json");
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement facet = document.RootElement
+            .GetProperty("facets")
+            .GetProperty("dependency-target");
+        JsonElement facts = facet.GetProperty("facts");
+
+        Assert.Equal("input", facts.GetProperty("control-kind").GetString());
+        Assert.Equal(
+            "value-query",
+            facts.GetProperty("presentation-kind").GetString());
+        Assert.Equal("nuspec", facts.GetProperty("execution-class").GetString());
+        Assert.Equal(
+            [
+                "all",
+                "net11.0",
+                "net10.0",
+                "net9.0",
+                "net8.0",
+                "net7.0",
+                "net6.0",
+                "netstandard2.1",
+                "netstandard2.0",
+                "net48",
+                "net472",
+            ],
+            facts.GetProperty("options")
+                .EnumerateArray()
+                .Select(option => option.GetProperty("value").GetString()));
+        Assert.Equal(
+            ["package.dependencies.inspect"],
+            facet.GetProperty("related_operations")
+                .EnumerateArray()
+                .Select(operation => operation.GetString()));
+    }
+
+    [Fact]
+    public async Task SelectedFacetData_ReferencesProductEcosystemOptionsByIdentity()
+    {
+        var result = await RunAsync(
+            "explain",
+            "package-query/query/facets/depends-ecosystem",
+            ".data",
+            "--json");
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement facts = document.RootElement
+            .GetProperty("facets")
+            .GetProperty("depends-ecosystem")
+            .GetProperty("facts");
+
+        Assert.Equal(
+            "product-ecosystems",
+            facts.GetProperty("option-source").GetString());
+        Assert.Empty(facts.GetProperty("options").EnumerateArray());
+    }
+
+    [Fact]
     public async Task SelectedLiteralHal_RegistersOperandAndHostRulesWithoutAcquisition()
     {
         var result = await RunAsync("explain", "package-query/query/facets/library-literal", ".hal", "--json");

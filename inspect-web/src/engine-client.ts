@@ -1,6 +1,7 @@
 import type {
   BrowserSourceComparisonResult,
 } from "./source-diff-transport.ts";
+import type { PackageQueryFacetData } from "./package-query-source.ts";
 
 type HostFacade = typeof import("./facades/inspect-web-host.d.ts");
 type PackageFacade = typeof import("./facades/inspect-web-package.d.ts");
@@ -32,7 +33,6 @@ type PackageOperations =
   | "getPlatformVersions"
   | "getPackageDocument"
   | "listPackageActivityEcosystems"
-  | "listPackageQueryCatalog"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "matchPackageDependencyCoordinate"
@@ -168,6 +168,7 @@ type CatalogOperations =
 export interface EngineClient {
   readonly host: AsyncFacade<HostFacade, "buildIdentity">;
   readonly package: AsyncFacade<PackageFacade, PackageOperations> & {
+    inspectPackageQueryFacets(): Promise<PackageQueryFacetData>;
     cancelPackageActivity(
       ...args: Parameters<PackageFacade["cancelPackageActivity"]>
     ): void;

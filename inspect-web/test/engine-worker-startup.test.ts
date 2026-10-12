@@ -25,8 +25,8 @@ import type {
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type {
   BrowserPackageChangesEcosystemCatalog,
-  BrowserPackageQueryCatalog,
 } from "../src/facades/inspect-web-package.d.ts";
+import type { PackageQueryFacetData } from "../src/package-query-source.ts";
 import {
   FakeWorkerRuntime,
   ManualWorkerRuntimeEnvironment,
@@ -70,35 +70,70 @@ const productEcosystems: BrowserEcosystemCatalog = {
     hasWorkspaceRegistration: true,
   }],
 };
-const catalog: BrowserPackageQueryCatalog = {
-  presets: [{
-    key: "readme", operator: "eq", value: "true",
-    label: "Embedded README", summary: "Package declares an embedded README.", weight: 2, tier: "Nuspec",
-    executionClass: "Nuspec",
-    selectionGroupId: null, combinesWithinSelectionGroup: false,
-    replacementGroupId: null,
-    displayGroupId: "package", displayGroupLabel: "Package",
-    categoryId: "package-metadata",
-    categoryLabel: "Package metadata",
-    categoryOrder: 100,
-    relatedOperations: [],
-  }],
-  terms: [{
-    key: "depends",
-    label: "Direct dependency",
-    summary: "Matches a direct dependency.",
-    weight: 10,
-    tier: "Nuspec",
-    executionClass: "Nuspec",
-    operators: ["eq"],
-    valueKind: "package-id",
-    example: "Microsoft.Extensions.Hosting",
-    multiline: false,
-    allowsCustomValue: true,
-    replacementGroupId: null,
-    options: [],
-    relatedOperations: ["package.dependencies.inspect"],
-  }],
+const facetPayload = {
+  selection: { kind: "query-facets", completeness: "Complete" },
+  facet_order: ["depends"],
+  facets: {
+    depends: {
+      facts: {
+        key: "depends",
+        name: "Direct dependency",
+        summary: "Matches a direct dependency.",
+        operators: ["eq"],
+        "value-kind": "package-id",
+        examples: ["Microsoft.Extensions.Hosting"],
+        effects: ["AcquisitionTier: nuspec"],
+        "input-rules": [],
+        "presentation-order": 10,
+        "control-kind": "input",
+        "presentation-kind": "value-query",
+        "execution-class": "nuspec",
+        "selection-group": null,
+        "combines-within-selection-group": false,
+        "replacement-group": null,
+        "option-source": null,
+        options: [],
+      },
+      related_operations: ["package.dependencies.inspect"],
+    },
+  },
+  bindings: {
+    browser: {
+      facts: { "consumer-kind": "Browser" },
+      exposed_facets: ["depends"],
+    },
+  },
+};
+const facets: PackageQueryFacetData = {
+  facetOrder: ["depends"],
+  facets: {
+    depends: {
+      key: "depends",
+      name: "Direct dependency",
+      summary: "Matches a direct dependency.",
+      operators: ["eq"],
+      valueKind: "package-id",
+      examples: ["Microsoft.Extensions.Hosting"],
+      effects: ["AcquisitionTier: nuspec"],
+      inputRules: [],
+      presentationOrder: 10,
+      controlKind: "input",
+      presentationKind: "value-query",
+      executionClass: "nuspec",
+      selectionGroup: null,
+      combinesWithinSelectionGroup: false,
+      replacementGroup: null,
+      optionSource: null,
+      options: [],
+      relatedOperations: ["package.dependencies.inspect"],
+    },
+  },
+  bindings: {
+    browser: {
+      consumerKind: "Browser",
+      exposedFacets: ["depends"],
+    },
+  },
 };
 const ecosystems: BrowserPackageChangesEcosystemCatalog = {
   version: 1,
@@ -123,8 +158,14 @@ const cases = [
     field: "ecosystems",
     read: (client: EngineStartupClient) => client.catalog.listEcosystems(),
   },
-  { operation: engineStartupOperations.listPackageQueryCatalog, expected: catalog, field: "presets",
-    read: (client: EngineStartupClient) => client.package.listPackageQueryCatalog() },
+  {
+    operation: engineStartupOperations.inspectPackageQueryFacets,
+    expected: facets,
+    encoded: facetPayload,
+    field: "facets",
+    read: (client: EngineStartupClient) =>
+      client.package.inspectPackageQueryFacets(),
+  },
   {
     operation: engineStartupOperations.listPackageActivityEcosystems,
     expected: ecosystems,
@@ -158,7 +199,10 @@ function fixture(options: {
       calls.push("product-ecosystems");
       return productEcosystems;
     },
-    async listPackageQueryCatalog() { calls.push("catalog"); return catalog; },
+    async inspectPackageQueryFacets() {
+      calls.push("facets");
+      return facetPayload;
+    },
     async listPackageActivityEcosystems() {
       calls.push("ecosystems");
       return ecosystems;
@@ -211,7 +255,7 @@ test("all six cold reads share readiness and preserve full generated-shaped resu
     state.calls,
     [
       "identity", "vocabulary", "demos", "product-ecosystems",
-      "catalog", "ecosystems",
+      "facets", "ecosystems",
     ]);
   assert.deepEqual(
     await Promise.all(cases.map(item => item.read(state.client))),
@@ -220,8 +264,8 @@ test("all six cold reads share readiness and preserve full generated-shaped resu
     state.calls,
     [
       "identity", "vocabulary", "demos", "product-ecosystems",
-      "catalog", "ecosystems",
-      "identity", "demos", "product-ecosystems", "catalog", "ecosystems",
+      "facets", "ecosystems",
+      "identity", "demos", "product-ecosystems", "facets", "ecosystems",
     ]);
   assert.equal(state.starts(), 1);
   assert.equal(state.host.snapshot().activeOperations, 0);
@@ -254,7 +298,7 @@ test("a managed exception rejects its read without failing neighboring reads", a
   assert.deepEqual(await neighbor, demos);
   assert.equal(state.host.snapshot().phase, "ready");
   assert.deepEqual(state.failures, []);
-  assert.deepEqual(await state.client.package.listPackageQueryCatalog(), catalog);
+  assert.deepEqual(await state.client.package.inspectPackageQueryFacets(), facets);
   state.host.dispose();
 });
 
@@ -349,33 +393,58 @@ test("oversized generated results reject only the affected read", async () => {
 
 test("startup decoders preserve extra JSON data and reject invalid DTO shapes", () => {
   for (const item of cases) {
-    const value = { ...item.expected, future: { nested: [null, "preserved"] } };
-    assert.deepEqual(item.operation.value.decode(encodeEngineStartupResult(value)), { kind: "decoded", value });
-    const invalid = { ...item.expected, [item.field]: false };
+    const encoded = { ...(item.encoded ?? item.expected), future: { nested: [null, "preserved"] } };
+    const expected = item.operation === engineStartupOperations.inspectPackageQueryFacets
+      ? item.expected
+      : { ...item.expected, future: { nested: [null, "preserved"] } };
+    assert.deepEqual(
+      item.operation.value.decode(encodeEngineStartupResult(encoded)),
+      { kind: "decoded", value: expected });
+    const invalid = { ...(item.encoded ?? item.expected), [item.field]: false };
     assert.equal(item.operation.value.decode(JSON.stringify(invalid)).kind, "rejected");
     assert.equal(item.operation.value.decode(item.expected).kind, "rejected");
     assert.equal(item.operation.value.decode("{").kind, "rejected");
   }
-  assert.equal(engineStartupOperations.listPackageQueryCatalog.value.decode(JSON.stringify({
-    presets: [{ ...catalog.presets[0], tier: 42 }],
-    terms: catalog.terms,
-  })).kind, "decoded");
-  assert.equal(engineStartupOperations.listPackageQueryCatalog.value.decode(JSON.stringify({
-    presets: [{ ...catalog.presets[0], tier: "not-a-tier" }],
-    terms: catalog.terms,
-  })).kind, "rejected");
-  assert.equal(engineStartupOperations.listPackageQueryCatalog.value.decode(JSON.stringify({
-    presets: [{ ...catalog.presets[0], executionClass: "not-a-class" }],
-    terms: catalog.terms,
-  })).kind, "rejected");
-  assert.equal(engineStartupOperations.listPackageQueryCatalog.value.decode(JSON.stringify({
-    presets: [{ ...catalog.presets[0], replacementGroupId: false }],
-    terms: catalog.terms,
-  })).kind, "rejected");
-  assert.equal(engineStartupOperations.listPackageQueryCatalog.value.decode(JSON.stringify({
-    presets: catalog.presets,
-    terms: [{ ...catalog.terms[0], operators: [42] }],
-  })).kind, "rejected");
+  assert.equal(engineStartupOperations.inspectPackageQueryFacets.value.decode(
+    JSON.stringify({
+      ...facetPayload,
+      selection: { kind: "query-facets", completeness: "Partial" },
+    })).kind, "rejected");
+  assert.equal(engineStartupOperations.inspectPackageQueryFacets.value.decode(
+    JSON.stringify({
+      ...facetPayload,
+      facets: {
+        depends: {
+          ...facetPayload.facets.depends,
+          facts: { ...facetPayload.facets.depends.facts, operators: [42] },
+        },
+      },
+    })).kind, "rejected");
+  assert.equal(engineStartupOperations.inspectPackageQueryFacets.value.decode(
+    JSON.stringify({
+      ...facetPayload,
+      bindings: {
+        browser: {
+          ...facetPayload.bindings.browser,
+          exposed_facets: [42],
+        },
+      },
+    })).kind, "rejected");
+  assert.equal(engineStartupOperations.inspectPackageQueryFacets.value.decode(
+    JSON.stringify({
+      ...facetPayload,
+      facet_order: [],
+    })).kind, "rejected");
+  assert.equal(engineStartupOperations.inspectPackageQueryFacets.value.decode(
+    JSON.stringify({
+      ...facetPayload,
+      facets: {
+        depends: {
+          ...facetPayload.facets.depends,
+          facts: { ...facetPayload.facets.depends.facts, key: "other" },
+        },
+      },
+    })).kind, "rejected");
   assert.equal(engineStartupInput.decode(null).kind, "decoded");
   assert.equal(engineStartupInput.decode([]).kind, "rejected");
 });
