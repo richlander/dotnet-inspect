@@ -69,7 +69,7 @@ def main(root):
     for label in dispatch["trials"]:
         trial = root / label
         assert digest((trial / "config.json").read_bytes()) == dispatch["trial_configs"][label]
-        assert (trial / "guide.md").read_bytes() == (root / "guide.txt").read_bytes()
+        assert (trial / "guide.txt").read_bytes() == (root / "guide.txt").read_bytes()
         assert {p.name for p in trial.iterdir() if p.is_file()} == set(manifest["artifacts"][label])
         for name, expected in manifest["artifacts"][label].items():
             assert digest((trial / name).read_bytes()) == expected, (label, name)

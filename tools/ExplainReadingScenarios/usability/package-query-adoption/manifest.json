@@ -8,11 +8,11 @@
     "measurements.json": "eae8b93341e1340c1e5012baf743bf16f541370073766124964cb895e39c42d3",
     "worked-selection.jq": "a1907cbe921cef5afb285dd7442542dbafb80fd3c5e4a32098e58053dc6d1c81",
     "post-task-question.txt": "9a4ac8b072fd35897657b8482a2fde9195a5a5b811684aa02487ec45103ef7db",
-    "README.md": "7acd00c24607ff12168db1da5fcd8240120c335ea0a79791b12247b1f17499eb",
+    "README.md": "b58de14305afc713a6070b5ec88acfb2c12ef30184421765fc1944ca038d0c8b",
     "package-task.txt": "0767e00637f89641205e82a826a1273580b7dc0724c1c03bd8e7e4e972201307",
     "participant.txt": "e6808f33f0ce72269d9aa3e04fb6b13f1e8c83d37bfe528cabb58fb5c8a528ac",
     "freeze.py": "8d38e5f927986373bd3f94ebf59aa07e2663564f37679a3568f9856c28f4b34d",
-    "verify.py": "3f95493222078b3fd68ace4322b23fb5637f4436898a226dae8d79266e012fa3",
+    "verify.py": "0290056f8c5cb3e5246f975bf4c45f4c9a7abf1bbabbad7f5e97077eb4c09464",
     "worked-selection.json": "cf3e8c8c205090ef7626f02574ea95a6a01339f15647311b367aed01e425621d",
     "../command-bound/verify.py": "ece43c06f8be0ae35cd3ee4a792cd111bc4e9628419fdeffc90206d851f8b004"
   },
@@ -23,7 +23,6 @@
       "config.json": "0775f678e7faf3498312b4ce3a092c317ed853e4ae02683417232b24a043956b",
       "events.jsonl": "21256f586440cc0362c657da2792eec6a1572f1afe118cff5856b2b43df45869",
       "frozen.json": "31f71bdef3d01c8ad68f0cb68ff1e92f5ae7ed596ae2175ca5e954bde2ec8c53",
-      "guide.md": "b013dbd01bc92b395f3e8cc528ba58834c748ee41bd6b0c7432c138a1f6da8bf",
       "post-task.json": "a515d15870bdbc30643bce013be261cbf3b9fd232ba1ce9528c706961fa8c03f",
       "response-01.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "response-01.out": "eaff003cf16f5394a85af4437eb37da379fc68bc9e6fac0a56df06f6ab5fa1f3",
@@ -43,7 +42,8 @@
       "view-07.txt": "fe6e14dc489aae32c66a2857ed64541d723d801362f1589b83443aa9765ae306",
       "view-08.txt": "af49f5f3bdd5c6904ab29021bba38831f7a531151b36adf8cef9fc2f7feafe2e",
       "view-09.txt": "a44e5ea5442ed9a55ee26bfd93ce8ddabad3ba9b191ed14976c2fecd642723c2",
-      "views.jsonl": "0dece603ade94fde247e32e28c0280ed4100c18c47d0b4d7dfc526cf5b1c3cb4"
+      "views.jsonl": "0dece603ade94fde247e32e28c0280ed4100c18c47d0b4d7dfc526cf5b1c3cb4",
+      "guide.txt": "b013dbd01bc92b395f3e8cc528ba58834c748ee41bd6b0c7432c138a1f6da8bf"
     },
     "package-adoption-2": {
       "answer.json": "9cf42d69eb4a94257957f4d0399b0164c2c3a741698c9ab2ee9132a39a46bb50",
@@ -51,7 +51,6 @@
       "config.json": "0775f678e7faf3498312b4ce3a092c317ed853e4ae02683417232b24a043956b",
       "events.jsonl": "ba03965699b821cee94db15603008b33e81b2e4cb384c4e9b9227e798c3ca5e2",
       "frozen.json": "91be73c961be01d6a6541fa515926f9b4e02d29af986972303a76bfb4bb918bd",
-      "guide.md": "b013dbd01bc92b395f3e8cc528ba58834c748ee41bd6b0c7432c138a1f6da8bf",
       "post-task.json": "b843f0209c3917a3eb61041bf4681047f573752ad53e5067d75dfea7aea4fc91",
       "response-01.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "response-01.out": "eaff003cf16f5394a85af4437eb37da379fc68bc9e6fac0a56df06f6ab5fa1f3",
@@ -71,7 +70,8 @@
       "view-07.txt": "65b8f84d44476091177cf12ffe5f8c29fd2a9c6156403f51c37302628ec67a49",
       "view-08.txt": "62ae5965e469c95877b483048a40b36e8fe1529b69a73b101f674601f4ac164c",
       "view-09.txt": "a44e5ea5442ed9a55ee26bfd93ce8ddabad3ba9b191ed14976c2fecd642723c2",
-      "views.jsonl": "af05ea420046137715a232eddf6e3f6410d6ee1dfe37088fea3d070ad92e86e9"
+      "views.jsonl": "af05ea420046137715a232eddf6e3f6410d6ee1dfe37088fea3d070ad92e86e9",
+      "guide.txt": "b013dbd01bc92b395f3e8cc528ba58834c748ee41bd6b0c7432c138a1f6da8bf"
     },
     "package-adoption-3": {
       "answer.json": "fc0dab8445a903a2c941c7ed2337a1f1a274e3518b63ca0f7d32a610473f64f9",
@@ -79,7 +79,6 @@
       "config.json": "0775f678e7faf3498312b4ce3a092c317ed853e4ae02683417232b24a043956b",
       "events.jsonl": "1ecc9e17c5e8a227c056a920b4c35121bb9704c5d9cc8c44e029ad5096646878",
       "frozen.json": "85ee89686d00689113d169264edbf8e8b54cc638c07e5daed652c87e00023063",
-      "guide.md": "b013dbd01bc92b395f3e8cc528ba58834c748ee41bd6b0c7432c138a1f6da8bf",
       "post-task.json": "03b0e07b31c08f5a258e27a4d0694c0cf3fe6dafbfee0e18a0776567ab2a7e2d",
       "response-01.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "response-01.out": "eaff003cf16f5394a85af4437eb37da379fc68bc9e6fac0a56df06f6ab5fa1f3",
@@ -105,7 +104,8 @@
       "view-07.txt": "d077e0d3968c7c28f73afc8b9717e350584b44c9b995ab611c099dda03b460a6",
       "view-08.txt": "cb7f27b4d707f54647a7b19063f970408c41d48c10c59721077519be8ed98578",
       "view-09.txt": "a44e5ea5442ed9a55ee26bfd93ce8ddabad3ba9b191ed14976c2fecd642723c2",
-      "views.jsonl": "2463aafab5c9ee5e42d04a7642d9b0d18330a30cfb7cebd88425b3c7f0e800f2"
+      "views.jsonl": "2463aafab5c9ee5e42d04a7642d9b0d18330a30cfb7cebd88425b3c7f0e800f2",
+      "guide.txt": "b013dbd01bc92b395f3e8cc528ba58834c748ee41bd6b0c7432c138a1f6da8bf"
     },
     "package-adoption-4": {
       "answer.json": "ccc307ef22e6fef2ee1accbd34b88a863f71ec563d9d04633162d67ae4614a8f",
@@ -113,7 +113,6 @@
       "config.json": "0775f678e7faf3498312b4ce3a092c317ed853e4ae02683417232b24a043956b",
       "events.jsonl": "c1c4c16f5ce078cf4761a50032f169b2a5ba2518f2201844b432f000179b159e",
       "frozen.json": "fbcb4dcfc50508427c4791300312ab3c6861b360a50e86ba71e337cbfe9e4a33",
-      "guide.md": "b013dbd01bc92b395f3e8cc528ba58834c748ee41bd6b0c7432c138a1f6da8bf",
       "post-task.json": "d1035cb251ad0c92d12cc6ed36c394edaf6249b5b8fed11623b9a09da0c9eae0",
       "response-01.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "response-01.out": "eaff003cf16f5394a85af4437eb37da379fc68bc9e6fac0a56df06f6ab5fa1f3",
@@ -137,7 +136,8 @@
       "view-05.txt": "fe1fe361b87ca58146be468a0f4b115dea6532a139ea446f76cf25cb9b6162ec",
       "view-06.txt": "ce6076da1880a76d906ab0aba62b1af0c7b73dfeaf04b24f4102b257732fc1d8",
       "view-07.txt": "a44e5ea5442ed9a55ee26bfd93ce8ddabad3ba9b191ed14976c2fecd642723c2",
-      "views.jsonl": "c612838de895b712d2f2e1de55b17dc478b9ebaa30b521b9bbf53dc3e8a69bd2"
+      "views.jsonl": "c612838de895b712d2f2e1de55b17dc478b9ebaa30b521b9bbf53dc3e8a69bd2",
+      "guide.txt": "b013dbd01bc92b395f3e8cc528ba58834c748ee41bd6b0c7432c138a1f6da8bf"
     }
   }
 }

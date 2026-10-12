@@ -140,6 +140,8 @@ preflight identity, unaltered stdout, frozen original answers, copied common
 guides/configs, recorded jq including the error, serialized read-before-request
 order, retrospective question identity, inventories, and byte arithmetic.
 It is a standalone evidence verifier, not a CI regression or answer scorer.
+Archived participant guides use `guide.txt`; their bytes match the original
+`guide.md` files used by the recorder, without adding a Markdown heading.
 
 ## Evidence boundaries
 
