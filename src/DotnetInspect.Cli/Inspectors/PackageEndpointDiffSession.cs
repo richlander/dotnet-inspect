@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using NuGet.Versioning;
@@ -38,6 +39,19 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
     internal PackageEndpointScope From { get; }
 
     internal PackageEndpointScope To { get; }
+
+#if DEBUG
+    /// <summary>
+    /// The House acquisitions that opened the two endpoints, before then
+    /// after (docs/design/package-transfer-receipt.md#delivery).
+    /// </summary>
+    internal PackageAcquisitionEvidence AcquisitionEvidence =>
+        new(
+        [
+            PackageAcquisitionEvidenceEntry.From(From.Contribution.Acquisition),
+            PackageAcquisitionEvidenceEntry.From(To.Contribution.Acquisition),
+        ]);
+#endif
 
     /// <summary>
     /// The House demands one pairwise package diff request declares, or

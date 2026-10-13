@@ -256,6 +256,26 @@ public partial class DiffCommand
                 "--envelope cannot be combined with rendered-line clipping.");
             return 1;
         }
+        // A Debug evidence envelope carries the House acquisitions of an
+        // operation whose baseline envelope exists: Library API Diff or an
+        // API analysis set, opened through the package endpoint scope
+        // (docs/design/package-transfer-receipt.md#delivery).
+        if (options.EvidenceEnvelopePath is not null
+            && (!hasPackage
+                || !AdmitsPackageEndpointScope(
+                    catalog,
+                    options,
+                    implementationTransport,
+                    annotatedSourceTransport,
+                    analysisPlan)
+                || analysisPlan is null
+                    && !UsesSharedLibraryApiDiff(1, 1, options)))
+        {
+            CommandError.Write(
+                "--evidence-envelope requires diff --history, or a pairwise diff --package "
+                    + "Library API Diff or API analysis set.");
+            return 1;
+        }
 
         if (!OutputFormatResolver.ValidateSingleSectionForTabular(
                 options.TabularExplicitlySet,
@@ -439,7 +459,7 @@ public partial class DiffCommand
                                 inputs.To.AssemblySet.Assemblies[0],
                                 options.IncludeAll,
                                 typeSelection);
-                    return LibraryApiDiffOutput.Write(
+                    int written = LibraryApiDiffOutput.Write(
                         comparison,
                         inputs.Name,
                         inputs.FromVersion,
@@ -447,6 +467,22 @@ public partial class DiffCommand
                         options,
                         hasPackage ? inputs.From.Framework : null,
                         hasPackage ? inputs.To.Framework : null);
+                    return PublishAcquisitionEvidence(
+                        inputs,
+                        options,
+                        comparison,
+                        LibraryApiDiffOutput.JsonContract,
+                        written);
+                }
+                if (options.EvidenceEnvelopePath is not null)
+                {
+                    // Library API Diff applied to the request but not to its
+                    // endpoints, which are not one Library each.
+                    CommandError.Write(
+                        "--evidence-envelope requires Library API Diff, which needs exactly one "
+                            + $"Library at each endpoint; resolved {inputs.From.LibraryCount} before "
+                            + $"and {inputs.To.LibraryCount} after. Use --analysis api.");
+                    return 1;
                 }
                 WorkspaceImplementationTarget? workspaceTarget =
                     SelectsComplexityContext(options)
@@ -873,6 +909,41 @@ public partial class DiffCommand
                     await Owner.DisposeAsync();
             }
         }
+    }
+
+    /// <summary>
+    /// Publishes the Debug evidence envelope, when one was requested, for an
+    /// inspection whose endpoints opened through the package endpoint scope.
+    /// The legacy endpoint route issues no acquisition receipts.
+    /// </summary>
+    static int PublishAcquisitionEvidence<TContent>(
+        DiffInputs inputs,
+        DiffOptions options,
+        InspectionEnvelope<TContent> inspection,
+        InspectionEnvelopeJsonContract<TContent> contract,
+        int exitCode)
+    {
+#if DEBUG
+        if (options.EvidenceEnvelopePath is not { } evidencePath)
+            return exitCode;
+        if (inputs.Owner is not PackageEndpointDiffSession session)
+        {
+            CommandError.Write(
+                "--evidence-envelope requires the package endpoint scope route; this request "
+                    + "took the legacy endpoint route, which issues no acquisition receipts.");
+            return 1;
+        }
+        return EvidenceEnvelopeOutput.TryPublishAcquisitionEvidence(
+                evidencePath,
+                new EvidenceInspectionEnvelope<TContent, PackageAcquisitionEvidence>(
+                    inspection,
+                    session.AcquisitionEvidence),
+                contract)
+            ? exitCode
+            : 1;
+#else
+        return exitCode;
+#endif
     }
 
     static bool UsesSharedLibraryApiDiff(DiffInputs inputs, DiffOptions options)
@@ -3794,7 +3865,8 @@ public record DiffOptions : IProjectionOptions
     public bool History { get; init; }
 
     /// <summary>
-    /// Debug-only destination for the complete enriched Diff History envelope.
+    /// Debug-only destination for the complete enriched Diff History, Library
+    /// API Diff, or analysis-set envelope with its package acquisitions.
     /// </summary>
     public string? EvidenceEnvelopePath { get; init; }
     public string[] At { get; init; } = [];
