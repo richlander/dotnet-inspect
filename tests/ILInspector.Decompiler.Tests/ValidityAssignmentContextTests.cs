@@ -72,6 +72,36 @@ public class ValidityAssignmentContextTests
         Assert.False(result.SemanticUnavailable);
     }
 
+    [Theory]
+    [InlineData("int value; if (System.DateTime.Now.Ticks > 0) Missing.TryRead(out value); return value;")]
+    [InlineData("int value; if (System.DateTime.Now.Ticks > 0 && Missing.TryRead(out value)) { } return value;")]
+    [InlineData("int value; if (System.DateTime.Now.Ticks > 0 || Missing.TryRead(out value)) return value; return 0;")]
+    [InlineData("int value; while (System.DateTime.Now.Ticks > 0) Missing.TryRead(out value); return value;")]
+    [InlineData("int value; bool ignored = System.DateTime.Now.Ticks > 0 ? Missing.TryRead(out value) : false; return value;")]
+    [InlineData("int value; try { Missing.TryRead(out value); } catch { } return value;")]
+    [InlineData("int value; if (System.DateTime.Now.Ticks > 0) goto Read; Missing.TryRead(out value); Read: return value;")]
+    [InlineData("int value; do { if (System.DateTime.Now.Ticks > 0) continue; Missing.TryRead(out value); } while (value > 0); return 0;")]
+    public void UnresolvedOutCallThatCanBeSkipped_KeepsRealDefect(string body)
+    {
+        var result = Check(body);
+        Assert.True(result.HasSemanticDefect);
+        Assert.False(result.SemanticUnavailable);
+        Assert.Contains(result.SemanticDiagnostics, d => d.Id == "CS0165");
+    }
+
+    [Theory]
+    [InlineData("int value; if (System.DateTime.Now.Ticks <= 0 || !Missing.TryRead(out value)) return 0; return value;")]
+    [InlineData("int value; return System.DateTime.Now.Ticks <= 0 || !Missing.TryRead(out value) ? 0 : value;")]
+    [InlineData("int value; return System.DateTime.Now.Ticks > 0 && Missing.TryRead(out value) && value > 0 ? 1 : 0;")]
+    [InlineData("int value; if (System.DateTime.Now.Ticks <= 0 || !Missing.TryRead(out value) || value <= 0) return 0; return 1;")]
+    public void UnresolvedOutCallOnRequiredGuardPath_DeclinesCoverage(string body)
+    {
+        var result = Check(body);
+        Assert.True(result.SemanticUnavailable);
+        Assert.False(result.HasSemanticDefect);
+        Assert.False(result.IsValid);
+    }
+
     [Fact]
     public void BoundSkippedOutCall_KeepsRealDefect()
     {

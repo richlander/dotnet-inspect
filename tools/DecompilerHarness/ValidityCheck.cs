@@ -577,6 +577,8 @@ static class ValidityCheck
                     : semanticModel.GetSymbolInfo(argument.Expression).Symbol;
             if (!SymbolEqualityComparer.Default.Equals(local, assigned))
                 continue;
+            if (!OutCallMustExecuteBeforeRead(invocation, read, semanticModel))
+                continue;
             var unresolved = semanticModel.GetSymbolInfo(invocation).Symbol is not IMethodSymbol
                 ? invocation
                 : UnresolvedOutInAndGuard(invocation, read, semanticModel);
@@ -585,6 +587,110 @@ static class ValidityCheck
         }
         return null;
     }
+
+    static bool OutCallMustExecuteBeforeRead(InvocationExpressionSyntax invocation, SyntaxNode read, SemanticModel semanticModel)
+    {
+        // Missing binding cannot explain a read on a path that skips the call.
+        // Only recognize syntax whose execution requirement is explicit; unknown
+        // control flow retains the compiler's defect rather than declining it.
+        var scope = ExecutableScope(invocation);
+        if (scope?.DescendantNodes().OfType<GotoStatementSyntax>().Any() == true)
+            return false;
+        for (SyntaxNode node = invocation; node.Parent is { } parent; node = parent)
+        {
+            if (parent is BinaryExpressionSyntax binary && binary.Right.Span.Contains(invocation.Span))
+            {
+                if (binary.IsKind(SyntaxKind.CoalesceExpression) && !binary.Right.Span.Contains(read.Span))
+                    return false;
+                if ((binary.IsKind(SyntaxKind.LogicalAndExpression) || binary.IsKind(SyntaxKind.LogicalOrExpression))
+                    && semanticModel.GetSymbolInfo(binary).Symbol is IMethodSymbol)
+                    return false;
+                if (binary.IsKind(SyntaxKind.LogicalAndExpression)
+                    && ExpressionOutcomeAtRead(binary, read) != true)
+                    return false;
+                if (binary.IsKind(SyntaxKind.LogicalOrExpression)
+                    && ExpressionOutcomeAtRead(binary, read) != false)
+                    return false;
+            }
+            if (parent is ConditionalAccessExpressionSyntax access
+                && access.WhenNotNull.Span.Contains(invocation.Span))
+                return false;
+            if (parent is SwitchSectionSyntax or SwitchExpressionArmSyntax or CatchClauseSyntax or FinallyClauseSyntax
+                && !parent.Span.Contains(read.Span))
+                return false;
+            if (parent is TryStatementSyntax exceptionRegion && exceptionRegion.Block.Span.Contains(invocation.Span)
+                && !exceptionRegion.Block.Span.Contains(read.Span))
+                return false;
+            var loopBody = parent switch
+            {
+                WhileStatementSyntax loop => loop.Statement,
+                ForStatementSyntax loop => loop.Statement,
+                ForEachStatementSyntax loop => loop.Statement,
+                DoStatementSyntax loop => loop.Statement,
+                _ => null
+            };
+            if (loopBody?.Span.Contains(invocation.Span) == true && !loopBody.Span.Contains(read.Span))
+                return false;
+            if (parent is ConditionalExpressionSyntax conditional
+                && !conditional.Condition.Span.Contains(invocation.Span)
+                && !(conditional.WhenTrue.Span.Contains(invocation.Span) && conditional.WhenTrue.Span.Contains(read.Span))
+                && !(conditional.WhenFalse.Span.Contains(invocation.Span) && conditional.WhenFalse.Span.Contains(read.Span)))
+                return false;
+            if (parent is IfStatementSyntax guard
+                && !guard.Condition.Span.Contains(invocation.Span)
+                && !(guard.Statement.Span.Contains(invocation.Span) && guard.Statement.Span.Contains(read.Span))
+                && !(guard.Else is { } alternative && alternative.Statement.Span.Contains(invocation.Span)
+                    && alternative.Statement.Span.Contains(read.Span)))
+                return false;
+            if (parent is WhileStatementSyntax or ForStatementSyntax or ForEachStatementSyntax
+                or DoStatementSyntax or SwitchStatementSyntax or TryStatementSyntax)
+            {
+                if (!parent.Span.Contains(read.Span))
+                    return false;
+            }
+            if (parent == ExecutableScope(invocation))
+                break;
+        }
+        return true;
+    }
+
+    static bool? ExpressionOutcomeAtRead(ExpressionSyntax expression, SyntaxNode read)
+    {
+        if (expression.Parent is BinaryExpressionSyntax continuation
+            && continuation.Left == expression && continuation.Right.Span.Contains(read.Span))
+        {
+            if (continuation.IsKind(SyntaxKind.LogicalAndExpression))
+                return true;
+            if (continuation.IsKind(SyntaxKind.LogicalOrExpression))
+                return false;
+        }
+        if (expression.Span.Contains(read.Span))
+            return null;
+        return expression.Parent switch
+        {
+            ParenthesizedExpressionSyntax parentheses => ExpressionOutcomeAtRead(parentheses, read),
+            PrefixUnaryExpressionSyntax negation when negation.IsKind(SyntaxKind.LogicalNotExpression)
+                => ExpressionOutcomeAtRead(negation, read) is { } outcome ? !outcome : null,
+            BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.LogicalAndExpression)
+                => ExpressionOutcomeAtRead(binary, read) == true ? true : null,
+            BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.LogicalOrExpression)
+                => ExpressionOutcomeAtRead(binary, read) == false ? false : null,
+            ConditionalExpressionSyntax conditional when conditional.Condition == expression
+                => conditional.WhenTrue.Span.Contains(read.Span) ? true
+                    : conditional.WhenFalse.Span.Contains(read.Span) ? false : null,
+            IfStatementSyntax guard when guard.Condition == expression
+                => guard.Statement.Span.Contains(read.Span) ? true
+                    : guard.Else?.Statement.Span.Contains(read.Span) == true ? false
+                    : guard.Span.End <= read.SpanStart && AlwaysExits(guard.Statement) ? false
+                    : guard.Span.End <= read.SpanStart && guard.Else is { } alternative
+                        && AlwaysExits(alternative.Statement) ? true : null,
+            _ => null
+        };
+    }
+
+    static bool AlwaysExits(StatementSyntax statement)
+        => statement is ReturnStatementSyntax or ThrowStatementSyntax
+            || statement is BlockSyntax block && block.Statements.LastOrDefault() is { } last && AlwaysExits(last);
 
     static InvocationExpressionSyntax? UnresolvedOutInAndGuard(
         InvocationExpressionSyntax invocation,

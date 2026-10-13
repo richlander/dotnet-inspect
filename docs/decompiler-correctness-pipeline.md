@@ -71,8 +71,11 @@ target-assembly namespaces remain explicit shell-visibility noise (`CS0400`);
 the harness does not reference the inspected assembly and accidentally bind a
 different product version already present in its own runtime closure.
 When CS0165 names a local passed to an unresolved `out` invocation in the same
-executable body, Roslyn's error recovery cannot establish that call's assignment
-effect. The same limitation can affect a bound `out` call in an `&&` guard
+executable body, and the call is required on the recognized path to the read,
+Roslyn's error recovery cannot establish that call's assignment effect.
+Conditional calls that can be skipped before the read retain CS0165, whether
+bound or unresolved. Unrecognized control flow also retains the defect.
+The same limitation can affect a bound `out` call in an `&&` guard
 containing another unresolved `out` call, when the read is in the guard's true
 arm. The validity lane reports `VLD0002` semantic coverage unavailable,
 retaining the raw CS0165 and unresolved-call evidence in its message. It does
