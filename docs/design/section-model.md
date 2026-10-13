@@ -644,10 +644,10 @@ completion; `Empty` explains what that completion means.
 
 Item meaning attaches only to items the section's
 [structural schema](schema-query.md#model) already declares. A document-shaped
-section whose consumers read named fields of its JSON document, such as
-`Dependency Structure`, first issues those fields as `field` items under the
-section owner's existing product-schema composition; the JSON document is
-their addressable projection. Meaning never names an undeclared item or adds a
+section whose consumers read JSON document fields that are not declared items,
+such as `Dependency Structure`, states their meaning in its Summary and
+Boundary. A field vocabulary for JSON documents belongs to Schema Query and is
+not introduced here; meaning never names an undeclared item or adds a
 separate field resource.
 
 An absent meaning remains absent. Discovery and explanation report it as
@@ -664,13 +664,12 @@ section defines no search behavior.
 
 Meaning is static, network-free, and part of the compiled catalog, so it adds
 no acquisition, producer, or probe cost. It lives in the host-neutral
-`DiscoveryDocument`, so any host that explains structural resources receives
-it unchanged. Today that host is the CLI; the Browser/Wasm structural
-explanation consumer is Resource Explanation's own pending
-[production adoption step 4](resource-explanation.md#production-adoption) and carries meaning
-when it lands, without a separate meaning path. Meaning is product-authored
-text, not inspected content, so it does not pass through inspected-text
-containment.
+`DiscoveryDocument`, so any host that explains structural resources receives it
+unchanged. Today that host is the CLI; the Browser/Wasm structural explanation
+consumer is Resource Explanation's own pending [production adoption step
+4](resource-explanation.md#production-adoption) and carries meaning when it
+lands, without a separate meaning path. Meaning is product-authored text, not
+inspected content, so it does not pass through inspected-text containment.
 
 Adoption proceeds by command owner. Library adopts first, starting with the
 sections the shipped `project-analysis` skill relies on: `Library Metrics`,
@@ -1134,9 +1133,10 @@ The section pipeline and derived catalog gates enforce these invariants:
 
 11. A section that declares meaning supplies a non-empty Summary, Basis, and
     Empty, and every item meaning names, by full item identity, an item the
-    section's structural schema declares. After a command owner completes adoption, every selectable
-    section of that command declares meaning. The adoption gate for each
-    command names the sections it covers; Library is the first.
+    section's structural schema declares. After a command owner completes
+    adoption, every selectable section of that command declares meaning. The
+    adoption gate for each command names the sections it covers; Library is the
+    first.
 
 Derived tests should compare the authored catalog with the expected ownership
 sets so stale and missing entries both fail.
@@ -1149,11 +1149,10 @@ counted path:
 1. Define the meaning axis (this section).
 2. Add the host-neutral meaning type to section registration, carry it through
    `DiscoveryDocument`, project it as Resource Explanation facts, and adopt it
-   for the Library sections named under [Meaning](#meaning), including
-   `field` items for the `Dependency Structure` JSON fields that consumers
-   read (`cycles`, `namespaces`, `level`, `cycleIndex`, `namespaceEdges`,
-   `explainingTypeEdges`, `contributingTypeEdgeCount`,
-   `remainingContributorCount`, and `typeEdges`).
+   for the Library sections named under [Meaning](#meaning). The
+   `Dependency Structure` Summary and Boundary name the JSON document fields
+   its consumers read, such as `cycles`, namespace `level` and `cycleIndex`,
+   and each namespace edge's `explainingTypeEdges`.
 3. Complete Library coverage and enforce invariant 11 for Library.
 4. Remove from the shipped `project-analysis` skill the section meaning that
    explanation now issues, and measure that revision against the
