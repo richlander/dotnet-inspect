@@ -61,7 +61,7 @@ public partial class DependsCommand
                         is { } resolved
                         ? (NuGetVersion.Parse(resolved.Version),
                             DependencyInspectionCurrentVersionBasis.Resolved)
-                        : DependencyInspectionLatestVersion.InclusiveMinimum(
+                        : PackageVersionComparison.InclusiveMinimum(
                                 declaration.CanonicalVersionConstraint)
                             is { } minimum
                             ? (minimum,
@@ -122,7 +122,7 @@ public partial class DependsCommand
                 row.State == DependencyInspectionLatestVersionState.Compared),
             rows.Count(static row =>
                 row.Behind is { } behind
-                && behind != DependencyInspectionVersionLag.None),
+                && behind != PackageVersionLag.None),
             rows.Count(static row =>
                 row.State
                     == DependencyInspectionLatestVersionState
@@ -284,7 +284,7 @@ public partial class DependsCommand
             DependencyInspectionLatestVersionState state,
             string? latestInMajor = null,
             string? latest = null,
-            DependencyInspectionVersionLag? behind = null,
+            PackageVersionLag? behind = null,
             int? majorsBehind = null,
             string? failureKind = null,
             InertString? failureMessage = null) =>
@@ -322,8 +322,8 @@ public partial class DependsCommand
                 failureMessage: discovery.FailureMessage);
         }
 
-        DependencyInspectionVersionComparison comparison =
-            DependencyInspectionVersionComparison.Create(
+        PackageVersionComparison comparison =
+            PackageVersionComparison.Create(
                 current,
                 latestVersion,
                 discovery.Listed);

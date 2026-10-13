@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using NuGet.Versioning;
 
@@ -410,8 +411,8 @@ public partial class DependsAssetCommandTests
     [Fact]
     public void LatestVersions_ComparisonUsesTheOneCandidatePopulation()
     {
-        DependencyInspectionVersionComparison comparison =
-            DependencyInspectionVersionComparison.Create(
+        PackageVersionComparison comparison =
+            PackageVersionComparison.Create(
                 NuGetVersion.Parse("1.5.0"),
                 NuGetVersion.Parse("3.0.0"),
                 [
@@ -423,13 +424,13 @@ public partial class DependsAssetCommandTests
 
         // Current 1.5.0 is not listed; Latest In Major is the highest 1.x.
         Assert.Equal("1.0.0", comparison.LatestInMajor);
-        Assert.Equal(DependencyInspectionVersionLag.Major, comparison.Behind);
+        Assert.Equal(PackageVersionLag.Major, comparison.Behind);
         Assert.Equal(2, comparison.MajorsBehind);
         Assert.Null(
-            DependencyInspectionLatestVersion.InclusiveMinimum("(1.0.0, )"));
+            PackageVersionComparison.InclusiveMinimum("(1.0.0, )"));
         Assert.Equal(
             NuGetVersion.Parse("1.0.0"),
-            DependencyInspectionLatestVersion.InclusiveMinimum("[1.0.0, )"));
+            PackageVersionComparison.InclusiveMinimum("[1.0.0, )"));
     }
 
     private static JsonElement Row(

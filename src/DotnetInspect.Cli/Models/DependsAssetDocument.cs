@@ -336,7 +336,7 @@ internal sealed record DependsLatestVersionJson
 
     public string? Latest { get; init; }
 
-    public DependencyInspectionVersionLag? Behind { get; init; }
+    public PackageVersionLag? Behind { get; init; }
 
     public int? MajorsBehind { get; init; }
 
