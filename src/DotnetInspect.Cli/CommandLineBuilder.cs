@@ -468,6 +468,12 @@ public static class CommandLineBuilder
             return 1;
         }
 
+        if (TfmAllAdmission.TryGetError(parseResult, out string? tfmAllError))
+        {
+            CommandError.Write(tfmAllError!);
+            return 1;
+        }
+
         if (rawArgs is not null
             && parseResult.CommandResult.Command.Name == "router"
             && TryGetCommandlessPackageVersionError(

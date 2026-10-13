@@ -58,6 +58,9 @@ public partial class PackageCommand
             return new OptionError("--tree cannot be combined with row projections or non-Markdown formats.");
         }
 
+        if (IsTfmAllDiscovery(options))
+            return TfmAllLibraryError;
+
         List<string> conflicts = [];
         if (options.AllLibraries) conflicts.Add("Library aggregate");
         if (options.FilesExplicitlySet)
@@ -68,7 +71,6 @@ public partial class PackageCommand
         if (options.Print) conflicts.Add("--print");
         if (options.Roots) conflicts.Add("--roots");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
-        if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase)) conflicts.Add("--tfm all");
 
         if (conflicts.Count == 0)
             return null;
@@ -76,10 +78,21 @@ public partial class PackageCommand
         return new OptionError($"--library cannot be combined with {string.Join(", ", conflicts)}.");
     }
 
+    // --tfm all lists package content without inspecting libraries, so no
+    // Library route admits it (docs/design/package-tfm-all-discovery.md).
+    private static readonly OptionError TfmAllLibraryError =
+        new("--library cannot be combined with --tfm all, which is package discovery.");
+
+    private static bool IsTfmAllDiscovery(InspectionOptions options) =>
+        string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase);
+
     private static OptionError? GetPackageAllLibrariesModeError(
         InspectionOptions options,
         bool allowStaticDiscovery = false)
     {
+        if (IsTfmAllDiscovery(options))
+            return TfmAllLibraryError;
+
         List<string> conflicts = [];
         if (options.PackageLibrary != null) conflicts.Add("--library");
         if (options.FilesExplicitlySet)
