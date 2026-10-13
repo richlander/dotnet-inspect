@@ -26,8 +26,25 @@ using NuGetFetch;
 namespace DotnetInspect.Cli.Tests;
 
 [Collection("Console")]
-public sealed partial class DependsAssetCommandTests
+public sealed partial class DependsAssetCommandTests : IDisposable
 {
+    // Latest Compatible reads package content through the House, which keeps
+    // it in the package cache the CLI host initializes at startup.
+    private readonly string _cacheRoot = CreateTemporaryDirectory();
+
+    public DependsAssetCommandTests() =>
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            _cacheRoot,
+            skipNuGetCache: true);
+
+    public void Dispose()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+        if (Directory.Exists(_cacheRoot))
+            Directory.Delete(_cacheRoot, recursive: true);
+    }
+
     private static string NuspecFixture =>
         FixtureCatalog.RestoredProjectDependencyFacts.AssetPath(
             "manifest.nuspec");

@@ -70,10 +70,8 @@ function capabilityLabels(
   if (ecosystem.demoCount > 0) {
     labels.push(countLabel(ecosystem.demoCount, "demo", "demos"));
   }
-  if (ecosystem.hasPackageSet) labels.push("Package set");
   if (ecosystem.hasScanner) labels.push("Integration scanner");
   if (ecosystem.hasPopulationLoader) labels.push("Platform libraries");
-  if (ecosystem.hasWorkspaceRegistration) labels.push("Workspace-ready");
   return labels;
 }
 

@@ -163,10 +163,18 @@ public sealed class PdbExpansionBudget
     }
 }
 
+/// <summary>How a logical member obtained its physical sequence-point evidence.</summary>
+public enum PdbMemberDocumentAssociationKind
+{
+    Direct,
+    StateMachineImplementation,
+}
+
 /// <summary>
 /// A method-to-document relationship extracted from portable-PDB sequence points.
-/// The metadata token and document row identify same-version coordinates; the
-/// member anchor provides cross-version identity.
+/// The logical metadata token, sequence-point method token, and document row
+/// identify same-version coordinates; the member anchor provides cross-version
+/// identity.
 /// </summary>
 public sealed record PdbMemberDocumentInfo(
     MemberAnchor Anchor,
@@ -178,6 +186,12 @@ public sealed record PdbMemberDocumentInfo(
     bool IsPrimaryDocument = false,
     bool IsFinalizer = false)
 {
+    /// <summary>The physical MethodDef that owns the visible sequence points.</summary>
+    public int SequencePointMethodToken { get; init; } = MetadataToken;
+
+    /// <summary>How the logical member obtained the physical sequence-point evidence.</summary>
+    public PdbMemberDocumentAssociationKind AssociationKind { get; init; }
+
     /// <summary>
     /// Sorted distinct 1-based start lines of this method's visible sequence points in this
     /// document. Points from another document are never mixed into this collection.
@@ -193,6 +207,10 @@ public sealed record PdbMethodDocumentInfo(
     byte[]? Checksum = null,
     string? ChecksumAlgorithm = null)
 {
+    public int MetadataToken { get; init; }
+    public int SequencePointMethodToken { get; init; }
+    public PdbMemberDocumentAssociationKind AssociationKind { get; init; }
+
     /// <summary>Sorted distinct visible sequence-point start lines in <see cref="FilePath"/>.</summary>
     public ImmutableArray<int> SequencePointStartLines { get; init; } = [];
 }
@@ -285,6 +303,7 @@ public partial class PdbContext : IDisposable
     private bool? _isReferenceAssembly;
     private readonly List<IDisposable> _disposables = [];
     private MethodBodySource? _methodBodies;
+    private StateMachineRelationshipIndex? _stateMachineRelationships;
     private bool _disposed;
 
     /// <summary>
@@ -1398,7 +1417,8 @@ public partial class PdbContext : IDisposable
         string methodName,
         int overloadIndex,
         bool publicOnly = false,
-        int metadataToken = 0)
+        int metadataToken = 0,
+        bool includeStateMachineImplementations = false)
     {
         if (_pdbReader == null || !MetadataFormatAdmission.AdmitImage(_peReader))
             return null;
@@ -1413,7 +1433,10 @@ public partial class PdbContext : IDisposable
             metadataToken);
         return methodHandle.IsNil
             ? null
-            : ResolveMethodDocumentRange(methodHandle);
+            : ResolveMethodDocumentRange(
+                reader,
+                methodHandle,
+                includeStateMachineImplementations);
     }
 
     private static MethodDefinitionHandle ResolveMethodHandle(
@@ -1459,12 +1482,20 @@ public partial class PdbContext : IDisposable
         return default;
     }
 
-    PdbMethodDocumentInfo? ResolveMethodDocumentRange(MethodDefinitionHandle methodHandle)
+    PdbMethodDocumentInfo? ResolveMethodDocumentRange(
+        MetadataReader metadata,
+        MethodDefinitionHandle methodHandle,
+        bool includeStateMachineImplementations)
     {
         try
         {
-            var ranges = ReadVisibleSequencePointDocuments(methodHandle);
-            var primary = ranges.FirstOrDefault(static range => range.IsPrimaryDocument);
+            MemberSequencePointMapping? mapping =
+                ResolveMemberSequencePoints(
+                    metadata,
+                    methodHandle,
+                    includeStateMachineImplementations);
+            var primary = mapping?.Ranges.FirstOrDefault(
+                static range => range.IsPrimaryDocument);
             if (primary is null)
                 return null;
 
@@ -1478,6 +1509,10 @@ public partial class PdbContext : IDisposable
                     ? null
                     : MapHashAlgorithm(_pdbReader.GetGuid(document.HashAlgorithm)))
             {
+                MetadataToken = MetadataTokens.GetToken(methodHandle),
+                SequencePointMethodToken =
+                    MetadataTokens.GetToken(mapping!.SequencePointMethod),
+                AssociationKind = mapping.AssociationKind,
                 SequencePointStartLines = primary.StartLines,
             };
         }
@@ -1628,7 +1663,8 @@ public partial class PdbContext : IDisposable
     /// A method may produce multiple rows when sequence points span multiple documents.
     /// </summary>
     public IEnumerable<PdbMemberDocumentInfo> EnumerateMemberDocuments(
-        IReadOnlySet<int>? metadataTokens = null)
+        IReadOnlySet<int>? metadataTokens = null,
+        bool includeStateMachineImplementations = false)
     {
         if (_pdbReader == null || !MetadataFormatAdmission.AdmitImage(_peReader))
             yield break;
@@ -1637,9 +1673,13 @@ public partial class PdbContext : IDisposable
         foreach (var methodHandle in EnumerateSelectedMethods(metadata, metadataTokens))
         {
             int metadataToken = MetadataTokens.GetToken(methodHandle);
-            var ranges = ReadVisibleSequencePointDocuments(methodHandle);
+            MemberSequencePointMapping? mapping =
+                ResolveMemberSequencePoints(
+                    metadata,
+                    methodHandle,
+                    includeStateMachineImplementations);
 
-            if (ranges.Count == 0)
+            if (mapping is null)
                 continue;
 
             var method = metadata.GetMethodDefinition(methodHandle);
@@ -1649,7 +1689,7 @@ public partial class PdbContext : IDisposable
                 method);
             bool isFinalizer = ApiSurfaceExtractor.IsFinalizerMethod(metadata, methodHandle);
 
-            foreach (var range in ranges)
+            foreach (var range in mapping.Ranges)
             {
                 var documentHandle = range.Document;
                 var document = _pdbReader.GetDocument(documentHandle);
@@ -1664,10 +1704,93 @@ public partial class PdbContext : IDisposable
                     IsPrimaryDocument: range.IsPrimaryDocument,
                     IsFinalizer: isFinalizer)
                 {
+                    SequencePointMethodToken =
+                        MetadataTokens.GetToken(
+                            mapping.SequencePointMethod),
+                    AssociationKind = mapping.AssociationKind,
                     SequencePointStartLines = range.StartLines,
                 };
             }
         }
+    }
+
+    private MemberSequencePointMapping? ResolveMemberSequencePoints(
+        MetadataReader metadata,
+        MethodDefinitionHandle logicalMethod,
+        bool includeStateMachineImplementations)
+    {
+        IReadOnlyList<SequencePointDocumentRange> direct =
+            ReadVisibleSequencePointDocuments(logicalMethod);
+        if (direct.Count > 0)
+        {
+            return new(
+                logicalMethod,
+                direct,
+                PdbMemberDocumentAssociationKind.Direct);
+        }
+
+        if (!includeStateMachineImplementations)
+            return null;
+
+        MethodDefinition logicalDefinition =
+            metadata.GetMethodDefinition(logicalMethod);
+        if (logicalDefinition.RelativeVirtualAddress == 0
+            || logicalDefinition.GetCustomAttributes().Count == 0)
+        {
+            return null;
+        }
+
+        StateMachineRelationshipResult relationship =
+            (_stateMachineRelationships
+                ??= StateMachineRelationshipIndex.Create(metadata))
+            .GetByKickoff(logicalMethod);
+        if (relationship is StateMachineRelationshipResult.Absent)
+            return null;
+        if (relationship is StateMachineRelationshipResult.Rejected rejected)
+        {
+            throw new InvalidOperationException(
+                "The state-machine relationship for the selected member "
+                + $"was rejected: {rejected.Failure.Kind}: "
+                + rejected.Failure.Detail);
+        }
+
+        StateMachineRelationship resolved =
+            ((StateMachineRelationshipResult.Resolved)relationship)
+                .Relationship;
+        if (resolved.Kind != StateMachineClaimKind.ClassicAsync)
+            return null;
+        if (!resolved.TryGetMethod(
+                StateMachineMethodRole.MoveNext,
+                out MetadataMethodAddress implementation))
+        {
+            throw new InvalidOperationException(
+                "A resolved classic-async relationship has no MoveNext implementation.");
+        }
+
+        MethodDefinitionHandle physicalMethod = implementation.Handle;
+        MethodDefinitionHandle pdbKickoff =
+            _pdbReader!
+                .GetMethodDebugInformation(
+                    physicalMethod.ToDebugInformationHandle())
+                .GetStateMachineKickoffMethod();
+        if (pdbKickoff.IsNil)
+            return null;
+        if (pdbKickoff != logicalMethod)
+        {
+            throw new BadImageFormatException(
+                "The Portable PDB state-machine association contradicts "
+                + "the authenticated assembly relationship.");
+        }
+
+        IReadOnlyList<SequencePointDocumentRange> implementationRanges =
+            ReadVisibleSequencePointDocuments(physicalMethod);
+        return implementationRanges.Count == 0
+            ? null
+            : new(
+                physicalMethod,
+                implementationRanges,
+                PdbMemberDocumentAssociationKind
+                    .StateMachineImplementation);
     }
 
     private IReadOnlyList<SequencePointDocumentRange> ReadVisibleSequencePointDocuments(
@@ -1733,6 +1856,11 @@ public partial class PdbContext : IDisposable
         int EndLine,
         ImmutableArray<int> StartLines,
         bool IsPrimaryDocument);
+
+    private sealed record MemberSequencePointMapping(
+        MethodDefinitionHandle SequencePointMethod,
+        IReadOnlyList<SequencePointDocumentRange> Ranges,
+        PdbMemberDocumentAssociationKind AssociationKind);
 
     /// <summary>
     /// Enumerates type-to-document relationships recovered from method debug information.

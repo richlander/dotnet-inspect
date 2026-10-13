@@ -434,7 +434,7 @@ public sealed partial class WorkspaceScopeTests
                         "System.Text.Json",
                         "10.0.0",
                         "net10.0"),
-                    options,
+                    PackageRootTestHouseExecution.Create(options),
                     TestContext.Current.CancellationToken));
         Assert.True(
             acquired.Payload.Content.TryOpenArchive(

@@ -29,7 +29,8 @@ public abstract class PackageHouseContentNarrowing
             ArgumentNullException.ThrowIfNull(target);
             if (target is not
                 {
-                    Mode: PackageHouseTargetSelectionMode.Exact,
+                    Mode:
+                        PackageHouseTargetSelectionMode.Exact,
                     RequestedFramework: not null,
                 })
             {

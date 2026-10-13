@@ -1081,9 +1081,25 @@ groups. The
 dependency list and graph both follow that explicit UI selection for the active
 package; other open packages use their product-selected groups. The selected
 compile participant's direct references come from the assembly-context query;
-the browser does not open another assembly session. Package Dependencies shows
-only NuGet dependency groups; Library References shows only the selected
-Library's assembly references.
+the browser does not open another assembly session.
+
+Package References combines the selected NuGet dependency group with platform
+references projected from the same exact PackageHouse realization.
+`Microsoft.NETCore.App` is shown as `.NET Runtime`, and
+`Microsoft.AspNetCore.App` is shown as `ASP.NET Core`. When NuGet selection
+successfully reports no dependency groups or an empty selected group,
+successful framework-reference evidence contains no explicit references, and
+the active target is a supported `net` or `netcoreapp` target, the Browser adds
+`.NET Runtime` as the target's default platform reference.
+It does not add that default to a non-empty NuGet group or turn unavailable or
+invalid framework-reference evidence into a successful fallback. The NuGet
+and platform rows remain separate lists and typed graph nodes. The managed
+boundary carries explicit references separately from eligible default-runtime
+evidence. Explicit platform references remain visible across dependency-group
+selection; the default appears only for a successfully normalized empty
+selected group, consistently in the list, status, and graph. Library References
+continues to show only the selected Library's assembly references.
+Internal `dependencies` route and contract identities remain unchanged.
 
 Each NuGet dependency row displays the package's embedded icon when its exact
 version resolves and the icon passes the existing package-icon bounds.

@@ -223,6 +223,8 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
                                 .IncludePerformanceOpportunity(
                                     opportunity,
                                     optimization.GeneratedFrameworkTypes)
+                            && opportunity.Shape
+                                != AnalysisFindings.SyncCallInAsyncShape
                             && OptimizationOpportunityRanking
                                 .IncludeInMemberTriage(
                                     opportunity)));

@@ -1,4 +1,6 @@
 using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
+using System.Text.Json.Serialization;
 
 namespace ILInspector.Metadata;
 
@@ -58,7 +60,16 @@ public sealed record MetadataTypeDocumentInspectionRequest
 public sealed record MetadataTypeDocument(
     MetadataTypeDeclarationEvidence Subject,
     MetadataTypeDocumentDeclarations Declarations,
-    MetadataTypeDeclarationPopulationOutcome? MemberDeclarations = null);
+    MetadataTypeDeclarationPopulationOutcome? MemberDeclarations = null)
+{
+    /// <summary>The uniquely matched Metadata identity detached as contained byte ranges.</summary>
+    [JsonIgnore]
+    public MetadataUtf8TypeDefinitionName? MatchedName
+    {
+        get;
+        internal init;
+    }
+}
 
 public abstract record MetadataTypeDocumentDeclarations
 {
@@ -110,6 +121,7 @@ public abstract record MetadataTypeDocumentInspectionOutcome
 internal static class MetadataTypeDocumentInspection
 {
     internal static MetadataTypeDocumentInspectionOutcome Read(
+        PEReader peReader,
         MetadataReader reader,
         MetadataTypeDocumentInspectionRequest request,
         ApiSurfaceExtractionBounds bounds,
@@ -119,6 +131,7 @@ internal static class MetadataTypeDocumentInspection
             MetadataTypeDeclarationResult> postDeclaration,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(peReader);
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(bounds);
@@ -211,11 +224,19 @@ internal static class MetadataTypeDocumentInspection
                             bounds,
                             resolved,
                             cancellationToken);
+            MetadataUtf8TypeDefinitionName matchedName =
+                MetadataUtf8TypeDefinitionNameReader.Detach(
+                    peReader,
+                    reader,
+                    resolved.Handle);
             return new MetadataTypeDocumentInspectionOutcome.Available(
                 new(
                     subject,
                     declarations,
-                    memberDeclarations));
+                    memberDeclarations)
+                {
+                    MatchedName = matchedName,
+                });
         }
         catch (Exception exception) when (
             MetadataTypeMemberCompositionInspection.IsMetadataFailure(

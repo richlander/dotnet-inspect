@@ -94,6 +94,70 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackagePerformance_PublishesStructuredSyncCallsSeparately()
+    {
+        const string PackageId = "Browser.Performance.SyncCalls";
+        string assemblyPath =
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
+        string assemblyName = Path.GetFileName(assemblyPath);
+        byte[] image = File.ReadAllBytes(assemblyPath);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(image, image, assemblyName),
+                fromCache: false));
+
+        BrowserPackagePerformance performance =
+            Assert.IsType<BrowserPackagePerformance>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPackagePerformance(
+                            PackageId,
+                            "1.0.0",
+                            "net11.0",
+                            assemblyName),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackagePerformance));
+
+        var syncCall = Assert.Single(
+            performance.SyncCallsInAsync,
+            row =>
+                row.Caller.Contains(
+                    "CallsSyncSiblingFromAsync",
+                    StringComparison.Ordinal)
+                && row.Callee.Contains(
+                    "ReadValue(",
+                    StringComparison.Ordinal)
+                && row.Alternative.Contains(
+                    "ReadValueAsync(",
+                    StringComparison.Ordinal));
+        Assert.Equal("Operation", syncCall.PairKind);
+        Assert.Equal(
+            performance.SyncCallsInAsync.Length,
+            performance.SyncCallsInAsyncCount);
+        Assert.DoesNotContain(
+            performance.Members.SelectMany(member => member.Shapes),
+            shape => shape == AnalysisFindings.SyncCallInAsyncShape);
+
+        BrowserPackagePerformanceSummary summary =
+            await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                .StreamPackagePerformanceItemsAsync(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    assemblyName,
+                    static _ => { },
+                    CancellationToken.None);
+        Assert.Equal(
+            performance.SyncCallsInAsync,
+            summary.SyncCallsInAsync);
+        Assert.Equal(
+            performance.SyncCallsInAsyncCount,
+            summary.SyncCallsInAsyncCount);
+    }
+
+    [Fact]
     public async Task PackagePerformance_UnrelatedFailureDoesNotLeakIntoSelectedLibrary()
     {
         await AssertPerformanceParticipantIsolation(
@@ -1725,6 +1789,12 @@ public sealed partial class BrowserEngineBoundaryTests
             final.TotalOpportunities,
             summary.TotalOpportunities);
         Assert.Equal(final.CompileLibrary, summary.CompileLibrary);
+        Assert.Equal(
+            final.SyncCallsInAsync,
+            summary.SyncCallsInAsync);
+        Assert.Equal(
+            final.SyncCallsInAsyncCount,
+            summary.SyncCallsInAsyncCount);
     }
 
 

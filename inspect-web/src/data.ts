@@ -333,6 +333,31 @@ export function dependencyGraphExternalKey(packageId: string, declaredRange: str
   return `external\u0000${packageId.toLowerCase()}\u0000${declaredRange || ""}`;
 }
 
+export function platformReferencesForDependencyGroup<
+  TReference,
+  TGroup extends {
+    readonly index: number;
+    readonly isComplete?: boolean;
+    readonly dependencies: readonly unknown[];
+  },
+>(
+  references: readonly TReference[],
+  defaultReference: TReference | null | undefined,
+  groups: readonly TGroup[],
+  selectedGroupIndex: number | null,
+): readonly TReference[] {
+  if (!defaultReference) return references;
+  if (!groups.length) return [...references, defaultReference];
+  const selected = groups.find(group => group.index === selectedGroupIndex)
+    ?? groups[0];
+  if (!selected
+    || selected.isComplete === false
+    || selected.dependencies.length !== 0) {
+    return references;
+  }
+  return [...references, defaultReference];
+}
+
 export interface BoundedGraphNodeResult<T> {
   node: T | null;
   truncated: boolean;
@@ -528,6 +553,7 @@ export function removeWorkspacePackage<T extends RemoveWorkspacePackageInput>(
 export interface DependencyGroup {
   index: number;
   isActive?: boolean;
+  isComplete?: boolean;
   framework: string;
   dependencies?: readonly DependencyGroupDependency[];
 }
@@ -540,6 +566,15 @@ interface DependencyGroupDependency {
 export interface DependencyGroupData {
   dependencyGroups?: readonly DependencyGroup[];
   dependencyGroupError?: string | null;
+  platformReferences?: readonly {
+    family: string;
+    label: string;
+  }[];
+  defaultPlatformReference?: {
+    family: string;
+    label: string;
+  } | null;
+  platformReferenceError?: string | null;
 }
 
 export function dependencyGroupSelectionMessage(data: DependencyGroupData | null | undefined): string {
