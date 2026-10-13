@@ -1669,6 +1669,78 @@ or a reusable subset identity. A later query-owner adoption may issue a typed
 complete, constrained-subset, or open-domain relationship for explanation to
 preserve.
 
+### Vocabulary reading selection
+
+**Status: proposed, not installed.**
+[#10013](https://github.com/richlander/dotnet-inspect/issues/10013) and the
+[worked vocabulary reads](../../tools/ExplainReadingScenarios/vocabulary-reading/README.md)
+define the next vocabulary reading profile. Existing vocabulary `.data` and
+`.hal` still emit their current dataset; this proposal admits no host gesture.
+Resource Explanation owns the selection and lowering. Product Vocabulary and
+the declaring term owners continue to own identities, maps, meanings,
+defaults, and accepted input identities.
+
+The claim is: a vocabulary reading selection preserves complete knowledge for
+each selected value and its exact referenced term context, while unselected
+values remain unknown. Direct JSON and HAL carry equivalent selected knowledge.
+Critical reads are legal identity lookup, default selection, Boolean membership,
+optional group membership, and local interpretation of a referenced term.
+The real assets are the composed API accessibility, C# body-kind, and C# style
+declarations, captured from NativeAOT commit
+`7c18afc97b170947835b732797572292dba2fff2`; source bytes, binary digest,
+commands, and reproduction are retained with the worked examples.
+
+Selection consumes the composed owner snapshot, retaining owner order and native
+value identities. It closes term maps over the exact referenced values, including
+their own term references, rather than over an entire target vocabulary. It does
+not automatically include other members of an optional group. Answering a question
+about all group alternatives requires selecting those alternatives; a selected
+group index describes only selected membership. The profile reports the root
+vocabulary, selected completeness, and each included vocabulary's catalog size.
+Completeness describes the selected observation, never whole-catalog coverage.
+
+Map declarations remain once per included vocabulary, with their identity, label,
+meaning, value kind, cardinality, coverage, and term target when applicable. Value
+records retain their owner meaning and scalar or term map values. Boolean property
+sets and optional text groups retain their existing sparse representation,
+restricted to selected values. Absence from a Boolean set means false only for a
+selected value with available complete map coverage. Absence from an optional
+group means no group only under those same preconditions. Defaults are likewise
+restricted to selected values. Partial or unavailable source knowledge cannot be
+silently lowered through these defaults; its outcome needs explicit design before
+admission. Unknown selections and unresolved term context fail visibly.
+
+Direct JSON uses vocabulary and value lookup tables plus explicit owner-order
+arrays. HAL uses `_embedded.vocabularies` and each vocabulary's `_embedded.values`
+in owner order, with the same maps and property indices. The exact identity is
+the default value label when the owner label is identical; different labels and
+all summaries survive. Missing summaries mean no declared summary for a complete
+selected record. Per-value kind tags, self links, repeated link titles, and
+automatic contract navigation are omitted from this reading profile. The
+examples advertise only the implemented full-vocabulary `collection` destination;
+they invent no address for the experimental selection. No external request is
+needed to interpret embedded terms. `accepted_by` remains an opaque owner-issued
+identity list, not inferred command syntax or whole-vocabulary facet acceptance.
+
+The offline projector checks selected-field recovery and jq answers against
+the unmodified source, including known false versus unselected and unresolved
+context. It is design evidence, not a product gate. Production adoption must
+enforce these claims through the shared dataset and both host entrances.
+Comparisons separate identical populations from narrower value selections;
+serialized byte counts are not latency evidence. They establish neither a
+minimum format nor improved agent behavior.
+
+The four counted slices are this proposal;
+[#10014 shared selection](https://github.com/richlander/dotnet-inspect/issues/10014);
+[#10015 CLI adoption](https://github.com/richlander/dotnet-inspect/issues/10015);
+and [#10016 Browser/Wasm adoption](https://github.com/richlander/dotnet-inspect/issues/10016),
+under overall [#9762](https://github.com/richlander/dotnet-inspect/issues/9762).
+Host admission decisions belong in their respective adoption efforts. Retire
+superseded ordinary vocabulary reading projections as those consumers migrate.
+Explicit contracts and the website Settings snapshot remain separate consumers.
+Agent testing follows adoption and measures valid answers, total retrieved
+content, and navigation necessary for the actual question.
+
 ### Contextual resources
 
 Contextual Resource Explanation supplies one installed command resource or one
