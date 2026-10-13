@@ -329,7 +329,8 @@ An edge has a kind, which fixes the depth needed to authenticate it:
 | Lifted | An owner body, or a body that owner owns, references the lifted method through `ldftn`, `ldvirtftn`, `call`, or `callvirt` | Selected call and function-pointer operands |
 
 A request that needs only state-machine edges does not pay for lifted
-probes. Compiler-generated names are never evidence for either edge.
+probes. A compiler-generated name may select the candidate group a reference
+is checked against, but a name alone never authenticates either edge.
 
 Every method declared on an authenticated state-machine type belongs to the
 declared source and carries one role, decided from metadata alone:
@@ -343,8 +344,9 @@ declared source and carries one role, decided from metadata alone:
 Lifted local-function and lambda bodies have the Execution role. Roles do not
 change ownership. They let a consumer choose breadth: generated-body expansion
 names the roles it includes. Execution is always included. A consumer that
-measures written code, such as member call counts, includes user helpers and
-leaves out scaffolding. A consumer that claims completeness over everything
+measures written code can include user helpers and leave out scaffolding;
+whether member call counts do so is that consumer's own change. A consumer
+that claims completeness over everything
 compiled for a member, such as the unsafe member census, includes every
 role. A method of an authenticated type outside the requested roles is still
 attributed, so it is neither unexamined nor unauthenticated.
@@ -358,7 +360,11 @@ outcome:
 - a typed unauthenticated outcome naming that body.
 
 Over exact-type breadth, the relation also covers every method of a
-compiler-generated type nested, at any depth, under a selected type. Each is
+compiler-generated type reached from a selected type through a chain of
+compiler-generated nested types, such as an async lambda's state machine
+nested in a display class. The chain stops at the first nested type that is
+not compiler-generated, because that type's members own their own generated
+bodies, and a request that wants them selects that type. Each such method is
 an origin in a requested role, an attributed method outside those roles, or
 an unauthenticated candidate. Reaching those nested types is targeted
 NestedClass work, bounded by the relationship-node limit and receipted with
@@ -387,11 +393,13 @@ other's cost class:
   work.
 
 Over all-definition breadth the relation is therefore a source-completion
-fact. A producer reads it in `Complete`, not during a unit visit. Over exact
-breadth it is also available during the visit.
+fact. A producer reads it in `Complete`, not during a unit visit, and a
+request that reads it runs to exhaustion rather than settling early. Over
+exact breadth it is also available during the visit.
 
 Both lowerings publish the same origins for the same declared owners. That
-equivalence is a required gate. A host that retains a session may keep the
+equivalence is a required gate, the first gate of
+[#9864](https://github.com/richlander/dotnet-inspect/issues/9864). A host that retains a session may keep the
 reverse relation as a typed prepared resource only when measured repeat
 requests amortize its preparation.
 

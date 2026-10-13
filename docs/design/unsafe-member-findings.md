@@ -254,12 +254,14 @@ Breadth follows the requested scope:
 - **Type scope** uses exact-type breadth with generated execution bodies in
   every [role](method-query-source.md#declared-source-relation) and with
   unauthenticated candidates included. Its census is measured against the
-  selected types' declared members and the bodies attributed to them. A
-  generated candidate the expansion examined but could not authenticate,
-  including every method of a compiler-generated type nested under a selected
-  type that is not an authenticated origin, is visited without an owner, as at
-  Library scope: it becomes an unattributed limitation exactly when it has
-  evidence or failed, never a silent omission. An expansion bound
+  selected types' declared members and the bodies attributed to them. The
+  expansion reaches compiler-generated types nested under a selected type
+  through compiler-generated types only, never into a user nested type. A
+  generated candidate it examined but could not authenticate, such as a
+  method of one of those types that is not an authenticated origin, is
+  visited without an owner, as at Library scope: it becomes an unattributed
+  limitation exactly when it has evidence or failed, never a silent omission.
+  An expansion bound
   keeps the visited prefix as sound findings and makes the census incomplete
   with an attribution-bound limitation; it is not a failed inspection.
 - **Library scope** uses all-definition breadth with the declared-source
@@ -293,8 +295,8 @@ Type-scope expansion requests the same roles and unauthenticated candidates
 as the census, so its breadth widens by the non-`MoveNext` methods of
 authenticated state-machine types and by the unauthenticated nested
 candidates, as
-[#9864](https://github.com/richlander/dotnet-inspect/issues/9864) states, and
-presence and the census agree on those bodies. Its all-definition probe is
+[#9864](https://github.com/richlander/dotnet-inspect/issues/9864) now states.
+Presence and the census therefore agree on those bodies. Its all-definition probe is
 unaffected.
 
 The census moves only after every row of that table has landed. Until then the
