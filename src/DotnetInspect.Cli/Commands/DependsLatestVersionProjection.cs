@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
@@ -104,16 +105,50 @@ public partial class DependsCommand
             }
         }
 
+        // One House compatibility question per distinct Latest coordinate.
+        string compatibilityTarget =
+            (options.Tfm is { } framework
+                ? CreateTraversalTargetPolicy(framework)
+                : TraversalTargetFrameworkPolicy.ProductDefault)
+            .TargetFramework;
+        var compatibility =
+            new Dictionary<PackageSourceCoordinate, LatestCompatibilityAnswer>();
+        using var stores = new SearchPackageStores("inspect-depends");
+        foreach (LatestVersionDiscovery discovery in discoveries.Values)
+        {
+            if (discovery.Coordinate is not { } latest
+                || compatibility.ContainsKey(latest))
+            {
+                continue;
+            }
+
+            compatibility[latest] = await EvaluateCompatibilityAsync(
+                latest,
+                compatibilityTarget,
+                options,
+                composition,
+                stores,
+                context,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         ImmutableArray<DependencyInspectionLatestVersion> rows =
         [
             .. declarations.Select(declaration =>
-                CreateLatestVersionRow(declaration, discoveries)),
+                CreateLatestVersionRow(
+                    declaration,
+                    compatibilityTarget,
+                    discoveries,
+                    compatibility)),
         ];
         int failed = rows.Count(static row =>
             row.State
                 == DependencyInspectionLatestVersionState.DiscoveryFailed);
+        int compatibilityUnavailable = rows.Count(static row =>
+            row.LatestCompatible
+                == DependencyInspectionLatestCompatibility.Unavailable);
         var summary = new DependencyInspectionLatestVersionSummary(
-            failed > 0
+            failed > 0 || compatibilityUnavailable > 0
                 ? DependencyInspectionLatestVersionCompletion.Partial
                 : DependencyInspectionLatestVersionCompletion.Complete,
             rows.Length,
@@ -131,11 +166,15 @@ public partial class DependsCommand
                 row.State
                     == DependencyInspectionLatestVersionState
                         .NoListedVersion),
-            failed);
+            failed,
+            rows.Count(static row =>
+                row.LatestCompatible
+                    == DependencyInspectionLatestCompatibility.No),
+            compatibilityUnavailable);
         ImmutableArray<DependencyInspectionFailure> failures =
         [
             .. discoveries
-                .Where(static pair => pair.Value.Latest is null
+                .Where(static pair => pair.Value.Coordinate is null
                     && !pair.Value.NoListedVersion)
                 .Select(static pair =>
                     new DependencyInspectionFailure.Evidence(
@@ -151,6 +190,25 @@ public partial class DependsCommand
                             Subject: null,
                             pair.Key.PackageId,
                             PackageVersion: null,
+                            SourceLabel: null,
+                            pair.Value.FailureMessage!.Value,
+                            Occurrences: 1))),
+            .. compatibility
+                .Where(static pair => pair.Value.FailureKind is not null)
+                .Select(static pair =>
+                    new DependencyInspectionFailure.Evidence(
+                        new DependencyEvidenceFailureRow(
+                            DependencyEvidenceFailurePhase.LatestVersion,
+                            pair.Value.FailureKind!,
+                            SourceKind: null,
+                            RootIndex: null,
+                            RootIdentity: null,
+                            Group: null,
+                            GroupIndex: null,
+                            Source: null,
+                            Subject: null,
+                            pair.Key.PackageId,
+                            pair.Key.Version,
                             SourceLabel: null,
                             pair.Value.FailureMessage!.Value,
                             Occurrences: 1))),
@@ -219,21 +277,19 @@ public partial class DependsCommand
         {
             case PackageVersionResolutionReceipt.Resolved resolved:
                 return new LatestVersionDiscovery(
-                    NuGetVersion.Parse(resolved.Coordinate.Version),
-                    [
-                        .. PackageVersionSelectionResolver.AdmittedVersions(
-                            (PackageVersionSelectionRequest.AlwaysLatest)
-                                resolved.Request,
-                            resolved.Discovery),
-                    ],
+                    resolved.Coordinate,
+                    PackageVersionSelectionResolver.AdmittedPopulation(
+                        (PackageVersionSelectionRequest.AlwaysLatest)
+                            resolved.Request,
+                        resolved.Discovery),
                     NoListedVersion: false,
                     FailureKind: null,
                     FailureMessage: null);
 
             case PackageVersionResolutionReceipt.NoMatch:
                 return new LatestVersionDiscovery(
-                    Latest: null,
-                    [],
+                    Coordinate: null,
+                    Population: null,
                     NoListedVersion: true,
                     FailureKind: null,
                     FailureMessage: null);
@@ -254,11 +310,67 @@ public partial class DependsCommand
 
         static LatestVersionDiscovery Failed(string kind, InertString reason) =>
             new(
-                Latest: null,
-                [],
+                Coordinate: null,
+                Population: null,
                 NoListedVersion: false,
                 kind,
                 reason);
+    }
+
+    private static async Task<LatestCompatibilityAnswer>
+        EvaluateCompatibilityAsync(
+            PackageSourceCoordinate latest,
+            string targetFramework,
+            DependsOptions options,
+            DesktopPackageSourceComposition composition,
+            SearchPackageStores stores,
+            CommandContext context,
+            CancellationToken cancellationToken)
+    {
+        PackageHouseTargetContext target;
+        try
+        {
+            target = PackageHouseTargetContext.Exact(targetFramework);
+        }
+        catch (ArgumentException exception)
+        {
+            return LatestCompatibilityAnswer.Failed(
+                "InvalidTarget",
+                new InertString(TextPolicy.Prose, exception.Message));
+        }
+
+        PackageHouseSettlement settlement =
+            await composition.AcquireContentAsync(
+                latest,
+                PackageHouseContentQuery.TfmFileList(target),
+                stores.GetStore,
+                options.SourceOptions,
+                context.Logger.Log,
+                cancellationToken).ConfigureAwait(false);
+        PackageHouseResult result = settlement.Result;
+        // The House's compile selection decides; this only labels it.
+        return result switch
+        {
+            PackageHouseResult.Settled =>
+                new(DependencyInspectionLatestCompatibility.Yes, null, null),
+            PackageHouseResult.NoMatch
+            {
+                Evidence.ContentNarrowing.TargetSelection.Selection.Status:
+                    PackageCompileAssetSelectionStatus
+                        .NoMatchingTargetFramework,
+            } => new(DependencyInspectionLatestCompatibility.No, null, null),
+            PackageHouseResult.NoMatch
+            {
+                Evidence.ContentNarrowing.TargetSelection.Selection.Status:
+                    PackageCompileAssetSelectionStatus.NoCompileAssets,
+            } => new(
+                DependencyInspectionLatestCompatibility.NoAssets,
+                null,
+                null),
+            _ => LatestCompatibilityAnswer.Failed(
+                result.GetType().Name,
+                ResultReason(result)),
+        };
     }
 
     private static InertString ResultReason(PackageHouseResult result) =>
@@ -278,8 +390,11 @@ public partial class DependsCommand
 
     private static DependencyInspectionLatestVersion CreateLatestVersionRow(
         PendingLatestVersionDeclaration item,
+        string compatibilityTarget,
         IReadOnlyDictionary<(string PackageId, bool IncludePrerelease),
-            LatestVersionDiscovery> discoveries)
+            LatestVersionDiscovery> discoveries,
+        IReadOnlyDictionary<PackageSourceCoordinate, LatestCompatibilityAnswer>
+            compatibility)
     {
         PackageDependencyEvidenceDeclaration declaration = item.Declaration;
         DependencyInspectionLatestVersion Row(
@@ -288,6 +403,7 @@ public partial class DependsCommand
             string? latest = null,
             PackageVersionLag? behind = null,
             int? majorsBehind = null,
+            DependencyInspectionLatestCompatibility? latestCompatible = null,
             string? failureKind = null,
             InertString? failureMessage = null) =>
             new(
@@ -303,6 +419,8 @@ public partial class DependsCommand
                 latest,
                 behind,
                 majorsBehind,
+                compatibilityTarget,
+                latestCompatible,
                 state,
                 failureKind,
                 failureMessage);
@@ -316,7 +434,11 @@ public partial class DependsCommand
         if (discovery.NoListedVersion)
             return Row(DependencyInspectionLatestVersionState.NoListedVersion);
 
-        if (discovery.Latest is not { } latestVersion)
+        if (discovery is not
+            {
+                Coordinate: { } latestCoordinate,
+                Population: { } population,
+            })
         {
             return Row(
                 DependencyInspectionLatestVersionState.DiscoveryFailed,
@@ -324,17 +446,16 @@ public partial class DependsCommand
                 failureMessage: discovery.FailureMessage);
         }
 
+        NuGetVersion latestVersion = NuGetVersion.Parse(latestCoordinate.Version);
         PackageVersionComparison comparison =
-            PackageVersionComparison.Create(
-                current,
-                latestVersion,
-                discovery.Listed);
+            PackageVersionComparison.Create(current, latestVersion, population);
         return Row(
             DependencyInspectionLatestVersionState.Compared,
             comparison.LatestInMajor,
             latestVersion.ToNormalizedString(),
             comparison.Behind,
-            comparison.MajorsBehind);
+            comparison.MajorsBehind,
+            compatibility[latestCoordinate].Compatibility);
     }
 
     private sealed record PendingLatestVersionDeclaration(
@@ -345,11 +466,22 @@ public partial class DependsCommand
         DependencyInspectionCurrentVersionBasis? Basis);
 
     private sealed record LatestVersionDiscovery(
-        NuGetVersion? Latest,
-        ImmutableArray<NuGetVersion> Listed,
+        PackageSourceCoordinate? Coordinate,
+        PackageVersionVector? Population,
         bool NoListedVersion,
         string? FailureKind,
         InertString? FailureMessage);
+
+    private sealed record LatestCompatibilityAnswer(
+        DependencyInspectionLatestCompatibility Compatibility,
+        string? FailureKind,
+        InertString? FailureMessage)
+    {
+        internal static LatestCompatibilityAnswer Failed(
+            string kind,
+            InertString reason) =>
+            new(DependencyInspectionLatestCompatibility.Unavailable, kind, reason);
+    }
 
     private sealed record DependsLatestVersionProjectionResult(
         ImmutableArray<DependencyInspectionLatestVersion> Rows,

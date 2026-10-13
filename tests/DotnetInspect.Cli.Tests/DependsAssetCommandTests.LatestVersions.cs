@@ -401,6 +401,11 @@ public partial class DependsAssetCommandTests
         JsonElement present = Row(rows, 1, "contoso.present");
         Assert.Equal("Compared", present.GetProperty("state").GetString());
         Assert.Equal("2.0.0", present.GetProperty("latest").GetString());
+        // The feed serves no archive, so the House cannot answer
+        // compatibility; the row's discovery State is unchanged.
+        Assert.Equal(
+            "Unavailable",
+            present.GetProperty("latest_compatible").GetString());
         JsonElement locked = Row(rows, 1, "contoso.locked");
         Assert.Equal("DiscoveryFailed", locked.GetProperty("state").GetString());
         Assert.NotEqual(
@@ -413,12 +418,19 @@ public partial class DependsAssetCommandTests
             partial.GetProperty("failure_kind").GetString());
         Assert.False(partial.TryGetProperty("latest", out _));
         Assert.Equal(
-            ["contoso.locked", "contoso.partial"],
+            ["contoso.locked@", "contoso.partial@", "contoso.present@2.0.0"],
             document.RootElement.GetProperty("failures")
                 .EnumerateArray()
-                .Select(static failure => failure.GetProperty("evidence")
-                    .GetProperty("package_id")
-                    .GetString())
+                .Select(static failure =>
+                {
+                    JsonElement evidence = failure.GetProperty("evidence");
+                    string? version = evidence.TryGetProperty(
+                        "package_version",
+                        out JsonElement value)
+                        ? value.GetString()
+                        : null;
+                    return $"{evidence.GetProperty("package_id").GetString()}@{version}";
+                })
                 .Order());
 
         (int countExitCode, string countOutput, string countError) =
@@ -607,16 +619,17 @@ public partial class DependsAssetCommandTests
     [Fact]
     public void LatestVersions_ComparisonUsesTheOneCandidatePopulation()
     {
+        Assert.True(PackageVersionRange.TryParse(
+            "contoso@1.0.0..3.0.0",
+            out PackageVersionRange? range,
+            out _));
         PackageVersionComparison comparison =
             PackageVersionComparison.Create(
                 NuGetVersion.Parse("1.5.0"),
                 NuGetVersion.Parse("3.0.0"),
-                [
-                    NuGetVersion.Parse("1.0.0"),
-                    NuGetVersion.Parse("2.0.0"),
-                    NuGetVersion.Parse("2.1.0"),
-                    NuGetVersion.Parse("3.0.0"),
-                ]);
+                PackageVersionVector.Create(
+                    range!,
+                    ["1.0.0", "2.0.0", "2.1.0", "3.0.0"]));
 
         // Current 1.5.0 is not listed; Latest In Major is the highest 1.x.
         Assert.Equal("1.0.0", comparison.LatestInMajor);

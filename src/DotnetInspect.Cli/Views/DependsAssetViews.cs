@@ -109,6 +109,14 @@ public sealed class DependsAssetView
     [MarkoutSkipNull]
     public int? LatestVersionDiscoveryFailed { get; init; }
 
+    [MarkoutPropertyName("Latest Version Incompatible")]
+    [MarkoutSkipNull]
+    public int? LatestVersionIncompatible { get; init; }
+
+    [MarkoutPropertyName("Latest Version Compatibility Unavailable")]
+    [MarkoutSkipNull]
+    public int? LatestVersionCompatibilityUnavailable { get; init; }
+
     [MarkoutPropertyName("Pruning Roots")]
     [MarkoutSkipNull]
     public int? PruningRoots { get; init; }
@@ -842,6 +850,8 @@ public sealed class DependsLatestVersionView
             Latest = row.LatestVersion,
             Behind = row.Behind?.ToString(),
             MajorsBehind = row.MajorsBehind,
+            CompatibilityTarget = row.CompatibilityTarget,
+            LatestCompatible = row.LatestCompatible?.ToString(),
             State = row.State.ToString(),
         };
 
@@ -873,6 +883,16 @@ public sealed class DependsLatestVersionView
 
     [MarkoutPropertyName("Majors Behind")]
     public int? MajorsBehind { get; init; }
+
+    [MarkoutPropertyName("Compatibility Target")]
+    public required string CompatibilityTarget
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Field(value).ToString();
+    }
+
+    [MarkoutPropertyName("Latest Compatible")]
+    public string? LatestCompatible { get; init; }
 
     public required string State { get; init; }
 }
