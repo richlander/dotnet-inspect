@@ -192,11 +192,20 @@ public class FindCommand
             List<MemberFindResult> members = memberTier?.Rows ?? [];
             List<TypeFindResult> results =
                 layered is not null ? search.Rows : WithoutSupersededWeakRows(search.Rows, members);
-            int observedRowCount = results.Count;
             bool rendersMembers =
                 !options.Count
                 && !options.JsonOutput
                 && (!options.Tabular || options.Tsv);
+            // A failed or limit-stopped source leaves a partial view: Rows and Count print
+            // what was observed, the sources' warnings disclose it, and the exit is nonzero
+            // (section-row-shaping.md#incomplete-evaluation). Rows found after an earlier
+            // failure are not the requested ones even when they fill a Head.
+            bool incomplete =
+                search.HasFailures
+                || search.SourceSelectionIncomplete
+                || memberTier?.HasFailures is true
+                || memberTier?.SourceSelectionIncomplete is true;
+            int exitCode = incomplete ? 1 : 0;
             if (options.Count
                 && (members.Count > 0
                     || memberTier?.HasFailures is true
@@ -228,20 +237,11 @@ public class FindCommand
 
             // --count reduces the payload, so it is resolved before the format flags that
             // render it. Ordering these the other way lets --json answer a count request
-            // with the full unprojected result set.
+            // with the full unprojected result set. Count reports the rows Rows would render,
+            // with the same source warnings and exit status (section-row-shaping.md#
+            // incomplete-evaluation).
             if (options.Count)
             {
-                if (search.HasFailures
-                    || !CliSemanticRowSelection.ProvidesExactCount(
-                        rowSelection,
-                        observedRowCount,
-                        sourceComplete:
-                            !search.SourceSelectionIncomplete))
-                {
-                    CommandError.Write(
-                        "Cannot count type rows because one or more search sources were incomplete.");
-                    return new(1, RowCount: null);
-                }
                 if (!WriteCount(results, title, options))
                     return new(1, RowCount: null);
             }
@@ -257,7 +257,8 @@ public class FindCommand
                             tsv.Write(FindDiscoveryOutput.Project(row));
                     }
                 }
-                if (members.Count == 0
+                if (!incomplete
+                    && members.Count == 0
                     && results.All(row => row.Match == TypeFindMatchKind.NotFound))
                     CommandError.WriteLine("No types found matching the pattern.");
             }
@@ -282,10 +283,10 @@ public class FindCommand
             }
             else
             {
-                WriteOutput(results, title, options, members);
+                WriteOutput(results, title, options, members, incomplete);
             }
 
-            return new(0, (tsv is not null
+            return new(exitCode, (tsv is not null
                     ? results.Count(row => row.Match != TypeFindMatchKind.NotFound)
                     : results.Count)
                 + (rendersMembers ? members.Count : 0));
@@ -828,6 +829,13 @@ public class FindCommand
             memberPatterns.Length == 1
                 ? $"Find member: {memberPatterns[0]}"
                 : "Find Members";
+        // A failed or limit-stopped source leaves a partial view: Rows and Count print
+        // what was observed, the sources' warnings disclose it, and the exit is nonzero
+        // (section-row-shaping.md#incomplete-evaluation). Rows found after an earlier
+        // failure are not the requested ones even when they fill a Head.
+        bool incomplete =
+            search.HasFailures || search.SourceSelectionIncomplete;
+        int exitCode = incomplete ? 1 : 0;
 
         if (options.Count)
         {
@@ -842,17 +850,6 @@ public class FindCommand
             {
                 return new(1, RowCount: null);
             }
-            if (search.HasFailures
-                || !CliSemanticRowSelection.ProvidesExactCount(
-                    rowSelection,
-                    observedRowCount,
-                    sourceComplete:
-                        !search.SourceSelectionIncomplete))
-            {
-                CommandError.Write(
-                    "Cannot count member rows because one or more search sources were incomplete.");
-                return new(1, RowCount: null);
-            }
             if (!WriteMemberCount(
                     selectedCount,
                     title,
@@ -860,7 +857,7 @@ public class FindCommand
             {
                 return new(1, RowCount: null);
             }
-            return new(0, selectedCount);
+            return new(exitCode, selectedCount);
         }
 
         IReadOnlyList<MemberFindResult> selectedMembers;
@@ -882,13 +879,6 @@ public class FindCommand
                         + "member rows are available.",
                     out int selectedCount))
             {
-                return new(1, RowCount: null);
-            }
-            if (search.HasFailures
-                || search.SourceSelectionIncomplete)
-            {
-                CommandError.Write(
-                    "Cannot select member rows because one or more search sources were incomplete.");
                 return new(1, RowCount: null);
             }
             if (selectedCount != results.Count)
@@ -914,7 +904,7 @@ public class FindCommand
             int alreadyStreamed = streamedRowCount?.Invoke() ?? 0;
             foreach (MemberFindResult row in results.Skip(alreadyStreamed))
                 tsv.Write(FindDiscoveryOutput.Project(row));
-            if (results.Count == 0)
+            if (!incomplete && results.Count == 0)
                 CommandError.WriteLine("No members found matching the pattern.");
         }
         else if (options.JsonOutput)
@@ -935,10 +925,10 @@ public class FindCommand
         }
         else
         {
-            WriteMemberOutput(results, title, options);
+            WriteMemberOutput(results, title, options, incomplete);
         }
 
-        return new(0, results.Count);
+        return new(exitCode, results.Count);
     }
 
     internal static bool TrySelectRows<T>(
@@ -1030,7 +1020,8 @@ public class FindCommand
         List<TypeFindResult> rawData,
         string title,
         FindOptions options,
-        List<MemberFindResult> members)
+        List<MemberFindResult> members,
+        bool incomplete)
     {
         var view = FindOutputFormatter.BuildView(
             rawData,
@@ -1039,7 +1030,9 @@ public class FindCommand
 
         if (view.Results == null && view.Members == null && view.Description != null)
         {
-            CommandError.WriteLine(view.Description);
+            // An incomplete empty search is an observed zero, not the empty state.
+            if (!incomplete)
+                CommandError.WriteLine(view.Description);
             return;
         }
 
@@ -1070,13 +1063,19 @@ public class FindCommand
             rows: null);
     }
 
-    private static void WriteMemberOutput(List<MemberFindResult> rawData, string title, FindOptions options)
+    private static void WriteMemberOutput(
+        List<MemberFindResult> rawData,
+        string title,
+        FindOptions options,
+        bool incomplete)
     {
         var view = FindOutputFormatter.BuildMemberView(rawData, title);
 
         if (view.Results == null && view.Description != null)
         {
-            CommandError.WriteLine(view.Description);
+            // An incomplete empty search is an observed zero, not the empty state.
+            if (!incomplete)
+                CommandError.WriteLine(view.Description);
             return;
         }
 

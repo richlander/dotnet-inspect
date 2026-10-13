@@ -100,7 +100,9 @@ not infer Platform identity from a package or file name.
 
 Windows Metadata (`.winmd`) is not a supported input format, and rejection is
 only partially enforced. Directory and package scans select `*.dll`, so a
-`.winmd` beside them is skipped without comment. A `.winmd` named explicitly —
+`.winmd` beside them is skipped without comment. A native `*.dll` in a
+directory scan is also skipped; a directory with only native images is
+reported as a failed source. A `.winmd` named explicitly —
 `library ./Foo.winmd`, `find --library ./Foo.winmd` — is rejected rather than
 inspected, though not every surface names the reason: `find` reports
 "Windows Metadata is not a supported metadata format", while `library` reports
@@ -1145,8 +1147,10 @@ Library Query tests each candidate Library's direct `AssemblyRef` table;
 repeated `references` terms are ANDed. `--take` bounds candidates scanned,
 while `-n`, `--head`, `--tail`, and `--rows` select matching Library rows
 afterward. Use `library query -Q Libraries` to discover the current vocabulary.
-Missing or malformed Metadata remains visible and makes unbounded Count
-inexact rather than silently becoming a nonmatch.
+Native images beside managed Libraries in the directory are skipped; a
+directory with no managed Library is a failed source. Missing or malformed
+Metadata remains visible rather than silently becoming a nonmatch: rows and
+`--count` print what was observed, with the failure warning and exit 1.
 
 License selection also stays at the manifest boundary. `license=any` matches
 any nuspec license declaration. Closed semantic values match nuspec metadata

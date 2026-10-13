@@ -94,6 +94,21 @@ public static class MetadataFormatAdmission
         return peReader.GetMetadataReader(options, utf8Decoder);
     }
 
+    /// <summary>
+    /// Returns <see langword="true"/> for a PE image that declares no CLR
+    /// header: a native image, not managed metadata. An image that declares a
+    /// CLR header without readable metadata is malformed, not native. Content
+    /// whose PE headers cannot be read, including a declared CLR header the
+    /// headers reject, throws <see cref="BadImageFormatException"/>.
+    /// </summary>
+    public static bool IsNativeImage(PEReader peReader)
+    {
+        ArgumentNullException.ThrowIfNull(peReader);
+
+        return peReader.PEHeaders.PEHeader is not null
+            && !HasDeclaredClrHeader(peReader);
+    }
+
     internal static bool HasDeclaredClrHeader(PEReader peReader)
     {
         PEHeader? peHeader = peReader.PEHeaders.PEHeader;

@@ -488,8 +488,18 @@ diagnostics retain the failed metadata operation, token, failure kind, and
 detail. An operation-wide exception propagates to `FindCommand`, which owns
 the hard error and exit status.
 
-An empty result is therefore not proof that every source succeeded; the stderr
-diagnostic stream remains part of the CLI operation outcome. Structured locator
+A per-source failure, or a default package-prefix limit that stopped source
+selection, leaves the answer a partial view under the section-row owner's
+[incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation).
+Type and Member rows and `--count` print what was observed, the warnings
+disclose the gap, and `find` exits 1. A `-n` Head or closed `--rows` window
+filled after an earlier failure stays incomplete, because those rows need not
+be the requested ones; a Head that settles before reaching a failing source
+never observes that failure. An incomplete empty answer is an observed zero
+and prints no "No types found" or "No members found" empty state. A
+directory's native images are not Library population members; see
+[directory sources](assembly-inspection-query.md) in Assembly inspection query.
+Structured locator
 completion and coverage remain in the internal operation envelope; they do not
 change the CLI compatibility result or its renderers.
 

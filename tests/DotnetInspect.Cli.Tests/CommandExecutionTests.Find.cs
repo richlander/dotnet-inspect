@@ -1300,13 +1300,10 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "requires member row 2, but only 1 member rows are available",
             error);
-        Assert.DoesNotContain(
-            "one or more search sources were incomplete",
-            error);
     }
 
     [Fact]
-    public async Task Find_FiniteMemberWindowKeepsIncompleteSourceVisible()
+    public async Task Find_FiniteMemberWindowReportsObservedRowsAfterIncompleteSource()
     {
         string invalidAssembly = Path.GetTempFileName();
         await File.WriteAllTextAsync(
@@ -1327,15 +1324,31 @@ public partial class CommandExecutionTests
                 "1..3",
                 "--json",
                 "--compact");
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "find",
+                "*",
+                "--members",
+                "--library",
+                invalidAssembly,
+                "--library",
+                TestAssemblyPath,
+                "--rows",
+                "1..3",
+                "--count");
 
+            // The unreadable source precedes the window, so the observed rows
+            // and their Count print with the source warning and a nonzero exit.
             Assert.Equal(1, exit);
-            Assert.Empty(output);
+            using var rows = System.Text.Json.JsonDocument.Parse(output);
+            Assert.Equal(3, rows.RootElement.GetArrayLength());
             Assert.Contains(
                 $"Could not read {invalidAssembly}",
                 error);
+            Assert.Equal(1, countExit);
+            Assert.Equal("3", countOutput.Trim());
             Assert.Contains(
-                "one or more search sources were incomplete",
-                error);
+                $"Could not read {invalidAssembly}",
+                countError);
         }
         finally
         {
