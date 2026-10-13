@@ -61,6 +61,31 @@ remains intact until that canonical encoding boundary.
 
 ## Decisions
 
+### Package Dependency Hierarchy adoption
+
+`System.Text.Json@10.0.0` at `netstandard2.0` is the motivating public
+package. Its rooted hierarchy includes `System.IO.Pipelines@10.0.0` with
+revisited `System.Buffers@4.6.1`, `System.Memory@4.6.3`, and
+`System.Threading.Tasks.Extensions@4.6.3` occurrences. The reproducible
+baseline is:
+
+```bash
+dnx dotnet-inspect -y -- package System.Text.Json@10.0.0 \
+  --tfm netstandard2.0 -S "Dependency Hierarchy" --tree
+```
+
+Appending `--share url` to that invocation must retain ordinary stdout and
+write a link whose Browser destination executes the same rooted transitive
+hierarchy for the resolved exact package and target. The packet carries the
+recipe, not its rows. A URL to the Browser's existing References graph is
+insufficient: that graph expands cached manifests only for packages already
+open in the Workspace. The Browser destination must use the shared dependency
+traversal and render its root-relative occurrences, revisits, cycles, and
+incompleteness. Query controls without a portable binding remain visibly
+non-projectable. The CLI gate must cover the pinned real package and an
+unsupported query control. The Browser gate must open a hierarchy packet and
+show an unresolved dependency from a controlled package fixture.
+
 1. **The inspection command constructs the scenario.** The command's existing
    arguments and options are the only CLI grammar for selecting source,
    context, subject, lens, query, and traversal. Appending `--share` projects

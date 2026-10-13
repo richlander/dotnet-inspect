@@ -847,6 +847,8 @@ packet=$(dotnet-inspect workspace \
 dotnet-inspect package System.Text.Json --workspace "$packet"
 dotnet-inspect package System.Text.Json \
   --workspace "$packet" --share packet
+dotnet-inspect package System.Text.Json@10.0.0 \
+  --tfm netstandard2.0 -S "Dependency Hierarchy" --share url
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
 
@@ -890,6 +892,14 @@ Appending `--share` preserves ordinary stdout and writes a derived Package
 packet or URL as the final stderr line. An exact selector can inspect a
 currently resolved floating Package member, but Share refuses rather than
 silently pinning that preserved definition.
+
+For a direct NuGet.org Package query with one `Dependency Hierarchy` section,
+append `--share url` to keep the hierarchy on stdout and print its Inspect Web
+URL on stderr. The URL preserves the resolved exact Package version and target
+framework; the Browser reacquires that Package and runs the rooted dependency
+traversal. `--share packet` emits the packet instead. Local archives, other
+source selections, and hierarchy row or depth selections cannot currently be
+reproduced in the Browser and fail visibly.
 
 For one package with exactly `Files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete path/size rows after archive extraction, file

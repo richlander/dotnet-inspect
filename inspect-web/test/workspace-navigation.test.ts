@@ -464,31 +464,33 @@ test("workspace-subject URLs preserve retained coordinates and restore Workspace
   assert.equal(parsed.workspaceNotice, "");
 });
 
-test("canonical package dependency views restore the package root lens", () => {
-  const initial = workspaceState();
-  const state = workspaceState({
-    view: {
-      ...initial.view,
-      lens: "dependencies",
-      type: null,
-      memberAnchor: null,
-      memberSignature: null,
-      section: null,
-      libraries: [],
-    },
+for (const lens of ["dependencies", "hierarchy"]) {
+  test(`canonical package ${lens} views restore the package root lens`, () => {
+    const initial = workspaceState();
+    const state = workspaceState({
+      view: {
+        ...initial.view,
+        lens,
+        type: null,
+        memberAnchor: null,
+        memberSignature: null,
+        section: null,
+        libraries: [],
+      },
+    });
+
+    const parsed = parseWorkspaceLocation(
+      locationSnapshot(
+        "https://inspect.example/?package=Example.Second&w=canonical"),
+      () => decoded(state));
+
+    assert.equal(parsed.atPackageRoot, true);
+    assert.equal(parsed.workspaceSubjectOpen, false);
+    assert.equal(parsed.packageLens, lens);
+    assert.equal(parsed.lens, null);
+    assert.equal(parsed.type, null);
   });
-
-  const parsed = parseWorkspaceLocation(
-    locationSnapshot(
-      "https://inspect.example/?package=Example.Second&w=canonical"),
-    () => decoded(state));
-
-  assert.equal(parsed.atPackageRoot, true);
-  assert.equal(parsed.workspaceSubjectOpen, false);
-  assert.equal(parsed.packageLens, "dependencies");
-  assert.equal(parsed.lens, null);
-  assert.equal(parsed.type, null);
-});
+}
 
 test("canonical forwarded-Type Overview is distinct from Package Overview", () => {
   const initial = workspaceState();
