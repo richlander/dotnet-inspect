@@ -253,6 +253,8 @@ public sealed record BrowserOpportunityItem(
 
 public sealed record BrowserPackagePerformance(
     BrowserPerformanceMember[] Members,
+    BrowserSyncCallInAsync[] SyncCallsInAsync,
+    int? SyncCallsInAsyncCount,
     string? InspectionError,
     int NonPublicOpportunities,
     int TotalOpportunities,
@@ -283,6 +285,8 @@ public sealed record BrowserPerformanceAnalysisEvent(
 /// not re-derive or duplicate that array at completion.
 /// </summary>
 public sealed record BrowserPackagePerformanceSummary(
+    BrowserSyncCallInAsync[] SyncCallsInAsync,
+    int? SyncCallsInAsyncCount,
     string? InspectionError,
     int NonPublicOpportunities,
     int TotalOpportunities,
@@ -587,6 +591,12 @@ public sealed record BrowserLibraryTypeLeverageRow(
     int OutgoingDegree,
     string Role,
     BrowserLibraryStructuralTypePole? Pole);
+
+public sealed record BrowserSyncCallInAsync(
+    string Caller,
+    string Callee,
+    string Alternative,
+    string PairKind);
 
 public sealed record BrowserPerformanceMember(
     string Assembly,
