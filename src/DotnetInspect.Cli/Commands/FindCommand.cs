@@ -206,15 +206,18 @@ public class FindCommand
                 || memberTier?.HasFailures is true
                 || memberTier?.SourceSelectionIncomplete is true;
             int exitCode = incomplete ? 1 : 0;
-            if (options.Count
-                && (members.Count > 0
-                    || memberTier?.HasFailures is true
-                    || memberTier?.SourceSelectionIncomplete is true))
+            // Count counts Type rows, so an answer holding Member rows is not
+            // countable as one kind. A failed Member fallback with no Member
+            // rows is a partial view and counts the observed Type rows. Under
+            // Count the Member search reports its accepted rows as a count
+            // without materializing them.
+            int memberRowCount = memberTier?.ExactRowCount ?? members.Count;
+            if (options.Count && memberRowCount > 0)
             {
                 CommandError.Write(
                     "Cannot count Find rows because the answer includes "
-                    + "member matches or an incomplete member search. Count "
-                    + "Types with a wildcard pattern or members with --members.");
+                    + "member matches. Count Types with a wildcard pattern "
+                    + "or members with --members.");
                 return new(1, RowCount: null);
             }
 

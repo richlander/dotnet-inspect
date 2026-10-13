@@ -441,9 +441,10 @@ weak Type would require the complete fallback census that Head exists to avoid.
 Use `--members` or the leading-dot shorthand when Member rows are the requested
 bounded answer. Plain `--json` keeps its root `TypeFindResult` array, so a
 member-only broadened answer appears there as an empty array. `--count` counts
-Type rows and rejects a broadened answer that contains member rows, or whose
-member source failed or was incomplete, rather than silently counting only one
-kind.
+Type rows and rejects a broadened answer that contains member rows rather than
+counting only one kind. A member source that failed or was incomplete without
+contributing member rows is a partial view, not a mixed one: Count reports the
+observed Type rows with the warnings and exit status Rows has.
 
 Semantic row selection (`-n`, `--tail`, `--rows`) selects from the whole
 answer in presented order when implicit Member fallback runs: member rows

@@ -1113,7 +1113,7 @@ public partial class CommandExecutionTests
             missing,
             "--json");
 
-        Assert.Equal(0, exit);
+        Assert.Equal(1, exit);
         Assert.Equal("[]", output.Trim());
         string diagnostic =
             $"Library not found '{missing}', skipping.";
@@ -1121,6 +1121,20 @@ public partial class CommandExecutionTests
         Assert.Equal(
             error.IndexOf(diagnostic, StringComparison.Ordinal),
             error.LastIndexOf(diagnostic, StringComparison.Ordinal));
+
+        // The failed Member fallback holds no Member rows, so Count reports the
+        // observed Type rows with the same warning and exit as Rows.
+        var (countExit, countOutput, countError) = await RunAppAsync(
+            "find",
+            "DefinitelyAbsentReview8977",
+            "--library",
+            missing,
+            "--count");
+
+        Assert.Equal(1, countExit);
+        Assert.Equal("0", countOutput.Trim());
+        Assert.Contains(diagnostic, countError, StringComparison.Ordinal);
+        Assert.DoesNotContain("Cannot count", countError, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -1403,7 +1417,8 @@ public partial class CommandExecutionTests
             "--json",
             "--compact");
 
-        Assert.Equal(0, exit);
+        // Reaching the missing directory leaves the window a partial view.
+        Assert.Equal(1, exit);
         Assert.False(string.IsNullOrWhiteSpace(output));
         Assert.Contains("Directory not found", error);
     }
@@ -1450,7 +1465,8 @@ public partial class CommandExecutionTests
             "--tail",
             "--json");
 
-        Assert.Equal(0, exit);
+        // Reaching the missing directory leaves the window a partial view.
+        Assert.Equal(1, exit);
         Assert.Contains(nameof(CommandExecutionTests), output);
         Assert.Contains("Directory not found", error);
     }
@@ -2482,7 +2498,8 @@ public partial class CommandExecutionTests
             "--tfm",
             "net10.0");
 
-        Assert.Equal(0, exit);
+        // The package source contributes nothing for the TFM: a partial view.
+        Assert.Equal(1, exit);
         Assert.Contains("## Results", output);
         Assert.DoesNotContain("## Coverage", output);
         Assert.DoesNotContain("## Gaps", output);
