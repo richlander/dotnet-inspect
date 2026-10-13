@@ -116,6 +116,51 @@ This owner does not define:
 - caching across operations; or
 - a universal Analysis scheduler.
 
+## Name and scope
+
+The source is named for methods, not members, because only methods have the
+two properties it is built on: a physical row identity and a body.
+
+- A MethodDef row is the unit of identity, order, and receipt. Per-method
+  depth hangs off one MethodDef. Shared lookup support, such as call targets,
+  is execution-scoped and receipted per group and request, with the
+  MethodDefs that queried it.
+- Properties and events have no IL of their own. Their accessors are
+  MethodDefs, which this source already visits. The source can supply the
+  accessor association; reporting an accessor's facts on its property is
+  attribution, owned by the consumer.
+- Fields have no body. Field facts come from metadata rows and, for
+  initialized data, PE section data. That is a different population with a
+  different cost model.
+- For this source, types are breadth, not population. Exact-TypeDef breadth
+  selects that type's methods.
+
+"Member" is the product vocabulary. Unsafe Members, Member Metrics, and
+member-scoped commands attribute method facts back to members. A `Member`
+prefix here would claim coverage this source does not have. It would also
+take the name a future source that does enumerate members would need. As
+[`AssemblyAnalysisSource`](assembly-analysis-operation.md#assemblyanalysissource)
+states, Type and Member sources belong to their own owners.
+
+The code uses the ECMA-335 and `System.Reflection.Metadata` name for the same
+population, `MethodDefinition`. The implementation is mainly in
+`src/ILInspector.Analysis/Planning/`:
+
+| Code | Role |
+| --- | --- |
+| `MethodDefinitionSource*` types in `MethodQuerySource.cs` | Breadth, requests, request-set plans, coverage, and receipts |
+| `MethodQuerySource` (internal) in `MethodQuerySource.cs` | Entry point |
+| `MethodDefinitionExecution.cs` | Traversal and on-demand layer acquisition |
+| `MethodDefinitionLayers` and `MethodDefinitionView` in `MethodDefinitionProducers.cs` | Declared layers and the per-method view producers read through |
+| `MethodDefinitionGeneratedExpansion.cs` | Generated-expansion bounds and coverage; discovery and authentication delegate to the relationship owners' resolvers |
+| `MethodRowGate.cs`, `MethodDefinitionPredicates.cs`, and `MethodDefinitionTerminalWorkBudget.cs` | Source gate, predicates, and terminal work bounds |
+| `MemorySafetyContractSupport.cs` | Memory-safety contract and accessor association support |
+| `SameModuleCallTargetSupport.cs` | `CallTargets` support |
+
+Where this source sits among Query Space, Producer Planning, and Assembly
+Analysis Operation is described in
+[Analysis stack](assembly-analysis-operation.md#analysis-stack).
+
 ## Normative basis and adjacent owners
 
 | Owner | Imported contract |
@@ -273,6 +318,7 @@ Depth is expressed as source capabilities rather than one broad `Body` bit:
 | --- | --- | --- |
 | Declaration | MethodDef, declaring TypeDef, attributes, flags, name comparison, and bounded signature-shape access | Display identity or body content |
 | Identity | Detached inert method identity and anchor fields | Consumer ordering or presentation |
+| Semantic identity | The detached structural identity of the MethodDef, decoded metadata rather than text | Its caller-unsafe contract, display spelling, or cross-module identity |
 | Body | Managed body header, IL bytes, exception regions, and local-signature handle | Instruction meaning |
 | Instructions | One bounded instruction decode | Analysis of those instructions |
 | Control flow | The owner-issued CFG over the decoded instructions | Analysis-specific graph interpretation |
@@ -410,6 +456,154 @@ The physical group receipt records construction once and all query work. A
 request receipt records construction only for the lane whose access created
 the lookup, and only that lane's queries. Construction is absent when no
 producer declares the support or no declaring producer queries it.
+
+### Same-module call-target support
+
+`CallTargets` is declared shared lookup support for producers that need the
+typed target of a call operand, tracked by
+[#8700](https://github.com/richlander/dotnet-inspect/issues/8700). It does not
+imply `ModuleLookup`. It builds no `LibraryBodyAnalysisBuilder`, acquires no
+body, and does not widen breadth. A producer that did not declare it cannot
+obtain it.
+
+The target is the one
+[Direct-call target resolution](library-body-analysis-service.md#direct-call-target-resolution)
+defines: a current-module MethodDef, an external declaring type's exact
+reference origin, a runtime-provided array member, or a typed unresolved
+reason. One resolver owns that judgment. Library Body Analysis's declared-method
+map and this support are two sources of candidate methods for it, so neither
+defines another resolver. For each physical call site,
+`MethodQuerySource_CallTargetsMatchLibraryBodyAnalysis` gates that both issue
+the same target. This support is the declared shared lookup that the `Calls`
+layer ([#9868](https://github.com/richlander/dotnet-inspect/issues/9868))
+requires to carry a target for each call site.
+
+The execution constructs one `SameModuleCallTargetLookup` over the subject's
+metadata reader at the first query by a declaring producer. Lanes of one shared
+execution group use the same lookup. A query names the call kind and operand
+token in the visited body:
+
+- `calli` is unresolved as indirect and reads no metadata.
+- An operand that peels, through a MethodSpec or a MemberRef on a MethodDef
+  parent, to a same-image MethodDef binds by token. The lookup reads that
+  method's row for its declaring type, the operand's signature-depth guard,
+  and, when the call site passes its checks, the method's signature header to
+  check the generic declaration. It decodes no signature.
+- Any other operand's member reference is decoded in the caller's generic
+  scope. A binding by signature reads the module's TypeDef index, which the
+  lookup builds at the first query that needs it. It then decodes the
+  signatures of the matched type's methods with the referenced name, once per
+  type and name.
+- A MethodSpec's instantiation does not affect the target and is not decoded.
+- Metadata that cannot be read throws and fails the visited body. A
+  generic-declaration header that cannot be read is an invalid declaration, as
+  Library Body Analysis judges it.
+
+On hand-authored metadata the two sources can still differ, and each outcome
+stays contained. Library Body Analysis fails a body whose MethodSpec
+instantiation is invalid for its target, and it omits from its declared
+methods a MethodDef whose identity it could not build. The lookup resolves the
+MethodSpec's target and supplies every MethodDef row.
+
+The source receipt carries `SameModuleCallTargetCoverage`. Construction reads
+the module name and assembly identity and records no work. Query work counts
+three things:
+
+- the TypeDef rows read to build the index;
+- the MethodDef rows read as caller-scope probes, definition probes, and
+  candidates; and
+- signature bytes, as the full blob length of each enumerated step each time
+  it runs. The steps are the depth guard of a token-bound operand's signature,
+  the member reference signature and its TypeSpec parent, and each candidate
+  MethodDef signature.
+
+The index and candidate caches last for the execution, so their work is
+charged to the query that first needed them. The lookup also remembers the
+last caller's scope, so consecutive queries from one body, including those of
+another lane visiting it in the same shared pass, read the caller's row once. MemberRef and MethodSpec rows that
+peel an operand are not reported; each query reads at most one of each.
+Coverage also records the MethodDefs whose visits queried the lookup and the
+number of queries. The physical group receipt and each request receipt
+attribute construction and queries as memory-safety contract support does.
+
+### Semantic identity
+
+`SemanticIdentity` is per-method depth for producers that need a MethodDef's
+structural identity, tracked by
+[#9830](https://github.com/richlander/dotnet-inspect/issues/9830). It is the
+identity a finding key or a correspondence is built from, not identity text.
+`IdentityText` keeps its budgeted `MethodRowIdentity` text and anchors, and
+neither layer reinterprets the other, so declaring `SemanticIdentity` does not
+arm the identity-text budget. `SemanticIdentity` acquires no body, does not
+imply `ModuleLookup`, and does not widen breadth. A producer that did not
+declare it cannot obtain it. It runs only on units the source has already
+admitted: admitting a raw exact-target token, including an invalid one, is the
+exact-member consumer's work under
+[#9832](https://github.com/richlander/dotnet-inspect/issues/9832).
+
+`MethodSemanticIdentity` carries every structural field of the current
+`MethodIdentity` except its caller-unsafe contract:
+
+- the module's assembly name and MVID;
+- the declaring `TypeRef`;
+- the method's name, token, and static and extension flags;
+- its parameter and return `TypeRef` values;
+- its generic arity and parameter names;
+- its signature header and vararg required-parameter count; and
+- whether its generic declaration is invalid and whether virtual dispatch can
+  reach an override.
+
+The token is valid only with the operation's subject. Like every publication of
+this source, the identity is paired with the exact subject identity and is not
+a cross-module key. `ToMethodIdentity` composes it with a caller-unsafe mode
+into the current `MethodIdentity`. That mode comes from
+[Memory-safety contract support](#memory-safety-contract-support), which the
+producer declares separately, so the dependency stays visible in its
+declaration and receipts.
+
+One reader owns the decode. Library Body Analysis builds its `MethodIdentity`
+through the same `MethodSemanticIdentityReader`, so the two cannot diverge.
+`MethodQuerySource_SemanticIdentityMatchesLibraryBodyAnalysis` gates that the
+source issues the analysis's identity for every MethodDef the analysis
+publishes, and a typed malformed outcome for every other.
+
+The result is typed:
+
+- **Decoded:** the identity, decoded completely.
+- **SignatureBoundExceeded:** the method signature exceeds the safe decoding
+  limits of the signature-depth guard. The identity is still published, with
+  no parameter types, an unsupported return type, and a zero header, exactly
+  as the current `MethodIdentity` degrades.
+- **Malformed:** the metadata cannot be read. No identity is published, and the
+  producer decides whether that fails the unit.
+
+The decode is bounded per method by the signature-depth guard and by the type
+decoder's relationship-node and type-specification limits. A bound that is
+exceeded degrades the affected type to an unsupported `TypeRef`, as the current
+identity does; it never reads further.
+
+The physical source decodes each MethodDef at most once per execution group;
+every lane that reads it shares that decode. The source receipt carries
+`MethodSemanticIdentityCoverage`:
+
+- whether the execution read the module's assembly name and MVID, which it does
+  once;
+- the decode work, which counts:
+  - the method signature bytes, read once by the depth guard;
+  - the type decoder's structural work for the declaring type and every
+    signature type: one unit per type node, plus the bytes of each name,
+    assembly-reference, and type-specification blob it reads;
+  - the GenericParam rows read for the generic scope and the
+    generic-declaration check;
+  - the CustomAttribute rows read by the extension-method check; and
+  - the bytes of the method's name and of its own and its declaring type's
+    generic parameter names;
+- the MethodDefs whose identity was decoded or read; and
+- the count of each outcome.
+
+The physical group receipt charges each decode once. Each request receipt
+records the identities that request read, with the work they required, so a
+request that shares another lane's decode still shows what its answer cost.
 
 ## Planning
 
@@ -651,6 +845,9 @@ Migration is incremental:
     memory-safety contract support (#9831) as independent source capabilities.
     [Memory-safety contract support](#memory-safety-contract-support) is
     implemented; its consumers adopt it in their own slices.
+    [Same-module call-target support](#same-module-call-target-support) (#8700)
+    and [Semantic identity](#semantic-identity) (#9830) are implemented on the
+    same terms.
 11. Move the first exact-member consumer in #9832 through
     [exact-member scoped producers](assembly-analysis-operation.md#exact-member-scoped-producers),
     consuming #8700 and #8945 rather than defining another call resolver or
@@ -756,6 +953,37 @@ Memory-safety contract support is gated in Release:
 - `MethodQuerySource_MemorySafetyContractsRequireDeclaration`
 - `MethodQuerySource_MemorySafetyContractsReceiptExactMethodWork`
 - `MethodQuerySource_MemorySafetyContractsSharedOnceAcrossLanes`
+
+Same-module call-target support is gated in Release:
+
+- `MethodQuerySource_CallTargetsMatchLibraryBodyAnalysis`, over the
+  callee-resolution fixture, the Analysis test assembly,
+  System.Collections.Immutable, and System.Linq
+- the `SameModuleTarget_*` synthetic cases, which assert the same parity for
+  unmatched, ambiguous, unsupported, malformed, and single-definition member
+  references
+- `MethodQuerySource_CallTargetsAbsentWhenUndeclared`
+- `MethodQuerySource_CallTargetsRequireDeclaration`
+- `MethodQuerySource_CallTargetsReceiptExactMethodWork`
+- `MethodQuerySource_CallTargetsBindDefinitionTokensWithoutTypeIndex`
+- `MethodQuerySource_CallTargetsSharedOnceAcrossLanes`
+
+Semantic identity is gated in Release:
+
+- `MethodQuerySource_SemanticIdentityMatchesLibraryBodyAnalysis`, over the same
+  four subjects, for every MethodDef
+- `MethodQuerySource_SemanticIdentityParityCoversDeclarationShapes`: the
+  subjects include extension, generic, nested-type, bodiless, and
+  virtual-dispatch methods
+- the `SameModuleTarget_*` synthetic cases, which assert the same parity, plus
+  `SemanticIdentity_VarargDefinitionKeepsRequiredParameterCount`,
+  `SemanticIdentity_SignaturePastDecodeDepthIsBoundedNotMalformed`, and
+  `SemanticIdentity_UnreadableSignatureIsTypedMalformed`
+- `MethodQuerySource_SemanticIdentityAbsentWhenUndeclared`
+- `MethodQuerySource_SemanticIdentityRequiresDeclaration`
+- `MethodQuerySource_SemanticIdentityReceiptsExactMethodWork`
+- `MethodQuerySource_SemanticIdentityOfBodilessMethodAcquiresNoBody`
+- `MethodQuerySource_SemanticIdentityDecodedOnceAcrossLanes`
 
 The following deeper-source gates remain **unverified**:
 

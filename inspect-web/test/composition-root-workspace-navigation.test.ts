@@ -1274,7 +1274,10 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /if \(rootRequest !== undefined\) \{\s*await openExactPackageQueryRow\(packageId, version, rootRequest\);[\s\S]*const controller = requireRetainedWorkspaceActivation\(\);[\s\S]*controller\.retain\(\{[\s\S]*packageQuery: \{ packageId, version \},[\s\S]*controller\.activate\([\s\S]*completeRetainedActivationPresentation\(/);
   assert.match(
     handoff,
-    /const initialPackageLens: PackageLens = origin === "query"\s*\? packageQueryWorkspaceLens\(state\.packageQueryState\.request\) \?\? "overview"[\s\S]*url\.hash = initialPackageLens === "overview"\s*\? "package"\s*: `pkg:\$\{initialPackageLens\}`;/);
+    /const initialPackageLens: PackageLens = origin === "query"\s*\? packageQueryInitialLens\(state\.packageQueryState\.request\)[\s\S]*url\.hash = initialPackageLens === "overview"\s*\? "package"\s*: `pkg:\$\{initialPackageLens\}`;/);
+  assert.match(
+    appSource,
+    /packageQueryRelatedOperationBindings =\s*new Map<string, PackageLens>\(\[\s*\["package\.dependencies\.inspect", "dependencies"\],\s*\]\)/);
   assert.match(
     handoff,
     /installRetainedWorkspacePosting\(\s*posting,\s*locationIntent,\s*undefined,\s*initialPackageLens\)/);
@@ -1391,7 +1394,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /state\.packageQueryCatalogError =\s*`Package-query vocabulary is unavailable/);
   assert.match(
     appSource,
-    /try \{\s*const catalog =\s*packageQueryCatalog\(await engineClient\.package\.listPackageQueryCatalog\(\)\);\s*state\.packageQueryPresets = catalog\.presets;\s*state\.packageQueryTerms = catalog\.terms;\s*\} catch \(error\) \{[\s\S]*state\.packageQueryPresets = \[\];\s*state\.packageQueryTerms = \[\];\s*state\.packageQueryCatalogError =[\s\S]*\}/);
+    /try \{\s*const \[catalogResult, durableRowLayout\] = await Promise\.all\(\[\s*engineClient\.package\.listPackageQueryCatalog\(\),\s*engineClient\.package\.packageQueryDurableRowLayout\(\),\s*\]\);\s*const catalog = packageQueryCatalog\(catalogResult\);\s*state\.packageQueryDurableRowLayout = durableRowLayout;\s*state\.packageQueryPresets = catalog\.presets;\s*state\.packageQueryTerms = catalog\.terms;\s*\} catch \(error\) \{\s*state\.packageQueryDurableRowLayout = null;\s*state\.packageQueryPresets = \[\];\s*state\.packageQueryTerms = \[\];\s*state\.packageQueryCatalogError =[\s\S]*\}/);
   assert.match(
     appSource,
     /function applyPackageQueryTerm\([\s\S]*descriptor\.key === "depends"[\s\S]*requiresTraversalDependencyTarget\([\s\S]*An exact target framework is required while bounded dependency reach is active\.[\s\S]*withDependencyTerm\([\s\S]*\? withTerm\(current, descriptor, operator, value\)\s*: replaceTerm\(current, index, operator, value\);[\s\S]*state\.packageQueryState\.termDraft = null;[\s\S]*state\.packageQueryState\.termEdits = edits;[\s\S]*submitPackageQueryRequest\(request\)/);

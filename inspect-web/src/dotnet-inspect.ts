@@ -711,7 +711,7 @@ import {
   ECOSYSTEM_PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
   initialQueryState,
   isTraversalDependencyTarget,
-  packageQueryWorkspaceLens,
+  packageQueryRelatedOperation,
   requiresTraversalDependencyTarget,
   shouldExecuteQuery,
   synchronizeDependencyTermEditor,
@@ -755,6 +755,9 @@ import {
   restorePackageQueryFocus,
   type PackageQueryBindingActions,
 } from "./package-query-view.ts";
+import type {
+  PackageQueryDurableRowPresentationLayout,
+} from "./package-query-durable-row.ts";
 import {
   createPackageQueryRenderScheduler,
   packageQueryEditorCompositionActive,
@@ -1468,6 +1471,7 @@ const initialState = {
   packageActivityReturnFocusPending: false,
   packageQueryState: initialQueryState(),
   packageQueryInspection: null,
+  packageQueryDurableRowLayout: null,
   packageQueryPresets: [],
   packageQueryTerms: [],
   packageChangesEcosystems: [],
@@ -1775,6 +1779,8 @@ interface StateOverrides {
   packageChangesEcosystems: BrowserPackageChangesEcosystemDescriptor[];
   packageChangesState: PackageChangesState;
   packageQueryInspection: BrowserPackageQueryInspection | null;
+  packageQueryDurableRowLayout:
+    PackageQueryDurableRowPresentationLayout | null;
   packageQueryPresets: QueryPreset[];
   packageQueryTerms: QueryTermDescriptor[];
   packageQueryPredecessorEntryId: string | null;
@@ -2239,6 +2245,8 @@ function captureRetainedHostState() {
       state.packageActivityReturnFocusPending,
     packageQueryState: state.packageQueryState,
     packageQueryInspection: state.packageQueryInspection,
+    packageQueryDurableRowLayout:
+      state.packageQueryDurableRowLayout,
     packageQueryPresets: state.packageQueryPresets,
     packageQueryTerms: state.packageQueryTerms,
     packageChangesEcosystems: state.packageChangesEcosystems,
@@ -12455,7 +12463,7 @@ function currentLibraryApiInspection() {
 
 async function loadLibraryApi(
   pkg: AppPackage,
-  library: { id: string; name: string },
+  library: ReturnType<typeof packageLibraries>[number],
 ) {
   const key = libraryApiSignature(pkg, library);
   if (state.libraryApiInspections.has(key)
@@ -12468,6 +12476,8 @@ async function loadLibraryApi(
       pkg.version,
       pkg.activeFramework,
       library.id,
+      !state.libraryEnablements.has(key)
+        && libraryEnablementsRequest(pkg, library) !== null,
     );
     state.libraryApiInspections.set(key, inspection);
   } catch (error) {
@@ -21353,6 +21363,18 @@ function cancelPackageQueryTermDraft() {
       `[data-query-term-add="${cssEscape(descriptor.key)}"]`)?.focus());
 }
 
+const packageQueryRelatedOperationBindings =
+  new Map<string, PackageLens>([
+    ["package.dependencies.inspect", "dependencies"],
+  ]);
+
+function packageQueryInitialLens(request: QueryRequest | null): PackageLens {
+  const operation = packageQueryRelatedOperation(request);
+  return operation === null
+    ? "overview"
+    : packageQueryRelatedOperationBindings.get(operation) ?? "overview";
+}
+
 async function openPackageQueryRow(
   packageId: string,
   version: string,
@@ -21368,7 +21390,7 @@ async function openPackageQueryRow(
       capturePackageQueryViewport(document) ?? packageQueryViewport;
   }
   const initialPackageLens: PackageLens = origin === "query"
-    ? packageQueryWorkspaceLens(state.packageQueryState.request) ?? "overview"
+    ? packageQueryInitialLens(state.packageQueryState.request)
     : "overview";
   if (!canPublishRetainedWorkspace()) {
     if (origin === "query") {
@@ -21709,6 +21731,7 @@ function patchPackageQueryPage() {
     document,
     {
       state: state.packageQueryState,
+      durableRowLayout: state.packageQueryDurableRowLayout,
       escapeHtml,
       viewport,
     },
@@ -21753,6 +21776,7 @@ function replacePackageQueryPage() {
   document.title = "Package query · dotnet-inspect";
   replaceChildrenPreservingRenderedInteractions(app, renderPackageQueryView({
     state: state.packageQueryState,
+    durableRowLayout: state.packageQueryDurableRowLayout,
     prefix: state.packageQueryPrefix,
     availablePresets: state.packageQueryPresets,
     availableTerms: state.packageQueryTerms,
@@ -26762,11 +26786,16 @@ async function bootstrap() {
         `Package Activity ecosystems are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
-      const catalog =
-        packageQueryCatalog(await engineClient.package.listPackageQueryCatalog());
+      const [catalogResult, durableRowLayout] = await Promise.all([
+        engineClient.package.listPackageQueryCatalog(),
+        engineClient.package.packageQueryDurableRowLayout(),
+      ]);
+      const catalog = packageQueryCatalog(catalogResult);
+      state.packageQueryDurableRowLayout = durableRowLayout;
       state.packageQueryPresets = catalog.presets;
       state.packageQueryTerms = catalog.terms;
     } catch (error) {
+      state.packageQueryDurableRowLayout = null;
       state.packageQueryPresets = [];
       state.packageQueryTerms = [];
       state.packageQueryCatalogError =

@@ -811,6 +811,9 @@ internal static class ClassicInverseRecipes
             return null;
 
         var candidate = new ClassicInverseCandidate("classic-await-void");
+        if (!recipeIndex.AwaitedOperands.TryGetValue(getResults[0], out IrExpression? operand)
+            || !TryMapSingleAwaitDefault(rawExecution, guard, operand, candidate, budget, out InitObject? initializer))
+            return null;
         var rewriter = new ClassicInverseRewriter(
             planning,
             shell,
@@ -833,12 +836,22 @@ internal static class ClassicInverseRecipes
         {
             if (!budget.Charge())
                 return null;
-            if (node is not ExpressionStatement and not StoreField)
+            if (node is not ExpressionStatement and not StoreField
+                && (node is not InitObject { Address: LoadFieldAddress fieldAddress } reset
+                    || !Equals(reset.Type, fieldAddress.Field.Type)
+                    || ClassicInverseNodeFacts.IsMachineField(fieldAddress.Field, shell.Machine)))
                 return null;
             suffix.Add(node);
         }
         if (!ProvesContinuationSuffix(rawExecution, continuation, suffix, budget))
             return null;
+        if (initializer is not null)
+        {
+            IrNode? initialized = rewriter.Rewrite(initializer);
+            if (initialized is null) return null;
+            candidate.Statements.Add(initialized);
+            candidate.Claim(initializer, initialized, ClassicInverseRealizationRule.Statement);
+        }
         candidate.Statements.Add(output);
         candidate.Claim(statement, output, ClassicInverseRealizationRule.Statement);
         for (int i = 1; i < suffix.Count; i++)
@@ -859,7 +872,15 @@ internal static class ClassicInverseRecipes
             foreach (IrNode node in candidate.Statements)
                 then.Add(node);
             candidate.Statements.Clear();
-            var guarded = new IfStatement(condition, then, null);
+            IrExpression combined = condition;
+            if (guard.SecondBranch is { } second)
+            {
+                if (rewriter.Rewrite(second.Condition) is not IrExpression right) return null;
+                combined = new LogicalBinary(LogicalKind.Or, condition, right);
+                candidate.Claim(second, right, ClassicInverseRealizationRule.AwaitGuardSecondCondition);
+                candidate.DeclareControlRegion("single-await-second-guard", [second.Parent!], right);
+            }
+            var guarded = new IfStatement(combined, then, null);
             candidate.Statements.Add(guarded);
             candidate.Claim(guard.Branch, condition, ClassicInverseRealizationRule.AwaitGuardCondition);
             candidate.DeclareProtocol(guard.EarlyCompletion, "single-await-early-completion");
@@ -872,7 +893,8 @@ internal static class ClassicInverseRecipes
     sealed record SingleAwaitGuard(
         ConditionalBranch Branch,
         Leave EarlyCompletion,
-        IReadOnlyList<IrNode> GuardedBlocks);
+        IReadOnlyList<IrNode> GuardedBlocks,
+        ConditionalBranch? SecondBranch = null);
 
     // This is one closed seven-block shell, not a generic guard finder. The
     // true edge enters the await; the false edge completes without user work.
@@ -890,28 +912,39 @@ internal static class ClassicInverseRecipes
             || continuation.Parent is not BlockContainer container)
             return false;
         IReadOnlyList<Block> blocks = container.Blocks;
-        if (blocks.Count != 7) return false;
-        if (!ReferenceEquals(blocks[6], continuation)) return false;
-        if (blocks[0].Children is not [ConditionalBranch dispatch]) return false;
-        if (!shell.Protocol.Proves(dispatch, ClassicInverseLoweringProof.StateDispatch)) return false;
-        if (blocks[1].Children is not [ConditionalBranch guard]) return false;
-        if (!MemberIdentity.IsCoreLibraryType(guard.Condition.ResultType, "System", "Boolean")) return false;
-        if (guard.TargetOffset != blocks[3].StartOffset) return false;
-        if (blocks[2].Children is not [Leave early]) return false;
+        bool compound = blocks.Count == 8;
+        if (!compound && blocks.Count != 7) return false;
+        int shift = compound ? 1 : 0;
+        int earlyIndex = 2 + shift, awaitIndex = 3 + shift;
+        int suspend = 4 + shift, resume = 5 + shift, end = 6 + shift;
+        if (!ReferenceEquals(blocks[end], continuation)
+            || blocks[0].Children is not [ConditionalBranch dispatch]
+            || !shell.Protocol.Proves(dispatch, ClassicInverseLoweringProof.StateDispatch)
+            || blocks[1].Children is not [ConditionalBranch guard]
+            || guard.TargetOffset != blocks[awaitIndex].StartOffset
+            || blocks[earlyIndex].Children is not [Leave early]) return false;
+        ConditionalBranch? second = null;
+        if (compound)
+        {
+            if (blocks[2].Children is not [ConditionalBranch next]
+                || next.TargetOffset != guard.TargetOffset
+                || !CoercionRendering.IsProvenReference(guard.Condition.ResultType, raw.TypeShapes)
+                || !CoercionRendering.IsProvenReference(next.Condition.ResultType, raw.TypeShapes)) return false;
+            second = next;
+        }
+        else if (!MemberIdentity.IsCoreLibraryType(guard.Condition.ResultType, "System", "Boolean")) return false;
         if (!ClassicInverseCfg.TryBuild(blocks, budget, out var edges)) return false;
-        if (!HasOnlySuccessors(edges[0], budget, 1, 5)) return false;
-        if (!HasOnlySuccessors(edges[1], budget, 2, 3)) return false;
-        if (!HasNoSuccessors(edges[2])) return false;
-        if (!HasOnlySuccessors(edges[3], budget, 4, 6)) return false;
-        if (!HasNoSuccessors(edges[4])) return false;
-        if (!HasOnlySuccessors(edges[5], budget, 6)) return false;
-        if (!HasNoSuccessors(edges[6])) return false;
-        if (!HasOnlyPredecessors(edges, 1, budget, 0)) return false;
-        if (!HasOnlyPredecessors(edges, 2, budget, 1)) return false;
-        if (!HasOnlyPredecessors(edges, 3, budget, 1)) return false;
-        if (!HasOnlyPredecessors(edges, 4, budget, 3)) return false;
-        if (!HasOnlyPredecessors(edges, 5, budget, 0)) return false;
-        if (!HasOnlyPredecessors(edges, 6, budget, 3, 5)) return false;
+
+        var expected = new int[blocks.Count][];
+        expected[0] = [1, resume];
+        expected[1] = [2, awaitIndex];
+        if (compound) expected[2] = [earlyIndex, awaitIndex];
+        expected[earlyIndex] = [];
+        expected[awaitIndex] = [suspend, end];
+        expected[suspend] = [];
+        expected[resume] = [end];
+        expected[end] = [];
+        if (!Matches(edges, expected)) return false;
 
         var byOffset = new Dictionary<int, Block>();
         var completions = new List<Call>();
@@ -919,40 +952,26 @@ internal static class ClassicInverseRecipes
         foreach (IrNode node in raw.Body.Descendants)
         {
             if (!budget.Charge()) return false;
-            if (node is Block block && !byOffset.TryAdd(block.StartOffset, block))
-                return false;
-            if (node is Call call && call.SourceOffset == setResult.SourceOffset
-                && call.Callee.Name == "SetResult")
-                completions.Add(call);
+            if (node is Block block && !byOffset.TryAdd(block.StartOffset, block)) return false;
+            if (node is Call call && call.SourceOffset == setResult.SourceOffset && call.Callee.Name == "SetResult") completions.Add(call);
             if (node is Leave leave) leaves.Add(leave);
         }
-        if (completions is not [Call { Parent.Parent: Block completed }])
-            return false;
+        if (completions is not [Call { Parent.Parent: Block completed }]) return false;
         var originals = new List<Block>();
         foreach (Block block in blocks)
         {
-            if (!budget.Charge() || !byOffset.TryGetValue(block.StartOffset, out Block? original))
-                return false;
+            if (!budget.Charge() || !byOffset.TryGetValue(block.StartOffset, out Block? original)) return false;
             originals.Add(original);
         }
-        if (originals[1].Children is not [ConditionalBranch rawGuard]
-            || rawGuard.SourceOffset != guard.SourceOffset
-            || rawGuard.TargetOffset != guard.TargetOffset
-            || rawGuard.Origin != guard.Origin
-            || originals[2].Children is not [Leave rawEarly]
-            || rawEarly.SourceOffset != early.SourceOffset
-            || rawEarly.TargetOffset != early.TargetOffset
+        if (!SameBranch(originals[1], guard)
+            || second is not null && !SameBranch(originals[2], second)
+            || originals[earlyIndex].Children is not [Leave rawEarly]
+            || rawEarly.SourceOffset != early.SourceOffset || rawEarly.TargetOffset != early.TargetOffset
             || early.TargetOffset != completed.StartOffset
-            || originals[6].Children.LastOrDefault() is not Leave final
+            || originals[end].Children.LastOrDefault() is not Leave final
             || final.TargetOffset != completed.StartOffset
             || originals[1].Parent is not BlockContainer rawContainer
-            || !ClassicInverseCfg.TryBuild(rawContainer.Blocks, budget, out var rawEdges))
-            return false;
-        foreach (Block original in originals)
-        {
-            if (!budget.Charge() || !ReferenceEquals(original.Parent, rawContainer)) return false;
-        }
-        IReadOnlyList<Block> rawBlocks = rawContainer.Blocks;
+            || !ClassicInverseCfg.TryBuild(rawContainer.Blocks, budget, out var rawEdges)) return false;
         int matchingLeaves = 0;
         foreach (Leave leave in leaves)
         {
@@ -960,28 +979,101 @@ internal static class ClassicInverseRecipes
             if (leave.TargetOffset == completed.StartOffset) matchingLeaves++;
         }
         if (matchingLeaves != 2) return false;
-        int[] indices = new int[7];
+        int[] indices = new int[blocks.Count];
+        for (int i = 0; i < indices.Length; i++)
+        {
+            if (!budget.Charge() || !ReferenceEquals(originals[i].Parent, rawContainer)) return false;
+            indices[i] = BlockIndex(rawContainer.Blocks, originals[i], budget);
+            if (indices[i] < 0) return false;
+        }
+        // Check the full raw graph, including entries from outside the region.
         for (int i = 0; i < indices.Length; i++)
         {
             if (!budget.Charge()) return false;
-            indices[i] = BlockIndex(rawBlocks, originals[i], budget);
-            if (indices[i] < 0) return false;
+            int[] successors = expected[i].Select(j => indices[j]).ToArray();
+            int[] predecessors = Enumerable.Range(0, expected.Length)
+                .Where(j => expected[j].Contains(i)).Select(j => indices[j]).ToArray();
+            if (!(successors.Length == 0 ? HasNoSuccessors(rawEdges[indices[i]]) : HasOnlySuccessors(rawEdges[indices[i]], budget, successors))
+                || i != 0 && !HasOnlyPredecessors(rawEdges, indices[i], budget, predecessors)) return false;
         }
-        // Raw and planning agree on all entries to the user region, including
-        // both paths to GetResult. Additional entries cannot be hidden by passes.
-        if (!HasOnlySuccessors(rawEdges[indices[0]], budget, indices[1], indices[5])
-            || !HasOnlySuccessors(rawEdges[indices[1]], budget, indices[2], indices[3])
-            || !HasOnlySuccessors(rawEdges[indices[3]], budget, indices[4], indices[6])
-            || !HasOnlySuccessors(rawEdges[indices[5]], budget, indices[6])
-            || !HasOnlyPredecessors(rawEdges, indices[1], budget, indices[0])
-            || !HasOnlyPredecessors(rawEdges, indices[2], budget, indices[1])
-            || !HasOnlyPredecessors(rawEdges, indices[3], budget, indices[1])
-            || !HasOnlyPredecessors(rawEdges, indices[4], budget, indices[3])
-            || !HasOnlyPredecessors(rawEdges, indices[5], budget, indices[0])
-            || !HasOnlyPredecessors(rawEdges, indices[6], budget, indices[3], indices[5]))
-            return false;
-        proof = new SingleAwaitGuard(guard, early, [blocks[3], blocks[4], blocks[5], blocks[6]]);
+        proof = new SingleAwaitGuard(guard, early,
+            [blocks[awaitIndex], blocks[suspend], blocks[resume], blocks[end]], second);
         return true;
+
+        bool SameBranch(Block block, ConditionalBranch branch)
+            => block.Children is [ConditionalBranch original]
+                && original.SourceOffset == branch.SourceOffset
+                && original.TargetOffset == branch.TargetOffset && original.Origin == branch.Origin;
+
+        bool Matches(IReadOnlyList<ILInspector.ControlFlow.BlockEdges> graph, int[][] targets)
+        {
+            for (int i = 0; i < targets.Length; i++)
+            {
+                if (!budget.Charge() || !(targets[i].Length == 0 ? HasNoSuccessors(graph[i]) : HasOnlySuccessors(graph[i], budget, targets[i]))) return false;
+                int[] predecessors = Enumerable.Range(0, targets.Length).Where(j => targets[j].Contains(i)).ToArray();
+                if (i != 0 && !HasOnlyPredecessors(graph, i, budget, predecessors)) return false;
+            }
+            return true;
+        }
+    }
+
+    static bool TryMapSingleAwaitDefault(
+        IrFunction raw, SingleAwaitGuard? guard, IrExpression operand,
+        ClassicInverseCandidate candidate, ClassicInverseBudget budget, out InitObject? initializer)
+    {
+        initializer = null;
+        if (guard is null) return true;
+        var block = (Block)guard.GuardedBlocks[0];
+        if (block.Children.FirstOrDefault() is not InitObject init) return true;
+        if (init.Address is not LoadLocalAddress address
+            || !Equals(address.Type, init.Type) || block.Children.Count != 3) return false;
+        var uses = new List<IrNode>();
+        foreach (IrNode node in raw.Descendants)
+        {
+            if (!budget.Charge()) return false;
+            if (node is LoadLocal l && l.Index == address.Index
+                || node is LoadLocalAddress a && a.Index == address.Index
+                || node is StoreLocal s && s.Index == address.Index) uses.Add(node);
+        }
+        if (uses.Count != 2 || uses.OfType<LoadLocalAddress>().ToArray() is not [LoadLocalAddress { Parent: InitObject rawInit } rawAddress]
+            || rawInit.SourceOffset != init.SourceOffset || !Equals(rawInit.Type, init.Type)
+            || !Equals(rawAddress.Type, init.Type)
+            || uses.OfType<LoadLocal>().ToArray() is not [LoadLocal read]
+            || !Equals(read.Type, init.Type)) return false;
+        var loads = new List<LoadLocal>();
+        foreach (IrNode node in operand.Descendants.Prepend(operand))
+        {
+            if (!budget.Charge()) return false;
+            if (node is LoadLocal l && l.Index == address.Index) loads.Add(l);
+        }
+        if (loads is not [LoadLocal plannedRead] || plannedRead.SourceOffset != read.SourceOffset
+            || !Equals(plannedRead.Type, read.Type)
+            || rawInit.Parent is not Block rawBlock
+            || rawBlock.StartOffset != block.StartOffset
+            || rawBlock.Children.FirstOrDefault() != rawInit
+            || rawBlock.Children.ElementAtOrDefault(1) is not StoreLocal rawAcquire
+            || !UnderAcquisition(read, rawAcquire)
+            || rawAddress.SourceOffset != address.SourceOffset
+            || !Equals(ClassicInverseExpressionRules.SinkType(read, budget), init.Type)
+            || !Equals(ClassicInverseExpressionRules.SinkType(plannedRead, budget), init.Type)) return false;
+        var locals = new ClassicInverseLocalTable();
+        int mapped = locals.Add(init.Type, null);
+        candidate.Locals = locals.Types;
+        candidate.LocalNames = locals.Names;
+        candidate.SynthesizedLocalNames = locals.SynthesizedNames;
+        candidate.MapLocal(address.Index, mapped);
+        initializer = init;
+        return true;
+
+        bool UnderAcquisition(IrNode node, StoreLocal acquisition)
+        {
+            for (IrNode? current = node; current is not null; current = current.Parent)
+            {
+                if (!budget.Charge()) return false;
+                if (ReferenceEquals(current, acquisition)) return true;
+            }
+            return false;
+        }
     }
 
     static bool ProvesContinuationSuffix(
@@ -1021,6 +1113,12 @@ internal static class ClassicInverseRecipes
                     || rawStore.IsVolatile != planningStore.IsVolatile
                     || rawStore.HasInstance != planningStore.HasInstance
                     || rawStore.UpdateKind != planningStore.UpdateKind))
+                return false;
+            if (imported is InitObject rawInit && planned is InitObject planningInit
+                && (!Equals(rawInit.Type, planningInit.Type)
+                    || rawInit.Address is not LoadFieldAddress rawAddress
+                    || planningInit.Address is not LoadFieldAddress planningAddress
+                    || !ClassicInverseRealizationRules.PayloadEquals(rawAddress, planningAddress)))
                 return false;
         }
         return true;

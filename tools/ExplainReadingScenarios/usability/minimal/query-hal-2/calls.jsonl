@@ -1,0 +1,26 @@
+{"id": 1, "argv": ["explain", "query package", "--json"], "exit": 0, "stdout_bytes": 152, "stderr_bytes": 0, "stdout_file": "response-01.out", "stderr_file": "response-01.err"}
+{"id": 3, "argv": ["explain", "vocabularies", "--json"], "exit": 0, "stdout_bytes": 2637, "stderr_bytes": 0, "stdout_file": "response-03.out", "stderr_file": "response-03.err"}
+{"id": 5, "argv": ["explain", "literal contains", "--json"], "exit": 0, "stdout_bytes": 155, "stderr_bytes": 0, "stdout_file": "response-05.out", "stderr_file": "response-05.err"}
+{"id": 2, "argv": ["explain", "dependency predicate", "--json"], "exit": 0, "stdout_bytes": 1624, "stderr_bytes": 0, "stdout_file": "response-02.out", "stderr_file": "response-02.err"}
+{"id": 4, "argv": ["explain", "candidate work", "--json"], "exit": 0, "stdout_bytes": 809, "stderr_bytes": 0, "stdout_file": "response-04.out", "stderr_file": "response-04.err"}
+{"id": 8, "argv": ["explain", "package-query/query/facets/dependency-target", ".hal", "--json"], "exit": 0, "stdout_bytes": 2308, "stderr_bytes": 0, "stdout_file": "response-08.out", "stderr_file": "response-08.err"}
+{"id": 7, "argv": ["explain", "package-query/query/facets/dependency-depth", ".hal", "--json"], "exit": 0, "stdout_bytes": 3885, "stderr_bytes": 0, "stdout_file": "response-07.out", "stderr_file": "response-07.err"}
+{"id": 10, "argv": ["explain", "package-query/bindings/cli", "--json"], "exit": 0, "stdout_bytes": 7356, "stderr_bytes": 0, "stdout_file": "response-10.out", "stderr_file": "response-10.err"}
+{"id": 9, "argv": ["explain", "package-query/routes/default", "--json"], "exit": 0, "stdout_bytes": 2431, "stderr_bytes": 0, "stdout_file": "response-09.out", "stderr_file": "response-09.err"}
+{"id": 6, "argv": ["explain", "package-query", "--json"], "exit": 0, "stdout_bytes": 1474, "stderr_bytes": 0, "stdout_file": "response-06.out", "stderr_file": "response-06.err"}
+{"id": 14, "argv": ["explain", "package-query/query/facets/dependencies", ".hal", "--json"], "exit": 0, "stdout_bytes": 1976, "stderr_bytes": 0, "stdout_file": "response-14.out", "stderr_file": "response-14.err"}
+{"id": 12, "argv": ["explain", "package-query/query/facets/library-literal", ".hal", "--json"], "exit": 0, "stdout_bytes": 3335, "stderr_bytes": 0, "stdout_file": "response-12.out", "stderr_file": "response-12.err"}
+{"id": 15, "argv": ["explain", "package-query/query/facets/depends", ".hal", "--json"], "exit": 0, "stdout_bytes": 2522, "stderr_bytes": 0, "stdout_file": "response-15.out", "stderr_file": "response-15.err"}
+{"id": 13, "argv": ["explain", "package-query/query/facets/depends-transitive", ".hal", "--json"], "exit": 0, "stdout_bytes": 5582, "stderr_bytes": 0, "stdout_file": "response-13.out", "stderr_file": "response-13.err"}
+{"id": 11, "argv": ["explain", "package-query/query", ".hal", "--json"], "exit": 0, "stdout_bytes": 18649, "stderr_bytes": 0, "stdout_file": "response-11.out", "stderr_file": "response-11.err"}
+{"id": 18, "argv": ["explain", "NuGet target framework", "--json"], "exit": 0, "stdout_bytes": 161, "stderr_bytes": 0, "stdout_file": "response-18.out", "stderr_file": "response-18.err"}
+{"id": 17, "argv": ["explain", "package ID normalization", "--json"], "exit": 0, "stdout_bytes": 163, "stderr_bytes": 0, "stdout_file": "response-17.out", "stderr_file": "response-17.err"}
+{"id": 16, "argv": ["explain", "package query matching", "--json"], "exit": 0, "stdout_bytes": 836, "stderr_bytes": 0, "stdout_file": "response-16.out", "stderr_file": "response-16.err"}
+{"id": 19, "argv": ["explain", "inspect-resource:/package-query/query?projection=contract", "--json"], "exit": 0, "stdout_bytes": 72803, "stderr_bytes": 0, "stdout_file": "response-19.out", "stderr_file": "response-19.err"}
+{"id": 20, "argv": ["explain", "unavailable", "--json"], "exit": 0, "stdout_bytes": 150, "stderr_bytes": 0, "stdout_file": "response-20.out", "stderr_file": "response-20.err"}
+{"id": 22, "argv": ["explain", "failure", "--json"], "exit": 0, "stdout_bytes": 802, "stderr_bytes": 0, "stdout_file": "response-22.out", "stderr_file": "response-22.err"}
+{"id": 21, "argv": ["explain", "completeness", "--json"], "exit": 0, "stdout_bytes": 1470, "stderr_bytes": 0, "stdout_file": "response-21.out", "stderr_file": "response-21.err"}
+{"id": 24, "argv": ["explain", "package-query/query/facets/library-target", ".hal", "--json"], "exit": 0, "stdout_bytes": 840, "stderr_bytes": 0, "stdout_file": "response-24.out", "stderr_file": "response-24.err"}
+{"id": 23, "argv": ["explain", "inspect-resource:/package-query?projection=contract", "--json"], "exit": 0, "stdout_bytes": 51646, "stderr_bytes": 0, "stdout_file": "response-23.out", "stderr_file": "response-23.err"}
+{"id": 26, "argv": ["explain", "package-query/query/facets/package", ".hal", "--json"], "exit": 0, "stdout_bytes": 723, "stderr_bytes": 0, "stdout_file": "response-26.out", "stderr_file": "response-26.err"}
+{"id": 25, "argv": ["explain", "package-query/query/facets/prefix", ".hal", "--json"], "exit": 0, "stdout_bytes": 759, "stderr_bytes": 0, "stdout_file": "response-25.out", "stderr_file": "response-25.err"}

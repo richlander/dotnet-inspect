@@ -53,6 +53,127 @@ public sealed class ApiCoordinateMatchInspectionTests
     }
 
     [Fact]
+    public async Task ExactEndpointsUseHouseSurfaceRealizationAndPinTheDestinationProducer()
+    {
+        using var packages = new ApiCoordinateMatchTestPackages();
+        await packages.AddAsync("Avalonia", "11.3.14");
+        await packages.AddAsync("Avalonia", "12.1.2");
+
+        InspectionEnvelope<ApiCoordinateMatchContent> envelope =
+            await ApiCoordinateMatchConsumer.MatchAsync(
+                new(
+                    "Avalonia",
+                    "11.3.14",
+                    "12.1.2",
+                    "Avalonia.Data.MultiBinding",
+                    targetFramework: "net8.0"),
+                packages.HouseExecution,
+                TestContext.Current.CancellationToken);
+
+        AssertStatus(ApiCoordinateMatchStatus.Exact, envelope);
+        Assert.Equal(2, packages.HouseRequests.Count);
+        Assert.Null(packages.HouseRequests[0].RequiredProducer);
+        Assert.Equal(
+            PackageProducerIdentity.NuGetOrg,
+            packages.HouseRequests[1].RequiredProducer);
+        Assert.All(packages.HouseRequests, item =>
+        {
+            Assert.Equal(
+                PackageHouseOperationProfile.Realize,
+                item.Request.Operation.Profile);
+            Assert.Equal(
+                PackageHouseAssetSelectionKind.Compile,
+                item.Request.AssetSelection);
+            Assert.Equal(
+                PackageAssetDemand.Surface,
+                item.Request.AssetDemand);
+            Assert.Equal(
+                PackageHouseLibraryHandoffMode.PackageOnly,
+                item.Request.LibraryHandoff);
+        });
+    }
+
+    [Fact]
+    public async Task DestinationRequiredProducerUnavailableIsAnAcquisitionFailure()
+    {
+        using var packages = new ApiCoordinateMatchTestPackages
+        {
+            RequiredProducerKeyOverride = "unavailable-test-producer",
+        };
+        await packages.AddAsync("Avalonia", "11.3.14");
+        await packages.AddAsync("Avalonia", "12.1.2");
+
+        InspectionEnvelope<ApiCoordinateMatchContent> envelope =
+            await ApiCoordinateMatchConsumer.MatchAsync(
+                new(
+                    "Avalonia",
+                    "11.3.14",
+                    "12.1.2",
+                    "Avalonia.Data.MultiBinding",
+                    targetFramework: "net8.0"),
+                packages.HouseExecution,
+                TestContext.Current.CancellationToken);
+
+        AssertStatus(ApiCoordinateMatchStatus.Failed, envelope);
+        Assert.Equal(ApiCoordinateMatchStage.Acquisition, envelope.Content.Stage);
+        Assert.StartsWith(
+            "Destination:",
+            envelope.Content.Summary.ToString(),
+            StringComparison.Ordinal);
+        Assert.Equal(2, packages.HouseRequests.Count);
+        Assert.Equal(
+            PackageProducerIdentity.NuGetOrg,
+            packages.HouseRequests[1].RequiredProducer);
+    }
+
+    [Fact]
+    public async Task EqualEndpointsReuseOneHouseRealization()
+    {
+        using var packages = new ApiCoordinateMatchTestPackages();
+        await packages.AddAsync("Avalonia", "11.3.14");
+
+        InspectionEnvelope<ApiCoordinateMatchContent> envelope =
+            await ApiCoordinateMatchConsumer.MatchAsync(
+                new(
+                    "Avalonia",
+                    "11.3.14",
+                    "11.3.14",
+                    "Avalonia.Data.MultiBinding",
+                    targetFramework: "net8.0"),
+                packages.HouseExecution,
+                TestContext.Current.CancellationToken);
+
+        AssertStatus(ApiCoordinateMatchStatus.Exact, envelope);
+        Assert.Single(packages.HouseRequests);
+    }
+
+    [Fact]
+    public async Task SettlementForAnotherEndpointRequestIsRejected()
+    {
+        using var packages = new ApiCoordinateMatchTestPackages();
+        await packages.AddAsync("Avalonia", "11.3.14");
+        await packages.AddAsync("Avalonia", "12.1.2");
+        var executor = new ReplayingSettlementExecutor(packages);
+        var execution = new ApiCoordinateMatchHouseExecution(
+            packages.HouseExecution.Operation,
+            executor);
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                ApiCoordinateMatchConsumer.MatchAsync(
+                    new(
+                        "Avalonia",
+                        "11.3.14",
+                        "12.1.2",
+                        "Avalonia.Data.MultiBinding",
+                        targetFramework: "net8.0"),
+                    execution,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains("another request", failure.Message);
+    }
+
+    [Fact]
     public async Task SystemTextJson_StringOptionsGenericOverload_HasAnExactDestinationAnchor()
     {
         InspectionEnvelope<ApiCoordinateMatchContent> envelope = await Match(
@@ -267,7 +388,8 @@ public sealed class ApiCoordinateMatchInspectionTests
         if (before != after)
             await packages.AddAsync(packageId, after);
         return await ApiCoordinateMatchConsumer.MatchAsync(
-            new(packageId, before, after, type, member, framework), packages,
+            new(packageId, before, after, type, member, framework),
+            packages.HouseExecution,
             TestContext.Current.CancellationToken);
     }
 
@@ -276,4 +398,25 @@ public sealed class ApiCoordinateMatchInspectionTests
         Assert.True(expected == envelope.Content.Status,
             $"Expected {expected}, got {envelope.Content.Status}: {envelope.Content.Summary}\n"
             + string.Join("\n", envelope.Content.Stages));
+
+    sealed class ReplayingSettlementExecutor(
+        IApiCoordinateMatchHouseExecutor inner)
+        : IApiCoordinateMatchHouseExecutor
+    {
+        PackageHouseSettlement? _first;
+
+        public async Task<PackageHouseSettlement> ExecuteAsync(
+            PackageHouseRequest request,
+            PackageProducerIdentity? requiredProducer,
+            CancellationToken cancellationToken = default)
+        {
+            if (_first is not null)
+                return _first;
+            _first = await inner.ExecuteAsync(
+                request,
+                requiredProducer,
+                cancellationToken);
+            return _first;
+        }
+    }
 }

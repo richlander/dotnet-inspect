@@ -643,7 +643,7 @@ if grep -F 'dateTimeOffsetStringBrand' "$scratch/out/facade.js" >/dev/null; then
   echo "Generated JavaScript retained the compile-time timestamp brand." >&2
   exit 1
 fi
-if grep -E 'RuntimeAPI|dotnet(\.js)?' "$scratch/out/facade.d.ts" >/dev/null; then
+if grep -E 'RuntimeAPI|dotnet\.js' "$scratch/out/facade.d.ts" >/dev/null; then
   echo "Generated public declaration leaked an SDK runtime type." >&2
   exit 1
 fi

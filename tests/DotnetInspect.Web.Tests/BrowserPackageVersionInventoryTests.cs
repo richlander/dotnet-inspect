@@ -69,6 +69,38 @@ public sealed class BrowserPackageVersionInventoryTests
     }
 
     [Fact]
+    public async Task WindowsPublishEarlierPointsNearestFirstUpToTheDeepestDepth()
+    {
+        BrowserPackageVersionInventory result = await Inventory(
+            [
+                "6.0.0", "7.0.0", "8.0.0", "8.0.1", "9.0.0", "9.0.1",
+                "10.0.0", "10.0.1", "10.0.2", "10.0.3", "10.0.4", "10.0.5", "10.0.6",
+                "11.0.0", "12.0.0", "12.0.1", "13.0.0", "13.0.1", "13.0.2",
+            ],
+            "13.0.2",
+            unlisted: "13.0.1");
+
+        Assert.Equal("13.0.0", result.PreviousVersion);
+        Assert.Equal(
+            ["13.0.0", "12.0.1", "12.0.0", "11.0.0", "10.0.6", "10.0.5"],
+            result.SupplyChainVersions!);
+        Assert.Equal(
+            ["12.0.1", "11.0.0", "10.0.6", "9.0.1", "8.0.1", "7.0.0"],
+            result.ApiEvolutionVersions!);
+        Assert.Equal(result.PreviousVersion, result.SupplyChainVersions![0]);
+    }
+
+    [Fact]
+    public async Task WindowsWithoutAnEarlierPointAreEmpty()
+    {
+        BrowserPackageVersionInventory result =
+            await Inventory(["2.0.0", "2.1.0"], "2.1.0");
+
+        Assert.Equal(["2.0.0"], result.SupplyChainVersions!);
+        Assert.Empty(result.ApiEvolutionVersions!);
+    }
+
+    [Fact]
     public async Task UnknownListingStatePreservesExactChoicesAndWithholdsTheDefault()
     {
         BrowserPackageVersionInventory result =
@@ -78,6 +110,8 @@ public sealed class BrowserPackageVersionInventoryTests
         Assert.Equal(1, result.CurrentVersionInsertionIndex);
         Assert.Null(result.PreviousVersion);
         Assert.Contains("authoritative listing state", result.PreviousVersionUnavailableReason);
+        Assert.Null(result.SupplyChainVersions);
+        Assert.Null(result.ApiEvolutionVersions);
     }
 
     [Fact]
@@ -127,6 +161,15 @@ public sealed class BrowserPackageVersionInventoryTests
         Assert.Equal(
             """{"versions":[],"currentVersionInsertionIndex":0}""",
             Serialize(new BrowserPackageVersions([], 0, null, null)));
+        Assert.Equal(
+            """{"versions":["2.0.0","1.1.0","1.0.0"],"currentVersionInsertionIndex":0,"previousVersion":"1.1.0","supplyChainVersions":["1.1.0","1.0.0"],"apiEvolutionVersions":["1.1.0"]}""",
+            Serialize(new BrowserPackageVersions(
+                ["2.0.0", "1.1.0", "1.0.0"],
+                0,
+                "1.1.0",
+                null,
+                SupplyChainVersions: ["1.1.0", "1.0.0"],
+                ApiEvolutionVersions: ["1.1.0"])));
     }
 
     static string Serialize(BrowserPackageVersions value) =>

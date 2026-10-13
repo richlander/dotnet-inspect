@@ -1,0 +1,3 @@
+member HttpClientJsonExtensions --platform System.Net.Http.Json GetFromJsonAsync:1   # view member detail (source, IL)
+type HttpClientJsonExtensions --platform System.Net.Http.Json --tree                 # view type tree
+member -m HttpClientJsonExtensions.GetFromJsonAsync --platform System.Net.Http.Json  # dotted member syntax

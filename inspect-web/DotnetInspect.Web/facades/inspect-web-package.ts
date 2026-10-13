@@ -92,8 +92,6 @@ export type BrowserPackageQueryProgressPhase = "Search" | "Manifest" | "PackageC
 
 export type BrowserPackageQueryResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
-export type BrowserPackageQueryWorkspaceLens = "Dependencies" | number;
-
 export type BrowserPackageVersionSettlementOutcomeKind = "Settled" | "NotSettled" | number;
 
 export type BrowserPackageVulnerabilityAvailability = "Complete" | "Partial" | "Unavailable" | number;
@@ -997,7 +995,7 @@ export interface BrowserPackageQueryPresetDescriptor {
   readonly categoryId: string;
   readonly categoryLabel: string;
   readonly categoryOrder: number;
-  readonly workspaceLens: BrowserPackageQueryWorkspaceLens | null;
+  readonly relatedOperations: ReadonlyArray<string>;
 }
 
 export interface BrowserPackageQueryProgress {
@@ -1053,7 +1051,7 @@ export interface BrowserPackageQueryTermDescriptor {
   readonly allowsCustomValue: boolean;
   readonly replacementGroupId: string | null;
   readonly options: ReadonlyArray<BrowserPackageQueryTermOptionDescriptor>;
-  readonly workspaceLens: BrowserPackageQueryWorkspaceLens | null;
+  readonly relatedOperations: ReadonlyArray<string>;
 }
 
 export interface BrowserPackageQueryTermOptionDescriptor {
@@ -1155,6 +1153,8 @@ export interface BrowserPackageVersions {
   readonly previousVersion?: string;
   readonly previousVersionUnavailableReason?: string;
   readonly unlistedVersions?: ReadonlyArray<string>;
+  readonly supplyChainVersions?: ReadonlyArray<string>;
+  readonly apiEvolutionVersions?: ReadonlyArray<string>;
 }
 
 export interface BrowserPackageVulnerabilityAdvisory {
@@ -1532,6 +1532,8 @@ export type DocumentationQueryOutcome = Completed | type_4486029c | type_0808982
 
 export type BrowserAssemblyReferenceResult = BrowserAssemblyReferenceList | string | null;
 
+export const jsonSchemaVocabularyDescriptors = [{"bindings":[{"schemaLocation":"/prefixItems/0","term":"package-id","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/1","term":"version","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/2","term":"tier","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/3","term":"answers","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/4","term":"evidence","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/5","term":"total-downloads","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/6","term":"verified","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/7","term":"producer","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/8","term":"description","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/9","term":"root-request","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/10","term":"owners","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/11","term":"manifest","vocabulary":"package-query.durable-row"},{"schemaLocation":"/prefixItems/12","term":"ecosystem-admission","vocabulary":"package-query.durable-row"}],"contract":"package-query.durable-row","descriptorIdentity":"sha256:2a5e969f2964da281f10259eb282b2bdc273ddf72519d6c0930eaf02cb7c15e4","dialect":"https://json-schema.org/draft/2020-12/schema","direction":"serialize","formatVersion":1,"schema":{"$defs":{"BrowserPackageQueryAcquisitionTier":{"anyOf":[{"enum":["Nuspec","PackageContent","SearchMetadata","Assembly"],"type":"string"},{"type":"integer"}]},"BrowserPackageQueryAnswer":{"additionalProperties":false,"properties":{"id":{"anyOf":[{"type":"string"},{"type":"null"}]},"term":{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryTerm"},{"type":"null"}]},"value":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["id","term","value"],"type":"object"},"BrowserPackageQueryDeclaredDependency":{"additionalProperties":false,"properties":{"id":{"anyOf":[{"type":"string"},{"type":"null"}]},"versionRange":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["id","versionRange"],"type":"object"},"BrowserPackageQueryDeclaredDependencyGroup":{"additionalProperties":false,"properties":{"dependencies":{"anyOf":[{"items":{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryDeclaredDependency"},{"type":"null"}]},"type":"array"},{"type":"null"}]},"isImplicitManifestGroup":{"type":"boolean"},"targetFramework":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["dependencies","isImplicitManifestGroup","targetFramework"],"type":"object"},"BrowserPackageQueryEcosystemAdmission":{"additionalProperties":false,"properties":{"basis":{"anyOf":[{"type":"string"},{"type":"null"}]},"ecosystemId":{"anyOf":[{"type":"string"},{"type":"null"}]},"registration":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["basis","ecosystemId","registration"],"type":"object"},"BrowserPackageQueryEvidence":{"additionalProperties":false,"properties":{"id":{"anyOf":[{"type":"string"},{"type":"null"}]},"number":{"anyOf":[{"maximum":9223372036854775807n,"minimum":-9223372036854775808n,"type":"integer"},{"type":"null"}]},"properties":{"anyOf":[{"items":{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryEvidenceProperty"},{"type":"null"}]},"type":"array"},{"type":"null"}]},"scope":{"$ref":"#/$defs/BrowserPackageQueryEvidenceScope"},"summary":{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryEvidenceSummary"},{"type":"null"}]},"term":{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryTerm"},{"type":"null"}]}},"required":["id","number","properties","scope","summary","term"],"type":"object"},"BrowserPackageQueryEvidenceProperty":{"additionalProperties":false,"properties":{"name":{"anyOf":[{"type":"string"},{"type":"null"}]},"value":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["name","value"],"type":"object"},"BrowserPackageQueryEvidenceScope":{"anyOf":[{"enum":["Package","Query"],"type":"string"},{"type":"integer"}]},"BrowserPackageQueryEvidenceSummary":{"additionalProperties":false,"properties":{"count":{"maximum":2147483647,"minimum":-2147483648,"type":"integer"},"preview":{"anyOf":[{"items":{"anyOf":[{"type":"string"},{"type":"null"}]},"type":"array"},{"type":"null"}]}},"required":["count","preview"],"type":"object"},"BrowserPackageQueryManifest":{"additionalProperties":false,"properties":{"authors":{"anyOf":[{"type":"string"},{"type":"null"}]},"dependencyGroups":{"anyOf":[{"items":{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryDeclaredDependencyGroup"},{"type":"null"}]},"type":"array"},{"type":"null"}]},"description":{"anyOf":[{"type":"string"},{"type":"null"}]},"iconFile":{"anyOf":[{"type":"string"},{"type":"null"}]},"iconUrl":{"anyOf":[{"type":"string"},{"type":"null"}]},"identityProvenance":{"$ref":"#/$defs/BrowserPackageQueryManifestIdentityProvenance"},"isToolPackage":{"type":"boolean"},"license":{"anyOf":[{"type":"string"},{"type":"null"}]},"licenseUrl":{"anyOf":[{"type":"string"},{"type":"null"}]},"manifestVersion":{"anyOf":[{"type":"string"},{"type":"null"}]},"packageId":{"anyOf":[{"type":"string"},{"type":"null"}]},"packageTypes":{"anyOf":[{"items":{"anyOf":[{"type":"string"},{"type":"null"}]},"type":"array"},{"type":"null"}]},"readmeFile":{"anyOf":[{"type":"string"},{"type":"null"}]},"repository":{"anyOf":[{"type":"string"},{"type":"null"}]},"repositoryCommit":{"anyOf":[{"type":"string"},{"type":"null"}]},"repositoryType":{"anyOf":[{"type":"string"},{"type":"null"}]},"version":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["authors","dependencyGroups","description","iconFile","iconUrl","identityProvenance","isToolPackage","license","licenseUrl","manifestVersion","packageId","packageTypes","readmeFile","repository","repositoryCommit","repositoryType","version"],"type":"object"},"BrowserPackageQueryManifestIdentityProvenance":{"anyOf":[{"enum":["ExpectedCoordinate","SelfAttested"],"type":"string"},{"type":"integer"}]},"BrowserPackageQueryTerm":{"additionalProperties":false,"properties":{"key":{"anyOf":[{"type":"string"},{"type":"null"}]},"operator":{"anyOf":[{"type":"string"},{"type":"null"}]},"value":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["key","operator","value"],"type":"object"}},"$id":"urn:dotnet-inspect:json-schema:sha256:08fe8d5af17b5e87c587bbb14acf71c13e7983f546c2ab0ca73c9ab372dd2e29","$schema":"https://json-schema.org/draft/2020-12/schema","items":false,"maxItems":13,"minItems":13,"prefixItems":[{"anyOf":[{"type":"string"},{"type":"null"}]},{"anyOf":[{"type":"string"},{"type":"null"}]},{"$ref":"#/$defs/BrowserPackageQueryAcquisitionTier"},{"anyOf":[{"items":{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryAnswer"},{"type":"null"}]},"type":"array"},{"type":"null"}]},{"anyOf":[{"items":{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryEvidence"},{"type":"null"}]},"type":"array"},{"type":"null"}]},{"anyOf":[{"maximum":9223372036854775807n,"minimum":-9223372036854775808n,"type":"integer"},{"type":"null"}]},{"anyOf":[{"type":"boolean"},{"type":"null"}]},{"anyOf":[{"type":"string"},{"type":"null"}]},{"anyOf":[{"type":"string"},{"type":"null"}]},{"anyOf":[{"type":"string"},{"type":"null"}]},{"anyOf":[{"items":{"anyOf":[{"type":"string"},{"type":"null"}]},"type":"array"},{"type":"null"}]},{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryManifest"},{"type":"null"}]},{"anyOf":[{"$ref":"#/$defs/BrowserPackageQueryEcosystemAdmission"},{"type":"null"}]}],"type":"array"},"schemaIdentity":"sha256:08fe8d5af17b5e87c587bbb14acf71c13e7983f546c2ab0ca73c9ab372dd2e29","vocabularyCatalog":"dotnet-inspect.product","vocabularySnapshotIdentity":"sha256:1c48720af80cda1e0c37e0759f6b3c987c35b6358db7a44a1eadd1671e47ec73"}] as const;
+
 type $ManagedExports = {
   readonly "DotnetInspect": {
     readonly "Web": {
@@ -1558,7 +1560,7 @@ type $ManagedExports = {
             readonly "PackageCacheStats.1310674786": () => string;
             readonly "PrefetchPlatformPacks.1782598084": (targetFramework: string, platformVersion: string) => Promise<void>;
             readonly "QueryLibraries.1330709314": (packageId: string, version: string, targetFramework: string, admittedAssetIdsJson: string, requiredReferencesJson: string) => Promise<string>;
-            readonly "QueryLibraryApi.1579276339": (packageId: string, version: string, targetFramework: string, assemblyId: string) => Promise<string>;
+            readonly "QueryLibraryApi.780972425": (packageId: string, version: string, targetFramework: string, assemblyId: string, includeEnablements: boolean) => Promise<string>;
             readonly "QueryMemberDocumentation.1330709314": (packageId: string, version: string, framework: string, assemblyName: string, documentationId: string) => Promise<string>;
             readonly "QueryPackage.1001223652": (packageId: string, version: string, targetFramework: string) => Promise<string>;
             readonly "QueryPackageDependencies.1579276339": (packageId: string, version: string, targetFramework: string, assemblyId: string) => Promise<string>;
@@ -1872,9 +1874,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "QueryLibraryApi.1579276339");
+    value = $ownDataProperty(value, "QueryLibraryApi.780972425");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryLibraryApi.1579276339\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryLibraryApi.780972425\u0027 is not callable.");
     }
   }
   {
@@ -2242,8 +2244,8 @@ export async function queryLibraries(packageId: string, version: string, targetF
   return $parsed as BrowserLibraryQueryInspection;
 }
 
-export async function queryLibraryApi(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserExactLibraryApiInspection> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryLibraryApi.1579276339"](packageId, version, targetFramework, assemblyId);
+export async function queryLibraryApi(packageId: string, version: string, targetFramework: string, assemblyId: string, includeEnablements: boolean): Promise<BrowserExactLibraryApiInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryLibraryApi.780972425"](packageId, version, targetFramework, assemblyId, includeEnablements);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserExactLibraryApiInspection;
 }

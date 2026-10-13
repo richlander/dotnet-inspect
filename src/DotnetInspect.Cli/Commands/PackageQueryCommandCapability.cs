@@ -1,5 +1,7 @@
+using DotnetInspect.Cli.Options;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using QuerySpace;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -23,7 +25,9 @@ internal static class PackageQueryCommandCapability
                 PackageQuery.InspectionTermBindingIdentities,
                 [
                     "Supply a package ID or PREFIX* as the positional argument after package query.",
-                    "Supply exposed inspection facets through --where key=value.",
+                    $"Supply exposed inspection facets through --where \"key{RowPredicateSyntaxParser.Comparison(PortableQueryOperator.Equal)}value\" for eq"
+                    + $" or --where \"key {RowPredicateSyntaxParser.Comparison(PortableQueryOperator.StartsWith)} value\" for starts-with;"
+                    + " use only operators exposed by the facet.",
                     "Set the package-candidate work bound through --take N; -n N selects final result rows and does not replace that bound for inspection predicates.",
                     "Use --json for structured query result output.",
                     "Supply library-target through --tfm TFM, not --where. Use one exact NuGet target framework.",

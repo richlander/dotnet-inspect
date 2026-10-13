@@ -21,6 +21,9 @@ retired. `LibraryBodyAnalysisService` now publishes only
 results. The migration narrative below records how that boundary was reached
 and does not describe a still-supported compatibility path.
 
+[Role map](assembly-analysis-operation.md#role-map) maps each
+role this service performs to its target owner.
+
 The remaining producer hub is now observable through an opt-in typed stage
 participation receipt. A diagnostic request records actual method enumeration,
 body acquisition, local-signature decode, canonical context construction,
@@ -278,6 +281,10 @@ a declared-method token. Resolution binds it by token and then by signature,
 using the same current-module test and signature comparison as the call graph's
 own traversal. Consumers must use this outcome and must not match
 `CalleeDefinitionToken` against `DeclaredMethods`. Resolution is a pure function of the published result.
+`SameModuleMethodResolver` owns the judgment. This result supplies its
+declared methods as candidates, and
+[Method Query Source call-target support](method-query-source.md#same-module-call-target-support)
+supplies candidates from metadata, so the two issue the same target.
 
 The first production consumer is the Library Metrics relationship projection.
 Library Dependency Structure is the second.

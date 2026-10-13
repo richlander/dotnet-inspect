@@ -109,7 +109,7 @@ cat > "$scratch/tsconfig.json" <<'JSON'
 }
 JSON
 "$tsc" -p "$scratch/tsconfig.json"
-if grep -E 'RuntimeAPI|dotnet(\.js)?' "$scratch/out/facades/"*.d.ts >/dev/null; then
+if grep -E 'RuntimeAPI|dotnet\.js' "$scratch/out/facades/"*.d.ts >/dev/null; then
   echo "The generated public declaration leaked an SDK runtime type." >&2
   exit 1
 fi

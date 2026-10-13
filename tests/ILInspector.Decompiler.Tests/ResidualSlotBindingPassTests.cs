@@ -329,12 +329,12 @@ public class ResidualSlotBindingPassTests
     }
 
     [Fact]
-    public void RealSplitPieceReadWithoutReachingStoreDeclaresBare()
+    public void RealArithmeticBooleanSlotMaterializesAsInteger()
     {
         // Microsoft.CodeAnalysis 5.0.0, ForEachLoopOperation.get_ChildOperationsCount
-        // (0x060029CB): slot 256 splits into an int piece and a Boolean piece
-        // the return reads with no reaching store. The bare declaration keeps
-        // the gap visible instead of compiling to a dropped term.
+        // (0x060029CB): the slot stores the I4 sum of two comparison results and
+        // is later added to another integer. Its imported Boolean load identity
+        // must not split the one integer value into disconnected residual pieces.
         string path = Path.Combine(AppContext.BaseDirectory, "RealAssets", "PrimitiveJoin", "Microsoft.CodeAnalysis.dll");
         using var source = MetadataSource.Open(path);
         var function = IrImporter.Import(source, "Microsoft.CodeAnalysis.Operations.ForEachLoopOperation", "get_ChildOperationsCount");
@@ -342,15 +342,41 @@ public class ResidualSlotBindingPassTests
         Assert.Equal(0x060029CB, function.MetadataToken);
 
         IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(reference => IrImporter.Import(source, reference), source.AreProvablyDisjoint));
-        var pieces = function.ResidualSlotBindings.Where(static entry => entry.Value.Slot == 256).ToList();
-        Assert.Equal(2, pieces.Count);
-        Assert.All(pieces, static entry => Assert.Equal(ResidualSlotBindingKind.Split, entry.Value.Kind));
+        Assert.DoesNotContain(function.ResidualSlotBindings, static entry => entry.Value.Slot == 256);
         string output = DecidedPrint.Print(function).Output!;
 
-        Assert.Contains("bool S_256_1;", output);
-        Assert.Contains("return (S_256_1 ? 1 : 0)", output);
-        Assert.DoesNotContain("S_256_1 = default", output);
-        Assert.DoesNotContain("= default", output);
+        Assert.Contains("int S_256 = (LoopControlVariable is not null ? 1 : 0) + (Collection is not null ? 1 : 0);", output);
+        Assert.Contains("return S_256 + V_0.Length + (base.Body is not null ? 1 : 0);", output);
+        Assert.DoesNotContain("S_256_1", output);
+    }
+
+    [Fact]
+    public void RealMixedIntegerStoresDoNotAcquireBooleanIdentity()
+    {
+        // Microsoft.CodeAnalysis.CSharp 5.0.0,
+        // EarlyWellKnownAttributeBinder.CanBeValidAttributeArgument: slot 1
+        // joins integer zero with an argument count and is observed as `== 0`.
+        // Boolean folding must preserve that integer storage identity.
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "ReferenceCoalesceLiveRange",
+            "Microsoft.CodeAnalysis.CSharp.dll");
+        using var source = MetadataSource.Open(path);
+        var function = IrImporter.Import(
+            source,
+            "Microsoft.CodeAnalysis.CSharp.EarlyWellKnownAttributeBinder",
+            "CanBeValidAttributeArgument");
+        Assert.NotNull(function);
+
+        IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(reference => IrImporter.Import(source, reference), source.AreProvablyDisjoint));
+        Assert.DoesNotContain(function.ResidualSlotBindings, static entry => entry.Value.Slot == 1);
+        string output = DecidedPrint.Print(function).Output!;
+
+        Assert.Contains("int S_1;", output);
+        Assert.Contains("S_1 = 0;", output);
+        Assert.Contains("S_1 = S_0.Arguments.Count;", output);
+        Assert.Contains("return S_1 == 0;", output);
     }
 
     [Fact]

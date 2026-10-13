@@ -16,16 +16,19 @@ import type {
   BrowserVocabularyMapValue,
   BrowserVocabularySnapshotIdentity,
   BrowserVocabularyScalarKind,
+  BrowserVocabularyTerm,
   BrowserVocabularyTermDefinitionIdentity,
   BrowserVocabularyTermIdentity,
   BrowserVocabularyTermSetReference,
 } from "./facades/inspect-web-catalog.d.ts";
 import type {
+  PackageQueryDurableRowPresentationLayout,
+} from "./package-query-durable-row.ts";
+import type {
   BrowserPackageChangesEcosystemCatalog,
   BrowserPackageQueryCatalog,
   BrowserPackageQueryAcquisitionTier,
   BrowserPackageQueryExecutionClass,
-  BrowserPackageQueryWorkspaceLens,
 } from "./facades/inspect-web-package.d.ts";
 import type { BoundedPayloadDecoder } from "./worker-runtime-protocol.ts";
 
@@ -78,13 +81,6 @@ function executionClass(value: unknown): BrowserPackageQueryExecutionClass {
     || value === "PackageContent"
     || value === "Metadata"
     || value === "MetadataExpensive") return value;
-  return number(value);
-}
-
-function packageQueryWorkspaceLens(
-  value: unknown,
-): BrowserPackageQueryWorkspaceLens | null {
-  if (value === null || value === "Dependencies") return value;
   return number(value);
 }
 
@@ -242,19 +238,21 @@ function vocabularyDefinition(value: unknown): BrowserVocabularyDefinition {
         coverage: vocabularyMapCoverage(map.coverage),
       };
     }),
-    terms: array(data.terms, rawTerm => {
-      const term = record(rawTerm);
+    terms: array(data.terms, vocabularyTerm),
+  };
+}
+
+function vocabularyTerm(value: unknown): BrowserVocabularyTerm {
+  const term = record(value);
+  return {
+    identity: vocabularyTermDefinitionIdentity(term.identity),
+    displayLabel: text(term.displayLabel),
+    summary: nullableText(term.summary),
+    mapEntries: array(term.mapEntries, rawEntry => {
+      const entry = record(rawEntry);
       return {
-        identity: vocabularyTermDefinitionIdentity(term.identity),
-        displayLabel: text(term.displayLabel),
-        summary: nullableText(term.summary),
-        mapEntries: array(term.mapEntries, rawEntry => {
-          const entry = record(rawEntry);
-          return {
-            map: vocabularyMapDefinitionIdentity(entry.map),
-            values: array(entry.values, vocabularyMapValue),
-          };
-        }),
+        map: vocabularyMapDefinitionIdentity(entry.map),
+        values: array(entry.values, vocabularyMapValue),
       };
     }),
   };
@@ -300,6 +298,34 @@ function vocabularyInspection(value: unknown): BrowserVocabularyInspection {
         severity: vocabularyDiagnosticSeverity(diagnostic.severity),
         summary: text(diagnostic.summary),
         correspondence: nullableText(diagnostic.correspondence),
+      };
+    }),
+  };
+}
+
+function packageQueryDurableRowLayout(
+  value: unknown,
+): PackageQueryDurableRowPresentationLayout {
+  const data = record(value);
+  return {
+    ...data,
+    contract: text(data.contract),
+    schemaIdentity: text(data.schemaIdentity),
+    descriptorIdentity: text(data.descriptorIdentity),
+    vocabularySnapshotIdentity:
+      text(data.vocabularySnapshotIdentity),
+    fields: array(data.fields, rawField => {
+      const field = record(rawField);
+      const ordinal = number(field.ordinal);
+      if (!Number.isInteger(ordinal) || ordinal < 0) {
+        throw new StartupPayloadError(
+          "Expected a non-negative durable-row field ordinal.");
+      }
+      return {
+        ...field,
+        ordinal,
+        schemaLocation: text(field.schemaLocation),
+        term: vocabularyTerm(field.term),
       };
     }),
   };
@@ -358,6 +384,11 @@ export const engineStartupOperations = {
   inspectVocabulary: {
     kind: "catalog-inspect-vocabulary",
     value: json<BrowserVocabularyInspection>(vocabularyInspection),
+  },
+  packageQueryDurableRowLayout: {
+    kind: "package-query-durable-row-layout",
+    value: json<PackageQueryDurableRowPresentationLayout>(
+      packageQueryDurableRowLayout),
   },
   listHomeDemos: {
     kind: "catalog-list-home-demos",
@@ -426,7 +457,10 @@ export const engineStartupOperations = {
             categoryId: text(preset.categoryId),
             categoryLabel: text(preset.categoryLabel),
             categoryOrder: number(preset.categoryOrder),
-            workspaceLens: packageQueryWorkspaceLens(preset.workspaceLens),
+            relatedOperations: array(
+              preset.relatedOperations,
+              operation => text(operation),
+            ),
           };
         }),
         terms: array(data.terms, rawTerm => {
@@ -454,7 +488,10 @@ export const engineStartupOperations = {
                 summary: text(option.summary),
               };
             }),
-            workspaceLens: packageQueryWorkspaceLens(term.workspaceLens),
+            relatedOperations: array(
+              term.relatedOperations,
+              operation => text(operation),
+            ),
           };
         }),
       };

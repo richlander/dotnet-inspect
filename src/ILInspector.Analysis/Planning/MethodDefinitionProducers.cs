@@ -76,6 +76,21 @@ public enum MethodDefinitionLayers
     /// metadata work. It does not imply <see cref="ModuleLookup"/>.
     /// </summary>
     MemorySafetyContracts = 1024,
+
+    /// <summary>
+    /// Same-module call-target support: the typed target of a call operand,
+    /// bound by definition token and then by signature against the inspected
+    /// module's methods, with its receipted metadata work. It does not imply
+    /// <see cref="ModuleLookup"/>.
+    /// </summary>
+    CallTargets = 2048,
+
+    /// <summary>
+    /// Per-method depth: the detached semantic identity of the unit's
+    /// MethodDef, decoded at most once per physical MethodDef and receipted.
+    /// It acquires no body and does not imply <see cref="ModuleLookup"/>.
+    /// </summary>
+    SemanticIdentity = 4096,
 }
 
 /// <summary>
@@ -371,7 +386,8 @@ public readonly ref struct MethodDefinitionView
         MethodDefinitionLayers.Body
         | MethodDefinitionLayers.ModuleLookup
         | MethodDefinitionLayers.ReferenceBinding
-        | MethodDefinitionLayers.MemorySafetyContracts;
+        | MethodDefinitionLayers.MemorySafetyContracts
+        | MethodDefinitionLayers.CallTargets;
 
     readonly ref MethodDefinitionUnit _unit;
     readonly MethodDefinitionExecution.ProducerState? _producer;
@@ -531,6 +547,31 @@ public readonly ref struct MethodDefinitionView
         }
     }
 
+    /// <summary>
+    /// The unit's semantic identity through the declared semantic-identity
+    /// depth, decoded once per physical MethodDef. Unreadable metadata is a
+    /// typed <see cref="MethodSemanticIdentityResult.Malformed"/> outcome.
+    /// </summary>
+    public MethodSemanticIdentityResult SemanticIdentity
+    {
+        get
+        {
+            MethodDefinitionExecution.ProducerState producer = Producer;
+            if (!producer.HasSemanticIdentityLayer)
+            {
+                throw MethodRowGate.Undeclared(
+                    _owner,
+                    MethodDefinitionLayers.SemanticIdentity);
+            }
+
+            producer.CountUnit(
+                ref producer.LastSemanticIdentityUnit,
+                Token,
+                ref producer.SemanticIdentityUses);
+            return _unit.GetSemanticIdentity();
+        }
+    }
+
     void Require(MethodDefinitionLayers field)
     {
         if ((_declared & field) == 0)
@@ -642,6 +683,39 @@ public readonly ref struct MethodDefinitionView
             Token,
             ref producer.MemorySafetyUses);
         return _unit.BeginMemorySafetyQuery(out before);
+    }
+
+    /// <summary>
+    /// The typed target of the call in this unit's body whose operand is
+    /// <paramref name="operandToken"/>, through the declared call-target
+    /// support. Metadata that cannot be read throws, failing the body.
+    /// </summary>
+    internal MethodCallTarget ResolveCallTarget(
+        CallKind kind,
+        int operandToken)
+    {
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasCallTargetLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare "
+                + "call-target support.");
+        }
+
+        producer.CountUnit(
+            ref producer.LastCallTargetUnit,
+            Token,
+            ref producer.CallTargetUses);
+        SameModuleCallTargetLookup lookup =
+            _unit.BeginCallTargetQuery(out SameModuleCallTargetWork before);
+        try
+        {
+            return lookup.Resolve(_unit.MethodHandle, kind, operandToken);
+        }
+        finally
+        {
+            _unit.EndCallTargetQuery(lookup, before);
+        }
     }
 
     /// <summary>Whether the unit has a managed IL body to acquire.</summary>
@@ -876,6 +950,11 @@ internal struct MethodDefinitionUnit(
     MethodDefinitionSourceCoverageBuilder? _requestSourceCoverage;
     LibraryMethodAnalysisRunner? _lookup;
     MemorySafetyContractSupport? _memorySafety;
+    SameModuleCallTargetSupport? _callTargets;
+    MethodSemanticIdentitySupport? _semanticIdentity;
+    MethodSemanticIdentityResult? _semanticIdentityResult;
+    MethodSemanticIdentityWork _semanticIdentityWork;
+    MethodDefinitionSourceCoverageBuilder? _semanticIdentityReadBy;
     MethodRowGate? _gate;
     bool _positionsRequestOnMove;
     MethodBodyBlock? _body;
@@ -926,6 +1005,8 @@ internal struct MethodDefinitionUnit(
         MethodRowGate gate,
         LibraryMethodAnalysisRunner? lookup,
         MemorySafetyContractSupport? memorySafety,
+        SameModuleCallTargetSupport? callTargets,
+        MethodSemanticIdentitySupport? semanticIdentity,
         MethodDefinitionSourceCoverageBuilder sourceCoverage,
         int ordinal)
     {
@@ -934,6 +1015,8 @@ internal struct MethodDefinitionUnit(
         _gate = gate;
         _lookup = lookup;
         _memorySafety = memorySafety;
+        _callTargets = callTargets;
+        _semanticIdentity = semanticIdentity;
         _requestSourceCoverage = sourceCoverage;
         Ordinal = ordinal;
         gate.MoveTo(
@@ -973,6 +1056,9 @@ internal struct MethodDefinitionUnit(
         _body = null;
         _bodyData = null;
         _instructions = null;
+        _semanticIdentityResult = null;
+        _semanticIdentityWork = MethodSemanticIdentityWork.Empty;
+        _semanticIdentityReadBy = null;
         _physicalSourceCoverage.RecordMethodSelected(methodHandle);
         if (_positionsRequestOnMove)
         {
@@ -1006,6 +1092,58 @@ internal struct MethodDefinitionUnit(
             MethodHandle,
             body);
         return body;
+    }
+
+    /// <summary>
+    /// Decodes the unit's semantic identity once per physical MethodDef,
+    /// recording the decode for the physical source once and the read for
+    /// each request.
+    /// </summary>
+    public MethodSemanticIdentityResult GetSemanticIdentity()
+    {
+        if (_semanticIdentityResult is null)
+        {
+            MethodSemanticIdentitySupport support =
+                _semanticIdentity ?? throw new InvalidOperationException(
+                    "Semantic identity was not declared by any planned "
+                    + "producer.");
+            _semanticIdentityResult = support.Decode(
+                TypeHandle,
+                TypeDefinition,
+                MethodHandle,
+                MethodDefinition,
+                out bool constructed,
+                out _semanticIdentityWork);
+            if (constructed)
+            {
+                _physicalSourceCoverage.RecordSemanticIdentityConstruction();
+                if (!ReferenceEquals(
+                        _requestSourceCoverage,
+                        _physicalSourceCoverage))
+                {
+                    _requestSourceCoverage
+                        ?.RecordSemanticIdentityConstruction();
+                }
+            }
+
+            _physicalSourceCoverage.RecordSemanticIdentity(
+                MethodHandle,
+                _semanticIdentityResult,
+                _semanticIdentityWork);
+        }
+
+        if (_requestSourceCoverage is { } request
+            && !ReferenceEquals(request, _physicalSourceCoverage)
+            && !ReferenceEquals(request, _semanticIdentityReadBy))
+        {
+            _semanticIdentityReadBy = request;
+            request.RecordSemanticIdentity(
+                MethodHandle,
+                _semanticIdentityResult,
+                _semanticIdentityWork);
+        }
+
+        return _semanticIdentityResult;
     }
 
     public MethodBodyData GetBodyData()
@@ -1073,6 +1211,51 @@ internal struct MethodDefinitionUnit(
                 _physicalSourceCoverage))
         {
             _requestSourceCoverage?.RecordMemorySafetyQuery(
+                MethodHandle,
+                work);
+        }
+    }
+
+    /// <summary>
+    /// Acquires the declared call-target support, recording construction for
+    /// the physical source once and for the request whose query created it.
+    /// </summary>
+    public readonly SameModuleCallTargetLookup BeginCallTargetQuery(
+        out SameModuleCallTargetWork before)
+    {
+        SameModuleCallTargetSupport support =
+            _callTargets ?? throw new InvalidOperationException(
+                "Call-target support was not declared by any planned "
+                + "producer.");
+        SameModuleCallTargetLookup lookup =
+            support.Acquire(out bool constructed);
+        if (constructed)
+        {
+            _physicalSourceCoverage.RecordCallTargetConstruction();
+            if (!ReferenceEquals(
+                    _requestSourceCoverage,
+                    _physicalSourceCoverage))
+            {
+                _requestSourceCoverage?.RecordCallTargetConstruction();
+            }
+        }
+
+        before = lookup.RecordedWork;
+        return lookup;
+    }
+
+    /// <summary>Records one query's work for the physical source and the request.</summary>
+    public readonly void EndCallTargetQuery(
+        SameModuleCallTargetLookup lookup,
+        SameModuleCallTargetWork before)
+    {
+        SameModuleCallTargetWork work = lookup.RecordedWork.Since(before);
+        _physicalSourceCoverage.RecordCallTargetQuery(MethodHandle, work);
+        if (!ReferenceEquals(
+                _requestSourceCoverage,
+                _physicalSourceCoverage))
+        {
+            _requestSourceCoverage?.RecordCallTargetQuery(
                 MethodHandle,
                 work);
         }
