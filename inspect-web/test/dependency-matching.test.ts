@@ -664,7 +664,7 @@ test("package graph classification rejects incomplete or invalid role batches", 
   };
   await assert.rejects(
     buildDependencyGraphMermaid(model, () => null, () => ["inspected"]),
-    /returned 1 roles for 2 nodes/,
+    /returned 1 roles for 2 package nodes/,
   );
   await assert.rejects(
     buildDependencyGraphMermaid(
