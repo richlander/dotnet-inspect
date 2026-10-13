@@ -242,6 +242,36 @@ never retain a participant after the scope is disposed.
        instead of 0.58 MB received, and 0.93 s instead of 0.64 s;
      - `Microsoft.CodeAnalysis.CSharp` 4.12.0..4.14.0 `--member`: 43.4 MB
        instead of 34.4 MB received, and 4.7 s instead of 3.8 s.
+   - Step 4 lands in six parts, each independently mergeable. New shared
+     pieces live in shared assemblies, not the CLI host, so the diff system's
+     paired steps ([diff system](diff-system.md#adoption-and-retirement), step
+     4) reuse them:
+     1. **Host pre-steps.** Before any scope opens, the host resolves each
+        endpoint to an exact coordinate: a floating version (`*`, `latest`)
+        resolves through the package version service, and the scope never
+        sees one. Without `--tfm`, the pair compares the **highest framework
+        both endpoints support**, read from their compile assets, on both
+        sides; when the endpoints share none, each side uses its own highest
+        framework and the output says so. Offline, the scope opens from the
+        local stores without a network request. The scope reads the legacy
+        app cache as `type` does, alongside the NuGet global-packages folder.
+     2. **API views over a merged participant surface.** A merged surface
+        over every surface participant of an endpoint serves Changes,
+        multi-Library packages, member targets, Changes filters, the
+        analysis set, and string literals. The selector fix and the dropped
+        machine-dependent constraint rows land here.
+     3. **Body views with `SurfaceAndImplementation`.** Analysis,
+        Implementation, Complexity, and Structural read implementation
+        participants through image-based body sessions, which fixes the
+        reference-stub gap.
+     4. **PDB and SourceLink from participants,** with a demand for listed
+        adjacent Portable PDBs and participant provenance.
+     5. **The workspace implementation comparison and Annotated Source
+        Diff** open their Roots from the scope, and a forwarded target is
+        acquired through the House rather than a pinned extraction.
+     6. **Legacy retirement.** The legacy package route, the cache deferral,
+        the admission check and its zero-size-cut House, and the testing
+        switch retire, and the parity gates are rewritten as scope gates.
 5. **Inspect Web adopts it.** `BrowserPackageWorkspace.OpenScopeAsync` opens
    its package endpoints through `PackageEndpointScope`. It keeps its browser
    store and complete acquisition until Inspect Web adopts ranged access
@@ -283,6 +313,11 @@ All gates run in Release.
 | 6. The same pairwise diff twice | the second makes no package request | CLI harness |
 | 7. Offline pairwise diff with both endpoints cached | the same output from the local cache | CLI harness |
 | 8. Inspect Web Compare, after step 5 | the same Library API diff result through the shared scope | Web boundary tests |
+| 9. Pairwise diff without `--tfm`, after step 4 part 1 | both endpoints compare the highest shared framework; with none shared, each its own highest, with a visible note | CLI harness, a package that adds a framework between versions |
+| 10. Floating and offline pairwise diff, after step 4 part 1 | `*` and `latest` resolve to exact coordinates before the scope opens; offline answers from the local stores with no request | CLI harness |
+| 11. Multi-Library and member-targeted views, after step 4 part 2 | the merged participant surface; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0` no longer doubles change rows | CLI harness, real assets |
+| 12. Body views, after step 4 part 3 | implementation participants, never reference stubs, with or without `--tfm` | CLI harness |
+| 13. Legacy retired, after step 4 part 6 | no `diff --package` request reaches the `AssemblySet` endpoint path | CLI harness and dependency gate |
 
 ## Non-claims
 
