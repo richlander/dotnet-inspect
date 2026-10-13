@@ -155,6 +155,10 @@ public sealed class PackageArchiveReader : IAsyncDisposable
             token.ThrowIfCancellationRequested();
             return mapped;
         }
+        finally
+        {
+            _session.EndCompleteRead();
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -522,6 +526,7 @@ internal sealed class PackageArchiveRangeSession : IDisposable
         new(_results.FailedPackage(Coordinate, kind).Failure!);
 
     internal void BeginCompleteRead() => _readingComplete = true;
+    internal void EndCompleteRead() => _readingComplete = false;
 
     private PackageArchiveRequestLog.Entry? BeginLogged(
         HttpRequestMessage request,
