@@ -433,7 +433,7 @@ for its kind, and each seam keeps its owner:
 
 | Point | Opens through |
 | --- | --- |
-| An exact package pin, including a request's pinned current version | The [package endpoint scope](package-endpoint-scope.md) |
+| An exact package pin, including a request's pinned current version, or a package endpoint that the House selects as `package` does | The [package endpoint scope](package-endpoint-scope.md) |
 | A population address, such as a window or History point other than the current version | Its prepared cell execution, issued through the retained discovery's `SelectCandidate`, as [PackageHouse](package-house.md#version-population-settlement) and the [version window projection](version-resolution.md#version-window-projection) require |
 | A Platform endpoint | [Package-backed Platform realization](package-backed-platform-realization.md) |
 | A local file | A direct load, with no scope |
