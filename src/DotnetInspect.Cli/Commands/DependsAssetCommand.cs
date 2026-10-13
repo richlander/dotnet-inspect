@@ -3144,11 +3144,15 @@ public partial class DependsCommand
             CommandError.WriteWarning(
                 "Package license inventory completed as Partial.");
         }
-        if (projection.Summary.LatestVersions.Completion
-            == DependencyInspectionLatestVersionCompletion.Partial)
+        if (projection.Summary.LatestVersions.DiscoveryFailed > 0)
         {
             CommandError.WriteWarning(
                 "Latest version discovery completed as Partial.");
+        }
+        if (projection.Summary.LatestVersions.CompatibilityUnavailable > 0)
+        {
+            CommandError.WriteWarning(
+                "Latest Compatible evaluation completed as Partial.");
         }
     }
 

@@ -202,6 +202,82 @@ public partial class DependsAssetCommandTests
             $"served {feed.ArchiveBytesServed($"{id}/2.0.0")} archive bytes");
     }
 
+    [Fact]
+    public async Task LatestVersions_UnavailableCompatibilityAloneIsPartial()
+    {
+        string id = $"Contoso.Unreadable.{Guid.NewGuid():N}";
+        // Discovery lists 2.0.0, but the House cannot acquire its archive.
+        var feed = new CountingPackageFeed(
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                [$"{id}/1.0.0"] = AssetPackage(id, "1.0.0", []),
+                [$"{id}/2.0.0"] = AssetPackage(id, "2.0.0", []),
+            },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                $"{id}/2.0.0".ToLowerInvariant(),
+            });
+        string manifest = WriteTemporaryFile(
+            "unreadable.nuspec",
+            Manifest("Contoso.Unreadable", "1.0.0", Dependency(id, "[1.0.0, )")));
+        string[] select =
+        [
+            "depends",
+            "--nuspec",
+            manifest,
+            "--source",
+            CountingPackageFeed.Source,
+            "-S",
+            "Latest Versions",
+        ];
+
+        (int exitCode, string output, string error) =
+            await RunCapturedWithFeedAsync(
+                feed,
+                [.. select, "-S", "Failures", "--json", "--compact"]);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains(
+            "Latest Compatible evaluation completed as Partial",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Latest version discovery completed as Partial",
+            error,
+            StringComparison.Ordinal);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement summary = document.RootElement.GetProperty("summary")
+            .GetProperty("latest_versions");
+        Assert.Equal("Partial", summary.GetProperty("completion").GetString());
+        Assert.Equal(0, summary.GetProperty("discovery_failed").GetInt32());
+        Assert.Equal(
+            1,
+            summary.GetProperty("compatibility_unavailable").GetInt32());
+        JsonElement row = Assert.Single(
+            document.RootElement.GetProperty("latest_versions")
+                .EnumerateArray());
+        // The House's failure leaves the discovery facts intact.
+        Assert.Equal("Compared", row.GetProperty("state").GetString());
+        Assert.Equal("2.0.0", row.GetProperty("latest").GetString());
+        Assert.Equal(
+            "Unavailable",
+            row.GetProperty("latest_compatible").GetString());
+        JsonElement evidence = Assert.Single(
+                document.RootElement.GetProperty("failures").EnumerateArray())
+            .GetProperty("evidence");
+        Assert.Equal(id.ToLowerInvariant(), evidence.GetProperty("package_id").GetString());
+        Assert.Equal("2.0.0", evidence.GetProperty("package_version").GetString());
+
+        (int countExitCode, string countOutput, string countError) =
+            await RunCapturedWithFeedAsync(feed, [.. select, "--count"]);
+        Assert.Equal(1, countExitCode);
+        Assert.Empty(countOutput);
+        Assert.Contains(
+            "--count cannot report an exact 'Latest Versions' count",
+            countError,
+            StringComparison.Ordinal);
+    }
+
     private async Task<JsonElement[]> LatestRowsAsync(string[] args)
     {
         (int exitCode, string output, string error) = await RunCapturedAsync(
@@ -285,7 +361,8 @@ public partial class DependsAssetCommandTests
     /// abandons before its body when it can read the directory by range.
     /// </summary>
     private sealed class CountingPackageFeed(
-        IReadOnlyDictionary<string, byte[]> archives) : HttpMessageHandler
+        IReadOnlyDictionary<string, byte[]> archives,
+        IReadOnlySet<string>? unavailableArchives = null) : HttpMessageHandler
     {
         public const string Source = "https://counted.feed.test/v3/index.json";
 
@@ -353,6 +430,13 @@ public partial class DependsAssetCommandTests
                     out byte[]? archive))
             {
                 string key = $"{packageId}/{version}".ToLowerInvariant();
+                if (unavailableArchives?.Contains(key) == true)
+                {
+                    return Respond(
+                        request,
+                        HttpStatusCode.NotFound,
+                        new StringContent(""));
+                }
                 if (file.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
                 {
                     using var zip = new ZipArchive(new MemoryStream(archive));
