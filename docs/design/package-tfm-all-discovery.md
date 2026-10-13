@@ -86,13 +86,17 @@ framework.
 
 ## Adoption
 
-The CLI does not yet meet this contract. Observed on main:
+The first CLI adoption slice admits `--tfm all` only on `package`: one shared
+check fails every other command and non-package target, including
+`package query`, before acquisition, and both `package --library` routes fail
+before acquisition. It removes the IL-reading `library --tfm all` paths,
+replaces their gates with rejection gates, and retires the `--tfm all`
+descriptions in the documents that described them.
+
+The remaining CLI behavior does not yet meet this contract. Observed on main:
 
 - `package <id> --tfm all` shows only the selected framework's Library
   hierarchy; a tool package reports no applicable Library target.
-- `package <id> --library --tfm all`, `library [L] --package <id> --tfm all`,
-  `find`, `extensions`, and `diff` read every DLL in the archive, including
-  `build/` and `tools/` assets.
 - `-S @SourceLink` and `-S Signals` read assemblies and PDBs across every
   framework.
 - `-S "Package Info"` keeps its selected-framework fields and Ecosystem
@@ -108,36 +112,11 @@ The CLI does not yet meet this contract. Observed on main:
 - The default request's JSON, row formats, and Count report the selected
   framework's children document.
 - `-S "Dependency Hierarchy"` fails with an internal exception.
-- `type --package <id> --tfm all` fails after acquisition.
-- `package --library --tfm all` succeeds under the all-framework cases of
-  `PackageCommand_ExplicitTfmPreservesSelectionAndUsesCompatibleArtifactRoles`
-  and `PackageCommand_LocalInspectionSelectionPreservesSupportedShapes`, which
-  [Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md)
-  names as gates.
-- Non-package targets accept `--tfm all` and inspect their single assembly;
-  `BodyShapesSectionTests.TfmAll_StaysOutsideTheDeclaration`,
-  `LibraryCommand_TfmAll_PlatformRouteRetainsSingleShapeOutput`, and
-  `LibraryCommand_TfmAll_LocalFileRetainsSingleShapeOutput` gate that, and
-  [CLI row selection](cli-row-selection.md) records it as a gate row.
-- `library` and `type` recognize `all` at separate sites. Package-mode
-  `depends` already fails before acquisition because `all` is not a NuGet
-  framework, while type-mode `depends`, `member`, and `workspace` accept it,
-  and `package query` returns zero matches.
 
-The adoption under #9833 updates that tool gate's selected-TFM assertions and
-replaces the non-package and `package --library` gates above with rejection
-gates. It declares the projection's QuerySpace producer capabilities for Count
-and row windows, skips the binary-signal scan under `--tfm all`, adds one
-shared pre-acquisition admission check, classifies every `package` section
-against this table, and gates each row. It also retires the IL-reading `--tfm
-all` code paths and the `--tfm all` descriptions and gates in
-[Integrations](integrations.md), [Inspection space](../inspection-space.md),
-[Assembly inspection query](assembly-inspection-query.md), [CLI row
-selection](cli-row-selection.md), [CLI architecture](../cli-architecture.md),
-[Find search service](find-search-service.md), [Untrusted data threat
-model](untrusted-data-threat-model.md), [Assembly audit](../assembly-audit.md),
-[Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md),
-and the all-TFM row of [Command transition model](command-transition-model.md),
-and the default-request format statements in [CLI
-reference](../cli-reference.md) and [Primary subject
-views](primary-subject-views.md).
+The remaining adoption under #9833 updates that tool gate's selected-TFM
+assertions, classifies every `package` section against this table, skips the
+binary-signal scan under `--tfm all`, adds the discovery projection with its
+QuerySpace producer capabilities for Count and row windows, and gates each row.
+It also updates the default-request format statements in
+[CLI reference](../cli-reference.md) and
+[Primary subject views](primary-subject-views.md).
