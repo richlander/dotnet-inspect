@@ -32,6 +32,27 @@ public sealed partial class PackageRangedRealizationTests
     ];
 
     [Fact]
+    public async Task DirectoryFirst_CompletePrefix_PublishesNormalCompleteCacheEntry()
+    {
+        byte[] archive = ReadPclStorage();
+        var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        var store = new InMemoryPackageStore();
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(store, PackagePayloadAccess.Ranged,
+                "net45", sizeCut: archive.Length));
+        Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
+        Assert.Equal(0, server.FullRequests);
+        Assert.Equal(2, server.RangedRequests);
+        Assert.NotNull(store.TryGetCached(PclStorage, PclStorageVersion, [acquired.Payload.ProducerKey]));
+        var cached = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(store, PackagePayloadAccess.Ranged,
+                "net45", sizeCut: archive.Length));
+        Assert.Equal(PackagePayloadOrigin.Cache, cached.Payload.Origin);
+        Assert.Equal(2, server.RangedRequests);
+    }
+
+    [Fact]
     public void RangedDirectory_MaterializedViewPreservesGeneration()
     {
         PackageContentEntry entry = new("lib/net10.0/Sample.dll", 1);

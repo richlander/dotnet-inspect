@@ -831,7 +831,7 @@ public static class PackagePayloadAcquisition
         return limits;
     }
 
-    static async Task<IPackageContent?> TryAdmitAsync(
+    internal static async Task<IPackageContent?> TryAdmitAsync(
         Stream payload,
         long? advertisedLength,
         PackageSourceCoordinate coordinate,
