@@ -80,6 +80,10 @@ the standard managed-runtime role of
 `runtimes/<rid>/native/foo.dll`. It is not a compile fallback when `ref/` and
 `lib/` contribute no compile group.
 
+The bare RID-root exclusion is not currently covered by a focused
+exact-path gate. Current selector classification follows the documented
+compile roots, but this specific pathological case remains unverified.
+
 Implementation selection remains independent. Neutral `lib/<tfm>/` assets
 supply the runtime fallback, RID-specific
 `runtimes/<rid>/lib/<tfm>/` assets may replace matching neutral
