@@ -151,7 +151,10 @@ The checked-in rules provide full gate coverage for these dependency claims:
    evaluated project edges or its current twelve repository and external
    assembly edges. Its home-demo call-graph path reaches the host-neutral
    projection through Web Core, so both graph rules reject a direct
-   `ILInspector.Analysis` dependency.
+   `ILInspector.Analysis` dependency. Owner-declared product vocabulary
+   factories account for its transitive Decompiler assembly edge; the typed
+   facade paths and positive dependency ceilings own product semantics, so its
+   compiler ban input retains only runtime platform hazards.
 11. The Inspect Web Metadata facade cannot expand beyond its current twelve
     evaluated project edges or its current twenty repository and external
     assembly edges. Queries owns exact type, declaration, and physical-body
