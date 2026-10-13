@@ -17930,10 +17930,14 @@ function activeShareTabIndex(
   tabs: BrowserWorkspaceShareState["tabs"],
   resolvedTabs = tabs,
 ) {
+  const packageFramework = state.package
+    ? packageHierarchyTargetFramework(state.package)
+    : null;
   return state.rootKind === "platform"
     ? tabs.findIndex(tab => tab.kind === "group" && tab.source === ":Platform")
     : resolvedTabs.findIndex(tab => tab.kind === "package" && tab.source === state.package?.id
-      && tab.version === state.package?.version && tab.framework === state.package?.activeFramework);
+      && tab.version === state.package?.version
+      && tab.framework === (packageFramework ?? state.package?.activeFramework));
 }
 
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
