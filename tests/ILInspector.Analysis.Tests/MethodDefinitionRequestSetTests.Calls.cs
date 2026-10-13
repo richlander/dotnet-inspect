@@ -416,6 +416,81 @@ public sealed partial class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void MethodQuerySource_FieldMemberReferenceCallFailsBody()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(MethodDefinitionRequestSetTests).Assembly.Location);
+        MethodDefinitionHandle method;
+        using (var stream = new MemoryStream(image, writable: false))
+        using (var pe = new PEReader(stream))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            method =
+                FindMethod(
+                    reader,
+                    nameof(MethodCallMetadataProbeTarget),
+                    nameof(MethodCallMetadataProbeTarget.Exercise));
+            MethodDefinition definition =
+                reader.GetMethodDefinition(method);
+            MethodBodyBlock body =
+                pe.GetMethodBody(definition.RelativeVirtualAddress);
+            DecodedInstruction call =
+                Instructions.InstructionDecoder
+                    .Decode(body.GetILBytes()!)
+                    .First(static instruction =>
+                        instruction.OpCode == ILOpCode.Call);
+            MemberReferenceHandle field = reader.MemberReferences
+                .First(handle =>
+                    reader.GetMemberReference(handle).GetKind()
+                        == MemberReferenceKind.Field);
+            int bodyOffset = RvaToFileOffset(
+                pe.PEHeaders,
+                definition.RelativeVirtualAddress);
+            int headerSize = (image[bodyOffset] & 3) == 2
+                ? 1
+                : ((BinaryPrimitives.ReadUInt16LittleEndian(
+                        image.AsSpan(bodyOffset, sizeof(ushort)))
+                    >> 12)
+                    & 0xF) * sizeof(uint);
+            BinaryPrimitives.WriteInt32LittleEndian(
+                image.AsSpan(
+                    bodyOffset + headerSize + call.OperandOffset,
+                    sizeof(int)),
+                MetadataTokens.GetToken(field));
+        }
+        MethodDefinitionSourceAssociation association =
+            Association(
+                MethodCallsProbe.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth.ExactMethods(method));
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(
+                AcceptedPlan([association]),
+                ImmutableArray.Create(image));
+        ProducerResult<
+            ImmutableDictionary<CallSiteKey, MethodCallSite>> result =
+                ResultOf<
+                    ImmutableDictionary<CallSiteKey, MethodCallSite>>(
+                        execution,
+                        association);
+        MethodCallMetadataCoverage coverage =
+            execution.ResultOf(association).SourceReceipt.Coverage.Calls;
+
+        Assert.Equal(ProducerOutcome.Failed, result.Outcome);
+        Assert.Contains(
+            "member-reference signature is malformed",
+            result.Failure?.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(1, coverage.CallReads);
+        Assert.True(coverage.Work.SignatureBytes > 0);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.ProducerFailed,
+            execution.ResultOf(association)
+                .SourceReceipt.Completion);
+    }
+
+    [Fact]
     public void MethodQuerySource_MalformedCalliSignatureFailsBody()
     {
         byte[] image = File.ReadAllBytes(

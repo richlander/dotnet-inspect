@@ -170,6 +170,7 @@ internal sealed class MethodCallMetadataLookup(MetadataReader reader)
                         $"A call operand is a {handle.Kind}.");
                 }
                 RecordMethodOperand(handle);
+                ValidateMethodOperand(handle);
                 callee = MemberResolver.ResolveMethod(
                     reader,
                     handle,
@@ -338,6 +339,79 @@ internal sealed class MethodCallMetadataLookup(MetadataReader reader)
             OpenParameterTypes = signature.ParameterTypes,
             OpenReturnType = signature.ReturnType,
         };
+    }
+
+    void ValidateMethodOperand(EntityHandle handle)
+    {
+        switch (handle.Kind)
+        {
+            case HandleKind.MethodDefinition:
+                ValidateMethodSignature(
+                    reader.GetMethodDefinition(
+                            (MethodDefinitionHandle)handle)
+                        .Signature,
+                    "method-definition");
+                break;
+            case HandleKind.MemberReference:
+                ValidateMethodSignature(
+                    reader.GetMemberReference(
+                            (MemberReferenceHandle)handle)
+                        .Signature,
+                    "member-reference");
+                break;
+            case HandleKind.MethodSpecification:
+            {
+                MethodSpecification specification =
+                    reader.GetMethodSpecification(
+                        (MethodSpecificationHandle)handle);
+                ValidateSignature(
+                    specification.Signature,
+                    SignatureBlobGuard.Kind.MethodSpecification,
+                    "method-specification");
+                ValidateMethodOperand(specification.Method);
+                break;
+            }
+        }
+    }
+
+    void ValidateMethodSignature(
+        BlobHandle signature,
+        string operandKind) =>
+        ValidateSignature(
+            signature,
+            SignatureBlobGuard.Kind.Method,
+            operandKind);
+
+    void ValidateSignature(
+        BlobHandle signature,
+        SignatureBlobGuard.Kind kind,
+        string operandKind)
+    {
+        switch (SignatureBlobGuard.CheckShape(
+            reader,
+            signature,
+            kind))
+        {
+            case SignatureBlobGuard.ShapeCheck.DepthExceeded:
+            case SignatureBlobGuard.ShapeCheck.NodesExceeded:
+                return;
+            case SignatureBlobGuard.ShapeCheck.Malformed:
+                throw new BadImageFormatException(
+                    $"A call operand {operandKind} signature is malformed.");
+            case SignatureBlobGuard.ShapeCheck.Safe:
+                break;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown call operand signature validation result.");
+        }
+        if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                reader,
+                signature,
+                kind))
+        {
+            throw new BadImageFormatException(
+                $"A call operand {operandKind} signature is malformed.");
+        }
     }
 
     void RecordMethodOperand(EntityHandle handle)
