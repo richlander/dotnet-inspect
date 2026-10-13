@@ -248,6 +248,10 @@ public sealed partial class PackageRangedRealizationTests
             PackageHouseFileList fileList =
                 Assert.IsType<PackageHouseFileList>(
                     acquired.Result.Evidence.FileList);
+            Assert.All(
+                fileList.Entries,
+                static entry => Assert.NotNull(
+                    entry.LastWriteTime));
             Assert.Equal(
                 expected,
                 fileList.Entries.Select(static entry => entry.Path));

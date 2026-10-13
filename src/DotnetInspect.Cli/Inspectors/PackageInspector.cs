@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 
@@ -133,30 +134,7 @@ internal static class PackageInspector
             Version = version
         };
 
-        // Apply nuspec metadata (already parsed by caller)
-        if (nuspec != null)
-        {
-            result.PackageName = nuspec.PackageName ?? result.PackageName;
-            result.ManifestVersion = nuspec.ManifestVersion;
-            result.Version = nuspec.Version ?? result.Version;
-            result.Description = nuspec.Description;
-            result.Authors = nuspec.Authors;
-            result.Repository = nuspec.Repository;
-            result.RepositoryType = nuspec.RepositoryType;
-            result.RepositoryCommit = nuspec.RepositoryCommit;
-            result.License = nuspec.License;
-            result.LicenseUrl = nuspec.LicenseUrl;
-            result.DeclaredLicenseFile = nuspec.LicenseDeclaration is
-                {
-                    Kind: PackageLicenseDeclarationKind.File,
-                } license
-                    ? license.Value
-                    : null;
-            result.PackageTypes = nuspec.PackageTypes;
-            result.IsToolPackage = nuspec.IsToolPackage;
-            result.ReadmeFile = nuspec.ReadmeFile;
-            result.DependencyGroups = nuspec.DependencyGroups;
-        }
+        ApplyNuspec(result, nuspec);
 
         result.PackageReadmeFile = PackageFileLister.ResolvePackageReadme(extractPath, result.ReadmeFile);
         result.HasReadme = result.PackageReadmeFile != null;
@@ -330,6 +308,96 @@ internal static class PackageInspector
             sourceOptions);
         return result;
     }
+
+    internal static InspectionResult InspectPackageInventory(
+        PackageHouseSettlement.Acquired settlement,
+        NuspecData? nuspec)
+    {
+        ArgumentNullException.ThrowIfNull(settlement);
+        PackageHouseFileList fileList =
+            settlement.Result.Evidence.FileList
+            ?? throw new InvalidOperationException(
+                "Compile-inventory inspection requires PackageHouse File List evidence.");
+        var result = new InspectionResult
+        {
+            PackageName = settlement.Payload.Coordinate.PackageId,
+            Version = settlement.Payload.Coordinate.Version,
+        };
+        ApplyNuspec(result, nuspec);
+
+        PackagePrimaryDocumentResolution readme =
+            PackagePrimaryDocumentInspection.Execute(
+                fileList.Entries,
+                result.ReadmeFile).Content;
+        if (readme.Status
+            == PackagePrimaryDocumentResolutionStatus.Resolved)
+        {
+            result.PackageReadmeFile = readme.Entry?.Path;
+        }
+        result.HasReadme = result.PackageReadmeFile is not null;
+        result.HasAgentDocumentation = fileList.Entries.Any(
+            static entry => entry.Path.Equals(
+                "AGENTS.md",
+                StringComparison.OrdinalIgnoreCase));
+
+        IReadOnlyList<string> directories =
+            fileList.Directories
+            ?? DeriveInventoryDirectories(fileList.Entries);
+        ToolsAnalyzer.AnalyzePackageInventory(
+            fileList.Entries,
+            directories,
+            result);
+        result.BuiltDate =
+            GetPackageBuildDate(fileList.Entries);
+        CanonicalizePersistentProjection(result);
+        return result;
+    }
+
+    private static void ApplyNuspec(
+        InspectionResult result,
+        NuspecData? nuspec)
+    {
+        if (nuspec is null)
+            return;
+
+        result.PackageName =
+            nuspec.PackageName ?? result.PackageName;
+        result.ManifestVersion = nuspec.ManifestVersion;
+        result.Version = nuspec.Version ?? result.Version;
+        result.Description = nuspec.Description;
+        result.Authors = nuspec.Authors;
+        result.Repository = nuspec.Repository;
+        result.RepositoryType = nuspec.RepositoryType;
+        result.RepositoryCommit = nuspec.RepositoryCommit;
+        result.License = nuspec.License;
+        result.LicenseUrl = nuspec.LicenseUrl;
+        result.DeclaredLicenseFile = nuspec.LicenseDeclaration is
+            {
+                Kind: PackageLicenseDeclarationKind.File,
+            } license
+                ? license.Value
+                : null;
+        result.PackageTypes = nuspec.PackageTypes;
+        result.IsToolPackage = nuspec.IsToolPackage;
+        result.ReadmeFile = nuspec.ReadmeFile;
+        result.DependencyGroups = nuspec.DependencyGroups;
+    }
+
+    private static IReadOnlyList<string> DeriveInventoryDirectories(
+        IEnumerable<PackageContentEntry> entries) =>
+        [
+            .. entries
+                .SelectMany(static entry =>
+                {
+                    string[] parts = entry.Path.Split('/');
+                    return Enumerable.Range(1, parts.Length - 1)
+                        .Select(length => string.Join(
+                            '/',
+                            parts.Take(length)));
+                })
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal),
+        ];
 
     private static async Task ApplyToolWrapperClassificationAsync(
         InspectionResult result,
@@ -788,5 +856,43 @@ internal static class PackageInspector
         {
             return null;
         }
+    }
+
+    internal static DateTimeOffset? GetPackageBuildDate(
+        IEnumerable<PackageContentEntry> entries)
+    {
+        DateTimeOffset newest = DateTimeOffset.MinValue;
+        foreach (PackageContentEntry entry in entries)
+        {
+            string name = entry.Path;
+            if (name.Equals(
+                    ".signature.p7s",
+                    StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith(
+                    "_rels/",
+                    StringComparison.OrdinalIgnoreCase)
+                || name.Equals(
+                    "[Content_Types].xml",
+                    StringComparison.OrdinalIgnoreCase)
+                || name.EndsWith(
+                    ".psmdcp",
+                    StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith(
+                    "package/",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (entry.LastWriteTime is { } lastWriteTime
+                && lastWriteTime > newest)
+            {
+                newest = lastWriteTime;
+            }
+        }
+
+        return newest > DateTimeOffset.MinValue
+            ? newest
+            : null;
     }
 }

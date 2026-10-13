@@ -297,7 +297,8 @@ public sealed class PackageHouseRequest
             evidenceDemand,
             libraryCompanionDemand,
             contentQuery,
-            allowReferenceOnlyImplementationNames: false)
+            allowReferenceOnlyImplementationNames: false,
+            materializeCompileAssets: false)
     {
     }
 
@@ -314,7 +315,8 @@ public sealed class PackageHouseRequest
         PackageHouseEvidenceDemand evidenceDemand,
         PackageHouseLibraryCompanionDemand libraryCompanionDemand,
         PackageHouseContentQuery? contentQuery,
-        bool allowReferenceOnlyImplementationNames)
+        bool allowReferenceOnlyImplementationNames,
+        bool materializeCompileAssets)
     {
         ArgumentNullException.ThrowIfNull(demand);
         ArgumentNullException.ThrowIfNull(operation);
@@ -406,6 +408,12 @@ public sealed class PackageHouseRequest
                 Terminals.Count: 1,
             }
             && contentQuery.CompileLibraryTerminal.AssetDemand == assetDemand;
+        if (materializeCompileAssets && !compileInventory)
+        {
+            throw new ArgumentException(
+                "Compile-asset materialization requires a package-only compile inventory realization.",
+                nameof(materializeCompileAssets));
+        }
         if (contentQuery?.CompileLibraryTerminal is not null && !compileLibrary)
             throw new ArgumentException("An exact compile Library terminal requires its package-only compile realization.", nameof(contentQuery));
         if (contentQuery is not null
@@ -510,6 +518,7 @@ public sealed class PackageHouseRequest
 
         IsCompileInventory = compileInventory;
         IsCompileLibrary = compileLibrary;
+        MaterializeCompileAssets = materializeCompileAssets;
         Demand = demand;
         Operation = operation;
         TargetContext = targetContext;
@@ -551,6 +560,8 @@ public sealed class PackageHouseRequest
     /// <summary>Whether this request declares exact compile Library content.</summary>
     public bool IsCompileLibrary { get; }
 
+    internal bool MaterializeCompileAssets { get; }
+
     /// <summary>
     /// Declares package-wide File List and compile selection before acquisition.
     /// Library inspection requires a later Library-content realization.
@@ -571,6 +582,39 @@ public sealed class PackageHouseRequest
             contentQuery: new PackageHouseContentQuery(
                 new PackageHouseContentNarrowing.PackageWide(),
                 [new PackageHouseContentTerminal.FileList()]));
+    }
+
+    /// <summary>
+    /// Declares package-wide File List and compile selection while retaining
+    /// the selected compile assets for a body-backed package inspection.
+    /// </summary>
+    public static PackageHouseRequest CompileInspection(
+        PackageHouseDemand demand,
+        PackageHouseOperation operation,
+        PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand =
+            PackageAssetDemand.SurfaceAndImplementation)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        return new(
+            demand,
+            operation,
+            target,
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.PackageOnly,
+            association: null,
+            assetDemand,
+            implementationNames: null,
+            fileDemand: null,
+            evidenceDemand:
+                PackageHouseEvidenceDemand.FrameworkReferences,
+            libraryCompanionDemand:
+                PackageHouseLibraryCompanionDemand.None,
+            contentQuery: new PackageHouseContentQuery(
+                new PackageHouseContentNarrowing.PackageWide(),
+                [new PackageHouseContentTerminal.FileList()]),
+            allowReferenceOnlyImplementationNames: false,
+            materializeCompileAssets: true);
     }
 
     /// <summary>Declares an exact Library selector before House acquisition planning.</summary>

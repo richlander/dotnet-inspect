@@ -9,6 +9,78 @@ namespace DotnetInspect.Cli.Tests;
 
 public sealed partial class ConfiguredPayloadAcquisitionTests
 {
+    [Fact]
+    public async Task PackageInfo_RangedRead_UsesSelectedLibrariesWithoutUnrelatedBody()
+    {
+        string id = $"PackageInfo.Ranged.{Guid.NewGuid():N}";
+        byte[] library = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] filler =
+            RandomNumberGenerator.GetBytes(
+                4 * 1024 * 1024);
+        byte[] package = CreatePackage(
+            id,
+            "ranged Package Info package",
+            library: library,
+            libraryName: $"{id}.dll",
+            extraEntries:
+            [
+                ("content/filler.bin", filler),
+            ]);
+        var feed =
+            new RangeHonoringFeedHandler(
+                FirstFeed,
+                id,
+                package);
+        UseFeed(feed);
+
+        var result = await RunCommandAsync(
+            [
+                "package",
+                $"{id}@{Version}",
+                "--source",
+                FirstFeed,
+                "-S",
+                "Package Info",
+                "--markdown",
+            ]);
+
+        Assert.True(
+            result.Exit == 0,
+            result.Error);
+        Assert.Contains(
+            "| Built |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Content | lib |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Selected TFM | net11.0 |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Ecosystem Dependencies |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Type | Library |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            feed.FullPackageResponses);
+        Assert.True(
+            feed.RangedResponses >= 2,
+            $"ranged responses: {feed.RangedResponses}");
+        Assert.True(
+            feed.PackageBytesServed
+                < library.Length + (1024 * 1024),
+            $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+    }
+
     /// <summary>
     /// The exact-package search Root is realized from a ranged read: the
     /// archive directory and the selected compile folder only, never the

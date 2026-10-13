@@ -296,7 +296,8 @@ public static class PackageLibraryRealization
             evidenceDemand: PackageHouseEvidenceDemand.None,
             libraryCompanionDemand: request.CompanionDemand,
             contentQuery: null,
-            allowReferenceOnlyImplementationNames: implementation);
+            allowReferenceOnlyImplementationNames: implementation,
+            materializeCompileAssets: false);
 
     private static PackageLibraryRealizationResult Project(
         PackageHouseSettlement settlement,

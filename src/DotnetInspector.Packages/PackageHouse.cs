@@ -2075,6 +2075,23 @@ public sealed partial class PackageHouse
                 // Library rows and measurements come from directory evidence.
                 string[] settings =
                     [.. directory.EnumerateEntries().Where(PackageEntryPath.IsToolSettingsPath)];
+                if (request.MaterializeCompileAssets)
+                {
+                    PackageRangedSelection selectedAssets =
+                        SelectRangedCompileEntries(
+                            request,
+                            packageId,
+                            directory,
+                            names: null);
+                    return AddRootManifest(
+                        new PackageRangedSelection(
+                            [
+                                .. selectedAssets.Entries,
+                                .. settings,
+                            ],
+                            selectedAssets.BlockAnchors),
+                        directory);
+                }
                 return AddRootManifest(new PackageRangedSelection(settings), directory);
             }
             if (contentQuery.LibraryAndInventoryTerminal is not null

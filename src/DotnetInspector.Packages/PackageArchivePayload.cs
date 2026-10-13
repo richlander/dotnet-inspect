@@ -93,7 +93,8 @@ internal sealed class PackageArchivePayload
 
                 entry = new(
                     candidate.Path,
-                    checked((long)candidate.UncompressedSize));
+                    checked((long)candidate.UncompressedSize),
+                    candidate.LastWriteTime);
                 return true;
             }
 
@@ -323,6 +324,7 @@ internal sealed class PackageArchivePayload
 internal readonly record struct PackageArchiveEntry(
     string Path,
     bool IsDirectory,
+    DateTimeOffset LastWriteTime,
     ushort CompressionMethod,
     uint Crc32,
     ulong CompressedSize,

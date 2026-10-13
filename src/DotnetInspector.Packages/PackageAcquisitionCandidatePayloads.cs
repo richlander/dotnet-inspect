@@ -1173,7 +1173,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                 admitted.Add(
                     new PackageContentEntry(
                         entry.Name,
-                        entry.ExpandedLength));
+                        entry.ExpandedLength,
+                        entry.LastWriteTime));
             }
         }
         entries = admitted.AsReadOnly();

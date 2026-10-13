@@ -43,6 +43,7 @@ public sealed class PackageHouseContractTests
             new PackageHouseDemand.Exact(Coordinate),
             PackageHouseOperation.Create(PackageHouseOperationProfile.Realize), target);
         Assert.True(request.IsCompileInventory);
+        Assert.False(request.MaterializeCompileAssets);
         Assert.Same(target, request.TargetContext);
         Assert.Equal(PackageHouseLibraryHandoffMode.PackageOnly, request.LibraryHandoff);
         Assert.IsType<PackageHouseContentNarrowing.PackageWide>(request.ContentQuery!.Narrowing);
@@ -57,6 +58,33 @@ public sealed class PackageHouseContractTests
             PackageHouseOperation.Create(PackageHouseOperationProfile.Realize), target,
             PackageHouseAssetSelectionKind.Compile,
             contentQuery: PackageHouseContentQuery.PackageFiles(["README.md"])));
+    }
+
+    [Fact]
+    public void CompileInspectionDemandRetainsInventoryAndSelectedAssets()
+    {
+        var target =
+            PackageHouseTargetContext.OwnerDefault();
+        PackageHouseRequest request =
+            PackageHouseRequest.CompileInspection(
+                new PackageHouseDemand.Exact(Coordinate),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                target);
+
+        Assert.True(request.IsCompileInventory);
+        Assert.True(request.MaterializeCompileAssets);
+        Assert.Equal(
+            PackageAssetDemand.SurfaceAndImplementation,
+            request.AssetDemand);
+        Assert.Same(target, request.TargetContext);
+        Assert.IsType<
+            PackageHouseContentNarrowing.PackageWide>(
+            request.ContentQuery!.Narrowing);
+        Assert.IsType<
+            PackageHouseContentTerminal.FileList>(
+            Assert.Single(
+                request.ContentQuery.Terminals));
     }
 
     [Fact]
