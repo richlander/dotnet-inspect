@@ -120,6 +120,16 @@ internal static class ClassicInverseRealizationRules
                 }
                 return Lockstep(branch.Condition, condition, context, out failure);
 
+            case ClassicInverseRealizationRule.ConditionalVoidCondition:
+                if (claim.Source is not ConditionalBranch { Condition: LogicalNot inverted }
+                    || claim.Output.Parent is not IfStatement conditionalVoid
+                    || !ReferenceEquals(conditionalVoid.Condition, claim.Output))
+                {
+                    failure = "conditional void await has no positive if condition";
+                    return false;
+                }
+                return Lockstep(inverted.Operand, claim.Output, context, out failure);
+
             case ClassicInverseRealizationRule.ControlCondition:
                 return VerifyControlCondition(claim, context, out failure);
 
@@ -133,6 +143,8 @@ internal static class ClassicInverseRealizationRules
                     || (claim.Source is InitObject { Address: LoadFieldAddress address }
                         && !ClassicInverseNodeFacts.IsMachineField(address.Field, shell.Machine)
                         && claim.Output is InitObject)
+                    || (claim.Source is StoreProperty { UpdateKind: null }
+                        && claim.Output is StoreProperty)
                     || (claim.Source is StoreField store && claim.Output is StoreField
                         && !ClassicInverseNodeFacts.IsMachineField(store.Field, shell.Machine))))
                 {
@@ -676,6 +688,9 @@ internal static class ClassicInverseRealizationRules
                 && Equals(left.ConstrainedTo, right.ConstrainedTo)
                 && left.ExtensionSyntaxConflict
                     == right.ExtensionSyntaxConflict,
+            (StoreProperty left, StoreProperty right) =>
+                left.Accessor == right.Accessor && left.IsVirtual == right.IsVirtual
+                && left.HasInstance == right.HasInstance && left.UpdateKind == right.UpdateKind,
             (LoadProperty left, LoadProperty right) =>
                 left.Accessor == right.Accessor
                 && left.IsVirtual == right.IsVirtual

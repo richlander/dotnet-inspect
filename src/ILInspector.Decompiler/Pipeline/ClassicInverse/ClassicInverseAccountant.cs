@@ -468,7 +468,7 @@ internal sealed partial class ClassicInverseAccountant
             "raw-kickoff-shell");
         CoverRawSubtree(_request.KickoffBody.Body);
 
-        if (!VerifyRawValueClosure())
+        if (!VerifyRawPropertyStores() || !VerifyRawValueClosure())
             return false;
         if (!WalkRawExecution(_request.ExecutionBody.Body))
             return false;
@@ -485,6 +485,37 @@ internal sealed partial class ClassicInverseAccountant
             return false;
 
         return VerifyRawPartitionIsComplete();
+    }
+
+    bool VerifyRawPropertyStores()
+    {
+        // StoreProperty is a statement node; only a direct Statement claim
+        // can admit it. Unclaimed stores still fail the physical ledger.
+        foreach (ClassicInverseClaim claim in _candidate.Claims)
+        {
+            if (!_budget.Charge())
+            {
+                _terminal = Failure("property-store correspondence exhausted the planning budget");
+                return false;
+            }
+            if (claim.Source is not StoreProperty store) continue;
+            if (store.UpdateKind != null || store.SourceOffset < 0
+                || !_rawExpressionsByOffset.TryGetValue(store.SourceOffset, out var expression)
+                || expression is not Call { ConstrainedTo: null } call
+                || call.Callee != store.Accessor || call.IsVirtual != store.IsVirtual
+                || call.Callee.HasThis != store.HasInstance
+                || !call.Callee.Name.StartsWith("set_", StringComparison.Ordinal)
+                || call.Arguments.Count != store.Children.Count)
+                return DeclineFalse(ClassicInverseDeclineReason.MissingImportCorrespondence,
+                    "property store has no exact raw accessor call");
+            for (int i = 0; i < store.Children.Count; i++)
+            {
+                if (!ClassicInverseExpressionRules.SameTree(call.Arguments[i], store.Children[i], _budget))
+                    return DeclineFalse(ClassicInverseDeclineReason.UnrealizedSemanticEffect,
+                        "property store changed a raw receiver, index or assigned value");
+            }
+        }
+        return true;
     }
 
     bool VerifyRawValueClosure()

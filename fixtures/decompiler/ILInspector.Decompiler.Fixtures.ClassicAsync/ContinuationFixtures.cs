@@ -71,3 +71,72 @@ public sealed class ContinuationFixtures
     }
     public Task Work() => Task.CompletedTask;
 }
+
+public sealed class FlushFixtures
+{
+    System.IO.Stream? _stream;
+    System.Buffers.IBufferWriter<byte>? _output;
+    readonly System.Buffers.ArrayBufferWriter<byte> _buffer = new();
+    System.Memory<byte> _memory;
+    public int Pending { get; private set; }
+    public long Committed { get; private set; }
+    public System.Memory<byte> Memory => _memory;
+    public FlushFixtures(System.IO.Stream? stream, System.Buffers.IBufferWriter<byte>? output)
+    {
+        _stream = stream;
+        _output = output;
+    }
+    public void Check() { if (_stream is null && _output is null) throw new System.ObjectDisposedException("writer"); }
+    public async Task FlushConditional(System.Threading.CancellationToken token)
+    {
+        Check();
+        _memory = default;
+        if (_stream is not null)
+        {
+            if (Pending != 0)
+            {
+                _buffer.Advance(Pending);
+                Pending = 0;
+                await _stream.WriteAsync(_buffer.WrittenMemory, token).ConfigureAwait(false);
+                Committed += _buffer.WrittenCount;
+                _buffer.Clear();
+            }
+            await _stream.FlushAsync(token).ConfigureAwait(false);
+        }
+        else
+        {
+            if (Pending != 0)
+            {
+                _output!.Advance(Pending);
+                Committed += Pending;
+                Pending = 0;
+            }
+        }
+    }
+    public async ValueTask FlushConditionalValueTask(System.Threading.CancellationToken token)
+    {
+        Check();
+        _memory = default;
+        if (_stream is not null)
+        {
+            if (Pending != 0)
+            {
+                _buffer.Advance(Pending);
+                Pending = 0;
+                await _stream.WriteAsync(_buffer.WrittenMemory, token).ConfigureAwait(false);
+                Committed += _buffer.WrittenCount;
+                _buffer.Clear();
+            }
+            await _stream.FlushAsync(token).ConfigureAwait(false);
+        }
+        else
+        {
+            if (Pending != 0)
+            {
+                _output!.Advance(Pending);
+                Committed += Pending;
+                Pending = 0;
+            }
+        }
+    }
+}
