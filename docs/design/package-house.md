@@ -1423,7 +1423,11 @@ their durable requests repeat the frozen selected target without rewriting the
 Root's absent caller-requested target. Root acquisition consumes the House
 compile receipt directly, retains the original requested target, acquisition
 framework, and producer spelling, and rejects a replacement generation whose
-receipt does not reproduce the durable selection request.
+receipt does not reproduce the durable selection request. The durable Root
+boundary issues a request only when both selector-issued targets satisfy the
+House exact-target grammar; otherwise it returns typed `InvalidCoordinate`,
+and a previously issued request outside that grammar fails the same way before
+House execution.
 
 ## Host boundaries
 

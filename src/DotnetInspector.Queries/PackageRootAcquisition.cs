@@ -1051,6 +1051,15 @@ public static class PackageRootAcquisition
                 PackageRootAcquisitionFailureKind.InvalidCoordinate,
                 invalid.Message);
         }
+        if (!IsDurableTargetRepresentable(selectionTargetFramework)
+            || (expected is not null
+                && !IsDurableTargetRepresentable(
+                    expected.SelectionTargetFramework)))
+        {
+            return Failed(
+                PackageRootAcquisitionFailureKind.InvalidCoordinate,
+                "The package Root request contains a target that PackageHouse cannot repeat exactly.");
+        }
 
         PackageHouseTargetContext target =
             selectionTargetFramework is null
@@ -1097,6 +1106,18 @@ public static class PackageRootAcquisition
                 $"PackageHouse could not realize package '{packageId}' as a compile Root.",
                 pinnedProducer is not null);
         }
+        if (expected is null
+            && (!IsDurableTargetRepresentable(
+                    PackageRootBinding.ReceiptCompileTargetFramework(
+                        realization.Receipt))
+                || !IsDurableTargetRepresentable(
+                    PackageRootBinding.ReceiptSelectionTargetFramework(
+                        realization.Receipt))))
+        {
+            return Failed(
+                PackageRootAcquisitionFailureKind.InvalidCoordinate,
+                "PackageHouse selected a target that cannot be represented by a durable package Root request.");
+        }
 
         if (expected is not null
             && !expected.MatchesCompileSelectionRequest(
@@ -1140,6 +1161,11 @@ public static class PackageRootAcquisition
             acquired.Payload,
             issued);
     }
+
+    static bool IsDurableTargetRepresentable(string? targetFramework) =>
+        targetFramework is null
+        || PackageCoordinateResolver.IsAcquisitionTargetText(
+            targetFramework);
 
     static PackageRootAcquisitionOutcome ProjectFailure(
         PackageHouseSettlement settlement,

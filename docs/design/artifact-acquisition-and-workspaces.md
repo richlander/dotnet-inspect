@@ -3293,11 +3293,15 @@ compile or implementation outcome.
 
 Framework-neutral acquisition remains separate from selection fidelity. When a
 caller supplies no target, the realized coordinate and the Root's requested
-target remain absent, while the binding freezes any selector-issued compile and
-implementation targets into the reacquisition request. Reopening therefore
-repeats the selected target against newly authorized content rather than
-silently choosing that content's new highest target. A Root with no compile or
-implementation target retains both request targets as absent.
+target remain absent, while the binding freezes each selector-issued compile
+and implementation target that the durable House exact-target grammar can
+represent. Reopening therefore repeats the selected target against newly
+authorized content rather than silently choosing that content's new highest
+target. If owner-default selection observes a target outside that grammar,
+Root acquisition returns typed `InvalidCoordinate` before issuing an
+unreopenable request. A previously issued or decoded request containing such a
+target returns the same typed failure before House execution. A Root with no
+compile or implementation target retains both request targets as absent.
 
 The request carries no generation, selection identity, Workspace identity,
 content, session, lease, callback, opener, path authority, or credential. It is
@@ -3340,7 +3344,10 @@ typed producer-unavailable evidence when no authorized authority matches.
 Root acquisition validates request identity, receipt identity, compile and
 implementation targets, runtime, compatibility authorization and observed
 compatibility before issuing the rebound request. A different selection is
-`SelectionRequestNotReproduced`, never a substitute Root.
+`SelectionRequestNotReproduced`, never a substitute Root. Caller-authored and
+durable targets outside the House exact-target grammar are
+`InvalidCoordinate`; owner-default realization that selects such a target is
+also `InvalidCoordinate` before any durable request is issued.
 
 The caller-authored form names an exact package id and version, because this
 owner performs no gallery, prefix, or floating-version discovery — a request
@@ -3460,6 +3467,7 @@ post-disposal replacement against a new content generation.
 In `PackageRootAcquisitionTests`:
 `ExplicitCoordinate_AcquiresRootAndIssuesExactRequest`,
 `ExplicitCoordinate_UntargetedRootPreservesCallerIntent`,
+`OwnerDefault_UnrepresentableSelectionFailsBeforeIssuanceOrReacquisition`,
 `Acquired_ExposesTheLiveContentTheBindingReads`,
 `ExactRequest_ReacquiresSameLogicalRootThroughToken`,
 `ExactRequest_ReacquiresEmptyCompileGroup`,

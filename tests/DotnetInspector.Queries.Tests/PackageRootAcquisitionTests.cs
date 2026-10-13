@@ -185,18 +185,21 @@ public sealed class PackageRootAcquisitionTests
     }
 
     [Theory]
-    [InlineData("invalid/package", Version)]
-    [InlineData(PackageId, "not-a-version")]
+    [InlineData("invalid/package", Version, Framework)]
+    [InlineData(PackageId, "not-a-version", Framework)]
+    [InlineData(PackageId, Version, "net8.0_custom")]
+    [InlineData(PackageId, Version, "net8.0\u202e")]
     public async Task ExplicitCoordinate_InvalidCoordinateFailsBeforeHouse(
         string packageId,
-        string version)
+        string version,
+        string framework)
     {
         PackageRootAcquisitionOutcome outcome =
             await PackageRootAcquisition.AcquireAsync(
                 PackageRootAcquisitionRequest.Create(
                     packageId,
                     version,
-                    Framework),
+                    framework),
                 new PackageRootHouseExecution(
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
@@ -209,6 +212,60 @@ public sealed class PackageRootAcquisitionTests
             PackageRootAcquisitionFailureKind.InvalidCoordinate,
             failed.Kind);
         Assert.False(string.IsNullOrWhiteSpace(failed.Message));
+    }
+
+    [Theory]
+    [InlineData("net8.0_custom")]
+    [InlineData("net8.0\u202e")]
+    public async Task
+        OwnerDefault_UnrepresentableSelectionFailsBeforeIssuanceOrReacquisition(
+            string selectedFramework)
+    {
+        using var http = new HttpClient(new FailingHandler());
+        IPackageStore store = await CachedStoreAsync(
+            LibraryPackage(selectedFramework));
+
+        var initial = Assert.IsType<PackageRootAcquisitionOutcome.Failed>(
+            await PackageRootAcquisition.AcquireAsync(
+                PackageRootAcquisitionRequest.Create(PackageId, Version),
+                Options(http, store),
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            PackageRootAcquisitionFailureKind.InvalidCoordinate,
+            initial.Kind);
+        Assert.False(string.IsNullOrWhiteSpace(initial.Message));
+        Assert.DoesNotContain(
+            selectedFramework,
+            initial.Message,
+            StringComparison.Ordinal);
+
+        PackageRootReacquisitionRequest previouslyIssued = Request(
+            acquisitionFramework: null,
+            acquisitionRuntimeIdentifier: null,
+            selectionTargetFramework: selectedFramework,
+            selectionRuntimeIdentifier: null,
+            ownerDefaultTarget: true);
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                previouslyIssued.Encode(),
+                out PackageRootReacquisitionRequest? decoded));
+
+        var reopened = Assert.IsType<PackageRootAcquisitionOutcome.Failed>(
+            await PackageRootAcquisition.AcquireAsync(
+                decoded,
+                new PackageRootHouseExecution(
+                    PackageHouseOperation.Create(
+                        PackageHouseOperationProfile.Realize),
+                    new FailOnHouseExecution()),
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            PackageRootAcquisitionFailureKind.InvalidCoordinate,
+            reopened.Kind);
+        Assert.False(string.IsNullOrWhiteSpace(reopened.Message));
+        Assert.DoesNotContain(
+            selectedFramework,
+            reopened.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
