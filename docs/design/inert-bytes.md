@@ -10,9 +10,10 @@ focused design.
 
 > One immutable byte backing can be retained through cheap bounded ranges.
 > `InertBytes` answers closed identity, matching, structural-read, and
-> contained-projection operations without copying the range or exposing its
-> untreated bytes. Domain representations retain ranges over that backing
-> rather than creating another byte or string representation.
+> contained-projection operations without copying the range or lending a raw
+> view. It can write an opaque range to a declared binary destination that
+> does not interpret it as text. Domain representations retain ranges over
+> that backing rather than creating another byte or string representation.
 
 This owner defines:
 
@@ -21,6 +22,8 @@ This owner defines:
 - byte-exact equality, hashing, ordering, and query comparison;
 - bounded slicing and structural reads that return values or further ranges;
 - the rule deciding whether an operation belongs on untreated bytes;
+- explicit opaque transfer to a destination that consumes binary data without
+  interpreting it as text;
 - UTF-8 classification and the only route from an untreated range to contained
   text or contained UTF-8 output; and
 - the zero-intermediate-copy claim and its limits.
@@ -72,6 +75,7 @@ producer writes or retains bytes
   -> InertBytes owns one immutable backing and answers operations
      -> domain views retain bounded ranges
         -> matchers receive answers, not untreated storage
+        -> opaque binary sinks receive an explicit write
         -> byte sinks receive directly contained UTF-8
         -> string sinks receive InertString
 ```
@@ -143,6 +147,12 @@ No public operation returns the backing, a mutable alias, `byte[]`,
 retains an `InertBytes` range; it does not retain an interior managed reference
 whose validity depends on a movable object or stack frame.
 
+One explicit operation may write the selected bytes to a declared opaque
+binary destination. It transfers content, not a borrow: the destination owns
+the written copy and receives no reference to the backing. This is the route
+for a domain's persistence or structural encoding when the destination does
+not parse, render, or otherwise interpret the source bytes.
+
 ### Structs, classes, and ref structs
 
 The representation uses each C# shape for the lifetime it can state:
@@ -193,7 +203,8 @@ The initial closed operation set is:
 - process-local hashing consistent with equality;
 - ordinal ordering, required by Symbol Key;
 - comparison with caller-supplied query bytes; and
-- checked slicing.
+- checked slicing; and
+- explicit writing to an opaque binary destination.
 
 The query is input to the operation and is never retained. For textual queries,
 the consumer encodes once and compares that UTF-8 against every candidate,
@@ -202,6 +213,25 @@ not decoded.
 
 Hashing is process-local collection support. It is not a persisted identity,
 content digest, signature, or cross-process compatibility promise.
+
+### Opaque binary transfer
+
+Opaque transfer is admitted by the same hardening test as matching. A binary
+destination that copies, persists, or structurally encodes the complete range
+does not need to validate text, defend a parser, or contain rendering. The
+operation writes into destination-owned storage and returns completion or a
+visible destination failure; it never returns a borrowed source view.
+
+The domain decides when binary transfer is meaningful. For example, a
+validated persisted Symbol Key may be written to an artifact or fed directly
+to its base64url encoder. `InertBytes` owns the transfer mechanism, while
+Symbol Key continues to own the persisted profile and the rule that
+unvalidated or in-process-only keys cannot take that route.
+
+Opaque binary output is not text output. A destination that will render or
+place the value in a textual grammar must use a domain structural encoding,
+such as Symbol Key's base64url form, or the contained UTF-8 path for a range
+classified as text.
 
 ### Structural reads
 
@@ -226,7 +256,7 @@ surface and requires a focused design change.
 
 The initial contract has no:
 
-- raw-span, memory, array, stream, or pointer projection;
+- returned raw span, memory, array, stream, or pointer projection;
 - caller callback or general matcher registration receiving source data;
 - decoding API returning untreated `string` or characters;
 - persisted hash;
@@ -257,15 +287,17 @@ They do not own:
 
 - another storage buffer;
 - general byte equality, hashing, or ordering;
-- a raw-byte accessor;
+- a borrowed raw-byte accessor or independent binary-transfer mechanism;
 - visual-containment rules; or
 - independent UTF-8-to-string conversion.
 
 `SymbolKey<TDomain>` is the first domain view. It retains one `InertBytes`
 range; its `Name`, nested `Key`, and `Blob` parts retain subranges over the same
 backing. Symbol Key continues to own its part grammar, profiles, domain
-registry, persisted format, transport text, and interning semantics. It stops
-owning the underlying byte string and generic operations.
+registry, persisted format, transport text, and interning semantics. A
+validated persisted key uses the backing's opaque binary transfer when writing
+that format. Symbol Key stops owning the underlying byte string and generic
+operations.
 
 An API qualified anchor can later retain typed declaration and signature views
 over the same backing. That adoption must carry byte provenance through its
@@ -330,6 +362,8 @@ The primary claim is **zero intermediate copy**, not that bytes never move:
 - equality, hashing, ordering, matching, and structural reads allocate and
   copy no payload;
 - textual queries are encoded once outside the candidate loop;
+- an opaque binary sink receives the selected range without an intermediate
+  domain buffer;
 - a byte-capable sink receives contained UTF-8 without an intermediate string
   or presentation array; and
 - a string sink pays once for the required `InertString`.
@@ -369,8 +403,9 @@ The external actor is the artifact author. The input path is an admitted
 artifact byte source. The invariant is:
 
 > Untreated bytes remain in immutable backing and cross its public boundary
-> only as an answer, a bounded `InertBytes` subrange, or output contained by
-> the closed Inert Text policy.
+> only as an answer, a bounded `InertBytes` subrange, an explicit write to a
+> declared opaque binary destination, or output contained by the closed Inert
+> Text policy.
 
 The implementation gate combines:
 
@@ -392,6 +427,7 @@ the repository threat model.
 | Immutable range value | Equal ranges over different backings compare and hash equally; default and explicit empty agree; slices retain their owner | PR-fast |
 | Bounds | Empty, edge, nested, overflowed, and out-of-range structural reads return the specified result without reading outside the backing | PR-fast |
 | No raw projection | Compiled public-surface and field-flow gates reject every forbidden return, callback, and store shape | PR-fast |
+| Opaque binary transfer | Exact bytes reach the declared binary destination; no backing alias escapes; destination failure remains visible | PR-fast |
 | Query matching | Ordinary, non-ASCII, concerning, and ill-formed UTF-8 names compare without decoding stored values | PR-fast |
 | Containment parity | Well-formed inputs produce the same spelling and evidence through direct UTF-8 output and current UTF-16 `InertString`; byte-distinct malformed inputs remain visibly distinct | PR-fast |
 | Shared backing | A generated population of names and nested domain parts retains one backing rather than one array or class per view | PR-fast |
