@@ -638,7 +638,7 @@ public partial class DiffCommand
             inputs.ToVersion,
             options,
             plan);
-        return WriteAnalysisSet(
+        int written = WriteAnalysisSet(
             inputs.Name,
             inputs.FromSurface,
             inputs.ToSurface,
@@ -647,6 +647,12 @@ public partial class DiffCommand
             options,
             plan,
             run);
+        return PublishAcquisitionEvidence(
+            inputs,
+            options,
+            run.Inspection,
+            DiffAnalysisOutput.JsonContract,
+            written);
     }
 
     /// <summary>

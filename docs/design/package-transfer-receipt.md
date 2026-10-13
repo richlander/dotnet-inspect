@@ -181,7 +181,7 @@ serializer.
 | 5. A refused credential | no fallback request; the refused request is recorded | contract suite |
 | 6. The House acquisition receipt | its origin agrees with the transfer receipt's path | contract suite |
 | 7. More requests than the bound | the first 256 kept, marked truncated, totals complete | contract suite |
-| 8. Debug evidence delivery | `diff --history --evidence-envelope` lists each acquisition with its receipt; the ordinary output is unchanged | evidence and serializer: contract suite; delivery: CLI harness, Debug |
+| 8. Debug evidence delivery | `diff --history --evidence-envelope`, and a pairwise `diff --package` Library API Diff or API analysis set with `--evidence-envelope`, list each acquisition with its receipt; the ordinary output is unchanged; a pairwise view without a baseline envelope refuses the option before any package read | evidence and serializer: contract suite; delivery: CLI harness, Debug |
 | 9. Retired flags | `--info` and `--trace-mermaid` are rejected as unknown options | CLI harness |
 
 ## Adoption
@@ -208,6 +208,16 @@ serializer.
    package Root acquisition moves onto the House.
 5. Inspect Web delivers receipts through its existing evidence export when it
    adopts package evidence.
+6. Pairwise `diff --package` delivers the evidence for its views whose
+   baseline envelopes exist, Library API Diff and API analysis sets, once
+   their endpoints open through the
+   [package endpoint scope](package-endpoint-scope.md#adoption), step 4
+   part 2. The evidence lists the before endpoint's acquisition, then the
+   after endpoint's. The merged API changes view has no baseline envelope,
+   so it refuses the option before any package read. A request that takes
+   the legacy endpoint route, such as `--tfm all` or an offline `*` pattern,
+   fails the publication, because that route issues no receipts. A body view
+   adopts the evidence when its endpoints move onto the scope.
 
 ## Non-claims
 
