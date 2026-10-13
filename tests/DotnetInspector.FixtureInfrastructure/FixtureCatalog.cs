@@ -139,6 +139,7 @@ public static class FixtureIds
     public const string AnalysisCallFunctionPointerScope = "analysis.call-function-pointer-scope";
     public const string AnalysisTopLevelAsync = "analysis.top-level-async";
     public const string AnalysisTopLevelClassicAsync = "analysis.top-level-classic-async";
+    public const string AnalysisIterators = "analysis.iterators";
     public const string AnalysisProtobuf = "analysis.protobuf";
     public const string AnalysisRender = "analysis.render";
     public const string AnalysisSpoofSystemLinq = "analysis.spoof.system-linq";
@@ -709,6 +710,13 @@ public static class FixtureCatalog
         "ILInspector.Analysis.TopLevelAsyncFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering, FixtureBoundary.OutputKind),
         "analysis", "top-level", "async");
+
+    public static readonly FixtureDefinition AnalysisIterators = Fixture(
+        FixtureIds.AnalysisIterators,
+        "ILInspector.Analysis.IteratorFixtures",
+        "ILInspector.Analysis.IteratorFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "analysis", "iterators");
 
     public static readonly FixtureDefinition AnalysisTopLevelClassicAsync = Fixture(
         FixtureIds.AnalysisTopLevelClassicAsync,
@@ -1291,6 +1299,7 @@ public static class FixtureCatalog
         AnalysisCallFunctionPointerScope,
         AnalysisTopLevelAsync,
         AnalysisTopLevelClassicAsync,
+        AnalysisIterators,
         AnalysisCallerGraphCallerTwin,
         AnalysisCallerGraphIndirectCaller,
         AnalysisCallerGraphLookalikeCaller,
@@ -1411,6 +1420,7 @@ public static class FixtureCatalog
             AnalysisStringMaterialization,
             AnalysisTopLevelAsync,
             AnalysisTopLevelClassicAsync,
+            AnalysisIterators,
             AnalysisCallerGraphCallerTwin,
             AnalysisCallerGraphIndirectCaller,
             AnalysisCallerGraphLookalikeCaller,
@@ -1797,6 +1807,7 @@ public static class FixtureCatalog
             "ILInspector.Analysis.StringMaterializationFixtures" => "fixtures/analysis/ILInspector.Analysis.StringMaterializationFixtures",
             "ILInspector.Analysis.TopLevelAsyncFixtures" => "fixtures/analysis/ILInspector.Analysis.TopLevelAsyncFixtures",
             "ILInspector.Analysis.TopLevelClassicAsyncFixtures" => "fixtures/analysis/ILInspector.Analysis.TopLevelClassicAsyncFixtures",
+            "ILInspector.Analysis.IteratorFixtures" => "fixtures/analysis/ILInspector.Analysis.IteratorFixtures",
             "ILInspector.Decompiler.Fixtures.CheckedArithmetic" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.CheckedArithmetic",
             "ILInspector.Decompiler.Fixtures.ClassicAsync" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsync",
             "ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts",

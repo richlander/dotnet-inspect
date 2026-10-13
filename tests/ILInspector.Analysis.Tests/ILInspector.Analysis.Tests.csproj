@@ -75,6 +75,7 @@
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CalleeResolutionFixtures\ILInspector.Analysis.CalleeResolutionFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallFunctionPointerScopeFixtures\ILInspector.Analysis.CallFunctionPointerScopeFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.TopLevelAsyncFixtures\ILInspector.Analysis.TopLevelAsyncFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.IteratorFixtures\ILInspector.Analysis.IteratorFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.TopLevelClassicAsyncFixtures\ILInspector.Analysis.TopLevelClassicAsyncFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.UnoptimizedAsyncFixtures\ILInspector.Analysis.UnoptimizedAsyncFixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.NewUnsafe\ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" ReferenceOutputAssembly="false" />

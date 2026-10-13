@@ -169,10 +169,10 @@ public sealed class UnsafeEvidencePresenceQueryTests
     public void ExactTypeBreadthSeesIteratorFinallyHelperEvidence()
     {
         string path =
-            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+            FixtureCatalog.AnalysisIterators.AssemblyPath();
         TypeDefinitionHandle type = FindType(
             path,
-            "ILInspector.Analysis.ImplementationProfileFixtures",
+            "ILInspector.Analysis.IteratorFixtures",
             "GeneratedIteratorFinallyUnsafeSample");
         using PdbContext context = PdbContext.OpenMetadataOnly(path);
 

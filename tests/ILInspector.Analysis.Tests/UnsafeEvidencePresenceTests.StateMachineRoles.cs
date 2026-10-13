@@ -10,8 +10,8 @@ namespace ILInspector.Analysis.Tests;
 
 public partial class UnsafeEvidencePresenceTests
 {
-    const string ProfileFixtures =
-        "ILInspector.Analysis.ImplementationProfileFixtures";
+    const string IteratorFixtures =
+        "ILInspector.Analysis.IteratorFixtures";
 
     [Fact]
     public void
@@ -146,9 +146,9 @@ public partial class UnsafeEvidencePresenceTests
         out MethodDefinitionHandle iterator)
     {
         string path =
-            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+            FixtureCatalog.AnalysisIterators.AssemblyPath();
         TypeDefinitionHandle type =
-            FindFixtureType(path, ProfileFixtures, typeName);
+            FindFixtureType(path, IteratorFixtures, typeName);
         iterator = Assert.Single(
             MethodsOfType(path, type),
             method => !MethodName(path, method).StartsWith('<')
@@ -182,7 +182,7 @@ public partial class UnsafeEvidencePresenceTests
         MethodDefinitionGeneratedBodyRoles? role = null)
     {
         string path =
-            FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+            FixtureCatalog.AnalysisIterators.AssemblyPath();
         return
         [
             .. expansion.Origins
