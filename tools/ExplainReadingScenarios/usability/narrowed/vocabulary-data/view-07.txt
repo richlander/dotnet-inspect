@@ -1,0 +1,32 @@
+Description:
+dotnet-inspect 0.27.0+e701f56 - A CLI tool for inspecting .NET libraries and NuGet packages
+
+Usage:
+dotnet-inspect [command] [options]
+
+Options:
+-v <v>                         Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)
+-E <E>                         Write companion output to stderr (.tips is available; bare explanation and .references are reserved)
+--offline                      Disable all network access (use cached data only)
+--http-timeout <http-timeout>  Seconds to wait for a network request before giving up (1-3600, default 30)
+-?, -h, --help                 Show help and usage information
+--version                      Show version information
+
+Commands:
+cache                                      Manage the dotnet-inspect cache
+demo <scenario>                            Run a product home inspection demo (real section output)
+depends <type>                             Inspect dependency graphs and evidence for a type scope or explicit package, nuspec, library, project, or package-prefix roots
+diff <args>                                Compare API surfaces, analysis signals, or implementation evidence between versions
+ecosystem <ecosystem>                      Inspect product-configured knowledge about .NET ecosystems
+explain <resource-or-search> <projection>  Explain an exact product resource or search installed capabilities
+extensions <type>                          Find extension methods for a type
+find <pattern>                             Search API type or member symbols across packages and libraries
+graph                                      Inspect typed relationships across an explicit workspace
+library <source>                           Inspect .NET libraries
+match <left> <right>                       Compare two methods by structural clone equivalence (identity-agnostic)
+member <args>                              Inspect type members (docs on by default)
+package <package>                          Inspect a NuGet package
+project <path>                             Inspect package skills and README files from a restored project
+skill                                      Show skill definition (router to focused skills)
+type <args>                                Discover types in a package or library (compact table output)
+workspace                                  Author or inspect an inspection Workspace and optionally evaluate one exact Navigation occurrence

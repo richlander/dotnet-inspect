@@ -2058,6 +2058,18 @@ syntax through query help; #9962 preserves that binding-registration gap.
 These observations establish usable adoption, not format superiority or a
 causal efficiency improvement.
 
+The [landed narrowing trials](../../tools/ExplainReadingScenarios/usability/narrowed/README.md)
+use six fresh participants with a version-current experimental skill prototype,
+including guide bytes in content accounting. Package readers execute bounded
+Polly searches; API readers answer through ordinary inspection without explain.
+Vocabulary readers understand native-ID selection and complete selected scope,
+but spend 19/24 requests reaching the small final reading. One reader re-fetches
+already available package facets; another requests HAL after a complete direct
+vocabulary answer. Frozen answers, neutral retrospectives and a replayable local
+jq selection preserve those costs and a format violation. This supports a
+focused bootstrap/local-reuse guide experiment, not a controlled format ranking,
+a latency claim or evidence that the shipped skill can already be retired.
+
 ## Demo scenario
 
 `System.Text.Json@10.0.0` motivates the complete production flow:

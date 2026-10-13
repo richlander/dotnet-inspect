@@ -14,6 +14,49 @@ namespace DotnetInspector.Services.Tests;
 public sealed partial class PackageRangedRealizationTests
 {
     /// <summary>
+    /// Step 4 part 2: an endpoint's merged API surface holds every surface
+    /// participant's Types, ordered by name, with the participants' counts
+    /// summed and each Type naming the package asset it came from.
+    /// </summary>
+    [Fact]
+    public async Task EndpointScope_MergedApiSurface_HoldsEveryParticipant()
+    {
+        var server = new RangeFeed(Avalonia, AvaloniaVersion, ReadAvalonia());
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        await using PackageEndpointScope scope = AssertOpened(
+            await OpenEndpointAsync(
+                environment,
+                new InMemoryPackageStore(),
+                new PackageEndpointScopeRequest(
+                    PackageSourceCoordinate.Create(Avalonia, AvaloniaVersion),
+                    "net10.0",
+                    PackageAssetDemand.Surface)));
+        var log = new List<string>();
+
+        ILInspector.Metadata.ApiSurface surface = await PackageEndpointApiSurfaceQuery.ExecuteAsync(
+            scope,
+            Avalonia,
+            ApiSurfaceScope.Public,
+            log.Add,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(Avalonia, surface.Name);
+        Assert.Equal("net10.0", surface.Tfm);
+        Assert.Equal(scope.SurfaceParticipants.Length, log.Count(static line => line.StartsWith("  + ", StringComparison.Ordinal)));
+        Assert.Equal(surface.Types.Count, surface.PublicTypeCount);
+        Assert.Equal(
+            surface.Types.Select(static type => type.FullName).Order(),
+            surface.Types.Select(static type => type.FullName));
+        Assert.Contains(surface.Types, static type => type.FullName == "Avalonia.Controls.Button");
+        Assert.Contains(surface.Types, static type => type.FullName == "Avalonia.AvaloniaObject");
+        Assert.All(surface.Types, type =>
+            Assert.Contains(
+                scope.SurfaceParticipants,
+                participant => participant.Asset.Path == type.SourceAssemblyPath));
+        Assert.Empty(surface.InspectionFailures);
+    }
+
+    /// <summary>
     /// Gate 1: a <c>Surface</c> endpoint exposes one surface participant per
     /// selected compile asset, with package provenance, and no
     /// implementation role; its ranged read materializes only the surface

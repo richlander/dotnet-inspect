@@ -129,7 +129,7 @@ public static class InspectionCommandDefinitions
             new Option<string?>("--evidence-envelope")
             {
                 Description =
-                    "Write the complete enriched Diff History envelope to a JSON sidecar",
+                    "Write the complete enriched Diff History, Library API Diff, or analysis-set envelope with its package acquisitions to a JSON sidecar",
                 Arity = ArgumentArity.ExactlyOne,
             };
 #endif
@@ -177,16 +177,17 @@ public static class InspectionCommandDefinitions
             {
                 return;
             }
-            if (!result.GetValue(historyOption))
+            if (!result.GetValue(historyOption)
+                && result.GetResult(packageOption) is not { Implicit: false })
             {
                 result.AddError(
-                    "--evidence-envelope is supported only by diff --history.");
+                    "--evidence-envelope is supported only by diff --history and pairwise diff --package.");
             }
             if (result.GetResult(opts.Discover) is { Implicit: false }
                 || result.GetValue(opts.Schema))
             {
                 result.AddError(
-                    "--evidence-envelope requires a Diff History inspection, not discovery or schema output.");
+                    "--evidence-envelope requires an inspection, not discovery or schema output.");
             }
         });
 #endif
