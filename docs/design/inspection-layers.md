@@ -1653,6 +1653,14 @@ canaries:
   facade adapts. Its typed paths and positive dependency ceilings therefore
   own product semantics, and its compiler ban input retains only runtime
   platform hazards.
+- Web Core owns package, Platform, retained-workspace, and uploaded-Library
+  scope and member-resolution lifetime. Queries owns metadata roots, tables,
+  heaps, exact selection, and graph-member projection; Sections and
+  LibraryMetadata own bounded Type and Member documents and populations;
+  CSharp owns declaration rendering; Research queries and sections own Library
+  comparison semantics. The Metadata facade adapts those owner-issued values,
+  and its typed paths plus positive dependency ceilings own product semantics,
+  so its compiler ban input retains only runtime platform hazards.
 - Web Core's direct project and emitted assembly dependencies are separate
   positive ceilings. They admit the owner-issued package, Platform, workspace,
   query, presentation, call-graph, Metadata identity, and source-acquisition
