@@ -217,7 +217,7 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
     }
 
     [Fact]
-    public async Task Execute_ReportsPhysicalAsyncEvidenceBodyToken()
+    public async Task Execute_SeparatesStructuredSyncCallsFromOptimizationRanking()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
@@ -237,43 +237,36 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
 
         AssemblyContextOptimizationOpportunitiesResult result =
             Execute(group);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        AssemblyContextEntry<SyncCallsInAsyncResult> syncCalls =
+            SyncCallsInAsyncQuery.ExecuteParticipant(
+                group,
+                participant,
+                [SyncCallsInAsyncClosing.Rows]);
 
-        AssemblyContextOptimizationOpportunityMember member =
-            Assert.Single(
-                result.RankedMembers,
-                candidate =>
-                    candidate.Member.Member?.Member
+        Assert.DoesNotContain(
+            result.RankedMembers.SelectMany(
+                member => member.Member.Ranking.Opportunities),
+            opportunity =>
+                opportunity.Shape
+                == AnalysisFindings.SyncCallInAsyncShape);
+        SyncCallsInAsyncResult available =
+            Assert.IsType<
+                AssemblyContextEntry<
+                    SyncCallsInAsyncResult>.Available>(
+                        syncCalls).Value;
+        var rows = Assert.IsType<SyncCallsInAsyncAnswer.Rows>(
+            available.AnswerTo(SyncCallsInAsyncClosing.Rows));
+        Assert.Contains(
+            rows.Calls,
+            row =>
+                row.Caller.Name
                     == nameof(
                         ClassicAsyncSiblingFixture
-                            .CallsSyncSiblingFromAsync));
-        OptimizationOpportunity opportunity =
-            Assert.Single(
-                member.Member.Ranking.Opportunities,
-                candidate =>
-                    candidate.Shape == "sync-call-in-async");
-        int evidenceToken =
-            Assert.IsType<int>(opportunity.EvidenceMethodToken);
-        int kickoffToken = typeof(ClassicAsyncSiblingFixture)
-            .GetMethod(
-                nameof(
-                    ClassicAsyncSiblingFixture
-                        .CallsSyncSiblingFromAsync))!
-            .MetadataToken;
-
-        Assert.NotEqual(kickoffToken, evidenceToken);
-        Assert.DoesNotContain(
-            kickoffToken,
-            member.Member.Member!.BodyTokens);
-        Assert.Equal(
-            [
-                .. member.Member.Ranking.Opportunities
-                    .Select(candidate =>
-                        candidate.EvidenceMethodToken
-                        ?? candidate.Method.MetadataToken)
-                    .Distinct()
-                    .Order(),
-            ],
-            member.Member.Member.BodyTokens);
+                            .CallsSyncSiblingFromAsync)
+                && row.Callee.Name == "ReadValue"
+                && row.Alternative.Name == "ReadValueAsync");
     }
 
     [Fact]

@@ -6,7 +6,7 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections.Tests;
 
-public sealed class TypeDocumentInspectionOperationTests
+public sealed class TypeSubjectInspectionOperationTests
 {
     private static readonly ApiSurfaceExtractionBounds s_bounds =
         new(
@@ -34,10 +34,10 @@ public sealed class TypeDocumentInspectionOperationTests
             s_bounds.MaxMetadataRows,
             maxRetainedTextCharacters: 0);
 
-        TypeDocumentInspectionContent document =
+        TypeSubjectInspectionContent document =
             Available(Execute(library, bounds: zeroPopulation));
 
-        Assert.IsType<TypeDocumentDeclarations.NotRequested>(
+        Assert.IsType<TypeSubjectMemberGroups.NotRequested>(
             document.Declarations);
         Assert.Equal(
             "System.Text.Json",
@@ -60,8 +60,8 @@ public sealed class TypeDocumentInspectionOperationTests
         Assert.Null(document.Subject.DeclaringTypeDefinitionToken);
 
         string json =
-            JsonSerializer.Serialize<TypeDocumentInspectionOutcome>(
-                new TypeDocumentInspectionOutcome.Available(document));
+            JsonSerializer.Serialize<TypeSubjectInspectionOutcome>(
+                new TypeSubjectInspectionOutcome.Available(document));
         Assert.Contains("\"outcome\":\"available\"", json);
         Assert.Contains("\"kind\":\"not-requested\"", json);
         Assert.Contains("\"namespace\":\"System.Text.Json\"", json);
@@ -80,8 +80,8 @@ public sealed class TypeDocumentInspectionOperationTests
                 AssemblyResolutionProvenance.Local(
                     "Type document direct-assembly test"));
 
-        InspectionEnvelope<TypeDocumentInspectionOutcome> envelope =
-            TypeDocumentInspectionOperation.Execute(
+        InspectionEnvelope<TypeSubjectInspectionOutcome> envelope =
+            TypeSubjectInspectionOperation.Execute(
                 assembly,
                 new(
                     Name(
@@ -90,13 +90,55 @@ public sealed class TypeDocumentInspectionOperationTests
                     s_bounds),
                 TestContext.Current.CancellationToken);
 
-        TypeDocumentInspectionContent document = Available(envelope);
+        TypeSubjectInspectionContent document = Available(envelope);
         Assert.Null(document.Subject.LibraryCorrespondence);
-        Assert.IsType<TypeDocumentDeclarations.NotRequested>(
+        Assert.IsType<TypeSubjectMemberGroups.NotRequested>(
             document.Declarations);
         Assert.Equal(
             Name("System.Text.Json", "JsonSerializer"),
             document.Subject.Type);
+    }
+
+    [Fact]
+    public void DirectAssembly_NestedSubjectRetainsByteNativeSegmentBoundaries()
+    {
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(TypeSubjectInspectionOperationTests)
+                    .Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    "nested byte-native Type identity test"));
+        MetadataTypeDefinitionName expected =
+            Name(
+                "DotnetInspector.Sections.Tests",
+                nameof(TypeSubjectInspectionOperationTests),
+                nameof(ByteNativeNestedFixture));
+
+        InspectionEnvelope<TypeSubjectInspectionOutcome> envelope =
+            TypeSubjectInspectionOperation.Execute(
+                assembly,
+                new(expected, s_bounds),
+                TestContext.Current.CancellationToken);
+
+        TypeSubjectInspectionContent document = Available(envelope);
+        Assert.Equal(expected, document.Subject.Type);
+        Assert.NotNull(document.Subject.ContainedType);
+        Assert.Equal(
+            "DotnetInspector.Sections.Tests",
+            document.Subject.ContainedType.Namespace.ToString());
+        Assert.Equal(
+            [
+                nameof(TypeSubjectInspectionOperationTests),
+                nameof(ByteNativeNestedFixture),
+            ],
+            document.Subject.ContainedType.Segments.Select(segment =>
+                segment.ToString()));
+        Assert.Equal(
+            [
+                nameof(TypeSubjectInspectionOperationTests),
+                nameof(ByteNativeNestedFixture),
+            ],
+            document.Subject.Type.Segments);
     }
 
     [Theory]
@@ -132,8 +174,8 @@ public sealed class TypeDocumentInspectionOperationTests
                 AssemblyResolutionProvenance.Local(
                     "Type extension Count test"));
 
-        TypeDocumentExtensionPresenceInspectionResult result =
-            TypeDocumentInspectionOperation.ExecuteWithExtensionPresence(
+        TypeSubjectExtensionPresenceInspectionResult result =
+            TypeSubjectInspectionOperation.ExecuteWithExtensionPresence(
                 assembly,
                 new(
                     Name(@namespace, type),
@@ -166,7 +208,7 @@ public sealed class TypeDocumentInspectionOperationTests
             s_bounds.MaxMetadataRows,
             maxRetainedTextCharacters: 0);
 
-        TypeDocumentInspectionContent document =
+        TypeSubjectInspectionContent document =
             Available(
                 Execute(
                     library,
@@ -175,7 +217,7 @@ public sealed class TypeDocumentInspectionOperationTests
                         "JsonConverter`1"),
                     bounds: zeroPopulation));
 
-        Assert.IsType<TypeDocumentDeclarations.NotRequested>(
+        Assert.IsType<TypeSubjectMemberGroups.NotRequested>(
             document.Declarations);
         TypeDocumentGenericParameter parameter =
             Assert.Single(
@@ -188,14 +230,16 @@ public sealed class TypeDocumentInspectionOperationTests
             parameter.Attributes);
 
         string json =
-            JsonSerializer.Serialize<TypeDocumentInspectionOutcome>(
-                new TypeDocumentInspectionOutcome.Available(document));
+            JsonSerializer.Serialize<TypeSubjectInspectionOutcome>(
+                new TypeSubjectInspectionOutcome.Available(document));
         Assert.Contains("\"Name\":\"T\"", json);
         Assert.Contains("\"DefinitionSegmentIndex\":0", json);
         Assert.Contains("\"MetadataIndex\":0", json);
 
         await library.RetireAsync();
     }
+
+    private sealed class ByteNativeNestedFixture;
 
     [Fact]
     public async Task ReadonlyStructSubject_RetainsDeclarationModifier()
@@ -209,7 +253,7 @@ public sealed class TypeDocumentInspectionOperationTests
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
 
-        TypeDocumentInspectionContent document =
+        TypeSubjectInspectionContent document =
             Available(
                 Execute(
                     library,
@@ -222,8 +266,8 @@ public sealed class TypeDocumentInspectionOperationTests
         Assert.False(document.Subject.IsByRefLike);
 
         string json =
-            JsonSerializer.Serialize<TypeDocumentInspectionOutcome>(
-                new TypeDocumentInspectionOutcome.Available(document));
+            JsonSerializer.Serialize<TypeSubjectInspectionOutcome>(
+                new TypeSubjectInspectionOutcome.Available(document));
         Assert.Contains("\"IsReadOnly\":true", json);
 
         await library.RetireAsync();
@@ -246,9 +290,9 @@ public sealed class TypeDocumentInspectionOperationTests
                 content,
                 identity);
 
-        TypeDocumentInspectionContent firstDocument =
+        TypeSubjectInspectionContent firstDocument =
             Available(Execute(first));
-        TypeDocumentInspectionContent secondDocument =
+        TypeSubjectInspectionContent secondDocument =
             Available(Execute(second));
 
         await first.RetireAsync();
@@ -296,11 +340,11 @@ public sealed class TypeDocumentInspectionOperationTests
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
 
-        InspectionEnvelope<TypeDocumentInspectionOutcome> inspection =
+        InspectionEnvelope<TypeSubjectInspectionOutcome> inspection =
             Execute(library, count: new());
-        TypeDocumentInspectionContent document = Available(inspection);
+        TypeSubjectInspectionContent document = Available(inspection);
         TypeMemberGroupPopulationResult population =
-            Assert.IsType<TypeDocumentDeclarations.Available>(
+            Assert.IsType<TypeSubjectMemberGroups.Available>(
                     document.Declarations)
                 .Population;
 
@@ -342,7 +386,7 @@ public sealed class TypeDocumentInspectionOperationTests
             await LibraryInspectionTestLibrary.CreateAsync(
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
-        TypeDocumentInspectionContent document =
+        TypeSubjectInspectionContent document =
             Available(Execute(library, count: new()));
         TypeSubject source = document.Subject;
         var mismatched = new TypeSubject(
@@ -363,7 +407,7 @@ public sealed class TypeDocumentInspectionOperationTests
 
         ArgumentException exception =
             Assert.Throws<ArgumentException>(
-                () => new TypeDocumentInspectionContent(
+                () => new TypeSubjectInspectionContent(
                     mismatched,
                     document.Declarations,
                     document.AssemblyBytes,
@@ -384,13 +428,13 @@ public sealed class TypeDocumentInspectionOperationTests
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
 
-        TypeDocumentInspectionContent document =
+        TypeSubjectInspectionContent document =
             Available(
                 Execute(
                     library,
                     rows: new(maximumRows: 2)));
         TypeMemberGroupPopulationResult population =
-            Assert.IsType<TypeDocumentDeclarations.Available>(
+            Assert.IsType<TypeSubjectMemberGroups.Available>(
                     document.Declarations)
                 .Population;
         TypeMemberGroupRowsOutcome.Read rows =
@@ -431,14 +475,14 @@ public sealed class TypeDocumentInspectionOperationTests
             s_bounds.MaxMetadataRows,
             s_bounds.MaxRetainedTextCharacters);
 
-        TypeDocumentInspectionContent document =
+        TypeSubjectInspectionContent document =
             Available(
                 Execute(
                     library,
                     count: new(),
                     bounds: memberBound));
-        TypeDocumentDeclarations.Incomplete declarations =
-            Assert.IsType<TypeDocumentDeclarations.Incomplete>(
+        TypeSubjectMemberGroups.Incomplete declarations =
+            Assert.IsType<TypeSubjectMemberGroups.Incomplete>(
                 document.Declarations);
 
         Assert.Equal(
@@ -464,7 +508,7 @@ public sealed class TypeDocumentInspectionOperationTests
                 LibraryInspectionTestLibrary.Identity(content));
         TypeMemberGroupContinuation continuation =
             Assert.IsType<TypeMemberGroupRowsOutcome.Read>(
-                    Assert.IsType<TypeDocumentDeclarations.Available>(
+                    Assert.IsType<TypeSubjectMemberGroups.Available>(
                             Available(
                                     Execute(
                                         library,
@@ -495,7 +539,7 @@ public sealed class TypeDocumentInspectionOperationTests
             s_bounds.MaxMetadataRows,
             s_bounds.MaxRetainedTextCharacters);
 
-        TypeDocumentInspectionContent document =
+        TypeSubjectInspectionContent document =
             Available(
                 Execute(
                     library,
@@ -506,7 +550,7 @@ public sealed class TypeDocumentInspectionOperationTests
         Assert.Equal(
             TypeMemberGroupPopulationInspectionRejection
                 .StaleContinuation,
-            Assert.IsType<TypeDocumentDeclarations.Rejected>(
+            Assert.IsType<TypeSubjectMemberGroups.Rejected>(
                     document.Declarations)
                 .Reason);
         Assert.Equal(
@@ -528,7 +572,7 @@ public sealed class TypeDocumentInspectionOperationTests
                 LibraryInspectionTestLibrary.Identity(content));
         TypeMemberGroupContinuation continuation =
             Assert.IsType<TypeMemberGroupRowsOutcome.Read>(
-                    Assert.IsType<TypeDocumentDeclarations.Available>(
+                    Assert.IsType<TypeSubjectMemberGroups.Available>(
                             Available(
                                     Execute(
                                         library,
@@ -544,7 +588,7 @@ public sealed class TypeDocumentInspectionOperationTests
             s_bounds.MaxMetadataRows,
             s_bounds.MaxRetainedTextCharacters);
 
-        TypeDocumentInspectionContent document =
+        TypeSubjectInspectionContent document =
             Available(
                 Execute(
                     library,
@@ -557,7 +601,7 @@ public sealed class TypeDocumentInspectionOperationTests
         Assert.Equal(
             TypeMemberGroupPopulationInspectionRejection
                 .IncompatibleContinuation,
-            Assert.IsType<TypeDocumentDeclarations.Rejected>(
+            Assert.IsType<TypeSubjectMemberGroups.Rejected>(
                     document.Declarations)
                 .Reason);
         Assert.Equal(
@@ -577,8 +621,8 @@ public sealed class TypeDocumentInspectionOperationTests
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
 
-        TypeDocumentInspectionOutcome.Rejected rejected =
-            Assert.IsType<TypeDocumentInspectionOutcome.Rejected>(
+        TypeSubjectInspectionOutcome.Rejected rejected =
+            Assert.IsType<TypeSubjectInspectionOutcome.Rejected>(
                 Execute(
                     library,
                     type:
@@ -587,7 +631,7 @@ public sealed class TypeDocumentInspectionOperationTests
                             "Missing")).Content);
 
         Assert.Equal(
-            TypeDocumentInspectionRejection.TypeNotFound,
+            TypeSubjectInspectionRejection.TypeNotFound,
             rejected.Reason);
         await library.RetireAsync();
     }
@@ -603,14 +647,14 @@ public sealed class TypeDocumentInspectionOperationTests
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
 
-        TypeDocumentInspectionOutcome.Rejected rejected =
-            Assert.IsType<TypeDocumentInspectionOutcome.Rejected>(
+        TypeSubjectInspectionOutcome.Rejected rejected =
+            Assert.IsType<TypeSubjectInspectionOutcome.Rejected>(
                 Execute(
                     library,
                     type: Name("N", "C")).Content);
 
         Assert.Equal(
-            TypeDocumentInspectionRejection.TypeAmbiguous,
+            TypeSubjectInspectionRejection.TypeAmbiguous,
             rejected.Reason);
         await library.RetireAsync();
     }
@@ -632,14 +676,14 @@ public sealed class TypeDocumentInspectionOperationTests
             maxMetadataRows: 0,
             s_bounds.MaxRetainedTextCharacters);
 
-        TypeDocumentInspectionOutcome.Incomplete incomplete =
-            Assert.IsType<TypeDocumentInspectionOutcome.Incomplete>(
+        TypeSubjectInspectionOutcome.Incomplete incomplete =
+            Assert.IsType<TypeSubjectInspectionOutcome.Incomplete>(
                 Execute(
                     library,
                     bounds: metadataBound).Content);
 
         Assert.Equal(
-            TypeDocumentInspectionBound.MetadataRows,
+            TypeSubjectInspectionBound.MetadataRows,
             incomplete.Bound);
         Assert.Equal(0, incomplete.Limit);
         Assert.True(incomplete.Measured > 0);
@@ -654,19 +698,19 @@ public sealed class TypeDocumentInspectionOperationTests
                 [1, 2, 3],
                 LibraryInspectionTestLibrary.ProbeIdentity());
 
-        TypeDocumentInspectionOutcome.Failed failed =
-            Assert.IsType<TypeDocumentInspectionOutcome.Failed>(
+        TypeSubjectInspectionOutcome.Failed failed =
+            Assert.IsType<TypeSubjectInspectionOutcome.Failed>(
                 Execute(
                     library,
                     type: Name("Probe", "Type")).Content);
 
         Assert.Equal(
-            TypeDocumentInspectionFailure.MalformedMetadata,
+            TypeSubjectInspectionFailure.MalformedMetadata,
             failed.Reason);
         await library.RetireAsync();
     }
 
-    private static InspectionEnvelope<TypeDocumentInspectionOutcome>
+    private static InspectionEnvelope<TypeSubjectInspectionOutcome>
         Execute(
             LibraryInspectionTestLibrary library,
             MetadataTypeDefinitionName? type = null,
@@ -683,7 +727,7 @@ public sealed class TypeDocumentInspectionOperationTests
                     count,
                     rows,
                     spelling: spelling);
-        return TypeDocumentInspectionOperation.Execute(
+        return TypeSubjectInspectionOperation.Execute(
             new(
                 library.Reference,
                 new(
@@ -697,9 +741,9 @@ public sealed class TypeDocumentInspectionOperationTests
             TestContext.Current.CancellationToken);
     }
 
-    private static TypeDocumentInspectionContent Available(
-        InspectionEnvelope<TypeDocumentInspectionOutcome> envelope) =>
-        Assert.IsType<TypeDocumentInspectionOutcome.Available>(
+    private static TypeSubjectInspectionContent Available(
+        InspectionEnvelope<TypeSubjectInspectionOutcome> envelope) =>
+        Assert.IsType<TypeSubjectInspectionOutcome.Available>(
                 envelope.Content)
             .Document;
 

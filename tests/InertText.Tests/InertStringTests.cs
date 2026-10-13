@@ -916,6 +916,7 @@ public class InertStringTests
             // The encoded form. Handing it back is the type's purpose, and it is the treated
             // spelling rather than the original, so it is not a way back.
             "InertString.ToString",
+            "InertUtf8String.ToString",
 
             // Names the spellings emitted -- "\\uXXXX  the scalar at code point U+XXXX". Fixed
             // strings chosen by VisualForm flags; no artifact text reaches them.

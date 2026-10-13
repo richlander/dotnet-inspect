@@ -3,8 +3,8 @@ using System.CommandLine.Help;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
-using DotnetInspect.Cli.Views;
-using Markout;
+using DotnetInspector.Presentation;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -42,56 +42,132 @@ public class CliSchemaCommand
                 new DiscoveryOutputRequest());
         }
 
-        var nodes = commands.Select(c => BuildCommandNode(c, verbosity)).ToList();
-
-        var view = new CliSchemaView
-        {
-            Name = "dotnet-inspect",
-            Version = VersionInfo.Version,
-            Description = "CLI tool for inspecting .NET libraries and NuGet packages",
-            Commands = nodes
-        };
-
-        MarkoutSerializer.Serialize(view, Console.Out, CliSchemaContext.Default);
+        CliSchemaPresentation.Write(
+            new CliSchemaPresentationPlan(
+                "dotnet-inspect",
+                VersionInfo.Version,
+                "CLI tool for inspecting .NET libraries and NuGet packages"),
+            sink => WriteCommands(
+                sink,
+                commands,
+                verbosity),
+            Console.Out);
         return 0;
     }
 
-    private static TreeNode BuildCommandNode(Command command, Verbosity verbosity)
+    private static void WriteCommands(
+        IInspectionHierarchySink<string> sink,
+        IReadOnlyList<Command> commands,
+        Verbosity verbosity)
     {
-        List<TreeNode> children = [];
-
-        // Minimal: command + description only, no children
-        if (verbosity > Verbosity.Minimal)
+        for (int index = 0; index < commands.Count; index++)
         {
-            // Arguments
-            foreach (var arg in command.Arguments)
-            {
-                if (arg.Hidden) continue;
-                var label = $"<{arg.Name}>";
-                if (verbosity >= Verbosity.Detailed && !string.IsNullOrEmpty(arg.Description))
-                    label += $"  {arg.Description}";
-                children.Add(new TreeNode(label));
-            }
+            WriteCommand(
+                sink,
+                commands[index],
+                verbosity,
+                isLastSibling: index == commands.Count - 1);
+        }
+    }
 
-            // Options (excluding help)
-            foreach (var opt in command.Options.Where(o => !o.Hidden && o is not HelpOption))
-            {
-                var label = FormatOption(opt, verbosity);
-                children.Add(new TreeNode(label));
-            }
-
-            // Subcommands
-            foreach (var sub in command.Subcommands.OrderBy(c => c.Name))
-            {
-                children.Add(BuildCommandNode(sub, verbosity));
-            }
+    private static void WriteCommand(
+        IInspectionHierarchySink<string> sink,
+        Command command,
+        Verbosity verbosity,
+        bool isLastSibling)
+    {
+        string nodeLabel = command.Name;
+        if (verbosity >= Verbosity.Minimal
+            && !string.IsNullOrEmpty(command.Description))
+        {
+            nodeLabel += $"  {command.Description}";
         }
 
-        var nodeLabel = command.Name;
-        if (verbosity >= Verbosity.Minimal && !string.IsNullOrEmpty(command.Description))
-            nodeLabel += $"  {command.Description}";
+        if (verbosity <= Verbosity.Minimal
+            || !HasVisibleChildren(command))
+        {
+            sink.WriteNode(
+                nodeLabel,
+                isLastSibling);
+            return;
+        }
 
-        return new TreeNode(nodeLabel) { Children = children };
+        sink.WriteNode(
+            nodeLabel,
+            isLastSibling,
+            children => WriteCommandChildren(
+                children,
+                command,
+                verbosity));
+    }
+
+    private static bool HasVisibleChildren(Command command)
+    {
+        return command.Arguments.Any(static argument => !argument.Hidden)
+            || command.Options.Any(
+                static option =>
+                    !option.Hidden
+                    && option is not HelpOption)
+            || command.Subcommands.Count > 0;
+    }
+
+    private static void WriteCommandChildren(
+        IInspectionHierarchySink<string> sink,
+        Command command,
+        Verbosity verbosity)
+    {
+        Argument[] arguments =
+        [
+            .. command.Arguments.Where(
+                static argument => !argument.Hidden),
+        ];
+        Option[] options =
+        [
+            .. command.Options.Where(
+                static option =>
+                    !option.Hidden
+                    && option is not HelpOption),
+        ];
+        Command[] subcommands =
+        [
+            .. command.Subcommands.OrderBy(
+                static subcommand => subcommand.Name),
+        ];
+        int childCount =
+            arguments.Length
+            + options.Length
+            + subcommands.Length;
+        int childIndex = 0;
+
+        foreach (Argument argument in arguments)
+        {
+            string label = $"<{argument.Name}>";
+            if (verbosity >= Verbosity.Detailed
+                && !string.IsNullOrEmpty(argument.Description))
+            {
+                label += $"  {argument.Description}";
+            }
+
+            sink.WriteNode(
+                label,
+                isLastSibling: ++childIndex == childCount);
+        }
+
+        foreach (Option option in options)
+        {
+            sink.WriteNode(
+                FormatOption(option, verbosity),
+                isLastSibling: ++childIndex == childCount);
+        }
+
+        foreach (Command subcommand in subcommands)
+        {
+            WriteCommand(
+                sink,
+                subcommand,
+                verbosity,
+                isLastSibling: ++childIndex == childCount);
+        }
     }
 
     private static string FormatOption(Option option, Verbosity verbosity)

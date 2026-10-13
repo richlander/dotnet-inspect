@@ -125,7 +125,9 @@ digest of its canonical endpoint as the runtime authority key spells it,
 including path, query, and fragment, in the same versioned key namespace
 local authorities use. Query-distinct and path-distinct endpoints stay
 distinct authorities with distinct entries, and no endpoint text is written
-to a path. Authorities with a configured credential keep process-local
+to a path. A durable HTTP authority also reuses NuGet
+global-packages entries whose metadata source resolves to it, as the
+[package source model](package-source-model.md) states. Authorities with a configured credential keep process-local
 storage only.
 
 Two kinds of credential-free feed deserve naming. A feed authenticated by a
@@ -517,7 +519,9 @@ All gates run in Release.
    `AuthorityScopedFileSystemPackageStore` that says no durable HTTP
    authority identity exists. The search Root's offline branch keeps its
    local package cache path at this step; answering offline from the
-   authority-scoped store and the entry cache is a later step.
+   authority-scoped store and the entry cache is a later step. The
+   [package endpoint scope](package-endpoint-scope.md#offline) records the
+   offline cases the House already answers.
 3. The remaining search scopes adopt ranged access, and with it size first,
    in the second part of range-access adoption step 2.
 4. The [package-backed platform](package-backed-platform-realization.md)

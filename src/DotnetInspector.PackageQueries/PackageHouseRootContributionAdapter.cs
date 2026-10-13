@@ -150,6 +150,7 @@ public static class PackageHouseRootContributionAdapter
         if (!PackageRootBinding.TryCreateFromSourceSelection(
                 acquired.Payload,
                 realization.Receipt,
+                OriginalRequestedFramework(result.Request.TargetContext),
                 out PackageRootBinding? binding))
         {
             return new PackageHouseRootContributionOutcome.NoContribution(
@@ -172,4 +173,12 @@ public static class PackageHouseRootContributionAdapter
                 realization,
                 binding));
     }
+
+    private static string? OriginalRequestedFramework(
+        PackageHouseTargetContext? target) =>
+        target?.Mode is PackageHouseTargetSelectionMode.OwnerDefault
+            or PackageHouseTargetSelectionMode.FrozenTarget
+            or null
+            ? null
+            : target.RequestedFramework;
 }

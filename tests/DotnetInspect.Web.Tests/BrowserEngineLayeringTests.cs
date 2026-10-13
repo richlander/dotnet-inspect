@@ -529,6 +529,18 @@ public sealed class BrowserEngineLayeringTests
             .. CapabilityProjectPaths.Where(project =>
                 !project.Equals(
                     CallGraphProjectPath,
+                    StringComparison.OrdinalIgnoreCase)
+                && !project.Equals(
+                    LibraryProjectPath,
+                    StringComparison.OrdinalIgnoreCase)
+                && !project.Equals(
+                    CatalogProjectPath,
+                    StringComparison.OrdinalIgnoreCase)
+                && !project.Equals(
+                    PackageProjectPath,
+                    StringComparison.OrdinalIgnoreCase)
+                && !project.Equals(
+                    MetadataProjectPath,
                     StringComparison.OrdinalIgnoreCase)),
         ];
 
@@ -552,6 +564,30 @@ public sealed class BrowserEngineLayeringTests
     public void CallGraphFacadePinsPlatformHazardsNotBroadInventory()
     {
         AssertPinsPlatformHazardsNotBroadInventory(CallGraphProjectPath);
+    }
+
+    [Fact]
+    public void LibraryFacadePinsPlatformHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(LibraryProjectPath);
+    }
+
+    [Fact]
+    public void CatalogFacadePinsPlatformHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(CatalogProjectPath);
+    }
+
+    [Fact]
+    public void PackageFacadePinsPlatformHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(PackageProjectPath);
+    }
+
+    [Fact]
+    public void MetadataFacadePinsPlatformHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(MetadataProjectPath);
     }
 
     static void AssertPinsPlatformHazardsNotBroadInventory(string project)
@@ -747,11 +783,23 @@ public sealed class BrowserEngineLayeringTests
         "DotnetInspect.Web.Interop.Package",
         "DotnetInspect.Web.Interop.Package.csproj");
 
+    static string MetadataProjectPath => Path.Combine(
+        RepositoryRoot(),
+        "src",
+        "DotnetInspect.Web.Interop.Metadata",
+        "DotnetInspect.Web.Interop.Metadata.csproj");
+
     static string CallGraphProjectPath => Path.Combine(
         RepositoryRoot(),
         "src",
         "DotnetInspect.Web.Interop.CallGraph",
         "DotnetInspect.Web.Interop.CallGraph.csproj");
+
+    static string LibraryProjectPath => Path.Combine(
+        RepositoryRoot(),
+        "src",
+        "DotnetInspect.Web.Interop.Library",
+        "DotnetInspect.Web.Interop.Library.csproj");
 
     static string BroadBanListPath => Path.Combine(
         Path.GetDirectoryName(EngineProjectPath)!,

@@ -45,6 +45,8 @@ import {
 import {
   fixtureFramework,
   galleryDownloadPath,
+  aspNetCoreReferenceNupkg,
+  emptyDependencyGroupNupkg,
   healthyNupkg,
   malformedAlongsideHealthyNupkg,
   malformedAssemblyBytes,
@@ -317,6 +319,27 @@ const manifestOnly: FixtureCoordinate = {
     declaredDependency,
   ),
 };
+const runtimeReference: FixtureCoordinate = {
+  packageId: "InspectWeb.Adoption.RuntimeReference",
+  version,
+  archive: emptyDependencyGroupNupkg(
+    healthyAssembly,
+    healthyAssemblyFileName,
+    "InspectWeb.Adoption.RuntimeReference",
+    version,
+  ),
+};
+const aspNetCoreReference: FixtureCoordinate = {
+  packageId: "InspectWeb.Adoption.AspNetCoreReference",
+  version,
+  archive: aspNetCoreReferenceNupkg(
+    healthyAssembly,
+    healthyAssemblyFileName,
+    "InspectWeb.Adoption.AspNetCoreReference",
+    version,
+    declaredDependency,
+  ),
+};
 
 // DiffAsmLibA is an ordinary managed library with exactly one AssemblyRef row,
 // so the available case has an exact expected list rather than a shape probe.
@@ -371,6 +394,8 @@ const allFixtures: readonly FixtureCoordinate[] = [
   literalCoordinate,
   references,
   manifestOnly,
+  runtimeReference,
+  aspNetCoreReference,
   libraryDiffV1,
   libraryDiffV2,
   ...scopeCoordinates,
@@ -609,7 +634,12 @@ declare global {
         platformPack: string,
         documentationId: string,
       ): Promise<CompiledDocumentationOutcome>;
-      loadPlatformLibrary(framework: string, version: string, assembly: string, pack: string): Promise<string>;
+      loadPlatformLibrary(
+        framework: string,
+        version: string,
+        assembly: string,
+        pack: string,
+      ): Promise<PackageSurface>;
       openPlatformForwarderView(
         framework: string,
         version: string,
@@ -3057,6 +3087,70 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     ]);
   });
 
+  test("projects runtime defaults and explicit ASP.NET Core platform references", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry(allFixtures);
+    await installGalleryRoutes(context, registry);
+    await boot(page);
+    const engine = driver(page);
+
+    const runtime = await engine.queryDependencies(
+      runtimeReference.packageId,
+      version,
+      fixtureFramework,
+      healthyAssemblyFileName,
+    );
+    expect(runtime.platformReferences).toEqual([]);
+    expect(runtime.defaultPlatformReference).toEqual(
+      { family: "runtime", label: ".NET Runtime" },
+    );
+    expect(runtime.platformReferenceError).toBeNull();
+
+    const aspNetCore = await engine.queryDependencies(
+      aspNetCoreReference.packageId,
+      version,
+      fixtureFramework,
+      healthyAssemblyFileName,
+    );
+    expect(aspNetCore.platformReferences).toEqual([
+      { family: "aspnetcore", label: "ASP.NET Core" },
+    ]);
+    expect(aspNetCore.defaultPlatformReference).toBeNull();
+    expect(aspNetCore.platformReferenceError).toBeNull();
+
+    await page.goto(
+      `/index.html?package=${runtimeReference.packageId}&version=${version}`
+        + `&framework=${fixtureFramework}#pkg:dependencies`,
+    );
+    const panel = page.locator("#inspector-panel");
+    await expect(
+      panel.getByRole("heading", { name: "References", exact: true }),
+    ).toBeVisible({ timeout: 60_000 });
+    await expect(panel).toContainText(".NET Runtime");
+    await expect(panel.getByRole("heading", { name: "Dependency graph" }))
+      .toBeVisible();
+    await expect(panel.locator("#dependency-graph-diagram svg")).toBeVisible();
+
+    await page.goto(
+      `/index.html?package=${aspNetCoreReference.packageId}&version=${version}`
+        + `&framework=${fixtureFramework}#pkg:dependencies`,
+    );
+    await expect(
+      panel.getByRole("heading", { name: "References", exact: true }),
+    ).toBeVisible({ timeout: 60_000 });
+    const platformReference =
+      panel.locator(".platform-reference-list .dep-name");
+    await expect(platformReference).toHaveText("ASP.NET Core");
+    const platformReferenceWidth = await platformReference.evaluate(element => ({
+      client: element.clientWidth,
+      scroll: element.scrollWidth,
+    }));
+    expect(platformReferenceWidth.client)
+      .toBeGreaterThanOrEqual(platformReferenceWidth.scroll);
+  });
+
   test("renders the available reference rows on the production package page", async ({
     page,
     context,
@@ -3880,14 +3974,18 @@ test.describe("bounded network-backed Worker smoke", () => {
     const platformVersion = "11.0.0-rc.1.26425.128";
     const name = "Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid";
     try {
-      const raw = await page.evaluate(ver => window.__adoption!.loadPlatformLibrary(
-        "net11.0", ver, "System.Private.CoreLib.dll", "netcore.app"), platformVersion);
-      const direct: unknown = JSON.parse(raw);
-      if (!direct || typeof direct !== "object" || !("types" in direct) || !Array.isArray(direct.types)) {
+      const direct = await page.evaluate<PackageSurface, string>(
+        ver => window.__adoption!.loadPlatformLibrary(
+          "net11.0",
+          ver,
+          "System.Private.CoreLib.dll",
+          "netcore.app"),
+        platformVersion);
+      if (direct.types.length === 0) {
         throw new Error("CoreLib omitted its Type surface.");
       }
-      expect(direct.types.some((type: unknown) => type !== null && typeof type === "object"
-        && "id" in type && type.id === `System.Private.CoreLib:${name}`)).toBe(true);
+      expect(direct.types.some(type =>
+        type.id === `System.Private.CoreLib:${name}`)).toBe(true);
       const initial = await page.evaluate(ver => window.__adoption!.openPlatformForwarderView(
         "net11.0", ver, "System.Runtime.dll", "netcore.app"), platformVersion);
       expect(initial.status, initial.message ?? "System.Runtime").toBe("opened");

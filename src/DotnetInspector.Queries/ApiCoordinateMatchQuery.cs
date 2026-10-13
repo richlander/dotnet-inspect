@@ -280,6 +280,7 @@ public static class ApiCoordinateMatchQuery
         if (!PackageRootBinding.TryCreateFromSourceSelection(
                 acquired.Payload,
                 realization.Receipt,
+                matchRequest.TargetFramework,
                 out PackageRootBinding? binding))
         {
             return new(

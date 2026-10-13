@@ -40,7 +40,8 @@ static class ValidityCheck
     // as noise. Genuine misuse codes (CS0029/CS0266 conversions — the
     // constrained-generic family; CS0165 use-before-assignment; CS0136/CS0128
     // duplicate locals; CS0193 deref of non-pointer; CS1656/CS0131 bad assign)
-    // are deliberately KEPT.
+    // are deliberately KEPT. Missing out-call assignment context is a coverage
+    // decline (VLD0002), retaining the raw CS0165 in its evidence message.
     //
     // CS1729 ("'T' does not contain a constructor that takes N arguments") is the
     // constructor analog of CS1501 (the method-arity/visibility code already
@@ -65,6 +66,7 @@ static class ValidityCheck
     ];
 
     internal const string StructuredEvidenceMissId = "VLD0001";
+    internal const string AssignmentContextUnavailableId = "VLD0002";
 
     static readonly HashSet<string> ShellTypeDiagnosticIds =
     [
@@ -86,7 +88,9 @@ static class ValidityCheck
     {
         public string Id => $"{TypeName}::{MethodName}";
         public bool IsMalformed => MalformedDiagnostics.Length > 0;
-        public bool HasSemanticDefect => SemanticDiagnostics.Length > 0;
+        public bool HasSemanticDefect => SemanticDiagnostics.Any(d => d.Id != AssignmentContextUnavailableId);
+        public bool SemanticUnavailable => SemanticDiagnostics.Any(d => d.Id == AssignmentContextUnavailableId);
+        public bool HasSemanticOutcome => SemanticChecked && (!SemanticUnavailable || HasSemanticDefect);
         public bool CompileBackUnavailable =>
             CompileBackUnavailableReason is not null;
     }
@@ -98,10 +102,12 @@ static class ValidityCheck
         string? CompileBackUnavailableReason = null)
     {
         public bool IsMalformed => MalformedDiagnostics.Length > 0;
-        public bool HasSemanticDefect => SemanticDiagnostics.Length > 0;
+        public bool HasSemanticDefect => SemanticDiagnostics.Any(d => d.Id != AssignmentContextUnavailableId);
+        public bool SemanticUnavailable => SemanticDiagnostics.Any(d => d.Id == AssignmentContextUnavailableId);
         public bool CompileBackUnavailable =>
             CompileBackUnavailableReason is not null;
         public bool IsValid => !CompileBackUnavailable
+            && !SemanticUnavailable
             && !IsMalformed
             && SemanticChecked
             && !HasSemanticDefect;
@@ -134,7 +140,9 @@ static class ValidityCheck
         int fullMalformed = results.Count(r => r.IsFull && r.IsMalformed);
         int partialMalformed = results.Count(r => !r.IsFull && r.IsMalformed);
         int semanticEligible = results.Count(r => r.IsFull && !r.IsMalformed);
-        int semChecked = results.Count(r => r.SemanticChecked);
+        int semanticAttempts = results.Count(r => r.SemanticChecked);
+        int semChecked = results.Count(r => r.HasSemanticOutcome);
+        int semanticUnavailable = results.Count(r => r.SemanticUnavailable);
         int semDefect = results.Count(r => r.HasSemanticDefect);
         var defectCodes = new SortedDictionary<string, int>(StringComparer.Ordinal);
         foreach (var diagnostic in results.SelectMany(r => r.SemanticDiagnostics))
@@ -147,7 +155,11 @@ static class ValidityCheck
         var defectExamples = results
             .Where(r => r.HasSemanticDefect)
             .Take(maxExamples)
-            .Select(r => $"{r.Id}\n    {r.SemanticDiagnostics[0].Id}: {r.SemanticDiagnostics[0].Message}")
+            .Select(r =>
+            {
+                var defect = r.SemanticDiagnostics.First(d => d.Id != AssignmentContextUnavailableId);
+                return $"{r.Id}\n    {defect.Id}: {defect.Message}";
+            })
             .ToList();
         var unavailableExamples = results
             .Where(r => r.CompileBackUnavailable)
@@ -173,8 +185,12 @@ static class ValidityCheck
         }
 
         Report(total, fullTotal, partialTotal, fullMalformed, partialMalformed,
-            compileBackUnavailable, semanticEligible, semChecked, cap, semDefect,
+            compileBackUnavailable, semanticEligible, semanticAttempts, semChecked, cap, semDefect,
             defectCodes, malformedExamples, defectExamples, unavailableExamples);
+        Console.WriteLine($"Semantic assignment context unavailable: {semanticUnavailable}");
+        foreach (var result in results.Where(r => r.SemanticUnavailable).Take(maxExamples))
+            foreach (var diagnostic in result.SemanticDiagnostics.Where(d => d.Id == AssignmentContextUnavailableId))
+                Console.WriteLine($"  {result.Id}: {diagnostic.Id}: {diagnostic.Message}");
 
         if (methodDefects is not null && emitDefectsPath is not null)
             EmitDefects(emitDefectsPath, methodDefects);
@@ -493,6 +509,12 @@ static class ValidityCheck
             if (!IsError(diagnostic) || BindingNoise.Contains(diagnostic.Id))
                 continue;
 
+            if (UnresolvedOutAssignment(diagnostic, tree, semanticModel) is { } unavailable)
+            {
+                defects.Add(new ValidityDiagnostic(AssignmentContextUnavailableId, unavailable));
+                continue;
+            }
+
             var shellArtifact = ClassifyShellArtifact(diagnostic, tree, function, semanticModel);
             if (shellArtifact == EvidenceDisposition.Filter)
                 continue;
@@ -523,6 +545,185 @@ static class ValidityCheck
 
         return defects.ToImmutable();
     }
+
+    // Match symbols, not spelling: another local or a nested executable body
+    // cannot supply assignment evidence for the diagnosed read. This declines
+    // coverage, never proves the unresolved call would make the body valid.
+    static string? UnresolvedOutAssignment(
+        Diagnostic diagnostic,
+        SyntaxTree tree,
+        SemanticModel semanticModel)
+    {
+        if (diagnostic.Id != "CS0165" || diagnostic.Location.SourceTree != tree)
+            return null;
+        var read = tree.GetRoot().FindNode(diagnostic.Location.SourceSpan,
+            getInnermostNodeForTie: true);
+        if (semanticModel.GetSymbolInfo(read).Symbol is not ILocalSymbol local)
+            return null;
+        var scope = ExecutableScope(read);
+        if (scope is null)
+            return null;
+        foreach (var argument in scope.DescendantNodes()
+            .OfType<ArgumentSyntax>())
+        {
+            if (!argument.RefKindKeyword.IsKind(SyntaxKind.OutKeyword)
+                || ExecutableScope(argument) != scope
+                || argument.Parent?.Parent is not InvocationExpressionSyntax invocation
+                || invocation.SpanStart > read.SpanStart)
+                continue;
+            var assigned = argument.Expression is DeclarationExpressionSyntax declaration
+                && declaration.Designation is SingleVariableDesignationSyntax designation
+                    ? semanticModel.GetDeclaredSymbol(designation)
+                    : semanticModel.GetSymbolInfo(argument.Expression).Symbol;
+            if (!SymbolEqualityComparer.Default.Equals(local, assigned))
+                continue;
+            if (!OutCallMustExecuteBeforeRead(invocation, read, semanticModel))
+                continue;
+            var unresolved = semanticModel.GetSymbolInfo(invocation).Symbol is not IMethodSymbol
+                ? invocation
+                : UnresolvedOutInAndGuard(invocation, read, semanticModel);
+            if (unresolved is not null)
+                return $"{diagnostic.Id}: {diagnostic.GetMessage()}; assignment context unavailable: unresolved out invocation '{unresolved.Expression}'";
+        }
+        return null;
+    }
+
+    static bool OutCallMustExecuteBeforeRead(InvocationExpressionSyntax invocation, SyntaxNode read, SemanticModel semanticModel)
+    {
+        // Missing binding cannot explain a read on a path that skips the call.
+        // Only recognize syntax whose execution requirement is explicit; unknown
+        // control flow retains the compiler's defect rather than declining it.
+        var scope = ExecutableScope(invocation);
+        if (scope?.DescendantNodes().OfType<GotoStatementSyntax>().Any() == true)
+            return false;
+        for (SyntaxNode node = invocation; node.Parent is { } parent; node = parent)
+        {
+            if (parent is BinaryExpressionSyntax binary && binary.Right.Span.Contains(invocation.Span))
+            {
+                if (binary.IsKind(SyntaxKind.CoalesceExpression) && !binary.Right.Span.Contains(read.Span))
+                    return false;
+                if ((binary.IsKind(SyntaxKind.LogicalAndExpression) || binary.IsKind(SyntaxKind.LogicalOrExpression))
+                    && semanticModel.GetSymbolInfo(binary).Symbol is IMethodSymbol)
+                    return false;
+                if (binary.IsKind(SyntaxKind.LogicalAndExpression)
+                    && ExpressionOutcomeAtRead(binary, read) != true)
+                    return false;
+                if (binary.IsKind(SyntaxKind.LogicalOrExpression)
+                    && ExpressionOutcomeAtRead(binary, read) != false)
+                    return false;
+            }
+            if (parent is ConditionalAccessExpressionSyntax access
+                && access.WhenNotNull.Span.Contains(invocation.Span))
+                return false;
+            if (parent is SwitchSectionSyntax or SwitchExpressionArmSyntax or CatchClauseSyntax or FinallyClauseSyntax
+                && !parent.Span.Contains(read.Span))
+                return false;
+            if (parent is TryStatementSyntax exceptionRegion && exceptionRegion.Block.Span.Contains(invocation.Span)
+                && !exceptionRegion.Block.Span.Contains(read.Span))
+                return false;
+            var loopBody = parent switch
+            {
+                WhileStatementSyntax loop => loop.Statement,
+                ForStatementSyntax loop => loop.Statement,
+                ForEachStatementSyntax loop => loop.Statement,
+                DoStatementSyntax loop => loop.Statement,
+                _ => null
+            };
+            if (loopBody?.Span.Contains(invocation.Span) == true && !loopBody.Span.Contains(read.Span))
+                return false;
+            if (parent is ConditionalExpressionSyntax conditional
+                && !conditional.Condition.Span.Contains(invocation.Span)
+                && !(conditional.WhenTrue.Span.Contains(invocation.Span) && conditional.WhenTrue.Span.Contains(read.Span))
+                && !(conditional.WhenFalse.Span.Contains(invocation.Span) && conditional.WhenFalse.Span.Contains(read.Span)))
+                return false;
+            if (parent is IfStatementSyntax guard
+                && !guard.Condition.Span.Contains(invocation.Span)
+                && !(guard.Statement.Span.Contains(invocation.Span) && guard.Statement.Span.Contains(read.Span))
+                && !(guard.Else is { } alternative && alternative.Statement.Span.Contains(invocation.Span)
+                    && alternative.Statement.Span.Contains(read.Span)))
+                return false;
+            if (parent is WhileStatementSyntax or ForStatementSyntax or ForEachStatementSyntax
+                or DoStatementSyntax or SwitchStatementSyntax or TryStatementSyntax)
+            {
+                if (!parent.Span.Contains(read.Span))
+                    return false;
+            }
+            if (parent == ExecutableScope(invocation))
+                break;
+        }
+        return true;
+    }
+
+    static bool? ExpressionOutcomeAtRead(ExpressionSyntax expression, SyntaxNode read)
+    {
+        if (expression.Parent is BinaryExpressionSyntax continuation
+            && continuation.Left == expression && continuation.Right.Span.Contains(read.Span))
+        {
+            if (continuation.IsKind(SyntaxKind.LogicalAndExpression))
+                return true;
+            if (continuation.IsKind(SyntaxKind.LogicalOrExpression))
+                return false;
+        }
+        if (expression.Span.Contains(read.Span))
+            return null;
+        return expression.Parent switch
+        {
+            ParenthesizedExpressionSyntax parentheses => ExpressionOutcomeAtRead(parentheses, read),
+            PrefixUnaryExpressionSyntax negation when negation.IsKind(SyntaxKind.LogicalNotExpression)
+                => ExpressionOutcomeAtRead(negation, read) is { } outcome ? !outcome : null,
+            BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.LogicalAndExpression)
+                => ExpressionOutcomeAtRead(binary, read) == true ? true : null,
+            BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.LogicalOrExpression)
+                => ExpressionOutcomeAtRead(binary, read) == false ? false : null,
+            ConditionalExpressionSyntax conditional when conditional.Condition == expression
+                => conditional.WhenTrue.Span.Contains(read.Span) ? true
+                    : conditional.WhenFalse.Span.Contains(read.Span) ? false : null,
+            IfStatementSyntax guard when guard.Condition == expression
+                => guard.Statement.Span.Contains(read.Span) ? true
+                    : guard.Else?.Statement.Span.Contains(read.Span) == true ? false
+                    : guard.Span.End <= read.SpanStart && AlwaysExits(guard.Statement) ? false
+                    : guard.Span.End <= read.SpanStart && guard.Else is { } alternative
+                        && AlwaysExits(alternative.Statement) ? true : null,
+            _ => null
+        };
+    }
+
+    static bool AlwaysExits(StatementSyntax statement)
+        => statement is ReturnStatementSyntax or ThrowStatementSyntax
+            || statement is BlockSyntax block && block.Statements.LastOrDefault() is { } last && AlwaysExits(last);
+
+    static InvocationExpressionSyntax? UnresolvedOutInAndGuard(
+        InvocationExpressionSyntax invocation,
+        SyntaxNode read,
+        SemanticModel semanticModel)
+    {
+        // A resolved second out call can also lose its true-outcome facts when
+        // an earlier out call in the same && guard cannot bind. Limit this
+        // dependent decline to reads protected by that guard's true arm: a read
+        // after the if, or under ||, can genuinely skip the resolved call.
+        SyntaxNode condition = invocation;
+        bool hasAnd = false;
+        while (condition.Parent is ParenthesizedExpressionSyntax
+            || condition.Parent is BinaryExpressionSyntax binary
+                && binary.IsKind(SyntaxKind.LogicalAndExpression))
+        {
+            hasAnd |= condition.Parent is BinaryExpressionSyntax;
+            condition = condition.Parent;
+        }
+        if (!hasAnd
+            || condition.Parent is not IfStatementSyntax guard
+            || !guard.Statement.Span.Contains(read.Span))
+            return null;
+        return condition.DescendantNodes().OfType<InvocationExpressionSyntax>()
+            .FirstOrDefault(candidate => ExecutableScope(candidate) == ExecutableScope(read)
+                && candidate.ArgumentList.Arguments.Any(argument => argument.RefKindKeyword.IsKind(SyntaxKind.OutKeyword))
+                && semanticModel.GetSymbolInfo(candidate).Symbol is not IMethodSymbol);
+    }
+
+    static SyntaxNode? ExecutableScope(SyntaxNode node)
+        => node.Ancestors().FirstOrDefault(ancestor => ancestor is
+            BaseMethodDeclarationSyntax or AccessorDeclarationSyntax
+            or LocalFunctionStatementSyntax or AnonymousFunctionExpressionSyntax);
 
     static void Record(Dictionary<string, SortedSet<string>> map, string method, IEnumerable<string> codes)
     {
@@ -600,7 +801,7 @@ static class ValidityCheck
 
     static void Report(
         int total, int fullTotal, int partialTotal, int fullMalformed, int partialMalformed,
-        int compileBackUnavailable, int semanticEligible, int semChecked, int cap,
+        int compileBackUnavailable, int semanticEligible, int semanticAttempts, int semChecked, int cap,
         int semDefect, SortedDictionary<string, int> defectCodes,
         List<string> malformedExamples, List<string> defectExamples,
         List<string> unavailableExamples)
@@ -616,9 +817,10 @@ static class ValidityCheck
         Console.WriteLine($"  Full malformed   : {fullMalformed} ({Pct(fullMalformed, fullTotal)} of Full) — the \"claimed good but won't parse\" set");
         Console.WriteLine($"  Partial malformed: {partialMalformed} ({Pct(partialMalformed, partialTotal)} of Partial) — expected: the diagnosed unsupported bits");
         Console.WriteLine();
-        Console.WriteLine($"Semantic binding (Full + syntactically-valid): compiled {semChecked} of {semanticEligible} eligible methods (compile-cap {capText})");
-        if (semChecked < semanticEligible)
+        Console.WriteLine($"Semantic binding (Full + syntactically-valid): compiled {semanticAttempts} of {semanticEligible} eligible methods (compile-cap {capText})");
+        if (semanticAttempts < semanticEligible)
             Console.WriteLine("  NOTE: semantic findings are per-sample, not corpus-wide; raise --compile-cap or use --compile-cap all for an exhaustive binding sweep.");
+        Console.WriteLine($"  completed semantic outcomes: {semChecked}");
         Console.WriteLine($"  with a non-binding-noise error: {semDefect} ({Pct(semDefect, semChecked)})");
         if (defectCodes.Count > 0)
         {

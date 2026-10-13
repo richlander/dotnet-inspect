@@ -258,7 +258,10 @@ Browser adoption uses the generated input binding rather than adding a
 handwritten TypeScript request shape, flattened interim export, or duplicate
 JSON wrapper. The Browser adapter consumes the detached plan, bounds, and
 Enablements values; it does not construct or project `ILInspector.Metadata`
-contract values.
+contract values. Its exact positive project and assembly ceilings plus this
+typed lowering contract enforce product ownership; its compiler ban input is
+limited to runtime platform hazards that dependency layering cannot
+distinguish, not an open-ended inventory of internal product APIs.
 
 ## Library document
 

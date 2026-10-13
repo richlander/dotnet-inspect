@@ -138,6 +138,111 @@ public sealed record InspectionQueryTermRelatedOperation
     public RelatedOperationAffordance Operation { get; }
 }
 
+public sealed record InspectionQueryTermOption
+{
+    public InspectionQueryTermOption(
+        string value,
+        string label,
+        string summary)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        ArgumentException.ThrowIfNullOrWhiteSpace(label);
+        ArgumentException.ThrowIfNullOrWhiteSpace(summary);
+        Value = value;
+        Label = label;
+        Summary = summary;
+    }
+
+    public string Value { get; }
+
+    public string Label { get; }
+
+    public string Summary { get; }
+}
+
+public sealed record InspectionQueryTermPresentation
+{
+    public InspectionQueryTermPresentation(
+        string sourceTerm,
+        int order,
+        string controlKind,
+        string presentationKind,
+        string executionClass,
+        IEnumerable<InspectionQueryTermOption>? options = null,
+        string? selectionGroup = null,
+        bool combinesWithinSelectionGroup = false,
+        string? replacementGroup = null,
+        string? optionSource = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceTerm);
+        if (order < 0)
+            throw new ArgumentOutOfRangeException(nameof(order));
+        ArgumentException.ThrowIfNullOrWhiteSpace(controlKind);
+        ArgumentException.ThrowIfNullOrWhiteSpace(presentationKind);
+        ArgumentException.ThrowIfNullOrWhiteSpace(executionClass);
+        if (selectionGroup is not null)
+            ArgumentException.ThrowIfNullOrWhiteSpace(selectionGroup);
+        if (replacementGroup is not null)
+            ArgumentException.ThrowIfNullOrWhiteSpace(replacementGroup);
+        if (optionSource is not null)
+            ArgumentException.ThrowIfNullOrWhiteSpace(optionSource);
+
+        SourceTerm = sourceTerm;
+        Order = order;
+        ControlKind = controlKind;
+        PresentationKind = presentationKind;
+        ExecutionClass = executionClass;
+        Options = [.. options ?? []];
+        SelectionGroup = selectionGroup;
+        CombinesWithinSelectionGroup = combinesWithinSelectionGroup;
+        ReplacementGroup = replacementGroup;
+        OptionSource = optionSource;
+        if (Options.Select(static option => option.Value)
+                .Distinct(StringComparer.Ordinal)
+                .Count()
+            != Options.Length)
+        {
+            throw new ArgumentException(
+                "Query-term presentation option values must be unique.",
+                nameof(options));
+        }
+        if (combinesWithinSelectionGroup && selectionGroup is null)
+        {
+            throw new ArgumentException(
+                "A combining query-term presentation requires a selection "
+                + "group.",
+                nameof(combinesWithinSelectionGroup));
+        }
+        if (optionSource is not null && Options.Length > 0)
+        {
+            throw new ArgumentException(
+                "A query-term presentation cannot declare both inline options "
+                + "and an external option source.",
+                nameof(optionSource));
+        }
+    }
+
+    public string SourceTerm { get; }
+
+    public int Order { get; }
+
+    public string ControlKind { get; }
+
+    public string PresentationKind { get; }
+
+    public string ExecutionClass { get; }
+
+    public ImmutableArray<InspectionQueryTermOption> Options { get; }
+
+    public string? SelectionGroup { get; }
+
+    public bool CombinesWithinSelectionGroup { get; }
+
+    public string? ReplacementGroup { get; }
+
+    public string? OptionSource { get; }
+}
+
 public abstract class InspectionRouteRegistration
 {
     private protected InspectionRouteRegistration(
@@ -147,7 +252,9 @@ public abstract class InspectionRouteRegistration
         IEnumerable<InspectionQueryTermRelationship>?
             queryTermRelationships,
         IEnumerable<InspectionQueryTermRelatedOperation>?
-            queryTermRelatedOperations)
+            queryTermRelatedOperations,
+        IEnumerable<InspectionQueryTermPresentation>?
+            queryTermPresentations)
     {
         Descriptor = descriptor
             ?? throw new ArgumentNullException(nameof(descriptor));
@@ -182,6 +289,10 @@ public abstract class InspectionRouteRegistration
         [
             .. queryTermRelatedOperations ?? [],
         ];
+        QueryTermPresentations =
+        [
+            .. queryTermPresentations ?? [],
+        ];
         HashSet<string> queryTerms =
             querySpace.Descriptor.Operation.Terms
                 .Select(static term => term.Identity)
@@ -211,6 +322,30 @@ public abstract class InspectionRouteRegistration
                     nameof(queryTermRelatedOperations));
             }
         }
+        foreach (InspectionQueryTermPresentation presentation
+                 in QueryTermPresentations)
+        {
+            if (!queryTerms.Contains(presentation.SourceTerm))
+            {
+                throw new ArgumentException(
+                    $"Inspection route '{descriptor.Identity}' declares "
+                    + "query-term presentation outside its effective Query "
+                    + "Space.",
+                    nameof(queryTermPresentations));
+            }
+            QuerySpaceOperationTermDescriptor term =
+                querySpace.Descriptor.Operation.Terms.Single(candidate =>
+                    candidate.Identity == presentation.SourceTerm);
+            if (!presentation.Options.Select(static option => option.Value)
+                    .SequenceEqual(term.Values, StringComparer.Ordinal))
+            {
+                throw new ArgumentException(
+                    $"Inspection route '{descriptor.Identity}' query-term "
+                    + $"presentation for '{term.Key}' disagrees with the "
+                    + "effective Query Space values.",
+                    nameof(queryTermPresentations));
+            }
+        }
         if (QueryTermRelatedOperations
                 .Select(static relationship =>
                     (
@@ -232,6 +367,17 @@ public abstract class InspectionRouteRegistration
                 "Inspection route query-term relationships must be unique.",
                 nameof(queryTermRelationships));
         }
+        if (QueryTermPresentations
+                .Select(static presentation => presentation.SourceTerm)
+                .Distinct(StringComparer.Ordinal)
+                .Count()
+            != QueryTermPresentations.Length)
+        {
+            throw new ArgumentException(
+                "Inspection route query-term presentation identities must "
+                + "be unique.",
+                nameof(queryTermPresentations));
+        }
     }
 
     public InspectionRouteDescriptor Descriptor { get; }
@@ -245,6 +391,9 @@ public abstract class InspectionRouteRegistration
 
     public ImmutableArray<InspectionQueryTermRelatedOperation>
         QueryTermRelatedOperations { get; }
+
+    public ImmutableArray<InspectionQueryTermPresentation>
+        QueryTermPresentations { get; }
 }
 
 public sealed class InspectionRouteRegistration<TRequest, TContent> :
@@ -267,13 +416,16 @@ public sealed class InspectionRouteRegistration<TRequest, TContent> :
         IEnumerable<InspectionQueryTermRelationship>?
             queryTermRelationships = null,
         IEnumerable<InspectionQueryTermRelatedOperation>?
-            queryTermRelatedOperations = null)
+            queryTermRelatedOperations = null,
+        IEnumerable<InspectionQueryTermPresentation>?
+            queryTermPresentations = null)
         : base(
             descriptor,
             document,
             querySpace,
             queryTermRelationships,
-            queryTermRelatedOperations)
+            queryTermRelatedOperations,
+            queryTermPresentations)
     {
         _execute = execute
             ?? throw new ArgumentNullException(nameof(execute));

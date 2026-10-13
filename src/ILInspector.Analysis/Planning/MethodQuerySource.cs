@@ -913,6 +913,9 @@ public sealed record MethodDefinitionSourceCoverage(
     public SameModuleCallTargetCoverage CallTargets
     { get; init; } = SameModuleCallTargetCoverage.Empty;
 
+    public MethodCallMetadataCoverage Calls
+    { get; init; } = MethodCallMetadataCoverage.Empty;
+
     public MethodSemanticIdentityCoverage SemanticIdentity
     { get; init; } = MethodSemanticIdentityCoverage.Empty;
 }
@@ -1426,6 +1429,13 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
     SameModuleCallTargetWork _callTargetQueries =
         SameModuleCallTargetWork.Empty;
     int _callTargetQueryCount;
+    readonly MethodDefinitionHandleCoverageBuilder _methodCallMethods = new();
+    bool _methodCallsConstructed;
+    MethodCallMetadataWork _methodCallWork =
+        MethodCallMetadataWork.Empty;
+    int _methodCallReads;
+    int _localSignatureReads;
+    int _fieldOperandReads;
     readonly MethodDefinitionHandleCoverageBuilder _semanticIdentityMethods =
         new();
     bool _semanticIdentityConstructed;
@@ -1552,6 +1562,32 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
         _callTargetQueryCount = checked(_callTargetQueryCount + 1);
     }
 
+    public void RecordMethodCallConstruction()
+    {
+        if (_enabled)
+            _methodCallsConstructed = true;
+    }
+
+    public void RecordMethodCallQuery(
+        MethodDefinitionHandle handle,
+        MethodCallMetadataWork work,
+        int callReads,
+        int localSignatureReads,
+        int fieldOperandReads)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _methodCallMethods.Add(handle);
+        _methodCallWork = _methodCallWork.Plus(work);
+        _methodCallReads = checked(_methodCallReads + callReads);
+        _localSignatureReads =
+            checked(_localSignatureReads + localSignatureReads);
+        _fieldOperandReads =
+            checked(_fieldOperandReads + fieldOperandReads);
+    }
+
     public void RecordSemanticIdentityConstruction()
     {
         if (_enabled)
@@ -1648,6 +1684,17 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
                         _callTargetQueryCount,
                         _callTargetMethods.Build())
                     : SameModuleCallTargetCoverage.Empty,
+            Calls =
+                _methodCallsConstructed
+                || _methodCallMethods.Count != 0
+                    ? new(
+                        _methodCallsConstructed,
+                        _methodCallWork,
+                        _methodCallReads,
+                        _localSignatureReads,
+                        _fieldOperandReads,
+                        _methodCallMethods.Build())
+                    : MethodCallMetadataCoverage.Empty,
             SemanticIdentity =
                 _semanticIdentityConstructed
                 || _semanticIdentityMethods.Count != 0

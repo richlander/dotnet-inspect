@@ -124,6 +124,28 @@ public static class PackageQueryCapability
                             PackageQuery.TermBindingIdentity(term),
                             PackageRelatedOperationAffordances
                                 .InspectDependencies)),
+                ],
+                queryTermPresentations:
+                [
+                    .. PackageQuery.RegisteredTerms.Select((term, order) =>
+                        new InspectionQueryTermPresentation(
+                            PackageQuery.TermBindingIdentity(
+                                term.Descriptor.Key),
+                            order,
+                            ControlKind(term.Descriptor.ControlKind),
+                            PresentationKind(
+                                term.Descriptor.PresentationKind),
+                            PackageQuery.ExecutionClassIdentity(
+                                term.Descriptor.ExecutionClass),
+                            term.Descriptor.Options.Select(option =>
+                                new InspectionQueryTermOption(
+                                    option.Value,
+                                    option.Label,
+                                    option.Summary)),
+                            term.Descriptor.SelectionGroupId,
+                            term.Descriptor.CombinesWithinSelectionGroup,
+                            term.Descriptor.ReplacementGroupId,
+                            term.Descriptor.OptionSourceId)),
                 ]);
 
     public static InspectionCapabilityModule ProductModule { get; } =
@@ -136,4 +158,26 @@ public static class PackageQueryCapability
                 new(Route, InspectionConsumerKind.Cli),
                 new(Route, InspectionConsumerKind.Browser),
             ]);
+
+    private static string ControlKind(
+        PackageQueryTermControlKind kind) =>
+        kind switch
+        {
+            PackageQueryTermControlKind.Input => "input",
+            PackageQueryTermControlKind.MultilineInput => "multiline-input",
+            PackageQueryTermControlKind.Toggle => "toggle",
+            PackageQueryTermControlKind.Choice => "choice",
+            _ => throw new InvalidOperationException(
+                "Unknown Package Query control kind."),
+        };
+
+    private static string PresentationKind(
+        PackageQueryTermPresentationKind kind) =>
+        kind switch
+        {
+            PackageQueryTermPresentationKind.Fact => "fact",
+            PackageQueryTermPresentationKind.ValueQuery => "value-query",
+            _ => throw new InvalidOperationException(
+                "Unknown Package Query presentation kind."),
+        };
 }

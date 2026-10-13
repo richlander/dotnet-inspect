@@ -682,8 +682,11 @@ command.
 
 The compact Type declaration path now follows the same ownership split.
 [`TypeOverviewDocumentInspectionOperation`](../src/DotnetInspector.Sections/TypeOverviewDocumentInspection.cs)
-projects the existing exact-Type and Type MemberGroup population operation into
-one final `TypeOverviewDocument`. Its request requires compact Rows with a
+projects
+[`TypeSubjectInspectionOperation`](../src/DotnetInspector.Sections/TypeSubjectInspectionOperation.cs)
+into one final `TypeOverviewDocument`. The subject operation owns exact-Type
+resolution and the optional Type MemberGroup population; it is not itself a
+public document producer. The overview request requires compact Rows with a
 nested exact-Member Count for every MemberGroup, and its closed outcome
 promotes Type, population, and Rows non-successes rather than exposing
 success-shaped partial content. The operation preserves the owner-issued exact
@@ -691,7 +694,7 @@ Type and population binding, filtering intent, ordering, continuation, Share,
 and diagnostics; it does not spell complete Member signatures or adopt host
 rendering.
 
-[`CompleteTypeDocumentInspectionOperation`](../src/DotnetInspector.Sections/CompleteTypeDocumentInspection.cs)
+[`TypeDocumentInspectionOperation`](../src/DotnetInspector.Sections/TypeDocumentDeclarationInspectionOperation.cs)
 uses the same exact-Type Library path but asks Metadata for the complete
 declaration population. Metadata spells every admitted method, property,
 field, and event during the same classified-Member scan that defines compact

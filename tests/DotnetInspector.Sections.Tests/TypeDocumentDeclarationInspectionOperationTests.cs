@@ -5,7 +5,7 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections.Tests;
 
-public sealed class CompleteTypeDocumentInspectionOperationTests
+public sealed class TypeDocumentInspectionOperationTests
 {
     private static readonly ApiSurfaceExtractionBounds s_bounds =
         new(
@@ -26,7 +26,7 @@ public sealed class CompleteTypeDocumentInspectionOperationTests
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
 
-        InspectionEnvelope<CompleteTypeDocumentInspectionOutcome>
+        InspectionEnvelope<TypeDocumentInspectionOutcome>
             inspection = Execute(
                 library,
                 includeHidden: true);
@@ -116,20 +116,20 @@ public sealed class CompleteTypeDocumentInspectionOperationTests
         Assert.Empty(inspection.Diagnostics);
 
         var outcome =
-            new CompleteTypeDocumentInspectionOutcome.Available(
+            new TypeDocumentInspectionOutcome.Available(
                 document);
         string json = JsonSerializer.Serialize(
-            (CompleteTypeDocumentInspectionOutcome)outcome,
+            (TypeDocumentInspectionOutcome)outcome,
             TypeMemberInspectionDocumentJsonContext.Default
-                .CompleteTypeDocumentInspectionOutcome);
-        CompleteTypeDocumentInspectionOutcome copy =
+                .TypeDocumentInspectionOutcome);
+        TypeDocumentInspectionOutcome copy =
             JsonSerializer.Deserialize(
                 json,
                 TypeMemberInspectionDocumentJsonContext.Default
-                    .CompleteTypeDocumentInspectionOutcome)!;
+                    .TypeDocumentInspectionOutcome)!;
         TypeDocument roundTripped =
             Assert.IsType<
-                CompleteTypeDocumentInspectionOutcome.Available>(
+                TypeDocumentInspectionOutcome.Available>(
                     copy)
                 .Document;
 
@@ -359,17 +359,17 @@ public sealed class CompleteTypeDocumentInspectionOperationTests
             s_bounds.MaxMetadataRows,
             maxRetainedTextCharacters: 0);
 
-        CompleteTypeDocumentInspectionOutcome.Incomplete members =
+        TypeDocumentInspectionOutcome.Incomplete members =
             Assert.IsType<
-                CompleteTypeDocumentInspectionOutcome.Incomplete>(
+                TypeDocumentInspectionOutcome.Incomplete>(
                     Execute(library, bounds: memberBound).Content);
-        CompleteTypeDocumentInspectionOutcome.Incomplete text =
+        TypeDocumentInspectionOutcome.Incomplete text =
             Assert.IsType<
-                CompleteTypeDocumentInspectionOutcome.Incomplete>(
+                TypeDocumentInspectionOutcome.Incomplete>(
                     Execute(library, bounds: textBound).Content);
-        CompleteTypeDocumentInspectionOutcome.Rejected missing =
+        TypeDocumentInspectionOutcome.Rejected missing =
             Assert.IsType<
-                CompleteTypeDocumentInspectionOutcome.Rejected>(
+                TypeDocumentInspectionOutcome.Rejected>(
                     Execute(
                         library,
                         type: Name(
@@ -378,25 +378,25 @@ public sealed class CompleteTypeDocumentInspectionOperationTests
                     .Content);
 
         Assert.Equal(
-            CompleteTypeDocumentInspectionBound.Members,
+            TypeDocumentInspectionBound.Members,
             members.Bound);
         Assert.Equal(1, members.Limit);
         Assert.Equal(2, members.Measured);
         Assert.Equal(
-            CompleteTypeDocumentInspectionBound
+            TypeDocumentInspectionBound
                 .RetainedTextCharacters,
             text.Bound);
         Assert.Equal(0, text.Limit);
         Assert.True(text.Measured > 0);
         Assert.Equal(
-            CompleteTypeDocumentInspectionRejection.TypeNotFound,
+            TypeDocumentInspectionRejection.TypeNotFound,
             missing.Reason);
 
         await library.RetireAsync();
     }
 
     private static InspectionEnvelope<
-            CompleteTypeDocumentInspectionOutcome>
+            TypeDocumentInspectionOutcome>
         Execute(
             LibraryInspectionTestLibrary library,
             MetadataTypeDefinitionName? type = null,
@@ -408,7 +408,7 @@ public sealed class CompleteTypeDocumentInspectionOperationTests
                 TypeMemberGroupReceiverFilter.All,
             bool includeHidden = false,
             ApiSurfaceExtractionBounds? bounds = null) =>
-        CompleteTypeDocumentInspectionOperation.Execute(
+        TypeDocumentInspectionOperation.Execute(
             new(
                 library.Reference,
                 new(
@@ -425,17 +425,17 @@ public sealed class CompleteTypeDocumentInspectionOperationTests
             TestContext.Current.CancellationToken);
 
     private static TypeDocument Available(
-        InspectionEnvelope<CompleteTypeDocumentInspectionOutcome>
+        InspectionEnvelope<TypeDocumentInspectionOutcome>
             envelope)
     {
         if (envelope.Content
-            is CompleteTypeDocumentInspectionOutcome.Failed failed)
+            is TypeDocumentInspectionOutcome.Failed failed)
         {
             Assert.Fail($"Complete Type document failed: {failed.Reason}.");
         }
 
         return Assert.IsType<
-                CompleteTypeDocumentInspectionOutcome.Available>(
+                TypeDocumentInspectionOutcome.Available>(
                 envelope.Content)
             .Document;
     }

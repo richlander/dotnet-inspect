@@ -91,6 +91,14 @@ public enum MethodDefinitionLayers
     /// It acquires no body and does not imply <see cref="ModuleLookup"/>.
     /// </summary>
     SemanticIdentity = 4096,
+
+    /// <summary>
+    /// Per-method call depth: IL-ordered call sites with resolved member
+    /// identity and typed target, plus local-signature and field-operand
+    /// resolution. It implies <see cref="Body"/> and
+    /// <see cref="CallTargets"/>.
+    /// </summary>
+    Calls = 8192,
 }
 
 /// <summary>
@@ -112,7 +120,12 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
         string? parameters = null)
         : base(identity, version, tier, dependencies, parameters)
     {
-        Layers = layers | MethodDefinitionLayers.Declaration;
+        Layers = layers.HasFlag(MethodDefinitionLayers.Calls)
+            ? layers
+                | MethodDefinitionLayers.Declaration
+                | MethodDefinitionLayers.Body
+                | MethodDefinitionLayers.CallTargets
+            : layers | MethodDefinitionLayers.Declaration;
     }
 
     /// <summary>The layers this producer may acquire; the declaration layer is always included.</summary>
@@ -718,6 +731,61 @@ public readonly ref struct MethodDefinitionView
         }
     }
 
+    /// <summary>
+    /// The unit's IL-ordered call sites with resolved member identity and typed
+    /// target, decoded once per physical MethodDef.
+    /// </summary>
+    internal MethodCallSites GetCalls(MethodInstructions instructions)
+    {
+        ArgumentNullException.ThrowIfNull(instructions);
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasCallsLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare Method call support.");
+        }
+
+        producer.CountUnit(
+            ref producer.LastCallsUnit,
+            Token,
+            ref producer.CallsUses);
+        return _unit.GetCalls(instructions);
+    }
+
+    /// <summary>The unit's decoded local-signature facts.</summary>
+    internal MethodLocalSignature GetLocalSignature()
+    {
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasCallsLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare Method call support.");
+        }
+
+        producer.CountUnit(
+            ref producer.LastCallsUnit,
+            Token,
+            ref producer.CallsUses);
+        return _unit.GetLocalSignature(GetBody());
+    }
+
+    /// <summary>The resolved identity and current-module status of a field operand.</summary>
+    internal MethodFieldOperand ResolveFieldOperand(int operandToken)
+    {
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasCallsLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare Method call support.");
+        }
+
+        producer.CountUnit(
+            ref producer.LastCallsUnit,
+            Token,
+            ref producer.CallsUses);
+        return _unit.ResolveFieldOperand(operandToken);
+    }
+
     /// <summary>Whether the unit has a managed IL body to acquire.</summary>
     internal bool HasManagedBody =>
         _unit.MethodDefinition.RelativeVirtualAddress != 0
@@ -951,10 +1019,27 @@ internal struct MethodDefinitionUnit(
     LibraryMethodAnalysisRunner? _lookup;
     MemorySafetyContractSupport? _memorySafety;
     SameModuleCallTargetSupport? _callTargets;
+    MethodCallMetadataSupport? _methodCalls;
     MethodSemanticIdentitySupport? _semanticIdentity;
     MethodSemanticIdentityResult? _semanticIdentityResult;
     MethodSemanticIdentityWork _semanticIdentityWork;
     MethodDefinitionSourceCoverageBuilder? _semanticIdentityReadBy;
+    MethodCallSites? _calls;
+    MethodCallMetadataWork _callsWork =
+        MethodCallMetadataWork.Empty;
+    ImmutableArray<SameModuleCallTargetWork> _callTargetWork;
+    MethodDefinitionSourceCoverageBuilder? _callsReadBy;
+    MethodLocalSignature? _localSignature;
+    MethodCallMetadataWork _localSignatureWork =
+        MethodCallMetadataWork.Empty;
+    MethodDefinitionSourceCoverageBuilder? _localSignatureReadBy;
+    Dictionary<
+        int,
+        (
+            MethodFieldOperand Operand,
+            MethodCallMetadataWork Work,
+            MethodDefinitionSourceCoverageBuilder? ReadBy
+        )>? _fieldOperands;
     MethodRowGate? _gate;
     bool _positionsRequestOnMove;
     MethodBodyBlock? _body;
@@ -1006,6 +1091,7 @@ internal struct MethodDefinitionUnit(
         LibraryMethodAnalysisRunner? lookup,
         MemorySafetyContractSupport? memorySafety,
         SameModuleCallTargetSupport? callTargets,
+        MethodCallMetadataSupport? methodCalls,
         MethodSemanticIdentitySupport? semanticIdentity,
         MethodDefinitionSourceCoverageBuilder sourceCoverage,
         int ordinal)
@@ -1016,6 +1102,7 @@ internal struct MethodDefinitionUnit(
         _lookup = lookup;
         _memorySafety = memorySafety;
         _callTargets = callTargets;
+        _methodCalls = methodCalls;
         _semanticIdentity = semanticIdentity;
         _requestSourceCoverage = sourceCoverage;
         Ordinal = ordinal;
@@ -1059,6 +1146,14 @@ internal struct MethodDefinitionUnit(
         _semanticIdentityResult = null;
         _semanticIdentityWork = MethodSemanticIdentityWork.Empty;
         _semanticIdentityReadBy = null;
+        _calls = null;
+        _callsWork = MethodCallMetadataWork.Empty;
+        _callTargetWork = default;
+        _callsReadBy = null;
+        _localSignature = null;
+        _localSignatureWork = MethodCallMetadataWork.Empty;
+        _localSignatureReadBy = null;
+        _fieldOperands = null;
         _physicalSourceCoverage.RecordMethodSelected(methodHandle);
         if (_positionsRequestOnMove)
         {
@@ -1144,6 +1239,225 @@ internal struct MethodDefinitionUnit(
         }
 
         return _semanticIdentityResult;
+    }
+
+    public MethodCallSites GetCalls(MethodInstructions instructions)
+    {
+        if (_calls is null)
+        {
+            MethodCallMetadataLookup calls =
+                BeginMethodCallQuery(out MethodCallMetadataWork before);
+            ImmutableArray<MethodCallOperandSite> operands;
+            try
+            {
+                operands = calls.ReadCalls(
+                    TypeDefinition,
+                    MethodDefinition,
+                    instructions);
+            }
+            finally
+            {
+                _callsWork = calls.RecordedWork.Since(before);
+                EndMethodCallQuery(
+                    calls,
+                    before,
+                    callReads: 1,
+                    localSignatureReads: 0,
+                    fieldOperandReads: 0);
+            }
+
+            var targetWork =
+                ImmutableArray.CreateBuilder<SameModuleCallTargetWork>(
+                    operands.Length);
+            var sites =
+                ImmutableArray.CreateBuilder<MethodCallSite>(
+                    operands.Length);
+            if (!operands.IsEmpty)
+            {
+                SameModuleCallTargetLookup targets =
+                    BeginCallTargetQuery(out _);
+                foreach (MethodCallOperandSite operand in operands)
+                {
+                    SameModuleCallTargetWork targetBefore =
+                        targets.RecordedWork;
+                    MethodCallTarget target;
+                    SameModuleCallTargetWork work;
+                    try
+                    {
+                        target = targets.Resolve(
+                            MethodHandle,
+                            operand.Kind,
+                            operand.OperandToken);
+                    }
+                    finally
+                    {
+                        work =
+                            targets.RecordedWork.Since(targetBefore);
+                        EndCallTargetQuery(targets, targetBefore);
+                    }
+                    targetWork.Add(work);
+                    sites.Add(
+                        new(
+                            operand.ILOffset,
+                            operand.ReturnAddress,
+                            operand.OperandToken,
+                            operand.Kind,
+                            operand.Callee,
+                            target));
+                }
+            }
+
+            _callTargetWork = targetWork.MoveToImmutable();
+            _calls = new(sites.MoveToImmutable());
+        }
+        else
+        {
+            _physicalSourceCoverage.RecordMethodCallQuery(
+                MethodHandle,
+                MethodCallMetadataWork.Empty,
+                callReads: 1,
+                localSignatureReads: 0,
+                fieldOperandReads: 0);
+            if (_requestSourceCoverage is { } request
+                && !ReferenceEquals(request, _physicalSourceCoverage))
+            {
+                bool firstRequestRead =
+                    !ReferenceEquals(request, _callsReadBy);
+                request.RecordMethodCallQuery(
+                    MethodHandle,
+                    firstRequestRead
+                        ? _callsWork
+                        : MethodCallMetadataWork.Empty,
+                    callReads: 1,
+                    localSignatureReads: 0,
+                    fieldOperandReads: 0);
+                if (firstRequestRead)
+                {
+                    foreach (SameModuleCallTargetWork work
+                        in _callTargetWork)
+                    {
+                        request.RecordCallTargetQuery(
+                            MethodHandle,
+                            work);
+                    }
+                }
+            }
+        }
+
+        _callsReadBy = _requestSourceCoverage;
+        return _calls;
+    }
+
+    public MethodLocalSignature GetLocalSignature(MethodBodyBlock body)
+    {
+        if (_localSignature is null)
+        {
+            MethodCallMetadataLookup calls =
+                BeginMethodCallQuery(out MethodCallMetadataWork before);
+            try
+            {
+                _localSignature = calls.ReadLocalSignature(
+                    TypeDefinition,
+                    MethodDefinition,
+                    body);
+            }
+            finally
+            {
+                _localSignatureWork =
+                    calls.RecordedWork.Since(before);
+                EndMethodCallQuery(
+                    calls,
+                    before,
+                    callReads: 0,
+                    localSignatureReads: 1,
+                    fieldOperandReads: 0);
+            }
+        }
+        else
+        {
+            _physicalSourceCoverage.RecordMethodCallQuery(
+                MethodHandle,
+                MethodCallMetadataWork.Empty,
+                callReads: 0,
+                localSignatureReads: 1,
+                fieldOperandReads: 0);
+            if (_requestSourceCoverage is { } request
+                && !ReferenceEquals(request, _physicalSourceCoverage))
+            {
+                request.RecordMethodCallQuery(
+                    MethodHandle,
+                    ReferenceEquals(
+                        request,
+                        _localSignatureReadBy)
+                        ? MethodCallMetadataWork.Empty
+                        : _localSignatureWork,
+                    callReads: 0,
+                    localSignatureReads: 1,
+                    fieldOperandReads: 0);
+            }
+        }
+
+        _localSignatureReadBy = _requestSourceCoverage;
+        return _localSignature;
+    }
+
+    public MethodFieldOperand ResolveFieldOperand(int operandToken)
+    {
+        _fieldOperands ??= [];
+        if (!_fieldOperands.TryGetValue(
+                operandToken,
+                out var cached))
+        {
+            MethodCallMetadataLookup calls =
+                BeginMethodCallQuery(out MethodCallMetadataWork before);
+            MethodFieldOperand operand;
+            MethodCallMetadataWork work;
+            try
+            {
+                operand = calls.ResolveField(
+                    TypeDefinition,
+                    MethodDefinition,
+                    operandToken);
+            }
+            finally
+            {
+                work = calls.RecordedWork.Since(before);
+                EndMethodCallQuery(
+                    calls,
+                    before,
+                    callReads: 0,
+                    localSignatureReads: 0,
+                    fieldOperandReads: 1);
+            }
+            cached = (operand, work, _requestSourceCoverage);
+            _fieldOperands.Add(operandToken, cached);
+            return operand;
+        }
+
+        _physicalSourceCoverage.RecordMethodCallQuery(
+            MethodHandle,
+            MethodCallMetadataWork.Empty,
+            callReads: 0,
+            localSignatureReads: 0,
+            fieldOperandReads: 1);
+        if (!ReferenceEquals(
+                _requestSourceCoverage,
+                _physicalSourceCoverage))
+        {
+            _requestSourceCoverage?.RecordMethodCallQuery(
+                MethodHandle,
+                ReferenceEquals(
+                    _requestSourceCoverage,
+                    cached.ReadBy)
+                    ? MethodCallMetadataWork.Empty
+                    : cached.Work,
+                callReads: 0,
+                localSignatureReads: 0,
+                fieldOperandReads: 1);
+        }
+        _fieldOperands[operandToken] =
+            (cached.Operand, cached.Work, _requestSourceCoverage);
+        return cached.Operand;
     }
 
     public MethodBodyData GetBodyData()
@@ -1258,6 +1572,58 @@ internal struct MethodDefinitionUnit(
             _requestSourceCoverage?.RecordCallTargetQuery(
                 MethodHandle,
                 work);
+        }
+    }
+
+    MethodCallMetadataLookup BeginMethodCallQuery(
+        out MethodCallMetadataWork before)
+    {
+        MethodCallMetadataSupport support =
+            _methodCalls ?? throw new InvalidOperationException(
+                "Method call support was not declared by any planned "
+                + "producer.");
+        MethodCallMetadataLookup lookup =
+            support.Acquire(out bool constructed);
+        if (constructed)
+        {
+            _physicalSourceCoverage.RecordMethodCallConstruction();
+            if (!ReferenceEquals(
+                    _requestSourceCoverage,
+                    _physicalSourceCoverage))
+            {
+                _requestSourceCoverage?.RecordMethodCallConstruction();
+            }
+        }
+
+        before = lookup.RecordedWork;
+        return lookup;
+    }
+
+    void EndMethodCallQuery(
+        MethodCallMetadataLookup lookup,
+        MethodCallMetadataWork before,
+        int callReads,
+        int localSignatureReads,
+        int fieldOperandReads)
+    {
+        MethodCallMetadataWork work =
+            lookup.RecordedWork.Since(before);
+        _physicalSourceCoverage.RecordMethodCallQuery(
+            MethodHandle,
+            work,
+            callReads,
+            localSignatureReads,
+            fieldOperandReads);
+        if (!ReferenceEquals(
+                _requestSourceCoverage,
+                _physicalSourceCoverage))
+        {
+            _requestSourceCoverage?.RecordMethodCallQuery(
+                MethodHandle,
+                work,
+                callReads,
+                localSignatureReads,
+                fieldOperandReads);
         }
     }
 

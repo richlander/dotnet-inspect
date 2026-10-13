@@ -1639,11 +1639,28 @@ canaries:
   immediately into `DotnetInspector.LibraryMetadata` values while
   `ILInspector.Metadata` remains the semantic vocabulary owner. The Browser
   Library facade therefore lowers exact-Library documents without a project or
-  compiled reference to either Metadata assembly.
+  compiled reference to either Metadata assembly. Its typed operation and
+  positive dependency ceilings own product semantics, so its compiler ban
+  input retains only runtime platform hazards.
 - Web Core's Platform-forwarder navigation projects forwarder display fields
   and ordered resolution routes into caller-shaped Browser values. The Package
   facade preserves the generated wire contract without referencing Metadata
   identities or structured Type names.
+- Web Core owns package and Platform scope realization and operation lifetime.
+  Package Queries, Queries, Sections, Services, Ecosystems, Packages, and
+  Presentation own the acquisition, query, activity, vulnerability,
+  documentation, capability, ranking, and result semantics that the Package
+  facade adapts. Its typed paths and positive dependency ceilings therefore
+  own product semantics, and its compiler ban input retains only runtime
+  platform hazards.
+- Web Core owns package, Platform, retained-workspace, and uploaded-Library
+  scope and member-resolution lifetime. Queries owns metadata roots, tables,
+  heaps, exact selection, and graph-member projection; Sections and
+  LibraryMetadata own bounded Type and Member documents and populations;
+  CSharp owns declaration rendering; Research queries and sections own Library
+  comparison semantics. The Metadata facade adapts those owner-issued values,
+  and its typed paths plus positive dependency ceilings own product semantics,
+  so its compiler ban input retains only runtime platform hazards.
 - Web Core's direct project and emitted assembly dependencies are separate
   positive ceilings. They admit the owner-issued package, Platform, workspace,
   query, presentation, call-graph, Metadata identity, and source-acquisition
@@ -1655,7 +1672,11 @@ canaries:
   caller-shaped candidates in Queries. Web Core carries only the projected
   Browser surface and a portable exact Library identity to Catalog; Catalog
   does not independently invoke Metadata member resolution or unwrap Metadata
-  assembly identities.
+  assembly identities. Catalog composes immutable product vocabulary
+  declarations from their owners, including Decompiler declaration factories,
+  without executing Decompiler producers. Its typed paths and positive
+  dependency ceilings therefore own product semantics, and its compiler ban
+  input retains only runtime platform hazards.
 - PDB source inspections project resolved and attributable browse URLs as
   detached Services-owned values. The Browser Source facade preserves those
   values without interpreting SourceLink documents, and its positive project

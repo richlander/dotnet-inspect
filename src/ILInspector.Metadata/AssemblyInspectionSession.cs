@@ -622,6 +622,36 @@ public sealed class AssemblyInspectionSession :
             typesOnly);
 
     /// <summary>
+    /// Projects one exact TypeDef's declared API without decoding unrelated
+    /// Types or attaching receiver-contextual extension methods.
+    /// </summary>
+    public ApiSurface ApiTypeSurface(
+        ApiSurfaceExtractionScope scope,
+        int typeDefinitionToken)
+    {
+        _image.EnsureAlive();
+        int row = typeDefinitionToken & 0x00FFFFFF;
+        MetadataReader reader = _image.GetMetadataReader();
+        if ((typeDefinitionToken & unchecked((int)0xFF000000))
+                != 0x02000000
+            || row == 0
+            || row > reader.TypeDefinitions.Count)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(typeDefinitionToken),
+                typeDefinitionToken,
+                "The selected metadata token is not a TypeDef in this image.");
+        }
+
+        TypeDefinitionHandle selected =
+            MetadataTokens.TypeDefinitionHandle(row);
+        return ApiSurfaceExtractor.ExtractDeclarations(
+            _image.PEReader,
+            scope,
+            type => type == selected);
+    }
+
+    /// <summary>
     /// Executes a metadata-native Member accepted-row fold without constructing
     /// a complete API surface.
     /// </summary>

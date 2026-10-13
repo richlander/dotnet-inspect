@@ -18,7 +18,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         {
             opportunities.Add(new OptimizationOpportunity(
                 asyncSource,
-                "sync-call-in-async",
+                AnalysisFindings.SyncCallInAsyncShape,
                 $"{LibraryBodyAsyncSiblingSignatureMatcher.FormatMember(
                     call.Callee)} is called from an async method; "
                     + $"{LibraryBodyAsyncSiblingSignatureMatcher.FormatMember(
