@@ -29,13 +29,13 @@ public sealed class ExactLibraryWorkspaceRouteTests
         new("test", SourceUrl);
 
     [Fact]
-    public async Task EligibleListingUsesInjectedPackageHouse()
+    public async Task EligibleExtensionlessPathUsesInjectedPackageHouse()
     {
         var store = await CachedStoreAsync();
         var options = new TypeOptions
         {
             PackagePath = $"{PackageId}@{Version}",
-            AssemblyPath = Library,
+            AssemblyPath = $"ref/{Framework}/{Library[..^4]}",
             Tfm = Framework,
             CompanionOutput = CompanionOutput.None,
         };
