@@ -129,6 +129,76 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
+    public async Task DiscoverOutput_LegacyTreeSelectionRegroupsSemanticRows()
+    {
+        var schema = new DocumentSchema()
+            .Add("First", "column", "A", "B")
+            .Add("Second", "column", "C", "D");
+        DiscoveryOutputRequest request =
+            DiscoveryOutputRequest.Create(
+                OutputFormat.Markdown,
+                tree: true) with
+            {
+                Rows = RowWindow.Range(2, 3),
+            };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(
+                ["First", "Second"],
+                schema,
+                request)));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(
+            """
+            ├─ First
+            │  └─ B (column)
+            └─ Second
+               └─ C (column)
+
+            """.ReplaceLineEndings(),
+            output);
+    }
+
+    [Fact]
+    public async Task DiscoverOutput_LegacyCatalogKeepsRootAndCostOrdering()
+    {
+        var schema = new DocumentSchema()
+            .Add("Regular", "column", "Name")
+            .Add("Optional", "column", "Value");
+        DiscoveryOutputRequest request =
+            DiscoveryOutputRequest.Create(
+                OutputFormat.Markdown,
+                tree: true);
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(
+                discover: [],
+                schema,
+                request,
+                rootLabel: "Library",
+                sectionCostAnnotations:
+                    new Dictionary<string, string>
+                    {
+                        ["Optional"] = "opt-in",
+                    })));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(
+            """
+            └─ Library
+               ├─ Regular
+               │  └─ Name (column)
+               └─ Optional (opt-in)
+                  └─ Value (column)
+
+            """.ReplaceLineEndings(),
+            output);
+    }
+
+    [Fact]
     public void CountProjection_CapturesTableRowsBySection()
     {
         var projection = CountProjectionFormatter.Capture(writer =>
