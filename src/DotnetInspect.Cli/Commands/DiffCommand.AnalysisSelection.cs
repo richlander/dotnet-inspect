@@ -626,25 +626,33 @@ public partial class DiffCommand
         DiffOptions options,
         DiffAnalysisPlan plan)
     {
+        // A package endpoint scope has no extracted files; it serves only
+        // analysis sets that read the API surface, which take no paths.
         AnalysisSetRun run = RunAnalysisSet(
             inputs.Name,
-            inputs.FromPaths,
-            inputs.ToPaths,
+            inputs.From.PackageScope is null ? inputs.FromPaths : [],
+            inputs.To.PackageScope is null ? inputs.ToPaths : [],
             inputs.FromSurface,
             inputs.ToSurface,
             inputs.FromVersion,
             inputs.ToVersion,
             options,
             plan);
-        return WriteAnalysisSet(
+        int written = WriteAnalysisSet(
             inputs.Name,
             inputs.FromSurface,
             inputs.ToSurface,
-            inputs.FromVersion,
-            inputs.ToVersion,
+            inputs.FromLabel,
+            inputs.ToLabel,
             options,
             plan,
             run);
+        return PublishAcquisitionEvidence(
+            inputs,
+            options,
+            run.Inspection,
+            DiffAnalysisOutput.JsonContract,
+            written);
     }
 
     /// <summary>

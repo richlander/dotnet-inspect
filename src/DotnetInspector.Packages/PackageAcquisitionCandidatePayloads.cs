@@ -449,15 +449,13 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             foreach (var (authority, client, store) in entries)
             {
                 operation.ThrowIfExpired();
-                // Size first: with ranged access on a source that can serve
-                // ranges, the complete fetch is abandoned before its body when
-                // the archive is above the cut, and the archive is read by
-                // range instead (docs/design/package-cache-policy.md).
+                // A useful directory read establishes size before acquisition policy.
+                // Non-range sources and invalid retained state still take the
+                // ordinary complete acquisition.
                 IPackageArchiveRangeSource? rangedSource =
                     rangedRead is not null
                         ? client as IPackageArchiveRangeSource
                         : null;
-                long? sizeGate = rangedSource is null ? null : rangedRead!.SizeCut;
                 entryStates.TryGetValue(authority, out EntryCacheState? cachedState);
                 if (cachedState is { Invalid: true })
                 {
@@ -466,11 +464,10 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                     // then on.
                     cachedState.Reservation?.Dispose();
                     rangedSource = null;
-                    sizeGate = null;
                 }
                 // A cached directory already records the archive's length, so
                 // the missing entries are read by range with no size probe.
-                bool rangedFirst = rangedSource is not null && cachedState is not null;
+                bool rangedFirst = rangedSource is not null;
                 PackageTransferFallbackReason? fallback = null;
                 bool nextAuthority = false;
                 while (!nextAuthority)
@@ -493,33 +490,18 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                                 log,
                                 limits,
                                 transferPolicy,
-                                transfer,
-                                abandonAbove: sizeGate).ConfigureAwait(false);
+                                transfer).ConfigureAwait(false);
                             operation.ThrowIfExpired();
                             RequireAuthority(client.Source, authority);
                         }
-                        if (rangedFirst
-                            || result is PackageSourcePayloadResult.Oversized)
+                        if (rangedFirst)
                         {
-                            if (result is PackageSourcePayloadResult.Oversized oversized)
-                            {
-                                log?.Invoke(
-                                    $"{candidate.Coordinate.PackageId} {candidate.Coordinate.Version} "
-                                    + $"is {oversized.AdvertisedLength} bytes, above the "
-                                    + $"{rangedRead!.SizeCut}-byte cut; reading it by range.");
-                            }
                             rangedFirst = false;
-                            sizeGate = null;
                             var requestLog = new PackageArchiveRequestLog();
                             RangedAttempt attempt;
                             try
                             {
-                                long? knownArchiveLength =
-                                    result
-                                        is PackageSourcePayloadResult.Oversized
-                                            known
-                                        ? known.AdvertisedLength
-                                        : cachedState?.Directory.ArchiveLength;
+                                long? knownArchiveLength = cachedState?.Directory.ArchiveLength;
                                 attempt = await TryAcquireRangedAsync(
                                     rangedSource!,
                                     client,
@@ -533,7 +515,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                                     knownArchiveLength,
                                     store as IPackageEntryStore,
                                     cachedState,
-                                    transferPolicy as IPackageRangedContentPolicy).ConfigureAwait(false);
+                                    transferPolicy as IPackageRangedContentPolicy,
+                                    store, transferPolicy).ConfigureAwait(false);
                             }
                             finally
                             {
@@ -553,7 +536,9 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                                         selectedAuthorities,
                                         selectionUsesOriginalSources,
                                         transfer: transfer.Issue(
-                                            PackageTransferPath.Ranged));
+                                            attempt.Payload!.Origin == PackagePayloadOrigin.Download
+                                                ? PackageTransferPath.CompletedByRanges
+                                                : PackageTransferPath.Ranged));
                                 case RangedOutcome.NotFound:
                                     notFoundAuthorities.Add(authority);
                                     break;
@@ -736,9 +721,11 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         Action<string>? log,
         PackageArchiveRequestLog requestLog,
         long? knownArchiveLength,
-        IPackageEntryStore? entryStore = null,
-        EntryCacheState? cachedState = null,
-        IPackageRangedContentPolicy? contentPolicy = null)
+        IPackageEntryStore? entryStore,
+        EntryCacheState? cachedState,
+        IPackageRangedContentPolicy? contentPolicy,
+        IPackageStore completeStore,
+        IPackagePayloadTransferPolicy? transferPolicy)
     {
         InertString display = PackageSourceDisplay.ForDiagnostics(authority.Source);
         if (entryStore is { KeepsEntries: false })
@@ -772,7 +759,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             if (TryGetDirectoryEntries(
                     reader.Directory,
                     limits,
-                    out IReadOnlyList<PackageContentEntry> entries)
+                    out IReadOnlyList<PackageContentEntry> entries,
+                    out IReadOnlyList<PackageContentEntry> directoryEntries)
                 is { } directoryProblem)
             {
                 return new(
@@ -785,10 +773,37 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                         ResultSource = client.Source,
                     });
             }
+            if (cachedState is null && reader.Directory.ArchiveLength <= rangedRead.SizeCut)
+            {
+                PackageArchiveReadResult<byte[]>? complete = null;
+                IPackageContent? admitted = await PackagePayloadAcquisition.TryAdmitAsync(
+                    Stream.Null, reader.Directory.ArchiveLength,
+                    coordinate, client.Source.Producer.Key, display.ToString(),
+                    completeStore, log, limits, transferPolicy,
+                    operation.CancellationToken, operation.OperationToken,
+                    materializeArchive: async token =>
+                    {
+                        complete = await reader.ReadCompleteAsync(token).ConfigureAwait(false);
+                        return complete.Value;
+                    }).ConfigureAwait(false);
+                if (admitted is null)
+                {
+                    if (complete is { Value: null })
+                        return ClassifyRanged(complete.Refusal, complete.Failure,
+                            authority, client, "completing the archive prefix", log);
+                    return new(RangedOutcome.Failed, Failure: new PackageAuthorityFailure(
+                        display, PackageAuthorityFailureKind.ResponseRejected,
+                        "The completed archive did not satisfy payload admission."));
+                }
+                return new(RangedOutcome.Acquired, new AcquiredPackageSourcePayload(
+                    coordinate, admitted, client.Source.Producer.Key,
+                    client.Source.Producer, PackagePayloadOrigin.Download));
+            }
             string producerKey = client.Source.Producer.Key;
             RangedPackageContent directory =
                 RangedPackageContent.CreateDirectory(entries, producerKey, reader.Directory.ArchiveLength,
-                    PackageArchiveDirectories.FromPaths(reader.Directory.Entries.Select(entry => entry.Name)));
+                    PackageArchiveDirectories.FromPaths(reader.Directory.Entries.Select(entry => entry.Name)),
+                    directoryEntries);
             PackageRangedPlan plan = PackageEntryBlocks.PlanSelection(
                 reader.Directory,
                 rangedRead.SelectEntries(directory)
@@ -1002,7 +1017,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         if (TryGetDirectoryEntries(
                 directory,
                 limits,
-                out IReadOnlyList<PackageContentEntry> entries)
+                out IReadOnlyList<PackageContentEntry> entries,
+                out IReadOnlyList<PackageContentEntry> directoryEntries)
             is { } directoryProblem)
         {
             log?.Invoke(
@@ -1013,7 +1029,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
 
         RangedPackageContent directoryView =
             RangedPackageContent.CreateDirectory(entries, producerKey, directory.ArchiveLength,
-                PackageArchiveDirectories.FromPaths(directory.Entries.Select(entry => entry.Name)));
+                PackageArchiveDirectories.FromPaths(directory.Entries.Select(entry => entry.Name)),
+                directoryEntries);
         // An anchor requires its whole aligned block: a block is present when
         // all of its entries are, so a warm read naming a neighbour in a
         // cached block makes no request.
@@ -1153,11 +1170,13 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
     private static string? TryGetDirectoryEntries(
         ZipDirectory directory,
         PackagePayloadLimits limits,
-        out IReadOnlyList<PackageContentEntry> entries)
+        out IReadOnlyList<PackageContentEntry> entries,
+        out IReadOnlyList<PackageContentEntry> directoryEntries)
     {
         var admission = new PackageArchiveDirectoryAdmission(limits);
         var admitted = new List<PackageContentEntry>(
             directory.Entries.Count);
+        var admittedDirectories = new List<PackageContentEntry>();
         foreach (ZipEntry entry in directory.Entries)
         {
             if (admission.TryAdd(
@@ -1166,17 +1185,25 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                     out bool isDirectory) is { } admissionProblem)
             {
                 entries = [];
+                directoryEntries = [];
                 return admissionProblem;
             }
-            if (!isDirectory)
+            var admittedEntry =
+                new PackageContentEntry(
+                    entry.Name,
+                    entry.ExpandedLength,
+                    entry.LastWriteTime);
+            if (isDirectory)
             {
-                admitted.Add(
-                    new PackageContentEntry(
-                        entry.Name,
-                        entry.ExpandedLength));
+                admittedDirectories.Add(admittedEntry);
+            }
+            else
+            {
+                admitted.Add(admittedEntry);
             }
         }
         entries = admitted.AsReadOnly();
+        directoryEntries = admittedDirectories.AsReadOnly();
         return null;
     }
 

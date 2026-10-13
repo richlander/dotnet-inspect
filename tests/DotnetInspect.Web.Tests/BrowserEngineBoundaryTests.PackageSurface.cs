@@ -239,6 +239,33 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void PackageDocumentHtml_ContainsBidiAfterStructuralSanitization()
+    {
+        const string html =
+            "<p>https://api.\u202Etegun\u202C.org</p>"
+            + "<pre>literal \\u202E</pre>";
+
+        BrowserPackageDocumentHtml document =
+            BrowserPackageWireProjection.ProjectDocumentHtml(html);
+        string contained = document.Html.ToString();
+
+        Assert.Equal(
+            "<p>https://api.\\u202Etegun\\u202C.org</p>"
+            + "<pre>literal \\\\u202E</pre>",
+            contained);
+        Assert.DoesNotContain('\u202E', contained);
+        Assert.DoesNotContain('\u202C', contained);
+
+        string json = JsonSerializer.Serialize(
+            document,
+            BrowserPackageJsonContext.Default.BrowserPackageDocumentHtml);
+        using JsonDocument parsed = JsonDocument.Parse(json);
+        JsonElement htmlProperty = parsed.RootElement.GetProperty("html");
+        Assert.Equal(JsonValueKind.String, htmlProperty.ValueKind);
+        Assert.Equal(contained, htmlProperty.GetString());
+    }
+
+    [Fact]
     public async Task
         QueryMemberDocumentation_DottedAssemblyNameUsesSharedContract()
     {
@@ -908,7 +935,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 StringComparison.Ordinal);
         }
         Assert.Equal(requests, handler.Requested.Count);
-        Assert.Equal(1, handler.OrdinaryPackageResponses);
+        Assert.Equal(0, handler.OrdinaryPackageResponses);
         Assert.True(handler.RangedPackageResponses > 0);
         Assert.True(
             handler.PackageBytesServed < 512 * 1024,

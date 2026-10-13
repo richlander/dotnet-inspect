@@ -1182,10 +1182,6 @@ public partial class PackageCommand
         if (packageFileInventoryExitCode is { } inventoryExitCode)
             return inventoryExitCode;
 
-        string? extractPath = null;
-        PackageExtractionResult? resolution = null;
-        InspectionResult? observedInspection = null;
-
         if (!TryCreatePackageInfoTargetContext(
                 options,
                 producerOptions,
@@ -1194,6 +1190,25 @@ public partial class PackageCommand
         {
             return 1;
         }
+
+        if (preResolved is null)
+        {
+            int? packageInfoInventoryExitCode =
+                await TryExecutePackageInfoInventoryAsync(
+                        target,
+                        options,
+                        producerOptions,
+                        context,
+                        pipeline,
+                        packageInfoTargetContext)
+                    .ConfigureAwait(false);
+            if (packageInfoInventoryExitCode is { } infoInventoryExitCode)
+                return infoInventoryExitCode;
+        }
+
+        string? extractPath = null;
+        PackageExtractionResult? resolution = null;
+        InspectionResult? observedInspection = null;
 
         try
         {

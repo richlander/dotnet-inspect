@@ -44,6 +44,7 @@ type PackageOperationName =
   | "openPlatformForwarderView"
   | "classifyEcosystemPackages"
   | "classifyPackageGraphIdentities"
+  | "containPackageDocumentHtml"
   | "getPlatformCatalog"
   | "getPlatformVersions"
   | "matchPackageDependencyCoordinate"
@@ -1199,6 +1200,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<PackageFacade["getPackageDocument"]>
       ) => facades.package.getPackageDocument(...args),
+    ),
+    containPackageDocumentHtml: valueOperation(
+      "ordinary-package-contain-document-html",
+      1,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["containPackageDocumentHtml"]>
+      ) => facades.package.containPackageDocumentHtml(...args),
     ),
     queryMemberDocumentation: valueOperation(
       "ordinary-package-query-member-documentation",
@@ -2491,6 +2500,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       getPackageDocument: bind(
         engineWorkerOrdinaryOperations.package.getPackageDocument,
+      ),
+      containPackageDocumentHtml: bind(
+        engineWorkerOrdinaryOperations.package.containPackageDocumentHtml,
       ),
       queryMemberDocumentation: bind(
         engineWorkerOrdinaryOperations.package.queryMemberDocumentation,

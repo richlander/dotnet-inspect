@@ -62,8 +62,9 @@ been relying on that."
 The receipt answers one evidence question: **did this acquisition take the
 intended path, and what did it transfer?** It distinguishes plausible wrong
 executions that the ordinary Content cannot: a complete download where a
-ranged read was intended, a ranged read that fell back, a size probe that was
-not abandoned, and a coordinate acquired twice in one invocation.
+ranged read was intended, a ranged read that fell back, and a coordinate
+acquired twice in one invocation. It also distinguishes complete archives
+assembled from ranges from complete GET transfers.
 
 ## Contract
 
@@ -75,6 +76,8 @@ A `PackageTransferReceipt` names:
   - `Cache`: a complete payload from a cache, with no request;
   - `Download`: one complete transfer;
   - `Ranged`: a ranged read;
+  - `CompletedByRanges`: a complete archive assembled from its retained ZIP
+    directory region and the missing prefix, without a complete GET;
   - `RangedThenDownload`: a ranged read that fell back to a complete transfer,
     with a typed fallback reason;
   - `EntryCache`: a ranged read the
@@ -82,9 +85,10 @@ A `PackageTransferReceipt` names:
     with no request.
 - **The requests**, in issue order. Each request records:
   - its **purpose**: `Complete`, `DirectoryTail`, `DirectoryHead`,
-    `EntrySpan`, or `SizeProbe`, the complete request that
-    [size first](package-cache-policy.md#size-first) abandons once its
-    advertised length is above the cut;
+    `EntrySpan`, or `CompletePrefix`, which retrieves the bytes preceding the
+    retained directory region under the
+    [directory-first policy](package-cache-policy.md#directory-first).
+    `SizeProbe` remains a historical classification; this policy emits none;
   - the **requested range**, absent for a complete request;
   - its **outcome**: `Completed`, `Abandoned`, `RangeIgnored`, `Refused`,
     `NotFound`, or `Failed`;
@@ -98,7 +102,10 @@ receipt that carries it.
 
 The request list is bounded by the ranged reader's own limits: one tail read,
 at most one directory read, and at most one span per selected entry, which
-the archive's entry-count limit bounds. A complete transfer is one request.
+the archive's entry-count limit bounds. A complete GET is one request.
+Directory-first completion can use an
+additional `CompletePrefix` request; a tiny archive already contained in the
+directory region needs none.
 A receipt whose request list would exceed 256 entries keeps the first 256 and
 records that it was truncated, with the full totals.
 
@@ -119,8 +126,8 @@ input: the receipt is owner-issued, not reconstructed from ambient events.
 
 `PackageHouseAcquisitionReceipt` carries the transfer receipt beside the
 origin it already records. Its origin and the receipt's path agree: `Cache`
-with `Cache` or `EntryCache`, `Download` with `Download` or
-`RangedThenDownload`, and `Ranged` with `Ranged`.
+with `Cache` or `EntryCache`, `Download` with `Download`,
+`CompletedByRanges`, or `RangedThenDownload`, and `Ranged` with `Ranged`.
 
 Every acquisition through the House has a receipt. Legacy acquisition paths
 that bypass the House, such as the platform pack service, issue none; their
@@ -174,14 +181,15 @@ serializer.
 | --- | --- | --- |
 | 1. Complete download | path `Download`; one `Complete` request, `Completed`; bytes received equals the archive length | contract suite |
 | 2. Cached payload | path `Cache`; no requests | contract suite |
-| 3. Ranged read | path `Ranged`; the abandoned `SizeProbe`, a `DirectoryTail` request, then one `EntrySpan` per span, each with its requested range and bytes received | contract suite, real asset `PCLStorage` 1.0.2 |
+| 3. Ranged read | path `Ranged`; a `DirectoryTail` request, an optional `DirectoryHead`, then one `EntrySpan` per span, each with its requested range and bytes received | contract suite, real asset `PCLStorage` 1.0.2 |
+| 3c. Directory-first completion at or below the cut | path `CompletedByRanges`; directory requests followed by `CompletePrefix` when needed, total bytes equal the archive length; no `SizeProbe` or complete GET | `PackageRangedRealizationTests` cutoff and reconstruction gates |
 | 3a. A read the entry cache answers in full | path `EntryCache`; no requests | `PackageRangedRealizationTests.EntryCache_WarmReadOfTheSameSelection_MakesNoRequest` |
 | 3b. A read with a cached directory and a missing entry | path `Ranged`; only the missing entry's `EntrySpan`, with no `SizeProbe` or `DirectoryTail` | `PackageRangedRealizationTests.EntryCache_WarmReadMissingAnEntry_ReadsOnlyThatEntry` |
 | 4. A server that ignores `Range` | path `RangedThenDownload` with reason `RangeIgnored`; the ignored request, then one `Complete` request | contract suite |
 | 5. A refused credential | no fallback request; the refused request is recorded | contract suite |
 | 6. The House acquisition receipt | its origin agrees with the transfer receipt's path | contract suite |
 | 7. More requests than the bound | the first 256 kept, marked truncated, totals complete | contract suite |
-| 8. Debug evidence delivery | `diff --history --evidence-envelope` lists each acquisition with its receipt; the ordinary output is unchanged | evidence and serializer: contract suite; delivery: CLI harness, Debug |
+| 8. Debug evidence delivery | `diff --history --evidence-envelope`, and a pairwise `diff --package` Library API Diff or API analysis set with `--evidence-envelope`, list each acquisition with its receipt; the ordinary output is unchanged; a pairwise request shape without a baseline envelope refuses the option before any package read, and a Library API Diff request whose endpoints are not one Library each refuses it after acquisition with no output and no sidecar | evidence and serializer: contract suite; delivery: CLI harness, Debug |
 | 9. Retired flags | `--info` and `--trace-mermaid` are rejected as unknown options | CLI harness |
 
 ## Adoption
@@ -208,6 +216,21 @@ serializer.
    package Root acquisition moves onto the House.
 5. Inspect Web delivers receipts through its existing evidence export when it
    adopts package evidence.
+6. Pairwise `diff --package` delivers the evidence for its views whose
+   baseline envelopes exist, Library API Diff and API analysis sets, once
+   their endpoints open through the
+   [package endpoint scope](package-endpoint-scope.md#adoption), step 4
+   part 2. The evidence lists the before endpoint's acquisition, then the
+   after endpoint's. A request shape with no baseline envelope, such as a
+   member target or a section other than Changes, refuses the option before
+   any package read. A Library API Diff request whose endpoints turn out not
+   to be one Library each has the merged API changes view instead, which has
+   no baseline envelope; it refuses the option after acquisition, with no
+   output and no sidecar, and names `--analysis api`, whose envelope covers
+   the merged surface. A request that takes the legacy endpoint route, such
+   as an offline `*` pattern, fails the publication, because that route
+   issues no receipts. A body view adopts the evidence when its endpoints
+   move onto the scope.
 
 ## Non-claims
 

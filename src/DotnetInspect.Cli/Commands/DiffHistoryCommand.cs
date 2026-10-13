@@ -202,9 +202,10 @@ internal static class DiffHistoryCommand
                 hasError);
 #if DEBUG
             if (enriched is not null
-                && !TryPublishEvidence(
+                && !EvidenceEnvelopeOutput.TryPublishAcquisitionEvidence(
                     options.EvidenceEnvelopePath!,
-                    enriched))
+                    enriched,
+                    JsonContract))
             {
                 exitCode = 1;
             }
@@ -218,44 +219,6 @@ internal static class DiffHistoryCommand
             return 1;
         }
     }
-
-#if DEBUG
-    static bool TryPublishEvidence(
-        string evidencePath,
-        EvidenceInspectionEnvelope<
-            DiffHistoryOutcome,
-            PackageAcquisitionEvidence> enriched)
-    {
-        if (!InspectionEnvelopeOutput.TrySerializeEvidence(
-                enriched,
-                JsonContract,
-                PackageAcquisitionEvidenceJsonContext.Default
-                    .PackageAcquisitionEvidence,
-                compactJson: false,
-                out byte[] payload,
-                out Exception? serializationError))
-        {
-            CommandError.Write(
-                $"Evidence envelope serialization failed for "
-                    + $"'{evidencePath}': "
-                    + serializationError!.Message);
-            return false;
-        }
-        if (!EvidenceEnvelopeOutput.TryPublish(
-                evidencePath,
-                payload,
-                out Exception? publicationError))
-        {
-            CommandError.Write(
-                $"Evidence envelope publication failed for "
-                    + $"'{evidencePath}': "
-                    + publicationError!.Message);
-            return false;
-        }
-        CommandError.WriteLine($"Evidence envelope: {evidencePath}");
-        return true;
-    }
-#endif
 
     static int WriteOrdinaryOutput(
         DiffOptions options,

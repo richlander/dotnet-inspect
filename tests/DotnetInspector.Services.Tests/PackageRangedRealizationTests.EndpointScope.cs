@@ -14,6 +14,49 @@ namespace DotnetInspector.Services.Tests;
 public sealed partial class PackageRangedRealizationTests
 {
     /// <summary>
+    /// Step 4 part 2: an endpoint's merged API surface holds every surface
+    /// participant's Types, ordered by name, with the participants' counts
+    /// summed and each Type naming the package asset it came from.
+    /// </summary>
+    [Fact]
+    public async Task EndpointScope_MergedApiSurface_HoldsEveryParticipant()
+    {
+        var server = new RangeFeed(Avalonia, AvaloniaVersion, ReadAvalonia());
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        await using PackageEndpointScope scope = AssertOpened(
+            await OpenEndpointAsync(
+                environment,
+                new InMemoryPackageStore(),
+                new PackageEndpointScopeRequest(
+                    PackageSourceCoordinate.Create(Avalonia, AvaloniaVersion),
+                    "net10.0",
+                    PackageAssetDemand.Surface)));
+        var log = new List<string>();
+
+        ILInspector.Metadata.ApiSurface surface = await PackageEndpointApiSurfaceQuery.ExecuteAsync(
+            scope,
+            Avalonia,
+            ApiSurfaceScope.Public,
+            log.Add,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(Avalonia, surface.Name);
+        Assert.Equal("net10.0", surface.Tfm);
+        Assert.Equal(scope.SurfaceParticipants.Length, log.Count(static line => line.StartsWith("  + ", StringComparison.Ordinal)));
+        Assert.Equal(surface.Types.Count, surface.PublicTypeCount);
+        Assert.Equal(
+            surface.Types.Select(static type => type.FullName).Order(),
+            surface.Types.Select(static type => type.FullName));
+        Assert.Contains(surface.Types, static type => type.FullName == "Avalonia.Controls.Button");
+        Assert.Contains(surface.Types, static type => type.FullName == "Avalonia.AvaloniaObject");
+        Assert.All(surface.Types, type =>
+            Assert.Contains(
+                scope.SurfaceParticipants,
+                participant => participant.Asset.Path == type.SourceAssemblyPath));
+        Assert.Empty(surface.InspectionFailures);
+    }
+
+    /// <summary>
     /// Gate 1: a <c>Surface</c> endpoint exposes one surface participant per
     /// selected compile asset, with package provenance, and no
     /// implementation role; its ranged read materializes only the surface
@@ -75,6 +118,43 @@ public sealed partial class PackageRangedRealizationTests
             await scope.UseSurfaceAsync(
                 static (_, participants, _) => ValueTask.FromResult(participants.Length),
                 TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task EndpointScope_ExactLibraryDemandNarrowsTransferAndParticipants()
+    {
+        byte[] archive = ReadAvalonia();
+        var server = new RangeFeed(Avalonia, AvaloniaVersion, archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+
+        await using PackageEndpointScope scope = AssertOpened(
+            await OpenEndpointAsync(
+                environment,
+                new InMemoryPackageStore(),
+                new PackageEndpointScopeRequest(
+                    PackageSourceCoordinate.Create(
+                        Avalonia,
+                        AvaloniaVersion),
+                    "net10.0",
+                    PackageAssetDemand.Surface,
+                    librarySelector: new PackageLibrarySelector(
+                        "Avalonia.Controls.dll"))));
+
+        PackageEndpointParticipant selected =
+            Assert.Single(scope.SurfaceParticipants);
+        Assert.EndsWith(
+            "/Avalonia.Controls.dll",
+            selected.Asset.Path,
+            StringComparison.Ordinal);
+        Assert.Empty(scope.ImplementationParticipants);
+        Assert.Equal(11, scope.Root.Root.AssetSelection.Assets.Count);
+        var content =
+            Assert.IsType<RangedPackageContent>(scope.Payload.Content);
+        Assert.True(content.IsMaterialized(selected.Asset.Path));
+        Assert.False(
+            content.IsMaterialized(
+                $"{AvaloniaSurface}Avalonia.Dialogs.dll"));
     }
 
     /// <summary>
@@ -255,13 +335,20 @@ public sealed partial class PackageRangedRealizationTests
         IPackageStore store,
         PackageEndpointScopeRequest request)
     {
+        PackagePayloadAcquisitionPlan acquisition =
+            request.LibrarySelector is null
+                ? new PackagePayloadAcquisitionPlan(
+                    (_, _) => store,
+                    access: PackagePayloadAccess.Ranged,
+                    log: environment.Log.Enqueue,
+                    rangedSizeCut: 0)
+                : PackagePayloadAcquisitionPlan.ForContentQueries(
+                    (_, _) => store,
+                    log: environment.Log.Enqueue,
+                    rangedSizeCut: 0);
         var house = new PackageHouse(
             environment.Authorization,
-            new PackagePayloadAcquisitionPlan(
-                (_, _) => store,
-                access: PackagePayloadAccess.Ranged,
-                log: environment.Log.Enqueue,
-                rangedSizeCut: 0));
+            acquisition);
         var operation = PackageHouseOperation.Create(PackageHouseOperationProfile.Realize);
         return PackageEndpointScope.OpenAsync(
             house,

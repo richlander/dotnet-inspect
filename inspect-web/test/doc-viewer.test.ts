@@ -244,8 +244,8 @@ test("loaded state with frontmatter renders the name, version, and description",
       status: "ready",
       request,
       meta: {
-        name: "Changelog",
-        version: "1.2.3",
+        nameHtml: "Changelog",
+        versionHtml: "1.2.3",
         descriptionHtml: "<p>What changed.</p>",
       },
       html: "<p>Body content.</p>",
@@ -264,7 +264,7 @@ test("frontmatter without a version omits the version badge", () => {
     state: {
       status: "ready",
       request,
-      meta: { name: "Changelog", version: "", descriptionHtml: "" },
+      meta: { nameHtml: "Changelog", versionHtml: "", descriptionHtml: "" },
       html: "<p>Body content.</p>",
     },
     escapeHtml,
@@ -296,14 +296,14 @@ test("the document title and subtitle are escaped", () => {
   assert.match(html, /&lt;b&gt;path&lt;\/b&gt;/);
 });
 
-test("frontmatter name is escaped but the description HTML passes through unescaped", () => {
+test("frontmatter publication HTML passes through without reinterpreting structure", () => {
   const html = renderDocViewer({
     state: {
       status: "ready",
       request,
       meta: {
-        name: "<script>alert(1)</script>",
-        version: "",
+        nameHtml: "&lt;script&gt;alert(1)&lt;/script&gt;",
+        versionHtml: "",
         descriptionHtml: "<p>trusted markdown</p>",
       },
       html: "",
