@@ -52,11 +52,10 @@ It does not define:
 - a persisted format, transport encoding, interning scope, or stable hash; or
 - whether a sink discloses contained text or substitutes a placeholder.
 
-The initial implementation may share the dependency-free `InertText` assembly
-without making the two focused owners one component. Co-location lets
-`InertUtf8String` delegate to the encoder over hidden backing without a friend
-assembly or a callback that receives source bytes. Architectural ownership
-follows these focused contracts, not the project boundary.
+The initial implementation keeps `InertUtf8String` and `Utf8VisualEncoder` in
+the same dependency-free `InertText` assembly. The constructor calls the
+static `Utf8VisualEncoder.Encode` method directly. Their architectural
+ownership follows these focused contracts, not the project boundary.
 
 `docs/overview.md` is release-managed. The release tracker records its future
 authority entry rather than this design editing that central file.
