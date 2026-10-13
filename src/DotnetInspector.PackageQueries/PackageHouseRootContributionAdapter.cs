@@ -147,9 +147,14 @@ public static class PackageHouseRootContributionAdapter
                 result,
                 PackageHouseRootNoContributionReason.OperationFailed);
         }
+        PackageHouseTargetContext target =
+            result.Request.TargetContext
+            ?? throw new InvalidOperationException(
+                "A PackageHouse compile realization must retain its target context.");
         if (!PackageRootBinding.TryCreateFromSourceSelection(
                 acquired.Payload,
                 realization.Receipt,
+                OriginalRequestedFramework(target),
                 out PackageRootBinding? binding))
         {
             return new PackageHouseRootContributionOutcome.NoContribution(
@@ -172,4 +177,11 @@ public static class PackageHouseRootContributionAdapter
                 realization,
                 binding));
     }
+
+    private static string? OriginalRequestedFramework(
+        PackageHouseTargetContext target) =>
+        target.Mode is PackageHouseTargetSelectionMode.OwnerDefault
+            or PackageHouseTargetSelectionMode.FrozenTarget
+            ? null
+            : target.RequestedFramework;
 }

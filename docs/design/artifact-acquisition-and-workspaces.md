@@ -2272,12 +2272,15 @@ or replace either half after acquisition issues it.
 PackageHouse compile realization enters the same Root construction through an
 internal receipt-binding primitive. It receives the exact
 `AcquiredPackageSourcePayload` and
-`PackageCompileAssetSelectionReceipt`, revalidates package-id and
-content-generation correspondence, and freezes the receipt's existing
-selection without another selector invocation. The public adapter remains in
-`DotnetInspector.PackageQueries`: its contribution pairs the resulting
-House-agnostic binding with the exact House result and compile receipt rather
-than storing House history on `PackageRootBinding`.
+`PackageCompileAssetSelectionReceipt` plus the original request's target
+intent, revalidates package-id and content-generation correspondence, and
+freezes the receipt's existing selection without another selector invocation.
+The receipt's selected output cannot reconstruct caller intent: owner-default
+and frozen House requests retain an absent original requested target, while
+explicit House and API-match requests retain their authored target. The public
+adapter remains in `DotnetInspector.PackageQueries`: its contribution pairs
+the resulting House-agnostic binding with the exact House result and compile
+receipt rather than storing House history on `PackageRootBinding`.
 
 The current realized package-coordinate grammar admits the bounded published
 package-id grammar, Package Source portable producer tokens, the modern

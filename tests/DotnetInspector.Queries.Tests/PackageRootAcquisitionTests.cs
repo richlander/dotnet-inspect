@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Text;
 
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using NuGetFetch;
@@ -217,6 +218,57 @@ public sealed class PackageRootAcquisitionTests
         Assert.Equal(acquired.Request, reacquired.Request);
         Assert.Equal(
             acquired.Binding.Root.AssetSelection.Assets.Single().Path,
+            reacquired.Binding.Root.AssetSelection.Assets.Single().Path);
+    }
+
+    [Fact]
+    public async Task
+        OwnerDefaultHouseContribution_ReacquiresNestedSelectedCompileAsset()
+    {
+        using var http = new HttpClient(new FailingHandler());
+        IPackageStore store = await CachedStoreAsync(NestedLibraryPackage());
+        PackageRootHouseExecution execution = Options(http, store);
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PackageId, Version)),
+            execution.Operation,
+            PackageHouseTargetContext.OwnerDefault(),
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.PackageOnly,
+            assetDemand: PackageAssetDemand.SurfaceAndImplementation);
+        PackageHouseSettlement settlement =
+            await execution.Executor.ExecuteAsync(
+                request,
+                requiredProducerKey: null,
+                TestContext.Current.CancellationToken);
+        PackageHouseRootContribution contribution =
+            Assert.IsType<PackageHouseRootContributionOutcome.Contributed>(
+                PackageHouseRootContributionAdapter.Create(settlement))
+                .Contribution;
+        PackageRootReacquisitionRequest rootRequest =
+            contribution.Binding.CreateReacquisitionRequest();
+
+        Assert.Null(contribution.Binding.Root.RequestedTargetFramework);
+        Assert.Null(rootRequest.RequestedTargetFramework);
+        Assert.Equal(Framework, rootRequest.CompileTargetFramework);
+        Assert.Equal(Framework, rootRequest.SelectionTargetFramework);
+        Assert.Equal(
+            $"lib/{Framework}/nested/{AssemblyName}.dll",
+            contribution.Binding.Root.AssetSelection.Assets.Single().Path);
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                rootRequest.Encode(),
+                out PackageRootReacquisitionRequest? decoded));
+
+        var reacquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                decoded,
+                Options(http, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(rootRequest, reacquired.Request);
+        Assert.Equal(
+            contribution.Binding.Root.AssetSelection.Assets.Single().Path,
             reacquired.Binding.Root.AssetSelection.Assets.Single().Path);
     }
 

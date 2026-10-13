@@ -173,11 +173,13 @@ public sealed class PackageRootBinding
 
     /// <summary>
     /// Binds a typed-source payload to the exact compile selection receipt
-    /// already issued for its retained content generation.
+    /// already issued for its retained content generation while preserving
+    /// the caller's original target intent separately from selected output.
     /// </summary>
     internal static PackageRootBinding CreateFromSourceSelection(
         AcquiredPackageSourcePayload payload,
         PackageCompileAssetSelectionReceipt receipt,
+        string? requestedTargetFramework,
         string? displayPackageId = null)
     {
         string? acquisitionFramework =
@@ -199,7 +201,7 @@ public sealed class PackageRootBinding
             payload.Producer,
             payload.LegacyProducerKey,
             acquisitionFramework,
-            selectionTargetFramework,
+            requestedTargetFramework,
             receipt.RequestedRuntimeIdentifier,
             assetSelection: receipt.Selection,
             compileTargetFramework: compileTargetFramework,
@@ -264,6 +266,7 @@ public sealed class PackageRootBinding
     internal static bool TryCreateFromSourceSelection(
         AcquiredPackageSourcePayload payload,
         PackageCompileAssetSelectionReceipt receipt,
+        string? requestedTargetFramework,
         [NotNullWhen(true)] out PackageRootBinding? binding,
         string? displayPackageId = null)
     {
@@ -290,7 +293,7 @@ public sealed class PackageRootBinding
             payload.Producer,
             payload.LegacyProducerKey,
             acquisitionFramework,
-            selectionTargetFramework,
+            requestedTargetFramework,
             receipt.RequestedRuntimeIdentifier,
             receipt.Selection,
             compileTargetFramework: compileTargetFramework,

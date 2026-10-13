@@ -1197,6 +1197,7 @@ public sealed partial class PackageHouseExecutionTests
 
         Assert.Equal("net10.0", rootRequest.CompileTargetFramework);
         Assert.Equal("net8.0", rootRequest.SelectionTargetFramework);
+        Assert.Equal("net10.0", rootRequest.RequestedTargetFramework);
         Assert.True(rootRequest.AllowsCompatibleTargetSelection);
         Assert.True(rootRequest.UsesCompatibleImplementationSelection);
         Assert.Equal(
@@ -1360,7 +1361,7 @@ public sealed partial class PackageHouseExecutionTests
         Assert.True(rootRequest.AllowsCompatibleTargetSelection);
         Assert.True(rootRequest.UsesCompatibleImplementationSelection);
         Assert.Equal(
-            "net8.0",
+            "net10.0",
             contribution.Binding.Root.RequestedTargetFramework);
         await environment.AssertRootSettledAsync();
     }
@@ -1451,6 +1452,7 @@ public sealed partial class PackageHouseExecutionTests
             realization.Selection.UsesCompatibleImplementationSelection);
         Assert.Equal("net10.0", rootRequest.CompileTargetFramework);
         Assert.Equal("net8.0", rootRequest.SelectionTargetFramework);
+        Assert.Null(rootRequest.RequestedTargetFramework);
         Assert.False(rootRequest.AllowsCompatibleTargetSelection);
         Assert.False(rootRequest.UsesCompatibleImplementationSelection);
         await environment.AssertRootSettledAsync();

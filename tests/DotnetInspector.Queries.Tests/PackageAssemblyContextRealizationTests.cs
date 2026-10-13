@@ -297,11 +297,13 @@ public sealed class PackageAssemblyContextRealizationTests
         Assert.Throws<ArgumentException>(
             () => PackageRootBinding.CreateFromSourceSelection(
                 payload,
-                foreignPackage));
+                foreignPackage,
+                Framework));
         Assert.Throws<ArgumentException>(
             () => PackageRootBinding.CreateFromSourceSelection(
                 payload,
-                foreignGeneration));
+                foreignGeneration,
+                Framework));
     }
 
     [Fact]
@@ -329,12 +331,14 @@ public sealed class PackageAssemblyContextRealizationTests
             PackageRootBinding.TryCreateFromSourceSelection(
                 payload,
                 receipt,
+                requestedTargetFramework: null,
                 out PackageRootBinding? binding));
         Assert.Null(binding);
         Assert.Throws<ArgumentException>(
             () => PackageRootBinding.CreateFromSourceSelection(
                 payload,
-                receipt));
+                receipt,
+                requestedTargetFramework: null));
     }
 
     [Fact]
@@ -365,7 +369,8 @@ public sealed class PackageAssemblyContextRealizationTests
         PackageRootBinding binding =
             PackageRootBinding.CreateFromSourceSelection(
                 payload,
-                receipt);
+                receipt,
+                Framework);
 
         Assert.Same(
             receipt.Generation,
@@ -404,7 +409,8 @@ public sealed class PackageAssemblyContextRealizationTests
         PackageRootBinding binding =
             PackageRootBinding.CreateFromSourceSelection(
                 payload,
-                receipt);
+                receipt,
+                "net10.0");
         PackageRootReacquisitionRequest request =
             binding.CreateReacquisitionRequest();
         PackageRootBinding reopened =
@@ -415,6 +421,7 @@ public sealed class PackageAssemblyContextRealizationTests
 
         Assert.True(request.AllowsCompatibleTargetSelection);
         Assert.True(request.UsesCompatibleImplementationSelection);
+        Assert.Equal("net10.0", request.RequestedTargetFramework);
         Assert.Equal("net10.0", request.CompileTargetFramework);
         Assert.Equal("net8.0", request.SelectionTargetFramework);
         Assert.Equal("net8.0", reopened.Root.AssetSelection.TargetFramework);
@@ -447,7 +454,8 @@ public sealed class PackageAssemblyContextRealizationTests
         PackageRootBinding binding =
             PackageRootBinding.CreateFromSourceSelection(
                 payload,
-                receipt);
+                receipt,
+                "net10.0");
         PackageRootReacquisitionRequest request =
             binding.CreateReacquisitionRequest();
 
@@ -488,7 +496,8 @@ public sealed class PackageAssemblyContextRealizationTests
         PackageRootBinding binding =
             PackageRootBinding.CreateFromSourceSelection(
                 payload,
-                receipt);
+                receipt,
+                requestedTargetFramework: null);
         PackageRootReacquisitionRequest request =
             binding.CreateReacquisitionRequest();
         PackageRootBinding reopened =
@@ -503,6 +512,7 @@ public sealed class PackageAssemblyContextRealizationTests
             receipt.Selection.ImplementationTargetFramework);
         Assert.False(
             receipt.Selection.UsesCompatibleImplementationSelection);
+        Assert.Null(request.RequestedTargetFramework);
         Assert.Equal("net10.0", request.CompileTargetFramework);
         Assert.Equal("net8.0", request.SelectionTargetFramework);
         Assert.True(request.HasSelectedImplementationUniverse);
@@ -536,7 +546,9 @@ public sealed class PackageAssemblyContextRealizationTests
         PackageRootReacquisitionRequest request =
             PackageRootBinding.CreateFromSourceSelection(
                 initialPayload,
-                receipt).CreateReacquisitionRequest();
+                receipt,
+                requestedTargetFramework: null)
+                .CreateReacquisitionRequest();
         Assert.True(
             PackageRootReacquisitionRequest.TryDecode(
                 request.Encode(),
@@ -600,7 +612,9 @@ public sealed class PackageAssemblyContextRealizationTests
         PackageRootReacquisitionRequest request =
             PackageRootBinding.CreateFromSourceSelection(
                 initialPayload,
-                receipt).CreateReacquisitionRequest();
+                receipt,
+                requestedTargetFramework: null)
+                .CreateReacquisitionRequest();
         var replacementPayload = new AcquiredPackageSourcePayload(
             coordinate,
             new InMemoryPackageContent(
@@ -714,7 +728,8 @@ public sealed class PackageAssemblyContextRealizationTests
         PackageRootReacquisitionRequest request =
             PackageRootBinding.CreateFromSourceSelection(
                 initialPayload,
-                receipt).CreateReacquisitionRequest();
+                receipt,
+                "net10.0").CreateReacquisitionRequest();
         var replacementPayload = new AcquiredPackageSourcePayload(
             coordinate,
             new InMemoryPackageContent(
