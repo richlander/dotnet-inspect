@@ -203,7 +203,7 @@ public static class DiscoveryHierarchyProjection
             .Where(static identity =>
                 identity.Kind == DiscoveryResourceKind.Item
                 && identity.ItemKind
-                    is "field" or "column")
+                    is "field" or "column" or "suggestion")
             .Select(identity =>
                 new DiscoveryHierarchyNode(
                     identity,

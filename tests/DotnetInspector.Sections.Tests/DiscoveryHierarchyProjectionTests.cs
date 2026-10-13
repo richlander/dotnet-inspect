@@ -93,6 +93,38 @@ public sealed class DiscoveryHierarchyProjectionTests
     }
 
     [Fact]
+    public void StructuralSuggestionsRemainTreeMembers()
+    {
+        DiscoveryResourceIdentity section = Section("Unresolved");
+        DiscoveryResourceIdentity suggestion =
+            Item("Unresolved", "Available", "suggestion");
+        DiscoveryResourceIdentity query =
+            Item("Unresolved", "Available", "sortable");
+        var document = new DiscoveryDocument(
+            "library",
+            [
+                new DiscoveryResource(
+                    section,
+                    members: [suggestion, query]),
+                new DiscoveryResource(suggestion),
+                new DiscoveryResource(query),
+            ],
+            [section],
+            new DiscoverySelection(
+                isCatalog: false,
+                addressedResources: [section],
+                rows: [suggestion, query]));
+
+        DiscoveryHierarchyRow row =
+            Assert.Single(
+                DiscoveryHierarchyProjection.Rows(document));
+
+        Assert.Equal("Available", row.Parent.Identity.Name);
+        Assert.Equal("suggestion", row.Parent.Identity.ItemKind);
+        Assert.True(row.Parent.IncludeKind);
+    }
+
+    [Fact]
     public void RepeatedParentOccurrencesRemainDistinctAcrossSelectedRows()
     {
         DiscoveryResourceIdentity first = Section("First");
