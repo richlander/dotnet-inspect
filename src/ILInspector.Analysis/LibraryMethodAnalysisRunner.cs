@@ -1182,7 +1182,13 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         .MeasureContext(
                             context,
                             measureInstructionShape,
-                            measureControlFlow);
+                            measureControlFlow,
+                            implementationMetricPlan
+                                ?.IncludesInvocationCountMetric
+                                == true,
+                            implementationMetricPlan
+                                ?.IncludesCallSiteCountMetric
+                                == true);
             }
             if (implementationMetricPlan
                     is { IncludesFocusedContextMetrics: true }
@@ -2042,7 +2048,11 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                                 metricPlan
                                     .IncludesInstructionShapeMetric,
                                 metricPlan
-                                    .IncludesControlFlowMetric);
+                                    .IncludesControlFlowMetric,
+                                metricPlan
+                                    .IncludesInvocationCountMetric,
+                                metricPlan
+                                    .IncludesCallSiteCountMetric);
                     result.ImplementationMetrics =
                         CreateContextMetrics(
                             result.ImplementationMetrics,
@@ -2078,6 +2088,12 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             {
                 var calls =
                     ImmutableArray.CreateBuilder<DirectCall>();
+                ImmutableArray<UnsafeEvidence>.Builder?
+                    unsafeEvidence =
+                        metricPlan.IncludesUnsafePresenceMetric
+                            ? ImmutableArray.CreateBuilder<
+                                UnsafeEvidence>()
+                            : null;
                 result.ImplementationMetrics =
                     MarkDirectCallCollection(
                         result.ImplementationMetrics,
@@ -2095,12 +2111,52 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                             plan,
                             ImplementationMetricWorkStage
                                 .DirectCallCollection);
-                    MethodCallAnalysis.CollectDirectCalls(
-                        context,
-                        _infrastructure.CreateCallResolver(
-                            scope,
-                            caller),
-                        calls);
+                    if (unsafeEvidence is null)
+                    {
+                        MethodCallAnalysis.CollectDirectCalls(
+                            context,
+                            _infrastructure.CreateCallResolver(
+                                scope,
+                                caller),
+                            calls);
+                    }
+                    else
+                    {
+                        using LibraryBodyAnalysisStageRecorder.StageAttempt?
+                            safetyStage = StartStage(
+                                LibraryBodyAnalysisStage
+                                    .SafetyAnalysis);
+                        using ImplementationMetricExecutionRecorder.StageAttempt?
+                            safetyCollection = StartMetricStage(
+                                plan,
+                                ImplementationMetricWorkStage
+                                    .SafetyCollection);
+                        var declarationSafety =
+                            MethodSafetyAnalysis.InspectDeclaration(
+                                caller,
+                                unsafeEvidence);
+                        var localSafety =
+                            MethodSafetyAnalysis.InspectLocals(
+                                context,
+                                unsafeEvidence);
+                        MethodCallAnalysis.Collect(
+                            context,
+                            _infrastructure.CreateCallResolver(
+                                scope,
+                                caller),
+                            static _ =>
+                                AllocationMultiplicity.Unknown,
+                            calls,
+                            unsafeEvidence,
+                            includeIndirectOpcodes:
+                                declarationSafety.HasUnsafeApiMember
+                                || declarationSafety
+                                    .HasUnsafeSignature
+                                || localSafety.HasUnsafeLocals,
+                            includeCallValueFlow: false);
+                        safetyCollection?.Complete();
+                        safetyStage?.Complete();
+                    }
                     directCallCollection?.Complete();
                     callAnalysisStage?.Complete();
                     result.ImplementationMetrics =
@@ -2130,10 +2186,16 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 finally
                 {
                     result.Calls = calls.ToImmutable();
+                    if (unsafeEvidence is not null)
+                    {
+                        result.UnsafeEvidence =
+                            unsafeEvidence.ToImmutable();
+                    }
                 }
             }
             if (context is not null
-                && metricPlan.IncludesAllocationCountMetric)
+                && (metricPlan.IncludesAllocationCountMetric
+                    || metricPlan.IncludesThrowCountMetric))
             {
                 try
                 {
@@ -2142,10 +2204,21 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                             LibraryBodyAnalysisStage
                                 .BodySignalAnalysis);
                     using ImplementationMetricExecutionRecorder.StageAttempt?
-                        allocationSignals = StartMetricStage(
-                            plan,
-                            ImplementationMetricWorkStage
-                                .AllocationSignalCollection);
+                        allocationSignals =
+                            metricPlan.IncludesAllocationCountMetric
+                                ? StartMetricStage(
+                                    plan,
+                                    ImplementationMetricWorkStage
+                                        .AllocationSignalCollection)
+                                : null;
+                    using ImplementationMetricExecutionRecorder.StageAttempt?
+                        bodySignals =
+                            metricPlan.IncludesThrowCountMetric
+                                ? StartMetricStage(
+                                    plan,
+                                    ImplementationMetricWorkStage
+                                        .BodySignalCollection)
+                                : null;
                     BodySignals signals =
                         BodySignalAnalysis.Collect(
                             context,
@@ -2156,7 +2229,11 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     result.Signals = signals;
                     result.HasSignals =
                         signals.Newarr > 0
+                        || signals.Throws > 0
+                        || signals.Catches > 0
+                        || signals.Finallys > 0
                         || signals.Boxes > 0;
+                    bodySignals?.Complete();
                     allocationSignals?.Complete();
                     bodySignalStage?.Complete();
                 }
@@ -2546,13 +2623,15 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 null,
                 measurements.InstructionShape,
                 measurements.ControlFlow,
-                null,
-                null,
+                measurements.DirectCallCount,
+                measurements.CallSiteCount,
                 null)
             : existing with
             {
                 InstructionShape = measurements.InstructionShape,
                 ControlFlow = measurements.ControlFlow,
+                DirectCallCount = measurements.DirectCallCount,
+                CallSiteCount = measurements.CallSiteCount,
             };
     }
 
