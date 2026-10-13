@@ -111,6 +111,12 @@ public partial class CommandExecutionTests
                     document.RootElement
                         .GetProperty("results")
                         .GetArrayLength());
+                JsonElement summary =
+                    document.RootElement.GetProperty("summary");
+                Assert.Equal(
+                    (int)LibraryQueryIncompleteReason.CandidateLimit,
+                    summary.GetProperty("incompleteReasons").GetInt32());
+                Assert.False(summary.GetProperty("isComplete").GetBoolean());
             }
             Assert.Contains(
                 "candidate limit reached",
@@ -183,6 +189,36 @@ public partial class CommandExecutionTests
                 "--count");
             Assert.Equal(0, taken.Exit);
             Assert.Equal(count.Output, taken.Output);
+            var takenRows = await RunAppAsync(
+                "library",
+                "query",
+                tempDir,
+                "--where",
+                "references=System.Runtime",
+                "--take",
+                $"{LibraryQuery.DefaultMaximumCandidates}",
+                "--json");
+            Assert.Equal(0, takenRows.Exit);
+            Assert.Contains("Library Query scope:", takenRows.Error);
+            using (JsonDocument document =
+                JsonDocument.Parse(takenRows.Output))
+            {
+                // Content JSON reports the request-scoped completion; the
+                // bound stays visible as candidateLimit and candidates of
+                // populationCandidates.
+                JsonElement summary =
+                    document.RootElement.GetProperty("summary");
+                Assert.Equal(
+                    LibraryQuery.DefaultMaximumCandidates,
+                    summary.GetProperty("candidateLimit").GetInt32());
+                Assert.Equal(
+                    LibraryQuery.DefaultMaximumCandidates + 1,
+                    summary.GetProperty("populationCandidates").GetInt32());
+                Assert.Equal(
+                    0,
+                    summary.GetProperty("incompleteReasons").GetInt32());
+                Assert.True(summary.GetProperty("isComplete").GetBoolean());
+            }
             var takenSummary = await RunAppAsync(
                 "library",
                 "query",

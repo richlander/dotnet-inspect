@@ -36,7 +36,7 @@ public static class LibraryQuerySections
         string population,
         IReadOnlyList<LibraryQueryMatch> results,
         LibraryQuerySummary summary,
-        bool explicitTake = false)
+        bool takeScopeReached = false)
     {
         ArgumentNullException.ThrowIfNull(results);
         ArgumentNullException.ThrowIfNull(summary);
@@ -56,7 +56,7 @@ public static class LibraryQuerySections
                     summary.Candidates,
                     summary.Matches,
                     summary.Failures,
-                    Completion(summary, explicitTake)),
+                    Completion(summary, takeScopeReached)),
             ],
         };
     }
@@ -65,18 +65,12 @@ public static class LibraryQuerySections
     // reason (cli-execution-bounds.md#disclosure).
     private static string Completion(
         LibraryQuerySummary summary,
-        bool explicitTake)
-    {
-        LibraryQueryIncompleteReason reasons = explicitTake
-            ? summary.IncompleteReasons
-                & ~LibraryQueryIncompleteReason.CandidateLimit
-            : summary.IncompleteReasons;
-        return reasons != LibraryQueryIncompleteReason.None
-            ? reasons.ToString()
-            : reasons != summary.IncompleteReasons
+        bool takeScopeReached) =>
+        summary.IncompleteReasons != LibraryQueryIncompleteReason.None
+            ? summary.IncompleteReasons.ToString()
+            : takeScopeReached
                 ? "Complete (--take scope)"
                 : "Complete";
-    }
 
     public sealed class LibraryRows
         : ISectionDescriptor<LibraryQueryView>
