@@ -148,6 +148,33 @@ public sealed class PackageRootAcquisitionTests
         Assert.Equal(Framework, acquired.Request.SelectionTargetFramework);
     }
 
+    [Theory]
+    [InlineData("invalid/package", Version)]
+    [InlineData(PackageId, "not-a-version")]
+    public async Task ExplicitCoordinate_InvalidCoordinateFailsBeforeHouse(
+        string packageId,
+        string version)
+    {
+        PackageRootAcquisitionOutcome outcome =
+            await PackageRootAcquisition.AcquireAsync(
+                PackageRootAcquisitionRequest.Create(
+                    packageId,
+                    version,
+                    Framework),
+                new PackageRootHouseExecution(
+                    PackageHouseOperation.Create(
+                        PackageHouseOperationProfile.Realize),
+                    new FailOnHouseExecution()),
+                TestContext.Current.CancellationToken);
+
+        var failed =
+            Assert.IsType<PackageRootAcquisitionOutcome.Failed>(outcome);
+        Assert.Equal(
+            PackageRootAcquisitionFailureKind.InvalidCoordinate,
+            failed.Kind);
+        Assert.False(string.IsNullOrWhiteSpace(failed.Message));
+    }
+
     [Fact]
     public async Task Acquired_ExposesTheLiveContentTheBindingReads()
     {
@@ -1202,6 +1229,16 @@ public sealed class PackageRootAcquisitionTests
             new MemoryStream(nupkg),
             TestContext.Current.CancellationToken);
         return store;
+    }
+
+    sealed class FailOnHouseExecution : IPackageRootHouseExecutor
+    {
+        public Task<PackageHouseSettlement> ExecuteAsync(
+            PackageHouseRequest request,
+            string? requiredProducerKey,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException(
+                "Invalid package coordinates must fail before House execution.");
     }
 
     static byte[] LibraryPackage(string framework = Framework)

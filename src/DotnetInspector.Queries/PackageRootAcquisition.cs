@@ -958,6 +958,19 @@ public static class PackageRootAcquisition
         ArgumentNullException.ThrowIfNull(execution);
         cancellationToken.ThrowIfCancellationRequested();
 
+        var acquisitionCoordinate = new PackageCoordinate(
+            packageId,
+            version,
+            acquisitionFramework,
+            runtimeIdentifier);
+        if (PackageCoordinateResolver.Validate(acquisitionCoordinate)
+            is { } invalid)
+        {
+            return Failed(
+                PackageRootAcquisitionFailureKind.InvalidCoordinate,
+                invalid.Message);
+        }
+
         PackageHouseTargetContext target =
             selectionTargetFramework is null
                 ? PackageHouseTargetContext.OwnerDefault(runtimeIdentifier)
