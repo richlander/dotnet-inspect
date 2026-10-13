@@ -162,7 +162,40 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
-    public async Task DiscoverOutput_LegacyCatalogKeepsRootAndCostOrdering()
+    public async Task DiscoverOutput_LegacyTreePreservesRepeatedSectionOccurrences()
+    {
+        var schema = new DocumentSchema()
+            .Add("First", "column", "A", "B")
+            .Add("Second", "column", "C", "D");
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(
+                ["First", "Second", "First"],
+                schema,
+                DiscoveryOutputRequest.Create(
+                    OutputFormat.Markdown,
+                    tree: true))));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(
+            """
+            ├─ First
+            │  ├─ A (column)
+            │  └─ B (column)
+            ├─ Second
+            │  ├─ C (column)
+            │  └─ D (column)
+            └─ First
+               ├─ A (column)
+               └─ B (column)
+
+            """.ReplaceLineEndings(),
+            output);
+    }
+
+    [Fact]
+    public async Task DiscoverOutput_LegacyCatalogKeepsRootAndCostPlacement()
     {
         var schema = new DocumentSchema()
             .Add("Regular", "column", "Name")
@@ -182,6 +215,11 @@ public partial class OutputFormatterTests
                     new Dictionary<string, string>
                     {
                         ["Optional"] = "opt-in",
+                    },
+                sectionCategories:
+                    new Dictionary<string, string[]>
+                    {
+                        ["@Group"] = ["Optional"],
                     })));
 
         Assert.Equal(0, exit);
@@ -189,6 +227,8 @@ public partial class OutputFormatterTests
         Assert.Equal(
             """
             └─ Library
+               ├─ @Group (category)
+               │  └─ Optional
                ├─ Regular
                │  └─ Name (column)
                └─ Optional (opt-in)

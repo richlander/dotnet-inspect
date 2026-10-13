@@ -103,8 +103,53 @@ public sealed class DiscoveryHierarchyPresentationTests
             output.ToString());
     }
 
+    [Fact]
+    public void Write_AnnotatesOnlyTopLevelCatalogSectionOccurrences()
+    {
+        DiscoveryResourceIdentity category = Category("@Group");
+        DiscoveryResourceIdentity optional = Section("Optional");
+        var document = new DiscoveryDocument(
+            "library",
+            [
+                new DiscoveryResource(
+                    category,
+                    members: [optional]),
+                new DiscoveryResource(optional),
+            ],
+            [category, optional],
+            new DiscoverySelection(
+                isCatalog: true,
+                addressedResources: [],
+                rows: [category, optional]));
+        using var output = new StringWriter();
+
+        DiscoveryHierarchyPresentation.Write(
+            document,
+            DiscoveryHierarchyProjection.Rows(document),
+            new DiscoveryHierarchyPresentationPlan(
+                sectionAnnotations:
+                    new Dictionary<string, string>
+                    {
+                        ["Optional"] = "opt-in",
+                    },
+                annotateCatalogSections: true),
+            output);
+
+        Assert.Equal(
+            """
+            ├─ @Group (category)
+            │  └─ Optional
+            └─ Optional (opt-in)
+
+            """.ReplaceLineEndings(),
+            output.ToString());
+    }
+
     private static DiscoveryResourceIdentity Section(string name) =>
         new(DiscoveryResourceKind.Section, name);
+
+    private static DiscoveryResourceIdentity Category(string name) =>
+        new(DiscoveryResourceKind.Category, name);
 
     private static DiscoveryResourceIdentity Item(
         string section,

@@ -101,7 +101,7 @@ public static class DiscoveryHierarchyPresentation
             label += $" ({kind})";
         }
         else if (plan.AnnotateCatalogSections
-            && document.Selection.IsCatalog
+            && node.IsTopLevelCatalogEntry
             && identity.Kind == DiscoveryResourceKind.Section
             && plan.SectionAnnotations?.TryGetValue(
                 identity.Name,

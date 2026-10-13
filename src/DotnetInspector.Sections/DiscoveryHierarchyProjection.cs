@@ -4,9 +4,11 @@ namespace DotnetInspector.Sections;
 
 public sealed record DiscoveryHierarchyNode(
     DiscoveryResourceIdentity Identity,
-    bool IncludeKind);
+    bool IncludeKind,
+    bool IsTopLevelCatalogEntry = false);
 
 public readonly record struct DiscoveryHierarchyRow(
+    int ParentOrdinal,
     DiscoveryHierarchyNode Parent,
     DiscoveryHierarchyNode? Child);
 
@@ -18,11 +20,16 @@ public static class DiscoveryHierarchyProjection
         ArgumentNullException.ThrowIfNull(document);
 
         var rows = ImmutableArray.CreateBuilder<DiscoveryHierarchyRow>();
-        foreach (DiscoveryHierarchyNode parent in TopLevelNodes(document))
+        ImmutableArray<DiscoveryHierarchyNode> parents =
+            TopLevelNodes(document);
+        for (int parentOrdinal = 0;
+            parentOrdinal < parents.Length;
+            parentOrdinal++)
         {
+            DiscoveryHierarchyNode parent = parents[parentOrdinal];
             if (document.Selection.IsCatalog)
             {
-                rows.Add(new(parent, Child: null));
+                rows.Add(new(parentOrdinal, parent, Child: null));
                 continue;
             }
 
@@ -30,12 +37,12 @@ public static class DiscoveryHierarchyProjection
                 ChildNodes(document, parent);
             if (children.IsEmpty)
             {
-                rows.Add(new(parent, Child: null));
+                rows.Add(new(parentOrdinal, parent, Child: null));
                 continue;
             }
 
             foreach (DiscoveryHierarchyNode child in children)
-                rows.Add(new(parent, child));
+                rows.Add(new(parentOrdinal, parent, child));
         }
 
         return rows.ToImmutable();
@@ -76,19 +83,19 @@ public static class DiscoveryHierarchyProjection
         }
 
         IGrouping<
-            DiscoveryHierarchyNode,
+            int,
             DiscoveryHierarchyRow>[] groups =
         [
-            .. rows.GroupBy(static row => row.Parent),
+            .. rows.GroupBy(static row => row.ParentOrdinal),
         ];
         for (int index = 0; index < groups.Length; index++)
         {
             IGrouping<
-                DiscoveryHierarchyNode,
+                int,
                 DiscoveryHierarchyRow> group = groups[index];
             WriteNode(
                 document,
-                group.Key,
+                group.First().Parent,
                 expandAllChildren: false,
                 selectedChildren:
                 [
@@ -141,7 +148,8 @@ public static class DiscoveryHierarchyProjection
                         identity,
                         IncludeKind:
                             identity.Kind
-                            == DiscoveryResourceKind.Category)),
+                            == DiscoveryResourceKind.Category,
+                        IsTopLevelCatalogEntry: true)),
             ];
         }
 

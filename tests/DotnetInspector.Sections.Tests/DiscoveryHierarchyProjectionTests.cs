@@ -92,6 +92,53 @@ public sealed class DiscoveryHierarchyProjectionTests
         Assert.Null(row.Child);
     }
 
+    [Fact]
+    public void RepeatedParentOccurrencesRemainDistinctAcrossSelectedRows()
+    {
+        DiscoveryResourceIdentity first = Section("First");
+        DiscoveryResourceIdentity second = Section("Second");
+        DiscoveryResourceIdentity a = Item("First", "A", "column");
+        DiscoveryResourceIdentity b = Item("First", "B", "column");
+        DiscoveryResourceIdentity c = Item("Second", "C", "column");
+        var document = new DiscoveryDocument(
+            "library",
+            [
+                new DiscoveryResource(first, members: [a, b]),
+                new DiscoveryResource(second, members: [c]),
+                new DiscoveryResource(a),
+                new DiscoveryResource(b),
+                new DiscoveryResource(c),
+            ],
+            [first, second],
+            new DiscoverySelection(
+                isCatalog: false,
+                addressedResources: [first, second, first],
+                rows: [a, b, c]));
+
+        var rows =
+            DiscoveryHierarchyProjection.Rows(document);
+
+        Assert.Equal([0, 0, 1, 2, 2], rows.Select(
+            static row => row.ParentOrdinal));
+
+        var sink = new RecordingSink();
+        DiscoveryHierarchyProjection.Write(
+            document,
+            [rows[1], rows[2], rows[3]],
+            sink);
+
+        Assert.Equal(
+            [
+                (0, "First", false),
+                (1, "B", true),
+                (0, "Second", false),
+                (1, "C", true),
+                (0, "First", true),
+                (1, "A", true),
+            ],
+            sink.Nodes);
+    }
+
     private static DiscoveryResourceIdentity Section(string name) =>
         new(DiscoveryResourceKind.Section, name);
 
