@@ -377,12 +377,15 @@ substantial acquisition work on the subsequent Library operation. Earlier
 Roslyn measurements requested `net8.0` and returned PackageMismatch, so they
 are not evidence of a successful Library API sequence. Valid measurements
 use the browser-selected `netstandard2.0` target and explicitly retain its
-existing API projection-limit outcome. The production browser API and
-Library enablements exports must adopt the exact shared demand before this
-candidate is ready. The CLI exact-Library caller is the subsequent shared
-adoption boundary under #9754. Before/after evidence uses the existing
-`eng/measure-inspect-web-library-open.cs` sequence and complete result parity;
-synthetic multi-Library fixtures enforce that sibling bodies stay unread.
+existing API projection-limit outcome. The production browser API and Library
+enablements exports adopt the exact shared demand first. The CLI exact-Library
+caller adopts the same semantic demand under
+[#10056](https://github.com/richlander/dotnet-inspect/issues/10056):
+one already-selected exact compile Library enters PackageHouse before
+acquisition and opens through `PackageEndpointScope`. Before/after evidence
+uses the existing `eng/measure-inspect-web-library-open.cs` sequence and
+complete result parity; synthetic multi-Library fixtures enforce that sibling
+bodies stay unread.
 The gates are `ExactCompileLibraryDemand_RequiresDeclaredRolesAndPackageOnlyHandoff`,
 `ExactCompileLibrary_PreservesInventoryAndNarrowsParticipants`, and
 `ExactLibraryDemand_NarrowsTransferAndWorkspace`, plus existing tool-package
@@ -428,8 +431,11 @@ gates standalone Surface demand through the shared planner.
 `OverviewDemand_ImplementationFailurePreservesIndependentApi` gate successful
 sharing, cancellation, sibling exclusion, and independent acquisition failure.
 `library-overview-demand.test.ts` checks the website's companion declaration.
-QuerySpace producer capabilities supplies plan validation; existing Root,
-Workspace, cache, and range contracts retain their respective ownership.
+`ExactLibraryWorkspaceRouteTests` and
+`EndpointScope_ExactLibraryDemandNarrowsTransferAndParticipants` gate the CLI
+adoption, typed output parity, complete compile evidence, and sibling-body
+exclusion. QuerySpace producer capabilities supplies plan validation; existing
+Root, Workspace, cache, and range contracts retain their respective ownership.
 
 ### Adopted shared-demand measurements
 
