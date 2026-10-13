@@ -35,6 +35,26 @@ the transactional publication and single-flight of
 [cache concurrency and publication](cache-concurrency.md), and the payload
 limits of [package payload capacity](package-payload-capacity.md).
 
+## Directory-first experiment
+
+The isolated directory-first experiment tests replacing the abandoned size
+probe with useful directory bytes. On a cold range-capable source it opens the
+archive directory first, then applies the size cut. When choosing complete
+acquisition, it fetches only the prefix before the retained directory region,
+assembles an exactly covered archive, and uses ordinary complete-payload
+admission and authority-store publication. Above the cut, semantic selection
+and entry-range planning remain unchanged. A retained directory continues to
+support ranged reads of missing entries without another directory transfer.
+
+The experiment compares the existing 1 MB cut with a 4 MB control; the latter
+is not an asserted optimum. It does not introduce host- or consumer-specific
+policy, background downloads, or a persistent partial-archive format. Ordinary
+range refusals retain the existing complete-fetch fallback. Native measurements
+do not establish browser performance: the cold suffix request can cause a
+browser CORS preflight. Production adoption requires that host tradeoff to be
+resolved and measured. The established size-first contract below remains the
+shipped policy until the experiment is accepted.
+
 ## Basis
 
 Measured 2026-09-23 on the motivating asset, `find .InvalidateMeasure
