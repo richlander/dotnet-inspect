@@ -97,17 +97,10 @@ internal sealed record LibraryBodyAnalysisPlan(
         if ((features
                 & LibraryBodyAnalysisFeatures.OptimizationOpportunities) != 0)
         {
-            features |=
-                LibraryBodyAnalysisFeatures.Allocations
-                | LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities;
+            features |= LibraryBodyAnalysisFeatures.Allocations;
         }
         if ((features & LibraryBodyAnalysisFeatures.Allocations) != 0)
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
-        if ((features
-                & LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities) != 0)
-        {
-            features |= LibraryBodyAnalysisFeatures.MethodEvidence;
-        }
         if ((features
                 & (LibraryBodyAnalysisFeatures.JsonWireContractFlow
                     | LibraryBodyAnalysisFeatures.LocalThrows

@@ -8,9 +8,6 @@ namespace ILInspector.Analysis;
 /// <summary>Analysis observations and comparisons over the Finding substrate.</summary>
 public static class AnalysisFindings
 {
-    public const string SyncCallInAsyncShape =
-        "sync-call-in-async";
-
     public const string StringMaterializationShape =
         "string-materialization";
 

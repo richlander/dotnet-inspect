@@ -57,10 +57,8 @@ public sealed class LibraryOptimizationAnalysisResult
         _exceptionTypeNames =
             analysis.Optimizations.ExceptionTypeNames;
         _opportunitiesComputed =
-            (receipt.Features
-                & (LibraryBodyAnalysisFeatures.OptimizationOpportunities
-                    | LibraryBodyAnalysisFeatures
-                        .AsyncSiblingOpportunities)) != 0;
+            receipt.Features.HasFlag(
+                LibraryBodyAnalysisFeatures.OptimizationOpportunities);
         _allocationOpportunitiesComputed =
             receipt.Features.HasFlag(
                 LibraryBodyAnalysisFeatures.OptimizationOpportunities);
@@ -144,9 +142,7 @@ public sealed class LibraryOptimizationAnalysisResult
                                     new HashSet<int>(
                                         _rawOpportunities
                                             .Where(opportunity =>
-                                                opportunity.Shape
-                                                    != "sync-call-in-async"
-                                                && !(opportunity.Shape
+                                                !(opportunity.Shape
                                                         == "async-state-machine"
                                                     && opportunity
                                                         .Amortized))
@@ -480,7 +476,6 @@ public sealed class LibraryOptimizationAnalysisResult
                 }
 
                 if (stringMaterialization is null
-                    && opportunity.Shape != "sync-call-in-async"
                     && _allocationOccurrences.TryGetValue(
                         evidenceMethodToken,
                         out ImmutableArray<AllocationOccurrence>
@@ -701,8 +696,7 @@ public sealed class LibraryOptimizationAnalysisResult
         foreach (OptimizationOpportunity opportunity in
             _rawOpportunities)
         {
-            if (opportunity.Shape != "sync-call-in-async")
-                yield return opportunity;
+            yield return opportunity;
         }
 
         if (!_allocationOpportunitiesComputed)
@@ -712,8 +706,7 @@ public sealed class LibraryOptimizationAnalysisResult
         var methodsWithSpecificShape = new HashSet<int>(
             _rawOpportunities
                 .Where(opportunity =>
-                    opportunity.Shape != "sync-call-in-async"
-                    && !(opportunity.Shape == "async-state-machine"
+                    !(opportunity.Shape == "async-state-machine"
                         && opportunity.Amortized))
                 .Select(opportunity =>
                     opportunity.Method.MetadataToken));

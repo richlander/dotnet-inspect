@@ -271,9 +271,11 @@ sync-call total comes from the query's Count closing rather than from counting
 Rows in the host. Query rejection, failure, abort, and per-body diagnostics
 remain visible as incomplete inspection state. The Browser table preserves
 Caller, Callee, Alternative, and Pair Kind without manufacturing navigation
-identity. Its migration and the retirement of the
-`sync-call-in-async` shape follow the
-producer-planner migration in [Method Query Source](method-query-source.md).
+identity. The former `sync-call-in-async` `OptimizationOpportunity` shape,
+`AsyncSiblingOpportunities` body-analysis feature, and wrapper evidence are
+retired; producer-planner plus QuerySpace is the only product path. The
+producer-planner mechanics follow
+[Method Query Source](method-query-source.md).
 
 ## Next semantic additions
 

@@ -136,10 +136,6 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             performance.SyncCallsInAsync.Length,
             performance.SyncCallsInAsyncCount);
-        Assert.DoesNotContain(
-            performance.Members.SelectMany(member => member.Shapes),
-            shape => shape == AnalysisFindings.SyncCallInAsyncShape);
-
         BrowserPackagePerformanceSummary summary =
             await DotnetInspect.Web.Interop.Analysis.AnalysisExports
                 .StreamPackagePerformanceItemsAsync(
