@@ -908,7 +908,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 StringComparison.Ordinal);
         }
         Assert.Equal(requests, handler.Requested.Count);
-        Assert.Equal(1, handler.OrdinaryPackageResponses);
+        Assert.Equal(0, handler.OrdinaryPackageResponses);
         Assert.True(handler.RangedPackageResponses > 0);
         Assert.True(
             handler.PackageBytesServed < 512 * 1024,

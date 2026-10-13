@@ -170,7 +170,7 @@ public sealed partial class BrowserEngineBoundaryTests
 
         Assert.Equal(identity.Name, first.Participant.Participant.Assembly.Identity.Name);
         Assert.Single(first.Scope.Members);
-        Assert.Equal(1, handler.CompleteGetRequests);
+        Assert.Equal(0, handler.CompleteGetRequests);
         if (aboveCut)
         {
             Assert.True(handler.RangeRequests >= 1);
@@ -180,8 +180,9 @@ public sealed partial class BrowserEngineBoundaryTests
         }
         else
         {
-            Assert.Equal(0, handler.RangeRequests);
-            Assert.True(handler.CompleteBodyReadBeforeRange);
+            Assert.Equal(archive.LongLength <= 65557 ? 1 : 2, handler.RangeRequests);
+            Assert.Equal(archive.LongLength, handler.PackageBytesServed);
+            Assert.False(handler.CompleteBodyReadBeforeRange);
         }
 
         await first.DisposeAsync();
@@ -381,7 +382,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             "netcore.app",
             coreLibraryConstructor.PlatformPack);
-        Assert.Equal(1, handler.CompleteGetRequests);
+        Assert.Equal(0, handler.CompleteGetRequests);
         Assert.True(handler.RangeRequests >= 1);
         Assert.True(
             handler.PackageBytesServed < archive.LongLength,
