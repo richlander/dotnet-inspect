@@ -105,6 +105,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     matchPackageDependencyCoordinate: () =>
       unexpected("matchPackageDependencyCoordinate"),
     searchCapabilities: () => unexpected("searchCapabilities"),
+    explainPackageQuery: () => unexpected("explainPackageQuery"),
     searchTypes: () => unexpected("searchTypes"),
     activateWorkspacePackageOccurrence: () =>
       unexpected("activateWorkspacePackageOccurrence"),
@@ -2257,6 +2258,30 @@ test("JSON tuple codec rejects unsafe trees and enforces explicit bounds", () =>
   assert.equal(encode(["id", null, excessive]).kind, "rejected");
 });
 
+test("query explanation transport preserves keys, addresses, and visible failure", async () => {
+  const calls: unknown[][] = [];
+  const result = { outcome: "InvalidSelection" as const, content: null, message: "Unknown facet key." };
+  const state = fixture({
+    package: {
+      explainPackageQuery: (...args) => {
+        calls.push(args);
+        return result;
+      },
+    },
+  });
+  const request = state.client.package.explainPackageQuery(
+    "inspect-resource:/package-query/query?projection=hal", ["depends", "dependency-target"],
+  );
+  const full = state.client.package.explainPackageQuery("package-query/query", null);
+  await state.environment.flushAsync();
+  assert.deepEqual(await request, result);
+  assert.deepEqual(await full, result);
+  assert.deepEqual(calls, [
+    ["inspect-resource:/package-query/query?projection=hal", ["depends", "dependency-target"]],
+    ["package-query/query", null],
+  ]);
+});
+
 test("forwarder transport preserves opaque actions, route evidence, and non-success", async () => {
   const calls: unknown[][] = [];
   const result = {
@@ -2384,6 +2409,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryWorkspacePackageOccurrences",
       "resolvePackageDependencyVersion",
       "searchCapabilities",
+      "explainPackageQuery",
       "searchTypes",
     ],
     metadata: [
@@ -2504,7 +2530,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 126);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 127);
 
   const state = fixture();
   const groups = [

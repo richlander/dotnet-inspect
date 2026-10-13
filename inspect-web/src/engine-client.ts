@@ -59,6 +59,7 @@ type PackageOperations =
   | "runEcosystemPackageQuery"
   | "runPackageQuery"
   | "searchCapabilities"
+  | "explainPackageQuery"
   | "searchTypes";
 
 type LibraryOperations = "inspectLibrary" | "openUploadedLibrary";
