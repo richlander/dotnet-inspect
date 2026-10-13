@@ -62,6 +62,15 @@ const longFrameworkSurface: BrowserPackageSurface = {
 const longFrameworkRoot =
   `/?package=System.Text.Json&version=10.0.0&framework=${longFramework}#pkg`;
 
+test("first Library load does not report the deferred package surface as unavailable", async ({ page }) => {
+  await installPackageLoadingFacades(page);
+  await page.goto(frameworkRoot.replace("#pkg", "#library"));
+
+  await expect(page.locator(".library-overview-surface")).toBeVisible();
+  await expect(page.locator(".library-subject-list"))
+    .not.toContainText("Library surface details are unavailable.");
+});
+
 function packageCoordinateControl(
   page: Page,
   change: typeof packageCoordinateChanges[number],
