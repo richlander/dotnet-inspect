@@ -264,7 +264,7 @@
     },
     {
       "id": "inspect-web-catalog-facade-project-dependencies-stay-within-capability-ratchet",
-      "source": "docs/design/inspect-web-jsexport-partitioning.md#catalog-facade-6-exports; composition tracker #8779",
+      "source": "docs/design/inspect-web-jsexport-partitioning.md#catalog-facade-31-exports; composition tracker #8779",
       "graphs": [
         "project"
       ],
@@ -283,7 +283,7 @@
     },
     {
       "id": "inspect-web-catalog-facade-assembly-dependencies-stay-within-capability-ratchet",
-      "source": "docs/design/inspect-web-jsexport-partitioning.md#catalog-facade-6-exports; composition tracker #8779",
+      "source": "docs/design/inspect-web-jsexport-partitioning.md#catalog-facade-31-exports; composition tracker #8779",
       "graphs": [
         "assembly"
       ],

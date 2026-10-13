@@ -532,6 +532,9 @@ public sealed class BrowserEngineLayeringTests
                     StringComparison.OrdinalIgnoreCase)
                 && !project.Equals(
                     LibraryProjectPath,
+                    StringComparison.OrdinalIgnoreCase)
+                && !project.Equals(
+                    CatalogProjectPath,
                     StringComparison.OrdinalIgnoreCase)),
         ];
 
@@ -561,6 +564,12 @@ public sealed class BrowserEngineLayeringTests
     public void LibraryFacadePinsPlatformHazardsNotBroadInventory()
     {
         AssertPinsPlatformHazardsNotBroadInventory(LibraryProjectPath);
+    }
+
+    [Fact]
+    public void CatalogFacadePinsPlatformHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(CatalogProjectPath);
     }
 
     static void AssertPinsPlatformHazardsNotBroadInventory(string project)

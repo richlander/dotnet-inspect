@@ -22,9 +22,8 @@ Browser/Wasm adoption remains proposed.
 The explicit `Latest Versions` section is designed under
 [#9967](https://github.com/richlander/dotnet-inspect/issues/9967) and not yet
 implemented. The `Pruning` section's library pruning policy for
-application-authored declarations is designed under
-[#9981](https://github.com/richlander/dotnet-inspect/issues/9981) and not yet
-implemented.
+application-authored declarations is implemented under
+[#9981](https://github.com/richlander/dotnet-inspect/issues/9981).
 
 ## Owner and claim
 

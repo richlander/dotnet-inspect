@@ -1061,9 +1061,13 @@ website-shaped descriptor or a graph-depth expansion.
 
 The claim is: a query-preparation selection preserves the selected
 facets' issued meaning, operators, operand kinds, examples, listed values,
-effects, registered input rules, declared required context, and applicable
-consumer-binding syntax and exposure. Its stated preparation questions resolve
-locally. Direct JSON and HAL carry equivalent selected knowledge; lowering
+effects, registered input rules, declared required context, related-operation
+affordances, and applicable consumer-binding syntax and exposure. When a route
+registers host-neutral presentation, the same selection also preserves its
+order, control and presentation kinds, execution class, grouping, combining
+behavior, structured options, and external option-source identity. Its stated
+preparation questions resolve locally. Direct JSON and HAL carry equivalent
+selected knowledge; lowering
 vocabulary does not choose a larger population or add domain meaning.
 Completeness qualifies the selected population and semantic profile, not every
 facet in the installed catalog or every validation rule in the operation.
@@ -1076,8 +1080,9 @@ Query Space's facet facts and the binding's host syntax, rather than separately
 maintaining an agent summary or `-Q` inventory. This owner supplies the shared
 selection boundary; CLI admission and narrowing gestures remain with the CLI
 owner. A narrowing gesture can reduce the work left for jq without selecting a
-second schema or changing the facts' meaning. Full contract inspection and
-richer website authoring descriptors remain independent consumers.
+second schema or changing the facts' meaning. Full contract inspection remains
+an independent consumer. Browser interaction and layout remain host-owned while
+consuming the same owner-issued preparation and optional presentation facts.
 
 A selected reading document normalizes prerequisite records and shared binding
 rules once. A small binding exposure index is justified by the critical query
@@ -1105,11 +1110,11 @@ whose direct dependency evidence appears in the
 The example source is the retained NativeAOT command-local HAL response from
 `88500f2d8298e3ede5640c9284ad00ddbdb86c15`. The local projector recovers every
 selected semantic field, compares five jq questions across both lowerings,
-checks source answers, and rejects unresolved required context. All 19 facets
-and binding rules occupy 8,198 B in direct JSON or 8,450 B in HAL, compared with
-18,509 B for the minified source. A direct-dependency preparation selection
-occupies 2,170 B or 2,320 B respectively. These are byte measurements, not
-runtime or agent-performance claims. The examples retain whole prose rules;
+checks source answers, and rejects unresolved required context. Its retained
+byte measurements predate the optional presentation and related-operation
+projection added for the Browser consumer; they remain historical reading
+evidence rather than current payload-size claims. These are byte measurements,
+not runtime or agent-performance claims. The examples retain whole prose rules;
 they do not trim conditional constraints by guessing which sentences matter.
 
 The shared implementation emits `scope.profile = query-preparation/v1` in
@@ -1121,6 +1126,11 @@ facet remains unknown. Operators are always present. Direct JSON has keyed
 facet and binding tables plus `facet_order`; HAL embeds the same complete
 records as relation arrays. Binding keys retain their owner-issued identities
 and records retain consumer kind, gesture, input rules, and selected exposure.
+Registered presentation fields use the same `snake_case` lowering as the core
+facet fields. An explicitly absent presentation or optional presentation value
+is `null`; unavailable or failed observations reject the selection rather than
+becoming absence. `related_operations` retains owner-issued operation
+identities and is present as an array, including when empty.
 
 `ResourceExplanationDataset.Create` optionally accepts facet keys at a query
 space root, closes declared context, retains all registered rule prose, and
@@ -1324,11 +1334,19 @@ validation task benefits from that structure. Both `.data` and `.hal` retain
 these declarations; HAL's navigation does not supply operand semantics.
 
 A facet response preserves its issued key, operand kind, operators, values,
-examples, effects, and declared relationship targets. Vocabulary navigation
-does not mean the facet accepts all vocabulary terms. An empty values list
-does not establish an open domain. Query-local constraints remain Query Space
-facts; an accepted subset or open-domain assertion requires that owner's
-explicit declaration.
+examples, effects, input rules, related operations, and declared relationship
+targets. When the route owner registers presentation, selected facet data also
+preserves order, control and presentation kinds, execution class, selection and
+replacement groups, combining behavior, structured inline options, and an
+external option-source identity. Missing presentation remains explicit absent
+state; Resource Explanation does not infer it from operators or display text.
+
+Vocabulary navigation does not mean the facet accepts all vocabulary terms. An
+empty values list does not establish an open domain. Query-local constraints
+remain Query Space facts; an accepted subset or open-domain assertion requires
+that owner's explicit declaration. Inline presentation option values equal the
+effective Query Space values; an external option-source identity delegates
+choice population to another owner-issued product catalog.
 
 Acceptance uses three current production witnesses:
 
@@ -1650,6 +1668,78 @@ separate facts. It does not claim whole-vocabulary acceptance
 or a reusable subset identity. A later query-owner adoption may issue a typed
 complete, constrained-subset, or open-domain relationship for explanation to
 preserve.
+
+### Vocabulary reading selection
+
+**Status: proposed, not installed.**
+[#10013](https://github.com/richlander/dotnet-inspect/issues/10013) and the
+[worked vocabulary reads](../../tools/ExplainReadingScenarios/vocabulary-reading/README.md)
+define the next vocabulary reading profile. Existing vocabulary `.data` and
+`.hal` still emit their current dataset; this proposal admits no host gesture.
+Resource Explanation owns the selection and lowering. Product Vocabulary and
+the declaring term owners continue to own identities, maps, meanings,
+defaults, and accepted input identities.
+
+The claim is: a vocabulary reading selection preserves complete knowledge for
+each selected value and its exact referenced term context, while unselected
+values remain unknown. Direct JSON and HAL carry equivalent selected knowledge.
+Critical reads are legal identity lookup, default selection, Boolean membership,
+optional group membership, and local interpretation of a referenced term.
+The real assets are the composed API accessibility, C# body-kind, and C# style
+declarations, captured from NativeAOT commit
+`7c18afc97b170947835b732797572292dba2fff2`; source bytes, binary digest,
+commands, and reproduction are retained with the worked examples.
+
+Selection consumes the composed owner snapshot, retaining owner order and native
+value identities. It closes term maps over the exact referenced values, including
+their own term references, rather than over an entire target vocabulary. It does
+not automatically include other members of an optional group. Answering a question
+about all group alternatives requires selecting those alternatives; a selected
+group index describes only selected membership. The profile reports the root
+vocabulary, selected completeness, and each included vocabulary's catalog size.
+Completeness describes the selected observation, never whole-catalog coverage.
+
+Map declarations remain once per included vocabulary, with their identity, label,
+meaning, value kind, cardinality, coverage, and term target when applicable. Value
+records retain their owner meaning and scalar or term map values. Boolean property
+sets and optional text groups retain their existing sparse representation,
+restricted to selected values. Absence from a Boolean set means false only for a
+selected value with available complete map coverage. Absence from an optional
+group means no group only under those same preconditions. Defaults are likewise
+restricted to selected values. Partial or unavailable source knowledge cannot be
+silently lowered through these defaults; its outcome needs explicit design before
+admission. Unknown selections and unresolved term context fail visibly.
+
+Direct JSON uses vocabulary and value lookup tables plus explicit owner-order
+arrays. HAL uses `_embedded.vocabularies` and each vocabulary's `_embedded.values`
+in owner order, with the same maps and property indices. The exact identity is
+the default value label when the owner label is identical; different labels and
+all summaries survive. Missing summaries mean no declared summary for a complete
+selected record. Per-value kind tags, self links, repeated link titles, and
+automatic contract navigation are omitted from this reading profile. The
+examples advertise only the implemented full-vocabulary `collection` destination;
+they invent no address for the experimental selection. No external request is
+needed to interpret embedded terms. `accepted_by` remains an opaque owner-issued
+identity list, not inferred command syntax or whole-vocabulary facet acceptance.
+
+The offline projector checks selected-field recovery and jq answers against
+the unmodified source, including known false versus unselected and unresolved
+context. It is design evidence, not a product gate. Production adoption must
+enforce these claims through the shared dataset and both host entrances.
+Comparisons separate identical populations from narrower value selections;
+serialized byte counts are not latency evidence. They establish neither a
+minimum format nor improved agent behavior.
+
+The four counted slices are this proposal;
+[#10014 shared selection](https://github.com/richlander/dotnet-inspect/issues/10014);
+[#10015 CLI adoption](https://github.com/richlander/dotnet-inspect/issues/10015);
+and [#10016 Browser/Wasm adoption](https://github.com/richlander/dotnet-inspect/issues/10016),
+under overall [#9762](https://github.com/richlander/dotnet-inspect/issues/9762).
+Host admission decisions belong in their respective adoption efforts. Retire
+superseded ordinary vocabulary reading projections as those consumers migrate.
+Explicit contracts and the website Settings snapshot remain separate consumers.
+Agent testing follows adoption and measures valid answers, total retrieved
+content, and navigation necessary for the actual question.
 
 ### Contextual resources
 
