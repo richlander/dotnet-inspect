@@ -287,7 +287,7 @@ public class SkillCommandTests
     }
 
     [Fact]
-    public async Task ProjectAnalysisSkill_ComposesScenariosDepthsAndExplainDiscovery()
+    public async Task ProjectAnalysisSkill_ComposesScenariosDepthsAndCommands()
     {
         var (exitCode, output, _) = await ConsoleCapture.RunAsync(
             () => Task.FromResult(SkillCommand.ExecuteSkill("project-analysis")));
@@ -302,10 +302,6 @@ public class SkillCommandTests
         Assert.Contains("*snapshot*", output);
         Assert.Contains("*delta*", output);
         Assert.Contains("about 30 seconds", output);
-        Assert.Contains("explain \"<task text>\"", output);
-        Assert.Contains("explain library/sections", output);
-        Assert.Contains(".hal --json", output);
-        Assert.Contains("-E .tips", output);
         Assert.Contains("-Q \"<Section>\"", output);
         Assert.Contains("-S Pruning", output);
         Assert.Contains("-S \"Latest Versions\"", output);
@@ -313,7 +309,9 @@ public class SkillCommandTests
         Assert.Contains("-S Changes", output);
         Assert.Contains("never to update", output);
         Assert.Contains("**confirmed**, **dismissed**, or **open**", output);
-        Assert.Contains("-S \"Unsafe Members,Resource Triage\"", output);
+        Assert.Contains("-S \"Resource Triage\"", output);
+        Assert.Contains("--namesake-library", output);
+        Assert.Contains("## Command conventions", output);
         Assert.Contains("pooled-resource coverage as unverified", output);
         Assert.Contains("skill relationships", output);
         Assert.Contains("skill compatibility", output);
@@ -322,9 +320,9 @@ public class SkillCommandTests
         Assert.Contains("skill correctness", output);
         foreach (string issue in new[]
                  {
-                     "#7553", "#8406", "#10067", "#10068", "#10069", "#10070",
-                     "#10071", "#10072", "#10073", "#10074", "#10075", "#10076",
-                     "#10077", "#10080", "#10081", "#10082", "#10083", "#10084", "#10085", "#10086", "#3748", "#7805",
+                     "#3748", "#7553", "#7805", "#8406", "#10071", "#10072",
+                     "#10073", "#10074", "#10075", "#10077", "#10080", "#10081",
+                     "#10082", "#10083", "#10084", "#10085", "#10086",
                  })
         {
             Assert.Contains(issue, output);

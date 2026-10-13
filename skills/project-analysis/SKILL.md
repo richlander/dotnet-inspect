@@ -19,37 +19,21 @@ design context, and let that context sharpen or soften what you report.
 dnx dotnet-inspect -y -- <command>
 ```
 
-## Let the product describe itself
+## Command conventions
 
-Find routes with the installed product rather than from memory, and copy every
-path, section name, and facet key from its output:
+This skill names every command a review needs. Use them as written; reach for
+`<command> -D` (sections and fields) or `<command> -Q "<Section>"` (filter keys
+and operators) only to look up an exact name the skill does not give.
 
-1. `explain "<task text>"` searches installed capabilities and returns exact
-   resource paths with their production commands.
-2. `<command> -D` lists sections and categories; on `library` (add
-   `--namesake-library` for a package), each row carries
-   a `Path` you pass unchanged to `explain <path>` for its columns, formats, and
-   shape. `explain library/sections` lists the complete Library catalog,
-   including analysis sections that no category lists, such as
-   `Library Metrics`, `Dependency Structure`, `Name Families`,
-   `Architectural Families`, `Clone Candidates`, and `Member Metrics`.
-3. `<command> -Q "<Section>"` lists the facet keys and operators that
-   `--where`, `--order-by`, and `--top` accept for that section.
-4. For a vocabulary, query-space, or query-facet path, `explain <path> .hal --json`
-   embeds values, rules, and related resources; read `_embedded` before
-   following `_links`.
-5. `-E .tips` adds bounded follow-up gestures on stderr after ordinary output.
-
-Explanation coverage is still growing. Where it stops, use the sections this
-skill names and continue:
-
-| Gap | Use instead | Tracked by |
-| --- | --- | --- |
-| Capability search covers Package Query only | `library -D`, `explain library/sections` | #10068 |
-| `depends` and `diff` have no explain resources | `depends -D`, `diff -D` | #10069, #10070 |
-| `depends --explain`, `diff --explain`, and `diff -Q` are read as positional input | Do not use them; read the error as "not offered" | #10067 |
-| Section explanations list columns but not meaning | The boundaries stated below | #10077 |
-| `explain -h` fails | Root `--help` and this section | #10076 |
+- `Id@v` is an exact package coordinate. For a package, add
+  `--namesake-library` to `library` to select its main assembly; the
+  package-wide view renders Markdown only, so TSV and JSONL rows need it.
+- `<target>` is `--package Id@v --namesake-library`, `path/to/Lib.dll`, or a
+  restored project's built output.
+- Quote section names with spaces: `-S "Library Metrics"`.
+- Non-public and obsolete code needs `--all` in `type`, `member`, and `diff`.
+  Without it, `type` and `diff` report "not found" or a selector error rather
+  than a visibility hint (#10081, #10086).
 
 ## Choose a scenario, depth, and subject
 
@@ -89,7 +73,7 @@ and clustering wait for a thorough review; they are only worth doing well.
 | Changed URLs in literals | `diff --package Id@current..latest --analysis string-literals --where "Literal contains http"` |
 | Known vulnerabilities | `package Id@current -S Signals`: the `Known vulnerabilities` row is a checked count with its source; `-S Vulnerabilities` lists advisories only when there are some |
 | Unsafe in dependencies (context, not a verdict) | `library --package Id@current --namesake-library -S Signals`, plus `-S "Unsafe Members" --count` |
-| Concerning patterns in the target | `library <target> -S "Unsafe Members,Resource Triage"` and `-S "Performance:*" --where "Priority>=high" --top 10` |
+| Concerning patterns in the target | `library <target> -S "Unsafe Members"`, `-S "Resource Triage"`, and `-S "Performance:*" --where "Priority>=high" --top 10`, each in its own call so one failure cannot mask the others |
 
 Run the per-dependency checks in one shell call with parallelism, for example
 `xargs -P 8`. A restored four-package app takes about 1 s for Pruning plus
@@ -156,13 +140,33 @@ blocked by a product gap, not when a call count is reached.
 
 ### Learn
 
-**Quick:** identity, purpose, README and package skills, public surface shape,
-`Integrations`, and direct dependencies.
+**Quick:**
 
-**Thorough:** `Name Families` and `Architectural Families` for naming and
-structural roles; `Top Leverage` for the Members everything else reaches;
-type hierarchy and `Async Methods` for interaction patterns; then a focused
-`member … -S "Call Graph" --tree` for one central path. Load
+```bash
+dnx dotnet-inspect -y -- package Id@v -S "Package Info,README,Signals"
+dnx dotnet-inspect -y -- library --package Id@v
+dnx dotnet-inspect -y -- library --package Id@v --namesake-library \
+  -S "Library Info,Integrations"
+dnx dotnet-inspect -y -- depends --package Id@v -S Dependencies
+```
+
+The bare `library --package Id@v` output is the namespace and type tree: the
+fastest view of the public surface. For a restored project, add
+`project <path> -S Skills` for skills its packages ship.
+
+**Thorough:**
+
+```bash
+dnx dotnet-inspect -y -- library <target> \
+  -S "Name Families,Architectural Families"
+dnx dotnet-inspect -y -- library <target> -S "Top Leverage" -n 20
+dnx dotnet-inspect -y -- library <target> -S "Async Methods"
+dnx dotnet-inspect -y -- member <Type> --package Id@v <Method>:1 \
+  -S "Call Graph" --tree
+```
+
+Names and structural roles show conventions; Top Leverage shows the Members
+everything else reaches; one focused call tree shows how the parts meet. Load
 `skill relationships` for calls and `skill decompiler` when the question needs
 code.
 
@@ -184,12 +188,33 @@ Pruning and updating pull in opposite directions; resolve them in order:
    unsafe, allocation, and throw shifts, and the string-literal analysis for
    changed endpoints.
 
+```bash
+dnx dotnet-inspect -y -- depends --project <path> --tfm <restored-tfm> \
+  -S "Pruning,Latest Versions" --json
+dnx dotnet-inspect -y -- diff --package Id@current..latest --breaking
+dnx dotnet-inspect -y -- diff --package Id@current..latest -S Changes
+dnx dotnet-inspect -y -- diff --package Id@current..latest -S "Analysis Diff"
+dnx dotnet-inspect -y -- diff --package Id@current..latest \
+  --analysis string-literals --where "Literal contains http"
+dnx dotnet-inspect -y -- package Id@current -S Signals
+```
+
 Load `skill compatibility` for diff and history, and `skill signals` for
 provenance, signatures, and vulnerabilities.
 
 ### Complexity and clustering
 
-Thorough only. Start with `Library Metrics` for implementation volume,
+Thorough only.
+
+```bash
+dnx dotnet-inspect -y -- library <target> -S "Library Metrics"
+dnx dotnet-inspect -y -- library <target> -S "Dependency Structure"
+dnx dotnet-inspect -y -- library <target> -S "Architectural Families"
+dnx dotnet-inspect -y -- library <target> -S "Clone Candidates"
+dnx dotnet-inspect -y -- library <target> -S "Member Metrics" --tsv
+```
+
+Start with `Library Metrics` for implementation volume,
 distribution, and concentration; `Dependency Structure` for namespace cycles
 and levels; `Architectural Families` and `Clone Candidates` for repeated
 structure; and `Member Metrics` for outliers. Complexity is normal-flow
@@ -206,8 +231,8 @@ Trace a surprising namespace edge to its types with
 Read these with care until their owners close the gaps:
 
 - `Dependency Structure` has no JSON form, and `--json` drops it silently
-  (#3748); use Markdown or TSV. Its level and cycle labels are not yet
-  explained (#10077); confirm a cycle from mutual edge rows.
+  (#3748); use Markdown or TSV. Its level and cycle labels are not
+  defined anywhere yet (#10077); confirm a cycle from mutual edge rows.
 - `Member Metrics` has no ranking operators (#10083); rank its rows locally.
 - Architectural Families can include compiler-generated names such as `c`
   and `d` (#10082); set them aside.
@@ -221,6 +246,18 @@ Clustered dependency communities are not yet product evidence (#8406); do not
 simulate them from layout.
 
 ### Topic deep-dive
+
+```bash
+dnx dotnet-inspect -y -- library <target> -S "Top Leverage" -n 20
+dnx dotnet-inspect -y -- library <target> -S "Performance:*" \
+  --where "Priority>=high" --top 20
+dnx dotnet-inspect -y -- library <target> -S "Unsafe Members,P/Invoke Methods"
+dnx dotnet-inspect -y -- library <target> -S "Resource Triage"
+dnx dotnet-inspect -y -- library <target> \
+  -S "Async Methods,Performance: Sync Calls in Async"
+dnx dotnet-inspect -y -- member <Type> --package Id@v <Method>:1 --all \
+  -S "IL,Unsafe Operations,Exception Regions,Call Graph"
+```
 
 - **Performance:** intersect `Top Leverage` with `Performance:*` rows. Keep
   Priority separate from Confidence; static evidence names candidates, and a

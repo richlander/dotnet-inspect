@@ -142,26 +142,25 @@ both sides and reports each concern as introduced, pre-existing, resolved, or
 worsened, using `diff` where it covers the metric and otherwise an exact
 identity join of two snapshots.
 
-## Discovery order
+## Route guidance: skill baseline, then explanation
 
-The agent finds routes through the installed product rather than from skill
-prose, in this order:
+Routes reach the agent in two stages, each measured on the same tasks:
 
-1. capability search: `explain <task text>`;
-2. command discovery: `<command> -D`, whose Library rows carry exact resource
-   paths;
-3. exact explanation: `explain <path>`, and `.hal` where the resource kind
-   admits it;
-4. query discovery: `<command> -Q <section>`; and
-5. companion continuations: `-E .tips`.
+1. **Skill-directed baseline.** The skill names every command a scenario
+   needs. Command-local `-D` and `-Q` serve only to look up an exact section,
+   field, or filter name the skill omits. This establishes a working review
+   and a measured efficacy and efficiency bar.
+2. **Explanation-directed variant.** A later revision moves route knowledge
+   out of skill prose and into installed explanation: capability search,
+   exact resource explanation and HAL, query discovery, and companion
+   continuations. It replaces the baseline only where it matches or beats the
+   bar on the same tasks.
 
-Skill prose names a section or gesture directly only where the installed
-explanation does not yet reach it, and cites the issue that closes that gap.
-Each such citation is removed when its owner adopts explanation. The review
-is therefore also a standing usability test of
-[Resource Explanation](resource-explanation.md),
-[Contextual Resource Explanation](contextual-resource-explanation.md), and
-[Capability Catalog Search](capability-catalog-search.md).
+Efficacy is whether each review reaches the task's predetermined material
+findings with correct evidence classes and qualifications. Efficiency is
+invocations, rounds, tool time, and bytes read. Comparisons hold the binary,
+tasks, subjects, cache state, and participant configuration fixed, and remain
+descriptive evidence rather than a regression gate.
 
 ## Result validation
 
@@ -238,7 +237,8 @@ The shipped `project-analysis` skill is the first bounded adopter. It:
 
 1. is registered and embedded in the CLI;
 2. selects a scenario, depth, and subject;
-3. teaches the discovery order and names explanation gaps with their issues;
+3. names every command each scenario needs, with known product traps and
+   their issues;
 4. states the quick-review bound, placement, and validation rules;
 5. states the lowlight stages and outcomes; and
 6. delegates command semantics to the focused skills.
@@ -286,10 +286,66 @@ per-section row windows
 `Analysis Diff --changed` exit status
 ([#10075](https://github.com/richlander/dotnet-inspect/issues/10075)).
 
-### Fresh-agent stress run
+### Skill-directed baseline
 
-Four fresh agents, one per scenario, received only the rewritten skill
-embedded in the same build and the CLI through a logging wrapper. They had no
+The baseline is the shipped skill in this revision, measured once on fixed
+tasks. A later explanation-directed variant repeats the same tasks, rubric,
+subjects, participant configuration, and warm-cache state against its own
+build, and the comparison is reported beside this table.
+
+**Setup.** NativeAOT `linux-x64` build of `2e8e54c` with this skill embedded
+(SHA-256 `200a40745cd2d5d774e468fb495fe39ade87aa2b47c580053a8d13ca629c2a75`);
+four fresh Claude Opus 5.5 general-purpose agents, one per task; CLI access
+only, through a logging wrapper; no repository, source, or web access; warm
+package cache. The rubric below was frozen before launch.
+
+**Tasks and rubric.** Each material finding scores 1 when stated with
+supporting evidence, 0.5 when partial or unsupported, and 0 when missing or
+wrong.
+
+| Task | Material findings |
+| --- | --- |
+| B1. Learn, quick: Polly.Core 8.5.2 | Purpose; builder-to-pipeline usage with options per strategy; namespace per strategy and Simmy; no net8.0 dependencies and polyfills below; signing, determinism, and SourceLink; unverified items labeled |
+| B2. Dependency risk, quick: restored `net10.0` app referencing System.Text.Json 8.0.5, Newtonsoft.Json 12.0.3, Polly.Core 8.0.0, and Microsoft.Extensions.Http 8.0.0 | Remove System.Text.Json (`PlatformDelegation`); Newtonsoft CVE-2024-21907 and update to 13.0.4; its assessed breaks; its added `http://` literal; Microsoft.Extensions.Http two majors and two breaks; Polly minor update and one break; target and completion confirmed |
+| B3. Complexity and clustering, thorough: Newtonsoft.Json 13.0.4 | One namespace cycle; conventional facade edges; Utilities-to-Serialization inversion located; `JsonValidatingReader` back-edge located; `JsonTextReader` concentration and sync/async duplication; clone evidence not overstated; every pursued lowlight has an outcome |
+| B4. Topic deep-dive, thorough: System.IO.Pipelines 9.0.0 | Minimal unsafe surface dismissed; Resource Triage failure reported as unverified coverage; all performance rows low priority; rent and return paths traced by hand; at least one lowlight located and traced with IL coordinates; boxing qualified to captured contexts |
+
+**Results.**
+
+| Task | Efficacy | Calls | Rounds | Tool time | Bytes read | Agent tokens | Agent time |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| B1 | 6 / 6 | 9 | 4 | 0.7 s | 34 KB | 48.6 k | 48 s |
+| B2 | 7 / 7 | 18 | 3 | 7.0 s | 48 KB | 52.8 k | 63 s |
+| B3 | 6.5 / 7 | 30 | — | 8.0 s | 1,290 KB | 100.0 k | 198 s |
+| B4 | 6 / 6 | 37 | — | 3.7 s | 96 KB | 97.8 k | 197 s |
+
+B3 located only 4 of 24 Utilities-to-Serialization calls because no route
+expands a namespace edge into its type pairs
+([#10092](https://github.com/richlander/dotnet-inspect/issues/10092)). B1 spent
+an extra round recovering README text. Both thorough reviews stayed under the
+45-call cap and ended every pursued lowlight as confirmed, dismissed, or open.
+Bytes read counts the CLI's output, including large tables the agent filtered
+locally.
+
+The baseline participants also surfaced annotation-only signature changes
+counted as breaking removals
+([#3021](https://github.com/richlander/dotnet-inspect/issues/3021)), silently
+omitted empty sections
+([#10073](https://github.com/richlander/dotnet-inspect/issues/10073)), the
+aggregate path dropping Clone Candidates
+([#10080](https://github.com/richlander/dotnet-inspect/issues/10080)), and
+unselectable compiler-generated members
+([#10093](https://github.com/richlander/dotnet-inspect/issues/10093)).
+
+This is one descriptive wave per task, not a regression gate or a population
+estimate.
+
+### Exploratory explanation-first run
+
+Before the baseline, an explanation-first draft of the skill, which led with
+capability search and resource explanation, was tried by four fresh agents,
+one per scenario. Each received only that draft embedded in the same build and
+the CLI through a logging wrapper. They had no
 repository, source, or web access. Each returned its review, a discovery
 trace, and the points where the product failed to explain itself:
 
@@ -335,8 +391,9 @@ output ([#7430](https://github.com/richlander/dotnet-inspect/issues/7430)), and
 stale pairwise `--finding` examples in three shipped skills
 ([#8611](https://github.com/richlander/dotnet-inspect/issues/8611)).
 
-This is bounded diagnostic evidence from one wave, not an adoption rate,
-efficiency result, or answer-quality score.
+This is bounded diagnostic evidence from one wave of a superseded draft, not
+an adoption rate, efficiency result, or answer-quality score. It motivated the
+skill-directed baseline.
 
 ## Validation
 
@@ -344,8 +401,8 @@ CLI gates verify that the skill:
 
 - is registered, embedded, and listed from frontmatter;
 - names the four scenarios, both depths, and both subjects;
-- teaches the discovery order beginning with `explain` and names each
-  explanation gap with its issue;
+- names the commands for each scenario and the product traps with their
+  issues;
 - states the 30-second quick-review bound, cheap-dependency placement, and
   result validation;
 - orders dependency currency as Pruning, Latest Versions, then `diff`;
