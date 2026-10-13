@@ -388,6 +388,29 @@ public sealed class AuthorityScopedPackageStoreTests : IDisposable
     }
 
     [Fact]
+    public void GlobalPackages_RelativeSourceIsAMissEvenWhenItResolvesUnderTheCurrentDirectory()
+    {
+        NuGetCache.Initialize("dotnet-inspect-test", CacheRoot, skipNuGetCache: false);
+        string relative = $"relative-feed-{Guid.NewGuid():N}";
+        string feed = Path.Combine(Directory.GetCurrentDirectory(), relative);
+        Directory.CreateDirectory(feed);
+        try
+        {
+            var authority = new ConfiguredPackageAuthority(new PackageSource("feed", feed));
+            using IPackageSourceClient client = CreateClient(authority);
+            WriteGlobalPackage(relative);
+
+            Assert.Null(CreateStore(authority, client).TryGetCached(
+                PackageName, Version, [client.Source.Producer.Key]));
+            Assert.Equal(0, _temporaryRootRequests);
+        }
+        finally
+        {
+            Directory.Delete(feed, recursive: true);
+        }
+    }
+
+    [Fact]
     public void GlobalPackages_NoNuGetCacheSkipsMatchingLocalMetadata()
     {
         ConfiguredPackageAuthority authority = LocalAuthority("feed");

@@ -398,6 +398,15 @@ public sealed class AuthorityScopedFileSystemPackageStore :
     {
         try
         {
+            // Classify the recorded source without a base directory: a local
+            // source must already be absolute, because a relative one would
+            // resolve against the current directory and so be ambiguous.
+            if (LocalPackageSourceIdentity.IsLocalSource(source))
+            {
+                return _authority.LocalIdentity is { } local
+                    && local.Equals(LocalPackageSourceIdentity.CreateAbsolute(source));
+            }
+
             return ConfiguredPackageAuthorityKey.TryCreate(
                     new PackageSource("nuget-global-packages", source),
                     out ConfiguredPackageAuthorityKey? key,
