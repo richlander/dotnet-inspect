@@ -318,8 +318,8 @@ Focused gates for the move:
   static lambda, capturing lambda, and local function declared in an
   iterator, each with evidence, fold into the iterator method with physical
   provenance at both Library and Type scope;
-- a generated body in a nested compiler-generated type that no source member
-  claims is an unattributed limitation at both scopes;
+- a generated body with evidence in a nested compiler-generated type that no
+  source member claims is an unattributed limitation at both scopes;
 - an expansion bound at Type scope yields an incomplete census with the
   visited prefix's findings and an attribution-bound limitation; and
 - at Type scope, Method Query Source breadth and terminal work stay within the

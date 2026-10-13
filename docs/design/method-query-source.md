@@ -247,9 +247,10 @@ methods merely because an implementation can discover them.
 The initial relations are:
 
 - **Generated execution bodies.** From an authenticated declared source,
-  include its async or iterator state-machine methods in the requested
-  [roles](#declared-source-relation) and its authenticated lifted
-  local-function or lambda bodies. State-machine
+  include its async or iterator state-machine execution method and its
+  authenticated lifted local-function or lambda bodies. The
+  [declared-source relation](#declared-source-relation) states the target
+  that widens this to role-selected state-machine methods. State-machine
   relationships may be available from targeted metadata. Lifted ownership may
   additionally require bounded instruction probes of the selected owner and
   recursively reached candidate bodies. Relationship owners define
@@ -312,6 +313,14 @@ new units. A bound reached before closure is typed incomplete source
 completion, never successful exhaustion.
 
 ### Declared-source relation
+
+Status: this section is the target design for
+[#9864](https://github.com/richlander/dotnet-inspect/issues/9864) and is
+**unverified**. Today expansion applies only to exact breadth, includes only
+the state-machine `MoveNext` and authenticated lifted bodies, and fails the
+source with empty breadth when a bound is reached. Roles, nested-type reach,
+unauthenticated-candidate breadth, the all-definition reverse lowering, and
+retained-prefix bounds land with that issue.
 
 The declared-source relation maps declared members and the physical bodies
 that implement them, in both directions. Exact breadth asks the forward
