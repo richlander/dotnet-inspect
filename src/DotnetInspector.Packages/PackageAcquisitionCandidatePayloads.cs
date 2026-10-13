@@ -473,6 +473,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                 bool rangedFirst = rangedSource is not null && cachedState is not null;
                 PackageTransferFallbackReason? fallback = null;
                 bool nextAuthority = false;
+                bool headChecked = false;
                 while (!nextAuthority)
                 {
                     nextAuthority = true;
@@ -482,6 +483,19 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                         + $"{PackageSourceDisplay.ForDiagnostics(authority.Source)}.");
                     try
                     {
+                        long? headLength = null;
+                        if (!headChecked && cachedState is null && rangedSource is not null
+                            && client is IPackageArchiveSizeSource sizeSource)
+                        {
+                            headChecked = true;
+                            headLength = await sizeSource.GetArchiveSizeAsync(
+                                candidate.Coordinate.PackageId, candidate.Coordinate.Version,
+                                operation.CancellationToken, operation).ConfigureAwait(false);
+                            transfer.Add(new(PackageTransferRequestPurpose.HeadSizeProbe,
+                                null, PackageTransferRequestOutcome.Completed, headLength, 0));
+                            rangedFirst = headLength > rangedRead!.SizeCut;
+                            sizeGate = null;
+                        }
                         PackageSourcePayloadResult? result = null;
                         if (!rangedFirst)
                         {
@@ -519,7 +533,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                                         is PackageSourcePayloadResult.Oversized
                                             known
                                         ? known.AdvertisedLength
-                                        : cachedState?.Directory.ArchiveLength;
+                                        : headLength ?? cachedState?.Directory.ArchiveLength;
                                 attempt = await TryAcquireRangedAsync(
                                     rangedSource!,
                                     client,

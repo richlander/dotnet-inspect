@@ -56,6 +56,26 @@ public sealed partial class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task ArchiveSize_Gallery_UsesHeadAndReportsAdvertisedLength()
+    {
+        var handler = new RecordingHandler();
+        handler.SetResponse(GalleryPackage, request =>
+        {
+            Assert.Equal(HttpMethod.Head, request.Method);
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent([]),
+            };
+            response.Content.Headers.ContentLength = 437579;
+            return response;
+        });
+        using IPackageSourceClient runtime = PackageSourceClientFactory.CreateGallery(handler);
+        var sizeSource = Assert.IsAssignableFrom<IPackageArchiveSizeSource>(runtime);
+        Assert.Equal(437579, await sizeSource.GetArchiveSizeAsync("contoso", "1.0.0",
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task ArchiveRange_RetainedDirectory_ReopensWithFreshOperationAndNoDirectoryRequest()
     {
         byte[] archive = FixtureArchive();

@@ -35,6 +35,20 @@ the transactional publication and single-flight of
 [cache concurrency and publication](cache-concurrency.md), and the payload
 limits of [package payload capacity](package-payload-capacity.md).
 
+## HEAD-first experimental control
+
+A separate unshipped control asks the authorized gallery archive endpoint for
+its length with HEAD before choosing complete GET or directory-and-entry ranges.
+It reuses the ordinary source transport and operation deadline. HEAD has no
+package body; its advertised length is recorded separately from consumed bytes.
+A missing length chooses complete acquisition. Cached complete content or a
+retained directory needs no HEAD. A ranged refusal follows the established
+complete-fetch fallback, without repeating HEAD. This capability is currently
+implemented by the gallery client only, sufficient for the pinned nuget.org
+experiment; adoption by other HTTP clients is unverified. No host or Diff policy
+is introduced. This is a latency and connection-reuse control, not a shipping
+policy or an asserted optimum.
+
 ## Basis
 
 Measured 2026-09-23 on the motivating asset, `find .InvalidateMeasure

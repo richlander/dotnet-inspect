@@ -33,6 +33,14 @@ public interface IPackageArchiveRangeSource
         ZipDirectory? knownDirectory = null);
 }
 
+/// <summary>Experimental capability to learn archive size with a HEAD request.</summary>
+public interface IPackageArchiveSizeSource
+{
+    Task<long?> GetArchiveSizeAsync(string packageId, string version,
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null);
+}
+
 /// <summary>The range-specific ways a read can be refused; each is owned by the capability.</summary>
 public enum PackageArchiveReadRefusal
 {

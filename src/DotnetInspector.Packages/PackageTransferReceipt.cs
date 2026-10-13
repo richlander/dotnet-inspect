@@ -61,6 +61,9 @@ public enum PackageTransferRequestPurpose
     /// its body because the advertised length was above the size cut.
     /// </summary>
     SizeProbe,
+
+    /// <summary>A HEAD request learning size without a response body.</summary>
+    HeadSizeProbe,
 }
 
 /// <summary>How one package request ended.</summary>

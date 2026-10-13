@@ -872,7 +872,8 @@ internal sealed partial class NuGetGalleryPackageSourceClient : IPackageSourceCl
     private async Task<(Stream Content, long? AdvertisedLength)> GetPayloadAsync(
         string url,
         CancellationToken cancellationToken,
-        NuGetOperationContext? operationContext)
+        NuGetOperationContext? operationContext,
+        HttpMethod? method = null)
     {
         NuGetOperationDeadline operation =
             CreateOperation(cancellationToken, operationContext);
@@ -884,6 +885,7 @@ internal sealed partial class NuGetGalleryPackageSourceClient : IPackageSourceCl
                 {
                     using HttpRequestMessage request =
                         NuGetHttpRequest.CreateGet(url);
+                    request.Method = method ?? HttpMethod.Get;
                     HttpResponseMessage response = await _client.SendAsync(
                         request,
                         HttpCompletionOption.ResponseHeadersRead,

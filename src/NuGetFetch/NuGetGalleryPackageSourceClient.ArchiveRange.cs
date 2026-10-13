@@ -2,8 +2,20 @@ using ZipFetch;
 
 namespace NuGetFetch;
 
-internal sealed partial class NuGetGalleryPackageSourceClient : IPackageArchiveRangeSource
+internal sealed partial class NuGetGalleryPackageSourceClient : IPackageArchiveRangeSource, IPackageArchiveSizeSource
 {
+    public async Task<long?> GetArchiveSizeAsync(string packageId, string version,
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null)
+    {
+        PackageSourceCoordinate coordinate = PackageSourceCoordinate.Create(packageId, version);
+        string url = PackageEndpoint + EscapeSegment($"{coordinate.PackageId}.{coordinate.Version}.nupkg");
+        (Stream content, long? length) = await GetPayloadAsync(url, cancellationToken,
+            operationContext, HttpMethod.Head).ConfigureAwait(false);
+        await content.DisposeAsync().ConfigureAwait(false);
+        return length;
+    }
+
     private readonly PackageArchiveRangeMemory _archiveRange = new();
 
     /// <summary>
