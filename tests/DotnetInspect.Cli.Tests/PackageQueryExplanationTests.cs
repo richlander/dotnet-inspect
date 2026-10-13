@@ -94,7 +94,7 @@ public sealed class PackageQueryExplanationTests : IDisposable
         JsonElement root = document.RootElement;
         Assert.Equal("inspect-resource:/package-query/query?projection=hal",
             root.GetProperty("_links").GetProperty("self").GetProperty("href").GetString());
-        Assert.Equal("Complete", root.GetProperty("data_scope").GetProperty("completeness").GetString());
+        Assert.Equal("Complete", root.GetProperty("scope").GetProperty("completeness").GetString());
         JsonElement embedded = root.GetProperty("_embedded");
         Dictionary<string, JsonElement> facets = embedded.GetProperty("facets")
             .EnumerateArray().ToDictionary(facet => facet.GetProperty("key").GetString()!);
