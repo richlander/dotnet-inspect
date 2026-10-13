@@ -50,9 +50,11 @@ internal sealed record Options(
             switch (arg)
             {
                 case "--rounds":
-                    if (!TryReadPositive(args, ref index, out rounds))
+                    if (!TryReadPositive(args, ref index, out rounds)
+                        || rounds < 2)
                     {
-                        error = "--rounds requires a positive integer.";
+                        error =
+                            "--rounds requires an integer of at least 2.";
                         return false;
                     }
                     break;

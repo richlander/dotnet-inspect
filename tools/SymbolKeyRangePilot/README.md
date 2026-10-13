@@ -14,10 +14,11 @@ without exposing the retained bytes.
 ## Scope
 
 The workload constructs Type definition and Type reference keys from their
-stored namespace and Name bytes. Method, Property, Event, and Field keys embed
-their declaring Type key and stored Name; rows with signatures also embed the
-real metadata signature blob. Both strategies use the same key grammar and
-input order.
+stored namespace, declaring-Type chain, and Name bytes. Method, Property,
+Event, and Field keys embed their declaring Type key and stored Name; rows with
+signatures also embed the real metadata signature blob. Both strategies use
+the same key grammar and input order. `check` also rejects duplicate
+Type-definition keys so a shared identity loss cannot pass as parity.
 
 This is a representative Symbol Key storage-kernel pilot, not a complete Fast
 Diff benchmark. It exercises marker, Name, nested Key, and Blob parts, but it
@@ -59,6 +60,8 @@ Run a local harness smoke test:
 dotnet run --project tools/SymbolKeyRangePilot -c Release -- \
   measure --rounds 3 --target-keys 5000 <assembly>...
 ```
+
+`--rounds` must be at least 2 because XmR requires a moving range.
 
 Accepted timing evidence must use a NativeAOT publication on an approved
 performance host:

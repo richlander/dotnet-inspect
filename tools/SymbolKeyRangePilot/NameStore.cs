@@ -37,6 +37,22 @@ internal abstract class KeyStore
         return true;
     }
 
+    internal void EnsureUniqueTypeDefinitions(
+        IReadOnlyList<KeyEntry> entries)
+    {
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        for (int index = 0; index < entries.Count; index++)
+        {
+            if (entries[index].Role is not KeyRole.TypeDefinition)
+                continue;
+            if (!keys.Add(Convert.ToBase64String(Bytes(index))))
+            {
+                throw new InvalidOperationException(
+                    "The pilot produced duplicate Type-definition keys.");
+            }
+        }
+    }
+
     internal static KeyStore Build(
         NameAsset asset,
         KeyStrategy strategy,
@@ -81,7 +97,12 @@ internal sealed class PrivateKeyStore(
             {
                 int mark = builder.Begin();
                 builder.Mark(KeyFormat.Marker(entry.Role));
-                if (KeyFormat.IsType(entry.Role))
+                if (entry.ParentIndex >= 0)
+                {
+                    builder.Key(
+                        keys[copyStart + entry.ParentIndex]);
+                }
+                else if (KeyFormat.IsType(entry.Role))
                 {
                     if (!entry.Namespace.IsNil)
                     {
@@ -183,7 +204,12 @@ internal sealed class RangeKeyStore(
             {
                 int mark = builder.Begin();
                 builder.Mark(KeyFormat.Marker(entry.Role));
-                if (KeyFormat.IsType(entry.Role))
+                if (entry.ParentIndex >= 0)
+                {
+                    builder.Key(
+                        slots[copyStart + entry.ParentIndex]);
+                }
+                else if (KeyFormat.IsType(entry.Role))
                 {
                     if (!entry.Namespace.IsNil)
                     {

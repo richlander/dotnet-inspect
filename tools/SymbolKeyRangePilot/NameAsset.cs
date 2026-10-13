@@ -55,7 +55,19 @@ internal sealed class NameAsset : IDisposable
         {
             KeyEntry entry = entries[index];
             int length = 1;
-            if (entry.Role is KeyRole.TypeDefinition
+            if (entry.ParentIndex >= 0)
+            {
+                if ((uint)entry.ParentIndex >= (uint)index)
+                {
+                    throw new InvalidOperationException(
+                        "A pilot key has no earlier parent Type key.");
+                }
+                length = checked(
+                    length
+                    + FramedLength(
+                        encodedLengths[entry.ParentIndex]));
+            }
+            else if (entry.Role is KeyRole.TypeDefinition
                 or KeyRole.TypeReference)
             {
                 if (!entry.Namespace.IsNil)
@@ -69,15 +81,8 @@ internal sealed class NameAsset : IDisposable
             }
             else
             {
-                if ((uint)entry.ParentIndex >= (uint)index)
-                {
-                    throw new InvalidOperationException(
-                        "A pilot member key has no earlier Type key.");
-                }
-                length = checked(
-                    length
-                    + FramedLength(
-                        encodedLengths[entry.ParentIndex]));
+                throw new InvalidOperationException(
+                    "A pilot member key has no parent Type key.");
             }
 
             length = checked(
@@ -139,28 +144,82 @@ internal sealed class NameAsset : IDisposable
             var entries = ImmutableArray.CreateBuilder<KeyEntry>();
             var typeIndices =
                 new Dictionary<TypeDefinitionHandle, int>();
+            var pendingTypeDefinitions =
+                new HashSet<TypeDefinitionHandle>();
+
+            int AddTypeDefinition(TypeDefinitionHandle handle)
+            {
+                if (typeIndices.TryGetValue(handle, out int existing))
+                    return existing;
+                if (!pendingTypeDefinitions.Add(handle))
+                {
+                    throw new BadImageFormatException(
+                        "A Type definition has a cyclic declaring chain.");
+                }
+
+                TypeDefinition row = reader.GetTypeDefinition(handle);
+                TypeDefinitionHandle declaring = row.GetDeclaringType();
+                int parentIndex = declaring.IsNil
+                    ? -1
+                    : AddTypeDefinition(declaring);
+                int index = entries.Count;
+                entries.Add(new(
+                    KeyRole.TypeDefinition,
+                    parentIndex,
+                    parentIndex < 0 ? row.Namespace : default,
+                    row.Name,
+                    Signature: default));
+                typeIndices.Add(handle, index);
+                pendingTypeDefinitions.Remove(handle);
+                return index;
+            }
+
             foreach (TypeDefinitionHandle handle
                 in reader.TypeDefinitions)
             {
-                TypeDefinition row = reader.GetTypeDefinition(handle);
-                typeIndices.Add(handle, entries.Count);
+                _ = AddTypeDefinition(handle);
+            }
+
+            var typeReferenceIndices =
+                new Dictionary<TypeReferenceHandle, int>();
+            var pendingTypeReferences =
+                new HashSet<TypeReferenceHandle>();
+
+            int AddTypeReference(TypeReferenceHandle handle)
+            {
+                if (typeReferenceIndices.TryGetValue(
+                        handle,
+                        out int existing))
+                {
+                    return existing;
+                }
+                if (!pendingTypeReferences.Add(handle))
+                {
+                    throw new BadImageFormatException(
+                        "A Type reference has a cyclic declaring chain.");
+                }
+
+                TypeReference row = reader.GetTypeReference(handle);
+                EntityHandle scope = row.ResolutionScope;
+                int parentIndex = scope.Kind is HandleKind.TypeReference
+                    ? AddTypeReference((TypeReferenceHandle)scope)
+                    : -1;
+                int index = entries.Count;
                 entries.Add(new(
-                    KeyRole.TypeDefinition,
-                    ParentIndex: -1,
-                    row.Namespace,
+                    KeyRole.TypeReference,
+                    parentIndex,
+                    parentIndex < 0 ? row.Namespace : default,
                     row.Name,
                     Signature: default));
+                typeReferenceIndices.Add(handle, index);
+                pendingTypeReferences.Remove(handle);
+                return index;
             }
+
             foreach (TypeReferenceHandle handle
                 in reader.TypeReferences)
             {
-                TypeReference row = reader.GetTypeReference(handle);
-                entries.Add(new(
-                    KeyRole.TypeReference,
-                    ParentIndex: -1,
-                    row.Namespace,
-                    row.Name,
-                    Signature: default));
+                _ = AddTypeReference(handle);
             }
             foreach (TypeDefinitionHandle typeHandle
                 in reader.TypeDefinitions)
@@ -249,6 +308,7 @@ internal sealed class NameAsset : IDisposable
             throw new InvalidOperationException(
                 "The opaque-range keys differ from current Symbol Key.");
         }
+        current.EnsureUniqueTypeDefinitions(Entries);
         if (!current.Matches(KeyStore.Build(
                 this,
                 KeyStrategy.PrivatePerKey,
