@@ -143,26 +143,36 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     /// <summary>
-    /// Gate 8 for pairwise package diff: Library API Diff and an API analysis
-    /// set, opened through the package endpoint scope, list each endpoint's
-    /// House acquisition with its receipt, and the ordinary output is
-    /// unchanged. A repeated request reads both endpoints from the entry
-    /// cache.
+    /// Gate 8 for pairwise package diff: Library API Diff, an API analysis
+    /// set, and an analysis set that reads method bodies, opened through the
+    /// package endpoint scope, list each endpoint's House acquisition with
+    /// its receipt, and the ordinary output is unchanged. A repeated request
+    /// reads both endpoints from the entry cache.
     /// </summary>
     [Theory]
-    [InlineData("library-api-diff")]
-    [InlineData("diff-analysis")]
-    public async Task PairwiseDiffEvidenceEnvelope_ListsEachEndpointAcquisition(string resultKind)
+    [InlineData("library-api-diff", false)]
+    [InlineData("diff-analysis", false)]
+    [InlineData("diff-analysis", true)]
+    public async Task PairwiseDiffEvidenceEnvelope_ListsEachEndpointAcquisition(
+        string resultKind,
+        bool readsBodies)
     {
         Dictionary<string, byte[]> packages = await ReadSystemTextJsonPackagesAsync();
         string[] ordinaryArguments = PairwiseSystemTextJsonDiff(
-            resultKind == "diff-analysis"
-                ? ["--type", "System.Text.Json.JsonSerializer", "--analysis", "api"]
-                : []);
+            resultKind != "diff-analysis"
+                ? []
+                : readsBodies
+                    ?
+                    [
+                        "--type", "System.Text.Json.JsonSerializer",
+                        "--member", "SerializeAsync:1",
+                        "--analysis", "allocation,il",
+                    ]
+                    : ["--type", "System.Text.Json.JsonSerializer", "--analysis", "api"]);
         var feed = new RangeHonoringHistoryFeedHandler(FirstFeed, SystemTextJsonId, packages);
         UseFeed(feed);
-        string sidecar = Path.Combine(_root, $"{resultKind}-evidence.json");
-        string warmSidecar = Path.Combine(_root, $"{resultKind}-evidence-warm.json");
+        string sidecar = Path.Combine(_root, $"{resultKind}-{readsBodies}-evidence.json");
+        string warmSidecar = Path.Combine(_root, $"{resultKind}-{readsBodies}-evidence-warm.json");
 
         var withEvidence = await RunCommandAsync(
             [.. ordinaryArguments, "--evidence-envelope", sidecar]);
@@ -215,7 +225,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Equal(1, result.Exit);
         Assert.Contains(
             "--evidence-envelope requires diff --history, or a pairwise diff --package "
-                + "Library API Diff or API analysis set.",
+                + "Library API Diff or analysis set.",
             result.Error,
             StringComparison.Ordinal);
         Assert.False(File.Exists(Path.Combine(_root, "member-evidence.json")));
