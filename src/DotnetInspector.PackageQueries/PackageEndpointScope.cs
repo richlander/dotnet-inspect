@@ -656,6 +656,14 @@ public sealed class PackageEndpointScope : IAsyncDisposable
         {
             PackageHouseDemand.Exact exact =>
                 $"{exact.Coordinate.PackageId} {exact.Coordinate.Version}",
+            PackageHouseDemand.Selecting
+            {
+                Request: PackageVersionSelectionRequest.AlwaysLatest latest,
+            } => $"{latest.PackageId} latest",
+            PackageHouseDemand.Selecting
+            {
+                Request: PackageVersionSelectionRequest.Wildcard wildcard,
+            } => $"{wildcard.PackageId} {wildcard.VersionPrefix}*",
             PackageHouseDemand.Selecting selecting =>
                 $"{selecting.Request.PackageId} ({selecting.Request.GetType().Name})",
             _ => demand.GetType().Name,

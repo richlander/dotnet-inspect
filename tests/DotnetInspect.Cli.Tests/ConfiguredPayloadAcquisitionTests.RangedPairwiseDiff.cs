@@ -126,7 +126,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     /// <summary>
     /// Gate 7: offline, with both endpoints in the local package cache, the
     /// API views give the same output; Library API Diff opens both exact
-    /// pins through the scope, and the other views keep the legacy path.
+    /// pins through the scope, with and without <c>--tfm</c>, and the other
+    /// views keep the legacy path.
     /// </summary>
     [Fact]
     public async Task PairwiseDiff_OfflineWithCachedEndpoints_GivesTheSameOutput()
@@ -134,7 +135,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Dictionary<string, byte[]> packages = await ReadSystemTextJsonPackagesAsync();
         string[][] requests =
             [.. SystemTextJsonLibraryApiDiffs.Concat(SystemTextJsonMergedSurfaceViews)
-                .Select(PairwiseSystemTextJsonDiff)];
+                .Select(PairwiseSystemTextJsonDiff),
+            PairwiseSystemTextJsonDiff([], targetFramework: null)];
         string[] online = await RunLegacyPairwiseDiffsAsync(
             SystemTextJsonId, packages, requests, keepCache: true);
 
@@ -150,8 +152,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 Assert.True(online[view] == offline.Output, offline.Error);
                 // Step 4 part 1: exact pins open through the scope offline,
                 // from the legacy-compatible store, with no request.
+                bool merged = view >= SystemTextJsonLibraryApiDiffs.Length
+                    && view < requests.Length - 1;
                 Assert.Equal(
-                    view < SystemTextJsonLibraryApiDiffs.Length ? 2 : 0,
+                    merged ? 0 : 2,
                     CountOccurrences(offline.Error, "Using package endpoint scope for System.Text.Json@"));
             }
         }
@@ -393,46 +397,71 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Equal(
             2,
             CountOccurrences(explicitTarget.Error, "surface assembly for net9.0;"));
+
+        // The owner default is the framework package selects for each version.
+        foreach (string version in SystemTextJsonVersions)
+        {
+            (string selected, string framework) = await PackageSelectionAsync(version);
+            Assert.Equal(version, selected);
+            Assert.Contains(
+                $"Using package endpoint scope for System.Text.Json@{version} (1 surface assembly for {framework};",
+                ownerDefault.Error,
+                StringComparison.Ordinal);
+        }
     }
 
     /// <summary>
     /// Gate 10: a <c>*</c> pattern and <c>latest</c> settle in the House, as
-    /// <c>package</c> settles them, once per endpoint; the output equals the
-    /// legacy path's, which keeps the spelling the request used.
+    /// <c>package</c> settles them, once per endpoint. The feed lists a
+    /// prerelease above the highest stable version, so a pattern, which
+    /// includes prereleases, and <c>latest</c>, which doesn't, settle
+    /// differently. The output equals the legacy path's, which keeps the
+    /// spelling the request used.
     /// </summary>
     [Fact]
     public async Task PairwiseDiff_FloatingVersions_SettleInTheHouse()
     {
         Dictionary<string, byte[]> packages = await ReadSystemTextJsonPackagesAsync();
+        const string Prerelease = "10.1.0-preview.1";
+        packages.Add(Prerelease, RepackAs(packages["10.0.0"], Prerelease));
+        (string From, string To)[] endpoints = [("9.0.0", "*"), ("9.*", "latest"), ("9.0.0", "10.*")];
         string[][] requests =
         [
-            [
-                "diff", "--package", $"{SystemTextJsonId}@9.0.0..10.*",
+            .. endpoints.Select(static pair => new[]
+            {
+                "diff", "--package", $"{SystemTextJsonId}@{pair.From}..{pair.To}",
                 "--tfm", "net8.0", "--source", FirstFeed, "--tips", "q",
-            ],
-            [
-                "diff", "--package", $"{SystemTextJsonId}@9.*..latest",
-                "--tfm", "net8.0", "--source", FirstFeed, "--tips", "q",
-            ],
+            }),
         ];
         string[] legacy = await RunLegacyPairwiseDiffsAsync(
             SystemTextJsonId, packages, requests);
 
         var feed = new RangeHonoringHistoryFeedHandler(FirstFeed, SystemTextJsonId, packages);
         UseFeed(feed);
+        var results = new List<(int Exit, string Output, string Error)>();
+        foreach (string[] request in requests)
+            results.Add(await RunCommandAsync([.. request, "--verbose"]));
+
+        var settlements = new Dictionary<string, string>(StringComparer.Ordinal);
         for (int view = 0; view < requests.Length; view++)
         {
-            var result = await RunCommandAsync([.. requests[view], "--verbose"]);
-
+            var result = results[view];
             Assert.True(legacy[view] == result.Output, result.Error);
             Assert.Equal(
                 2,
                 CountOccurrences(result.Error, "Using package endpoint scope for System.Text.Json@"));
-            Assert.Contains(
-                "settled to 10.0.0",
-                result.Error,
-                StringComparison.Ordinal);
+            foreach (string spelling in new[] { endpoints[view].From, endpoints[view].To })
+            {
+                if (!spelling.Contains('*', StringComparison.Ordinal) && spelling != "latest")
+                    continue;
+                settlements[spelling] = await PackageSelectionVersionAsync(spelling);
+                string settled = $"Package endpoint System.Text.Json@{spelling} settled to {settlements[spelling]}.";
+                Assert.Equal(1, CountOccurrences(result.Error, settled));
+            }
         }
+
+        Assert.Equal(Prerelease, settlements["*"]);
+        Assert.Equal("10.0.0", settlements["latest"]);
     }
 
     /// <summary>
@@ -482,6 +511,54 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             CoreHttpClientFactory.Initialize(
                 new HttpClientFactoryOptions { Offline = wasOffline });
         }
+    }
+
+    /// <summary>
+    /// The version and framework <c>package</c> selects for one spelling,
+    /// read from its header line.
+    /// </summary>
+    private async Task<(string Version, string Framework)> PackageSelectionAsync(string spelling)
+    {
+        var result = await RunCommandAsync(
+            ["package", $"{SystemTextJsonId}@{spelling}", "--source", FirstFeed]);
+        Assert.True(result.Exit == 0, result.Error);
+        string prefix = SystemTextJsonId + " ";
+        string header = result.Output
+            .Split('\n')
+            .First(line => line.StartsWith(prefix, StringComparison.Ordinal));
+        string[] parts = header[prefix.Length..].Split(' ', 2);
+        string[] facts = parts[1].Trim('(', ')').Split("; ");
+        return (parts[0], facts[1]);
+    }
+
+    private async Task<string> PackageSelectionVersionAsync(string spelling) =>
+        (await PackageSelectionAsync(spelling)).Version;
+
+    /// <summary>
+    /// The same archive published as another version: its nuspec names that
+    /// version, and the repository signature, which no longer matches, is
+    /// dropped.
+    /// </summary>
+    private static byte[] RepackAs(byte[] package, string version)
+    {
+        var stream = new MemoryStream();
+        stream.Write(package);
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Update, leaveOpen: true))
+        {
+            archive.GetEntry(".signature.p7s")?.Delete();
+            ZipArchiveEntry nuspec = archive.Entries.Single(
+                static entry => entry.FullName.EndsWith(".nuspec", StringComparison.Ordinal));
+            string text;
+            using (var reader = new StreamReader(nuspec.Open()))
+                text = reader.ReadToEnd();
+            nuspec.Delete();
+            int open = text.IndexOf("<version>", StringComparison.Ordinal) + "<version>".Length;
+            int close = text.IndexOf("</version>", open, StringComparison.Ordinal);
+            ZipArchiveEntry replaced = archive.CreateEntry(nuspec.FullName);
+            using var writer = new StreamWriter(replaced.Open());
+            writer.Write(string.Concat(text.AsSpan(0, open), version, text.AsSpan(close)));
+        }
+        return stream.ToArray();
     }
 
     private static string[] PairwiseSystemTextJsonDiff(string[] view) =>

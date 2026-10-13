@@ -217,6 +217,7 @@ public sealed partial class PackageRangedRealizationTests
         var failed = Assert.IsType<PackageEndpointScopeOutcome.Failed>(outcome);
         Assert.Equal(PackageEndpointScopeFailureKind.NotFound, failed.Kind);
         Assert.NotNull(failed.HouseResult);
+        Assert.StartsWith($"{Avalonia} 13.* was not found", failed.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
