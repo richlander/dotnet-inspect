@@ -167,6 +167,26 @@ public sealed class JsonUnionWireTests
         Assert.Null(union.IncludesNull);
     }
 
+    /// <remarks>
+    /// Case constructors are by-value; every by-ref passing mode the API surface spells,
+    /// including <c>ref readonly</c>, stays out of the case set.
+    /// </remarks>
+    [Theory]
+    [InlineData("ref")]
+    [InlineData("in")]
+    [InlineData("out")]
+    [InlineData("ref readonly")]
+    public void CaseConstructors_ExcludeEveryByRefPassingMode(string modifier)
+    {
+        ApiSurface api = Extract(nameof(UnionExports.GetScalar));
+        ApiType type = Assert.Single(api.Types, type => type.Name == nameof(ScalarUnion));
+        ApiMember[] constructors = JsonUnionWireRules.CaseConstructors(type).ToArray();
+        ApiMember byRef = constructors[0];
+        byRef.SignatureModel!.Parameters[0].Modifier = modifier;
+
+        Assert.Equal(constructors[1..], JsonUnionWireRules.CaseConstructors(type));
+    }
+
     [Theory]
     [InlineData(nameof(UnionExports.GetOrdinary))]
     [InlineData(nameof(UnionExports.GetPlain))]
