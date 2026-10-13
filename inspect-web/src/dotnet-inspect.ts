@@ -4157,6 +4157,7 @@ const documentInspection = createDocumentInspectionCoordinator({
     request.packageId,
     request.version,
     request.document.path),
+  renderText: renderDocumentText,
   renderMarkdown,
   renderMarkdownInline,
   describeError: errorMessage,
@@ -24957,6 +24958,10 @@ async function renderMarkdown(text: string) {
   const html = marked.parse(text, { gfm: true, breaks: false, async: false });
   const sanitized = DOMPurify.sanitize(html, markdownSanitizeConfig());
   return (await containPackageDocumentHtml(sanitized)).html;
+}
+
+async function renderDocumentText(text: string) {
+  return (await containPackageDocumentHtml(escapeHtml(text))).html;
 }
 
 async function renderMarkdownInline(text: string) {
