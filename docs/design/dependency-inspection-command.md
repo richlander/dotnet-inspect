@@ -1277,9 +1277,10 @@ supplies a higher version. The same reference at 12.0.0 reports
 `PackageRetained`.
 
 The policy judges the version the project's restore resolved, so it needs no
-package-source work, and it changes only the section's report. PackageHouse's
-application-authored exemption from graph delegation, its precedence, and the
-graph itself are unchanged. The policy never delegates on missing or partial
+package-source work, and it changes only the section's report. These
+`PlatformDelegation` rows carry no PackageHouse delegation receipt.
+PackageHouse's application-authored exemption from graph delegation, its
+precedence, and the graph itself are unchanged. The policy never delegates on missing or partial
 evidence: a declaration without a restored version, or a restored graph whose
 processing is incomplete, keeps its existing `NotEvaluated` outcome, and an
 uncertain comparison retains the package.
@@ -1837,7 +1838,7 @@ targeted Debug-build probe.
 | License completion includes root-set admission and treats an explicit depth boundary as a successful bounded inventory. | Release CLI tests combining one valid and one missing nuspec root, plus a depth-one direct-nuspec graph with a known deeper frontier. |
 | License manifest acquisition failures retain unavailable answer rows and enter `Failures` with the exact package coordinate and typed reason. | Release restored-project test with one available and one missing exact manifest, asserted across JSON, nonzero status, and exact-count rejection. |
 | Pruning is explicit-only and does not enter `@Dependencies`, verbosity, or bare effective discovery. | Release catalog, category, structural/effective discovery, and no-inventory tests. |
-| Candidate-free applicability outcomes other than the restored-resolution comparison perform no inventory or candidate work. | Direct-nuspec source-boundary and unattributed-authorship tests with throwing producers. |
+| Candidate-free applicability outcomes other than the restored-resolution policy result perform no inventory or candidate work. | Direct-nuspec source-boundary and unattributed-authorship tests with throwing producers. |
 | Application-authored declarations use the library pruning policy without package-source work and never delegate on missing or partial evidence. | Restored `net10.0` application fixtures with a throwing package-source producer and one instrumented inventory read: `System.Text.Json` 8.0.5 is `PlatformDelegation` with `ApplicationAuthored`; 12.0.0 is `PackageRetained` with `ApplicationAuthored`; a declaration without a restored resolution and an incomplete restored graph each stay `NotEvaluated` with `ApplicationAuthoredExemption`, add no failure, and leave exit status unchanged; summary counts treat compared rows as evaluated and delegated or retained. |
 | `Subsumed` delegates, while an older platform-supplied version retains the newer package candidate. | CLI projection test for `System.Text.Json@9.0.0` against platform `11.0.0` and `System.Runtime@4.3.2` against platform `4.3.1`. |
 | Inventory failure and target mismatch remain typed failures and prevent candidate work. | Instrumented inventory tests asserting nonzero status, affected declarations, and `Failures` rows. |
