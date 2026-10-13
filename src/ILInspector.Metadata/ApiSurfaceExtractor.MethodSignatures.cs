@@ -444,7 +444,7 @@ public static partial class ApiSurfaceExtractor
                     handle,
                     beforeRetain: beforeRetain,
                     beforeMaterialize: beforeMaterialize);
-                // Applied only when the signature type is by-reference.
+                // Classified for every parameter row; consumed only when the signature type is by-reference.
                 string? refKind = ParameterByRefKinds.Classify(reader, param, beforeMaterialize).CSharpModifier();
 
                 bool hasDefault = (param.Attributes & System.Reflection.ParameterAttributes.HasDefault) != 0;

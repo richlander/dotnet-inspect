@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using ILInspector.Metadata;
@@ -62,6 +63,44 @@ public sealed class MetadataDeclarationQueryTests
 
         Assert.Equal(modifier, declaration.Signature.Parameters[index].Modifier);
         Assert.Equal("int", declaration.Signature.Parameters[index].Type);
+    }
+
+    /// <remarks>
+    /// Roslyn reads <c>Out</c> without <c>In</c> as <c>out</c> before it consults
+    /// <c>IsReadOnlyAttribute</c> or <c>RequiresLocationAttribute</c>. The compiler never
+    /// emits that combination, so the fixture's <c>in</c> and <c>ref readonly</c> rows are
+    /// patched to carry only the <c>Out</c> flag.
+    /// </remarks>
+    [Theory]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void MethodDeclaration_SpellsOutOnlyFlagAsOutBeforeCompilerAttributes(int index)
+    {
+        byte[] image = File.ReadAllBytes(typeof(MetadataDeclarationQueryTests).Assembly.Location);
+        var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures));
+        var method = GetMethod(type, nameof(MetadataDeclarationQueryFixtures.ByRefPassing));
+        var parameterHandle = method.GetParameters()
+            .Single(handle => Reader.GetParameter(handle).SequenceNumber == index + 1);
+        int row = MetadataTokens.GetRowNumber(parameterHandle);
+        int flagsOffset = PeReader.PEHeaders.MetadataStartOffset
+            + Reader.GetTableMetadataOffset(TableIndex.Param)
+            + (row - 1) * Reader.GetTableRowSize(TableIndex.Param);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(flagsOffset),
+            (ushort)ParameterAttributes.Out);
+
+        using var patched = new PEReader(new MemoryStream(image));
+        var reader = patched.GetMetadataReader();
+        var (patchedType, patchedMethod) = FindMethod(
+            reader,
+            typeof(MetadataDeclarationQueryFixtures).Namespace!,
+            nameof(MetadataDeclarationQueryFixtures),
+            nameof(MetadataDeclarationQueryFixtures.ByRefPassing));
+
+        var declaration = MetadataDeclarationQuery.GetMethod(reader, patchedType, patchedMethod);
+
+        Assert.Equal("out", declaration.Signature.Parameters[index].Modifier);
+        Assert.Equal("ref", declaration.Signature.Parameters[0].Modifier);
     }
 
     /// <remarks>

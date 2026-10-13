@@ -26,6 +26,12 @@ public enum ParameterByRefKind
 /// parameters. C# <c>in</c> and <c>ref readonly</c> are identified only by their
 /// compiler attributes (both compilers also set the <c>In</c> flag).
 /// </summary>
+/// <remarks>
+/// Precedence follows Roslyn's metadata reader: <c>Out</c> without <c>In</c> is
+/// <c>out</c> before either attribute is consulted, then <c>IsReadOnlyAttribute</c>
+/// is <c>in</c>, then <c>RequiresLocationAttribute</c> is <c>ref readonly</c>, and
+/// everything else is <c>ref</c>.
+/// </remarks>
 public static class ParameterByRefKinds
 {
     const string IsReadOnlyAttribute = "System.Runtime.CompilerServices.IsReadOnlyAttribute";
@@ -40,6 +46,11 @@ public static class ParameterByRefKinds
         Parameter parameter,
         Action<int>? beforeMaterialize = null)
     {
+        var flags = parameter.Attributes & (ParameterAttributes.In | ParameterAttributes.Out);
+        if (flags == ParameterAttributes.Out)
+            return ParameterByRefKind.Out;
+
+        bool requiresLocation = false;
         foreach (var handle in parameter.GetCustomAttributes())
         {
             string? name = AttributeDecoder.GetAttributeTypeName(
@@ -48,15 +59,10 @@ public static class ParameterByRefKinds
                 beforeMaterialize);
             if (name == IsReadOnlyAttribute)
                 return ParameterByRefKind.In;
-            if (name == RequiresLocationAttribute)
-                return ParameterByRefKind.RefReadOnly;
+            requiresLocation |= name == RequiresLocationAttribute;
         }
 
-        var attributes = parameter.Attributes;
-        return (attributes & ParameterAttributes.Out) != 0
-            && (attributes & ParameterAttributes.In) == 0
-                ? ParameterByRefKind.Out
-                : ParameterByRefKind.Ref;
+        return requiresLocation ? ParameterByRefKind.RefReadOnly : ParameterByRefKind.Ref;
     }
 
     /// <summary>The C# declaration modifier for <paramref name="kind"/>.</summary>
