@@ -115,9 +115,11 @@ public sealed class AuthorityScopedFileSystemPackageStore :
             }
         }
 
-        // Only a local authority can match a NuGet global-packages replica's
-        // recorded source; a durable HTTP authority never does, and producer
-        // equality cannot authorize one.
+        // A NuGet global-packages replica is a payload cache for any durable
+        // authority, local or HTTP, whose identity its recorded source
+        // resolves to. Authority equality, not producer equality, authorizes
+        // it, so endpoints that differ only in a query or path secret stay
+        // separate (package-source-model.md).
         if (_authority.PersistentCacheKey is not null
             && NuGetCache.UsesGlobalPackages)
         {
@@ -127,7 +129,7 @@ public sealed class AuthorityScopedFileSystemPackageStore :
                 if (!Directory.Exists(directory)
                     || !NuGetCache.TryReadGlobalPackageSource(
                         directory, out string? source, rawSource: true)
-                    || !MatchesLocalAuthority(source))
+                    || !MatchesAuthority(source))
                 {
                     continue;
                 }
@@ -392,15 +394,30 @@ public sealed class AuthorityScopedFileSystemPackageStore :
         $"{NuGetCache.AuthorityPackageContentCategory}:{packageName}@{version}:"
         + $"{_authority.PersistentCacheKey}:{_producer.Key}";
 
-    private bool MatchesLocalAuthority(string source)
+    private bool MatchesAuthority(string source)
     {
         try
         {
-            return _authority.LocalIdentity is { } local
-                && local.Equals(LocalPackageSourceIdentity.CreateAbsolute(source));
+            // Classify the recorded source without a base directory: a local
+            // source must already be absolute, because a relative one would
+            // resolve against the current directory and so be ambiguous.
+            if (LocalPackageSourceIdentity.IsLocalSource(source))
+            {
+                return _authority.LocalIdentity is { } local
+                    && local.Equals(LocalPackageSourceIdentity.CreateAbsolute(source));
+            }
+
+            return ConfiguredPackageAuthorityKey.TryCreate(
+                    new PackageSource("nuget-global-packages", source),
+                    out ConfiguredPackageAuthorityKey? key,
+                    out _)
+                && key.Equals(_authority.Key);
         }
         catch (Exception exception) when (exception is
-            ArgumentException or IOException or NotSupportedException)
+            ArgumentException
+            or IOException
+            or NotSupportedException
+            or UnsupportedSourceException)
         {
             return false;
         }
