@@ -1,476 +1,326 @@
 ---
 name: dotnet-inspect-project-analysis
-version: 0.3.0
-description: Run evidence-backed workflows for supply chain, dependency neighborhoods, architecture, performance, unsafe and ownership review, upgrades, and ecosystem integration.
+version: 0.4.0
+description: Review a project, package, or library as a 30-second elevator pitch or an evidence-bounded deep dive — learn it, weigh dependency risk, map complexity and clustering, or pursue a topic such as performance, unsafe code, or ownership.
 ---
 
-# dotnet-inspect: project analysis workflows
+# dotnet-inspect: project analysis
 
-Use this skill when the user wants a report rather than one isolated fact:
+Use this skill when the user wants a review rather than one fact:
 
-> Give me an analysis of this project, package, or dependency.
+> Give me the one-page summary of this project, package, or library — and tell
+> me what I need to know now.
 
-This skill selects and composes **workflows**. It does not replace the focused
-skills that own command semantics:
-
-- `skill signals` — provenance, safety, compatibility, and supply-chain facts;
-- `skill correctness` — exceptions, unsafe operations, and ownership evidence;
-- `skill relationships` — dependencies, calls, implementors, and integrations;
-- `skill performance` — leverage and static performance triage;
-- `skill compatibility` — version comparison and history;
-- `skill sourcelink` and `skill decompiler` — source and implementation;
-- `skill query` — discovery, selection, formats, envelopes, and limits.
-
-Load the relevant focused skill before running a workflow. Use `-D`, `-Q`, and
-exact `explain` resource paths when installed capabilities differ from the
-examples below.
+The tool supplies metrics; you supply the judgment. Binary analysis is not an
+oracle. Say what the evidence shows, label what you infer, invite the user's
+design context, and let that context sharpen or soften what you report.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
 ```
 
-## Choose a workflow
+## Command conventions
 
-| User question or subject cue | Workflow |
+This skill names every command a review needs. Use them as written; reach for
+`<command> -D` (sections and fields) or `<command> -Q "<Section>"` (filter keys
+and operators) only to look up an exact name the skill does not give.
+
+- `Id@v` is an exact package coordinate. For a package, add
+  `--namesake-library` to `library` to select its main assembly; the
+  package-wide view renders Markdown only, so TSV and JSONL rows need it.
+- `<target>` is `--package Id@v --namesake-library`, `path/to/Lib.dll`, or a
+  restored project's built output.
+- Quote section names with spaces: `-S "Library Metrics"`.
+- Non-public and obsolete code needs `--all` in `type`, `member`, and `diff`.
+  Without it, `type` and `diff` report "not found" or a selector error rather
+  than a visibility hint (#10081, #10086).
+
+## Choose a scenario, depth, and subject
+
+| Scenario | The user wants to know |
 | --- | --- |
-| What evidence accounts for how this package was produced? | Supply-chain dossier |
-| What does this project/package bring in, and where are the boundaries? | Dependency neighborhood |
-| Where is the implementation and how is it organized? | Architecture and implementation map |
-| Which code deserves performance investigation first? | Performance leverage |
-| Where are unsafe and ownership risks, and what remains unverified? | Unsafe and ownership review |
-| What changes if I upgrade? | Upgrade impact |
-| Which frameworks or package families does this connect? | Ecosystem integration |
+| **Learn** | What is this, how is it organized, and where do I start reading? |
+| **Dependency risk** | What upstream change have we not integrated, and what stands in the way? |
+| **Complexity and clustering** | Are type, namespace, and package relationships conventional, or tangled? Is a dependency used so thinly it could be inlined? |
+| **Topic deep-dive** | Does performance, unsafe code, ownership, or async usage deserve attention? |
 
-Run more than one only when the first workflow exposes a concrete join. Do not
-produce seven shallow sections merely because seven workflows exist.
+**Depth.** A *quick review* is an elevator pitch, bounded by time. A *thorough
+review* is an argument, bounded by evidence. Start quick unless the user asks
+for depth or names one thread.
 
-## 1. Supply-chain dossier
+**Subject.** A *snapshot* reviews one state: `main:HEAD`, a restored project, or
+one package version. A *delta* reviews a change: a topic branch against main,
+or package `A` against `A'`. For a delta, measure each metric on both sides and
+report each concern as introduced, pre-existing, resolved, or worsened. Use
+`diff` where it covers the metric; otherwise run the metric twice and join by
+exact identity.
 
-**Use when:** evaluating a dependency, provenance, release artifact, or package
-intake decision.
+## Quick review: the elevator pitch
 
-Load `skill signals`; load `skill sourcelink` before networked source checks.
+**Budget:** about 30 seconds of tool time, excluding any build, in about three
+rounds: triage, a parallel bounded read, and an optional confirmation.
 
-### 1a. Fast package receipt
+**Where the cost goes.** Dependencies get cheap checks only. Expensive analysis
+runs on the target library, never across its dependencies. Complexity, naming,
+and clustering wait for a thorough review; they are only worth doing well.
 
-```bash
-dnx dotnet-inspect -y -- package Foo@1.2.3 \
-  -S "Package Info,Signals,Signature,Vulnerabilities,Dependencies" --json
-```
+| Question | Evidence |
+| --- | --- |
+| What is it? | `library --package Id@v` default output for the namespace and type tree; `package Id@v -S "Package Info,README"`; `project <path> -S Skills` |
+| Removable references | `depends --project <path> --tfm <restored-tfm> -S Pruning` |
+| Far behind upstream | `-S "Latest Versions"` in the same `depends` call |
+| Breaks between current and latest | `diff --package Id@current..latest --breaking`, per retained dependency |
+| Changed URLs in literals | `diff --package Id@current..latest --analysis string-literals --where "Literal contains http"` |
+| Known vulnerabilities | `package Id@current -S Signals`: the `Known vulnerabilities` row is a checked count with its source; `-S Vulnerabilities` lists advisories only when there are some |
+| Unsafe in dependencies (context, not a verdict) | `library --package Id@current --namesake-library -S Signals`, plus `-S "Unsafe Members" --count` |
+| Concerning patterns in the target | `library <target> -S "Unsafe Members"`, `-S "Resource Triage"`, and `-S "Performance:*" --where "Priority>=high" --top 10`, each in its own call so one failure cannot mask the others |
 
-Report:
+Run the per-dependency checks in one shell call with parallelism, for example
+`xargs -P 8`. A restored four-package app takes about 1 s for Pruning plus
+Latest Versions and about 7 s for every per-dependency check in parallel on a
+cold cache.
 
-- exact package/version, selected TFM when known, repository and commit;
-- signature kind and what it verifies;
-- symbols, deterministic-build, SourceLink-map, RID/native, trim/AOT, unsafe,
-  and P/Invoke observations;
-- vulnerability evidence and its observation boundary; and
-- direct dependency declarations.
+**Validate before you narrate.** A result enters the story only after you check
+it:
 
-Do not convert Signals into a trust verdict. Distinguish "checked with no
-match" from unavailable evidence.
+- read stderr, the exit code, and every completion or summary field; for
+  `depends`, add `--json` and read `summary`, because Markdown omits the
+  completion receipts;
+- never read `0`, empty output, or exit code 1 as "checked, none found" —
+  a failed section and an empty section can look alike (#10073), and a
+  populated `Analysis Diff --changed` currently exits 1 (#10075);
+- confirm `--tfm` names the project's restored target — Pruning echoes it as
+  `Platform Target` — because a wrong target can look like success, and web
+  apps need `--platform-family aspnetcore` for Pruning;
+- for a package root, `--tfm` selects a dependency group by exact match, so a
+  newer consumer framework can select nothing while Pruning reports `Complete`
+  (#10071); prefer a restored project root;
+- treat a zero from `package query --where "library-literal=…"` as unverified
+  until the summary shows no `notApplicable` candidates (#10072); and
+- check that numbers are plausible for the subject's size and domain.
 
-### 1b. Artifact and source verification
+`-n` limits the whole output, not each section (#10074); read the head of each
+ranked section in its own call. `Top Leverage` ignores `--top`, so use `-n`
+(#10085). For a package, add `--namesake-library` before asking for TSV or
+JSONL rows; the package-wide view renders Markdown only.
 
-Discover the available audit and SourceLink sections before selecting them:
+**Report one page:**
 
-```bash
-dnx dotnet-inspect -y -- package Foo@1.2.3 -D @Audit
-dnx dotnet-inspect -y -- package Foo@1.2.3 -D @SourceLink
-dnx dotnet-inspect -y -- package Foo@1.2.3 \
-  -S "Audit: Artifact Text,Audit: Identifier Confusion" --json
-dnx dotnet-inspect -y -- package Foo@1.2.3 \
-  -S "SourceLink: Availability,SourceLink: Missing Files"
-dnx dotnet-inspect -y -- package Foo@1.2.3 \
-  -S "SourceLink: Integrity"
-```
+- **What it is** — purpose, shape, size, main types, how the parts meet, and
+  what it depends on.
+- **Highlights** — what is distinctive or well made.
+- **Lowlights** — each an *early sign* with its evidence and the thread that
+  would confirm or dismiss it.
+- **Know now** — anything that affects a decision the user is making today.
+- **Can wait** — threads worth pulling, each phrased as a question. These are
+  the thorough review's starting points.
 
-Availability and integrity may perform network work; present the fast receipt
-first. Integrity applies to the exact compiler-mapped source documents and
-does not establish that the repository itself is trustworthy.
+## Thorough review: the explanatory deep dive
 
-### 1c. Transitive supply chain
+You are the join pivot. Run as many invocations as the evidence needs, join
+row families by exact identity, and pull threads this skill does not
+anticipate, as long as every claim cites the command that produced it.
 
-Continue with Workflow 2. A supply-chain dossier is incomplete if it reports
-only the root package while claiming to cover its dependency closure.
+Highlights are usually easy to notice and validate: check each once. Spend the
+time on lowlights, taking each as far as the evidence allows:
 
-**Visual:** provenance chain from package coordinate to signature, repository
-commit, PDB/SourceLink evidence, and dependency packages. Use typed identities
-and availability states; do not infer the chain from URLs in prose.
+| Stage | Meaning | Typical evidence |
+| --- | --- | --- |
+| Early sign | A metric stands out | Section outlier |
+| Located | Exact Members and IL positions are known | `member`, Unsafe Operations, IL |
+| Traced | How far it reaches is understood | Call graph, Top Leverage, exception regions, ownership paths |
+| Dated | When it appeared is known | `diff --history`, Analysis Diff |
+| Explained | Source and intent are understood | Source, decompiled source, design context |
 
-**Stop when:** root provenance and direct declarations are accounted for, or
-continue through the complete dependency closure when the user's decision
-depends on transitives.
+End each lowlight as **confirmed**, **dismissed**, or **open**; for an open one,
+name the missing evidence. Stop when every pursued lowlight has an outcome or is
+blocked by a product gap, not when a call count is reached.
 
-## 2. Dependency neighborhood
+## Scenarios
 
-**Use when:** explaining package footprint, architecture boundaries, transitive
-risk, or calls that cross package ownership.
+### Learn
 
-Load `skill relationships`.
-
-### 2a. Materialize and verify the package neighborhood
-
-```bash
-dnx dotnet-inspect -y -- depends \
-  --package Foo@1.2.3 --tfm net10.0 --json
-```
-
-For a restored project:
-
-```bash
-dnx dotnet-inspect -y -- depends \
-  --project ./src/App/App.csproj \
-  -S "Dependency Hierarchy,Dependencies" --json
-```
-
-Read the completion summary before narrating the graph. Account for requested,
-admitted, and failed roots; traversal completion; depth boundaries; selected
-dependency groups; every acquired or unavailable package projection; source
-failures; and unresolved relationships. The local package cache does not prove
-the requested dependency closure.
-
-Deliver the neighborhood as:
-
-- center/root and selected framework context;
-- direct dependencies;
-- important transitive branches;
-- shared hubs and repeated dependency occurrences;
-- framework-provided or prunable candidates when explicitly evaluated;
-- incomplete boundaries; and
-- the few branches worth drilling into.
-
-### 2b. Explain a focal Type neighborhood
-
-When the package graph raises a Type-level question, use the complete envelope:
+**Quick:**
 
 ```bash
-dnx dotnet-inspect -y -- depends SomeType \
-  --package Foo@1.2.3 --tfm net10.0 --envelope
+dnx dotnet-inspect -y -- package Id@v -S "Package Info,README,Signals"
+dnx dotnet-inspect -y -- library --package Id@v
+dnx dotnet-inspect -y -- library --package Id@v --namesake-library \
+  -S "Library Info,Integrations"
+dnx dotnet-inspect -y -- depends --package Id@v -S Dependencies
 ```
 
-Inspect `content`, `share`, and `diagnostics`. The Share URL can replay an exact
-package-backed Type dependency request when projectable.
+The bare `library --package Id@v` output is the namespace and type tree: the
+fastest view of the public surface. For a restored project, add
+`project <path> -S Skills` for skills its packages ship.
 
-### 2c. Follow calls across package boundaries
-
-After selecting a concrete root Member:
+**Thorough:**
 
 ```bash
-dnx dotnet-inspect -y -- graph calls Some.Type Method~stable \
-  --root-package Foo@1.2.3 \
-  --root-tfm net10.0 --tfm net10.0 --all
+dnx dotnet-inspect -y -- library <target> \
+  -S "Name Families,Architectural Families"
+dnx dotnet-inspect -y -- library <target> -S "Top Leverage" -n 20
+dnx dotnet-inspect -y -- library <target> -S "Async Methods"
+dnx dotnet-inspect -y -- member <Type> --package Id@v <Method>:1 \
+  -S "Call Graph" --tree
 ```
 
-Use boundary ownership and shortest local connectors to explain how the root
-reaches external packages. Do not treat an unclassified assembly as package
-ownership.
+Names and structural roles show conventions; Top Leverage shows the Members
+everything else reaches; one focused call tree shows how the parts meet. Load
+`skill relationships` for calls and `skill decompiler` when the question needs
+code.
 
-**Visual:** directed package graph for closure; external-focused call graph for
-a selected Member. A true clustered dependency-community view requires
-Research-owned community evidence tracked by #8406; do not simulate it with
-layout proximity.
+### Dependency risk
 
-**Stop when:** the closure is accounted for and the report has identified the
-few consequential boundaries. Do not drill every leaf.
+Pruning and updating pull in opposite directions; resolve them in order:
 
-## 3. Architecture and implementation map
-
-**Use when:** the question is where implementation lives, how concentrated it
-is, or which Types collaborate.
-
-Load `skill performance` for Library Metrics semantics and `skill
-relationships` for calls.
-
-### 3a. Select the exact Library
+1. **Remove what the platform supplies.** A `PlatformDelegation` row is a
+   reference to delete, never to update. Upgrading such a reference to a newer
+   version defeats pruning: harm for no benefit.
+2. **Weigh updates for what remains.** Read `Current`, `Latest`, `Behind`,
+   `Majors Behind`, and `Latest Compatible` together. `Latest Compatible: No`
+   means the latest version offers no compile group for the target framework,
+   and `NoAssets` means it has no compile assets at all; neither is an API
+   verdict.
+3. **Name the impediments.** For each candidate update, `diff --breaking`
+   gives assessed breaks; `-S Changes` keeps the complete API population,
+   including changes without a classification. Add `-S "Analysis Diff"` for
+   unsafe, allocation, and throw shifts, and the string-literal analysis for
+   changed endpoints.
 
 ```bash
-dnx dotnet-inspect -y -- library \
-  --package Foo@1.2.3 --namesake-library -D --details --json
+dnx dotnet-inspect -y -- depends --project <path> --tfm <restored-tfm> \
+  -S "Pruning,Latest Versions" --json
+dnx dotnet-inspect -y -- diff --package Id@current..latest --breaking
+dnx dotnet-inspect -y -- diff --package Id@current..latest -S Changes
+dnx dotnet-inspect -y -- diff --package Id@current..latest -S "Analysis Diff"
+dnx dotnet-inspect -y -- diff --package Id@current..latest \
+  --analysis string-literals --where "Literal contains http"
+dnx dotnet-inspect -y -- package Id@current -S Signals
 ```
 
-If the package has no unique namesake Library, select its exact Library asset
-through Workspace inventory rather than guessing from a display name.
+Load `skill compatibility` for diff and history, and `skill signals` for
+provenance, signatures, and vulnerabilities.
 
-### 3b. Map implementation
+### Complexity and clustering
+
+Thorough only.
 
 ```bash
-dnx dotnet-inspect -y -- library \
-  --package Foo@1.2.3 --namesake-library \
-  -S "Library Metrics"
+dnx dotnet-inspect -y -- library <target> -S "Library Metrics"
+dnx dotnet-inspect -y -- library <target> -S "Dependency Structure" --json \
+  > structure.json
+dnx dotnet-inspect -y -- library <target> -S "Architectural Families"
+dnx dotnet-inspect -y -- library <target> -S "Clone Candidates"
+dnx dotnet-inspect -y -- library <target> -S "Member Metrics" --tsv
 ```
 
-Report compiled-IL population coverage, implementation volume, distribution,
-concentration, and exact maxima. Complexity is normal-flow cyclomatic
-complexity over physical evidence bodies; it is neither authored-source intent
-nor a maintainability score.
+Start with `Library Metrics` for implementation volume,
+distribution, and concentration; `Dependency Structure` for namespace cycles
+and levels; `Architectural Families` and `Clone Candidates` for repeated
+structure; and `Member Metrics` for outliers. Complexity is normal-flow
+cyclomatic complexity over compiled IL: not authored intent, and not a
+maintainability score.
 
-Use Inspect Web's Metrics lens for the existing Complexity Explorer and
-Relationship Crossing views. CLI `--jsonl` currently exposes flattened
-aggregate rows, not the complete Type-summary and cross-Type relationship
-document. Complete envelope and Metrics Share adoption is tracked by #8517.
-
-### 3c. Explain a surprising area
-
-Open the exact Type and Member selected by the evidence:
+Read structure from the `Dependency Structure` JSON document, which needs one
+exact library (`--namesake-library` or a dll path). `cycles` lists each
+namespace cycle, and every entry in `namespaces` carries `level` and
+`cycleIndex` (`null` outside any cycle), so a Markdown `cycle 0` means cycle
+number 0. Each `namespaceEdges` entry names its strongest contributing type
+pairs in `explainingTypeEdges`, with `remainingContributorCount` for the rest;
+`typeEdges` holds every type pair:
 
 ```bash
-dnx dotnet-inspect -y -- type Some.Type \
-  --package Foo@1.2.3 --all
-dnx dotnet-inspect -y -- member Some.Type Method~stable \
-  --package Foo@1.2.3 -S "Call Graph" --tree
+jq '.namespaceEdges[]
+  | select(.sourceNamespace == "A.Utilities"
+      and .targetNamespace == "A.Serialization")
+  | {counts, contributingTypeEdgeCount, explainingTypeEdges,
+     remainingContributorCount}' structure.json
+jq '(.types | map({(.typeKey): .namespace}) | add) as $ns
+  | [.typeEdges[] | select($ns[.sourceTypeKey] == "A.Utilities"
+      and $ns[.targetTypeKey] == "A.Serialization")]' structure.json
 ```
 
-Use Source or Decompiled Source only when the implementation question needs
-code. Preserve the distinction between authored source and reconstructed C#.
+Join type pairs to namespaces through `types[].namespace`, never by key
+prefix, because a prefix also matches child namespaces. The pair count must
+equal the edge's `contributingTypeEdgeCount`.
 
-**Visual:** Complexity Explorer treemap, Relationship Crossing, then a focused
-Member call tree. Do not create a whole-library call hairball.
+Then follow one type pair to its calls with
+`type <T> --package Id@v --all -S "Called Types"`, and to call sites with
+`member <T> --all -m <name> -S Callers`. Non-public and obsolete code needs
+`--all` in `type`, `member`, and `diff`; without it, `type` and `diff` report
+"not found" or a selector error rather than a visibility hint
+(#10081, #10086).
 
-**Stop when:** the report explains the major implementation regions and a
-small number of evidence-backed outliers.
+Read these with care until their owners close the gaps:
 
-## 4. Performance leverage
+- The package-wide view (`library --package Id@v` without
+  `--namesake-library`) silently drops `Dependency Structure` from `--json`
+  output and drops `Clone Candidates` entirely (#10080); always select one
+  exact library for them. The installed
+  product does not yet explain the structure fields (#10077); read them as
+  described above.
+- `Member Metrics` has no ranking operators (#10083); rank its rows locally.
+- Architectural Families can include compiler-generated names such as `c`
+  and `d` (#10082); set them aside.
+- `Clone Candidates` can stop early and exit 1 with "result is incomplete";
+  its rows name Members as `<assembly>!<mvid>:0x0600001B`, so strip that
+  prefix and compare case-insensitively with `Member Metrics` `member_token`
+  (`0x0600001b`) before reading them. Report a partial or empty result as
+  not established, not as "no clones".
 
-**Use when:** deciding where profiling or optimization effort should begin.
+For a dependency that may be used too thinly to justify itself, run
+`graph packages --package Consumer@v --package Provider@v --tfm <tfm>` and
+read how many direct-use clusters and distinct Members cross the boundary.
+Clustered dependency communities are not yet product evidence (#8406); do not
+simulate them from layout.
 
-Load `skill performance`. Static evidence prioritizes investigation; it does
-not prove runtime hotness or allocation volume.
-
-### 4a. Rank leverage
+### Topic deep-dive
 
 ```bash
-dnx dotnet-inspect -y -- library \
-  --package Foo@1.2.3 --namesake-library \
-  -S "Top Leverage"
+dnx dotnet-inspect -y -- library <target> -S "Top Leverage" -n 20
+dnx dotnet-inspect -y -- library <target> -S "Performance:*" \
+  --where "Priority>=high" --top 20
+dnx dotnet-inspect -y -- library <target> -S "Unsafe Members,P/Invoke Methods"
+dnx dotnet-inspect -y -- library <target> -S "Resource Triage"
+dnx dotnet-inspect -y -- library <target> \
+  -S "Async Methods,Performance: Sync Calls in Async"
+dnx dotnet-inspect -y -- member <Type> --package Id@v <Method>:1 --all \
+  -S "IL,Unsafe Operations,Exception Regions,Call Graph"
 ```
 
-Use root reach, callers, fanout, depth, and loop calls to choose a small set of
-Members with broad influence.
-
-### 4b. Intersect leverage with actionable shapes
-
-```bash
-dnx dotnet-inspect -y -- library \
-  --package Foo@1.2.3 --namesake-library \
-  -D @Performance --effective
-dnx dotnet-inspect -y -- library \
-  --package Foo@1.2.3 --namesake-library \
-  -S "Performance:*" \
-  --where "Priority>=high" --top 20 --json
-```
-
-Keep Priority separate from Confidence. Preserve exact Method token, evidence
-method, IL offset, operation, and Finding identity for a profiler or benchmark
-join.
-
-### 4c. Check pooled-resource ownership
-
-Run the focused resource analysis separately because `Performance:*` does not
-select `Resource Triage`:
-
-```bash
-dnx dotnet-inspect -y -- library \
-  --package Foo@1.2.3 --namesake-library \
-  -S "Resource Triage" --jsonl
-```
-
-Preserve the command status and inspection diagnostics. Resource Triage does
-not currently expose a positive completion receipt and can emit rows while
-some resource roots remain incomplete; [#7553](https://github.com/richlander/dotnet-inspect/issues/7553)
-owns preserving both through projection. Always report pooled-resource
-ownership coverage as `unverified`. If the command reports incompleteness,
-include the exact reason. If it returns rows, retain Candidate, Finding,
-Acquire IL, Boundary IL, and Boundary, but do not call the census exhaustive.
-Do not interpret zero rows as no findings. Treat `pool-churn-on-exception` as a
-profiling and hardening candidate, not proof of a permanent leak or memory
-corruption.
-
-### 4d. Confirm before recommending a rewrite
-
-Use BenchmarkDotNet or a representative trace against the same build. Report
-static candidates separately from runtime-confirmed findings.
-
-**Visual:** leverage-versus-evidence scatter or focused call/allocation path,
-provided the exported rows retain typed axes and exact coordinates.
-
-**Stop when:** a bounded candidate list has an explicit runtime-confirmation
-plan. Do not turn every allocation instruction into an optimization task.
-
-## 5. Unsafe and ownership review
-
-**Use when:** reviewing unsafe code, interop, pooling, pinning, or resource
-lifetime against the .NET unsafe-code best-practices guidance.
-
-Load `skill correctness`; load `skill performance` for Resource Triage
-semantics. The correctness skill points to the authoritative guidance and owns
-the reusable low-level query bundle for its 26 numbered topics.
-
-### 5a. Acquire typed evidence once
-
-Follow the correctness skill to write separate JSONL files for:
-
-- `Unsafe Members`;
-- `P/Invoke Methods`;
-- assembly/module `Custom Attributes` and references; and
-- `Resource Triage`, including its process status and diagnostics.
-
-Do not request one new aggregate report. Unsafe operations, interop, and
-ownership are distinct row families whose overlap is composed by the agent.
-Library attributes are a filtered assembly/module view; they do not discover
-Type-, field-, or method-level attributes or establish `SkipLocalsInit`
-coverage. Retain that whole-library boundary.
-
-### 5b. Slice and join for the selected questions
-
-Use `jq -s` to group exact unsafe operations and `jq --slurpfile` to compose
-unsafe, ownership, and interop rows without flattening their identities. Start
-with the questions applicable to the subject rather than emitting 26 empty
-headings. Preserve the exact expression used for each derived candidate set.
-
-### 5c. Drill consequential Members
-
-Resolve an exact Type and Member selector, then inspect `Unsafe Operations`,
-`Custom Attributes`, `Exception Regions`, `Call Graph`, and IL as separate
-outputs. Add source or decompilation only when lexical scope, guards, field
-attributes, compiler diagnostics, or repository practice cannot be recovered
-from compiled evidence.
-
-### 5d. Report evidence and unknowns
-
-For each applicable guidance question, separate owner-issued facts, the
-reproducible `jq` slice or join, agent interpretation, and what remains
-`unverified`. Resource Triage candidates are useful ownership evidence, but
-current pooled-resource coverage is always unverified because positive rows and
-typed incompleteness are not projected together.
-
-**Visual:** grouped evidence table from guidance topic to Member/IL coordinates,
-with ownership paths shown separately when Resource Triage emits them. Do not
-create one undifferentiated "unsafe score."
-
-**Stop when:** applicable topics have bounded candidate sets and explicit next
-probes or unverified boundaries. Do not claim all 26 topics are clean from an
-empty unsafe census.
-
-## 6. Upgrade impact
-
-**Use when:** evaluating a package update, migration, or regression.
-
-Load `skill compatibility`.
-
-### 6a. Establish endpoint identity
-
-Pin both versions and the intended TFM. Start with the complete API Changes
-view, then use classified subsets for distinct questions:
-
-```bash
-dnx dotnet-inspect -y -- diff --package Foo@1.2.3..2.0.0 -S Changes
-dnx dotnet-inspect -y -- diff --package Foo@1.2.3..2.0.0 --breaking
-dnx dotnet-inspect -y -- diff --package Foo@1.2.3..2.0.0 --additive
-dnx dotnet-inspect -y -- diff --package Foo@1.2.3..2.0.0 --implementation
-```
-
-`-S Changes` preserves the complete API population, including **Other API
-Changes** (`unclassified` in structured rows). Breaking and additive views are
-assessed subsets; neither can establish that no other API changed. Keep API,
-analysis, and implementation observations separate rather than combining them
-into one generic "changed" count.
-
-### 6b. Trace a consequential change
-
-Use exact Type/Member correspondence or history when the pairwise diff raises a
-specific question:
-
-```bash
-dnx dotnet-inspect -y -- diff --history \
-  --package Foo@1.2.3..2.0.0 \
-  --type Some.Type --members --at all
-```
-
-Dense history is explicit bounded work. Prefer sparse or major-version probes
-when the user asks when rather than requesting every release.
-
-**Visual:** old/new categorized change view with exact correspondence and
-separate API, implementation, and Finding transitions.
-
-**Stop when:** user-relevant breaking changes and important implementation or
-dependency shifts are explained. Add performance or dependency workflows only
-for a concrete changed boundary.
-
-## 7. Ecosystem integration
-
-**Use when:** the subject is an adapter, extension package, hosting component,
-or framework bridge with little local implementation.
-
-Load `skill relationships`.
-
-### 7a. Identify integrations
-
-```bash
-dnx dotnet-inspect -y -- library \
-  --package Foo@1.2.3 --namesake-library \
-  -S Integrations --jsonl
-```
-
-Discover filters before narrowing:
-
-```bash
-dnx dotnet-inspect -y -- library -Q Integrations
-```
-
-Report canonical integration and ecosystem identities, the exact APIs
-supporting each observation, and unavailable or ambiguous bindings.
-
-### 7b. Compare an explicit package set
-
-```bash
-dnx dotnet-inspect -y -- graph integrations \
-  --package Foo@1.2.3 \
-  --package Bar@4.5.6 \
-  --tfm net10.0 --mermaid
-```
-
-This is an induced set, not dependency traversal. Missing endpoints remain
-outside the graph until their owning package is explicitly included.
-
-**Visual:** typed ecosystem integration graph. Direction and relationship kind
-come from product evidence, not package naming.
-
-**Stop when:** the package's role and principal extension/binding relationships
-are clear. For a facade, this workflow may be the primary report even when
-Library Metrics are unremarkable.
+- **Performance:** intersect `Top Leverage` with `Performance:*` rows. Keep
+  Priority separate from Confidence; static evidence names candidates, and a
+  benchmark or trace confirms them. Load `skill performance`.
+- **Unsafe and interop:** `Unsafe Members` and `P/Invoke Methods`, judged
+  against the subject's domain: a codec or interop layer needs what a business
+  library does not. Load `skill correctness`.
+- **Ownership:** `Resource Triage` (listed as `Array Pool Escapes`) emits
+  candidates but has no positive completion receipt (#7553), and it currently
+  fails with `InterfaceApplicationIncomplete` on some pool-heavy libraries
+  (#10084). Always report pooled-resource coverage as unverified, and treat
+  `pool-churn-on-exception` as a hardening candidate, not a proven leak. When
+  it fails, trace rent and return sites by hand: `member … --all -S "IL,Exception
+  Regions"` on the renting and returning Members, then their callers.
+- **Dating a change:** pairwise `diff -t T -m M --all --analysis <name>
+  -S Transitions` proves an adjacent pair; `diff --history … --finding
+  analysis.<name>` locates the window. Start a history range at a version
+  where the Member exists, because a missing Member stops evaluation (#7805).
+- **Async:** `Async Methods` for the surface, `Performance: Sync Calls in Async`
+  for blocking inside async paths.
 
 ## Compose the report
 
-For the selected workflow, publish:
+Classify each statement as **fact** (owner-issued evidence), **derived
+observation** (a reproducible join or calculation), **interpretation**
+(labeled), or **hypothesis** (with its next probe). Join and cite by the
+strongest identity available: package and version, TFM, assembly, Type key,
+stable Member selector, or IL offset — never a display label.
 
-1. **Scope** — exact subject, version, TFM/RID, selected assets, and workflow.
-2. **Result** — the workflow's primary evidence-backed answer.
-3. **Key evidence** — only the rows and receipts needed to support it.
-4. **Qualifications** — completion, unavailable evidence, and static/runtime
-   boundaries.
-5. **Explore** — appropriate typed visualization and exact Inspect Web URL.
-6. **Next workflow** — at most one adjacent workflow, justified by a concrete
-   finding.
+Close every review by offering its open questions and asking what design
+context the user can add.
 
-Classify narrative statements as fact, derived observation, interpretation, or
-hypothesis. Prefer `--envelope` when the chosen route supports it and Share or
-diagnostics matter. Use:
-
-```bash
-dnx dotnet-inspect -y -- workspace \
-  --package Foo@1.2.3 --tfm net10.0 --share url
-```
-
-for the closest portable Workspace state. Do not present a nearby URL as a
-replay of an unsupported analysis lens.
-
-Use reusable subject references when an owner supplies them. General reusable
-inspection-reference identity and projection remains tracked by #7916; do not
-invent a reference from display text while that route is unavailable.
-
-When a workflow needs missing typed evidence, envelope health, reference,
-acquisition receipt, visualization data, or Share support, capture the exact
-subject, command, expected and actual evidence, diagnostics, and timing. File
-one focused issue against the owning component; do not parse presentation as a
-workaround.
+When a review needs evidence the product does not issue, record the subject,
+command, expected and actual result, diagnostics, and timing; file one focused
+issue against the owning component; and continue with other evidence. Never
+parse presentation as a substitute or report partial data as complete.
