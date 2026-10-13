@@ -12,6 +12,18 @@ public static class ResourceExplanationCommand
 {
     public const string Name = "explain";
 
+    internal static int ExplainPackageQuery(string[]? facetKeys = null) => ExplainFromCatalog(
+        CreatePackageQueryExplanation(),
+        PackageQueryCapabilityResourcePaths.QuerySpace,
+        depth: 0,
+        maximumResults: null,
+        format: OutputFormat.Json,
+        envelopeOutput: false,
+        outputPath: null,
+        contract: false,
+        selection: ".hal",
+        facetKeys: facetKeys is { Length: > 0 } ? facetKeys : null);
+
     public static int Execute(
         string operand,
         int depth,
@@ -339,7 +351,8 @@ public static class ResourceExplanationCommand
         bool envelopeOutput,
         string? outputPath,
         bool contract,
-        string? selection)
+        string? selection,
+        IEnumerable<string>? facetKeys = null)
     {
         if (!catalog.TryResolveExact(
                 path,
@@ -362,7 +375,7 @@ public static class ResourceExplanationCommand
             format,
             envelopeOutput,
             outputPath,
-            contract, selection);
+            contract, selection, facetKeys);
     }
 
     private static int WriteCompleteResolutionFailure(string path)
@@ -391,7 +404,8 @@ public static class ResourceExplanationCommand
         bool envelopeOutput,
         string? outputPath,
         bool contract,
-        string? selection)
+        string? selection,
+        IEnumerable<string>? facetKeys = null)
     {
         if (envelopeOutput
             || format is not (
@@ -409,7 +423,7 @@ public static class ResourceExplanationCommand
         {
             try
             {
-                ResourceExplanationDataset dataset = ResourceExplanationDataset.Create(catalog, resolution);
+                ResourceExplanationDataset dataset = ResourceExplanationDataset.Create(catalog, resolution, facetKeys);
                 JsonElement data = dataset.ToJson(static path => "inspect-resource:/" + path.Value,
                     hal: selection == ".hal",
                     bindHalAddress: static path => "inspect-resource:/" + path.Value + "?projection=hal",

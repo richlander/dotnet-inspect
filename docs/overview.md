@@ -668,8 +668,9 @@ producers that will extend that space.
   locator evidence, and active-realization authority without adding Platform
   subjects to shared Navigation.
 - [Browser Diff targets](design/inspect-web-diff-targets.md) owns the
-  session-local Package Diff baseline, inheritance during subject navigation,
-  and target-setting controls. Clone candidate scope has transferred to the
+  session-local Package comparison targets (the Supply chain and API evolution
+  scenarios, their depths, and the Specific version baseline), inheritance
+  during subject navigation, and target-setting controls. Clone candidate scope has transferred to the
   shared [Structural Clone Search Scope](design/structural-clone-search-scope.md)
   owner. The Browser owner does not own acquisition authority, comparison
   execution, or portable Workspace fields.
@@ -1035,6 +1036,12 @@ rules, this document describes subsystem ownership, and
 - [Library API diff presentation](design/library-api-diff-presentation.md):
   portable Library-root changed-Type composition, complete compatibility
   changes, and distinct changed-member summaries for shared host adoption.
+- [Diff system](design/diff-system.md): the one vertical diff path both hosts
+  call, its layers, its base data structures and change vocabulary, its diff
+  documents and annotations, Markout lowering, the GNU diff and annotated
+  rendering models, its host-neutral request and operation, the rule that
+  reusable comparison infrastructure lives in `ILInspector`, and the adoption
+  steps that retire per-host diff orchestration.
 - [Diff observability](design/diff-observability.md): the cross-cutting
   pattern that a reported change is observable in a complete diff view at that
   view's level, and how diff producers and views reason about subtle

@@ -64,15 +64,30 @@ public sealed partial class DesktopPackageSourceComposition
     public PackageHouse CreateRealizationHouse(
         PackagePayloadAcquisitionPlan payloadAcquisition,
         NuGetSourceOptions? sourceOptions = null,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        string? requiredProducerKey = null)
     {
         ArgumentNullException.ThrowIfNull(payloadAcquisition);
         return new PackageHouse(
-            new CompositionAuthorization(this, sourceOptions),
+            new CompositionAuthorization(
+                this,
+                sourceOptions,
+                requiredProducerKey),
             payloadAcquisition,
             log,
             _versionSettlement);
     }
+
+    /// <summary>
+    /// Creates a House operation declaration with this composition's exact
+    /// request and operation deadlines.
+    /// </summary>
+    public PackageHouseOperation CreateHouseOperation(
+        PackageHouseOperationProfile profile) =>
+        PackageHouseOperation.Create(
+            profile,
+            _options.RequestTimeout,
+            _options.OperationTimeout);
 
     /// <summary>Issues the source-owned operation consumed by a shared inspection.</summary>
     public PackageSourceOperationLease IssueSettlementOperation(
@@ -611,13 +626,20 @@ public sealed partial class DesktopPackageSourceComposition
 
     private sealed class CompositionAuthorization(
         DesktopPackageSourceComposition composition,
-        NuGetSourceOptions? sourceOptions)
+        NuGetSourceOptions? sourceOptions,
+        string? requiredProducerKey)
         : IPackageSourceAuthorization
     {
         public PackageSourceAuthorization AuthorizeSourcesFor(
             string packageId) =>
-            composition.AuthorizeSourcesFor(
-                packageId,
-                sourceOptions);
+            requiredProducerKey is null
+                ? composition.AuthorizeSourcesFor(
+                    packageId,
+                    sourceOptions)
+                : composition.AuthorizeHouseSources(
+                        packageId,
+                        sourceOptions,
+                        requiredProducerKey)
+                    .AuthorizeSourcesFor(packageId);
     }
 }

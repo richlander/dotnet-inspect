@@ -279,9 +279,11 @@ public static class IrPasses
         // flat it renders `b > false` (CS0019) and the method never binds. Runs
         // after inlining so the bool operand is in its final position.
         new BoolToIntNormalizationPass(),
-        // A comparison or bool slot consumed by integer arithmetic is an i4 0/1
-        // value in IL, but C# rejects `int + bool`; materialize the bool operand
-        // before the printer sees the binary.
+        // A comparison consumed by integer arithmetic is an i4 0/1 value in
+        // IL, but C# rejects `int + bool`; materialize the bool operand before
+        // the printer sees the binary. When a complete slot carries the result
+        // of that arithmetic back into arithmetic, preserve its integer result
+        // identity before normalizing the producer operands.
         new ArithmeticBoolOperandPass(),
         // The operand-side complement of the bool→int normalization: a bool
         // operand of an integer bitwise &/|/^ (a comparison result or bool slot
@@ -414,6 +416,12 @@ public static class IrPasses
         // mismatch) renders an honest marker instead of an uncompilable fp(x).
         new CallIndirectSpellabilityPass(),
         new RefKindDiagnosticsPass(),
+        // Typed raising can leave a struct rvalue spill immediately before a
+        // consumer whose earlier operand is the exact now-decided stack-slot
+        // carrier. Recompose that receiver without crossing effects, then let
+        // the existing final slots-only inliner consume the carrier the removed
+        // local had separated from its use (#9969).
+        new StructReceiverInliningPass(lateStackCarrierTail: true),
         // Wrap every in-domain typed-sink value not provably at its target in
         // a Coerce node, so the printer receives a decided tree and
         // CoercionInvariant is checkable (value-typed-emission.md, slice 3).

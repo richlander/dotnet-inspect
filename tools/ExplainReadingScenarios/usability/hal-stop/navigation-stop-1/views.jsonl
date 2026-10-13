@@ -1,0 +1,9 @@
+{"source": "assigned HAL guide", "operation": "guide", "file": "view-01.txt", "bytes": 839, "sha256": "8290ef1944fd1d2d777cf3bf4b9584525b98a8cba0fd2115b07a65a82945212f"}
+{"source": "response-01.out", "operation": "jq: .", "file": "view-02.txt", "bytes": 3305, "sha256": "060bf409f65a2b7eda8fc7aadabc3275c979b1aa4e678e3f05b0a5592490c137"}
+{"source": "response-02.out", "operation": "jq: .", "file": "view-03.txt", "bytes": 7346, "sha256": "b02321a82e6f8b438f33f00387609d9426207305e639c507de6021825f644c96"}
+{"source": "response-03.out", "operation": "jq: .", "file": "view-04.txt", "bytes": 2220, "sha256": "1a6e04ec2e40b7acf7a75b2f5fca7a249888e59fb7f318381e680f2d3443bbda"}
+{"source": "response-04.out", "operation": "jq: .", "file": "view-05.txt", "bytes": 2180, "sha256": "3ad070dc999c7d7f070a7926d3bf1a491f83769a5bc823e1a3028688e0ca4284"}
+{"source": "response-07.out", "operation": "jq: .", "file": "view-06.txt", "bytes": 2704, "sha256": "7687039e4bf672d282cc6fb9802e5847d38b2b87085f6b009f41f3daf297daff"}
+{"source": "response-06.out", "operation": "jq: .", "file": "view-08.txt", "bytes": 2492, "sha256": "f031778a89cf5e13e1c1bff40d019d84f163fe1ee3672ace622af81fce417143"}
+{"source": "response-08.out", "operation": "jq: .", "file": "view-07.txt", "bytes": 3166, "sha256": "2b1c239170efff71aaf967c101e0578fb02c72f43ef2060de86e276ad8dc38f1"}
+{"source": "response-05.out", "operation": "jq: .", "file": "view-09.txt", "bytes": 3475, "sha256": "56409be4618d838340a422aeef812a38da72bca882b2bda56ef618d5e875ea87"}

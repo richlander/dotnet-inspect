@@ -1,0 +1,29 @@
+{"source": "assigned HAL guide", "operation": "guide", "file": "view-01.txt", "bytes": 839, "sha256": "8290ef1944fd1d2d777cf3bf4b9584525b98a8cba0fd2115b07a65a82945212f"}
+{"source": "response-01.out", "operation": "text", "file": "view-02.txt", "bytes": 155, "sha256": "80b6afca5dfc9b383c31f356d30203036ea65880f38736f14eb615596afac84e"}
+{"source": "response-02.out", "operation": "text", "file": "view-03.txt", "bytes": 2637, "sha256": "ab370498616a738b5bb3d2127f09d1fa4e8e92102ffdb0cb55b29605792d4d0c"}
+{"source": "response-05.out", "operation": "text", "file": "view-04.txt", "bytes": 4445, "sha256": "73347fc71b21210b0f5559745b3e0ca7a5029ca128f32d181d4de12cf24a84bc"}
+{"source": "response-04.out", "operation": "text", "file": "view-05.txt", "bytes": 893, "sha256": "c02c82d455be0327ad78093733516f0a5d41ee4875a29c7732c433d77a58c57a"}
+{"source": "response-06.out", "operation": "jq: .results[] | {resource_kind,resource_name,resource_path,canonical_keys}", "file": "view-06.txt", "bytes": 2835, "sha256": "b9a31e7d6ba91fabddb20dc4f5148b4027416d11529faf1a519122dd7af0b81b"}
+{"source": "response-12.out", "operation": "jq: keys", "file": "view-07.txt", "bytes": 151, "sha256": "0af42de2b7fced022a36e52a0ad52ef7d58acabdbcc69ac7a987696dedfacfef"}
+{"source": "response-07.out", "operation": "jq: keys", "file": "view-08.txt", "bytes": 151, "sha256": "0af42de2b7fced022a36e52a0ad52ef7d58acabdbcc69ac7a987696dedfacfef"}
+{"source": "response-10.out", "operation": "jq: keys", "file": "view-09.txt", "bytes": 151, "sha256": "0af42de2b7fced022a36e52a0ad52ef7d58acabdbcc69ac7a987696dedfacfef"}
+{"source": "response-08.out", "operation": "jq: keys", "file": "view-10.txt", "bytes": 75, "sha256": "3cc53dc44681886f43efa0d261100fd03303ff881f85c07f3f8b19ee42942661"}
+{"source": "response-09.out", "operation": "jq: keys", "file": "view-11.txt", "bytes": 116, "sha256": "a64b0c6d0d561cbedac4be70324ea82763fb7e892ac28efade333e20cf641ee1"}
+{"source": "response-11.out", "operation": "jq: keys", "file": "view-12.txt", "bytes": 151, "sha256": "0af42de2b7fced022a36e52a0ad52ef7d58acabdbcc69ac7a987696dedfacfef"}
+{"source": "response-13.out", "operation": "jq: keys", "file": "view-13.txt", "bytes": 151, "sha256": "0af42de2b7fced022a36e52a0ad52ef7d58acabdbcc69ac7a987696dedfacfef"}
+{"source": "response-08.out", "operation": "jq: {id,name,summary,data_scope,members,_embedded: (._embedded|keys),_links}", "file": "view-14.txt", "bytes": 513, "sha256": "338e96b07bd5be9d84f13307fbfe6b6ce3c23ab934fe7f52e980d5bcb06285ad"}
+{"source": "response-08.out", "operation": "jq: {bindings:._embedded.bindings,facets:[._embedded.facets[]|{key,name,summary,input_rules,requires,effects,operators,values}]}", "file": "view-15.txt", "bytes": 10266, "sha256": "cbaf083ea3ba3fd31debe2d9ca219c9b72dfa08d45627554540c155d4e165f3c"}
+{"source": "response-13.out", "operation": "jq: del(._links,._embedded)", "file": "view-16.txt", "bytes": 692, "sha256": "2c2e0f64b1c2e0656d46225cbc8ed5646c74ef00ab4b40c25e1aac58d52e5d4f"}
+{"source": "response-11.out", "operation": "jq: del(._links,._embedded)", "file": "view-17.txt", "bytes": 906, "sha256": "3d0566bf8afe067dd9061ded82aa978ec0158a407ada5b5bbbdb5db01c0225e3"}
+{"source": "response-12.out", "operation": "jq: del(._links,._embedded)", "file": "view-18.txt", "bytes": 976, "sha256": "d7c6eb0b6d50d17177c7ac5b0baf65fb9b18ca476dc45f58f07e35d708c6440a"}
+{"source": "response-07.out", "operation": "jq: del(._links,._embedded)", "file": "view-19.txt", "bytes": 999, "sha256": "f4f5138f2f668261216eb6b84f50eda8ad187d8a84a0e513e399344142875dcc"}
+{"source": "response-10.out", "operation": "jq: del(._links,._embedded)", "file": "view-20.txt", "bytes": 944, "sha256": "3cee32991d2549b61a8905dddda7616fb49b5081712b803c5a6fe47633b75206"}
+{"source": "response-09.out", "operation": "jq: {facts,relationships,traversal}", "file": "view-21.txt", "bytes": 5872, "sha256": "a0c36f04835c8082692426c59012f8a76b94e84813efaf78a725d22c0a5208de"}
+{"source": "response-14.out", "operation": "jq: {facts,relationships,addresses,traversal}", "file": "view-22.txt", "bytes": 1904, "sha256": "c11c171087f7f75566049c64c5130b8b3bf4932e1e0db33adc667b1acbffb363"}
+{"source": "response-15.out", "operation": "jq: {facts,relationships,addresses,traversal}", "file": "view-23.txt", "bytes": 1110, "sha256": "4b378ac336bf23b2ba86786b97bd47d1c24aa5d7d24c2c81c97e40b954f3e348"}
+{"source": "response-16.out", "operation": "jq: .results[] | {resource_kind,resource_name,resource_path}", "file": "view-24.txt", "bytes": 361, "sha256": "1ef00367710353498b55808a478566ad180bbce447f7d37b24af05486c9e2b65"}
+{"source": "response-13.out", "operation": "jq: {links:._links,embedded:._embedded}", "file": "view-25.txt", "bytes": 1586, "sha256": "9f643ab72d2b6a8f287947964f90a6b639cc706103c8632396f2d48468a0ff22"}
+{"source": "response-07.out", "operation": "jq: {links:._links,embedded:._embedded}", "file": "view-27.txt", "bytes": 2306, "sha256": "f4663f1e9828c552c1086154e8324e7a4e3fc008b7f53359a0edff748c4e133d"}
+{"source": "response-10.out", "operation": "jq: {links:._links,embedded:._embedded}", "file": "view-28.txt", "bytes": 1548, "sha256": "100951403808fff3e5d2f56c2036efc3f22e74dcae8baa35aaaf28d9389108eb"}
+{"source": "response-12.out", "operation": "jq: {links:._links,embedded:._embedded}", "file": "view-29.txt", "bytes": 2854, "sha256": "1ad9a302df2fe3ceb9d4dd9e99ddbfe72c63b9ece16560e399323bcdc84592c2"}
+{"source": "response-11.out", "operation": "jq: {links:._links,embedded:._embedded}", "file": "view-26.txt", "bytes": 4591, "sha256": "903892ecd0fd0059c1d5be7cb0dab9acfc9c62b3ac84a3eb05eafbec2547b076"}

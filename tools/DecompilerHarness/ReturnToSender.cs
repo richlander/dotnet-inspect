@@ -2267,41 +2267,7 @@ static class ReturnToSender
         => source.ClassifyType((EntityHandle)handle) is TypeShapeKind.Class or TypeShapeKind.Struct;
 
     static bool IsSupportedClosureRoot(MetadataReader reader, TypeDefinition typeDef)
-    {
-        string name = reader.GetString(typeDef.Name);
-        return name is not "<Module>"
-            && !name.Contains('<', StringComparison.Ordinal)
-            && !IsDelegate(reader, typeDef);
-    }
-
-    static bool IsDelegate(MetadataReader reader, TypeDefinition typeDef)
-    {
-        if (typeDef.BaseType.IsNil)
-            return false;
-
-        string baseName = typeDef.BaseType.Kind switch
-        {
-            HandleKind.TypeReference => FullName(reader, reader.GetTypeReference((TypeReferenceHandle)typeDef.BaseType)),
-            HandleKind.TypeDefinition => FullName(reader, reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType)),
-            _ => "",
-        };
-
-        return baseName is "System.MulticastDelegate" or "System.Delegate";
-    }
-
-    static string FullName(MetadataReader reader, TypeReference type)
-    {
-        string ns = reader.GetString(type.Namespace);
-        string name = reader.GetString(type.Name);
-        return ns.Length == 0 ? name : $"{ns}.{name}";
-    }
-
-    static string FullName(MetadataReader reader, TypeDefinition type)
-    {
-        string ns = reader.GetString(type.Namespace);
-        string name = reader.GetString(type.Name);
-        return ns.Length == 0 ? name : $"{ns}.{name}";
-    }
+        => CompileBackSourceComposer.IsSupportedTypedClosureRoot(reader, typeDef);
 
     static List<ILInstructionText>? FindAndDisassemble(
         PEReader pe,

@@ -91,7 +91,7 @@ through the shared
 Blank package input stays idle. Spotlight owns open-text package discovery; the
 Browser query surface exposes no Gallery search, browse, package-type, or
 source-order gesture.
-The Browser reads one complete Resource Explanation `query-facets` data
+The Browser reads one complete Resource Explanation `query-preparation/v1`
 selection for the Package Query route. The selection projects
 `PackageQuery.RegisteredTerms`, their effective Query Operation facts,
 owner-issued presentation declarations, related-operation affordances, and
@@ -103,7 +103,7 @@ value-query placement, execution class, selection and replacement groups,
 combining behavior, inline options, and an optional external option-source
 identity. Inline option values must equal the effective Query Space values, so
 presentation cannot drift from executable admission. The Browser filters the
-complete selection through its exact consumer binding, lowers the declared
+complete preparation through its exact consumer binding, lowers the declared
 facts into controls, and owns interaction and layout. It may join an explicitly
 named shared product catalog: `product-ecosystems` resolves through the same
 Ecosystem catalog used by the rest of the site. It does not reproduce

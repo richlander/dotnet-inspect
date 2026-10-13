@@ -1,0 +1,122 @@
+{
+  "answer": {
+    "scope": "Installed product vocabulary csharp.style-choices, joined to csharp.style-tiers; selection completeness is Complete.",
+    "matching_choices": [
+      {
+        "id": "wrap-splittable-expressions",
+        "option": "wrap-splittable-expressions",
+        "value": "true",
+        "tier_id": "Formatting",
+        "tier_name": "Formatting",
+        "tier_description": "Layout only — whitespace and line breaks. The code itself is unchanged, and compiles to identical IL.",
+        "endorsed_by": [
+          "corpus"
+        ]
+      },
+      {
+        "id": "qualify-field-access",
+        "option": "qualify-field-access",
+        "value": "true",
+        "tier_id": "Spelling",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "endorsed_by": [
+          "oracle"
+        ]
+      },
+      {
+        "id": "qualify-property-access",
+        "option": "qualify-property-access",
+        "value": "true",
+        "tier_id": "Spelling",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "endorsed_by": [
+          "oracle"
+        ]
+      },
+      {
+        "id": "qualify-method-access",
+        "option": "qualify-method-access",
+        "value": "true",
+        "tier_id": "Spelling",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "endorsed_by": [
+          "oracle"
+        ]
+      },
+      {
+        "id": "qualify-event-access",
+        "option": "qualify-event-access",
+        "value": "true",
+        "tier_id": "Spelling",
+        "tier_name": "Spelling",
+        "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+        "endorsed_by": [
+          "oracle"
+        ]
+      }
+    ],
+    "conflict_groups": [
+      {
+        "group": "guarded-boolean-return-style",
+        "member_ids": [
+          "guarded-boolean-return-style:conditional-expression",
+          "guarded-boolean-return-style:branchless"
+        ]
+      },
+      {
+        "group": "var-spelling-style",
+        "member_ids": [
+          "var-spelling-style:var-for-built-in-types",
+          "var-spelling-style:var-when-type-apparent",
+          "var-spelling-style:var-elsewhere"
+        ]
+      }
+    ],
+    "conflict_group_limit": "These are declared mutually exclusive groups of registered product choice IDs. They do not establish how arbitrary configuration keys, unregistered values, or CLI arguments are parsed, related, rejected, or applied.",
+    "omitted_boolean_interpretation": {
+      "known_choice_complete_data": "For a registered choice in this Complete selection, omission from a declared Boolean property set means false for that property. The Boolean maps have exactly-one cardinality and complete coverage. For example, wrap-splittable-expressions is absent from byte_divergent and oracle_endorsed, so both are false; it is present in corpus_endorsed, so that is true.",
+      "unknown_id": "An ID absent from the complete values list is not a registered choice in this installed vocabulary. Do not assign it false Boolean properties as though it were a known choice.",
+      "incomplete_data": "If the selected data or relevant map coverage were incomplete, omission would be unknown, not false; additional evidence would be needed.",
+      "unavailable_property": "If a relevant property is explicitly unavailable, its state takes precedence over absence from a set; report unavailable/unknown, not false."
+    },
+    "fetch_assessment": "The csharp.style-choices .data response already includes the referenced csharp.style-tiers values and their name/summary, so no additional tier fetch is required for the join. Its Complete selection, map declarations, property sets and groups suffice for the task; no schema/contract fetch is required. Separate tier and full-resource reads corroborated scope and membership but supplied no missing task fact. No invocation behavior is inferred.",
+    "unrun_command_argv": []
+  },
+  "provenance": [
+    {
+      "response": "response-03.out",
+      "path": "vocabularies",
+      "role": "discovered installed vocabulary resource paths; scope Installed"
+    },
+    {
+      "response": "response-04.out",
+      "path": "vocabularies/csharp.style-choices",
+      "selector": ".data",
+      "role": "complete registered choices, map contracts, Boolean property sets, conflict groups, and joined csharp.style-tiers values"
+    },
+    {
+      "response": "response-05.out",
+      "path": "vocabularies/csharp.style-tiers",
+      "selector": ".data",
+      "role": "corroborated tier names/descriptions and Complete selection"
+    },
+    {
+      "response": "response-06.out",
+      "path": "vocabularies/csharp.style-choices",
+      "role": "full resource corroborated Installed scope, map declarations, and complete value/term-target relationships"
+    },
+    {
+      "response": "response-07.out",
+      "path": "vocabularies/csharp.style-tiers",
+      "role": "full resource corroborated Installed scope and complete value relationship"
+    }
+  ],
+  "uncertainties": [
+    "No command invocation behavior or arbitrary configuration-key semantics are declared by these vocabulary records."
+  ],
+  "schema_navigation_friction": "The broad C# style and vocabulary searches returned no relevant result; explain vocabularies exposed the exact paths. The .data representation embeds the target tier records, avoiding a required second fetch. Boolean facts are encoded as membership sets rather than per-value fields, requiring consultation of map kind/cardinality/coverage and selection completeness.",
+  "truncation": "No recorder view or displayed tool output was truncated. Full-resource traversal reports Truncated because requested depth is 0; the .data selections used for the answer report Complete."
+}

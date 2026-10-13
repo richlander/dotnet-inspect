@@ -16,10 +16,14 @@ import type {
   BrowserVocabularyMapValue,
   BrowserVocabularySnapshotIdentity,
   BrowserVocabularyScalarKind,
+  BrowserVocabularyTerm,
   BrowserVocabularyTermDefinitionIdentity,
   BrowserVocabularyTermIdentity,
   BrowserVocabularyTermSetReference,
 } from "./facades/inspect-web-catalog.d.ts";
+import type {
+  PackageQueryDurableRowPresentationLayout,
+} from "./package-query-durable-row.ts";
 import type {
   BrowserPackageChangesEcosystemCatalog,
 } from "./facades/inspect-web-package.d.ts";
@@ -77,37 +81,38 @@ function packageQueryFacetOption(value: unknown): PackageQueryFacetOption {
   };
 }
 
-function packageQueryFacet(value: unknown): PackageQueryFacetDescriptor {
+function packageQueryFacet(
+  key: string,
+  value: unknown,
+): PackageQueryFacetDescriptor {
   const facet = record(value);
-  const facts = record(facet.facts);
   return {
-    key: text(facts.key),
-    name: text(facts.name),
-    summary: text(facts.summary),
-    operators: array(facts.operators, text),
-    valueKind: text(facts["value-kind"]),
-    examples: array(facts.examples, text),
-    effects: array(facts.effects, text),
-    inputRules: array(facts["input-rules"], text),
-    presentationOrder: number(facts["presentation-order"]),
-    controlKind: text(facts["control-kind"]),
-    presentationKind: text(facts["presentation-kind"]),
-    executionClass: text(facts["execution-class"]),
-    selectionGroup: nullableText(facts["selection-group"]),
+    key,
+    name: text(facet.name),
+    summary: text(facet.summary),
+    operators: array(facet.operators, text),
+    valueKind: text(facet.value_kind),
+    examples: array(facet.examples ?? [], text),
+    effects: array(facet.effects ?? [], text),
+    inputRules: array(facet.input_rules ?? [], text),
+    presentationOrder: number(facet.presentation_order),
+    controlKind: text(facet.control_kind),
+    presentationKind: text(facet.presentation_kind),
+    executionClass: text(facet.execution_class),
+    selectionGroup: nullableText(facet.selection_group),
     combinesWithinSelectionGroup:
-      boolean(facts["combines-within-selection-group"]),
-    replacementGroup: nullableText(facts["replacement-group"]),
-    optionSource: nullableText(facts["option-source"]),
-    options: array(facts.options, packageQueryFacetOption),
+      boolean(facet.combines_within_selection_group),
+    replacementGroup: nullableText(facet.replacement_group),
+    optionSource: nullableText(facet.option_source),
+    options: array(facet.options, packageQueryFacetOption),
     relatedOperations: array(facet.related_operations, text),
   };
 }
 
 function packageQueryFacetBinding(value: unknown): PackageQueryFacetBinding {
   const binding = record(value);
-  const facts = record(binding.facts);
   return {
-    consumerKind: text(facts["consumer-kind"]),
+    consumerKind: text(binding.consumer_kind),
     exposedFacets: array(binding.exposed_facets, text),
   };
 }
@@ -124,21 +129,18 @@ function mapped<TValue>(
 
 function packageQueryFacetData(value: unknown): PackageQueryFacetData {
   const data = record(value);
-  const selection = record(data.selection);
-  if (text(selection.kind) !== "query-facets"
-    || text(selection.completeness) !== "Complete") {
+  const scope = record(data.scope);
+  if (text(scope.profile) !== "query-preparation/v1"
+    || text(scope.completeness) !== "Complete") {
     throw new StartupPayloadError(
-      "Package Query facet data must be a complete query-facets selection.");
+      "Package Query facet data must be a complete query-preparation/v1 selection.");
   }
-  const facets = mapped(data.facets, packageQueryFacet);
+  const facets = Object.fromEntries(
+    Object.entries(record(data.facets))
+      .map(([key, entry]) => [key, packageQueryFacet(key, entry)]),
+  );
   const facetOrder = array(data.facet_order, text);
   const bindings = mapped(data.bindings, packageQueryFacetBinding);
-  for (const [key, facet] of Object.entries(facets)) {
-    if (facet.key !== key) {
-      throw new StartupPayloadError(
-        `Package Query facet '${key}' reports key '${facet.key}'.`);
-    }
-  }
   if (new Set(facetOrder).size !== facetOrder.length
     || facetOrder.length !== Object.keys(facets).length
     || facetOrder.some(key => !(key in facets))) {
@@ -308,19 +310,21 @@ function vocabularyDefinition(value: unknown): BrowserVocabularyDefinition {
         coverage: vocabularyMapCoverage(map.coverage),
       };
     }),
-    terms: array(data.terms, rawTerm => {
-      const term = record(rawTerm);
+    terms: array(data.terms, vocabularyTerm),
+  };
+}
+
+function vocabularyTerm(value: unknown): BrowserVocabularyTerm {
+  const term = record(value);
+  return {
+    identity: vocabularyTermDefinitionIdentity(term.identity),
+    displayLabel: text(term.displayLabel),
+    summary: nullableText(term.summary),
+    mapEntries: array(term.mapEntries, rawEntry => {
+      const entry = record(rawEntry);
       return {
-        identity: vocabularyTermDefinitionIdentity(term.identity),
-        displayLabel: text(term.displayLabel),
-        summary: nullableText(term.summary),
-        mapEntries: array(term.mapEntries, rawEntry => {
-          const entry = record(rawEntry);
-          return {
-            map: vocabularyMapDefinitionIdentity(entry.map),
-            values: array(entry.values, vocabularyMapValue),
-          };
-        }),
+        map: vocabularyMapDefinitionIdentity(entry.map),
+        values: array(entry.values, vocabularyMapValue),
       };
     }),
   };
@@ -366,6 +370,34 @@ function vocabularyInspection(value: unknown): BrowserVocabularyInspection {
         severity: vocabularyDiagnosticSeverity(diagnostic.severity),
         summary: text(diagnostic.summary),
         correspondence: nullableText(diagnostic.correspondence),
+      };
+    }),
+  };
+}
+
+function packageQueryDurableRowLayout(
+  value: unknown,
+): PackageQueryDurableRowPresentationLayout {
+  const data = record(value);
+  return {
+    ...data,
+    contract: text(data.contract),
+    schemaIdentity: text(data.schemaIdentity),
+    descriptorIdentity: text(data.descriptorIdentity),
+    vocabularySnapshotIdentity:
+      text(data.vocabularySnapshotIdentity),
+    fields: array(data.fields, rawField => {
+      const field = record(rawField);
+      const ordinal = number(field.ordinal);
+      if (!Number.isInteger(ordinal) || ordinal < 0) {
+        throw new StartupPayloadError(
+          "Expected a non-negative durable-row field ordinal.");
+      }
+      return {
+        ...field,
+        ordinal,
+        schemaLocation: text(field.schemaLocation),
+        term: vocabularyTerm(field.term),
       };
     }),
   };
@@ -424,6 +456,11 @@ export const engineStartupOperations = {
   inspectVocabulary: {
     kind: "catalog-inspect-vocabulary",
     value: json<BrowserVocabularyInspection>(vocabularyInspection),
+  },
+  packageQueryDurableRowLayout: {
+    kind: "package-query-durable-row-layout",
+    value: json<PackageQueryDurableRowPresentationLayout>(
+      packageQueryDurableRowLayout),
   },
   listHomeDemos: {
     kind: "catalog-list-home-demos",

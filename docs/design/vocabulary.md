@@ -1,8 +1,8 @@
 # Product Vocabulary
 
 Product vocabularies are the stable values that product-owned queries accept:
-API accessibility facets, C# style tiers and choices, and C# body kinds. Both
-hosts present them through
+API accessibility facets, C# style tiers and choices, C# body kinds, and the
+Package Query durable-row field contract. Both hosts present them through
 [Resource Explanation](resource-explanation.md#value-vocabulary-resources).
 There is no separate vocabulary command, document, or wire format.
 
@@ -138,6 +138,10 @@ The term owners, and therefore the declaring owners, are:
 - `BodyShapeSearch.SupportedKinds` in `ILInspector.Decompiler` owns searchable
   body-kind identity and order; `AnnotatedSourceNodeKinds` owns their display
   labels.
+- `PackageQueryDurableRowContract` in
+  `DotnetInspector.InspectionContracts` owns the durable-row contract and field
+  identities; `PackageQueryDurableRowVocabulary` in
+  `DotnetInspector.Queries` owns their labels and summaries.
 
 The declaration type lives in the `QuerySpace.Primitives` floor under the
 [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers),
@@ -221,6 +225,7 @@ Implementation and host migration remain tracked by
 | C# Style Tiers | `csharp.style-tiers` | Style fidelity/presentation tiers |
 | C# Style Choices | `csharp.style-choices` | Selectable rendering choice IDs |
 | C# Body Kinds | `csharp.body-kinds` | Exact rendered body-syntax kinds |
+| Package Query Durable Row | `package-query.durable-row` | Authenticated serialized field identities |
 
 Each is explainable at `vocabularies/<stable-id>`. The composition's own
 `vocabulary.sections` index lists them and their accepting inputs; it is the

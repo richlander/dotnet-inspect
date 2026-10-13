@@ -1,5 +1,8 @@
 import type { EngineClient } from "./engine-client.ts";
 import type { PackageQueryFacetData } from "./package-query-source.ts";
+import type {
+  PackageQueryDurableRowPresentationLayout,
+} from "./package-query-durable-row.ts";
 import {
   createOperationAuthorityPage,
   type OperationDiagnostic,
@@ -30,6 +33,8 @@ export interface EngineStartupClient {
     & {
       readonly inspectPackageQueryFacets:
         () => Promise<PackageQueryFacetData>;
+      readonly packageQueryDurableRowLayout:
+        () => Promise<PackageQueryDurableRowPresentationLayout>;
     };
 }
 
@@ -42,6 +47,8 @@ interface StartupReads {
     EngineStartupClient["package"]["listPackageActivityEcosystems"];
   readonly inspectPackageQueryFacets:
     () => Promise<unknown>;
+  readonly packageQueryDurableRowLayout:
+    EngineStartupClient["package"]["packageQueryDurableRowLayout"];
 }
 
 interface StartupOperation<TValue> {
@@ -75,6 +82,9 @@ export function registerEngineWorkerStartupOperations(
   register(engineStartupOperations.buildIdentity, reads.buildIdentity);
   register(engineStartupOperations.inspectVocabulary, reads.inspectVocabulary);
   register(engineStartupOperations.listEcosystems, reads.listEcosystems);
+  register(
+    engineStartupOperations.packageQueryDurableRowLayout,
+    reads.packageQueryDurableRowLayout);
   register(engineStartupOperations.listHomeDemos, reads.listHomeDemos);
   register(
     engineStartupOperations.listPackageActivityEcosystems,
@@ -167,6 +177,8 @@ export function bindEngineWorkerStartupClient(
         bind(engineStartupOperations.listPackageActivityEcosystems),
       inspectPackageQueryFacets:
         bind(engineStartupOperations.inspectPackageQueryFacets),
+      packageQueryDurableRowLayout:
+        bind(engineStartupOperations.packageQueryDurableRowLayout),
     },
   };
 }

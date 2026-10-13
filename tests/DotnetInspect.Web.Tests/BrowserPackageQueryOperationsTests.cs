@@ -506,9 +506,13 @@ public sealed class BrowserPackageQueryOperationsTests
     public void QueryFacets_ExposeCompleteOwnerIssuedPackageQueryVocabulary()
     {
         JsonElement data = BrowserPackageQueryOperations.InspectQueryFacets();
-        JsonElement selection = data.GetProperty("selection");
-        Assert.Equal("query-facets", selection.GetProperty("kind").GetString());
-        Assert.Equal("Complete", selection.GetProperty("completeness").GetString());
+        JsonElement scope = data.GetProperty("scope");
+        Assert.Equal(
+            "query-preparation/v1",
+            scope.GetProperty("profile").GetString());
+        Assert.Equal(
+            "Complete",
+            scope.GetProperty("completeness").GetString());
 
         string[] allKeys =
         [
@@ -539,8 +543,7 @@ public sealed class BrowserPackageQueryOperationsTests
             data.GetProperty("bindings")
                 .EnumerateObject(),
             binding =>
-                binding.Value.GetProperty("facts")
-                    .GetProperty("consumer-kind")
+                binding.Value.GetProperty("consumer_kind")
                     .GetString()
                 == "Browser").Value;
         Assert.Equal(
@@ -561,26 +564,22 @@ public sealed class BrowserPackageQueryOperationsTests
 
         Assert.Equal(
             "fact",
-            tool.GetProperty("facts")
-                .GetProperty("presentation-kind")
+            tool.GetProperty("presentation_kind")
                 .GetString());
         Assert.Equal(
             "value-query",
-            format.GetProperty("facts")
-                .GetProperty("presentation-kind")
+            format.GetProperty("presentation_kind")
                 .GetString());
         Assert.Equal(
             "DotnetCliTool",
-            format.GetProperty("facts").GetProperty("name").GetString());
+            format.GetProperty("name").GetString());
         Assert.Equal(
             PackageQuery.ToolReplacementGroupId,
-            format.GetProperty("facts")
-                .GetProperty("replacement-group")
+            format.GetProperty("replacement_group")
                 .GetString());
         Assert.Equal(
             ["v1", "v2"],
-            format.GetProperty("facts")
-                .GetProperty("options")
+            format.GetProperty("options")
                 .EnumerateArray()
                 .Select(option =>
                     option.GetProperty("value").GetString()));
@@ -693,8 +692,7 @@ public sealed class BrowserPackageQueryOperationsTests
             facets.GetProperty(PackageQuery.DependenciesTermKey);
         Assert.Equal(
             ["none", "cross-prefix"],
-            dependencies.GetProperty("facts")
-                .GetProperty("options")
+            dependencies.GetProperty("options")
                 .EnumerateArray()
                 .Select(option =>
                     option.GetProperty("value").GetString()));
@@ -708,32 +706,27 @@ public sealed class BrowserPackageQueryOperationsTests
             facets.GetProperty(PackageQuery.DependsTermKey);
         Assert.Equal(
             ["eq", "starts-with"],
-            depends.GetProperty("facts")
-                .GetProperty("operators")
+            depends.GetProperty("operators")
                 .EnumerateArray()
                 .Select(value => value.GetString()));
         Assert.Equal(
             "NuGet package ID or prefix",
-            depends.GetProperty("facts")
-                .GetProperty("value-kind")
+            depends.GetProperty("value_kind")
                 .GetString());
         Assert.Equal(
             "nuspec",
-            depends.GetProperty("facts")
-                .GetProperty("execution-class")
+            depends.GetProperty("execution_class")
                 .GetString());
 
         JsonElement references =
             facets.GetProperty(PackageQuery.ReferencesTermKey);
         Assert.Equal(
             "assembly simple name",
-            references.GetProperty("facts")
-                .GetProperty("value-kind")
+            references.GetProperty("value_kind")
                 .GetString());
         Assert.Equal(
             "metadata",
-            references.GetProperty("facts")
-                .GetProperty("execution-class")
+            references.GetProperty("execution_class")
                 .GetString());
     }
 

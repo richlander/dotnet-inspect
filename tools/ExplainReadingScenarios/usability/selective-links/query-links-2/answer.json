@@ -1,0 +1,100 @@
+{
+  "commands_unrun": {
+    "implementation_library_literal": [
+      "dnx",
+      "dotnet-inspect",
+      "-y",
+      "--",
+      "package",
+      "query",
+      "Microsoft.Azure.SignalR",
+      "--tfm",
+      "net8.0",
+      "--where",
+      "library-literal=https://",
+      "--json"
+    ],
+    "preferred_exact_dependency": [
+      "dnx",
+      "dotnet-inspect",
+      "-y",
+      "--",
+      "package",
+      "query",
+      "Microsoft.Azure.SignalR",
+      "--where",
+      "depends=Newtonsoft.Json",
+      "--where",
+      "dependency-depth=3",
+      "--where",
+      "dependency-target=net8.0",
+      "--json"
+    ],
+    "prefix_bounded_example": [
+      "dnx",
+      "dotnet-inspect",
+      "-y",
+      "--",
+      "package",
+      "query",
+      "Microsoft.Azure.*",
+      "--tfm",
+      "net8.0",
+      "--where",
+      "library-literal=https://",
+      "--take",
+      "5",
+      "-n",
+      "2",
+      "--json"
+    ]
+  },
+  "explanation": {
+    "literal": "library-literal matches an ordinal substring of each decoded string-literal use in the implementation libraries selected for one exact target framework. Preserve the operand exactly, including whitespace, newlines, and case; do not normalize it. The operand must contain 1..1024 UTF-16 code units. Six hundred astral Unicode characters occupy 1200 UTF-16 code units and are rejected. Identical repeated operands collapse, while distinct operands are incompatible. An empty listed values array is not an allow list: any decoded UTF-16 operand satisfying these constraints is accepted. This facet downloads package content and requires --tfm; --tfm and library-literal must appear together.",
+    "dependency": "The preferred exact package predicate is depends=Newtonsoft.Json. Without dependency-depth, exact depends matches direct dependencies. With dependency-depth=3, it matches direct declaration edges and declaration paths through maximum depth 3. The legacy depends-transitive spelling matches only declaration paths at depth 2 through the selected maximum, so a direct-only dependency does not satisfy it. Allowed dependency-depth values are 2, 3, and 4; depth 1 is invalid. Traversal requires an explicit dependency-target TFM, so dependency-target=all is invalid for the second command. The target scopes the dependency predicates to one TFM-selected manifest group. Repeated exact dependency terms AND and share traversal. No extra case or package-ID normalization rule is asserted by the consulted contracts.",
+    "candidate_vs_rows": "For a Microsoft.Azure.* prefix population using library-literal or depth traversal, set --take 5 or less to bound package candidates admitted for costly inspection; -n 2 bounds final result rows and does not replace --take. The exact Microsoft.Azure.SignalR input admits at most one candidate without an explicit --take. A starts-with dependency predicate remains direct even with depth, and alone cannot admit depth.",
+    "completeness_and_unavailable_data": "These are command preparations, not inspection results. The query route promises a completed document containing matches, failures, and a completion summary; a missing row cannot by itself prove the package lacks the literal or dependency. Package-content capability is required for the literal inspection, and acquisition or inspection failures must be read from the result. The explanation resources report Complete data_scope for the query space and queried facets, while ordinary full-resource reads report traversal truncated at depth 0; no product response or view display was truncated."
+  },
+  "provenance": [
+    {
+      "response": "response-03.out",
+      "path": "package-query/query",
+      "facts": "HAL embedded facets and CLI binding: exact package/prefix, library-literal, depends, dependency-depth, dependency-target, depends-transitive, candidate and row limits"
+    },
+    {
+      "response": "response-04.out",
+      "path": "package-query/query/facets/library-literal",
+      "facts": "literal operand length, normalization, matching, repeated values, empty values, package-content effect and --tfm prerequisite"
+    },
+    {
+      "response": "response-07.out",
+      "path": "package-query/query/facets/depends",
+      "facts": "direct versus depth traversal and exact predicate"
+    },
+    {
+      "response": "response-08.out",
+      "path": "package-query/query/facets/dependency-target",
+      "facts": "explicit target and disallowed all for traversal"
+    },
+    {
+      "response": "response-09.out",
+      "path": "package-query/bindings/cli",
+      "facts": "CLI gesture, --where, --take, -n, --tfm and --json"
+    },
+    {
+      "response": "response-05.out",
+      "path": "package-query",
+      "facts": "document summary: matches, failures, completion summary"
+    },
+    {
+      "response": "response-06.out",
+      "path": "package-query/routes/default",
+      "facts": "route result grain and query/document relationships"
+    }
+  ],
+  "uncertainties": [
+    "No inspection was executed, so the existence of matches, selected assets, dependency paths, and any unavailable-data or acquisition-failure status for Microsoft.Azure.SignalR are unknown.",
+    "The consulted facet contracts do not specify a separate package-ID case normalization algorithm or precise behavior for a missing TFM-selected asset/group; no such rule is inferred."
+  ],
+  "schema_navigation_friction": "Discovery used resource_path and resource_kind rather than generic path/kind fields. HAL embedded facets supplied most rules, but the full-resource contract has a distinct schema and reports depth-0 traversal truncation. The literal facet link supplied its own embedded prerequisite and binding, avoiding further navigation. No tool-output rendering truncation occurred."
+}

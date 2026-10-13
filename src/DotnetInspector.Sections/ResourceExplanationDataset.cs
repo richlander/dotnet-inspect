@@ -6,27 +6,31 @@ using QuerySpace.Explanation;
 namespace DotnetInspector.Sections;
 
 /// <summary>A bounded reading selection over one validated, installed catalog.</summary>
-public sealed class ResourceExplanationDataset
+public sealed partial class ResourceExplanationDataset
 {
     private readonly ResourceExplanationCatalog _catalog;
     private readonly ResourceExplanationResource _root;
     private readonly ImmutableArray<ResourceExplanationResource> _resources;
     private readonly string _kind;
+    private readonly bool _narrowed;
 
     private ResourceExplanationDataset(ResourceExplanationCatalog catalog,
         ResourceExplanationResource root, ImmutableArray<ResourceExplanationResource> resources,
-        string kind)
+        string kind, bool narrowed = false)
     {
         _catalog = catalog;
         _root = root;
         _resources = resources;
         _kind = kind;
+        _narrowed = narrowed;
     }
 
     public ImmutableArray<ResourceExplanationResource> Resources => _resources;
 
+    /// <summary>Selects resource data and required context. Optional facet keys
+    /// narrow a query-space root before assembling its related records.</summary>
     public static ResourceExplanationDataset Create(ResourceExplanationCatalog catalog,
-        ResourcePathResolution.Resolved resolution)
+        ResourcePathResolution.Resolved resolution, IEnumerable<string>? facetKeys = null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(resolution);
@@ -41,6 +45,28 @@ public sealed class ResourceExplanationDataset
             || root.Key.ResourceType == ResourceExplanationVocabulary.QueryFacetType;
         if (!vocabulary && !facets)
             throw new InvalidOperationException("Selected data requires a vocabulary, query space, or query facet resource.");
+        HashSet<ExplanationResourceKey>? requested = null;
+        if (facetKeys is not null)
+        {
+            if (root.Key.ResourceType != ResourceExplanationVocabulary.QuerySpaceType)
+                throw new InvalidOperationException("Facet-key narrowing requires a query-space root.");
+            var members = catalog.Relationships.Where(edge => edge.Source == root.Key
+                && edge.Relationship.Value == "query-facet").SelectMany(edge =>
+                {
+                    RequireComplete(edge);
+                    return edge.Targets;
+                }).ToDictionary(target => FacetKey(byKey[target.Resource]),
+                    target => target.Resource, StringComparer.Ordinal);
+            requested = [];
+            foreach (string facetKey in facetKeys)
+            {
+                if (!members.TryGetValue(facetKey, out ExplanationResourceKey? member))
+                    throw new InvalidOperationException("Unknown query facet key: " + facetKey);
+                requested.Add(member);
+            }
+            if (requested.Count == 0)
+                throw new InvalidOperationException("Facet-key narrowing requires at least one key.");
+        }
         while (queue.TryDequeue(out ExplanationResourceKey? key))
         {
             if (!selected.Add(key))
@@ -63,6 +89,9 @@ public sealed class ResourceExplanationDataset
                     RequireComplete(edge);
                     foreach (ResourceExplanationRelationshipTarget target in edge.Targets)
                     {
+                        if (key == root.Key && relation == "query-facet"
+                            && requested is not null && !requested.Contains(target.Resource))
+                            continue;
                         if (!byKey.ContainsKey(target.Resource))
                             throw new InvalidOperationException("A selected relationship target has no local resource snapshot.");
                         if (++targetCount > 4096)
@@ -74,7 +103,7 @@ public sealed class ResourceExplanationDataset
         }
         return new(catalog, root,
             [root, .. catalog.Resources.Where(resource => selected.Contains(resource.Key) && resource.Key != root.Key)],
-            vocabulary ? "vocabulary-data" : "query-facets");
+            vocabulary ? "vocabulary-data" : "query-facets", requested is not null);
     }
 
     public JsonElement ToJson(Func<ResourcePath, string> bindAddress, bool hal = false,
@@ -82,6 +111,8 @@ public sealed class ResourceExplanationDataset
         Func<ResourcePath, string>? bindContractAddress = null)
     {
         ArgumentNullException.ThrowIfNull(bindAddress);
+        if (_kind == "query-facets")
+            return WriteQueryPreparation(hal, bindHalAddress ?? bindAddress);
         ImmutableArray<JsonElement> lowered = ResourceExplanationDataProjection.CreateResources(
             _catalog, _resources, bindAddress);
         var nodes = lowered.Select(value => JsonNode.Parse(value.GetRawText())!.AsObject()).ToArray();
@@ -96,8 +127,6 @@ public sealed class ResourceExplanationDataset
         };
         if (_kind == "vocabulary-data")
             WriteVocabularies(result, byKey);
-        else
-            WriteFacets(result, byKey);
         if (hal)
             result = WriteHal(result, byKey, bindAddress, bindHalAddress ?? bindAddress, bindContractAddress);
         using JsonDocument document = JsonDocument.Parse(result.ToJsonString());
@@ -192,56 +221,6 @@ public sealed class ResourceExplanationDataset
         result["vocabularies"] = vocabularies;
     }
 
-    private void WriteFacets(JsonObject result,
-        Dictionary<ExplanationResourceKey, JsonObject> nodes)
-    {
-        var facets = new JsonObject();
-        var keys = new Dictionary<ExplanationResourceKey, string>();
-        var order = new JsonArray();
-        foreach (ResourceExplanationResource resource in _resources.Where(r =>
-            r.Key.ResourceType == ResourceExplanationVocabulary.QueryFacetType))
-        {
-            JsonObject node = nodes[resource.Key];
-            string key = Text(node["facts"]!, "key");
-            keys.Add(resource.Key, key);
-            var record = Metadata(node);
-            record["facts"] = node["facts"]!.DeepClone();
-            if (facets.ContainsKey(key))
-                throw new InvalidOperationException("Selected facets have colliding local keys.");
-            facets.Add(key, record);
-            order.Add((JsonNode?)JsonValue.Create(key));
-        }
-        foreach ((ExplanationResourceKey identity, string key) in keys)
-        {
-            facets[key]!["requires"] = new JsonArray(Targets(identity, "required-context")
-                .Select(target => (JsonNode?)JsonValue.Create(keys[target])).ToArray());
-            facets[key]!["related_operations"] = new JsonArray(
-                Targets(identity, "related-operation")
-                    .Select(target =>
-                        (JsonNode?)JsonValue.Create(
-                            Text(
-                                nodes[target]["facts"]!,
-                                "identity")))
-                    .ToArray());
-        }
-        var bindings = new JsonObject();
-        foreach (ResourceExplanationResource resource in _resources.Where(r =>
-            r.Key.ResourceType == ResourceExplanationVocabulary.ConsumerBindingType))
-        {
-            JsonObject node = nodes[resource.Key];
-            var record = Metadata(node);
-            record["facts"] = node["facts"]!.DeepClone();
-            record["exposed_facets"] = new JsonArray(Targets(resource.Key, "exposes")
-                .Where(keys.ContainsKey).Select(key => (JsonNode?)JsonValue.Create(keys[key])).ToArray());
-            bindings.Add(Text(node["facts"]!, "identity"), record);
-        }
-        result["facts"] = nodes[_root.Key]["facts"]!.DeepClone();
-        result["fact_states"] = nodes[_root.Key]["fact_states"]!.DeepClone();
-        result["facets"] = facets;
-        result["facet_order"] = order;
-        result["bindings"] = bindings;
-    }
-
     private IEnumerable<ExplanationResourceKey> Targets(ExplanationResourceKey source, string relation)
     {
         foreach (ResourceExplanationRelationship edge in _catalog.Relationships.Where(edge =>
@@ -266,10 +245,6 @@ public sealed class ResourceExplanationDataset
             else if (resource.Key.ResourceType == ResourceExplanationVocabulary.VocabularyValueType)
                 source = data["vocabularies"]!.AsObject().SelectMany(pair => pair.Value!["values"]!.AsArray())
                     .OfType<JsonObject>().Single(value => JsonNode.DeepEquals(value["identity"], nodes[resource.Key]["identity"]));
-            else if (resource.Key.ResourceType == ResourceExplanationVocabulary.QueryFacetType)
-                source = data["facets"]![Text(nodes[resource.Key]["facts"]!, "key")]!.AsObject();
-            else if (resource.Key.ResourceType == ResourceExplanationVocabulary.ConsumerBindingType)
-                source = data["bindings"]![Text(nodes[resource.Key]["facts"]!, "identity")]!.AsObject();
             else
                 source = nodes[resource.Key];
 
@@ -292,9 +267,6 @@ public sealed class ResourceExplanationDataset
                     throw new InvalidOperationException("A HAL state property collides with resource navigation: " + field);
                 state[field] = value?.DeepClone();
             }
-            // Facet listed operand values are state, unlike vocabulary resource members.
-            if (resource.Key.ResourceType == ResourceExplanationVocabulary.QueryFacetType)
-                state["values"] = facts["values"]!.DeepClone();
             if (facts["identity"] is JsonValue id)
                 state["id"] = id.DeepClone();
             foreach (string field in new[] { "requires", "exposed_facets", "property_sets", "property_groups" })
@@ -324,15 +296,6 @@ public sealed class ResourceExplanationDataset
             embedded["vocabularies"] = new JsonArray(_resources.Where(resource =>
                 resource.Key.ResourceType == ResourceExplanationVocabulary.ValueVocabularyType && resource.Key != _root.Key)
                 .Select(resource => (JsonNode?)rendered[resource.Key]).ToArray());
-        else
-        {
-            embedded["facets"] = new JsonArray(_resources.Where(resource =>
-                resource.Key.ResourceType == ResourceExplanationVocabulary.QueryFacetType && resource.Key != _root.Key)
-                .Select(resource => (JsonNode?)rendered[resource.Key]).ToArray());
-            embedded["bindings"] = new JsonArray(_resources.Where(resource =>
-                resource.Key.ResourceType == ResourceExplanationVocabulary.ConsumerBindingType)
-                .Select(resource => (JsonNode?)rendered[resource.Key]).ToArray());
-        }
         if (root["_embedded"] is null)
             root["_embedded"] = embedded;
         return root;

@@ -997,8 +997,9 @@ selection. Vocabulary datasets include their values and declared target
 vocabularies. Facet datasets include required-context closure and the host
 bindings that expose selected facets. Sparse tables are used only for complete,
 available observations; unsupported or incomplete selected data fails visibly.
-Identity, source addresses, property declarations, and order remain available.
-Closure admits at most 256 resources and 4,096 observed targets. Binding
+Vocabulary selections retain identity, source addresses, property declarations,
+and order. Query selections use the semantic reading profile below rather than
+repeating those metadata wrappers. Closure admits at most 256 resources and 4,096 observed targets. Binding
 exposure lists contain only selected facets; their original total member count
 remains in binding facts.
 These selections do not claim that unregistered validation rules are present.
@@ -1022,11 +1023,12 @@ Unlike the HAL draft's recommended documentation-linked extension relations,
 these names do not resolve to relation documentation. CURIEs are not emitted:
 the current single-product vocabulary demonstrates neither documentation
 lookup nor namespace disambiguation that would justify them.
-Embedded inventories supply member self links rather than repeating
-the complete inventory in root links. Links carry titles and destination media
+Vocabulary inventories supply member self links rather than repeating
+the complete inventory in root links. Query preparation omits navigation to
+already embedded facets and bindings under the reading profile below. Links carry titles and destination media
 types. CLI HAL self and dataset links use
 `inspect-resource:/<path>?projection=hal`; following them unchanged retains HAL.
-JSON detail destinations are explicitly typed `application/json`. Root
+JSON detail destinations are explicitly typed `application/json`. Vocabulary root
 `describedby` links use `?projection=contract` to disclose complete schema and
 observation details separately. `self` identifies the current resource and
 representation; `describedby` describes it rather than naming a canonical
@@ -1045,6 +1047,129 @@ link mechanics; whether unfamiliar agents immediately recognize HAL and need
 fewer navigation tips remains an agent usability evaluation, not an asserted
 outcome. Existing default output and explicit `.contract` remain comparison
 surfaces.
+
+### Query-preparation reading selection
+
+Status: **shared projection implemented** under
+[#9982](https://github.com/richlander/dotnet-inspect/issues/9982); the retained
+proposal and experimental JSON remain historical evidence under
+[#9975](https://github.com/richlander/dotnet-inspect/issues/9975), continuing
+[#9762](https://github.com/richlander/dotnet-inspect/issues/9762).
+The [worked reading proposal](../../tools/ExplainReadingScenarios/query-preparation/README.md)
+starts with the dependency and literal preparation questions rather than a
+website-shaped descriptor or a graph-depth expansion.
+
+The claim is: a query-preparation selection preserves the selected
+facets' issued meaning, operators, operand kinds, examples, listed values,
+effects, registered input rules, declared required context, related-operation
+affordances, and applicable consumer-binding syntax and exposure. When a route
+registers host-neutral presentation, the same selection also preserves its
+order, control and presentation kinds, execution class, grouping, combining
+behavior, structured options, and external option-source identity. Its stated
+preparation questions resolve locally. Direct JSON and HAL carry equivalent
+selected knowledge; lowering
+vocabulary does not choose a larger population or add domain meaning.
+Completeness qualifies the selected population and semantic profile, not every
+facet in the installed catalog or every validation rule in the operation.
+An unselected facet remains unknown, including when the returned selection is
+complete. Unsupported or non-available selected data must retain visible
+outcomes or fail explicitly; it cannot become known empty data.
+
+Owner declarations remain the source of truth. One selected assembly consumes
+Query Space's facet facts and the binding's host syntax, rather than separately
+maintaining an agent summary or `-Q` inventory. This owner supplies the shared
+selection boundary; CLI admission and narrowing gestures remain with the CLI
+owner. A narrowing gesture can reduce the work left for jq without selecting a
+second schema or changing the facts' meaning. Full contract inspection remains
+an independent consumer. Browser interaction and layout remain host-owned while
+consuming the same owner-issued preparation and optional presentation facts.
+
+A selected reading document normalizes prerequisite records and shared binding
+rules once. A small binding exposure index is justified by the critical query
+that distinguishes authorable terms from required context. Keys inherit an
+explicit resource scope. Arrays or keyed tables are lowering choices; both
+must preserve the selected semantic fields and declared order. Empty-array
+omission needs an explicit fixed-profile convention and complete available
+observations; it never licenses omission of unknown or failed facts. Display
+names, internal receipt IDs, and repeated membership navigation need not be
+included when none of the stated reading questions uses them.
+
+HAL places selected facets and bindings in `_embedded`, with population
+qualifications in resource state. Ordinary navigation advertises missing
+knowledge rather than repeating links to every already embedded record.
+An example `collection` link leads to the larger installed facet dataset when
+a new question needs an unselected facet. The generated examples have no
+implemented self address. This proposal does not redefine generic graph
+inspection, remove explicit contract inspection, or claim that HAL vocabulary
+supplies input semantics. Selection, shared knowledge, and HAL lowering are
+independent decisions.
+
+The motivating production asset is `Microsoft.Extensions.Http.Polly` 10.0.12,
+whose direct dependency evidence appears in the
+[landed Package Query trials](../../tools/ExplainReadingScenarios/usability/package-query-adoption/README.md).
+The example source is the retained NativeAOT command-local HAL response from
+`88500f2d8298e3ede5640c9284ad00ddbdb86c15`. The local projector recovers every
+selected semantic field, compares five jq questions across both lowerings,
+checks source answers, and rejects unresolved required context. Its retained
+byte measurements predate the optional presentation and related-operation
+projection added for the Browser consumer; they remain historical reading
+evidence rather than current payload-size claims. These are byte measurements,
+not runtime or agent-performance claims. The examples retain whole prose rules;
+they do not trim conditional constraints by guessing which sentences matter.
+
+The shared implementation emits `scope.profile = query-preparation/v1` in
+both lowerings. The scope names the query space by its owner-issued identity,
+the requested root by its routing path, selected-facet completeness, and the
+original catalog facet count. Missing optional array properties inside a
+complete selected facet mean known empty registered arrays; an unselected
+facet remains unknown. Operators are always present. Direct JSON has keyed
+facet and binding tables plus `facet_order`; HAL embeds the same complete
+records as relation arrays. Binding keys retain their owner-issued identities
+and records retain consumer kind, gesture, input rules, and selected exposure.
+Registered presentation fields use the same `snake_case` lowering as the core
+facet fields. An explicitly absent presentation or optional presentation value
+is `null`; unavailable or failed observations reject the selection rather than
+becoming absence. `related_operations` retains owner-issued operation
+identities and is present as an array, including when empty.
+
+`ResourceExplanationDataset.Create` optionally accepts facet keys at a query
+space root, closes declared context, retains all registered rule prose, and
+refuses unknown or empty key requests. It uses typed relationship targets and
+issued key facts rather than parsing resource paths or display names. The
+current CLI consumes this shared lowering through its existing `.data`, `.hal`,
+and command-local Package Query explanation entrances. No narrowing CLI syntax
+is added here. HAL retains one usable root self link for existing exact
+selections; a key-narrowed selection has no implemented self address and emits
+only its owning collection link. Facet-root selections also offer that
+collection for missing knowledge. Explicit contract inspection remains
+available; automatic schema navigation is omitted from this reading profile.
+
+Gates: `QueryPreparationSelectionTests` compares all retained semantic fields
+against the catalog, equivalent lowerings, declared order, selected exposure,
+context closure, unknown/empty key refusals, and host-bound navigation.
+`ResourceExplanationCommandTests` and `PackageQueryExplanationTests` exercise
+installed entrances and preparation plans; `ResourceExplanationDatasetTests`
+and `ResourceExplanationDataProjectionTests` retain generic outcome and bound
+gates. `BrowserVocabularyCompositionTests` confirms unchanged current facade
+content. Query-facet semantic fact declarations require Available observations;
+the catalog rejects non-available producer observations before they can become
+empty data. The reader also refuses unavailable required facts or incomplete
+relationship knowledge. Browser query-explanation admission remains its later
+host slice; address-binding equivalence is not a claim of that admission.
+
+Production adoption is staged in four slices: this focused owner proposal and
+examples; shared Resource Explanation implementation with cross-host gates;
+CLI narrowing adoption and retirement of its independent discovery summary;
+and Browser/Wasm query-explanation adoption and retirement of its superseded
+reading projection. The shared implementation retires the earlier query
+serializer in the existing selected CLI paths.
+The tracker counts both hosts. Host-specific admission changes are separately
+owned adoption work. Production gates must preserve semantic equality,
+required-context closure, selected completeness, non-available outcomes, and
+usable host addresses before smaller defaults ship. Agent usability testing
+then measures valid preparation, whole-task content, and necessary navigation.
+The local examples neither enforce that production contract nor establish an
+optimal minimum or complete coverage of unregistered rules.
 
 ### Compact resource projection contract
 
@@ -1136,8 +1261,10 @@ CLI bindings. Lowering must specify URI resolution and address-kind handling
 before implementation, including targets that are addressable only in one
 host. A host binding may not replace the canonical target identity.
 
-Contract inspection is explicitly discoverable from resource data when its
-owner has registered a usable address. Until that registration exists, the
+General resource data makes contract inspection explicitly discoverable when
+its owner has registered a usable address. The fixed query-preparation reading
+profile below instead uses the host's explicit contract-selection gesture,
+without embedding contract-navigation links. Until that registration exists, the
 host must offer explicit contract selection over the current resource rather
 than emit a dangling schema link. No JSON Schema or result-contract resource
 is advertised before its owning catalog has adopted it.
@@ -1740,6 +1867,58 @@ discovery friction remained. Retained requests, replayable jq views, and
 byte/hash receipts distinguish retrieval from rendered content. This
 diagnostic sample supports a focused reading-guide/discovery experiment, not
 a general format ranking or retirement of the broader skill.
+
+The [minimal-instruction trials](../../tools/ExplainReadingScenarios/usability/minimal/README.md)
+remove table-name, HAL-vocabulary and sparse-property coaching. Two fresh
+participants per task and representation compare unfamiliar direct JSON with
+identified HAL using shared discovery instructions. Their retained answers
+and traces distinguish domain-task correctness from navigation and
+schema-exploration mistakes; this remains diagnostic evidence rather than a
+spontaneous-recognition gate or a general format ranking.
+
+The [HAL stopping-rule trials](../../tools/ExplainReadingScenarios/usability/hal-stop/README.md)
+add one local-data-first instruction without changing product responses. Query
+retrieval falls in this diagnostic sample; Style agents recognize embedded
+tiers but still fetch schema contracts. A follow-up adds the user's explicit
+low-latency preference and prohibition of verification-only reads. Correct
+answers and necessary navigation persist, but the stronger wording does not
+establish reliable adherence. Neutral questions are asked only after answers
+and logs are frozen; reflections distinguish confirmation from semantic
+uncertainty without changing results or establishing a causal effect.
+
+The [selective-link trials](../../tools/ExplainReadingScenarios/usability/selective-links/README.md)
+hold that strong guide fixed and project only HAL link exposure in the recorder.
+Neither new Style reader fetches the large schema; both still retrieve already
+embedded tiers. Query reads remain mixed, while a retained partial-binding link
+keeps missing dependency facts reachable. Original and projected bytes, frozen
+feedback, and representation overrides are retained separately. This is a
+production-policy candidate, not shipped behavior or reliable stopping evidence.
+
+The [mainline relationship trials](../../tools/ExplainReadingScenarios/usability/relations/README.md)
+execute bounded Polly package searches and installed-platform JSON extension
+inspections. Both package formats support the answer; HAL repeats locally
+available facets. Extension discovery requires help and exercises neither
+selected format, identifying a coverage boundary rather than a format ranking.
+Frozen evidence separates guidance from inspection bytes and retains search,
+output-selection, and platform qualifications. These diagnostic observations
+change no production behavior or shipped skill guidance.
+
+The [command-bound entrance trials](../../tools/ExplainReadingScenarios/usability/command-bound/README.md)
+offer accurate primary/companion syntax alongside help, query help and root
+recovery. Four agents answer the same relation questions with help and `-Q`,
+without requesting any explain entrance. A pinned support audit distinguishes
+Member's text/companion adoption from Package Query and Extensions gaps.
+This is descriptive evidence of available reading paths and narrow adoption;
+it does not validate agent use of primary/companion explanation or rank formats.
+
+The [landed Package Query entrance trials](../../tools/ExplainReadingScenarios/usability/package-query-adoption/README.md)
+observe three of four fresh agents using command-local HAL, with all four
+answering from bounded direct-dependency evidence. HAL users read embedded
+data without link or schema fetches, but their guidance retrieval and local
+reading remain larger than the `-Q` path. One agent seeks non-equality CLI
+syntax through query help; #9962 preserves that binding-registration gap.
+These observations establish usable adoption, not format superiority or a
+causal efficiency improvement.
 
 ## Demo scenario
 

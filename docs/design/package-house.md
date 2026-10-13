@@ -282,6 +282,23 @@ borrowed operation authority as House ownership.
 Browser/Wasm and query adapters supply their host-created clients through the
 same lease contract.
 
+Standalone API coordinate matching is a compile-realization adopter. The
+host-neutral query issues one exact `Realize` request per distinct endpoint
+with `Surface` demand and consumes the House-issued compile selection when
+creating each Package Root. Coordinate matching observes the complete selected
+API population, its declarations, assembly identities, references, and type
+forwarders; it does not execute or inspect method bodies, and a package without
+a separate reference surface already uses its `lib/` assets as that surface.
+The destination host execution retains the source acquisition's typed producer
+identity. The host supplies store, transfer, source-authorization, and
+operation-lifetime policy; the query neither requests a complete payload nor
+reruns package asset selection. The CLI's operation-local store does not
+persist ranged entries: distinct endpoints are each realized once, and an
+equal destination reuses the source Root without another acquisition. The
+settlement-owned ranged content therefore remains the one retained copy of
+selected entry bytes. `ApiCoordinateMatchInspectionTests` gates the existing Avalonia
+forwarder result, exact House request shape, and destination producer affinity.
+
 This is the adopted PackageHouse operation-ownership step 17b under
 [#6544](https://github.com/richlander/dotnet-inspect/issues/6544). Library
 ownership, Workspace admission, and host adoption remain separate focused

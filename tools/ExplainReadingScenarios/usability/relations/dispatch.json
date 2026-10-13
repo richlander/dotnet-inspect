@@ -1,0 +1,42 @@
+{
+  "source_head": "1dbdb5cdfcaa2e2d6c999efe32c00b71327d6a99",
+  "sdk": "11.0.100-rc.1.26425.128",
+  "model": "gpt-6-sol",
+  "reasoning": "high",
+  "inputs": {
+    "criteria.txt": "4314b7bf226830ceaa75bf618ae8be6b85ecd6692a53cd4974ae108081c1bfb1",
+    "runner.py": "2426c1db11ecd3cbb37c977ab675f6b1473861d49896c0e51e7fa7ac193e6878",
+    "guide-hal.txt": "e614f0fafc4ed5304d6581f604ea10da785734ce724c31ea577c78542ae4d6c1",
+    "guide-data.txt": "e1fd7071e946cde2f863ca8779c4fb9bb0e91a726bcae1216473b8dd620b0c2d",
+    "platform.json": "1cf4c0cbc109b4b9e58fb27557f727e68ec1792d7ae6450d3f685c9f4519184c",
+    "post-task-question.txt": "9a4ac8b072fd35897657b8482a2fde9195a5a5b811684aa02487ec45103ef7db",
+    "package-task.txt": "0767e00637f89641205e82a826a1273580b7dc0724c1c03bd8e7e4e972201307",
+    "participant.txt": "eb931a4e9020d55e854b6cbcae515bbf31f1227287c2b5e467d343eef1d55037",
+    "freeze.py": "0b62cddea6e81603b66e28efa23c5a5e0b4b63976fe980a92ba6a3d859a29cce",
+    "api-task.txt": "f611837f24dfd3961ffca1a4bd51d5cd177a90e6b00b3bf8d772b1acb089dc40"
+  },
+  "trials": {
+    "package-hal": [
+      "package",
+      "hal"
+    ],
+    "package-data": [
+      "package",
+      "data"
+    ],
+    "api-hal": [
+      "api",
+      "hal"
+    ],
+    "api-data": [
+      "api",
+      "data"
+    ]
+  },
+  "cli_sha256": "1a34006ea1f686839b798a99cc8fd276c105e67802a7fdfcf0065d5de1e26be3",
+  "dll_sha256": "fa322f61ba3b7f2ac123f5e9cfcee5342045d1b9450ecf44d84c4c326a3b0fd3",
+  "link_policy": "production, no recorder projection",
+  "search_population": "live NuGet.org, not frozen",
+  "issue": 9925,
+  "base_pr": 9911
+}

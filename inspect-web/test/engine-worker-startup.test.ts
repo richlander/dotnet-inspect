@@ -27,6 +27,9 @@ import type {
   BrowserPackageChangesEcosystemCatalog,
 } from "../src/facades/inspect-web-package.d.ts";
 import type { PackageQueryFacetData } from "../src/package-query-source.ts";
+import type {
+  PackageQueryDurableRowPresentationLayout,
+} from "../src/package-query-durable-row.ts";
 import {
   FakeWorkerRuntime,
   ManualWorkerRuntimeEnvironment,
@@ -71,35 +74,41 @@ const productEcosystems: BrowserEcosystemCatalog = {
   }],
 };
 const facetPayload = {
-  selection: { kind: "query-facets", completeness: "Complete" },
+  scope: {
+    profile: "query-preparation/v1",
+    resource: "package-query",
+    root: "package-query/query",
+    population: "selected-facets",
+    completeness: "Complete",
+    catalog_facets: 1,
+  },
   facet_order: ["depends"],
   facets: {
     depends: {
-      facts: {
-        key: "depends",
-        name: "Direct dependency",
-        summary: "Matches a direct dependency.",
-        operators: ["eq"],
-        "value-kind": "package-id",
-        examples: ["Microsoft.Extensions.Hosting"],
-        effects: ["AcquisitionTier: nuspec"],
-        "input-rules": [],
-        "presentation-order": 10,
-        "control-kind": "input",
-        "presentation-kind": "value-query",
-        "execution-class": "nuspec",
-        "selection-group": null,
-        "combines-within-selection-group": false,
-        "replacement-group": null,
-        "option-source": null,
-        options: [],
-      },
+      name: "Direct dependency",
+      summary: "Matches a direct dependency.",
+      operators: ["eq"],
+      value_kind: "package-id",
+      examples: ["Microsoft.Extensions.Hosting"],
+      effects: ["AcquisitionTier: nuspec"],
+      input_rules: [],
+      presentation_order: 10,
+      control_kind: "input",
+      presentation_kind: "value-query",
+      execution_class: "nuspec",
+      selection_group: null,
+      combines_within_selection_group: false,
+      replacement_group: null,
+      option_source: null,
+      options: [],
       related_operations: ["package.dependencies.inspect"],
     },
   },
   bindings: {
     browser: {
-      facts: { "consumer-kind": "Browser" },
+      consumer_kind: "Browser",
+      gesture: null,
+      input_rules: [],
       exposed_facets: ["depends"],
     },
   },
@@ -145,6 +154,22 @@ const ecosystems: BrowserPackageChangesEcosystemCatalog = {
     prefixes: ["Example."],
   }],
 };
+const durableRowLayout: PackageQueryDurableRowPresentationLayout = {
+  contract: "package-query.durable-row",
+  schemaIdentity: "sha256:schema",
+  descriptorIdentity: "sha256:descriptor",
+  vocabularySnapshotIdentity: "sha256:vocabulary",
+  fields: [{
+    ordinal: 0,
+    schemaLocation: "/prefixItems/0",
+    term: {
+      identity: { value: "package-id" },
+      displayLabel: "Package",
+      summary: "Exact package identity.",
+      mapEntries: [],
+    },
+  }],
+};
 const cases = [
   { operation: engineStartupOperations.buildIdentity, expected: identity, field: "version",
     read: (client: EngineStartupClient) => client.host.buildIdentity() },
@@ -165,6 +190,13 @@ const cases = [
     field: "facets",
     read: (client: EngineStartupClient) =>
       client.package.inspectPackageQueryFacets(),
+  },
+  {
+    operation: engineStartupOperations.packageQueryDurableRowLayout,
+    expected: durableRowLayout,
+    field: "contract",
+    read: (client: EngineStartupClient) =>
+      client.package.packageQueryDurableRowLayout(),
   },
   {
     operation: engineStartupOperations.listPackageActivityEcosystems,
@@ -203,6 +235,10 @@ function fixture(options: {
       calls.push("facets");
       return facetPayload;
     },
+    async packageQueryDurableRowLayout() {
+      calls.push("durable-row-layout");
+      return durableRowLayout;
+    },
     async listPackageActivityEcosystems() {
       calls.push("ecosystems");
       return ecosystems;
@@ -240,11 +276,11 @@ function fixture(options: {
   return { host, client, environment, calls, failures, diagnostics, workers, starts: () => starts };
 }
 
-test("all six cold reads share readiness and preserve full generated-shaped results", async () => {
+test("all cold reads share readiness and preserve full generated-shaped results", async () => {
   const ready = deferred<void>();
   const state = fixture({ bootstrap: () => ready.promise });
   const results = Promise.all(cases.map(item => item.read(state.client)));
-  assert.equal(state.host.snapshot().heldOperations, 6);
+  assert.equal(state.host.snapshot().heldOperations, cases.length);
   await state.environment.flushAsync();
   assert.equal(state.starts(), 1);
   assert.deepEqual(state.calls, []);
@@ -255,7 +291,7 @@ test("all six cold reads share readiness and preserve full generated-shaped resu
     state.calls,
     [
       "identity", "vocabulary", "demos", "product-ecosystems",
-      "facets", "ecosystems",
+      "facets", "durable-row-layout", "ecosystems",
     ]);
   assert.deepEqual(
     await Promise.all(cases.map(item => item.read(state.client))),
@@ -264,8 +300,9 @@ test("all six cold reads share readiness and preserve full generated-shaped resu
     state.calls,
     [
       "identity", "vocabulary", "demos", "product-ecosystems",
-      "facets", "ecosystems",
-      "identity", "demos", "product-ecosystems", "facets", "ecosystems",
+      "facets", "durable-row-layout", "ecosystems",
+      "identity", "demos", "product-ecosystems",
+      "facets", "durable-row-layout", "ecosystems",
     ]);
   assert.equal(state.starts(), 1);
   assert.equal(state.host.snapshot().activeOperations, 0);
@@ -408,7 +445,7 @@ test("startup decoders preserve extra JSON data and reject invalid DTO shapes", 
   assert.equal(engineStartupOperations.inspectPackageQueryFacets.value.decode(
     JSON.stringify({
       ...facetPayload,
-      selection: { kind: "query-facets", completeness: "Partial" },
+      scope: { ...facetPayload.scope, completeness: "Partial" },
     })).kind, "rejected");
   assert.equal(engineStartupOperations.inspectPackageQueryFacets.value.decode(
     JSON.stringify({
@@ -416,7 +453,7 @@ test("startup decoders preserve extra JSON data and reject invalid DTO shapes", 
       facets: {
         depends: {
           ...facetPayload.facets.depends,
-          facts: { ...facetPayload.facets.depends.facts, operators: [42] },
+          operators: [42],
         },
       },
     })).kind, "rejected");
@@ -441,7 +478,7 @@ test("startup decoders preserve extra JSON data and reject invalid DTO shapes", 
       facets: {
         depends: {
           ...facetPayload.facets.depends,
-          facts: { ...facetPayload.facets.depends.facts, key: "other" },
+          presentation_order: "first",
         },
       },
     })).kind, "rejected");

@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using DotnetInspect.ProductVocabularyTesting;
 using DotnetInspect.Cli.Commands;
+using DotnetInspector.InspectionContracts;
 using DotnetInspector.Networking;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -92,13 +93,14 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         JsonElement facet = document.RootElement
             .GetProperty("facets")
             .GetProperty("dependency-target");
-        JsonElement facts = facet.GetProperty("facts");
 
-        Assert.Equal("input", facts.GetProperty("control-kind").GetString());
+        Assert.Equal("input", facet.GetProperty("control_kind").GetString());
         Assert.Equal(
             "value-query",
-            facts.GetProperty("presentation-kind").GetString());
-        Assert.Equal("nuspec", facts.GetProperty("execution-class").GetString());
+            facet.GetProperty("presentation_kind").GetString());
+        Assert.Equal(
+            "nuspec",
+            facet.GetProperty("execution_class").GetString());
         Assert.Equal(
             [
                 "all",
@@ -113,7 +115,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 "net48",
                 "net472",
             ],
-            facts.GetProperty("options")
+            facet.GetProperty("options")
                 .EnumerateArray()
                 .Select(option => option.GetProperty("value").GetString()));
         Assert.Equal(
@@ -133,15 +135,14 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             "--json");
         Assert.Equal(0, result.ExitCode);
         using JsonDocument document = JsonDocument.Parse(result.Output);
-        JsonElement facts = document.RootElement
+        JsonElement facet = document.RootElement
             .GetProperty("facets")
-            .GetProperty("depends-ecosystem")
-            .GetProperty("facts");
+            .GetProperty("depends-ecosystem");
 
         Assert.Equal(
             "product-ecosystems",
-            facts.GetProperty("option-source").GetString());
-        Assert.Empty(facts.GetProperty("options").EnumerateArray());
+            facet.GetProperty("option_source").GetString());
+        Assert.Empty(facet.GetProperty("options").EnumerateArray());
     }
 
     [Fact]
@@ -151,7 +152,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.Equal(0, result.ExitCode);
         using JsonDocument document = JsonDocument.Parse(result.Output);
         JsonElement root = document.RootElement;
-        string[] operandRules = root.GetProperty("input_rules").EnumerateArray()
+        string[] operandRules = root.GetProperty("_embedded").GetProperty("facets")[0].GetProperty("input_rules").EnumerateArray()
             .Select(value => value.GetString()!).ToArray();
         Assert.Contains(operandRules, rule => rule.Contains("not an allow list", StringComparison.Ordinal));
         Assert.Contains(operandRules, rule => rule.Contains("1..1024 UTF-16", StringComparison.Ordinal));
@@ -162,7 +163,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             rule => rule.GetString()!.Contains("--tfm TFM, not --where", StringComparison.Ordinal));
         Assert.Contains(binding.GetProperty("input_rules").EnumerateArray(),
             rule => rule.GetString()!.Contains("--json", StringComparison.Ordinal));
-        Assert.Equal("Complete", root.GetProperty("data_scope").GetProperty("completeness").GetString());
+        Assert.Equal("Complete", root.GetProperty("scope").GetProperty("completeness").GetString());
     }
 
     [Theory]
@@ -180,7 +181,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         bool hal = selection == ".hal";
         Dictionary<string, JsonElement> facets = hal
             ? root.GetProperty("_embedded").GetProperty("facets").EnumerateArray()
-                .Append(root).ToDictionary(facet => facet.GetProperty("key").GetString()!)
+                .ToDictionary(facet => facet.GetProperty("key").GetString()!)
             : root.GetProperty("facets").EnumerateObject()
                 .ToDictionary(facet => facet.Name, facet => facet.Value);
         Assert.Equal(
@@ -188,23 +189,23 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 ? ["dependency-depth", "dependency-target", "depends-transitive"]
                 : new[] { "dependency-depth", "dependency-target" },
             facets.Keys.Order(StringComparer.Ordinal));
-        Assert.Equal("Complete", root.GetProperty(hal ? "data_scope" : "selection")
+        Assert.Equal("Complete", root.GetProperty("scope")
             .GetProperty("completeness").GetString());
         JsonElement target = facets["dependency-target"];
         JsonElement depth = facets["dependency-depth"];
         Assert.Equal(["dependency-target"],
             depth.GetProperty("requires").EnumerateArray().Select(value => value.GetString()));
         // The target accepts alternatives; it must not require all four predicates.
-        Assert.Empty(target.GetProperty("requires").EnumerateArray());
-        string[] Rules(JsonElement facet) => (hal ? facet : facet.GetProperty("facts"))
-            .GetProperty(hal ? "input_rules" : "input-rules").EnumerateArray()
+        Assert.False(target.TryGetProperty("requires", out _));
+        string[] Rules(JsonElement facet) => facet
+            .GetProperty("input_rules").EnumerateArray()
             .Select(value => value.GetString()!).ToArray();
         Assert.Contains(Rules(target), rule => rule.Contains("depends-ecosystem, or dependencies", StringComparison.Ordinal));
         Assert.Contains(Rules(depth), rule => rule.Contains("exact depends (eq) or legacy depends-transitive", StringComparison.Ordinal));
         Assert.Contains(Rules(depth), rule => rule.Contains("at most 5 package candidates", StringComparison.Ordinal));
         JsonElement binding = hal ? root.GetProperty("_embedded").GetProperty("bindings")[0]
-            : root.GetProperty("bindings").GetProperty("dotnet-inspect.cli/package-query").GetProperty("facts");
-        Assert.Contains(binding.GetProperty(hal ? "input_rules" : "input-rules").EnumerateArray(),
+            : root.GetProperty("bindings").GetProperty("dotnet-inspect.cli/package-query");
+        Assert.Contains(binding.GetProperty("input_rules").EnumerateArray(),
             rule => rule.GetString()!.Contains("--take N", StringComparison.Ordinal));
 
         if (key == "depends-transitive")
@@ -213,18 +214,10 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             Assert.Equal(["dependency-target", "dependency-depth"],
                 transitive.GetProperty("requires").EnumerateArray().Select(value => value.GetString()));
             Assert.Contains(Rules(transitive), rule => rule.Contains("all is not accepted", StringComparison.Ordinal));
-            if (hal)
-            {
-                JsonElement[] links = transitive.GetProperty("_links").GetProperty("required-context")
-                    .EnumerateArray().ToArray();
-                Assert.Equal(2, links.Length);
-                foreach (JsonElement context in new[] { target, depth })
-                    Assert.Contains(links, link => link.GetProperty("href").GetString()
-                        == context.GetProperty("_links").GetProperty("self").GetProperty("href").GetString());
-            }
+            Assert.False(transitive.TryGetProperty("_links", out _));
         }
 
-        JsonElement Facts(JsonElement facet) => hal ? facet : facet.GetProperty("facts");
+        JsonElement Facts(JsonElement facet) => facet;
         PortableQueryTerm Term(string termKey, string value) => new(termKey, PortableQueryOperator.Equal, value);
         string targetValue = Facts(target).GetProperty("examples")[0].GetString()!;
         string predicateKey = key == "depends-transitive" ? key : "depends";
@@ -261,11 +254,11 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var result = await RunAsync("explain", "package-query/query/facets/depends", selection, "--json");
         Assert.Equal(0, result.ExitCode);
         using JsonDocument document = JsonDocument.Parse(result.Output);
-        JsonElement facet = selection == ".hal" ? document.RootElement
+        JsonElement facet = selection == ".hal" ? document.RootElement.GetProperty("_embedded").GetProperty("facets")[0]
             : document.RootElement.GetProperty("facets").GetProperty("depends");
-        Assert.Empty(facet.GetProperty("requires").EnumerateArray());
-        JsonElement facts = selection == ".hal" ? facet : facet.GetProperty("facts");
-        Assert.Contains(facts.GetProperty(selection == ".hal" ? "input_rules" : "input-rules").EnumerateArray(),
+        Assert.False(facet.TryGetProperty("requires", out _));
+        JsonElement facts = facet;
+        Assert.Contains(facts.GetProperty("input_rules").EnumerateArray(),
             rule => rule.GetString()!.Contains("starts-with remains direct", StringComparison.Ordinal));
         string value = facts.GetProperty("examples")[0].GetString()!;
         PackageQueryPlan plan = Assert.IsType<PackageQueryPlanResult.Accepted>(PackageQuery.PlanInput(
@@ -287,23 +280,26 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.False(root.TryGetProperty("facts", out _));
         Assert.False(root.TryGetProperty("identity", out _));
         Assert.False(root.TryGetProperty("selection", out _));
-        Assert.True(root.TryGetProperty("name", out _));
+        Assert.Equal(path.StartsWith("vocabularies/", StringComparison.Ordinal), root.TryGetProperty("name", out _));
         JsonElement links = root.GetProperty("_links");
         Assert.False(links.TryGetProperty("curies", out _));
-        Assert.True(links.TryGetProperty("describedby", out _));
+        Assert.Equal(path.StartsWith("vocabularies/", StringComparison.Ordinal), links.TryGetProperty("describedby", out _));
         Assert.Equal("application/hal+json", links.GetProperty("self").GetProperty("type").GetString());
         string href = links.GetProperty("self").GetProperty("href").GetString()!;
         var followed = await RunAsync("explain", href, "--json");
         Assert.Equal(0, followed.ExitCode);
         using JsonDocument followDocument = JsonDocument.Parse(followed.Output);
         Assert.Equal(root.GetRawText(), followDocument.RootElement.GetRawText());
-        var contractResult = await RunAsync("explain", links.GetProperty("describedby").GetProperty("href").GetString()!, "--json");
-        Assert.Equal(0, contractResult.ExitCode);
-        using JsonDocument contractDocument = JsonDocument.Parse(contractResult.Output);
-        Assert.True(contractDocument.RootElement.TryGetProperty("schemas", out _));
+        if (links.TryGetProperty("describedby", out JsonElement describedby))
+        {
+            var contractResult = await RunAsync("explain", describedby.GetProperty("href").GetString()!, "--json");
+            Assert.Equal(0, contractResult.ExitCode);
+            using JsonDocument contractDocument = JsonDocument.Parse(contractResult.Output);
+            Assert.True(contractDocument.RootElement.TryGetProperty("schemas", out _));
+        }
         JsonElement embedded = root.GetProperty("_embedded");
         Assert.All(embedded.EnumerateObject(), relation => Assert.Equal(JsonValueKind.Array, relation.Value.ValueKind));
-        if (root.GetProperty("kind").GetString() == "value-vocabulary")
+        if (path.StartsWith("vocabularies/", StringComparison.Ordinal))
             Assert.Equal(17, embedded.GetProperty("values").GetArrayLength());
         else
             Assert.Equal(19, embedded.GetProperty("facets").GetArrayLength());
@@ -1001,6 +997,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 "vocabularies/csharp.style-tiers",
                 "vocabularies/csharp.style-choices",
                 "vocabularies/csharp.body-kinds",
+                "vocabularies/package-query.durable-row",
             ],
             TargetPaths(members));
     }
@@ -1161,6 +1158,51 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             .Single(relationship =>
                 RelationshipKind(relationship) == "term-map-target");
         Assert.Equal(["vocabularies/csharp.style-tiers"], TargetPaths(tier));
+    }
+
+    [Fact]
+    public async Task PackageQueryVocabulary_ExplainsDurableRowFields()
+    {
+        var result = await RunAsync(
+            "explain",
+            "vocabularies/package-query.durable-row",
+            ".contract",
+            "--depth",
+            "1",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement.GetProperty("resources")[0];
+        Assert.Equal("value-vocabulary", ResourceType(root));
+        Assert.Equal(
+            PackageQueryDurableRowVocabulary.Label,
+            TextFact(root, "name"));
+        Assert.Equal(
+            [PackageQueryDurableRowContract.ContractIdentity],
+            TextFacts(root, "accepted-by"));
+        Assert.Equal(
+            [
+                PackageQueryDurableRowContract.PackageId,
+                PackageQueryDurableRowContract.Version,
+                PackageQueryDurableRowContract.Tier,
+                PackageQueryDurableRowContract.Answers,
+                PackageQueryDurableRowContract.Evidence,
+                PackageQueryDurableRowContract.TotalDownloads,
+                PackageQueryDurableRowContract.Verified,
+                PackageQueryDurableRowContract.Producer,
+                PackageQueryDurableRowContract.Description,
+                PackageQueryDurableRowContract.RootRequest,
+                PackageQueryDurableRowContract.Owners,
+                PackageQueryDurableRowContract.Manifest,
+                PackageQueryDurableRowContract.EcosystemAdmission,
+            ],
+            document.RootElement
+                .GetProperty("resources")
+                .EnumerateArray()
+                .Where(resource => ResourceType(resource) == "vocabulary-value")
+                .Select(resource => TextFact(resource, "identity")));
     }
 
     [Fact]

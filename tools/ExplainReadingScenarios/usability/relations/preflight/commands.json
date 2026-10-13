@@ -1,0 +1,50 @@
+{
+  "package": [
+    "package",
+    "query",
+    "Microsoft.Extensions.*",
+    "--where",
+    "depends=Polly",
+    "--where",
+    "dependency-target=net10.0",
+    "--take",
+    "40",
+    "-n",
+    "3",
+    "-S",
+    "@Query",
+    "--json"
+  ],
+  "package-selected": [
+    "package",
+    "query",
+    "Microsoft.Extensions.*",
+    "--where",
+    "depends=Polly",
+    "--where",
+    "dependency-target=net10.0",
+    "--take",
+    "40",
+    "-n",
+    "3",
+    "-S",
+    "Packages,Query Summary",
+    "--json"
+  ],
+  "extensions": [
+    "extensions",
+    "System.Text.Json.JsonSerializer",
+    "--platform",
+    "--reachable",
+    "--depth",
+    "1",
+    "-n",
+    "10",
+    "--json"
+  ],
+  "discovery": [
+    "explain",
+    "extensions",
+    "--json"
+  ]
+}

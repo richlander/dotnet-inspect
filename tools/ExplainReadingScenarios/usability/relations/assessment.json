@@ -1,0 +1,45 @@
+{
+  "basis": "Manual domain and observable-navigation assessment, fixed criteria; replay verifier is not an answer scorer.",
+  "trials": {
+    "package-hal": {
+      "domain": "Satisfied for a bounded direct-dependency answer",
+      "format_used": "HAL",
+      "finding": "The answer identifies Microsoft.Extensions.Http.Polly 10.0.12, selected .NETStandard2.0 for net10.0, direct Polly 7.2.4, CandidateLimitReached at 40/40, and no indirect/exhaustive claim.",
+      "navigation": "Two facet requests repeat data already in the selected query-space closure. The participant rendered facet names/summaries/links but omitted their input_rules before requesting them. Its claim that the root only contained summaries is an account of its own filtered view, not the complete response.",
+      "stopping": "Stops after one executed query; no package-detail confirmation or explicit schema fetch."
+    },
+    "package-data": {
+      "domain": "Satisfied for a bounded direct-dependency answer",
+      "format_used": "direct JSON",
+      "finding": "Same package/version, target group, direct Polly declaration, and candidate-limit qualification. No application restore-graph claim.",
+      "navigation": "One selected query-space read supplies locally keyed facets. A guessed .data wrapper fails and one jq error is retained, then local table lookup succeeds.",
+      "stopping": "Stops after one executed query; no facet re-fetch or schema."
+    },
+    "api-hal": {
+      "domain": "Satisfied for an installed-platform answer",
+      "format_used": "Neither selected representation",
+      "finding": "GetFromJsonAsync and PostAsJsonAsync on HttpClient; ReadFromJsonAsync on HttpContent; correct System.Net.Http.Json declaring types and inspected signatures. Workflow semantics are explicitly inferred from names/signatures.",
+      "scope": "Correctly discloses runtime 11.0.0-rc.1.26425.128 despite --tfm net10.0; no .NET 10 availability guarantee.",
+      "navigation": "Explain misses extension operation; extensions search returns package facet matches. Uses help and two extension inspections. No format comparison is possible."
+    },
+    "api-data": {
+      "domain": "Core API answer satisfied; platform qualification incomplete",
+      "format_used": "Neither selected representation",
+      "finding": "Same three appropriate receiver/type/library methods. Three additional member inspections provide nullable annotations, optional defaults, and XML documentation absent from the extension rows. These add requested facts and are not counted as verification-only reads.",
+      "scope": "Answer says inspected APIs in net10.0, but extension receipts identify runtime 11.0.0-rc.1.26425.128. --tfm alone does not prove a separately installed .NET 10 population; retained answer is not corrected.",
+      "navigation": "Three explain misses, then help and inspections; no selected-format read. Higher cost cannot be attributed to direct JSON."
+    }
+  },
+  "limits": [
+    "One independent fresh participant per task/assignment; no replication or randomization, no causal or population inference.",
+    "Common guide is an experimental 1.1 KB route index and reading policy, not the full shipped skill. Only representation sentence differs, by nine bytes.",
+    "Production HAL unchanged. This is not a selective-link intervention or controlled graph-following isolation.",
+    "NuGet.org search population is live and not snapshotted. Package seeds differ: Microsoft.Extensions* versus Microsoft.Extensions.*; both execute one 40-candidate direct Polly query and return the same version, but candidate-set equality is not established.",
+    "HAL package query omits -n and returns the 5618-byte full service result; direct assignment adds -n 3 and returns 409-byte projected Packages JSON. Both also receive 148-byte completion warning. Inspection byte difference is output selection, not explain format.",
+    "Both API assignments use identical extension query arguments and receive byte-identical HttpClient/HttpContent responses. Neither selected format is read, so there is no API HAL/direct result.",
+    "Both package roots contain full relevant facet input rules. Re-fetching reflects filtered-view/navigation behavior, not absent owner data.",
+    "Clock values are not comparable across processes. Use serialized event append order only; no duration or latency claim.",
+    "UTF-8 retrieved, rendered, and guide bytes are distinct from tokens or delivered context. No tool-rendering truncation was reported.",
+    "Explicit contract-required tasks and genuinely missing relation traversal are not exercised here."
+  ]
+}
