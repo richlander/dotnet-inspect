@@ -426,8 +426,7 @@ public static class ResourceExplanationCommand
                 ResourceExplanationDataset dataset = ResourceExplanationDataset.Create(catalog, resolution, facetKeys);
                 JsonElement data = dataset.ToJson(static path => "inspect-resource:/" + path.Value,
                     hal: selection == ".hal",
-                    bindHalAddress: static path => "inspect-resource:/" + path.Value + "?projection=hal",
-                    bindContractAddress: static path => "inspect-resource:/" + path.Value + "?projection=contract");
+                    bindHalAddress: static path => "inspect-resource:/" + path.Value + "?projection=hal");
                 OutputDestination.Write(outputPath, rowWindow: null,
                     output => output.WriteLine(data.GetRawText()));
                 return 0;

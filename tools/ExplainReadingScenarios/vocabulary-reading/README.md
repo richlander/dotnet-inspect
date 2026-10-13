@@ -4,7 +4,8 @@ This is the worked evidence for
 [Vocabulary reading selection](../../../docs/design/resource-explanation.md#vocabulary-reading-selection),
 owned by Resource Explanation. Product Vocabulary owns the declarations being
 read. These are **offline proposal examples**, not installed narrowing syntax.
-The `.data` and `.hal` host projections still use the current vocabulary dataset.
+The examples remain pinned proposal evidence. Shared production reading is
+[implemented below](#shared-production-reading); host value narrowing is pending.
 
 The design starts with questions, as in the pinned
 [CVE schema design](https://github.com/dotnet/designs/blob/b9bc7465feae40aa606b8e781fc290c20b690748/accepted/2025/cve-schema/cve_schema.md#design-philosophy):
@@ -209,3 +210,32 @@ Production NativeAOT comparisons and Browser/Wasm entrance evidence belong with
 implementation. Agent trials then measure answer validity, retrieved bytes,
 necessary navigation, and whether the familiar HAL shape improves reading over
 the equally queryable direct tables.
+
+## Shared production reading
+
+[#10014](https://github.com/richlander/dotnet-inspect/issues/10014) implements
+`vocabulary-reading/v1` in the shared dataset. Existing full vocabulary commands
+now use that reading profile:
+
+```bash
+dotnet-inspect explain vocabularies/csharp.body-kinds .hal --json
+dotnet-inspect explain vocabularies/api.accessibility .data --json
+```
+
+The same `read.jq` adapter reads production output. A full HAL root has one
+implemented `self` link; a shared API selection has one full-vocabulary
+`collection` link. The narrow API is `VocabularyExplanation.SelectData(path,
+valueIds)` or `ResourceExplanationDataset.Create(..., valueIds: ...)`; identities
+are exact and deduplicated in owner order, with exact term closure. No CLI `-Q`,
+value-root projection or Browser narrowing gesture is implied yet. Host admission
+remains #10015/#10016. The historical example sizes above are not current wire
+size claims.
+
+Production conformance gates compare owner-declared values/map observations,
+complete selected groups/defaults, direct/HAL records and order, exact recursive
+term closure, and case-sensitive selection. A cycle terminates without expanding
+unrelated values; a narrow request can fit while the whole population exceeds the
+host bound. Existing partial-coverage and absent-Boolean refusal gates still
+apply. Both host suites exercise full reading and shared content pins; ordinary
+compact and explicit contract pins remain unchanged. Only selected facts are
+lowered; the installed catalog is still composed before selection.

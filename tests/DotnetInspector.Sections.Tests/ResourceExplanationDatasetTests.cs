@@ -57,15 +57,15 @@ public sealed class ResourceExplanationDatasetTests
             .ToJson(path => path.Value);
         JsonElement vocabulary = data.GetProperty("vocabularies").GetProperty(identity.Value);
         Assert.Empty(vocabulary.GetProperty("property_sets").GetProperty("flag").EnumerateArray());
-        JsonElement value = vocabulary.GetProperty("values")[0];
-        Assert.Equal("off", value.GetProperty("id").GetString());
+        JsonElement value = vocabulary.GetProperty("values").GetProperty("off");
+        Assert.Equal("off", Assert.Single(vocabulary.GetProperty("values").EnumerateObject()).Name);
         Assert.False(value.TryGetProperty("summary", out _));
-        Assert.Equal("Absent", value.GetProperty("fact_states").GetProperty("summary")
-            .GetProperty("state").GetString());
+        Assert.False(value.TryGetProperty("fact_states", out _));
+        Assert.Equal("vocabulary-reading/v1", data.GetProperty("scope").GetProperty("profile").GetString());
         JsonElement hal = ResourceExplanationDataset.Create(catalog, Resolve(catalog, identity.Value))
             .ToJson(path => path.Value, hal: true);
-        Assert.Empty(hal.GetProperty("property_sets").GetProperty("flag").EnumerateArray());
-        JsonElement embeddedValue = hal.GetProperty("_embedded").GetProperty("values")[0];
+        Assert.Empty(hal.GetProperty("_embedded").GetProperty("vocabularies")[0].GetProperty("property_sets").GetProperty("flag").EnumerateArray());
+        JsonElement embeddedValue = hal.GetProperty("_embedded").GetProperty("vocabularies")[0].GetProperty("_embedded").GetProperty("values")[0];
         Assert.Equal("off", embeddedValue.GetProperty("id").GetString());
         Assert.False(embeddedValue.TryGetProperty("summary", out _));
         Assert.False(embeddedValue.TryGetProperty("identity", out _));
@@ -81,7 +81,7 @@ public sealed class ResourceExplanationDatasetTests
             [new(new(identity, "one"), "One", null, [new(map, ExplanationValue.Integer(42))])]));
         JsonElement hal = ResourceExplanationDataset.Create(catalog, Resolve(catalog, identity.Value))
             .ToJson(path => path.Value, hal: true);
-        Assert.Equal("42", hal.GetProperty("_embedded").GetProperty("values")[0]
+        Assert.Equal("42", hal.GetProperty("_embedded").GetProperty("vocabularies")[0].GetProperty("_embedded").GetProperty("values")[0]
             .GetProperty("values").GetString());
     }
 
