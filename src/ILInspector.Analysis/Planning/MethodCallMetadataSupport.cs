@@ -257,7 +257,13 @@ internal sealed class MethodCallMetadataLookup(MetadataReader reader)
                         SignatureBlobGuard.Kind.Field)
                     ? field.DecodeFieldSignature(
                         TypeRefDecoder.Instance,
-                        scope)
+                        GenericScope.Empty)
+                        .Instantiate(
+                            declaring.Kind
+                                == TypeRefKind.GenericInstance
+                                    ? declaring.TypeArguments
+                                    : [],
+                            [])
                     : TypeRef.Unsupported(
                         "field-reference signature nesting depth exceeded");
                 return new MethodFieldOperand.Resolved(

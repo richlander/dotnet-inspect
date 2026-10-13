@@ -182,6 +182,68 @@ public sealed partial class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void MethodQuerySource_ClosedGenericFieldTypeIsInstantiated()
+    {
+        string path = typeof(MethodDefinitionRequestSetTests).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinitionHandle method =
+            FindMethod(
+                reader,
+                nameof(MethodCallMetadataProbeTarget),
+                nameof(MethodCallMetadataProbeTarget.ReadClosedGenericField));
+        MethodDefinitionSourceAssociation exact =
+            Association(
+                MethodCallMetadataProbe.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth.ExactMethods(method));
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            ExecuteAt(AcceptedPlan([exact]), path);
+        MethodCallMetadataProbeFact fact =
+            Assert.Single(
+                CompletedValue<
+                    ImmutableArray<MethodCallMetadataProbeFact>>(
+                        execution,
+                        exact));
+        ImmutableArray<MethodFieldOperandProbe> fields =
+        [
+            .. fact.Fields.Where(field =>
+                field.Operand is MethodFieldOperand.Resolved
+                {
+                    Name: nameof(
+                        MethodCallMetadataProbeClosedGenericFieldBox<string>
+                            .Item),
+                }),
+        ];
+        TypeRef expected = TypeRef.CoreLib("System", "String");
+
+        Assert.NotEmpty(fields);
+        Assert.All(
+            fields,
+            field =>
+            {
+                MethodFieldOperand.Resolved resolved =
+                    Assert.IsType<MethodFieldOperand.Resolved>(
+                        field.Operand);
+                Assert.Equal(expected, resolved.FieldType);
+                Assert.Equal(
+                    [expected],
+                    resolved.DeclaringType.TypeArguments);
+            });
+        MethodCallMetadataCoverage coverage =
+            execution.ResultOf(exact).SourceReceipt.Coverage.Calls;
+        Assert.Equal(fact.Fields.Length, coverage.FieldOperandReads);
+        Assert.Equal(
+            fact.Fields
+                .Select(static field => field.OperandToken)
+                .Distinct()
+                .Count(),
+            coverage.Work.FieldOperands);
+    }
+
+    [Fact]
     public void MethodQuerySource_CalleeIdentityPreservesPlatformContractHit()
     {
         string path = typeof(MethodDefinitionRequestSetTests).Assembly.Location;
@@ -625,6 +687,16 @@ public static class MethodCallMetadataProbeTarget
 {
     public static int Value;
 
+    public static string ReadClosedGenericField()
+    {
+        var box =
+            new MethodCallMetadataProbeClosedGenericFieldBox<string>
+            {
+                Item = "value",
+            };
+        return box.Item;
+    }
+
     public static int Exercise(int input)
     {
         ReadOnlySpan<byte> bytes = [1, 2, 3, 4];
@@ -633,4 +705,9 @@ public static class MethodCallMetadataProbeTarget
         Value = values[0];
         return Value;
     }
+}
+
+public sealed class MethodCallMetadataProbeClosedGenericFieldBox<T>
+{
+    public T Item = default!;
 }
