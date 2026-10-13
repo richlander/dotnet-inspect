@@ -181,11 +181,14 @@ import {
 } from "./platform-forwarders.ts";
 import {
   createPackageInspectionCoordinator,
+  normalizePackageVulnerabilitySnapshot,
+  packageVulnerabilityStateKey,
   projectPackagePerformanceType,
   resolvePackagePerformanceType,
   workspaceDependencyKey,
   type PackagePerformance,
   type PackageResourceTriage,
+  type PackageVulnerabilityState,
 } from "./package-inspection.ts";
 import {
   bindPackageDependencyList,
@@ -845,7 +848,6 @@ import type {
   BrowserPackageDependencies,
   BrowserPackageDependencyGroup,
   BrowserPackageIconInspection,
-  BrowserPackageVulnerabilityResult,
   BrowserPlatformForwarderRow,
   BrowserPlatformForwarderView,
   BrowserExactLibraryApiInspection,
@@ -1568,10 +1570,7 @@ const initialState = {
   packageDependenciesLoading: false,
   packageDependenciesError: "",
   packageDependenciesKey: "",
-  packageVulnerabilities: null,
-  packageVulnerabilitiesLoading: false,
-  packageVulnerabilitiesError: "",
-  packageVulnerabilitiesKey: "",
+  packageVulnerabilities: { status: "idle" as const },
   dependenciesGroupIndex: null,
   workspaceDependencies: {},
   workspaceDependencyErrors: {},
@@ -1758,7 +1757,7 @@ interface StateOverrides {
   libraryEnablements: Map<string, BrowserLibraryEnablements | null>;
   libraryEnablementLoads: Set<string>;
   packageDependencies: BrowserPackageDependencies | null;
-  packageVulnerabilities: BrowserPackageVulnerabilityResult | null;
+  packageVulnerabilities: PackageVulnerabilityState;
   dependenciesGroupIndex: number | null;
   workspaceDependencies: Record<string, DependencyGroupData>;
   workspaceDependencyErrors: Record<string, string>;
@@ -2047,8 +2046,6 @@ function normalizeWorkspaceAsyncSnapshotState(
   const memberAnnotatedLoading = snapshotState.memberAnnotatedLoading;
   const typeMetadataLoading = snapshotState.typeMetadataLoading;
   const packageDependenciesLoading = snapshotState.packageDependenciesLoading;
-  const packageVulnerabilitiesLoading =
-    snapshotState.packageVulnerabilitiesLoading;
   const packageIntegrationsLoading = snapshotState.packageIntegrationsLoading;
   const packageOpportunitiesLoading = snapshotState.packageOpportunitiesLoading;
   const packagePerformanceLoading = snapshotState.packagePerformanceLoading;
@@ -2066,7 +2063,9 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.memberAnnotatedLoading = false;
   snapshotState.typeMetadataLoading = false;
   snapshotState.packageDependenciesLoading = false;
-  snapshotState.packageVulnerabilitiesLoading = false;
+  snapshotState.packageVulnerabilities =
+    normalizePackageVulnerabilitySnapshot(
+      snapshotState.packageVulnerabilities);
   snapshotState.packageIntegrationsLoading = false;
   snapshotState.packageOpportunitiesLoading = false;
   snapshotState.packagePerformanceLoading = false;
@@ -2115,9 +2114,6 @@ function normalizeWorkspaceAsyncSnapshotState(
   if (memberAnnotatedLoading) snapshotState.memberAnnotatedKey = "";
   if (typeMetadataLoading) snapshotState.typeMetadataKey = "";
   if (packageDependenciesLoading) snapshotState.packageDependenciesKey = "";
-  if (packageVulnerabilitiesLoading) {
-    snapshotState.packageVulnerabilitiesKey = "";
-  }
   if (packageIntegrationsLoading) snapshotState.packageIntegrationsKey = "";
   if (packageOpportunitiesLoading) snapshotState.packageOpportunitiesKey = "";
   if (packagePerformanceLoading) snapshotState.packagePerformanceKey = "";
@@ -11158,14 +11154,19 @@ function packageLensBody() {
     case "dependencies": return renderPackageDependencies();
     case "vulnerabilities": {
       const pkg = currentPackage();
-      const fresh =
-        state.packageVulnerabilitiesKey === packageVulnerabilitiesSignature();
+      const vulnerabilityState = state.packageVulnerabilities;
+      const fresh = packageVulnerabilityStateKey(vulnerabilityState)
+        === packageVulnerabilitiesSignature();
       return renderPackageVulnerabilities({
         packageId: pkg.id,
         packageVersion: pkg.version,
-        loading: fresh && state.packageVulnerabilitiesLoading,
-        error: fresh ? state.packageVulnerabilitiesError : "",
-        result: fresh ? state.packageVulnerabilities : null,
+        loading: fresh && vulnerabilityState.status === "loading",
+        error: fresh && vulnerabilityState.status === "failed"
+          ? vulnerabilityState.error
+          : "",
+        result: fresh && vulnerabilityState.status === "ready"
+          ? vulnerabilityState.result
+          : null,
         escapeHtml,
       });
     }
@@ -11736,10 +11737,8 @@ function maybeAutoLoadPackageVulnerabilities() {
     || state.packageLens !== "vulnerabilities"
     || state.package?.source.kind !== "nuget.org") return;
   const signature = packageVulnerabilitiesSignature();
-  if (state.packageVulnerabilitiesKey === signature
-    && (state.packageVulnerabilitiesLoading
-      || state.packageVulnerabilities
-      || state.packageVulnerabilitiesError)) return;
+  if (packageVulnerabilityStateKey(state.packageVulnerabilities)
+    === signature) return;
   observeAsync(
     packageInspection.loadVulnerabilities(
       currentPackage(),
