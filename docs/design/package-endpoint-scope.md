@@ -262,7 +262,10 @@ never retain a participant after the scope is disposed.
         target context is `OwnerDefault`, and the House applies its
         highest-available compile selection to each endpoint. When the two
         endpoints select different frameworks, the output names each
-        endpoint's framework. The CLI supplies a legacy-compatible store, as
+        endpoint's framework. For example, `System.Text.Json@10.0.0..11.0.0`
+        compares 10.0.0 for `net10.0` with 11.0.0 for `net11.0` by default,
+        and `--tfm net10.0` is required to compare both endpoints for
+        `net10.0`, because an explicit target applies to both. The CLI supplies a legacy-compatible store, as
         `type` does, so the scope reads the app cache alongside the NuGet
         global-packages folder. Offline keeps the host's existing path, as
         [Offline](#offline) states.
@@ -330,7 +333,7 @@ All gates run in Release.
 | 6. The same pairwise diff twice | the second makes no package request | CLI harness |
 | 7. Offline pairwise diff with both endpoints cached | the same output from the local cache | CLI harness |
 | 8. Inspect Web Compare, after step 5 | the same Library API diff result through the shared scope | Web boundary tests |
-| 9. Pairwise diff without `--tfm`, after step 4 part 1 | each endpoint selects the framework `package` selects for it, through the House's owner-default compile selection, and the output names each endpoint's framework when they differ | CLI harness, a package that adds a framework between versions, compared with `package` |
+| 9. Pairwise diff without `--tfm`, after step 4 part 1 | each endpoint selects the framework `package` selects for it, through the House's owner-default compile selection, and the output names each endpoint's framework when they differ | CLI harness, `System.Text.Json` 10.0 and 11.0 (`net10.0` against `net11.0` by default; both `net10.0` with `--tfm net10.0`), compared with `package` |
 | 10. Floating pairwise diff, after step 4 part 1 | `*` and `latest` settle as `package` settles them, through the House's selecting demand | CLI harness |
 | 11. Multi-Library and member-targeted views, after step 4 part 2 | the merged participant surface; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0` no longer doubles change rows | CLI harness, real assets |
 | 12. Body views, after step 4 part 3 | implementation participants, never reference stubs, with or without `--tfm` | CLI harness |
