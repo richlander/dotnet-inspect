@@ -64,7 +64,8 @@ internal static class DependsAssetSections
         IReadOnlySet<string> selectedSections,
         string section) =>
         !section.Equals(Failures, StringComparison.OrdinalIgnoreCase)
-        || !selectedSections.Contains(Pruning);
+        || !selectedSections.Contains(Pruning)
+            && !selectedSections.Contains(LatestVersions);
 
     private static SectionPipeline<DependsAssetProjection> CreatePipeline()
     {

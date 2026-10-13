@@ -1,8 +1,15 @@
 using System.Text;
+using System.Net;
 using System.Text.Json;
+using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
+using DotnetInspector.Networking;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using NuGet.Versioning;
+using NuGetFetch;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -166,10 +173,13 @@ public partial class DependsAssetCommandTests
     {
         string source = CreateTemporaryDirectory();
         WriteLocalSourcePackage(source, "Contoso.Direct", "1.0.0", "");
+        WriteLocalSourcePackage(source, "Contoso.Direct", "1.2.0", "");
         WriteLocalSourcePackage(source, "Contoso.Direct", "1.5.0", "");
         string assets = WriteTemporaryFile(
             "project.assets.json",
-            ProjectAssetsDocument());
+            RestoredAboveLowerBoundDocument());
+        // The same constraint as the restored project, plus an unlisted lower
+        // bound and an open lower bound.
         string manifest = WriteTemporaryFile(
             "lower-bound.nuspec",
             Manifest(
@@ -177,10 +187,12 @@ public partial class DependsAssetCommandTests
                 "1.0.0",
                 """
                 <group targetFramework="net11.0">
-                  <dependency id="Contoso.Direct" version="[0.5.0, )" />
+                  <dependency id="Contoso.Direct" version="[1.0.0, )" />
+                  <dependency id="Contoso.Unlisted" version="[0.5.0, )" />
                   <dependency id="Contoso.Open" version="(, 2.0.0]" />
                 </group>
                 """));
+        WriteLocalSourcePackage(source, "Contoso.Unlisted", "1.0.0", "");
 
         (int exitCode, string output, string error) = await RunCapturedAsync(
         [
@@ -206,21 +218,32 @@ public partial class DependsAssetCommandTests
             .. document.RootElement.GetProperty("latest_versions")
                 .EnumerateArray(),
         ];
+        // Restore selected 1.2.0 above the declared minimum.
         JsonElement restored = Row(rows, 1, "contoso.direct");
-        Assert.Equal("1.0.0", restored.GetProperty("current").GetString());
+        Assert.Equal("[1.0.0, )", restored.GetProperty("requested").GetString());
+        Assert.Equal("1.2.0", restored.GetProperty("current").GetString());
         Assert.Equal(
             "Resolved",
             restored.GetProperty("current_basis").GetString());
         Assert.Equal("1.5.0", restored.GetProperty("latest").GetString());
+        Assert.Equal("Minor", restored.GetProperty("behind").GetString());
 
-        // The unlisted lower bound is the declared minimum, not a restore claim.
-        JsonElement lowerBound = Row(rows, 2, "contoso.direct");
-        Assert.Equal("0.5.0", lowerBound.GetProperty("current").GetString());
+        // The same constraint without a restored graph reports its minimum.
+        JsonElement declared = Row(rows, 2, "contoso.direct");
+        Assert.Equal("[1.0.0, )", declared.GetProperty("requested").GetString());
+        Assert.Equal("1.0.0", declared.GetProperty("current").GetString());
         Assert.Equal(
             "LowerBound",
-            lowerBound.GetProperty("current_basis").GetString());
-        Assert.Equal("1.5.0", lowerBound.GetProperty("latest").GetString());
-        Assert.Equal("Major", lowerBound.GetProperty("behind").GetString());
+            declared.GetProperty("current_basis").GetString());
+
+        // An unlisted lower bound is the declared minimum, not a restore claim.
+        JsonElement unlisted = Row(rows, 2, "contoso.unlisted");
+        Assert.Equal("0.5.0", unlisted.GetProperty("current").GetString());
+        Assert.Equal(
+            "LowerBound",
+            unlisted.GetProperty("current_basis").GetString());
+        Assert.Equal("1.0.0", unlisted.GetProperty("latest").GetString());
+        Assert.Equal("Major", unlisted.GetProperty("behind").GetString());
 
         JsonElement open = Row(rows, 2, "contoso.open");
         Assert.Equal(
@@ -229,11 +252,153 @@ public partial class DependsAssetCommandTests
         Assert.False(open.TryGetProperty("current", out _));
         Assert.False(open.TryGetProperty("latest", out _));
         Assert.Equal(
-            1,
+            2,
             document.RootElement.GetProperty("summary")
                 .GetProperty("latest_versions")
                 .GetProperty("packages")
                 .GetInt32());
+    }
+
+    [Fact]
+    public async Task LatestVersions_RowWindowRetainsFailures()
+    {
+        string source = CreateTemporaryDirectory();
+        string manifest = WriteTemporaryFile(
+            "window.nuspec",
+            Manifest(
+                "Contoso.Window",
+                "1.0.0",
+                """
+                <group targetFramework="net11.0">
+                  <dependency id="Contoso.Missing" version="[1.0.0, )" />
+                </group>
+                """));
+        var options = new DependsOptions
+        {
+            AssetRoots =
+            [
+                new DependsAssetRoot(
+                    1,
+                    DependencyInspectionRootKind.Nuspec,
+                    manifest),
+            ],
+            Select =
+            [
+                DependsAssetSections.LatestVersions,
+                DependsAssetSections.Failures,
+            ],
+            Format = OutputFormat.Json,
+            JsonOutput = true,
+            CompactJson = true,
+            Rows = RowWindow.Head(0),
+            LineWindowExplicitlySet = true,
+            SourceOptions = new NuGetSourceOptions
+            {
+                Sources = [source],
+            },
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => DependsCommand.ExecuteAssetDependsAsync(
+                    options,
+                    _ => throw new InvalidOperationException(
+                        "Inventory must not be read."),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains(
+            "Latest version discovery completed as Partial",
+            error,
+            StringComparison.Ordinal);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Empty(
+            document.RootElement.GetProperty("latest_versions")
+                .EnumerateArray());
+        JsonElement failure = Assert.Single(
+            document.RootElement.GetProperty("failures").EnumerateArray());
+        Assert.Equal("LatestVersion", failure.GetProperty("phase").GetString());
+    }
+
+    [Fact]
+    public async Task LatestVersions_UnauthorizedAndIncompleteDiscoveryFail()
+    {
+        string manifest = WriteTemporaryFile(
+            "feeds.nuspec",
+            Manifest(
+                "Contoso.Feeds",
+                "1.0.0",
+                """
+                <group targetFramework="net11.0">
+                  <dependency id="Contoso.Present" version="[1.0.0, )" />
+                  <dependency id="Contoso.Locked" version="[1.0.0, )" />
+                  <dependency id="Contoso.Partial" version="[1.0.0, )" />
+                </group>
+                """));
+        string[] select =
+        [
+            "depends",
+            "--nuspec",
+            manifest,
+            "--source",
+            "https://primary.feed.test/v3/index.json",
+            "--source",
+            "https://secondary.feed.test/v3/index.json",
+        ];
+
+        (int exitCode, string output, string error) =
+            await RunCapturedWithScriptedFeedsAsync(
+            [
+                .. select,
+                "-S",
+                "Latest Versions,Failures",
+                "--json",
+                "--compact",
+            ]);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains(
+            "Latest version discovery completed as Partial",
+            error,
+            StringComparison.Ordinal);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows =
+        [
+            .. document.RootElement.GetProperty("latest_versions")
+                .EnumerateArray(),
+        ];
+        JsonElement present = Row(rows, 1, "contoso.present");
+        Assert.Equal("Compared", present.GetProperty("state").GetString());
+        Assert.Equal("2.0.0", present.GetProperty("latest").GetString());
+        JsonElement locked = Row(rows, 1, "contoso.locked");
+        Assert.Equal("DiscoveryFailed", locked.GetProperty("state").GetString());
+        Assert.NotEqual(
+            "Incomplete",
+            locked.GetProperty("failure_kind").GetString());
+        JsonElement partial = Row(rows, 1, "contoso.partial");
+        Assert.Equal("DiscoveryFailed", partial.GetProperty("state").GetString());
+        Assert.Equal(
+            "Incomplete",
+            partial.GetProperty("failure_kind").GetString());
+        Assert.False(partial.TryGetProperty("latest", out _));
+        Assert.Equal(
+            ["contoso.locked", "contoso.partial"],
+            document.RootElement.GetProperty("failures")
+                .EnumerateArray()
+                .Select(static failure => failure.GetProperty("evidence")
+                    .GetProperty("package_id")
+                    .GetString())
+                .Order());
+
+        (int countExitCode, string countOutput, string countError) =
+            await RunCapturedWithScriptedFeedsAsync(
+                [.. select, "-S", "Latest Versions", "--count"]);
+        Assert.Equal(1, countExitCode);
+        Assert.Empty(countOutput);
+        Assert.Contains(
+            "--count cannot report an exact 'Latest Versions' count",
+            countError,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -460,5 +625,125 @@ public partial class DependsAssetCommandTests
         Assert.Equal(
             majorsBehind,
             row.GetProperty("majors_behind").GetInt32());
+    }
+
+    private static byte[] RestoredAboveLowerBoundDocument() =>
+        Encoding.UTF8.GetBytes(
+            new System.Text.Json.Nodes.JsonObject
+            {
+                ["version"] = 4,
+                ["targets"] = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["net11.0"] = new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["Contoso.Direct/1.2.0"] =
+                            new System.Text.Json.Nodes.JsonObject
+                            {
+                                ["type"] = "package",
+                            },
+                    },
+                },
+                ["projectFileDependencyGroups"] =
+                    new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["net11.0"] = new System.Text.Json.Nodes.JsonArray(
+                            "Contoso.Direct >= 1.0.0"),
+                    },
+                ["project"] = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["frameworks"] = new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["net11.0"] = new System.Text.Json.Nodes.JsonObject
+                        {
+                            ["dependencies"] =
+                                new System.Text.Json.Nodes.JsonObject
+                                {
+                                    ["Contoso.Direct"] =
+                                        new System.Text.Json.Nodes.JsonObject
+                                        {
+                                            ["target"] = "Package",
+                                            ["version"] = "[1.0.0, )",
+                                        },
+                                },
+                        },
+                    },
+                },
+            }.ToJsonString());
+
+    private static async Task<(int ExitCode, string Output, string Error)>
+        RunCapturedWithScriptedFeedsAsync(string[] args)
+    {
+        DotnetInspector.Networking.HttpClientFactory.Initialize(
+            new HttpClientFactoryOptions());
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory
+            .SetPackageSourceHandlerForTesting(
+                _ => new ScriptedFeedHandler());
+        try
+        {
+            return await ConsoleCapture.RunAsync(() => RunAsync(args));
+        }
+        finally
+        {
+            DotnetInspector.Networking.HttpClientFactory
+                .SetPackageSourceHandlerForTesting(null);
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new HttpClientFactoryOptions());
+            DotnetInspector.Networking.HttpClientFactory
+                .ResetSharedForTesting();
+        }
+    }
+
+    /// <summary>
+    /// Two feeds: both list contoso.present; both refuse contoso.locked;
+    /// only the primary answers for contoso.partial while the secondary fails.
+    /// </summary>
+    private sealed class ScriptedFeedHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Uri uri = request.RequestUri!;
+            string host = uri.Host;
+            string path = uri.AbsolutePath;
+            (HttpStatusCode status, string body) = path switch
+            {
+                "/v3/index.json" => (
+                    HttpStatusCode.OK,
+                    $$"""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        {
+                          "@id": "https://{{host}}/flat/",
+                          "@type": "PackageBaseAddress/3.0.0"
+                        }
+                      ]
+                    }
+                    """),
+                "/flat/contoso.present/index.json" => (
+                    HttpStatusCode.OK,
+                    """{"versions":["1.0.0","2.0.0"]}"""),
+                "/flat/contoso.locked/index.json" => (
+                    HttpStatusCode.Unauthorized,
+                    ""),
+                "/flat/contoso.partial/index.json"
+                    when host.StartsWith(
+                        "primary.",
+                        StringComparison.Ordinal) => (
+                    HttpStatusCode.OK,
+                    """{"versions":["1.0.0","3.0.0"]}"""),
+                "/flat/contoso.partial/index.json" => (
+                    HttpStatusCode.InternalServerError,
+                    ""),
+                _ => (HttpStatusCode.NotFound, ""),
+            };
+            return Task.FromResult(new HttpResponseMessage(status)
+            {
+                Content = new StringContent(body),
+                RequestMessage = request,
+            });
+        }
     }
 }
