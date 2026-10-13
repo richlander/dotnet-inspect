@@ -1,9 +1,10 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
+using CSharpText;
 using ILInspector.CSharp;
 using Markout;
 
-namespace DotnetInspect.Cli.Views;
+namespace DotnetInspector.Presentation;
 
 internal static class DiffHistoryViewText
 {

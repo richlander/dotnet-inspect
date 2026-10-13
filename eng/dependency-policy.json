@@ -764,7 +764,8 @@
       "allowOnly": [
         "$platform",
         "$repository",
-        "Markout"
+        "Markout",
+        "NuGet.Versioning"
       ]
     },
     {
