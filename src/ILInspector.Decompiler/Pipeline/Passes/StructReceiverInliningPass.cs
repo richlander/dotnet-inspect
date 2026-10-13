@@ -25,7 +25,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <para>Soundness gates (all required):</para>
 /// <list type="bullet">
 /// <item>The store's value is a value-producing rvalue (a <see cref="Call"/> or
-/// <see cref="LoadProperty"/> with a non-<c>ByRef</c> result), never an
+/// <see cref="LoadProperty"/> with a non-<c>ByRef</c> result, or a known
+/// core-library decimal constant field), never an
 /// address/ref/place — a byref temp aliases real storage, so folding could
 /// change defensive-copy or write semantics.</item>
 /// <item>The slot has no exact PDB local name. A named slot carries artifact
@@ -295,7 +296,11 @@ public sealed class StructReceiverInliningPass : IIrPass
     /// <summary>
     /// A value the fold may move into a receiver position: a fresh rvalue whose
     /// evaluation reproduces the compiler's own spill on recompile. A method call
-    /// or property getter returning a value (never a managed reference) qualifies;
+    /// or property getter returning a value (never a managed reference) qualifies.
+    /// A core-library decimal constant field also qualifies: direct receiver
+    /// syntax re-emits its field read and spill, whereas a named local makes csc
+    /// inline the decimal constant. These immutable, known fields cannot become
+    /// a mutable storage receiver. Ordinary field places remain excluded.
     /// an address/ref/place (<c>ldloca</c>/<c>ldflda</c>/<c>ldelema</c>, a field
     /// or element access) does not — a byref temp aliases real storage, so a
     /// mutating member or an assignment through it would diverge.
@@ -304,6 +309,17 @@ public sealed class StructReceiverInliningPass : IIrPass
     {
         Call call => call.ResultType is not { Kind: TypeRefKind.ByRef },
         LoadProperty property => property.ResultType is not { Kind: TypeRefKind.ByRef },
+        LoadField
+        {
+            Instance: null,
+            IsVolatile: false,
+            Field:
+            {
+                DeclaringType: { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Decimal" },
+                Type: { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Decimal" },
+                Name: "Zero" or "One" or "MinusOne"
+            }
+        } => true,
         _ => false,
     };
 

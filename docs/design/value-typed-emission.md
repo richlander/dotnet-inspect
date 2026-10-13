@@ -421,6 +421,31 @@ locals to the one two-local Boolean-to-enum web above. Every other residual
 group, zero late-decidable and nested webs, and the same four known pass bugs
 remain unchanged.
 
+### Decimal constant receiver spills
+
+The ordinary `StructReceiverInliningPass` may recompose an unnamed spill of a
+known core-library `System.Decimal` constant field (`Zero`, `One`, or
+`MinusOne`) into its adjacent member receiver. Both the field
+owner and field type must have exact canonical core-library decimal identity;
+the load must be static and nonvolatile. These known immutable fields are not
+mutable places. Ordinary field receivers, unknown field names, and foreign
+same-name types remain excluded.
+`MinValue` and `MaxValue` use a different compiler lowering and remain outside
+this field-read reconstruction.
+
+Roslyn lowers `decimal.Zero.CompareTo(value)` as a field read, receiver spill,
+and address load. Introducing `decimal zero = decimal.Zero` instead lets the
+compiler substitute the constant, changing `ldsfld; stloc` into `ldloca;
+initobj`. The pinned `Newtonsoft.Json` 13.0.4 `JValue.CompareBigInteger` body
+exposed by #9980 has this exact distinction. The pipeline must decide the
+receiver before printing; the writer must not recognize or repair the spill.
+
+The fold retains the existing unnamed-local, whole-slot receiver-use,
+same-basic-block adjacency, and evaluation-order proof. It consumes no control
+flow and does not admit field writes, alias escapes, multiply read values, or
+movement across effects. Compiler-produced Release fixtures pin the constant
+receiver lowering, and synthetic near misses retain these decline boundaries.
+
 ### Late typed spill recomposition
 
 Typed identity decisions may make a previously separated expression tail safe

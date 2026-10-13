@@ -200,6 +200,35 @@ public class StructReceiverInliningPassTests
         function.CheckInvariant();
     }
 
+    [Theory]
+    [InlineData("foreign-owner")]
+    [InlineData("wrong-field-type")]
+    [InlineData("unknown-field")]
+    [InlineData("other-decimal-constant")]
+    [InlineData("instance-field")]
+    [InlineData("volatile")]
+    public void DecimalFieldNearMiss_IsNotFolded(string boundary)
+    {
+        var decimalType = TypeRef.CoreLib("System", "Decimal");
+        var field = new FieldRef(
+            boundary == "foreign-owner" ? TypeRef.Definition("foreign", "System", "Decimal") : decimalType,
+            boundary == "unknown-field" ? "Unknown" : boundary == "other-decimal-constant" ? "MinValue" : "Zero",
+            boundary == "wrong-field-type" ? S : decimalType);
+        var load = new LoadField(field, boundary == "instance-field" ? new LoadArgument(0, "instance", decimalType) : null)
+        {
+            IsVolatile = boundary == "volatile"
+        };
+        var compare = new MethodRef(decimalType, "CompareTo", Int32, [decimalType], HasThis: true);
+        var function = BuildFunction(
+            new StoreLocal(0, field.Type, load),
+            new Return(new Call(compare, false, [new LoadLocalAddress(0, field.Type), new Constant(0, decimalType)])));
+
+        RunPass(function);
+
+        Assert.Equal(1, StoreCount(function, 0));
+        function.CheckInvariant();
+    }
+
     // An effectful sibling evaluates before the receiver in the use statement, so
     // moving the store into the receiver position would reorder it past that
     // effect. The barrier walk declines the fold.
