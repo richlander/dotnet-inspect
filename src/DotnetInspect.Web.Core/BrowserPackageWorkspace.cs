@@ -647,9 +647,11 @@ internal static class BrowserPackageWorkspace
         string packageId,
         string? version,
         string? targetFramework,
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default,
+        PackageHouseEvidenceDemand evidenceDemand = PackageHouseEvidenceDemand.FrameworkReferences,
+        bool includeMetadata = true) =>
         InventoryWithSettlementAsync(packageId, version, targetFramework, Gallery,
-            PackageOperationTimeout, cancellationToken);
+            PackageOperationTimeout, cancellationToken, evidenceDemand, includeMetadata);
 
     internal static Task<BrowserPackageRealizationResult> InventoryWithSettlementAsync(
         string packageId,
@@ -657,10 +659,12 @@ internal static class BrowserPackageWorkspace
         string? targetFramework,
         IPackageSourceClient source,
         TimeSpan operationTimeout,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        PackageHouseEvidenceDemand evidenceDemand = PackageHouseEvidenceDemand.FrameworkReferences,
+        bool includeMetadata = true) =>
         RunPackageOperationAsync(
             deadline => RealizeCoreAsync(packageId, version, targetFramework,
-                source, deadline, inventoryOnly: true),
+                source, deadline, inventoryOnly: true, inventoryEvidenceDemand: evidenceDemand, includeInventoryMetadata: includeMetadata),
             operationTimeout,
             cancellationToken);
 
@@ -762,7 +766,9 @@ internal static class BrowserPackageWorkspace
         BrowserPackageOperationDeadline deadline,
         bool inventoryOnly = false,
         PackageLibrarySelector? librarySelector = null,
-        PackageAssetDemand assetDemand = PackageAssetDemand.SurfaceAndImplementation)
+        PackageAssetDemand assetDemand = PackageAssetDemand.SurfaceAndImplementation,
+        PackageHouseEvidenceDemand inventoryEvidenceDemand = PackageHouseEvidenceDemand.FrameworkReferences,
+        bool includeInventoryMetadata = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(source);
@@ -778,7 +784,7 @@ internal static class BrowserPackageWorkspace
             RealizationRequestKey(
                 packageId,
                 requestedVersion,
-                targetFramework) + (inventoryOnly ? ":inventory" : "")
+                targetFramework) + (inventoryOnly ? ":inventory" + InventoryEvidenceKey(inventoryEvidenceDemand, includeInventoryMetadata) : "")
                     + (librarySelector is null ? "" : CompositeKey("library", librarySelector.Kind.ToString(), librarySelector.Value, assetDemand.ToString())),
             source);
         BrowserSharedOperation<BrowserPackageRealizationResult> pending;
@@ -802,7 +808,7 @@ internal static class BrowserPackageWorkspace
                             targetFramework,
                             source,
                             sharedDeadline,
-                            inventoryOnly, librarySelector, assetDemand),
+                            inventoryOnly, librarySelector, assetDemand, inventoryEvidenceDemand, includeInventoryMetadata),
                         remaining),
                     BrowserManagedEpochWorkRegistration.Current.SourceForAcquisition,
                     "Package realization");
@@ -816,6 +822,11 @@ internal static class BrowserPackageWorkspace
         return await pending.WaitAsync(deadline.Token).ConfigureAwait(false);
     }
 
+    static string InventoryEvidenceKey(PackageHouseEvidenceDemand demand, bool includeMetadata) =>
+        demand == PackageHouseEvidenceDemand.FrameworkReferences && includeMetadata
+            ? ""
+            : CompositeKey("evidence", demand.ToString(), "metadata", includeMetadata.ToString());
+
     static async Task<BrowserPackageRealizationResult> RealizeOneAsync(
         string packageId,
         string normalizedPackageId,
@@ -825,7 +836,9 @@ internal static class BrowserPackageWorkspace
         BrowserPackageOperationDeadline deadline,
         bool inventoryOnly,
         PackageLibrarySelector? librarySelector,
-        PackageAssetDemand assetDemand)
+        PackageAssetDemand assetDemand,
+        PackageHouseEvidenceDemand inventoryEvidenceDemand,
+        bool includeInventoryMetadata)
     {
         var coordinateRequest = new PackageCoordinate(
             normalizedPackageId,
@@ -858,7 +871,7 @@ internal static class BrowserPackageWorkspace
         PackageHouseRequest request = inventoryOnly
             ? PackageHouseRequest.CompileInventory(
                 new PackageHouseDemand.Exact(settled.Result.Coordinate),
-                operation, targetContext)
+                operation, targetContext, inventoryEvidenceDemand, includeInventoryMetadata)
             : librarySelector is not null
                 ? PackageHouseRequest.CompileLibrary(
                     new PackageHouseDemand.Exact(settled.Result.Coordinate),
@@ -870,7 +883,7 @@ internal static class BrowserPackageWorkspace
                 PackageHouseAssetSelectionKind.Compile,
                 PackageHouseLibraryHandoffMode.SelectedLibraries,
                 evidenceDemand: PackageHouseEvidenceDemand.FrameworkReferences);
-        string selectionRequest = (inventoryOnly ? "inventory:" : "")
+        string selectionRequest = (inventoryOnly ? "inventory:" + InventoryEvidenceKey(inventoryEvidenceDemand, includeInventoryMetadata) : "")
             + SelectionRequestToken(targetFramework)
             + (librarySelector is null ? "" : CompositeKey("library", librarySelector.Kind.ToString(), librarySelector.Value, assetDemand.ToString()));
         BrowserSessionPackageStore store = StoreFor(source);

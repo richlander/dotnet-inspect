@@ -321,13 +321,40 @@ selection, explicit empty groups, no applicable target, and invalid
 correspondence. It issues no Library handoff.
 
 The House settles that inventory before any later Library-content request.
-Under ranged execution it expands the root manifest and tool settings needed
-by Package children, but no DLL, PDB, icon, or documentation body. The acquired
-package retains its validated complete directory, including declared lengths,
-so the existing compile-slice measurement and Package Root adapters can consume
-it. That inventory Root must be realized with Library-content demand before
-entering an assembly inspection. Complete acquisition below the size cut or
-when ranges are unavailable preserves the same inventory result.
+`CompileInventory` independently declares inventory metadata and supplemental
+`EvidenceDemand`. Its defaults include package-child metadata and
+FrameworkReferences for package Overview. Correspondence-only consumers omit
+inventory metadata and request None for supplemental evidence. Either demand
+can independently require the manifest; omitted demands do not authorize its
+expansion. These options belong to the shared House factory and apply to every
+consumer. `IncludesInventoryMetadata` retains the content demand on the House
+request. Selection-owned tool settings retain their existing contract. No
+inventory request expands a DLL, PDB, icon, or documentation body under ranged
+execution.
+
+House merges requested framework-reference manifest evidence after primary
+entry selection on every ranged query path, including exact Library queries.
+The package evidence contract therefore does not depend on which content
+terminal the consumer selects. Microsoft.Azure.SignalR 1.33.1, exact
+`compile:lib/net8.0/Microsoft.Azure.SignalR.dll`, is the positive real-asset
+control: an exact Library query requesting FrameworkReferences must acquire its
+manifest and preserve the selected Microsoft.AspNetCore.App reference. The
+shared ranged gate covers both broad and exact Library requests.
+
+The acquired package retains its validated complete directory, including
+declared lengths, so the existing compile-slice measurement and Package Root
+adapters can consume it. That inventory Root must be realized with
+Library-content demand before entering an assembly inspection. Complete
+acquisition below the size cut or when ranges are unavailable preserves the
+same inventory result.
+
+Newtonsoft.Json 13.0.3 → 13.0.4, net6.0, motivates supplemental-evidence
+narrowing: the 2026-10-12 Fast Diff trace reads the target's 1,819-byte nuspec
+because its inventory implicitly includes package-child metadata as well as
+FrameworkReferences. Fast Diff consumes only the owner-selected Library counterpart. Generic House tests exercise
+both independent demands with ranged and complete acquisition, preserving
+identical compile selection and measurement receipts while proving omitted
+manifest evidence causes no manifest materialization.
 
 The motivating asset is `Avalonia@12.1.3`, observed on 2026-10-07: a
 10,157,510-byte archive with 121 entries and separate reference and

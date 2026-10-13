@@ -283,7 +283,8 @@ public sealed class PackageHouseRequest
             PackageHouseEvidenceDemand.None,
         PackageHouseLibraryCompanionDemand libraryCompanionDemand =
             PackageHouseLibraryCompanionDemand.None,
-        PackageHouseContentQuery? contentQuery = null)
+        PackageHouseContentQuery? contentQuery = null,
+        bool includeInventoryMetadata = true)
         : this(
             demand,
             operation,
@@ -297,7 +298,8 @@ public sealed class PackageHouseRequest
             evidenceDemand,
             libraryCompanionDemand,
             contentQuery,
-            allowReferenceOnlyImplementationNames: false)
+            allowReferenceOnlyImplementationNames: false,
+            includeInventoryMetadata: includeInventoryMetadata)
     {
     }
 
@@ -314,7 +316,8 @@ public sealed class PackageHouseRequest
         PackageHouseEvidenceDemand evidenceDemand,
         PackageHouseLibraryCompanionDemand libraryCompanionDemand,
         PackageHouseContentQuery? contentQuery,
-        bool allowReferenceOnlyImplementationNames)
+        bool allowReferenceOnlyImplementationNames,
+        bool includeInventoryMetadata = true)
     {
         ArgumentNullException.ThrowIfNull(demand);
         ArgumentNullException.ThrowIfNull(operation);
@@ -509,6 +512,7 @@ public sealed class PackageHouseRequest
         }
 
         IsCompileInventory = compileInventory;
+        IncludesInventoryMetadata = compileInventory && includeInventoryMetadata;
         IsCompileLibrary = compileLibrary;
         Demand = demand;
         Operation = operation;
@@ -548,6 +552,9 @@ public sealed class PackageHouseRequest
     /// </summary>
     public bool IsCompileInventory { get; }
 
+    /// <summary>Whether compile inventory also requires package-child manifest and tool metadata.</summary>
+    public bool IncludesInventoryMetadata { get; }
+
     /// <summary>Whether this request declares exact compile Library content.</summary>
     public bool IsCompileLibrary { get; }
 
@@ -558,7 +565,9 @@ public sealed class PackageHouseRequest
     public static PackageHouseRequest CompileInventory(
         PackageHouseDemand demand,
         PackageHouseOperation operation,
-        PackageHouseTargetContext target)
+        PackageHouseTargetContext target,
+        PackageHouseEvidenceDemand evidenceDemand = PackageHouseEvidenceDemand.FrameworkReferences,
+        bool includeMetadata = true)
     {
         ArgumentNullException.ThrowIfNull(target);
         return new(
@@ -567,10 +576,11 @@ public sealed class PackageHouseRequest
             target,
             PackageHouseAssetSelectionKind.Compile,
             PackageHouseLibraryHandoffMode.PackageOnly,
-            evidenceDemand: PackageHouseEvidenceDemand.FrameworkReferences,
+            evidenceDemand: evidenceDemand,
             contentQuery: new PackageHouseContentQuery(
                 new PackageHouseContentNarrowing.PackageWide(),
-                [new PackageHouseContentTerminal.FileList()]));
+                [new PackageHouseContentTerminal.FileList()]),
+            includeInventoryMetadata: includeMetadata);
     }
 
     /// <summary>Declares an exact Library selector before House acquisition planning.</summary>

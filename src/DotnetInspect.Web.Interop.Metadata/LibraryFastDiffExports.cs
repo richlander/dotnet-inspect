@@ -114,7 +114,8 @@ public static partial class MetadataExports
         BrowserPackageRealizationResult targetInventory =
             await BrowserPackageWorkspace.InventoryWithSettlementAsync(
                 request.PackageId, request.TargetVersion, request.TargetFramework,
-                source, BrowserPackageWorkspace.PackageOperationTimeout, cancellationToken);
+                source, BrowserPackageWorkspace.PackageOperationTimeout, cancellationToken,
+                evidenceDemand: PackageHouseEvidenceDemand.None, includeMetadata: false);
         if (targetInventory is not BrowserPackageRealizationResult.Realized inventory)
             throw new BrowserLibraryApiDiffRequestException(
                 "The target package endpoint could not be settled for Library comparison.");

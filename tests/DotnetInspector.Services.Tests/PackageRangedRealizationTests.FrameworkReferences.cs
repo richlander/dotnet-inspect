@@ -1,12 +1,15 @@
 using System.IO.Compression;
 using DotnetInspector.Packages;
+using NuGetFetch;
 
 namespace DotnetInspector.Services.Tests;
 
 public sealed partial class PackageRangedRealizationTests
 {
-    [Fact]
-    public async Task FrameworkReferences_RangedHouseReadIncludesOnlyDemandedManifest()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FrameworkReferences_RangedHouseReadIncludesOnlyDemandedManifest(bool exactLibrary)
     {
         const string PackageId = "Microsoft.Azure.SignalR";
         const string Version = "1.33.1";
@@ -19,16 +22,36 @@ public sealed partial class PackageRangedRealizationTests
         await using RangedEnvironment environment =
             RangedEnvironment.Create(server);
 
-        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
-            await environment.RealizeAsync(
-                new InMemoryPackageStore(),
-                PackagePayloadAccess.Ranged,
-                "net8.0",
-                sizeCut: 0,
-                PackageId,
-                Version,
-                evidenceDemand:
-                    PackageHouseEvidenceDemand.FrameworkReferences));
+        PackageHouseSettlement settlement;
+        if (exactLibrary)
+        {
+            var request = new PackageHouseRequest(
+                new PackageHouseDemand.Exact(PackageSourceCoordinate.Create(PackageId, Version)),
+                PackageHouseOperation.Create(PackageHouseOperationProfile.Realize),
+                PackageHouseTargetContext.Exact("net8.0"),
+                PackageHouseAssetSelectionKind.Compile,
+                assetDemand: PackageAssetDemand.Surface,
+                evidenceDemand: PackageHouseEvidenceDemand.FrameworkReferences,
+                contentQuery: new PackageHouseContentQuery(
+                    new PackageHouseContentNarrowing.PackageWide(),
+                    [new PackageHouseContentTerminal.CompileLibrary(
+                        new PackageLibrarySelector("compile:lib/net8.0/Microsoft.Azure.SignalR.dll", PackageLibrarySelectionKind.AssetId),
+                        PackageAssetDemand.Surface)]));
+            var house = new PackageHouse(environment.Authorization,
+                PackagePayloadAcquisitionPlan.ForContentQueries(
+                    (_, _) => new InMemoryPackageStore(), rangedSizeCut: 0));
+            settlement = await house.ExecuteAsync(request, environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken, request.Operation.RequestTimeout,
+                request.Operation.OperationTimeout));
+        }
+        else
+        {
+            settlement = await environment.RealizeAsync(
+                new InMemoryPackageStore(), PackagePayloadAccess.Ranged, "net8.0",
+                sizeCut: 0, PackageId, Version,
+                evidenceDemand: PackageHouseEvidenceDemand.FrameworkReferences);
+        }
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(settlement);
 
         Assert.Equal(PackagePayloadOrigin.Ranged, acquired.Payload.Origin);
         var content =

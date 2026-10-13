@@ -56,9 +56,15 @@ public sealed partial class PackageRangedRealizationTests
 
     // PR-fast: pinned small archive, directory and receipt assertions only.
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task CompileInventory_UsesHousePlanningAndPreservesMeasurementReceipts(bool complete)
+    [InlineData(false, false, false)]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, false)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(true, true, true)]
+    public async Task CompileInventory_UsesHousePlanningAndPreservesMeasurementReceipts(bool complete, bool frameworkReferences, bool metadata)
     {
         byte[] archive = ReadPclStorage();
         var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
@@ -66,7 +72,9 @@ public sealed partial class PackageRangedRealizationTests
         var request = PackageHouseRequest.CompileInventory(
             new PackageHouseDemand.Exact(PackageSourceCoordinate.Create(PclStorage, PclStorageVersion)),
             PackageHouseOperation.Create(PackageHouseOperationProfile.Realize),
-            PackageHouseTargetContext.Exact("net45"));
+            PackageHouseTargetContext.Exact("net45"),
+            frameworkReferences ? PackageHouseEvidenceDemand.FrameworkReferences : PackageHouseEvidenceDemand.None,
+            includeMetadata: metadata);
         var house = new PackageHouse(environment.Authorization,
             PackagePayloadAcquisitionPlan.ForContentQueries(
                 (_, _) => new InMemoryPackageStore(), rangedSizeCut: complete ? archive.Length : 0));
@@ -88,7 +96,7 @@ public sealed partial class PackageRangedRealizationTests
         if (!complete)
         {
             var content = Assert.IsType<RangedPackageContent>(acquired.Payload.Content);
-            Assert.True(content.IsMaterialized("PCLStorage.nuspec"));
+            Assert.Equal(frameworkReferences || metadata, content.IsMaterialized("PCLStorage.nuspec"));
             Assert.False(content.IsMaterialized("lib/net45/PCLStorage.dll"));
             Assert.False(content.IsMaterialized("lib/net45/PCLStorage.xml"));
         }

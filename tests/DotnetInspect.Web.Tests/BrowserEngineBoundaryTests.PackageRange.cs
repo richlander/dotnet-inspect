@@ -11,6 +11,32 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserEngineBoundaryTests
 {
+    [Fact]
+    public async Task InventoryDemand_DoesNotReuseWeakerMetadataRealization()
+    {
+        string id = $"inventory.metadata.{Guid.NewGuid():N}";
+        byte[] assembly = File.ReadAllBytes(typeof(PackageSource).Assembly.Location);
+        var handler = new GalleryPackageHandler(id, "1.0.0", PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(Nuspec(id, "1.0.0"))),
+            ("lib/net11.0/Chosen.dll", assembly),
+            ("content/padding.bin", new byte[2 * MiB])));
+        using IPackageSourceClient source = Gallery(handler);
+        BrowserPackageRealization narrow = Assert.IsType<BrowserPackageRealizationResult.Realized>(
+            await BrowserPackageWorkspace.InventoryWithSettlementAsync(id, "1.0.0", "net11.0",
+                source, TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken,
+                PackageHouseEvidenceDemand.None, includeMetadata: false)).Realization;
+        Assert.False(Assert.IsType<RangedPackageContent>(narrow.Coordinate.Package.Content)
+            .IsMaterialized($"{id}.nuspec"));
+        BrowserPackageRealization complete = Assert.IsType<BrowserPackageRealizationResult.Realized>(
+            await BrowserPackageWorkspace.InventoryWithSettlementAsync(id, "1.0.0", "net11.0",
+                source, TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)).Realization;
+        Assert.NotEqual(narrow.SelectionRequest, complete.SelectionRequest);
+        Assert.True(Assert.IsType<RangedPackageContent>(complete.Coordinate.Package.Content)
+            .IsMaterialized($"{id}.nuspec"));
+        Assert.Equal(narrow.Coordinate.Selection.Assets.Select(asset => asset.Id),
+            complete.Coordinate.Selection.Assets.Select(asset => asset.Id));
+    }
+
     [Theory]
     [InlineData(BrowserFastDiffAxes.Api)]
     [InlineData(BrowserFastDiffAxes.ApiAndBody)]

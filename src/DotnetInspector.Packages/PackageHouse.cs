@@ -753,7 +753,10 @@ public sealed partial class PackageHouse
                                     contentNarrowing;
                                 plannedLibraryInventory =
                                     libraryInventory;
-                                return selected;
+                                return request.EvidenceDemand
+                                    == PackageHouseEvidenceDemand.FrameworkReferences
+                                        ? AddRootManifest(selected, directory)
+                                        : selected;
                             },
                             payloadAcquisition.RangedSizeCut)
                         : null;
@@ -2071,11 +2074,15 @@ public sealed partial class PackageHouse
             }
             if (request.IsCompileInventory)
             {
-                // Package children require manifest and tool settings, while
-                // Library rows and measurements come from directory evidence.
-                string[] settings =
-                    [.. directory.EnumerateEntries().Where(PackageEntryPath.IsToolSettingsPath)];
-                return AddRootManifest(new PackageRangedSelection(settings), directory);
+                // Directory-only consumers need no package-child metadata.
+                // Framework-reference evidence independently requires the manifest.
+                string[] settings = request.IncludesInventoryMetadata
+                    ? [.. directory.EnumerateEntries().Where(PackageEntryPath.IsToolSettingsPath)]
+                    : [];
+                var inventoryEntries = new PackageRangedSelection(settings);
+                return request.IncludesInventoryMetadata
+                    ? AddRootManifest(inventoryEntries, directory)
+                    : inventoryEntries;
             }
             if (contentQuery.LibraryAndInventoryTerminal is not null
                 || contentQuery.LibraryInventoryTerminal is not null)
@@ -2134,10 +2141,7 @@ public sealed partial class PackageHouse
                 "A ranged Realize operation requires a known asset-selection kind."),
         };
 
-        return request.EvidenceDemand
-            == PackageHouseEvidenceDemand.FrameworkReferences
-                ? AddRootManifest(selected, directory)
-                : selected;
+        return selected;
     }
 
     private static IReadOnlyList<PackageContentEntry> SnapshotEntries(
