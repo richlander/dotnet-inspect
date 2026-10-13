@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
+using InertText;
 using QuerySpace.Composition;
 
 namespace DotnetInspector.Sections;
@@ -510,6 +511,10 @@ public static class TypeSubjectInspectionOperation
                                 parameter.MetadataIndex,
                                 parameter.Name,
                                 parameter.Attributes))));
+        MetadataContainedTypeDefinitionName containedType =
+            document.MatchedName?.Contain(TextPolicy.Field)
+            ?? throw new InvalidOperationException(
+                "An available Type document requires its matched byte-native Type identity.");
         TypeSubject subject = libraryCorrespondence is null
             ? new(
                 assembly,
@@ -525,9 +530,13 @@ public static class TypeSubjectInspectionOperation
                 document.Subject.IsReadOnly,
                 document.Subject.DefinesCoreLibraryRoot,
                 document.Subject.DeclaringType?.Definition.Value)
+            {
+                ContainedType = containedType,
+            }
             : ProjectSubject(
                 libraryCorrespondence,
                 plan.Type,
+                containedType,
                 document.Subject,
                 assembly);
         var outcome =
@@ -555,6 +564,7 @@ public static class TypeSubjectInspectionOperation
     internal static TypeSubject ProjectSubject(
         LibraryTypeDocumentCorrespondence correspondence,
         MetadataTypeDefinitionName type,
+        MetadataContainedTypeDefinitionName containedType,
         MetadataTypeDeclarationEvidence subject,
         LibraryAssemblyIdentity assembly) =>
         new(
@@ -579,7 +589,10 @@ public static class TypeSubjectInspectionOperation
             subject.IsByRefLike,
             subject.IsReadOnly,
             subject.DefinesCoreLibraryRoot,
-            subject.DeclaringType?.Definition.Value);
+            subject.DeclaringType?.Definition.Value)
+        {
+            ContainedType = containedType,
+        };
 
     private static TypeSubjectMemberGroups ProjectDeclarations(
         AssemblyReferenceIdentity assemblyIdentity,

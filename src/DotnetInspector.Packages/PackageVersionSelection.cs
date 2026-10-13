@@ -497,11 +497,34 @@ public abstract class PackageVersionResolutionReceipt
 public static class PackageVersionSelectionResolver
 {
     /// <summary>
-    /// The listed versions an <see cref="PackageVersionSelectionRequest.AlwaysLatest"/>
+    /// The ascending population an <see cref="PackageVersionSelectionRequest.AlwaysLatest"/>
     /// request selects from: every discovered version under the request's
-    /// prerelease policy. Latest is the highest of this population.
+    /// prerelease policy. Latest is the highest of this population, and its
+    /// major representatives answer per-major questions about the same
+    /// candidates.
     /// </summary>
-    public static IEnumerable<NuGetVersion> AdmittedVersions(
+    public static PackageVersionVector AdmittedPopulation(
+        PackageVersionSelectionRequest.AlwaysLatest request,
+        PackageVersionDiscoveryResult discovery)
+    {
+        NuGetVersion[] ascending =
+        [
+            .. AdmittedVersions(request, discovery)
+                .Distinct<NuGetVersion>(VersionComparer.VersionReleaseMetadata)
+                .Order(Comparer<NuGetVersion>.Create(
+                    VersionComparer.VersionReleaseMetadata.Compare)),
+        ];
+        if (ascending.Length == 0)
+        {
+            throw new ArgumentException(
+                "An AlwaysLatest population requires an admitted version.",
+                nameof(discovery));
+        }
+
+        return PackageVersionVector.CreateOrdered(request.PackageId, ascending);
+    }
+
+    internal static IEnumerable<NuGetVersion> AdmittedVersions(
         PackageVersionSelectionRequest.AlwaysLatest request,
         PackageVersionDiscoveryResult discovery)
     {

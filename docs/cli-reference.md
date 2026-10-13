@@ -2760,17 +2760,56 @@ dotnet-inspect explain package-query/query .data --json
 dotnet-inspect explain package-query/query/facets/library-literal .hal --json
 ```
 
-`.hal` presents direct resource state, a titled `_links` menu, and related
-resources in `_embedded` arrays with simple, descriptive relation names. HAL links
-advertise `application/hal+json` and preserve the selection through
-`?projection=hal`; JSON detail links advertise `application/json`. A root
-`describedby` link selects the full contract through `?projection=contract`.
-Pass either address unchanged to `explain --json`. Receipt details stay in the
-contract representation; completeness and non-available data qualifications
-remain beside the data they affect. Both
-selections require `--json` and reject `--depth` and search operands. Selection
-closure is bounded to 256 resources and 4,096 observed targets; excess or
+`.hal` embeds the reading resources under `_embedded`. Vocabulary reading uses
+`_embedded.vocabularies` and each vocabulary's `_embedded.values`; direct `.data`
+uses keyed `vocabularies`/`values` tables plus owner-order arrays. Both preserve
+native identities, map meanings and sparse property indices. `scope` reports the
+reading profile and complete selected population. Vocabulary `catalog_values`
+counts are bounded JSON numbers; integer map values retain their lossless decimal
+text representation.
+
+For an exact vocabulary root, add `-Q` / `--query-help` to either reading
+projection to select native value identities before serialization:
+
+```bash
+dotnet-inspect explain vocabularies/csharp.body-kinds .hal --json \
+  -Q ObjectCreationExpression
+dotnet-inspect explain vocabularies/csharp.style-choices .data --json \
+  -Q slot-local-names
+dotnet-inspect explain vocabularies/api.accessibility .hal --json \
+  -Q 'public;private'
+```
+
+Lists accept commas or semicolons, trim whitespace, deduplicate, and preserve
+owner order. A bare `-Q` after the projection selects all values; a supplied empty
+list fails. Matching is exact and case-sensitive: `ObjectCreationExpression` is
+a native body-kind identity, while `objectcreationexpression` is its path segment.
+No wildcard, display-label or path-segment matching is inferred. Shared selection
+includes only the exact referenced term values, so one style choice includes its
+tier meaning without the unrelated tier population. Optional groups and defaults
+contain selected members only; they do not enumerate all catalog alternatives.
+
+`-Q` narrows data while `.data`/`.hal` selects its representation. It requires the
+reading projection and JSON; it is rejected for ordinary compact output,
+`.contract`, vocabulary collections, value-resource roots, other resource kinds,
+search text, `--depth`, and `-n`. Capability-search `-n` still caps search results;
+`--depth` still controls ordinary graph expansion. Root `explain -Q` does not
+replace command-local Package Query `--explain -Q` facet selection.
+
+Full reading HAL has one implemented `self` link. A value-selected HAL response
+has one full-vocabulary `collection` link. Links advertise
+`application/hal+json` and use `?projection=hal`; pass an emitted href unchanged
+to `explain --json`. You can add `-Q` to narrow that HAL address while retaining
+its projection. Reading profiles omit automatic contract/member navigation;
+request `.contract --json` explicitly when declaration inspection is necessary.
+Ordinary compact resource navigation can still expose other JSON detail links.
+
+The reading projections require JSON and reject `--depth` and search operands.
+Closure is bounded to 256 resources and 4,096 observed targets; excess or
 incomplete selected observations fail visibly instead of producing sparse tables
-with ambiguous negatives. Neither selection supplies validation rules or host
-flag mappings that the catalog has not registered. The [worked reading comparison](../tools/ExplainReadingScenarios/README.md#actual-selected-data-comparison)
-includes runnable jq exploration and actual JSON examples.
+with ambiguous negatives. Absence from a Boolean set establishes false only for
+a selected member with complete available property coverage. Unselected values
+remain unknown. Neither projection supplies validation rules or host flag
+mappings that the catalog has not registered. The
+[worked vocabulary reads](../tools/ExplainReadingScenarios/vocabulary-reading/README.md#cli-value-reading)
+include reusable jq exploration and a concrete agent workflow.

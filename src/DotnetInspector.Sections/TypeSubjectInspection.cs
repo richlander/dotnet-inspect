@@ -68,7 +68,8 @@ public sealed record TypeDocumentDeclarationSignature
     }
 
     public ImmutableArray<TypeDocumentGenericParameter>
-        GenericParameters { get; }
+        GenericParameters
+    { get; }
 }
 
 public sealed record TypeSubject
@@ -174,6 +175,12 @@ public sealed record TypeSubject
     public LibraryAssemblyIdentity Assembly { get; }
     public Guid ModuleVersionId { get; }
     public MetadataTypeDefinitionName Type { get; }
+    [JsonIgnore]
+    public MetadataContainedTypeDefinitionName? ContainedType
+    {
+        get;
+        internal init;
+    }
     public int TypeDefinitionToken { get; }
     public TypeDocumentDeclarationSignature Signature { get; }
     public MetadataTypeDeclarationCategory Category { get; }

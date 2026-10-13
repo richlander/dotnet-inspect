@@ -89,6 +89,14 @@ public class CorpusSensorComparisonTests
         Assert.Equal(34, cutover.AvailabilityLossMethods);
         Assert.Equal(28, legacyExactNativeUncheckable);
         Assert.Equal(0, cutover.CompileBackFloorAppliedMethods);
+
+        var decimalReceiver = Assert.Single(baseline.Methods!, method =>
+            method.Assembly == "Newtonsoft.Json"
+            && method.Type == "Newtonsoft.Json.Linq.JValue"
+            && method.Method == "CompareBigInteger"
+            && method.Overload == 0);
+        Assert.Equal(nameof(FidelityCheck.CompileBackStatus.Exact), decimalReceiver.FidelityCheck);
+        Assert.Equal(nameof(FidelityCheck.CompileBackStatus.Exact), decimalReceiver.FidelityReference);
     }
 
     [Fact]
