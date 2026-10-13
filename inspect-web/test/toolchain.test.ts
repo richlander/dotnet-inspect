@@ -114,9 +114,8 @@ interface StaticWebAppConfig {
 //
 // These are repo-owned files rather than untrusted input, and a shape that stops matching
 // fails the assertion that reads it, so this asserts the shape instead of validating it.
-// That mirrors `parseEngineJson` in `src/dotnet-inspect.ts`, including the two targeted
-// disables it needs. `reportUnusedDisableDirectives` is an error here, so these directives
-// cannot outlive the rules they suppress.
+// `reportUnusedDisableDirectives` is an error here, so these targeted directives cannot
+// outlive the rules they suppress.
 // oxlint-disable-next-line typescript/no-unnecessary-type-parameters
 function readJson<T>(specifier: string): T {
   const parsed: unknown = JSON.parse(

@@ -33,10 +33,14 @@ and Package view survive refresh just as Library and Workspace views do.
 Ecosystems has its own `/ecosystems` page in product navigation and the shared
 data bar. The page projects the product-ordered `EcosystemPackCatalog` as inert
 descriptor metadata: identity, title, summary, and bounded capability
-counts/flags. Visiting the catalog preserves the active Workspace and does not
-activate an Ecosystem subject, acquire packages, or run package-prefix
-discovery. Those interactions remain future slices. No dedicated absence gate
-covers that boundary; by operator choice it is unverified beyond design review.
+counts/flags. Cards reuse the same local ecosystem glyph vocabulary as
+Spotlight and give identity, summary, capabilities, and the available Workspace
+action a consistent responsive hierarchy; an unknown future identity receives
+a deterministic title monogram rather than a network-loaded image. Visiting
+the catalog preserves the active Workspace and does not activate an Ecosystem
+subject, acquire packages, or run package-prefix discovery. Those interactions
+remain future slices. No dedicated absence gate covers that boundary; by
+operator choice it is unverified beyond design review.
 
 The previous browser host was a single 4,103-line `Program.cs` that re-derived
 package acquisition, target-framework ranking, symbol acquisition, and member
@@ -2565,6 +2569,18 @@ navigation state transitions, and supplies them through typed callbacks; the
 shared text helpers used well beyond the type panel (`kindIcon`, `shortKind`,
 `typeDisplayName`, `highlight`, `highlightCSharp`, `factRows`,
 `relatedTypeChip`) stay in `dotnet-inspect.ts` and are injected the same way.
+Normal Type-member first paint requests the compact, owner-issued
+`TypeOverviewDocument` for package, platform, and uploaded Libraries. It
+delivers exact group identities, counts, receiver forms, and selector counts
+without repeating the rich assembly-surface and exact-declaration work used to
+establish the resident package, platform, or uploaded-Library inventory.
+Opening a supported method group requests the shared `MemberGroupDocument`
+with the selected accessibility intent. Interactions that still need the
+legacy rich Type-member population (including Metadata spelling, non-public
+declarations without resident rows, and other resident-row gaps) request it
+only after opening a group. This slice does not replace the rich resident
+surface used to enter Type navigation. Hierarchy, graphs, source, metrics,
+documentation, and analysis remain independent requests.
 `test/type-panel.test.ts` gates every rendered control binding, type-filter
 keyboard behavior, namespace grouping and selection in the type list,
 active-group and overload selection in the member list, the type heading's

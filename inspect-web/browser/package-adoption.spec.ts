@@ -634,7 +634,12 @@ declare global {
         platformPack: string,
         documentationId: string,
       ): Promise<CompiledDocumentationOutcome>;
-      loadPlatformLibrary(framework: string, version: string, assembly: string, pack: string): Promise<string>;
+      loadPlatformLibrary(
+        framework: string,
+        version: string,
+        assembly: string,
+        pack: string,
+      ): Promise<PackageSurface>;
       openPlatformForwarderView(
         framework: string,
         version: string,
@@ -3950,14 +3955,18 @@ test.describe("bounded network-backed Worker smoke", () => {
     const platformVersion = "11.0.0-rc.1.26425.128";
     const name = "Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid";
     try {
-      const raw = await page.evaluate(ver => window.__adoption!.loadPlatformLibrary(
-        "net11.0", ver, "System.Private.CoreLib.dll", "netcore.app"), platformVersion);
-      const direct: unknown = JSON.parse(raw);
-      if (!direct || typeof direct !== "object" || !("types" in direct) || !Array.isArray(direct.types)) {
+      const direct = await page.evaluate<PackageSurface, string>(
+        ver => window.__adoption!.loadPlatformLibrary(
+          "net11.0",
+          ver,
+          "System.Private.CoreLib.dll",
+          "netcore.app"),
+        platformVersion);
+      if (direct.types.length === 0) {
         throw new Error("CoreLib omitted its Type surface.");
       }
-      expect(direct.types.some((type: unknown) => type !== null && typeof type === "object"
-        && "id" in type && type.id === `System.Private.CoreLib:${name}`)).toBe(true);
+      expect(direct.types.some(type =>
+        type.id === `System.Private.CoreLib:${name}`)).toBe(true);
       const initial = await page.evaluate(ver => window.__adoption!.openPlatformForwarderView(
         "net11.0", ver, "System.Runtime.dll", "netcore.app"), platformVersion);
       expect(initial.status, initial.message ?? "System.Runtime").toBe("opened");

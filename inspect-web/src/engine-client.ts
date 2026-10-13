@@ -73,11 +73,13 @@ type MetadataOperations =
   | "queryMemberDocument"
   | "queryMemberGroupDocument"
   | "queryPerformanceTypeMemberPopulation"
+  | "queryTypeOverviewDocument"
   | "queryTypeMemberPopulation"
   | "queryPlatformMemberDeclaration"
   | "queryPlatformMemberDocument"
   | "queryPlatformMemberGroupDocument"
   | "queryPlatformPerformanceTypeMemberPopulation"
+  | "queryPlatformTypeOverviewDocument"
   | "queryPlatformTypeMemberPopulation"
   | "queryGraphMemberSurface"
   | "queryPackageHeapEntries"
@@ -198,6 +200,9 @@ export interface EngineClient {
       libraryIdentity: string,
       typeIdentity: string,
       memberName: string,
+      accessibility: string,
+      receiver: string,
+      includeHidden: boolean,
     ) => Promise<Awaited<ReturnType<
       MetadataFacade["queryUploadedLibraryMemberGroupDocument"]
     >>>;
@@ -208,6 +213,14 @@ export interface EngineClient {
       accessibility: string,
     ) => Promise<Awaited<ReturnType<
       MetadataFacade["queryUploadedLibraryTypeMemberPopulation"]
+    >>>;
+    readonly queryUploadedLibraryTypeOverviewDocument: (
+      libraryIdentity: string,
+      typeIdentity: string,
+      spelling: string,
+      accessibility: string,
+    ) => Promise<Awaited<ReturnType<
+      MetadataFacade["queryUploadedLibraryTypeOverviewDocument"]
     >>>;
     readonly queryUploadedLibraryPerformanceTypeMemberPopulation: (
       libraryIdentity: string,

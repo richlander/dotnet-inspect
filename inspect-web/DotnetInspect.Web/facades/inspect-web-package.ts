@@ -2215,12 +2215,16 @@ export function listPackageQueryCatalog(): BrowserPackageQueryCatalog {
   return $parsed as BrowserPackageQueryCatalog;
 }
 
-export async function loadRuntimePack(targetFramework: string, platformVersion: string): Promise<string> {
-  return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["LoadRuntimePack.451505237"](targetFramework, platformVersion);
+export async function loadRuntimePack(targetFramework: string, platformVersion: string): Promise<BrowserPackageSurface> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["LoadRuntimePack.451505237"](targetFramework, platformVersion);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserPackageSurface;
 }
 
-export async function loadRuntimePackAssembly(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, assetFileName: string): Promise<string> {
-  return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["LoadRuntimePackAssembly.1330709314"](targetFramework, platformVersion, assemblyFileName, pack, assetFileName);
+export async function loadRuntimePackAssembly(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, assetFileName: string): Promise<BrowserPackageSurface> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["LoadRuntimePackAssembly.1330709314"](targetFramework, platformVersion, assemblyFileName, pack, assetFileName);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserPackageSurface;
 }
 
 export function matchPackageDependencyCoordinate(packageId: string, declaredRange: string | null, candidatesJson: ReadonlyArray<BrowserDependencyCoordinateCandidate>): BrowserDependencyCoordinateMatch {
