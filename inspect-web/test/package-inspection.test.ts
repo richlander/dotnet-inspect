@@ -128,11 +128,15 @@ function dependencyResult(
       index: 0,
       framework: "net10.0",
       isActive: true,
+      isComplete: true,
       dependencies: [{ id: "Example.Dependency", versionRange: "[1.0.0,)" }],
     }],
+    platformReferences: [],
+    defaultPlatformReference: null,
     declarationFailures: [],
     assemblyReferences: { references: [] },
     dependencyGroupError: error,
+    platformReferenceError: null,
     compileLibrary: selectedCompileLibrary,
   };
 }
