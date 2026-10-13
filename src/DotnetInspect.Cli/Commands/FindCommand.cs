@@ -776,52 +776,75 @@ public partial class FindCommand
         NuGetFetchOptions fetchOptions =
             NuGetFetchOptions.FromRequestTimeout(context.HttpClient.Timeout);
         context.Logger.Log($"Searching package prefix {prefix.Prefix}");
-        NuGetSearchOutcome? result = null;
-        string? failure = null;
-        try
-        {
-            result = await NuGetSearchService.SearchByPrefixWithStateAsync(
+        await using IAsyncEnumerator<NuGetPrefixSearchPage> pages =
+            NuGetSearchService.SearchByPrefixPagesAsync(
                 context.HttpClient,
-                cancellationToken,
                 prefix.Prefix,
                 sourceTake,
                 prerelease: false,
                 context.Logger.Log,
                 options.SourceOptions,
-                fetchOptions);
-        }
-        catch (InvalidOperationException exception)
+                fetchOptions,
+                cancellationToken)
+            .GetAsyncEnumerator(cancellationToken);
+        while (true)
         {
-            failure = exception.Message;
-        }
-        if (failure is not null)
-        {
-            yield return new(
-                [],
-                EcosystemFindPrefixPageCompletion.Failed,
-                failure);
-            yield break;
-        }
+            NuGetPrefixSearchPage? page = null;
+            string? failure = null;
+            bool hasPage = false;
+            try
+            {
+                hasPage = await pages.MoveNextAsync().ConfigureAwait(false);
+                if (hasPage)
+                    page = pages.Current;
+            }
+            catch (InvalidOperationException exception)
+            {
+                failure = exception.Message;
+            }
+            if (failure is not null)
+            {
+                yield return new(
+                    [],
+                    EcosystemFindPrefixPageCompletion.Failed,
+                    failure);
+                yield break;
+            }
+            if (!hasPage)
+                yield break;
+            if (page!.Failure is not null)
+            {
+                yield return new(
+                    [],
+                    EcosystemFindPrefixPageCompletion.Failed,
+                    page.Failure,
+                    page.Source);
+                continue;
+            }
 
-        EcosystemFindPrefixPageCompletion completion =
-            PrefixCompletion(result!.PrefixSearchLimits);
-        if (completion != EcosystemFindPrefixPageCompletion.Exhausted)
-            CommandError.WriteWarning(
-                $"Package-prefix search for \"{prefix.Prefix}\" "
-                + $"was incomplete: {completion}.");
-        yield return new(
-            [.. result.Results.Select(match => new EcosystemFindCandidate(
-                match.PackageId, match.Version))],
-            completion);
+            EcosystemFindPrefixPageCompletion completion =
+                PrefixCompletion(page.Completion);
+            if (page.Completion is not null
+                && completion != EcosystemFindPrefixPageCompletion.Exhausted)
+            {
+                CommandError.WriteWarning(
+                    $"Package-prefix search for \"{prefix.Prefix}\" "
+                    + $"was incomplete: {completion}.");
+            }
+            yield return new(
+                [.. page.Results.Select(match => new EcosystemFindCandidate(
+                    match.PackageId, match.Version))],
+                completion);
+        }
     }
 
     private static EcosystemFindPrefixPageCompletion PrefixCompletion(
-        IReadOnlyList<PrefixSearchCompletion> limits) =>
-        limits.Contains(PrefixSearchCompletion.ClientPageLimitReached)
+        PrefixSearchCompletion? completion) =>
+        completion == PrefixSearchCompletion.ClientPageLimitReached
             ? EcosystemFindPrefixPageCompletion.ClientPageLimit
-            : limits.Contains(PrefixSearchCompletion.SourcePageLimitReached)
+            : completion == PrefixSearchCompletion.SourcePageLimitReached
                 ? EcosystemFindPrefixPageCompletion.SourcePageLimit
-                : limits.Contains(PrefixSearchCompletion.TakeReached)
+                : completion == PrefixSearchCompletion.TakeReached
                     ? EcosystemFindPrefixPageCompletion.RequestedLimit
                     : EcosystemFindPrefixPageCompletion.Exhausted;
 

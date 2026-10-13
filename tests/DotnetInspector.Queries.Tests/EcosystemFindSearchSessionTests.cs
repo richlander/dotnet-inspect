@@ -578,6 +578,36 @@ public class EcosystemFindSearchSessionTests
     }
 
     [Fact]
+    public async Task PrefixSourceFailureDoesNotDiscardLaterCandidates()
+    {
+        var layer = Layer("first", "First.Core", "Contoso.");
+        using var session = new EcosystemFindSearchSession<string>(
+            Request([layer]),
+            (_, _) => Task.FromResult(new EcosystemFindBlock<string>(
+                "core", 0)),
+            (_, _, token) => Pages(
+                new(
+                    [],
+                    EcosystemFindPrefixPageCompletion.Failed,
+                    "Feed failed.",
+                    "failed-feed"),
+                new([new("Contoso.One", "1.0.0")]),
+                token),
+            (candidate, _, _) => Task.FromResult(
+                new EcosystemFindBlock<string>(candidate.PackageId, 1)));
+
+        EcosystemFindSearchSummary<string> result =
+            await session.ExecuteAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(EcosystemFindCompletion.Partial, result.Completion);
+        Assert.Equal("Contoso.One",
+            Assert.Single(result.PrefixBlocks).Content);
+        EcosystemFindSourceFailure failure = Assert.Single(result.Failures);
+        Assert.Equal("failed-feed", failure.Source);
+        Assert.Equal("Feed failed.", failure.Message);
+    }
+
+    [Fact]
     public async Task ZeroRowPrefixSettlementIsNotADurableBlock()
     {
         var layer = Layer("first", "First.Core", "Contoso.");

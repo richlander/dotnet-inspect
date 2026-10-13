@@ -93,7 +93,8 @@ public sealed record EcosystemFindPrefixPage(
     IReadOnlyList<EcosystemFindCandidate> Candidates,
     EcosystemFindPrefixPageCompletion Completion =
         EcosystemFindPrefixPageCompletion.Exhausted,
-    string? Failure = null);
+    string? Failure = null,
+    string? FailureSource = null);
 
 public enum EcosystemFindCompletion
 {
@@ -339,10 +340,11 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                 if (page.Completion == EcosystemFindPrefixPageCompletion.Failed)
                 {
                     _failures = _incomplete = true;
-                    _sourceFailures.Add(new("Prefix", prefix.Prefix,
+                    _sourceFailures.Add(new("Prefix",
+                        page.FailureSource ?? prefix.Prefix,
                         page.Failure ?? "Prefix enumeration failed."));
                     sourceCompletion = page.Completion;
-                    break;
+                    continue;
                 }
                 foreach (EcosystemFindCandidate item in page.Candidates)
                 {

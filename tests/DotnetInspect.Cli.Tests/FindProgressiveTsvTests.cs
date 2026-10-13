@@ -349,7 +349,7 @@ public class FindProgressiveTsvTests
         }
 
         EcosystemFindCandidate candidate =
-            Assert.Single(Assert.Single(pages).Candidates);
+            Assert.Single(pages.SelectMany(page => page.Candidates));
         Assert.Equal("Contoso.Private", candidate.PackageId);
         Assert.All(
             handler.Requested,
@@ -383,6 +383,92 @@ public class FindProgressiveTsvTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => operation);
+    }
+
+    [Fact]
+    public async Task EcosystemPrefixEnumerationKeepsHealthySourceCandidates()
+    {
+        var handler = new MixedPrefixSourceHandler();
+        using var client = new HttpClient(handler);
+        var context = new CommandContext(verbose: false, client);
+        var options = new FindOptions
+        {
+            SourceOptions = new NuGetSourceOptions
+            {
+                Sources =
+                [
+                    "https://failed.example/v3/index.json",
+                    "https://healthy.example/v3/index.json",
+                ],
+            },
+        };
+        var pages = new List<EcosystemFindPrefixPage>();
+
+        await foreach (EcosystemFindPrefixPage page in
+            FindCommand.EnumeratePrefixAsync(
+                new("Contoso."),
+                1,
+                options,
+                context,
+                TestContext.Current.CancellationToken))
+        {
+            pages.Add(page);
+        }
+
+        EcosystemFindPrefixPage failed = Assert.Single(
+            pages,
+            page => page.Completion
+                == EcosystemFindPrefixPageCompletion.Failed);
+        Assert.Contains("failed.example", failed.FailureSource);
+        EcosystemFindCandidate candidate = Assert.Single(
+            pages.SelectMany(page => page.Candidates));
+        Assert.Equal("Contoso.Healthy", candidate.PackageId);
+    }
+
+    [Fact]
+    public async Task EcosystemPrefixEnumerationYieldsBeforeNextSourcePage()
+    {
+        var handler = new PagedPrefixSourceHandler();
+        using var client = new HttpClient(handler);
+        var context = new CommandContext(verbose: false, client);
+        var options = new FindOptions
+        {
+            SourceOptions = new NuGetSourceOptions
+            {
+                Sources = ["https://paged.example/v3/index.json"],
+            },
+            Limit = 1,
+        };
+        var layers =
+            FindCommand.GetNamedLayers([EcosystemPackIds.Aspire]);
+        EcosystemFindSearchRequest request =
+            FindCommand.CreateEcosystemRequest(
+                options,
+                ["Thing"],
+                layers,
+                demandPrefixes: true);
+        using var session = new EcosystemFindSearchSession<string>(
+            request,
+            (_, _) => Task.FromResult(new EcosystemFindBlock<string>(
+                "bounded", 0)),
+            (prefix, take, token) => FindCommand.EnumeratePrefixAsync(
+                prefix,
+                take,
+                options,
+                context,
+                token),
+            (candidate, _, _) => Task.FromResult(
+                new EcosystemFindBlock<string>(candidate.PackageId, 1)));
+
+        EcosystemFindSearchSummary<string> result =
+            await session.ExecuteAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(EcosystemFindCompletion.RowLimitReached,
+            result.Completion);
+        Assert.Equal(
+            "Aspire.First",
+            Assert.Single(result.PrefixBlocks).Content);
+        Assert.Equal(1, handler.SearchRequests);
     }
 
     [Fact]
@@ -591,6 +677,90 @@ public class FindProgressiveTsvTests
             RequestStarted.TrySetResult();
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new InvalidOperationException("Cancellation was ignored.");
+        }
+    }
+
+    private sealed class MixedPrefixSourceHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Uri uri = request.RequestUri!;
+            if (uri.Host == "failed.example")
+            {
+                return Task.FromResult(new HttpResponseMessage(
+                    System.Net.HttpStatusCode.ServiceUnavailable));
+            }
+
+            string content = uri.AbsolutePath switch
+            {
+                "/v3/index.json" =>
+                    """
+                    {"resources":[{"@id":"https://healthy.example/v3/query","@type":"SearchQueryService"}]}
+                    """,
+                "/v3/query" =>
+                    """
+                    {"data":[{"id":"Contoso.Healthy","version":"1.0.0"}]}
+                    """,
+                _ => throw new InvalidOperationException(
+                    $"Unexpected request: {uri}"),
+            };
+            return Task.FromResult(new HttpResponseMessage(
+                System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    content,
+                    System.Text.Encoding.UTF8,
+                    "application/json"),
+            });
+        }
+    }
+
+    private sealed class PagedPrefixSourceHandler : HttpMessageHandler
+    {
+        public int SearchRequests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Uri uri = request.RequestUri!;
+            string content;
+            if (uri.AbsolutePath == "/v3/index.json")
+            {
+                content =
+                    """
+                    {"resources":[{"@id":"https://paged.example/v3/query","@type":"SearchQueryService"}]}
+                    """;
+            }
+            else if (uri.AbsolutePath == "/v3/query")
+            {
+                SearchRequests++;
+                IEnumerable<object> data = Enumerable.Range(0, 20).Select(
+                    index => new
+                    {
+                        id = index == 0
+                            ? "Aspire.First"
+                            : $"Other.Package.{index}",
+                        version = "1.0.0",
+                    });
+                content = JsonSerializer.Serialize(new { data });
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"Unexpected request: {uri}");
+            }
+
+            return Task.FromResult(new HttpResponseMessage(
+                System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    content,
+                    System.Text.Encoding.UTF8,
+                    "application/json"),
+            });
         }
     }
 }
