@@ -124,9 +124,10 @@ selection, read it from the participant and never from a file path.
 
 The scope takes the House's package demand, so version and framework
 selection stay in the House and behave as they do for `package`. An exact
-coordinate passes through unchanged. A floating version (`*`, `latest`) is a
-`Selecting` demand that the House settles through the
-[Package Version Service](package-version-service.md). The host's range parser
+coordinate passes through unchanged. `latest` is an `AlwaysLatest` demand that the House settles through the
+[Package Version Service](package-version-service.md), which always refreshes
+it, and a `*` pattern is a `Wildcard` demand that the House settles by
+discovery.md). The host's range parser
 still splits `A..B` into one demand per endpoint.
 
 ### Offline
@@ -146,8 +147,9 @@ pattern from version listings it cached within the last hour.
 The CLI's other offline paths are host routes that don't use a House: `diff`
 takes the legacy `AssemblySet` route through `PackageExtractor`, and the
 search Root acquires through the Workspace loader with a filesystem package
-store. Step 4 part 1 moves offline `diff` onto the scope, except an endpoint
-with a `*` pattern, which keeps the legacy route until the House settles a
+store. Step 4 part 1 moves offline `diff` onto the scope, except a diff with
+any `*` endpoint, which keeps the legacy route as a whole, so a scope endpoint
+is never compared with an `AssemblySet` endpoint, until the House settles a
 `Wildcard` selection offline, through the Version Service's adoption of
 wildcard keys or from cached listing evidence. The scope's contract is the
 same online and offline; only the House the host supplies differs.
