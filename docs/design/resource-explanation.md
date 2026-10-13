@@ -1671,13 +1671,19 @@ preserve.
 
 ### Vocabulary reading selection
 
-**Status: shared reading implemented; host narrowing pending.**
+**Status: shared reading and both host narrowing entrances implemented.**
 [#10013](https://github.com/richlander/dotnet-inspect/issues/10013) and the
 [worked vocabulary reads](../../tools/ExplainReadingScenarios/vocabulary-reading/README.md)
 establish the reading profile. Under
 [#10014](https://github.com/richlander/dotnet-inspect/issues/10014), existing
-vocabulary `.data` and `.hal` now use this shared lowering. No host narrowing
-gesture is admitted by this slice.
+vocabulary `.data` and `.hal` use this shared lowering. CLI admission landed in
+[#10046](https://github.com/richlander/dotnet-inspect/pull/10046), and Browser/Wasm
+admission landed in [#10058](https://github.com/richlander/dotnet-inspect/pull/10058).
+The [CLI admission contract](../cli-architecture.md#vocabulary-reading-admission)
+owns `-Q` / `--query-help` list syntax; the
+[Browser admission contract](../../inspect-web/README.md#browser-vocabulary-explanation-admission)
+owns the nullable native-ID array. Selection narrows data independently of the
+explicit direct/HAL representation.
 Resource Explanation owns the selection and lowering. Product Vocabulary and
 the declaring term owners continue to own identities, maps, meanings,
 defaults, and accepted input identities.
@@ -1719,8 +1725,8 @@ the default value label when the owner label is identical; different labels and
 all summaries survive. Missing summaries mean no declared summary for a complete
 selected record. Per-value kind tags, self links, repeated link titles, and
 automatic contract navigation are omitted from this reading profile. The
-examples advertise only the implemented full-vocabulary `collection` destination;
-they invent no address for the experimental selection. No external request is
+selected responses advertise only the implemented full-vocabulary `collection`
+destination; they invent no address for the narrower population. No external request is
 needed to interpret embedded terms. `accepted_by` remains an opaque owner-issued
 identity list, not inferred command syntax or whole-vocabulary facet acceptance.
 
@@ -1750,24 +1756,27 @@ closure, selected group/default membership, case-sensitive selection and a narro
 read of an oversized vocabulary. `ResourceExplanationDatasetTests` enforces
 partial-coverage/absent-Boolean refusal and whole-selection limits. CLI
 `ResourceExplanationCommandTests` and Browser `BrowserVocabularyCompositionTests`
-exercise full production entrances and shared content pins. Host value narrowing
-remains in #10015 and #10016; the existing value-root projection rejection remains.
+exercise full and narrowed production entrances, shared content pins, native
+identity/order, sparse defaults, required term context and visible rejection.
+The generated Browser facade, Worker transport and published Wasm smoke exercise
+the native-ID array. Value-root reading projection remains rejected.
 
 The offline projector checks selected-field recovery and jq answers against
 the unmodified source, including known false versus unselected and unresolved
-context. It is design evidence, not a product gate. Production adoption must
-enforce these claims through the shared dataset and both host entrances.
+context. It is design evidence, not a product gate. Production adoption enforces
+these claims through the shared dataset and both host entrances.
 Comparisons separate identical populations from narrower value selections;
 serialized byte counts are not latency evidence. They establish neither a
 minimum format nor improved agent behavior.
 
-The four counted slices are this proposal;
+The four vocabulary slices are complete: this proposal;
 [#10014 shared selection](https://github.com/richlander/dotnet-inspect/issues/10014);
 [#10015 CLI adoption](https://github.com/richlander/dotnet-inspect/issues/10015);
 and [#10016 Browser/Wasm adoption](https://github.com/richlander/dotnet-inspect/issues/10016),
 under overall [#9762](https://github.com/richlander/dotnet-inspect/issues/9762).
-Host admission decisions belong in their respective adoption efforts. Retire
-superseded ordinary vocabulary reading projections as those consumers migrate.
+Host admission decisions belong in their respective host contracts. The
+superseded vocabulary reading serializer is retired; both entrances consume the
+shared profile.
 Explicit contracts and the website Settings snapshot remain separate consumers.
 Agent testing follows adoption and measures valid answers, total retrieved
 content, and navigation necessary for the actual question.
@@ -1879,24 +1888,33 @@ After Library structural explanation presents the same Formats facts from
 ### Browser/Wasm
 
 Browser/Wasm consumes the shared compact projection and bounded selected data
-through `CatalogExports.ExplainVocabularies(path, depth)`. An ordinary canonical
+through `CatalogExports.ExplainVocabularies(path, depth, valueIds)`. With null
+value IDs, an ordinary canonical
 path returns compact resource data with requested expansion. Full declaration
 serialization is retired from ordinary output and remains explicit contract
 inspection. The facade accepts `inspect-resource:/<path>` addresses unchanged;
 `?projection=data` and `?projection=hal` select vocabulary reading datasets at
 depth zero, while `?projection=contract` selects the complete Document at the
-requested depth. Projected datasets reject depth overrides and unsupported
-roots with `InvalidSelection`, preserving an explanatory rejection. HAL self
-and vocabulary links retain `projection=hal`; `describedby` selects contract
-inspection. Value detail links use ordinary compact data. These addresses are
+requested depth. A nonempty native-ID array narrows only a vocabulary-root
+data/HAL read at depth zero. It retains exact case, deduplicates in owner order
+and closes only required term context through the shared selection. Empty arrays,
+unknown IDs, patterns and combined list strings fail visibly. Projected datasets
+reject depth overrides and unsupported roots with `InvalidSelection`, preserving
+an explanatory rejection. Full HAL readings advertise `self`; narrowed readings
+advertise the full-vocabulary `collection`. Both retain `projection=hal`.
+Contract inspection is an explicit request, without automatic reading navigation.
+These addresses are
 operands for the catalog facade, not Browser HTTP routes or endpoints.
 
-This is the vocabulary catalog adoption for #9854, production slice 4 of #9762.
+The ordinary compact vocabulary catalog adoption is #9854; reading-profile and
+native-array adoption are #10014 and #10016. All four vocabulary slices under
+overall #9762 are complete.
 It does not add a user interface, structural explanation routes, or query-facet
 Browser registrations. Hosts do not reconstruct the graph from CLI text or
 restate owner catalogs in TypeScript. `BrowserVocabularyCompositionTests`
-checks actual facade projections, contract pins, all advertised selected HAL
-links, and typed rejection cases. `ProductVocabularyPin.CompactContent` pins
+checks actual facade projections, contract pins, full/selected knowledge,
+collection navigation, export round trips and typed rejection cases.
+`ProductVocabularyPin.CompactContent` pins
 ordinary, direct selected, and HAL selected output in the CLI and Browser suites. The production branch of
 `verify-published-engine-facades.ts` executes compact, selected, contract, link
 navigation, and invalid-selection requests through the generated catalog facade
@@ -1906,16 +1924,33 @@ A worked facade request is:
 
 ```javascript
 const result = catalog.explainVocabularies(
-  "inspect-resource:/vocabularies/csharp.style-choices?projection=hal", 0);
-const choices = result.explanation.content._embedded.values;
-const contract = catalog.explainVocabularies(
-  result.explanation.content._links.describedby.href, 0);
+  "inspect-resource:/vocabularies/csharp.style-choices?projection=hal",
+  0, ["slot-local-names"]);
+if (result.outcome !== "Explained") throw new Error(result.rejection.message);
+const content = result.explanation.content;
+const choices = content._embedded.vocabularies
+  .find(vocabulary => vocabulary.id === "csharp.style-choices");
+const choice = choices._embedded.values[0]; // slot-local-names
+const tiers = content._embedded.vocabularies
+  .find(vocabulary => vocabulary.id === "csharp.style-tiers");
+const tier = tiers._embedded.values[0]; // Synthesis
 ```
 
-The normal reading request has values, property sets, and referenced vocabulary
-data locally. The contract fetch is for declaration inspection and is not
-needed to read those values. Pass advertised hrefs back to `explainVocabularies`
-rather than to `fetch`.
+The initialized facade returns the choice, property sets and exact referenced
+tier locally. The agent stops when these answer its question. An absent choice
+is unselected, not false; a changed question about `qualify-field-access` justifies
+another narrowed read:
+
+```javascript
+const next = catalog.explainVocabularies(
+  content._links.collection.href, 0, ["qualify-field-access"]);
+```
+
+Pass null instead of the array when the full population is needed for discovery.
+For declaration inspection, explicitly request the same root with
+`?projection=contract` and null value IDs. Pass advertised hrefs back to
+`explainVocabularies` rather than to `fetch`. A verification-only collection or
+contract request adds no knowledge needed for the finished answer.
 
 The shared implementation targets NativeAOT and single-threaded Browser/Wasm
 and uses explicit static registrations and source-generated serialization.
