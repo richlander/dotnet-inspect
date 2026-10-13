@@ -50,7 +50,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
         MethodBodyData metadataBody = RequireMethodBody(
             _infrastructure.PeReader,
             caller.MetadataToken);
-        LocalTypeDecodeResult localTypes =
+        MethodLocalSignature localTypes =
             DecodeLocalTypesWithStatus(body, scope);
         MethodBodyAnalysisContext context =
             MethodBodyAnalysisContext.Create(
