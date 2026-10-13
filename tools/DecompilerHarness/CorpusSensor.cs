@@ -1004,7 +1004,7 @@ internal static class CorpusSensor
         }
         return new ValiditySensorMetrics(
             results.Count(result => result.IsFull && result.IsMalformed),
-            results.Count(result => result.SemanticChecked),
+            results.Count(result => result.SemanticChecked && (!result.SemanticUnavailable || result.HasSemanticDefect)),
             results.Count(result => result.HasSemanticDefect));
     }
 
@@ -1950,7 +1950,9 @@ internal static class CorpusSensor
         if (result.SemanticChecked)
             return result.HasSemanticDefect
                 ? $"semantic-defect:{Codes(result.SemanticDiagnostics)}"
-                : "valid";
+                : result.SemanticUnavailable
+                    ? $"semantic-unavailable:{Codes(result.SemanticDiagnostics)}"
+                    : "valid";
         return "syntax-valid";
     }
 
@@ -2275,6 +2277,7 @@ internal static class CorpusSensor
                 failures.Add($"Full fidelity method lost (pinned): {methodKey} -> {outcome}");
             }
             if (before.Validity == "valid"
+                && !after.Validity.StartsWith("semantic-unavailable:", StringComparison.Ordinal)
                 && after.Validity is not ("valid" or "not-sampled" or "syntax-valid"))
             {
                 failures.Add($"valid method regressed (pinned): {methodKey} -> {after.Validity}");

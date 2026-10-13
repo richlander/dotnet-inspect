@@ -40,7 +40,8 @@ static class ValidityCheck
     // as noise. Genuine misuse codes (CS0029/CS0266 conversions — the
     // constrained-generic family; CS0165 use-before-assignment; CS0136/CS0128
     // duplicate locals; CS0193 deref of non-pointer; CS1656/CS0131 bad assign)
-    // are deliberately KEPT.
+    // are deliberately KEPT. Missing out-call assignment context is a coverage
+    // decline (VLD0002), retaining the raw CS0165 in its evidence message.
     //
     // CS1729 ("'T' does not contain a constructor that takes N arguments") is the
     // constructor analog of CS1501 (the method-arity/visibility code already
@@ -65,6 +66,7 @@ static class ValidityCheck
     ];
 
     internal const string StructuredEvidenceMissId = "VLD0001";
+    internal const string AssignmentContextUnavailableId = "VLD0002";
 
     static readonly HashSet<string> ShellTypeDiagnosticIds =
     [
@@ -86,7 +88,8 @@ static class ValidityCheck
     {
         public string Id => $"{TypeName}::{MethodName}";
         public bool IsMalformed => MalformedDiagnostics.Length > 0;
-        public bool HasSemanticDefect => SemanticDiagnostics.Length > 0;
+        public bool HasSemanticDefect => SemanticDiagnostics.Any(d => d.Id != AssignmentContextUnavailableId);
+        public bool SemanticUnavailable => SemanticDiagnostics.Any(d => d.Id == AssignmentContextUnavailableId);
         public bool CompileBackUnavailable =>
             CompileBackUnavailableReason is not null;
     }
@@ -98,10 +101,12 @@ static class ValidityCheck
         string? CompileBackUnavailableReason = null)
     {
         public bool IsMalformed => MalformedDiagnostics.Length > 0;
-        public bool HasSemanticDefect => SemanticDiagnostics.Length > 0;
+        public bool HasSemanticDefect => SemanticDiagnostics.Any(d => d.Id != AssignmentContextUnavailableId);
+        public bool SemanticUnavailable => SemanticDiagnostics.Any(d => d.Id == AssignmentContextUnavailableId);
         public bool CompileBackUnavailable =>
             CompileBackUnavailableReason is not null;
         public bool IsValid => !CompileBackUnavailable
+            && !SemanticUnavailable
             && !IsMalformed
             && SemanticChecked
             && !HasSemanticDefect;
@@ -134,7 +139,8 @@ static class ValidityCheck
         int fullMalformed = results.Count(r => r.IsFull && r.IsMalformed);
         int partialMalformed = results.Count(r => !r.IsFull && r.IsMalformed);
         int semanticEligible = results.Count(r => r.IsFull && !r.IsMalformed);
-        int semChecked = results.Count(r => r.SemanticChecked);
+        int semChecked = results.Count(r => r.SemanticChecked && (!r.SemanticUnavailable || r.HasSemanticDefect));
+        int semanticUnavailable = results.Count(r => r.SemanticUnavailable);
         int semDefect = results.Count(r => r.HasSemanticDefect);
         var defectCodes = new SortedDictionary<string, int>(StringComparer.Ordinal);
         foreach (var diagnostic in results.SelectMany(r => r.SemanticDiagnostics))
@@ -147,7 +153,11 @@ static class ValidityCheck
         var defectExamples = results
             .Where(r => r.HasSemanticDefect)
             .Take(maxExamples)
-            .Select(r => $"{r.Id}\n    {r.SemanticDiagnostics[0].Id}: {r.SemanticDiagnostics[0].Message}")
+            .Select(r =>
+            {
+                var defect = r.SemanticDiagnostics.First(d => d.Id != AssignmentContextUnavailableId);
+                return $"{r.Id}\n    {defect.Id}: {defect.Message}";
+            })
             .ToList();
         var unavailableExamples = results
             .Where(r => r.CompileBackUnavailable)
@@ -175,6 +185,10 @@ static class ValidityCheck
         Report(total, fullTotal, partialTotal, fullMalformed, partialMalformed,
             compileBackUnavailable, semanticEligible, semChecked, cap, semDefect,
             defectCodes, malformedExamples, defectExamples, unavailableExamples);
+        Console.WriteLine($"Semantic assignment context unavailable: {semanticUnavailable}");
+        foreach (var result in results.Where(r => r.SemanticUnavailable).Take(maxExamples))
+            foreach (var diagnostic in result.SemanticDiagnostics.Where(d => d.Id == AssignmentContextUnavailableId))
+                Console.WriteLine($"  {result.Id}: {diagnostic.Id}: {diagnostic.Message}");
 
         if (methodDefects is not null && emitDefectsPath is not null)
             EmitDefects(emitDefectsPath, methodDefects);
@@ -493,6 +507,12 @@ static class ValidityCheck
             if (!IsError(diagnostic) || BindingNoise.Contains(diagnostic.Id))
                 continue;
 
+            if (UnresolvedOutAssignment(diagnostic, tree, semanticModel) is { } unavailable)
+            {
+                defects.Add(new ValidityDiagnostic(AssignmentContextUnavailableId, unavailable));
+                continue;
+            }
+
             var shellArtifact = ClassifyShellArtifact(diagnostic, tree, function, semanticModel);
             if (shellArtifact == EvidenceDisposition.Filter)
                 continue;
@@ -523,6 +543,79 @@ static class ValidityCheck
 
         return defects.ToImmutable();
     }
+
+    // Match symbols, not spelling: another local or a nested executable body
+    // cannot supply assignment evidence for the diagnosed read. This declines
+    // coverage, never proves the unresolved call would make the body valid.
+    static string? UnresolvedOutAssignment(
+        Diagnostic diagnostic,
+        SyntaxTree tree,
+        SemanticModel semanticModel)
+    {
+        if (diagnostic.Id != "CS0165" || diagnostic.Location.SourceTree != tree)
+            return null;
+        var read = tree.GetRoot().FindNode(diagnostic.Location.SourceSpan,
+            getInnermostNodeForTie: true);
+        if (semanticModel.GetSymbolInfo(read).Symbol is not ILocalSymbol local)
+            return null;
+        var scope = ExecutableScope(read);
+        if (scope is null)
+            return null;
+        foreach (var argument in scope.DescendantNodes()
+            .OfType<ArgumentSyntax>())
+        {
+            if (!argument.RefKindKeyword.IsKind(SyntaxKind.OutKeyword)
+                || ExecutableScope(argument) != scope
+                || argument.Parent?.Parent is not InvocationExpressionSyntax invocation
+                || invocation.SpanStart > read.SpanStart)
+                continue;
+            var assigned = argument.Expression is DeclarationExpressionSyntax declaration
+                && declaration.Designation is SingleVariableDesignationSyntax designation
+                    ? semanticModel.GetDeclaredSymbol(designation)
+                    : semanticModel.GetSymbolInfo(argument.Expression).Symbol;
+            if (!SymbolEqualityComparer.Default.Equals(local, assigned))
+                continue;
+            var unresolved = semanticModel.GetSymbolInfo(invocation).Symbol is not IMethodSymbol
+                ? invocation
+                : UnresolvedOutInAndGuard(invocation, read, semanticModel);
+            if (unresolved is not null)
+                return $"{diagnostic.Id}: {diagnostic.GetMessage()}; assignment context unavailable: unresolved out invocation '{unresolved.Expression}'";
+        }
+        return null;
+    }
+
+    static InvocationExpressionSyntax? UnresolvedOutInAndGuard(
+        InvocationExpressionSyntax invocation,
+        SyntaxNode read,
+        SemanticModel semanticModel)
+    {
+        // A resolved second out call can also lose its true-outcome facts when
+        // an earlier out call in the same && guard cannot bind. Limit this
+        // dependent decline to reads protected by that guard's true arm: a read
+        // after the if, or under ||, can genuinely skip the resolved call.
+        SyntaxNode condition = invocation;
+        bool hasAnd = false;
+        while (condition.Parent is ParenthesizedExpressionSyntax
+            || condition.Parent is BinaryExpressionSyntax binary
+                && binary.IsKind(SyntaxKind.LogicalAndExpression))
+        {
+            hasAnd |= condition.Parent is BinaryExpressionSyntax;
+            condition = condition.Parent;
+        }
+        if (!hasAnd
+            || condition.Parent is not IfStatementSyntax guard
+            || !guard.Statement.Span.Contains(read.Span))
+            return null;
+        return condition.DescendantNodes().OfType<InvocationExpressionSyntax>()
+            .FirstOrDefault(candidate => ExecutableScope(candidate) == ExecutableScope(read)
+                && candidate.ArgumentList.Arguments.Any(argument => argument.RefKindKeyword.IsKind(SyntaxKind.OutKeyword))
+                && semanticModel.GetSymbolInfo(candidate).Symbol is not IMethodSymbol);
+    }
+
+    static SyntaxNode? ExecutableScope(SyntaxNode node)
+        => node.Ancestors().FirstOrDefault(ancestor => ancestor is
+            BaseMethodDeclarationSyntax or AccessorDeclarationSyntax
+            or LocalFunctionStatementSyntax or AnonymousFunctionExpressionSyntax);
 
     static void Record(Dictionary<string, SortedSet<string>> map, string method, IEnumerable<string> codes)
     {
