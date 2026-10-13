@@ -6,8 +6,10 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
+using DotnetInspector.SourceSelection;
 using InertText;
 
 namespace DotnetInspect.Cli.Tests;
@@ -320,6 +322,70 @@ public class FindProgressiveTsvTests
     }
 
     [Fact]
+    public async Task EcosystemPrefixEnumerationUsesSelectedSource()
+    {
+        const string source = "https://private.example/v3/index.json";
+        var handler = new PrefixSourceHandler();
+        using var client = new HttpClient(handler);
+        var context = new CommandContext(verbose: false, client);
+        var options = new FindOptions
+        {
+            SourceOptions = new NuGetSourceOptions
+            {
+                Sources = [source],
+            },
+        };
+        var pages = new List<EcosystemFindPrefixPage>();
+
+        await foreach (EcosystemFindPrefixPage page in
+            FindCommand.EnumeratePrefixAsync(
+                new("Contoso."),
+                1,
+                options,
+                context,
+                TestContext.Current.CancellationToken))
+        {
+            pages.Add(page);
+        }
+
+        EcosystemFindCandidate candidate =
+            Assert.Single(Assert.Single(pages).Candidates);
+        Assert.Equal("Contoso.Private", candidate.PackageId);
+        Assert.All(
+            handler.Requested,
+            uri => Assert.Equal("private.example", uri.Host));
+    }
+
+    [Fact]
+    public async Task EcosystemPrefixEnumerationHonorsCancellation()
+    {
+        var handler = new BlockingSourceHandler();
+        using var client = new HttpClient(handler);
+        var context = new CommandContext(verbose: false, client);
+        var options = new FindOptions
+        {
+            SourceOptions = new NuGetSourceOptions
+            {
+                Sources = ["https://private.example/v3/index.json"],
+            },
+        };
+        using var cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+
+        Task operation = CollectPrefixPagesAsync(
+            options,
+            context,
+            cancellation.Token);
+        await handler.RequestStarted.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => operation);
+    }
+
+    [Fact]
     public void PrefixTypeRowsExcludePackageLocalAndRelativeResults()
     {
         List<TypeFindResult> rows =
@@ -462,4 +528,69 @@ public class FindProgressiveTsvTests
             Field(coordinate), Field("member"), Field("runtime"),
             Field("System.Private.CoreLib"), Field("*"), Field("method"),
             Field(""), Field("direct"), Field(""));
+
+    private static async Task CollectPrefixPagesAsync(
+        FindOptions options,
+        CommandContext context,
+        CancellationToken cancellationToken)
+    {
+        await foreach (EcosystemFindPrefixPage _ in
+            FindCommand.EnumeratePrefixAsync(
+                new("Contoso."),
+                1,
+                options,
+                context,
+                cancellationToken))
+        {
+        }
+    }
+
+    private sealed class PrefixSourceHandler : HttpMessageHandler
+    {
+        public List<Uri> Requested { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Uri uri = request.RequestUri!;
+            Requested.Add(uri);
+            string content = uri.AbsolutePath switch
+            {
+                "/v3/index.json" =>
+                    """
+                    {"resources":[{"@id":"https://private.example/v3/query","@type":"SearchQueryService"}]}
+                    """,
+                "/v3/query" =>
+                    """
+                    {"data":[{"id":"Contoso.Private","version":"1.0.0"}]}
+                    """,
+                _ => throw new InvalidOperationException(
+                    $"Unexpected request: {uri}"),
+            };
+            return Task.FromResult(new HttpResponseMessage(
+                System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    content,
+                    System.Text.Encoding.UTF8,
+                    "application/json"),
+            });
+        }
+    }
+
+    private sealed class BlockingSourceHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource RequestStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestStarted.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("Cancellation was ignored.");
+        }
+    }
 }

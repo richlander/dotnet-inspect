@@ -663,7 +663,8 @@ public partial class FindCommand
                 demandPrefixes);
         return new(request, bounded,
             (prefix, remaining, token) =>
-                EnumeratePrefixAsync(prefix, remaining, context, token),
+                EnumeratePrefixAsync(
+                    prefix, remaining, options, context, token),
             candidate,
             publish: block =>
             {
@@ -764,64 +765,65 @@ public partial class FindCommand
             options.Limit);
     }
 
-    private static async IAsyncEnumerable<EcosystemFindPrefixPage>
+    internal static async IAsyncEnumerable<EcosystemFindPrefixPage>
         EnumeratePrefixAsync(
             PackagePrefixDeclaration prefix,
             int sourceTake,
+            FindOptions options,
             CommandContext context,
             [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         NuGetFetchOptions fetchOptions =
             NuGetFetchOptions.FromRequestTimeout(context.HttpClient.Timeout);
-        using IPackageSourceClient source =
-            PackageSourceClientFactory.CreateGallery(
-                PackageSourceAssociation.Create(),
-                DotnetInspector.Networking.HttpClientFactory
-                    .CreateCredentialFreeHandler(),
-                fetchOptions);
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(
-            cancellationToken);
-        deadline.CancelAfter(fetchOptions.OperationTimeout);
-        using var operation = new NuGetOperationContext(
-            fetchOptions.RequestTimeout,
-            fetchOptions.OperationTimeout,
-            deadline.Token);
         context.Logger.Log($"Searching package prefix {prefix.Prefix}");
-        await foreach (PackageSourceOperationResult<PackageSearchResult> page
-            in source.SearchByPrefixPagesAsync(
-                prefix.Prefix, sourceTake, prerelease: false,
-                operation.CancellationToken, operation))
+        NuGetSearchOutcome? result = null;
+        string? failure = null;
+        try
         {
-            if (page.Failure is { } failure)
-            {
-                yield return new([], EcosystemFindPrefixPageCompletion.Failed,
-                    failure.Message);
-                yield break;
-            }
-            PackageSearchResult result = page.Value
-                ?? throw new InvalidOperationException(
-                    "Package-prefix search returned no result or failure.");
-            EcosystemFindPrefixPageCompletion completion =
-                result.TruncationReason switch
-                {
-                    PackageSearchTruncationReason.RequestedLimit =>
-                        EcosystemFindPrefixPageCompletion.RequestedLimit,
-                    PackageSearchTruncationReason.SourcePageLimit =>
-                        EcosystemFindPrefixPageCompletion.SourcePageLimit,
-                    PackageSearchTruncationReason.ClientPageLimit =>
-                        EcosystemFindPrefixPageCompletion.ClientPageLimit,
-                    _ => EcosystemFindPrefixPageCompletion.Exhausted,
-                };
-            if (result.Truncated)
-                CommandError.WriteWarning(
-                    $"Package-prefix search for \"{prefix.Prefix}\" "
-                    + $"was incomplete: {result.TruncationReason}.");
-            yield return new(
-                [.. result.Matches.Select(match => new EcosystemFindCandidate(
-                    match.Metadata.Id, match.Metadata.Version.ToString()))],
-                completion);
+            result = await NuGetSearchService.SearchByPrefixWithStateAsync(
+                context.HttpClient,
+                cancellationToken,
+                prefix.Prefix,
+                sourceTake,
+                prerelease: false,
+                context.Logger.Log,
+                options.SourceOptions,
+                fetchOptions);
         }
+        catch (InvalidOperationException exception)
+        {
+            failure = exception.Message;
+        }
+        if (failure is not null)
+        {
+            yield return new(
+                [],
+                EcosystemFindPrefixPageCompletion.Failed,
+                failure);
+            yield break;
+        }
+
+        EcosystemFindPrefixPageCompletion completion =
+            PrefixCompletion(result!.PrefixSearchLimits);
+        if (completion != EcosystemFindPrefixPageCompletion.Exhausted)
+            CommandError.WriteWarning(
+                $"Package-prefix search for \"{prefix.Prefix}\" "
+                + $"was incomplete: {completion}.");
+        yield return new(
+            [.. result.Results.Select(match => new EcosystemFindCandidate(
+                match.PackageId, match.Version))],
+            completion);
     }
+
+    private static EcosystemFindPrefixPageCompletion PrefixCompletion(
+        IReadOnlyList<PrefixSearchCompletion> limits) =>
+        limits.Contains(PrefixSearchCompletion.ClientPageLimitReached)
+            ? EcosystemFindPrefixPageCompletion.ClientPageLimit
+            : limits.Contains(PrefixSearchCompletion.SourcePageLimitReached)
+                ? EcosystemFindPrefixPageCompletion.SourcePageLimit
+                : limits.Contains(PrefixSearchCompletion.TakeReached)
+                    ? EcosystemFindPrefixPageCompletion.RequestedLimit
+                    : EcosystemFindPrefixPageCompletion.Exhausted;
 
     private static async Task<PrefixFindResult> EvaluatePrefixCandidateAsync(
         FindOptions options,
