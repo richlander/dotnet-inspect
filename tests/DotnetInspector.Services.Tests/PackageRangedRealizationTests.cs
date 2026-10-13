@@ -988,6 +988,13 @@ public sealed partial class PackageRangedRealizationTests
             }
 
             string lower = id.ToLowerInvariant();
+            if (url == $"{FlatUrl}{lower}/index.json")
+            {
+                return Task.FromResult(Respond(
+                    request,
+                    HttpStatusCode.OK,
+                    new StringContent($$"""{"versions":["{{version}}"]}""")));
+            }
             if (url != $"{FlatUrl}{lower}/{version}/{lower}.{version}.nupkg")
                 return Task.FromResult(Respond(request, HttpStatusCode.NotFound, new ByteArrayContent([])));
 
