@@ -725,8 +725,15 @@ internal sealed record DependsPruningJson
         DependencyInspectionPruning row,
         DependencyEvidenceSourceTokens tokens)
     {
-        PackageHouseDependencyPruningResult.Evaluated? evaluated =
-            row.RuntimeResult as PackageHouseDependencyPruningResult.Evaluated;
+        (PlatformSubsumption Subsumption, bool DelegatesToPlatform)?
+            comparison = row.Result switch
+            {
+                DependencyInspectionPruningResult.Evaluated evaluated =>
+                    (evaluated.Subsumption, evaluated.DelegatesToPlatform),
+                DependencyInspectionPruningResult.RestoredResolution restored =>
+                    (restored.Subsumption, restored.DelegatesToPlatform),
+                _ => null,
+            };
         return new DependsPruningJson
         {
             Root = row.RootOccurrence,
@@ -774,9 +781,8 @@ internal sealed record DependsPruningJson
                         resolved.Candidate,
                         tokens)
                     : null,
-            Subsumption = evaluated?.Pruning.Supply.Subsumption,
-            DelegatesToPlatform =
-                evaluated?.Pruning.Supply.DelegatesToPlatform,
+            Subsumption = comparison?.Subsumption,
+            DelegatesToPlatform = comparison?.DelegatesToPlatform,
         };
     }
 }

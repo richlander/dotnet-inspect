@@ -12,12 +12,7 @@ internal static class BrowserCapabilityCatalogSearch
         string text,
         int maximumResults)
     {
-        InspectionCapabilityCatalog catalog =
-            InspectionCapabilityCatalog.Create(
-                [
-                    PackageQueryCapability.ProductModule,
-                    PackageQueryCapabilityBinding.Module,
-                ]);
+        InspectionCapabilityCatalog catalog = CreateCatalog();
         ResourceExplanationCatalog explanation =
             ResourceExplanationCatalog.CreateCapabilities(
                 catalog,
@@ -27,6 +22,10 @@ internal static class BrowserCapabilityCatalogSearch
             explanation,
             new(text, maximumResults));
     }
+
+    internal static InspectionCapabilityCatalog CreateCatalog() =>
+        InspectionCapabilityCatalog.Create(
+            [PackageQueryCapability.ProductModule, PackageQueryCapabilityBinding.Module]);
 }
 
 [SupportedOSPlatform("browser")]

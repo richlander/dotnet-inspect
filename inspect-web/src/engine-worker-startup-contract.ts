@@ -26,10 +26,13 @@ import type {
 } from "./package-query-durable-row.ts";
 import type {
   BrowserPackageChangesEcosystemCatalog,
-  BrowserPackageQueryCatalog,
-  BrowserPackageQueryAcquisitionTier,
-  BrowserPackageQueryExecutionClass,
 } from "./facades/inspect-web-package.d.ts";
+import type {
+  PackageQueryFacetBinding,
+  PackageQueryFacetData,
+  PackageQueryFacetDescriptor,
+  PackageQueryFacetOption,
+} from "./package-query-source.ts";
 import type { BoundedPayloadDecoder } from "./worker-runtime-protocol.ts";
 
 export const engineStartupMaximumJsonCharacters = 1_048_576;
@@ -69,19 +72,88 @@ function array<T>(value: unknown, parse: (entry: unknown) => T): T[] {
   return value.map(parse);
 }
 
-function tier(value: unknown): BrowserPackageQueryAcquisitionTier {
-  if (value === "Nuspec" || value === "PackageContent" || value === "SearchMetadata") return value;
-  return number(value);
+function packageQueryFacetOption(value: unknown): PackageQueryFacetOption {
+  const option = record(value);
+  return {
+    value: text(option.value),
+    label: text(option.label),
+    summary: text(option.summary),
+  };
 }
 
-function executionClass(value: unknown): BrowserPackageQueryExecutionClass {
-  if (value === "SearchMetadata"
-    || value === "Nuspec"
-    || value === "NuspecExpensive"
-    || value === "PackageContent"
-    || value === "Metadata"
-    || value === "MetadataExpensive") return value;
-  return number(value);
+function packageQueryFacet(
+  key: string,
+  value: unknown,
+): PackageQueryFacetDescriptor {
+  const facet = record(value);
+  return {
+    key,
+    name: text(facet.name),
+    summary: text(facet.summary),
+    operators: array(facet.operators, text),
+    valueKind: text(facet.value_kind),
+    examples: array(facet.examples ?? [], text),
+    effects: array(facet.effects ?? [], text),
+    inputRules: array(facet.input_rules ?? [], text),
+    presentationOrder: number(facet.presentation_order),
+    controlKind: text(facet.control_kind),
+    presentationKind: text(facet.presentation_kind),
+    executionClass: text(facet.execution_class),
+    selectionGroup: nullableText(facet.selection_group),
+    combinesWithinSelectionGroup:
+      boolean(facet.combines_within_selection_group),
+    replacementGroup: nullableText(facet.replacement_group),
+    optionSource: nullableText(facet.option_source),
+    options: array(facet.options, packageQueryFacetOption),
+    relatedOperations: array(facet.related_operations, text),
+  };
+}
+
+function packageQueryFacetBinding(value: unknown): PackageQueryFacetBinding {
+  const binding = record(value);
+  return {
+    consumerKind: text(binding.consumer_kind),
+    exposedFacets: array(binding.exposed_facets, text),
+  };
+}
+
+function mapped<TValue>(
+  value: unknown,
+  decode: (value: unknown) => TValue,
+): Record<string, TValue> {
+  return Object.fromEntries(
+    Object.entries(record(value))
+      .map(([key, entry]) => [key, decode(entry)]),
+  );
+}
+
+function packageQueryFacetData(value: unknown): PackageQueryFacetData {
+  const data = record(value);
+  const scope = record(data.scope);
+  if (text(scope.profile) !== "query-preparation/v1"
+    || text(scope.completeness) !== "Complete") {
+    throw new StartupPayloadError(
+      "Package Query facet data must be a complete query-preparation/v1 selection.");
+  }
+  const facets = Object.fromEntries(
+    Object.entries(record(data.facets))
+      .map(([key, entry]) => [key, packageQueryFacet(key, entry)]),
+  );
+  const facetOrder = array(data.facet_order, text);
+  const bindings = mapped(data.bindings, packageQueryFacetBinding);
+  if (new Set(facetOrder).size !== facetOrder.length
+    || facetOrder.length !== Object.keys(facets).length
+    || facetOrder.some(key => !(key in facets))) {
+    throw new StartupPayloadError(
+      "Package Query facet order must contain every facet exactly once.");
+  }
+  for (const binding of Object.values(bindings)) {
+    if (binding.exposedFacets.some(key => !(key in facets))) {
+      throw new StartupPayloadError(
+        "Package Query consumer binding exposes an unknown facet.");
+    }
+  }
+  return { facets, facetOrder, bindings };
 }
 
 function vocabularyMapCardinality(
@@ -430,72 +502,9 @@ export const engineStartupOperations = {
       };
     }),
   },
-  listPackageQueryCatalog: {
-    kind: "package-list-query-catalog",
-    value: json<BrowserPackageQueryCatalog>(value => {
-      const data = record(value);
-      return {
-        ...data,
-        presets: array(data.presets, rawPreset => {
-          const preset = record(rawPreset);
-          return {
-            ...preset,
-            key: text(preset.key),
-            operator: text(preset.operator),
-            value: text(preset.value),
-            label: text(preset.label),
-            summary: text(preset.summary),
-            weight: number(preset.weight),
-            tier: tier(preset.tier),
-            executionClass: executionClass(preset.executionClass),
-            selectionGroupId: nullableText(preset.selectionGroupId),
-            combinesWithinSelectionGroup: boolean(
-              preset.combinesWithinSelectionGroup),
-            replacementGroupId: nullableText(preset.replacementGroupId),
-            displayGroupId: nullableText(preset.displayGroupId),
-            displayGroupLabel: nullableText(preset.displayGroupLabel),
-            categoryId: text(preset.categoryId),
-            categoryLabel: text(preset.categoryLabel),
-            categoryOrder: number(preset.categoryOrder),
-            relatedOperations: array(
-              preset.relatedOperations,
-              operation => text(operation),
-            ),
-          };
-        }),
-        terms: array(data.terms, rawTerm => {
-          const term = record(rawTerm);
-          return {
-            ...term,
-            key: text(term.key),
-            label: text(term.label),
-            summary: text(term.summary),
-            weight: number(term.weight),
-            tier: tier(term.tier),
-            executionClass: executionClass(term.executionClass),
-            operators: array(term.operators, text),
-            valueKind: text(term.valueKind),
-            example: text(term.example),
-            multiline: boolean(term.multiline),
-            allowsCustomValue: boolean(term.allowsCustomValue),
-            replacementGroupId: nullableText(term.replacementGroupId),
-            options: array(term.options, rawOption => {
-              const option = record(rawOption);
-              return {
-                ...option,
-                value: text(option.value),
-                label: text(option.label),
-                summary: text(option.summary),
-              };
-            }),
-            relatedOperations: array(
-              term.relatedOperations,
-              operation => text(operation),
-            ),
-          };
-        }),
-      };
-    }),
+  inspectPackageQueryFacets: {
+    kind: "package-inspect-query-facets",
+    value: json<PackageQueryFacetData>(packageQueryFacetData),
   },
   listPackageActivityEcosystems: {
     kind: "package-list-changes-ecosystems",

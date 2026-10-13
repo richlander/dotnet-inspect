@@ -13,9 +13,15 @@ public sealed partial class ResourceExplanationDataset
         ExplanationResourceKey[] members = Targets(querySpace.Key, "query-facet").ToArray();
         var resources = _resources.Prepend(querySpace).DistinctBy(resource => resource.Key).ToArray();
         var factResources = ResourceExplanationDataProjection.CreateFactResources(_catalog, resources);
-        var facts = resources.Select((resource, i) => (resource.Key,
-                Facts: JsonNode.Parse(factResources[i].GetRawText())!["facts"]!.AsObject()))
-            .ToDictionary(pair => pair.Key, pair => pair.Facts);
+        var projections = resources.Select((resource, i) =>
+            {
+                JsonObject projection = JsonNode.Parse(
+                    factResources[i].GetRawText())!.AsObject();
+                return (
+                    resource.Key,
+                    Facts: projection["facts"]!.AsObject(),
+                    States: projection["fact_states"]!.AsObject());
+            }).ToDictionary(pair => pair.Key);
         var localKeys = _resources.Where(resource => resource.ResourceType == ResourceExplanationVocabulary.QueryFacetType)
             .ToDictionary(resource => resource.Key, FacetKey);
         if (localKeys.Values.Distinct(StringComparer.Ordinal).Count() != localKeys.Count)
@@ -26,24 +32,59 @@ public sealed partial class ResourceExplanationDataset
         foreach (ExplanationResourceKey identity in members.Where(localKeys.ContainsKey))
         {
             var record = new JsonObject();
-            foreach (string field in new[] { "summary", "operators", "value-kind", "examples", "effects", "input-rules", "values" })
+            JsonObject facts = projections[identity].Facts;
+            foreach (string field in new[]
+                {
+                    "name",
+                    "summary",
+                    "operators",
+                    "value-kind",
+                    "examples",
+                    "effects",
+                    "input-rules",
+                    "values",
+                })
             {
-                JsonNode value = RequireFact(facts[identity], field);
+                JsonNode value = RequireFact(facts, field);
                 if (value is JsonArray { Count: 0 } && field != "operators")
                     continue;
                 record[field.Replace('-', '_')] = value.DeepClone();
+            }
+            foreach (string field in new[]
+                {
+                    "presentation-order",
+                    "control-kind",
+                    "presentation-kind",
+                    "execution-class",
+                    "selection-group",
+                    "combines-within-selection-group",
+                    "replacement-group",
+                    "option-source",
+                    "options",
+                })
+            {
+                record[field.Replace('-', '_')] = AvailableOrAbsent(
+                    facts,
+                    projections[identity].States,
+                    field);
             }
             var requires = new JsonArray(Targets(identity, "required-context")
                 .Select(key => (JsonNode?)JsonValue.Create(localKeys[key])).ToArray());
             if (requires.Count > 0)
                 record["requires"] = requires;
+            record["related_operations"] = new JsonArray(
+                Targets(identity, "related-operation")
+                    .Select(key => (JsonNode?)JsonValue.Create(
+                        RequireFact(projections[key].Facts, "identity")
+                            .GetValue<string>()))
+                    .ToArray());
             facets.Add(localKeys[identity], record);
         }
         var bindings = new JsonObject();
         foreach (ResourceExplanationResource binding in _resources.Where(resource =>
             resource.ResourceType == ResourceExplanationVocabulary.ConsumerBindingType))
         {
-            JsonObject source = facts[binding.Key];
+            JsonObject source = projections[binding.Key].Facts;
             var record = new JsonObject
             {
                 ["consumer_kind"] = RequireFact(source, "consumer-kind").DeepClone(),
@@ -57,7 +98,9 @@ public sealed partial class ResourceExplanationDataset
         var scope = new JsonObject
         {
             ["profile"] = "query-preparation/v1",
-            ["resource"] = RequireFact(facts[querySpace.Key], "identity").DeepClone(),
+            ["resource"] = RequireFact(
+                projections[querySpace.Key].Facts,
+                "identity").DeepClone(),
             ["root"] = _root.Path?.Value,
             ["population"] = "selected-facets", ["completeness"] = "Complete",
             ["catalog_facets"] = members.Length,
@@ -127,6 +170,20 @@ public sealed partial class ResourceExplanationDataset
 
     private static JsonNode RequireFact(JsonObject facts, string field) => facts[field]
         ?? throw new InvalidOperationException("A selected query-preparation fact is unavailable: " + field);
+
+    private static JsonNode? AvailableOrAbsent(
+        JsonObject facts,
+        JsonObject states,
+        string field)
+    {
+        if (facts[field] is JsonNode value)
+            return value.DeepClone();
+        if (states[field] is JsonObject state
+            && state["state"]?.GetValue<string>() == "Absent")
+            return null;
+        throw new InvalidOperationException(
+            "A selected query-preparation fact is unavailable: " + field);
+    }
 
     private static JsonObject WithKey(KeyValuePair<string, JsonNode?> pair)
     {
