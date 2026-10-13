@@ -90,6 +90,7 @@ static class ValidityCheck
         public bool IsMalformed => MalformedDiagnostics.Length > 0;
         public bool HasSemanticDefect => SemanticDiagnostics.Any(d => d.Id != AssignmentContextUnavailableId);
         public bool SemanticUnavailable => SemanticDiagnostics.Any(d => d.Id == AssignmentContextUnavailableId);
+        public bool HasSemanticOutcome => SemanticChecked && (!SemanticUnavailable || HasSemanticDefect);
         public bool CompileBackUnavailable =>
             CompileBackUnavailableReason is not null;
     }
@@ -139,7 +140,8 @@ static class ValidityCheck
         int fullMalformed = results.Count(r => r.IsFull && r.IsMalformed);
         int partialMalformed = results.Count(r => !r.IsFull && r.IsMalformed);
         int semanticEligible = results.Count(r => r.IsFull && !r.IsMalformed);
-        int semChecked = results.Count(r => r.SemanticChecked && (!r.SemanticUnavailable || r.HasSemanticDefect));
+        int semanticAttempts = results.Count(r => r.SemanticChecked);
+        int semChecked = results.Count(r => r.HasSemanticOutcome);
         int semanticUnavailable = results.Count(r => r.SemanticUnavailable);
         int semDefect = results.Count(r => r.HasSemanticDefect);
         var defectCodes = new SortedDictionary<string, int>(StringComparer.Ordinal);
@@ -183,7 +185,7 @@ static class ValidityCheck
         }
 
         Report(total, fullTotal, partialTotal, fullMalformed, partialMalformed,
-            compileBackUnavailable, semanticEligible, semChecked, cap, semDefect,
+            compileBackUnavailable, semanticEligible, semanticAttempts, semChecked, cap, semDefect,
             defectCodes, malformedExamples, defectExamples, unavailableExamples);
         Console.WriteLine($"Semantic assignment context unavailable: {semanticUnavailable}");
         foreach (var result in results.Where(r => r.SemanticUnavailable).Take(maxExamples))
@@ -693,7 +695,7 @@ static class ValidityCheck
 
     static void Report(
         int total, int fullTotal, int partialTotal, int fullMalformed, int partialMalformed,
-        int compileBackUnavailable, int semanticEligible, int semChecked, int cap,
+        int compileBackUnavailable, int semanticEligible, int semanticAttempts, int semChecked, int cap,
         int semDefect, SortedDictionary<string, int> defectCodes,
         List<string> malformedExamples, List<string> defectExamples,
         List<string> unavailableExamples)
@@ -709,9 +711,10 @@ static class ValidityCheck
         Console.WriteLine($"  Full malformed   : {fullMalformed} ({Pct(fullMalformed, fullTotal)} of Full) — the \"claimed good but won't parse\" set");
         Console.WriteLine($"  Partial malformed: {partialMalformed} ({Pct(partialMalformed, partialTotal)} of Partial) — expected: the diagnosed unsupported bits");
         Console.WriteLine();
-        Console.WriteLine($"Semantic binding (Full + syntactically-valid): compiled {semChecked} of {semanticEligible} eligible methods (compile-cap {capText})");
-        if (semChecked < semanticEligible)
+        Console.WriteLine($"Semantic binding (Full + syntactically-valid): compiled {semanticAttempts} of {semanticEligible} eligible methods (compile-cap {capText})");
+        if (semanticAttempts < semanticEligible)
             Console.WriteLine("  NOTE: semantic findings are per-sample, not corpus-wide; raise --compile-cap or use --compile-cap all for an exhaustive binding sweep.");
+        Console.WriteLine($"  completed semantic outcomes: {semChecked}");
         Console.WriteLine($"  with a non-binding-noise error: {semDefect} ({Pct(semDefect, semChecked)})");
         if (defectCodes.Count > 0)
         {

@@ -79,6 +79,10 @@ retaining the raw CS0165 and unresolved-call evidence in its message. It does
 not claim validity, remove a product initializer, or repair the call. Independent
 defects in that body remain defects; a bound skipped-out-call read remains
 CS0165. Corpus and Render A/B report this decline rather than a validity success.
+Context-only declines do not count as completed semantic checks; a row with an
+independent defect retains its failed outcome. Attempted compilations are
+reported separately, so increasing the sample cap is not offered as a remedy
+for missing binding context.
 The motivating real asset is `dotnet-inspect.any` 0.14.0, its
 `ILInspector.Decompiler.Pipeline.TypeRef::DisplayName` body: the standalone shell
 cannot bind receiver properties or `s_keywords.TryGetValue`, while native RTS

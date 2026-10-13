@@ -1004,7 +1004,7 @@ internal static class CorpusSensor
         }
         return new ValiditySensorMetrics(
             results.Count(result => result.IsFull && result.IsMalformed),
-            results.Count(result => result.SemanticChecked && (!result.SemanticUnavailable || result.HasSemanticDefect)),
+            results.Count(result => result.HasSemanticOutcome),
             results.Count(result => result.HasSemanticDefect));
     }
 
