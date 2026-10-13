@@ -602,9 +602,10 @@ The result distinguishes:
 - effective physical bodies after expansion and work bounds; and
 - declared methods that have no managed physical body.
 
-Existing `LibraryBodyDeclaredSourceResolver` and
-`LibraryBodyAsyncSourceResolver` remain the owners of authenticated expansion
-and attribution. Metric selection makes their scope expansion eligible even
+Existing `DeclaredSourceResolver` and
+`StateMachineSourceResolver` remain the owners of authenticated expansion
+and attribution, which `LibraryBodyDeclaredSourcePublication` applies to a
+plan. Metric selection makes that scope expansion eligible even
 when the coarse `MethodEvidence` feature is absent. The metric result retains
 each expansion edge with its physical token, declared owner token when known,
 and owner-issued reason.

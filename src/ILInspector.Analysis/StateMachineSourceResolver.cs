@@ -18,10 +18,10 @@ internal enum AsyncSourceResolution
 }
 
 /// <summary>
-/// Owns acquisition-scoped async source-to-state-machine mapping and scoped
-/// evidence expansion for primary-image analysis.
+/// Owns acquisition-scoped async and iterator source-to-state-machine mapping
+/// for primary-image analysis.
 /// </summary>
-internal sealed class LibraryBodyAsyncSourceResolver
+internal sealed class StateMachineSourceResolver
 {
     readonly MetadataReader _reader;
     readonly AssemblyReferenceIdentity _assemblyIdentity;
@@ -73,7 +73,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
         Lazy<IReadOnlyDictionary<string, TypeDefinitionHandle>>>
         _targetedNestedTypesByParent = new();
 
-    internal LibraryBodyAsyncSourceResolver(
+    internal StateMachineSourceResolver(
         MetadataReader reader,
         AssemblyReferenceIdentity assemblyIdentity,
         LibraryBodyPrimaryMetadataResolver primaryMetadataResolver,
@@ -110,101 +110,6 @@ internal sealed class LibraryBodyAsyncSourceResolver
         _typeDefinitionIndex = new(
             BuildTypeDefinitionIndex,
             LazyThreadSafetyMode.ExecutionAndPublication);
-    }
-
-    internal LibraryBodyAnalysisPlan ExpandEvidenceScope(
-        LibraryBodyAnalysisPlan plan,
-        Func<MethodIdentity, bool> sourceAdmitted)
-    {
-        IReadOnlySet<int>? bodyScope = plan.MethodScope;
-        Dictionary<int, ImmutableArray<TypeRef>>?
-            typeScopeEvidenceSources =
-                plan.TypeScopeEvidenceSources is null
-                    ? null
-                    : new Dictionary<
-                        int,
-                        ImmutableArray<TypeRef>>(
-                        plan.TypeScopeEvidenceSources);
-        if ((plan.Includes(
-                LibraryBodyAnalysisFeatures.MethodEvidence)
-                || plan.ImplementationMetrics is not null)
-            && (bodyScope is not null
-                || plan.TypeScope is not null))
-        {
-            bool mapRequired =
-                plan.TypeScope is not null
-                || bodyScope is not null
-                    && ScopeMayRequireStateMachineBody(
-                        bodyScope);
-            if (mapRequired)
-            {
-                var expandedScope =
-                    bodyScope is null
-                        ? new HashSet<int>()
-                        : new HashSet<int>(bodyScope);
-                typeScopeEvidenceSources ??= [];
-                foreach ((
-                    int moveNextToken,
-                    MethodIdentity source)
-                    in ExecutionSourceMethodsByMoveNextToken())
-                {
-                    if (HasMalformedCompilerGeneratedLiftedName(
-                            source)
-                        || !sourceAdmitted(source))
-                    {
-                        continue;
-                    }
-                    AddEvidenceSource(
-                        typeScopeEvidenceSources,
-                        moveNextToken,
-                        source.DeclaringType);
-                    if (typeScopeEvidenceSources.TryGetValue(
-                            source.MetadataToken,
-                            out ImmutableArray<TypeRef>
-                                liftedSourceTypes))
-                    {
-                        foreach (TypeRef liftedSourceType
-                            in liftedSourceTypes)
-                        {
-                            AddEvidenceSource(
-                                typeScopeEvidenceSources,
-                                moveNextToken,
-                                liftedSourceType);
-                        }
-                    }
-                    if (bodyScope?.Contains(
-                            source.MetadataToken)
-                        == true)
-                    {
-                        expandedScope.Add(moveNextToken);
-                    }
-                }
-                if (bodyScope is not null)
-                    bodyScope = expandedScope;
-            }
-        }
-        return plan with
-        {
-            MethodScope = bodyScope,
-            TypeScopeEvidenceSources =
-                typeScopeEvidenceSources,
-        };
-    }
-
-    static void AddEvidenceSource(
-        Dictionary<int, ImmutableArray<TypeRef>> sources,
-        int evidenceToken,
-        TypeRef sourceType)
-    {
-        ImmutableArray<TypeRef> existing =
-            sources.GetValueOrDefault(evidenceToken);
-        if (existing.IsDefault)
-            existing = [];
-        if (!existing.Contains(sourceType))
-        {
-            sources[evidenceToken] =
-                existing.Add(sourceType);
-        }
     }
 
     internal bool ScopeMayRequireStateMachineBody(
@@ -2245,7 +2150,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
     }
 
     static bool IsBlazorRenderMethod(MethodIdentity method) =>
-        LibraryMethodAnalysisRunner.IsBlazorRenderMethod(method);
+        FrameworkIdentity.IsBlazorRenderMethod(method);
 
     static TypeRef DefinitionType(TypeRef type)
         => type.Kind == TypeRefKind.GenericInstance
@@ -2253,7 +2158,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
             : type;
 
     static bool IsRecoverableMethodFailure(Exception exception) =>
-        LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(
+        AnalysisMethodFailures.IsRecoverable(
             exception);
 
     sealed record ClassicAsyncExecutionMethods(

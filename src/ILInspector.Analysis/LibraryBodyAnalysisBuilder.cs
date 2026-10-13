@@ -35,10 +35,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _stableReceiverGetterClassifier;
     readonly LibraryBodyMethodReferenceResolver
         _methodReferenceResolver;
-    readonly LibraryBodyAsyncSourceResolver
+    readonly StateMachineSourceResolver
         _asyncSourceResolver;
-    readonly LibraryBodyDeclaredSourceResolver
+    readonly DeclaredSourceResolver
         _declaredSourceResolver;
+    readonly LibraryBodyDeclaredSourcePublication
+        _declaredSourcePublication;
     readonly AsyncSiblingOpportunityAnalyzer _asyncSiblingAnalyzer;
     readonly LibraryBodyReferenceMetadataResolver? _referenceMetadataResolver;
     readonly AssemblyReferenceIdentity _assemblyIdentity;
@@ -125,8 +127,16 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _primaryMetadataResolver = _attribution.PrimaryMetadataResolver;
         _generatedProvenanceClassifier =
             _attribution.GeneratedProvenanceClassifier;
-        _asyncSourceResolver = _attribution.AsyncSourceResolver;
+        _asyncSourceResolver = _attribution.StateMachineSourceResolver;
         _declaredSourceResolver = _attribution.DeclaredSourceResolver;
+        _declaredSourcePublication =
+            new LibraryBodyDeclaredSourcePublication(
+                reader,
+                _attribution.PrimaryMetadataResolver,
+                _attribution.LiftedSourceOwnerResolver,
+                _attribution.StateMachineSourceResolver,
+                _attribution.DeclaredSourceResolver,
+                _attribution.ImplementationMetricWork);
         if ((resolver is not null || bindingPolicy is not null)
             && reader.IsAssembly)
             _referenceMetadataResolver =
@@ -523,7 +533,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _implementationMetricRecorder?.Start(
                     ImplementationMetricWorkStage
                         .SourceAttribution);
-        plan = _declaredSourceResolver.ExpandEvidenceScope(plan);
+        plan = _declaredSourcePublication.ExpandEvidenceScope(plan);
         sourceAttribution?.Complete();
         bool includeMethodEvidence = plan.Includes(
             LibraryBodyAnalysisFeatures.MethodEvidence);
@@ -629,13 +639,13 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             aggregation = _stageRecorder?.Start(
                 LibraryBodyAnalysisStage.ResultAggregation);
         LibraryBodyAnalysisResult analysis =
-            _declaredSourceResolver.MergeScopeExpansionDiagnostics(
+            _declaredSourcePublication.MergeScopeExpansionDiagnostics(
                 accumulator.Build(results),
                 plan);
         if (includeMethodEvidence
             || plan.ImplementationMetrics is not null)
         {
-            analysis = _declaredSourceResolver
+            analysis = _declaredSourcePublication
                 .PublishDeclaredSources(
                     analysis,
                     plan);

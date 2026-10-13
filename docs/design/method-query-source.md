@@ -291,9 +291,14 @@ must receipt that whole-table work and does not satisfy the sparse-breadth
 proportionality gate.
 
 Generated-body discovery runs on `DeclaredSourceAttribution`, which composes
-the declared-source, async state-machine, and lifted-owner resolvers, with the
-metadata resolvers and classifiers they read, from the subject's metadata and
-PE readers alone. The source constructs it only when a request declares
+`DeclaredSourceResolver`, `StateMachineSourceResolver`, and
+`LiftedSourceOwnerResolver`, with the metadata resolvers and classifiers they
+read, from the subject's metadata and PE readers alone. The three resolvers
+reference no Library Body Analysis plan, result, or runner; Library Body
+Analysis applies them to its plans through
+`LibraryBodyDeclaredSourcePublication`, which is deleted with it. The metadata
+resolvers and classifiers still carry `LibraryBody` names and move under
+[#9959](https://github.com/richlander/dotnet-inspect/issues/9959). The source constructs it only when a request declares
 expansion and builds no `LibraryBodyAnalysisBuilder` for it. When a producer
 also declares the module lookup, that lookup's builder is given the same
 attribution, so expansion and lookup share one set of resolver caches. Library
