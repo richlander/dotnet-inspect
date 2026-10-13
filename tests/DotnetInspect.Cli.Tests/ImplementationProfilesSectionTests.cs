@@ -465,6 +465,7 @@ public class MetricSectionTests
 
         Assert.True(
             MemberCommand.TryCreateImplementationProfileFamilySelection(
+                surface,
                 type,
                 familyOptions,
                 out ImplementationProfileFamilySelection? selection));
@@ -477,16 +478,19 @@ public class MetricSectionTests
 
         Assert.False(
             MemberCommand.TryCreateImplementationProfileFamilySelection(
+                surface,
                 type,
                 familyOptions with { IncludeAll = true },
                 out _));
         Assert.False(
             MemberCommand.TryCreateImplementationProfileFamilySelection(
+                surface,
                 type,
                 familyOptions with { OverloadIndex = 1 },
                 out _));
         Assert.False(
             MemberCommand.TryCreateImplementationProfileFamilySelection(
+                surface,
                 type,
                 familyOptions with
                 {
@@ -498,6 +502,7 @@ public class MetricSectionTests
                 out _));
         Assert.False(
             MemberCommand.TryCreateImplementationProfileFamilySelection(
+                surface,
                 type,
                 familyOptions with { MemberFilter = ["Value"] },
                 out _));
@@ -530,6 +535,7 @@ public class MetricSectionTests
         };
         Assert.True(
             MemberCommand.TryCreateImplementationProfileFamilySelection(
+                surface,
                 type,
                 options,
                 out ImplementationProfileFamilySelection? selection));

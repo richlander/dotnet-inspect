@@ -43,6 +43,30 @@ public sealed record ImplementationProfileFamilySelection
 
     public string TypeDefinitionId { get; }
     public ImmutableArray<string> StableSelectors { get; }
+
+    internal ApiSurface? PreparedSurface
+    { get; init; }
+
+    public static ImplementationProfileFamilySelection CreatePrepared(
+        ApiSurface surface,
+        ApiType type,
+        IEnumerable<ApiMember> members)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(members);
+
+        var selection = new ImplementationProfileFamilySelection(
+            AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(type),
+            members.Select(member =>
+                ApiMemberIdentity
+                    .GetMemberAnchor(type, member)
+                    .StableSelector));
+        return selection with
+        {
+            PreparedSurface = surface,
+        };
+    }
 }
 
 public sealed record AssemblyImplementationProfileFamilyInspection(
@@ -81,7 +105,11 @@ public static class AssemblyContextImplementationProfileFamilyQuery
             AssemblyContextQueryExecutor.ExecuteParticipant(
                 group,
                 participant,
-                session => SelectFamily(session, selection));
+                session => SelectFamily(
+                    selection.PreparedSurface
+                        ?? session.CompatibilityApiSurface(
+                            ApiSurfaceExtractionScope.Public),
+                    selection));
         return selected switch
         {
             AssemblyContextEntry<SelectedFamily>.Rejected rejected =>
@@ -203,12 +231,9 @@ public static class AssemblyContextImplementationProfileFamilyQuery
     }
 
     static SelectedFamily SelectFamily(
-        AssemblyInspectionSession session,
+        ApiSurface surface,
         ImplementationProfileFamilySelection selection)
     {
-        ApiSurface surface =
-            session.CompatibilityApiSurface(
-                ApiSurfaceExtractionScope.Public);
         ApiType[] matchingTypes =
         [
             .. surface.Types.Where(type =>

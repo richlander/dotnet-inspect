@@ -80,6 +80,78 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
     }
 
     [Fact]
+    public async Task
+            ExecuteParticipant_UsesPreparedFamilyWithoutReprojectingSurface()
+    {
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        AssemblyApiSurface projected =
+            Assert.IsType<
+                AssemblyContextEntry<AssemblyApiSurface>.Available>(
+                    AssemblyContextApiSurfaceQuery.ExecuteParticipant(
+                        group,
+                        participant))
+                .Value;
+        ApiType type = Assert.Single(
+            projected.Surface.Types,
+            type => type.Name == "ImplementationProfileSample");
+        ApiMember[] members =
+        [
+            .. type.Members.Where(member =>
+                member.Name == "Analyze"),
+        ];
+        var familyFailure = new ApiSurfaceInspectionFailure(
+            "decode method",
+            members[0].MetadataToken!.Value,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "MethodDef",
+            "The selected method is incomplete.");
+        projected.Surface.InspectionFailures.Add(familyFailure);
+        ImplementationProfileFamilySelection selection =
+            ImplementationProfileFamilySelection.CreatePrepared(
+                projected.Surface,
+                type,
+                members);
+        ImplementationProfileFamilySelection partialSelection =
+            ImplementationProfileFamilySelection.CreatePrepared(
+                projected.Surface,
+                type,
+                members.Take(2));
+        var partialFailure = Assert.IsType<
+            AssemblyContextEntry<
+                AssemblyImplementationProfileFamilyInspection>.Failed>(
+                    AssemblyContextImplementationProfileFamilyQuery
+                        .ExecuteParticipant(
+                            group,
+                            participant,
+                            partialSelection));
+        Assert.Contains(
+            "complete public overload family",
+            partialFailure.Error.Message,
+            StringComparison.Ordinal);
+
+        AssemblyImplementationProfileFamilyInspection result =
+            Available(
+                AssemblyContextImplementationProfileFamilyQuery
+                    .ExecuteParticipant(
+                        group,
+                        participant,
+                        selection));
+
+        Assert.Equal(4, result.Members.Length);
+        Assert.Equal(
+            selection.StableSelectors,
+            result.Members.Select(member =>
+                member.StableSelector));
+        Assert.Equal(
+            [familyFailure],
+            result.ApiSurfaceInspectionFailures);
+        Assert.NotEmpty(result.Profiles);
+    }
+
+    [Fact]
     public async Task ExecuteParticipant_PreservesGeneratedBodiesSeparately()
     {
         await using var workspace = new InspectionWorkspace();

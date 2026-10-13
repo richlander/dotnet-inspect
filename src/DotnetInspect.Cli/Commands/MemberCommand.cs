@@ -1047,6 +1047,7 @@ public static class MemberCommand
             }
 
             if (TryCreateImplementationProfileFamilySelection(
+                    loaded.Api,
                     apiType,
                     effectiveOptions,
                     out ImplementationProfileFamilySelection? familySelection))
@@ -2325,11 +2326,13 @@ public static class MemberCommand
     }
 
     internal static bool TryCreateImplementationProfileFamilySelection(
+        ApiSurface surface,
         ApiType apiType,
         MemberOptions options,
         [NotNullWhen(true)]
         out ImplementationProfileFamilySelection? selection)
     {
+        ArgumentNullException.ThrowIfNull(surface);
         selection = null;
         if (options.IncludeAll
             || options.OverloadIndex.HasValue
@@ -2372,9 +2375,11 @@ public static class MemberCommand
         if (selectors.Length != candidates.Count)
             return false;
 
-        selection = new ImplementationProfileFamilySelection(
-            AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(apiType),
-            selectors);
+        selection =
+            ImplementationProfileFamilySelection.CreatePrepared(
+                surface,
+                apiType,
+                candidates);
         return true;
     }
 

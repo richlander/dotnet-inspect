@@ -1145,6 +1145,17 @@ receipt, population coverage, diagnostics, ordering, and transport bytes.
 Other queries, including Implementation Profiles and exact-family Member
 Metrics, retain their existing result and execution routes.
 
+The CLI exact-family Member Metrics route reuses the complete public overload
+family from the detached public API surface already issued by its member
+projection. The Analysis query resolves the exact public identities, declared
+body tokens, and family-scoped API inspection failures from that surface
+instead of reconstructing the whole compatibility API surface before scoped
+body Analysis.
+Selector-only callers, including the current Browser exports, retain the
+compatibility projection and its validation until the paired Type/Member
+document adoption can issue the same prepared family. Both routes publish the
+same family inspection result and preserve the complete-family requirement.
+
 The Library Metrics physical plan uses one shallow decoded instruction array
 per admitted body. One scan computes instruction, branch, switch, backward-loop,
 `newarr`, and allocating-`box` facts. Backward `leave` targets count as loops
