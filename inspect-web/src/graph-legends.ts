@@ -34,6 +34,7 @@ export function dependencyGraphLegendHtml(): string {
     <span><i class="legend-swatch target"></i>inspected package</span>
     <span><i class="legend-swatch same-prefix-package"></i>same prefix</span>
     <span><i class="legend-swatch external-package"></i>external</span>
+    <span><i class="legend-swatch external-package"></i>platform</span>
   </div>`;
 }
 

@@ -38,8 +38,11 @@ package space and retains the same owner-issued narrowing receipt.
 The narrowing forms are:
 
 - **Package-wide.** Every admitted package entry is in scope.
-- **TFM-wide.** Every admitted entry associated with one requested target
-  framework is in scope. A runtime target also carries its RID.
+- **TFM-wide.** Every admitted entry associated with one compatible explicit
+  target framework is in scope. It accepts only PackageHouse's `Exact` target
+  mode because its realization requires an `ExplicitTarget` receipt;
+  exact-target-only, frozen-target, and owner-default contexts are rejected at
+  construction. A runtime target also carries its RID.
 - **TFM and ordered root preference.** The query carries one target framework
   and an arbitrary non-empty ordered list of distinct package library root
   families: `ref`, `lib`, or `runtimes`. PackageHouse selects the first
@@ -895,6 +898,7 @@ All implementation gates run in Release.
 | Repeated exact dependency coordinate | Workspace enrichment requests its Nuspec once and reuses the immutable result across contexts. |
 | Package-wide file list | Every admitted path appears once; no expanded entry content is opened. |
 | TFM-wide file list | Every path in the owner-issued target scope appears once; unrelated target paths do not appear. |
+| TFM-wide target mode | `TfmWideQueryRetainsOneExactTarget` rejects exact-target-only, frozen-target, and owner-default contexts before execution. |
 | Ordered root preference | The first applicable family is selected from an arbitrary-length chain; a later family cannot contribute candidates or inventory. |
 | Shared directory evidence | File List, exact-file admission, logical Library inventory, package-symbol evidence, and range spans derive from one validated snapshot plus owner-issued narrowing and correspondence. |
 | Exact files | Ranged execution expands only the exact referenced entries; complete fallback may transfer the archive but publishes only those entries. Every reference lies in the base narrowed space and is complete and validated; an outside, missing, or ambiguous reference fails visibly. |

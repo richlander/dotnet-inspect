@@ -236,6 +236,12 @@ public sealed class PackageHouseContractTests
             () => new PackageHouseContentNarrowing.TfmWide(
                 PackageHouseTargetContext.OwnerDefault()));
         Assert.Throws<ArgumentException>(
+            () => new PackageHouseContentNarrowing.TfmWide(
+                PackageHouseTargetContext.ExactTarget("net10.0")));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseContentNarrowing.TfmWide(
+                PackageHouseTargetContext.FrozenTarget("net10.0")));
+        Assert.Throws<ArgumentException>(
             () => new PackageHouseRequest(
                 new PackageHouseDemand.Exact(Coordinate),
                 PackageHouseOperation.Create(
@@ -1618,6 +1624,36 @@ public sealed class PackageHouseContractTests
         Assert.Equal(
             PackageCompileAssetSelectionPolicy.ExactTarget,
             receipt.Policy);
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRealizationReceipt.Compile(
+                bundle.Acquisition,
+                receipt));
+    }
+
+    [Fact]
+    public void CompileReceiptRejectsDifferentCandidateEligibility()
+    {
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(Coordinate),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.FrozenTarget("net10.0"),
+            PackageHouseAssetSelectionKind.Compile);
+        IPackageContent content = Content(
+            "lib/net10.0/nested/Contoso.Json.dll");
+        AcquisitionBundle bundle = Acquisition(
+            request,
+            content.GenerationIdentity);
+        PackageCompileAssetSelectionReceipt receipt =
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                "contoso.json",
+                "net10.0");
+
+        Assert.Equal(
+            PackageCompileAssetSelectionPolicy.ExactTarget,
+            receipt.Policy);
+        Assert.False(receipt.IncludesNestedCompileAssets);
         Assert.Throws<ArgumentException>(
             () => new PackageHouseRealizationReceipt.Compile(
                 bundle.Acquisition,

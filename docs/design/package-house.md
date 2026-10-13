@@ -596,17 +596,25 @@ full content and acquisition evidence.
 PackageHouse owns the policy supplied to the selector, not the compatibility
 or asset-selection algorithm:
 
-| Package-local request | PackageHouse selection policy |
-| --- | --- |
-| No requested target framework | `HighestAvailable` |
-| Explicit requested target framework | `ExplicitTarget` |
+| Package-local request | Selection policy | Candidate eligibility |
+| --- | --- | --- |
+| No requested target framework | `HighestAvailable` | Owner-default, including nested compile assets |
+| Compatible explicit target framework | `ExplicitTarget` | Package-local, including nested compile assets |
+| Caller-authored exact-target-only framework | `ExactTarget` | Direct compile assets only |
+| Frozen owner-selected framework | `ExactTarget` | Owner-default, including nested compile assets |
 
 `HighestAvailable` asks the owner to select its highest available compile
-slice. An explicit target asks the owner to select the applicable compile
-slice for that request. In both cases PackageHouse preserves the policy source,
-the requested framework when present, the selected framework when one exists,
-and the exact selector receipt. It does not choose a framework by sorting
-strings, infer one from a host default, or rerun selection over rendered paths.
+slice. `ExplicitTarget` asks the owner to select the applicable compatible
+compile slice for that request. `ExactTarget` accepts only the requested
+compile slice while retaining the same typed no-match evidence when only
+neighboring compatible slices exist. The target context independently records
+whether direct-only or owner-default candidate eligibility applies, so a
+durable frozen target can prohibit compatible fallback without losing nested
+assets admitted by its original owner-default selection. In every case
+PackageHouse preserves the policy source, candidate eligibility, requested
+framework when present, selected framework when one exists, and the exact
+selector receipt. It does not choose a framework by sorting strings, infer one
+from a host default, or rerun selection over rendered paths.
 
 The selected projection preserves these distinct outcomes:
 
@@ -1412,8 +1420,20 @@ rather than throwing, guessing another identity, or weakening correspondence.
 
 An exact package Root reacquisition request from
 [#5837](https://github.com/richlander/dotnet-inspect/issues/5837) re-enters the
-same House realization path. It retains the original selection request while
-allowing a replacement physical generation.
+same House realization path. Ordinary targeted Roots use the exact-target-only
+mode; durable requests use compatible explicit selection only when their token
+authorizes it; initial untargeted Roots use owner-default selection, while
+their durable requests use the frozen-target mode to repeat the selected
+framework and owner-default candidate eligibility without rewriting the Root's
+absent caller-requested target. Root acquisition consumes the House
+compile receipt directly, retains the original requested target, acquisition
+framework, producer spelling, and frozen implementation-selection input even
+for a negative selection outcome, and rejects a replacement generation whose
+receipt does not reproduce the durable selection request. The durable Root
+boundary issues a request only when both selector-issued targets satisfy the
+House exact-target grammar; otherwise it returns typed `InvalidCoordinate`,
+and a previously issued request outside that grammar fails the same way before
+House execution.
 
 ## Host boundaries
 
@@ -1726,12 +1746,12 @@ focused successor slices rather than broadening the owner document.
 | Pruning correspondence | Platform delegation consumes the policy-issued inventory/coordinate/supply receipt, compares the coordinate through the package owner's normalization, and matches the actual supplier family and exact target version. |
 | Payload authority | Discovered payload comes only from a reporting authority; pinned payload follows the Package Source Model's eligible-authority rule; the acquisition receipt and live payload match source, producer, origin, and generation. |
 | Selection correspondence | Realization consumes a selector-issued generation/request/outcome receipt matching the exact acquisition and target context. |
-| Package-local policy | Owner-default compile realization records `HighestAvailable`; explicit-target realization records `ExplicitTarget`, the requested framework, and the separately selected framework. |
+| Package-local policy | Owner-default compile realization records `HighestAvailable`; compatible explicit-target realization records `ExplicitTarget`; caller-authored and frozen exact-target realization record `ExactTarget` and do not select a neighboring compatible compile slice; frozen realization separately preserves owner-default nested-candidate eligibility. |
 | Compile inventory | Selected, selected-empty, no-slice, no-applicable-slice, and invalid-selection outcomes retain every owner-issued available compile slice and candidate from the acquired generation through the final House result. |
 | Projection cardinality | Zero, one, and many selected compile assets remain distinct valid projections; no path or package-name heuristic chooses a representative asset. |
 | Selected-slice measurements | Multi-Library selection measures the retained archive and exactly one owner-paired payload entry per selected compile asset, including RID-specific implementation preference. Selected-empty, no-slice, no-applicable-slice, invalid-selection, House-failure, and unavailable entry-manifest outcomes remain typed and retain the acquisition and selection receipts. |
 | Multi-slice isolation | A coordinator selecting multiple target frameworks receives separately associated projections and cannot merge their assets into one selected universe. |
-| Selection completion | `ExactCompileRealizeBindsSelectionAndLibraryHandoff`, `ExactRuntimeRealizeAppliesExactRidOverlay`, `ExactCompileRealizePreservesExplicitEmptyGroup`, `ExactCompileRealizePreservesNoMatchWithPayload`, `RuntimeRealizeKeepsRequestedAndSelectedFrameworksDistinct`, `SameCoordinateWithTwoTargetsKeepsDistinctRealizations`, `NonSubsumedCandidateRealizeRetainsPruningAndSelection`, and `RuntimeOwnerDefaultRealizeIsVisiblyRejected` compose selector-issued outcomes through execution. Selector suites gate ambiguity and invalid-layout classification; `PackageHouseContractTests` gate their corresponding House terminal arms. |
+| Selection completion | `ExactCompileRealizeBindsSelectionAndLibraryHandoff`, `ExactTargetCompileRealizeDoesNotSelectCompatibleFramework`, `FrozenTargetCompileRealizePreservesNestedOwnerEligibility`, `ExactRuntimeRealizeAppliesExactRidOverlay`, `ExactCompileRealizePreservesExplicitEmptyGroup`, `ExactCompileRealizePreservesNoMatchWithPayload`, `RuntimeRealizeKeepsRequestedAndSelectedFrameworksDistinct`, `SameCoordinateWithTwoTargetsKeepsDistinctRealizations`, `NonSubsumedCandidateRealizeRetainsPruningAndSelection`, and `RuntimeOwnerDefaultRealizeIsVisiblyRejected` compose selector-issued outcomes through execution. Selector suites gate ambiguity and invalid-layout classification; `PackageHouseContractTests` gate their corresponding House terminal arms. |
 | Selection timeout | `TimeoutAfterSelectionRetainsPayloadAndRealization` proves that operation timeout remains terminal after synchronous selection while retaining the caller-owned payload and completed acquisition and realization receipts. |
 | Target-aware realization | A `net10.0` dependency with `net10.0` and `net11.0` folders selects `net10.0` and retains requested-versus-selected evidence. |
 | Context separation | The same coordinate realized under two target contexts retains two realization receipts and cannot share one selected asset universe. |

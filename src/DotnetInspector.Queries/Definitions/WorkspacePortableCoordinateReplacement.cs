@@ -621,10 +621,14 @@ public static class WorkspacePortableCoordinateReplacement
 
         PackageRootReacquisitionRequest reacquisitionRequest =
             sourceBindings[0].CreateReacquisitionRequest();
+        PackageRootHouseExecution execution =
+            options.PackageRootHouse
+            ?? throw new InvalidOperationException(
+                "Portable Package-coordinate replacement requires package Root House execution.");
         PackageRootAcquisitionOutcome sourceReacquisition =
             await PackageRootAcquisition.AcquireAsync(
                 reacquisitionRequest,
-                options.ContextLoad,
+                execution,
                 cancellationToken).ConfigureAwait(false);
         if (sourceReacquisition
             is PackageRootAcquisitionOutcome.Failed sourceFailure)
@@ -634,26 +638,7 @@ public static class WorkspacePortableCoordinateReplacement
         }
         var reacquired =
             (PackageRootAcquisitionOutcome.Acquired)sourceReacquisition;
-        PackageSourceAuthorization sourceAuthorization =
-            options.ContextLoad.SourceAuthorization.AuthorizeSourcesFor(
-                reacquisitionRequest.Coordinate.PackageId);
-        PackageRootProducerAuthorization.MatchResult producerMatch =
-            PackageRootProducerAuthorization.Match(
-                sourceAuthorization.Sources,
-                reacquisitionRequest.Coordinate.Producer);
-        if (producerMatch.Candidates.Count != 1)
-        {
-            return Failed(
-                "The selected Package Root producer did not map to one exact authorized source.");
-        }
-        PackageProducerIdentity producer =
-            PackageSourceClientFactory.GetProducerIdentity(
-                producerMatch.Candidates[0].Source);
-        PackageRootBinding sourceBinding =
-            PackageRootBinding.CreateFromReacquiredResolved(
-                reacquired.Payload,
-                reacquisitionRequest,
-                producer);
+        PackageRootBinding sourceBinding = reacquired.Binding;
 
         var enriched =
             ImmutableArray.CreateBuilder<PackageRootBinding>(roots.Length);
@@ -1222,37 +1207,20 @@ public static class WorkspacePortableCoordinateReplacement
     {
         PackageRootReacquisitionRequest request =
             binding.CreateReacquisitionRequest();
+        PackageRootHouseExecution execution =
+            options.PackageRootHouse
+            ?? throw new InvalidOperationException(
+                "Portable Package-coordinate replacement requires package Root House execution.");
         PackageRootAcquisitionOutcome outcome =
             await PackageRootAcquisition.AcquireAsync(
                 request,
-                options.ContextLoad,
+                execution,
                 cancellationToken).ConfigureAwait(false);
         if (outcome is PackageRootAcquisitionOutcome.Failed failure)
             return new(null, failure.Message);
 
         var acquired = (PackageRootAcquisitionOutcome.Acquired)outcome;
-        PackageSourceAuthorization authorization =
-            options.ContextLoad.SourceAuthorization.AuthorizeSourcesFor(
-                request.Coordinate.PackageId);
-        PackageRootProducerAuthorization.MatchResult producerMatch =
-            PackageRootProducerAuthorization.Match(
-                authorization.Sources,
-                request.Coordinate.Producer);
-        if (producerMatch.Candidates.Count != 1)
-        {
-            return new(
-                null,
-                "The Package producer did not map to one exact authorized source.");
-        }
-        PackageProducerIdentity producer =
-            PackageSourceClientFactory.GetProducerIdentity(
-                producerMatch.Candidates[0].Source);
-        return new(
-            PackageRootBinding.CreateFromReacquiredResolved(
-                acquired.Payload,
-                request,
-                producer),
-            null);
+        return new(acquired.Binding, null);
     }
 
     private sealed record DefinitionMutationPreparation(

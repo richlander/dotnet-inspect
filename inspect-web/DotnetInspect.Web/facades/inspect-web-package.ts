@@ -763,9 +763,12 @@ export interface BrowserPackageDependencies {
   readonly activeFramework: string;
   readonly assembly: string | null;
   readonly dependencyGroups: ReadonlyArray<BrowserPackageDependencyGroup>;
+  readonly platformReferences: ReadonlyArray<BrowserPackagePlatformReference>;
+  readonly defaultPlatformReference: BrowserPackagePlatformReference | null;
   readonly declarationFailures: ReadonlyArray<BrowserPackageDependencyDeclarationFailure>;
   readonly assemblyReferences: BrowserAssemblyReferenceResult;
   readonly dependencyGroupError: string | null;
+  readonly platformReferenceError: string | null;
   readonly compileLibrary: BrowserCompileLibraryAvailability;
 }
 
@@ -785,6 +788,7 @@ export interface BrowserPackageDependencyGroup {
   readonly index: number;
   readonly framework: string;
   readonly isActive: boolean;
+  readonly isComplete: boolean;
   readonly dependencies: ReadonlyArray<BrowserPackageDependency>;
 }
 
@@ -850,6 +854,11 @@ export interface BrowserPackageLoadResult {
   readonly documents: ReadonlyArray<BrowserPackageDocument>;
   readonly surface: BrowserPackageSurface | null;
   readonly defaultLibraryId: string | null;
+}
+
+export interface BrowserPackagePlatformReference {
+  readonly family: string;
+  readonly label: string;
 }
 
 export interface BrowserPackageQueryAnswer {

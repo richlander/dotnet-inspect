@@ -43,6 +43,8 @@ public enum PackageHouseEvidenceDemand
 public enum PackageHouseTargetSelectionMode
 {
     Exact,
+    ExactTarget,
+    FrozenTarget,
     OwnerDefault,
 }
 
@@ -177,12 +179,14 @@ public sealed class PackageHouseTargetContext
         PackageHouseTargetSelectionMode mode,
         string? requestedFramework,
         string? runtimeIdentifier,
-        PlatformFamilyTarget? platformTarget)
+        PlatformFamilyTarget? platformTarget,
+        bool includesNestedCompileAssets)
     {
         Mode = mode;
         RequestedFramework = requestedFramework;
         RuntimeIdentifier = runtimeIdentifier;
         PlatformTarget = platformTarget;
+        IncludesNestedCompileAssets = includesNestedCompileAssets;
     }
 
     public PackageHouseTargetSelectionMode Mode { get; }
@@ -192,6 +196,8 @@ public sealed class PackageHouseTargetContext
     public string? RuntimeIdentifier { get; }
 
     public PlatformFamilyTarget? PlatformTarget { get; }
+
+    public bool IncludesNestedCompileAssets { get; }
 
     public static PackageHouseTargetContext Exact(
         string requestedFramework,
@@ -219,7 +225,8 @@ public sealed class PackageHouseTargetContext
             PackageHouseTargetSelectionMode.Exact,
             framework,
             runtime,
-            platformTarget);
+            platformTarget,
+            includesNestedCompileAssets: true);
     }
 
     public static PackageHouseTargetContext OwnerDefault(
@@ -230,7 +237,48 @@ public sealed class PackageHouseTargetContext
             ValidateRuntimeIdentifier(
                 runtimeIdentifier,
                 nameof(runtimeIdentifier)),
-            platformTarget: null);
+            platformTarget: null,
+            includesNestedCompileAssets: true);
+
+    public static PackageHouseTargetContext ExactTarget(
+        string requestedFramework,
+        string? runtimeIdentifier = null)
+    {
+        string framework = NormalizeFramework(
+            requestedFramework,
+            nameof(requestedFramework));
+        string? runtime = ValidateRuntimeIdentifier(
+            runtimeIdentifier,
+            nameof(runtimeIdentifier));
+        return new PackageHouseTargetContext(
+            PackageHouseTargetSelectionMode.ExactTarget,
+            framework,
+            runtime,
+            platformTarget: null,
+            includesNestedCompileAssets: false);
+    }
+
+    /// <summary>
+    /// Repeats one owner-selected exact target while preserving owner-default
+    /// compile-candidate eligibility.
+    /// </summary>
+    public static PackageHouseTargetContext FrozenTarget(
+        string requestedFramework,
+        string? runtimeIdentifier = null)
+    {
+        string framework = NormalizeFramework(
+            requestedFramework,
+            nameof(requestedFramework));
+        string? runtime = ValidateRuntimeIdentifier(
+            runtimeIdentifier,
+            nameof(runtimeIdentifier));
+        return new PackageHouseTargetContext(
+            PackageHouseTargetSelectionMode.FrozenTarget,
+            framework,
+            runtime,
+            platformTarget: null,
+            includesNestedCompileAssets: true);
+    }
 
     internal static string NormalizeFramework(
         string value,

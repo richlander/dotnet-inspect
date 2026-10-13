@@ -233,6 +233,7 @@ public sealed class PackageAssemblyQueryPlanningTests
             var request = new PackageRootReacquisitionRequest(
                 PackageArtifactRootRequest.Create(
                     coordinate,
+                    initial.Root.RequestedTargetFramework,
                     initial.CompileTargetFramework,
                     initial.ImplementationSelectionTargetFramework,
                     initial.Root.RequestedRuntimeIdentifier,
