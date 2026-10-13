@@ -61,11 +61,11 @@ test("Ecosystems renders managed catalog order and capability metadata", () => {
   assert.match(html, /Synthetic platform-backed Ecosystem/);
   assert.match(html, /3 core packages/);
   assert.match(html, /1 tool/);
-  assert.match(html, /Package set/);
   assert.match(html, /Integration scanner/);
   assert.match(html, /Platform libraries/);
-  assert.match(html, /Workspace-ready/);
-  assert.doesNotMatch(html, /0 core packages|0 tools/);
+  assert.doesNotMatch(
+    html,
+    /0 core packages|0 tools|Package set|Workspace-ready/);
   assert.equal(
     html.match(/data-ecosystem-open=/g)?.length,
     ecosystems.filter(ecosystem => ecosystem.hasWorkspaceRegistration).length);
