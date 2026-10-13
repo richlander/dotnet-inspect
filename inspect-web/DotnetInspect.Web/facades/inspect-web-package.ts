@@ -78,6 +78,8 @@ export type BrowserPackageQueryEvidenceScope = "Package" | "Query" | number;
 
 export type BrowserPackageQueryExecutionClass = "SearchMetadata" | "Nuspec" | "NuspecExpensive" | "PackageContent" | "Metadata" | "MetadataExpensive" | number;
 
+export type BrowserPackageQueryExplanationOutcome = "Explained" | "InvalidPath" | "Unknown" | "InvalidSelection" | number;
+
 export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | "DependencyTraversal" | "AssemblyAcquisition" | "AssemblyEvaluation" | "AssemblyNotEvaluated" | number;
 
 export type BrowserPackageQueryManifestFailureReason = "MalformedXml" | "UnsupportedDocumentShape" | "IdentityMismatch" | "InvalidDependencyContract" | "ConfiguredLimitExceeded" | "InvalidIdentityContract" | number;
@@ -119,6 +121,8 @@ export type DocumentationQueryFailureReason = "CompiledXmlMalformedOrUnreadableD
 export type DocumentationQueryFieldEvidenceKind = "Selected" | "Corroborated" | "Conflict" | "Absent" | number;
 
 export type DocumentationQueryRequestRejectionReason = "LibraryReferenceMismatch" | "ApiContentMismatch" | "LeaseReferenceMismatch" | "AuthoredSourceBindingMismatch" | number;
+
+export type JsonValueKind = number;
 
 export interface AuthoredDocumentationObservation {
   readonly code?: string;
@@ -938,6 +942,12 @@ export interface BrowserPackageQueryEvidenceSummary {
   readonly preview: ReadonlyArray<string>;
 }
 
+export interface BrowserPackageQueryExplanationResult {
+  readonly outcome: BrowserPackageQueryExplanationOutcome;
+  readonly content: unknown;
+  readonly message: string | null;
+}
+
 export interface BrowserPackageQueryFailure {
   readonly packageId: string | null;
   readonly version: string | null;
@@ -1548,6 +1558,7 @@ type $ManagedExports = {
             readonly "ClassifyPackageGraphIdentities.271973316": (inspectedPackageId: string, packageIdsJson: string) => string;
             readonly "ClearWorkspacePackageOccurrences.1731052262": () => Promise<void>;
             readonly "ClosePlatformForwarderView.91425100": (view: string) => boolean;
+            readonly "ExplainPackageQuery.1596740838": (path: string, facetKeys: string[] | null) => string;
             readonly "GetPackageDocument.1001223652": (packageId: string, version: string, path: string) => Promise<string>;
             readonly "GetPlatformCatalog.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
             readonly "GetPlatformVersions.976702342": (targetFramework: string) => Promise<string>;
@@ -1721,6 +1732,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "ClosePlatformForwarderView.91425100");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ClosePlatformForwarderView.91425100\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "ExplainPackageQuery.1596740838");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ExplainPackageQuery.1596740838\u0027 is not callable.");
     }
   }
   {
@@ -2176,6 +2199,12 @@ export async function clearWorkspacePackageOccurrences(): Promise<void> {
 
 export function closePlatformForwarderView(view: string): boolean {
   return $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ClosePlatformForwarderView.91425100"](view);
+}
+
+export function explainPackageQuery(path: string, facetKeys: string[] | null): BrowserPackageQueryExplanationResult {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ExplainPackageQuery.1596740838"](path, facetKeys);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserPackageQueryExplanationResult;
 }
 
 export async function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent> {

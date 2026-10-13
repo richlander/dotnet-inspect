@@ -863,8 +863,9 @@ The desktop store reuses existing admission and atomic publication. Local
 authorities publish into `package-authority-content-v1`, keyed by their
 `authority-v1` identity and exact coordinate, with producer evidence retained
 separately. The old `package-content-v5` family remains for unmigrated consumers
-and is never reinterpreted as this new namespace. Local global-packages reuse
-requires the metadata source to resolve to the same canonical local authority.
+and is never reinterpreted as this new namespace. Global-packages reuse
+requires the metadata source to resolve to the same canonical authority, local
+or HTTP.
 
 HTTP authorities currently have no durable cache identity. From adoption step
 2 of the
@@ -875,8 +876,11 @@ have one, derived from the canonical endpoint, and publish into
 a durable identity use authority-scoped temporary filesystem materialization for
 their admitted payloads,
 retained until the extraction consumer calls the existing cleanup API. They do
-not read or write persistent payload or derived package-index entries. No HTTP
-authority reads NuGet global-packages entries. Temporary ownership is
+not read or write persistent payload or derived package-index entries. A durable HTTP
+authority reads a NuGet global-packages entry when the entry's metadata
+source resolves to that same authority, by the authority key that keeps
+endpoints differing only in a query or path secret separate; an HTTP
+authority without a durable identity reads none. Temporary ownership is
 independent of the final payload's cache origin: a cached redirect target does
 not release the consumer from cleaning up earlier HTTP wrapper
 materialization. No durable HTTP key is formed from a credential-bearing

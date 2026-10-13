@@ -423,6 +423,42 @@ export function inspectWebRuntimeObservation() {
       "callGraph.queryMemberCallGraph");
     operations.push("callGraph.queryMemberCallGraph.visibleFailure");
 
+    function queryExplanation(path: string, keys: readonly string[] | null): Record<string, unknown> {
+      const result = operation(packageFacade, "explainPackageQuery")(path, keys);
+      assert.ok(isRecord(result) && result.outcome === "Explained" && isRecord(result.content),
+        `package query explanation failed: ${path}`);
+      return result.content;
+    }
+    const queryRoot = "package-query/query";
+    const fullQuery = queryExplanation(queryRoot, null);
+    const selectedQuery = queryExplanation(queryRoot, ["depends", "dependency-target"]);
+    assert.ok(isRecord(fullQuery._embedded) && Array.isArray(fullQuery._embedded.facets));
+    assert.ok(isRecord(selectedQuery._embedded) && Array.isArray(selectedQuery._embedded.facets));
+    const fullFacets = fullQuery._embedded.facets;
+    assert.deepEqual(selectedQuery._embedded.facets.map(facet => {
+      assert.ok(isRecord(facet));
+      assert.deepEqual(facet, fullFacets.find(original =>
+        isRecord(original) && original.key === facet.key));
+      return facet.key;
+    }), ["dependency-target", "depends"]);
+    assert.ok(isRecord(selectedQuery._links) && isRecord(selectedQuery._links.collection));
+    assert.ok(typeof selectedQuery._links.collection.href === "string");
+    assert.deepEqual(queryExplanation(selectedQuery._links.collection.href, null), fullQuery);
+    const directQuery = queryExplanation(`inspect-resource:/${queryRoot}?projection=data`,
+      ["depends", "dependency-target"]);
+    assert.ok(isRecord(directQuery.facets));
+    assert.deepEqual(Object.keys(directQuery.facets).sort(), ["dependency-target", "depends"]);
+    const literalQuery = queryExplanation(queryRoot, ["library-literal"]);
+    assert.ok(isRecord(literalQuery._embedded) && Array.isArray(literalQuery._embedded.facets));
+    assert.deepEqual(literalQuery._embedded.facets.map(facet => {
+      assert.ok(isRecord(facet));
+      return facet.key;
+    }), ["library-literal", "library-target"]);
+    const invalidQuery = operation(packageFacade, "explainPackageQuery")(queryRoot, ["unknown"]);
+    assert.ok(isRecord(invalidQuery) && invalidQuery.outcome === "InvalidSelection"
+      && invalidQuery.content === null && typeof invalidQuery.message === "string");
+    operations.push("package.explainPackageQuery.selectedContextAndNavigation");
+
     const vocabulary: unknown = operation(catalogFacade, "inspectVocabulary")();
     assert.ok(
       isRecord(vocabulary),

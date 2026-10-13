@@ -1484,6 +1484,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserEcosystemPackageClassification[]))]
 [JsonSerializable(typeof(BrowserPlatformCatalog))]
 [JsonSerializable(typeof(BrowserPackageQueryCatalog))]
+[JsonSerializable(typeof(BrowserPackageQueryExplanationResult))]
 [JsonSerializable(typeof(BrowserPackageQueryTerm[]))]
 [JsonSerializable(typeof(BrowserPackageQueryRow))]
 [JsonSerializable(typeof(BrowserPackageQueryEvent))]
