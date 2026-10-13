@@ -17,11 +17,13 @@ This is slice 2 of a two-PR design stack. Parent
 
 > A Symbol Key is a domain-validated readonly view over an `InertBytes` range.
 > Its builder writes new keys as a sequence of self-delimiting parts, and its
-> persisted reader validates that same grammar before issuing a view. Two keys
-> of one key domain are equal exactly when they contain the same parts. Name
-> parts remain UTF-8 byte subranges without decoding, so names that differ only
-> in ill-formed sequences stay distinct. A persisted key is versioned and
-> byte-identical across builds, platforms, and hosts for the same parts.
+> persisted reader validates that same grammar before issuing a view. Every
+> key's first semantic part is a declared domain marker, so `Kind` is total.
+> Two keys of one key domain are equal exactly when they contain the same
+> parts. Name parts remain UTF-8 byte subranges without decoding, so names
+> that differ only in ill-formed sequences stay distinct. A persisted key is
+> versioned and byte-identical across builds, platforms, and hosts for the
+> same parts.
 
 This owner defines:
 
@@ -73,6 +75,9 @@ private copy:
 ## Part grammar
 
 A key is a non-empty sequence of parts. Every part begins with one tag byte.
+An in-process key begins with a declared domain marker. A persisted key begins
+with its header and then a declared domain marker. A nested `Key` payload has
+no header and begins with its own declared domain marker.
 
 | Tag | Part | Encoding after the tag |
 | --- | --- | --- |
@@ -106,16 +111,36 @@ A domain declares its vocabulary once. Validating a domain type, when it is
 first used, rejects an enum that is not byte-backed or that defines a value
 below `0x10`.
 
-The first marker of a key conventionally names the key's shape (`Type`,
-`Method`, `Field`), and `Kind` returns it.
+The required first marker names the key's shape (`Type`, `Method`, `Field`),
+and `Kind` returns it. Domain markers later in the key may describe structure
+without changing its kind.
 
 ## Builder
 
-The builder writes parts through the shared Inert Bytes builder into one
-backing. Builds nest: a key begun while another is open is written above it
-and removed when it ends, so building a nested key creates no separate
-payload. Completing the outer build retains one backing and returns a
-`SymbolKey<TDomain>` view over its finished range.
+The builder stages one consumer-chosen population through the shared Inert
+Bytes builder. Completing a staged key records its offset and length as a
+builder-local slot; it does not issue a `SymbolKey<TDomain>` over mutable
+storage. Freezing the population transfers the finished storage to one
+immutable backing and resolves its slots into readonly key views. A consumer
+that needs smaller independent lifetimes chooses smaller population
+boundaries.
+
+Nested construction has two explicit forms:
+
+- an inline nested build writes directly inside the enclosing `Key` part and
+  never issues an independently retained child; and
+- embedding an independently completed slot writes that key's bytes into the
+  enclosing `Key` payload.
+
+The second form is a semantic copy required by the self-contained grammar:
+both the independent key and its nested occurrence exist in the finished
+population. It uses no intermediate array. A later domain may replace repeated
+embedded keys with `Ref` parts when it adopts interning.
+
+Fast Diff adoption stages its census and lookup keys, freezes their population,
+and only then exposes the final dictionaries and sequences. One-off nested
+keys use inline construction. Reused independent keys use slots while staging
+and resolve to views after the same freeze.
 
 Names enter through three sources:
 
@@ -168,13 +193,17 @@ header.
 
 A persisted key never contains a `Ref` part. Converting an in-process key
 expands every reference from its table, or refuses when the table is not
-available.
+available. Conversion applies the same total-length and nesting-depth bounds as
+the reader and refuses rather than issuing a persisted key that the reader
+would reject.
 
 Reading a persisted key uses bounded Inert Bytes structural reads and validates
 the domain grammar completely before issuing the typed view:
 
 - the first part is the header, and it names the expected domain and a
   supported format and domain version;
+- the first part after the header is a marker declared by that domain, and
+  every nested key begins with a declared marker and carries no header;
 - every later tag is Int, Name, Key, or Blob, or a marker value that the
   expected domain's enum declares; a `Ref`, a second header, or a reserved
   tag is refused;
@@ -196,13 +225,15 @@ the backing's opaque binary-transfer operation.
 
 ### Text form
 
-A persisted key crosses JSON and the C#/TypeScript boundary as unpadded
-base64url text of its bytes. The view feeds its complete range through Inert
-Bytes opaque binary transfer into the base64url encoder; it never asks for a
-borrowed source span. TypeScript treats the text as opaque. It compares and
-stores it, and passes it back, but never decodes it, and never renders it.
-Display text travels beside the key, contained by the Inert Bytes UTF-8 view
-under [Inert Text](inert-text.md).
+A persisted key crosses JSON and the C#/TypeScript boundary as canonical
+unpadded base64url text of its bytes. Reading refuses padding, non-alphabet
+characters, and nonzero unused trailing bits, so one byte sequence has one
+accepted text spelling. The view feeds its complete range through Inert Bytes
+opaque binary transfer into the base64url encoder; it never asks for a borrowed
+source span. TypeScript treats the text as opaque. It compares and stores it,
+and passes it back, but never decodes it, and never renders it. Display text
+travels beside the key, contained by the Inert Bytes UTF-8 view under
+[Inert Text](inert-text.md).
 
 ## Interning
 
@@ -243,10 +274,12 @@ form are the exchange currency between the hosts and checked-in artifacts.
 | Name sources agree | For every Type, method, and field name in System.Private.CoreLib, the `#Strings`, UTF-8, and UTF-16 sources write the same part | PR-fast |
 | Lone surrogates refused | UTF-16 text with a lone surrogate is refused | PR-fast |
 | Domain separation | Keys of two domains do not compile as comparable; an invalid domain enum is rejected at first use | PR-fast |
-| Shared backing | A completed key, nested keys, and Name and Blob part views retain ranges over one Inert Bytes backing without payload duplication | PR-fast |
+| Kind totality | The builder refuses to complete a key without a declared first marker; persisted validation refuses marker-free, leading-non-marker, and nested-header keys | PR-fast |
+| Shared backing | Every issued key and part view in one frozen population retains its one Inert Bytes backing; slots issue no mutable views, inline nested builds create no intermediate payload, and an independently retained key embedded as a `Key` part has only the duplicate bytes required by that grammar | PR-fast |
 | Persisted round trip | Every Type and member key of System.Private.CoreLib persisted, converted to text, read back, and compared | PR-fast |
-| Persisted validation | Truncated, trailing, wrong-domain, unknown-version, undeclared-marker, `Ref`-bearing, non-shortest LEB128, over-64-bit integer, over-`int` length, over-deep, and over-long keys are each refused | PR-fast |
+| Persisted validation | Truncated, trailing, wrong-domain, unknown-version, marker-free, leading-non-marker, undeclared-marker, `Ref`-bearing, nested-header, non-shortest LEB128, over-64-bit integer, over-`int` length, over-deep, and over-long keys are each refused; conversion refuses the same depth and length excesses | PR-fast |
 | Profile separation | In-process and persisted keys do not compile as comparable; a key without `Ref` parts round-trips byte-identically, while a `Ref`-bearing key persists by expansion and returns in `Key` form with the same expansion | PR-fast |
+| Canonical text | Base64url writing is unpadded; reading refuses padding, non-alphabet characters, and nonzero unused trailing bits; accepted text re-encodes identically | PR-fast |
 | Host parity | Persisted keys built under Browser/Wasm equal those built under NativeAOT for the same input | Inspect Web managed API tests |
 | Interning | Equal keys share an ID; two `Ref`-bearing keys from one table are equal exactly when their expansions are equal | PR-fast |
 | Fast Diff unchanged | Fast Diff's identity and oracle gates pass unchanged, and NativeAOT base/head on the #9898 pairs shows no regression | Adoption PR |
@@ -263,9 +296,10 @@ Six steps, tracked by
 3. **Shared implementation, Fast Diff adopts.** Move the key, builder, and
    `#Strings` reader into `ILInspector.MetadataPrimitives` with the domain
    split and the UTF-8 and UTF-16 name sources. Fast Diff's `SymbolPart`
-   becomes its domain. Add the Inert Bytes dependency; Fast Diff's private
-   storage and key copy are deleted in the same step, with NativeAOT parity
-   measured.
+   becomes its domain. Stage each consumer-chosen population, freeze before
+   exposing its final dictionaries and sequences, and build one-off nested
+   keys inline. Add the Inert Bytes dependency; Fast Diff's private storage
+   and key copy are deleted in the same step, with NativeAOT parity measured.
 4. **Persisted profile and text form.** Header, registry, validation, and
    base64url. The first adopter is whichever of the encoded API qualified
    anchor ([#9907](https://github.com/richlander/dotnet-inspect/issues/9907))
