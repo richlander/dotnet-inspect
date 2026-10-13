@@ -34,7 +34,7 @@ with seven independently generated facade modules:
 | --- | --- | --- | --- | --- |
 | `inspect-web-host` | `DotnetInspect.Web` | `DotnetInspect.Web.ts` | `DotnetInspect.Web/facades/inspect-web-host.ts` | Browser/Wasm lifecycle, host configuration, and build identity |
 | `inspect-web-package` | `DotnetInspect.Web.Interop.Package` | `DotnetInspect.Web.Interop.Package.ts` | `DotnetInspect.Web/facades/inspect-web-package.ts` | Package and platform acquisition, query and activity operations, content, capability discovery, and workspace occurrences |
-| `inspect-web-metadata` | `DotnetInspect.Web.Interop.Metadata` | `DotnetInspect.Web.Interop.Metadata.ts` | `DotnetInspect.Web/facades/inspect-web-metadata.ts` | API and metadata projection |
+| `inspect-web-metadata` | `DotnetInspect.Web.Interop.Metadata` | `DotnetInspect.Web.Interop.Metadata.ts` | `DotnetInspect.Web/facades/inspect-web-metadata.ts` | Metadata, exact Type and Member documents, declarations, populations, and Library comparisons |
 | `inspect-web-analysis` | `DotnetInspect.Web.Interop.Analysis` | `DotnetInspect.Web.Interop.Analysis.ts` | `DotnetInspect.Web/facades/inspect-web-analysis.ts` | Analysis, integration, opportunity, and performance results |
 | `inspect-web-source` | `DotnetInspect.Web.Interop.Source` | `DotnetInspect.Web.Interop.Source.ts` | `DotnetInspect.Web/facades/inspect-web-source.ts` | Source and annotated-source projection |
 | `inspect-web-call-graph` | `DotnetInspect.Web.Interop.CallGraph` | `DotnetInspect.Web.Interop.CallGraph.ts` | `DotnetInspect.Web/facades/inspect-web-call-graph.ts` | Package and platform call-graph expansion |
@@ -292,21 +292,62 @@ typed paths plus the exact positive project and compiled-assembly ceilings own
 product semantics, so the Package facade retains only runtime platform hazards
 that dependency layering cannot distinguish.
 
-### Metadata facade: 8 exports
+### Metadata facade: 30 exports
 
-- `QueryGraphMemberSurface`
+Metadata images, tables, and heaps:
+
 - `QueryPackageHeapEntries`
 - `QueryPackageMetadata`
 - `QueryPackageMetadataTable`
 - `QueryPlatformHeapEntries`
 - `QueryPlatformMetadata`
 - `QueryPlatformMetadataTable`
+
+Exact Type and Member selection and declarations:
+
+- `FindTypes`
+- `QueryGraphMemberSurface`
+- `QueryMemberDeclaration`
+- `QueryPlatformMemberDeclaration`
 - `QueryTypeProjection`
 
+Type and Member documents and populations:
+
+- `QueryMemberDocument`
+- `QueryMemberGroupDocument`
+- `QueryPerformanceTypeMemberPopulation`
+- `QueryPlatformMemberDocument`
+- `QueryPlatformMemberGroupDocument`
+- `QueryPlatformPerformanceTypeMemberPopulation`
+- `QueryPlatformTypeMemberPopulation`
+- `QueryPlatformTypeOverviewDocument`
+- `QueryTypeMemberPopulation`
+- `QueryTypeOverviewDocument`
+- `QueryUploadedLibraryMemberDocument`
+- `QueryUploadedLibraryMemberGroupDocument`
+- `QueryUploadedLibraryPerformanceTypeMemberPopulation`
+- `QueryUploadedLibraryTypeMemberPopulation`
+- `QueryUploadedLibraryTypeOverviewDocument`
+
+Library comparisons:
+
+- `CancelLibraryApiDiff`
+- `CancelLibraryFastDiff`
+- `QueryLibraryApiDiff`
+- `QueryLibraryFastDiff`
+
 This facade adapts metadata images, tables, heaps, type projections, and the
-member surface selected from graph navigation. It consumes package or platform
-coordinates through `DotnetInspect.Web.Core`; it does not acquire artifacts
-independently.
+member surface selected from graph navigation, plus exact Type and Member
+documents, declarations, populations, and Library comparisons. It consumes
+package, Platform, retained-workspace, or uploaded-Library inputs through
+Web Core and owner-issued inspection operations; it does not acquire artifacts
+or open raw images independently. Queries owns metadata roots, tables, heaps,
+exact selection, and graph-member projection; Sections and LibraryMetadata own
+bounded Type and Member documents and populations; CSharp owns declaration
+rendering; Research queries and sections own Library comparison semantics.
+Those typed paths plus the exact positive project and compiled-assembly
+ceilings own product semantics, so the Metadata facade retains only runtime
+platform hazards that dependency layering cannot distinguish.
 
 ### Analysis facade: 8 exports
 
