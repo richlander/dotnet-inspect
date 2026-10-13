@@ -1,7 +1,7 @@
 {
   "schemaVersion": 7,
   "description": "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
-  "generatedUtc": "2026-10-12T21:33:29.0608626+00:00",
+  "generatedUtc": "2026-10-13T14:50:44.7793223+00:00",
   "validityCompileCap": 4000,
   "fidelityCompileCap": 50,
   "methodCap": null,
@@ -114580,7 +114580,7 @@
       "fullyRaised": false,
       "residual": "structuring: conditional-branch",
       "passBug": null,
-      "validity": "semantic-defect:CS0165",
+      "validity": "valid",
       "fidelityCheck": "not-sampled",
       "controlFlowSites": "conditional-branch|2|0|0;conditional-branch|19|0|0;branch|21|0|0|output@branch@block_IL_0015-\u003EIL_0033#0;conditional-branch|28|0|1;branch|31|0|1;branch|34|0|1;conditional-branch|53|0|0|output@conditional-branch@source_IL_0035-\u003EIL_0048#0;conditional-branch|53|0|1;conditional-branch|62|0|1;conditional-branch|87|0|0;conditional-branch|91|0|0;branch|105|0|1;branch|119|0|1",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.TypeRef::FunctionPointerParameterText#0"
@@ -1373010,9 +1373010,9 @@
       "residual": null,
       "passBug": null,
       "validity": "valid",
-      "fidelityCheck": "OpcodeDiff",
+      "fidelityCheck": "Exact",
       "fidelityCapture": "return-to-sender-cutover; compile-back-floor=false",
-      "fidelityReference": "OpcodeDiff",
+      "fidelityReference": "Exact",
       "controlFlowSites": "conditional-branch|15|0|1;conditional-branch|25|0|1;conditional-branch|71|0|1;conditional-branch|79|0|1",
       "displayMethod": "Newtonsoft.Json!Newtonsoft.Json.Linq.JValue::CompareBigInteger#0"
     },
@@ -1424534,7 +1424534,7 @@
     "forwardMergeBasisPoints": 240,
     "fullMalformedMethods": 1,
     "semanticCheckedMethods": 25354,
-    "semanticDefectMethods": 217,
+    "semanticDefectMethods": 216,
     "passBugs": 8,
     "residualBuckets": {
       "eh: leave/endfinally": 19,
@@ -1424568,8 +1424568,8 @@
     "fidelity": {
       "contractVersion": 5,
       "checkedMethods": 682,
-      "exactMethods": 446,
-      "opcodeDiffMethods": 69,
+      "exactMethods": 447,
+      "opcodeDiffMethods": 68,
       "operandDiffMethods": 6,
       "fidelityUnavailableMethods": 0,
       "recompileFailMethods": 158,
@@ -1424595,11 +1424595,11 @@
   "featureCoverage": {},
   "classicStateMachineCoverage": null,
   "runIdentity": {
-    "sourceRevision": "81bc22be2f02e4edd02f66751eaf20fb7e78927f",
+    "sourceRevision": "874a529d7993cfa347de33162d72a8f50d20a97c",
     "sourceState": "clean",
     "compiler": "Microsoft.CodeAnalysis.CSharp, Version=5.9.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35",
     "runtime": ".NET 11.0.0-rc.1.26425.128",
-    "operatingSystem": "Ubuntu 24.04.4 LTS",
+    "operatingSystem": "Ubuntu 26.04.1 LTS",
     "processArchitecture": "X64"
   }
 }

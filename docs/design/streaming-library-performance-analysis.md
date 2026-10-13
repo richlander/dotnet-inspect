@@ -158,12 +158,20 @@ sequencing.
 
 ### Row shape and vocabulary
 
-`BrowserPerformanceMember` and `BrowserPackagePerformance`
-(`DotnetInspect.Web.Interop.Analysis/BrowserAnalysisContracts.cs`) retain their
-existing field vocabulary, confidence classification, and the
+`BrowserPerformanceMember`
+(`DotnetInspect.Web.Interop.Analysis/BrowserAnalysisContracts.cs`) retains its
+field vocabulary, confidence classification, and the
 `ApplyPerformanceMemberLimit` triage cap. This design changes only when and
 how those same typed values cross the host boundary — once per member instead
 of once for the whole assembly — not their shape or meaning.
+
+`BrowserPackagePerformance.SyncCallsInAsync` is an orthogonal structured
+population owned by
+[Analysis UX Scopes](analysis-ux-scopes.md#analysis-section-taxonomy). It is
+not a ranked member Item and is not subject to the 200-member triage cap.
+Synchronous and streaming routes carry the same complete structured array and
+QuerySpace-owned Count; the streaming route publishes them only in the
+terminal summary rather than inventing a second Item vocabulary.
 
 ## Contract shape
 
@@ -194,7 +202,8 @@ AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(...)
          list's final order
   -> Completed
        final BrowserPackagePerformance accounting
-       (NonPublicOpportunities, TotalOpportunities, InspectionError)
+       (NonPublicOpportunities, TotalOpportunities, SyncCallsInAsync,
+        SyncCallsInAsyncCount, InspectionError)
        identical to today's single-call result; it does not recompute or
        re-derive totals from the admitted Item rows
 ```
@@ -342,8 +351,9 @@ This design does not:
   triage cap — the Item list and Completed accounting are exactly today's
   existing computed values, produced by those same existing owners in their
   existing order;
-- change `BrowserPerformanceMember` or `BrowserPackagePerformance`'s field
-  vocabulary;
+- change `BrowserPerformanceMember` or reinterpret optimization member
+  counts; the separate terminal `SyncCallsInAsync` population remains owned
+  by Analysis UX Scopes;
 - adopt Progressive JSONL Delivery's compact wire encoding — the first
   adoption carries one object-shaped Item event per member, matching Package
   Query's pre-JSONL baseline, and a JSONL adoption is a separate follow-on

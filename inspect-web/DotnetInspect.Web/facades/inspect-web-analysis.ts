@@ -786,6 +786,8 @@ export interface BrowserPackageOpportunities {
 
 export interface BrowserPackagePerformance {
   readonly members: ReadonlyArray<BrowserPerformanceMember>;
+  readonly syncCallsInAsync: ReadonlyArray<BrowserSyncCallInAsync>;
+  readonly syncCallsInAsyncCount: number | null;
   readonly inspectionError: string | null;
   readonly nonPublicOpportunities: number;
   readonly totalOpportunities: number;
@@ -793,6 +795,8 @@ export interface BrowserPackagePerformance {
 }
 
 export interface BrowserPackagePerformanceSummary {
+  readonly syncCallsInAsync: ReadonlyArray<BrowserSyncCallInAsync>;
+  readonly syncCallsInAsyncCount: number | null;
   readonly inspectionError: string | null;
   readonly nonPublicOpportunities: number;
   readonly totalOpportunities: number;
@@ -919,6 +923,13 @@ export interface BrowserSafetyFact {
   readonly operation: string;
   readonly requirement: string;
   readonly evidence: string;
+}
+
+export interface BrowserSyncCallInAsync {
+  readonly caller: string;
+  readonly callee: string;
+  readonly alternative: string;
+  readonly pairKind: string;
 }
 
 export interface BrowserTypeImplementationHeat {

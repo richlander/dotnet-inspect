@@ -16,7 +16,7 @@ using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 namespace DotnetInspect.Cli.Tests;
 
 [Collection("Console")]
-public sealed class ResourceExplanationCommandTests : IDisposable
+public sealed partial class ResourceExplanationCommandTests : IDisposable
 {
     public void Dispose()
     {

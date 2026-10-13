@@ -182,6 +182,68 @@ export function manifestBackedNupkg(
   ]);
 }
 
+/** A healthy package with an explicit empty modern-.NET dependency group. */
+export function emptyDependencyGroupNupkg(
+  assemblyBytes: Uint8Array,
+  assemblyFileName: string,
+  packageId: string,
+  version: string,
+): Buffer {
+  const manifest = Buffer.from(
+    `<?xml version="1.0" encoding="utf-8"?>
+<package>
+  <metadata>
+    <id>${packageId}</id>
+    <version>${version}</version>
+    <dependencies>
+      <group targetFramework="${fixtureFramework}" />
+    </dependencies>
+  </metadata>
+</package>
+`,
+    "utf8");
+  return storedZip([
+    { name: `${packageId}.nuspec`, bytes: manifest },
+    { name: `ref/${fixtureFramework}/${assemblyFileName}`, bytes: assemblyBytes },
+    { name: `lib/${fixtureFramework}/${assemblyFileName}`, bytes: assemblyBytes },
+  ]);
+}
+
+/** A healthy package with one NuGet dependency and Microsoft.AspNetCore.App. */
+export function aspNetCoreReferenceNupkg(
+  assemblyBytes: Uint8Array,
+  assemblyFileName: string,
+  packageId: string,
+  version: string,
+  dependency: ManifestDependency,
+): Buffer {
+  const manifest = Buffer.from(
+    `<?xml version="1.0" encoding="utf-8"?>
+<package>
+  <metadata>
+    <id>${packageId}</id>
+    <version>${version}</version>
+    <dependencies>
+      <group targetFramework="${fixtureFramework}">
+        <dependency id="${dependency.id}" version="${dependency.versionRange}" />
+      </group>
+    </dependencies>
+    <frameworkReferences>
+      <group targetFramework="${fixtureFramework}">
+        <frameworkReference name="Microsoft.AspNetCore.App" />
+      </group>
+    </frameworkReferences>
+  </metadata>
+</package>
+`,
+    "utf8");
+  return storedZip([
+    { name: `${packageId}.nuspec`, bytes: manifest },
+    { name: `ref/${fixtureFramework}/${assemblyFileName}`, bytes: assemblyBytes },
+    { name: `lib/${fixtureFramework}/${assemblyFileName}`, bytes: assemblyBytes },
+  ]);
+}
+
 /**
  * A manifest-only package: an ordinary valid manifest declaring one dependency
  * group, with no reference or implementation assets. This is a real package
