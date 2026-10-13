@@ -55,6 +55,19 @@ internal sealed class ApiSurfaceEndpoint : IDisposable
         PackageScope?.SurfaceParticipants.Length
         ?? AssemblySet.Assemblies.Count;
 
+    /// <summary>
+    /// The target framework this endpoint's assemblies were selected for,
+    /// or <see langword="null"/> when they name none or more than one.
+    /// </summary>
+    public string? Framework =>
+        PackageScope?.TargetFramework
+        ?? (AssemblySet.Assemblies
+                .Select(static entry => entry.Tfm)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray() is [{ } tfm]
+            ? tfm
+            : null);
+
     public ApiSurface Surface => _surface.Value;
 
     public IReadOnlyList<string> Paths =>

@@ -450,6 +450,57 @@ public static class TfmSelector
         ];
     }
 
+    /// <summary>
+    /// The package-relative paths <see cref="SelectHighestAssembliesFromPackage"/>
+    /// selects with no target framework from an extraction of an archive that
+    /// lists <paramref name="entries"/>, computed from the archive directory
+    /// alone: the first of <c>tools</c>, <c>ref</c>, <c>lib</c>, or the whole
+    /// archive that ships a <c>.dll</c>, less satellite resource assemblies,
+    /// narrowed to its highest target framework when it names one.
+    /// </summary>
+    public static IReadOnlyList<string> SelectHighestAssembliesFromEntries(
+        IEnumerable<string> entries)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        StringComparison fileComparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        var files = new HashSet<string>(
+            entries
+                .Select(static entry => entry.Replace('\\', '/'))
+                .Where(static entry => entry.Length > 0 && !entry.EndsWith('/')),
+            OperatingSystem.IsWindows()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal);
+        string[] dlls = [.. files.Where(entry => entry.EndsWith(".dll", fileComparison))];
+        string[] candidates = [];
+        foreach (string root in (string[])["tools/", "ref/", "lib/"])
+        {
+            candidates = [.. dlls.Where(entry => entry.StartsWith(root, fileComparison))];
+            if (candidates.Length > 0)
+                break;
+        }
+        if (candidates.Length == 0)
+            candidates = dlls;
+
+        string[] assemblies =
+        [
+            .. candidates.Where(entry => !IsSatelliteResourceEntry(entry, files)),
+        ];
+        var byTfm = assemblies
+            .Select(static entry => (Entry: entry, Tfm: TfmResolver.ExtractTfmFromPath(entry)))
+            .Where(static pair => pair.Tfm is not null)
+            .GroupBy(static pair => pair.Tfm!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group.Select(static pair => pair.Entry).ToArray(),
+                StringComparer.OrdinalIgnoreCase);
+        IEnumerable<string> selected = byTfm.Count == 0
+            ? assemblies
+            : byTfm[SelectHighestTfm(byTfm.Keys)!];
+        return [.. selected.Order(StringComparer.Ordinal)];
+    }
+
     static bool IsSatelliteResourceEntry(string entry, HashSet<string> files)
     {
         string name = entry[(entry.LastIndexOf('/') + 1)..];
