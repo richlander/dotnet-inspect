@@ -83,8 +83,8 @@ The acceptance goal is parity or better with the private byte-native
 `SymbolKey`, together with the large advantage over eager `InertString`
 established by the earlier names-only pilot.
 
-Candidate `11d7b7649730d7a0016f2472f98847d91eb10a2f` ran as linux-x64 NativeAOT
-on `dotnet-inspect-perf` under one `perf-guard` lease. The host was 99.80
+Candidate `08367168c9d5c6cc88b02935824427e7184278b7` ran as linux-x64 NativeAOT
+on `dotnet-inspect-perf` under one `perf-guard` lease. The host was 99.75
 percent idle when the lease began. Thirty rotated rounds measured at least
 50,000 keys per asset:
 
@@ -97,32 +97,33 @@ perf-guard ./symbol-key-range-pilot measure \
 ```
 
 The binary SHA-256 was
-`ad8285adc26b1eea8c7c0dc1afb2227d998d5c6fe0d87d905036fe672070253a`.
+`63835f7884a79551a237b000de97cf27867380ff54ed46aabc2d7f96ca9a64ac`.
 Inputs were .NET 11 RC1 `System.Private.CoreLib.dll` (`9573ebab...`),
 `System.Text.Json` 10.0.9 (`21bf5768...`), and
 `Microsoft.Extensions.Configuration` 10.0.10 (`82e24fb2...`). All strategies
 produced byte-identical keys, hashes, equality answers, and query counts.
+This run includes the declaring-Type chains for nested definitions and
+references; it supersedes the earlier flattened-Type evidence.
 
 Ratios are population-backed range divided by private `SymbolKey`:
 
 | Asset | Keys | Build elapsed | KeyMatch elapsed | `ValueTextEquals` elapsed | Build allocation | Retained memory |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| CoreLib | 62,986 | 0.831x, inconclusive | 0.996x, inconclusive | 1.061x, inconclusive | 0.885x, win | 0.805x, win |
-| System.Text.Json | 54,592 | 0.746x, inconclusive | 1.125x, loss | 1.048x, inconclusive | 0.895x, win | 0.822x, win |
-| Microsoft.Extensions.Configuration | 50,244 | 0.712x, inconclusive | 1.024x, inconclusive | 1.058x, inconclusive | 0.887x, win | 0.808x, win |
+| CoreLib | 62,986 | 0.953x, inconclusive | 1.010x, inconclusive | 1.065x, inconclusive | 0.892x, win | 0.817x, win |
+| System.Text.Json | 54,592 | 0.814x, inconclusive | 1.036x, loss | 1.067x, inconclusive | 0.901x, win | 0.833x, win |
+| Microsoft.Extensions.Configuration | 50,244 | 0.822x, inconclusive | 1.020x, inconclusive | 1.074x, inconclusive | 0.903x, win | 0.834x, win |
 
-The absolute KeyMatch medians were 5.223 to 5.214 ms, 3.786 to 4.280 ms,
-and 2.858 to 2.932 ms. The System.Text.Json paired control interval was
-1.059x to 1.198x, so that result is a credible loss. `ValueTextEquals`
-medians were 0.764 to 0.810 ms, 0.656 to 0.687 ms, and 0.587 to 0.620 ms,
+The absolute KeyMatch medians were 5.266 to 5.326 ms, 3.847 to 3.980 ms,
+and 3.066 to 3.139 ms. The System.Text.Json paired control interval was
+1.010x to 1.060x, so that result is a credible loss. `ValueTextEquals`
+medians were 0.759 to 0.808 ms, 0.645 to 0.689 ms, and 0.583 to 0.627 ms,
 but every paired control interval included parity.
 
-The first range-reader candidate retained an `OpaqueByteRange` in the scoped
-reader and produced a 1.133x to 1.154x `ValueTextEquals` loss. Borrowing the
-already-bounded Name span in the final candidate removed that credible loss.
-The unchanged KeyMatch path then exposed the remaining System.Text.Json loss.
-Per the asymmetric evidence rule, the pilot stopped rather than seeking a
-favorable second host.
+Borrowing the already-bounded Name span avoids resolving a second
+`OpaqueByteRange` in the scoped reader. On the corrected workload,
+`ValueTextEquals` remains inconclusive on all three assets; the unchanged
+KeyMatch path exposes the remaining System.Text.Json loss. Per the asymmetric
+evidence rule, the pilot stopped rather than seeking a favorable second host.
 
 The earlier names-only NativeAOT pilot measured its compact UTF-8 arena at
 0.272x, 0.209x, and 0.223x matching time and 0.323x, 0.330x, and 0.318x
