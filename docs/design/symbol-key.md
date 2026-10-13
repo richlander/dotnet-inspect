@@ -3,11 +3,13 @@
 ## Status and owner
 
 Proposed focused design for
-[#9918](https://github.com/richlander/dotnet-inspect/issues/9918). Nothing in
-this document is implemented beyond the Fast Diff-private `SymbolKey` that
+[#9918](https://github.com/richlander/dotnet-inspect/issues/9918). Its
+representation pilot is complete, while the shared Symbol Key described here
+remains unimplemented beyond the Fast Diff-private `SymbolKey` that
 [#9898](https://github.com/richlander/dotnet-inspect/pull/9898) introduced.
-The adoption sequence below is the counted path to shared use in the CLI and
-Browser/Wasm hosts.
+The parent byte primitives first adopt a bounded exact-Type result path; the
+adoption sequence below is the counted path from that baseline to shared Symbol
+Key use in the CLI and Browser/Wasm hosts.
 
 This is slice 2 of a two-PR design stack. Parent
 [#9993](https://github.com/richlander/dotnet-inspect/pull/9993) establishes
@@ -65,9 +67,10 @@ a U+FFFD collision. The key, its builder, and its `#Strings` name reader are
 The parent owner generalizes the representation evidence: one immutable backing
 supplies cheap `OpaqueByteRange` snapshots, generic byte operations, STJ-style
 UTF-8 query matching, and one containing-type-owned presentation transition to
-`InertUtf8String`. Symbol Key is the first domain view. It adds a grammar and
-profiles without creating a second storage owner or applying presentation
-policy during analysis.
+`InertUtf8String`. A bounded metadata exact-Type Name view is the first
+production domain adoption. Symbol Key adds a grammar and profiles without
+creating a second storage owner or applying presentation policy during
+analysis.
 
 Four planned consumers need the same thing, and each would otherwise grow a
 private copy:
@@ -412,19 +415,23 @@ form are the exchange currency between the hosts and checked-in artifacts.
 
 ## Adoption sequence
 
-Seven steps, tracked by
+Eight steps, tracked by
 [#9918](https://github.com/richlander/dotnet-inspect/issues/9918):
 
 1. **Opaque range and Inert UTF-8 design.** Parent PR #9993 defines immutable
    backing, `OpaqueByteRange`, scoped readers, STJ-style query matching, the
    explicit exact-byte encoder, and the `InertUtf8String`-owned presentation
    transition.
-2. **This Symbol Key design.** Define the first domain view over that backing.
+2. **This Symbol Key design.** Define the key domain view over that backing.
 3. **Symbol Key representation pilot.** Compare current private Symbol Key
    with an `OpaqueByteRange`/`ValueTextEquals` prototype using time and memory
    SPC. A neutral or negative result changes the implementation plan rather
    than being hidden.
-4. **Shared implementation, Fast Diff adopts.** Move the key, builder, and
+4. **Exact-Type baseline and host-input comparison.** The parent design first
+   lands the shared primitives with one uniquely matched Type identity, then
+   measures the separately reviewable host-input exact-match optimization
+   against that merged baseline.
+5. **Shared implementation, Fast Diff adopts.** Move the key, builder, and
    `#Strings` reader into `ILInspector.MetadataPrimitives` with the domain
    split and the UTF-8 and UTF-16 name sources. Fast Diff's `SymbolPart`
    becomes its domain. Stage each consumer-chosen population, freeze before
@@ -432,16 +439,16 @@ Seven steps, tracked by
    keys inline. Add the opaque-range dependency; Fast Diff's private storage
    and key copy are deleted in the same step only when the pilot supports that
    adoption, with NativeAOT parity measured.
-5. **Persisted profile and text form.** Header, registry, validation,
+6. **Persisted profile and text form.** Header, registry, validation,
    `PersistedSymbolKeyEncoder`, and base64url. The first adopter is whichever
    of the encoded API qualified anchor
    ([#9907](https://github.com/richlander/dotnet-inspect/issues/9907)) or the
    receiver index artifact
    ([#9889](https://github.com/richlander/dotnet-inspect/issues/9889) step 3)
    lands first; that adoption PR registers its domain.
-6. **Interning.** The range-keyed table and `Ref` part, adopted by Fast Diff
+7. **Interning.** The range-keyed table and `Ref` part, adopted by Fast Diff
    step 5.
-7. **Browser exchange.** The first Inspect Web consumer that passes a key to
+8. **Browser exchange.** The first Inspect Web consumer that passes a key to
    TypeScript and back adopts the text form, with the host-parity gate.
 
 The Fast Diff-private implementation is retired in step 4. No other private

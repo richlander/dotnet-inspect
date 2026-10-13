@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
+using InertText;
 using QuerySpace.Composition;
 
 namespace DotnetInspector.Sections;
@@ -510,11 +511,15 @@ public static class TypeSubjectInspectionOperation
                                 parameter.MetadataIndex,
                                 parameter.Name,
                                 parameter.Attributes))));
+        MetadataTypeDefinitionName matchedType =
+            document.MatchedName?.ToDefinitionName(TextPolicy.Field)
+            ?? throw new InvalidOperationException(
+                "An available Type document requires its matched byte-native Type identity.");
         TypeSubject subject = libraryCorrespondence is null
             ? new(
                 assembly,
                 document.Subject.Type.ModuleVersionId,
-                plan.Type,
+                matchedType,
                 document.Subject.Type.Definition.Value,
                 signature,
                 document.Subject.Category,
@@ -527,7 +532,7 @@ public static class TypeSubjectInspectionOperation
                 document.Subject.DeclaringType?.Definition.Value)
             : ProjectSubject(
                 libraryCorrespondence,
-                plan.Type,
+                matchedType,
                 document.Subject,
                 assembly);
         var outcome =

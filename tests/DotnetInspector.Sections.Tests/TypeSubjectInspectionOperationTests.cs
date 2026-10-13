@@ -99,6 +99,37 @@ public sealed class TypeSubjectInspectionOperationTests
             document.Subject.Type);
     }
 
+    [Fact]
+    public void DirectAssembly_NestedSubjectRetainsByteNativeSegmentBoundaries()
+    {
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(TypeSubjectInspectionOperationTests)
+                    .Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    "nested byte-native Type identity test"));
+        MetadataTypeDefinitionName expected =
+            Name(
+                "DotnetInspector.Sections.Tests",
+                nameof(TypeSubjectInspectionOperationTests),
+                nameof(ByteNativeNestedFixture));
+
+        InspectionEnvelope<TypeSubjectInspectionOutcome> envelope =
+            TypeSubjectInspectionOperation.Execute(
+                assembly,
+                new(expected, s_bounds),
+                TestContext.Current.CancellationToken);
+
+        TypeSubjectInspectionContent document = Available(envelope);
+        Assert.Equal(expected, document.Subject.Type);
+        Assert.Equal(
+            [
+                nameof(TypeSubjectInspectionOperationTests),
+                nameof(ByteNativeNestedFixture),
+            ],
+            document.Subject.Type.Segments);
+    }
+
     [Theory]
     [InlineData(
         "System.Collections.Generic",
@@ -196,6 +227,8 @@ public sealed class TypeSubjectInspectionOperationTests
 
         await library.RetireAsync();
     }
+
+    private sealed class ByteNativeNestedFixture;
 
     [Fact]
     public async Task ReadonlyStructSubject_RetainsDeclarationModifier()

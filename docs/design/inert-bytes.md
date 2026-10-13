@@ -2,7 +2,7 @@
 
 ## Status and owner
 
-**Design only; no implementation or production adoption is claimed.**
+**Initial shared implementation and exact-Type result adoption.**
 [#9991](https://github.com/richlander/dotnet-inspect/issues/9991) tracks this
 focused design.
 
@@ -98,9 +98,9 @@ producer or scoped source reader
                              -> InertString serves UTF-16/string sinks
 ```
 
-For the first Symbol Key consumer, `NameRange` means the exact
-`OpaqueByteRange` retained privately by `SymbolKeyName`, and `SearchValue`
-means the caller's pre-encoded query. The governing representation rule is:
+For a typed Name consumer, `NameRange` means the exact `OpaqueByteRange`
+retained privately by that domain view, and `SearchValue` means the caller's
+pre-encoded query. The governing representation rule is:
 
 > To decide whether `NameRange` equals `SearchValue`, perform a closed range
 > evaluation through `Utf8RangeReader.ValueTextEquals`; no contained string is
@@ -119,6 +119,31 @@ Opacity and containment are intentionally different. `OpaqueByteRange` protects
 untreated bytes by never lending them. `InertUtf8String` contains text by
 retaining only bytes that have passed UTF-8 decoding and the named visual
 policy.
+
+### First exact-Type adoption
+
+The first product adoption is the direct, fully qualified exact-Type subject
+path. It deliberately changes only the selected result boundary:
+
+1. Existing structured exact matching determines whether one TypeDef is the
+   unique match. Listing, globs, suggestions, implied-member fallback, and the
+   broad `ApiSurface` lookup do not participate.
+2. After uniqueness is known, `MetadataUtf8TypeDefinitionName` detaches the
+   matched root namespace and root-to-leaf metadata-name segments into one
+   compact immutable backing. No unmatched candidate Name is copied.
+3. Its `MetadataUtf8Name` views issue `Utf8RangeReader`; projection constructs
+   `InertUtf8String(TextPolicy.Field, reader)`.
+4. The existing `MetadataTypeDefinitionName` and host models remain the
+   UTF-16 compatibility boundary for this slice.
+
+This baseline does not yet change query provenance or matching. The request
+remains a structured string value, `MetadataReader.StringComparer` keeps its
+existing allocation-free candidate comparison, and declaration analysis that
+needs the existing `InertString` identity remains string-backed. The
+follow-up slice may introduce a host-created exact-input type and reuse its
+pre-encoded bytes only when the same byte comparisons prove the selected
+metadata Name is equal. That optimization is measured against this merged
+baseline, not against the earlier UTF-16 presentation proxy.
 
 ## Motivating evidence
 
@@ -586,7 +611,10 @@ the repository threat model.
 | Exact-byte encoder | Exact bytes reach destination-owned storage without lending the backing; domain eligibility and destination failures remain visible | PR-fast |
 | Containment parity | Printing is admitted only from constructed `InertUtf8String`; for clean, concerning, and ill-formed inputs, direct UTF-8 and `InertString` output have identical spelling, concern, form, and truncation evidence | PR-fast |
 | Shared backing | A generated population of names and nested domain parts retains one backing rather than one array or class per view | PR-fast |
-| Symbol Key representation pilot | SPC comparison of the current private Symbol Key and the proposed range-backed model measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; exact identity answers must agree | Pilot before implementation |
+| Exact-Type selected identity | A fully qualified exact nested Type detaches only its matched namespace and root-to-leaf Name segments into one backing, preserves segment boundaries, and projects the same structured identity after containment | First adoption PR |
+| Exact-Type base/head | NativeAOT exact-command time and allocation comparison preserves result semantics; retained-memory claims include the detached matched Name backing and do not count UTF-16 compatibility output as byte-native savings | First adoption PR |
+| Host-input optimization | Exact query bytes are encoded once, typed match evidence is available only after exact equality, and the candidate is compared with the merged exact-Type baseline | Follow-up adoption PR |
+| Symbol Key representation pilot | SPC comparison of the current private Symbol Key and the proposed range-backed model measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; exact identity answers must agree | Completed pilot |
 | Fast Diff product path | Exact base/head NativeAOT comparison on all pinned Fast Diff pairs, with identity answers unchanged and no regression | Symbol Key implementation adoption |
 | Direct byte output | Exact-answer and allocation comparison for the first Diff sink that stays byte-native after `InertUtf8String` construction | Diff output adoption |
 
@@ -598,26 +626,28 @@ exact-base/head gates run.
 
 1. **Opaque range and Inert UTF-8 design.** This document fixes ownership,
    representation, closed operations, containment, and non-claims.
-2. **Symbol Key design adoption.** Restack
+2. **Symbol Key design and representation pilot.** Restack
    [#9932](https://github.com/richlander/dotnet-inspect/pull/9932) on this
-   design. Symbol Key becomes the first domain view and retains its grammar,
-   persisted format, and interning claims.
-3. **Symbol Key pilot.** Compare the current private byte key with a
-   range-backed `OpaqueByteRange`/`ValueTextEquals` prototype using time and
-   memory SPC. Preserve a negative or neutral result rather than assuming the
-   shared model wins.
-4. **Shared implementation and Fast Diff adoption.** If the pilot supports
-   adoption, implement the backing, range operations, containing-type-owned
-   presentation path, and domain encoder; move Fast Diff's private Symbol Key
-   onto them and remove the duplicate storage owner.
-5. **API qualified anchor adoption.** Carry byte-backed names through
+   design, then compare the current private byte key with a range-backed
+   prototype using time and memory SPC. Preserve negative or neutral evidence.
+3. **Exact-Type baseline adoption.** Implement the immutable backing, opaque
+   range, scoped reader, and Inert UTF-8 containment path. Detach only the
+   unique fully qualified Type match into `MetadataUtf8TypeDefinitionName`;
+   preserve the existing search algorithm and UTF-16 host contracts.
+4. **Exact-Type host-input optimization.** Add the auditable host-created
+   exact-input type, return typed evidence from the same successful byte
+   comparisons, and compare against the merged step 3 baseline.
+5. **Shared Symbol Key and Fast Diff adoption.** Move Fast Diff's private
+   Symbol Key onto the shared representation and remove the duplicate storage
+   owner only with exact base/head NativeAOT parity.
+6. **API qualified anchor adoption.** Carry byte-backed names through
    declaration, signature, and resolver boundaries under
    [#9907](https://github.com/richlander/dotnet-inspect/issues/9907).
-6. **Byte-native Fast Diff result.** Keep applicable result names as domain
+7. **Byte-native Fast Diff result.** Keep applicable result names as domain
    views under Fast Diff's focused owner.
-7. **Direct Presentation output.** Let Presentation consume those views and
+8. **Direct Presentation output.** Let Presentation consume those views and
    write contained UTF-8 directly at byte-capable sinks.
-8. **CLI and Browser/Wasm completion.** Adopt the shared identities and direct
+9. **CLI and Browser/Wasm completion.** Adopt the shared identities and direct
    projections in the product paths tracked by their owning issues.
 
 Each adoption is independently reviewable and keeps its domain semantics with
