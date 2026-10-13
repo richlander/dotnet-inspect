@@ -1304,7 +1304,8 @@ public sealed record BrowserPackageDependencies(
 
 public sealed record BrowserPackagePlatformReference(
     string Family,
-    string Label);
+    string Label,
+    bool IsImplicit);
 
 public sealed record BrowserLibraryQueryInspection(
     BrowserLibraryQueryDocument Content,

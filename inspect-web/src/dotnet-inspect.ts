@@ -44,6 +44,7 @@ import {
   packageIdentityKey,
   packageLenses,
   partitionGraphMembers,
+  platformReferencesForDependencyGroup,
   platformPackForGraphAssembly,
   platformPackFromProvenance,
   removeAppendedNotice,
@@ -11234,7 +11235,11 @@ function packageDependenciesStatus(
   const selectedGroup =
     groups.find(group => group.index === selectedGroupIndex) ?? groups[0];
   const dependencyCount = selectedGroup?.dependencies?.length ?? 0;
-  const platformCount = data.platformReferences?.length ?? 0;
+  const platformCount = platformReferencesForDependencyGroup(
+    data.platformReferences ?? [],
+    groups,
+    selectedGroupIndex,
+  ).length;
   const completion = data.declarationFailures.length > 0
     ? " · incomplete"
     : "";
@@ -11315,10 +11320,16 @@ function renderPackageDependencies() {
     : "";
   const declarationFailureNotice =
     renderPackageDeclarationFailures(data.declarationFailures);
+  const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
   const platformReferenceSection =
-    platformReferenceSectionHtml(data);
+    platformReferenceSectionHtml(data, selectedGroupIndex);
+  const platformReferences = platformReferencesForDependencyGroup(
+    data.platformReferences,
+    groups,
+    selectedGroupIndex,
+  );
   const graphSection =
-    groups.length || data.platformReferences.length
+    groups.length || platformReferences.length
       ? `
     <section class="document-section dependency-graph-section">
       <div class="section-title"><h2>Dependency graph</h2><span>${DEPENDENCY_GRAPH_SUMMARY}</span></div>
@@ -11336,7 +11347,6 @@ function renderPackageDependencies() {
       packageDependenciesStatus(data, null));
   }
 
-  const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
   const orderedGroups = groups;
   const selectorChips = orderedGroups
     .map(group => `<button class="type-chip ${group.index === selectedGroupIndex ? "active" : ""}" data-dep-group="${group.index}" aria-pressed="${group.index === selectedGroupIndex}">${escapeHtml(group.framework)}</button>`)
@@ -11354,13 +11364,21 @@ function renderPackageDependencies() {
     packageDependenciesStatus(data, selectedGroupIndex));
 }
 
-function platformReferenceSectionHtml(data: BrowserPackageDependencies) {
-  const references = data.platformReferences || [];
+function platformReferenceSectionHtml(
+  data: BrowserPackageDependencies,
+  selectedGroupIndex: number | null,
+) {
+  const references = platformReferencesForDependencyGroup(
+    data.platformReferences || [],
+    data.dependencyGroups || [],
+    selectedGroupIndex,
+  );
   const failure = data.platformReferenceError
     ? `<p class="graph-render-error" role="alert">${escapeHtml(data.platformReferenceError)}</p>`
     : "";
-  if (!references.length && !failure) return "";
-  return `<section class="document-section" id="platform-reference-list-section">
+  const content = !references.length && !failure
+    ? ""
+    : `<section class="document-section" id="platform-reference-list-section">
     <div class="section-title"><h2>Platform references</h2><span>${references.length} platform${references.length === 1 ? "" : "s"}</span></div>
     ${references.length
       ? `<ul class="dep-list">${references.map(reference =>
@@ -11369,6 +11387,7 @@ function platformReferenceSectionHtml(data: BrowserPackageDependencies) {
       : ""}
     ${failure}
   </section>`;
+  return `<div data-platform-reference-slot>${content}</div>`;
 }
 
 function renderLibraryReferences() {
@@ -11567,6 +11586,12 @@ function patchDependenciesGroup() {
     button.setAttribute("aria-pressed", String(selected));
   });
   status.textContent = packageDependenciesStatus(data, selectedGroupIndex);
+  const platformSlot =
+    document.querySelector<HTMLElement>("[data-platform-reference-slot]");
+  if (platformSlot) {
+    platformSlot.outerHTML =
+      platformReferenceSectionHtml(data, selectedGroupIndex);
+  }
   listSection.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex);
   bindPackageDependencyListEvents();
   observeAsync(renderPackageDependencyList(), "Matching dependency packages");
@@ -23067,9 +23092,11 @@ async function renderDependencyGraph() {
   const packageDependencies = state.packageDependencies
     ? {
         ...state.packageDependencies,
-        platformReferences: !selectedGroup || selectedGroup.isActive
-          ? state.packageDependencies.platformReferences
-          : [],
+        platformReferences: platformReferencesForDependencyGroup(
+          state.packageDependencies.platformReferences,
+          groups,
+          selectedGroupIndex,
+        ),
       }
     : null;
   const model = {

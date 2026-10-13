@@ -3103,7 +3103,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       healthyAssemblyFileName,
     );
     expect(runtime.platformReferences).toEqual([
-      { family: "runtime", label: ".NET Runtime" },
+      { family: "runtime", label: ".NET Runtime", isImplicit: true },
     ]);
     expect(runtime.platformReferenceError).toBeNull();
 
@@ -3114,7 +3114,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       healthyAssemblyFileName,
     );
     expect(aspNetCore.platformReferences).toEqual([
-      { family: "aspnetcore", label: "ASP.NET Core" },
+      { family: "aspnetcore", label: "ASP.NET Core", isImplicit: false },
     ]);
     expect(aspNetCore.platformReferenceError).toBeNull();
 

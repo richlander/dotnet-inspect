@@ -1086,14 +1086,18 @@ the browser does not open another assembly session.
 Package References combines the selected NuGet dependency group with platform
 references projected from the same exact PackageHouse realization.
 `Microsoft.NETCore.App` is shown as `.NET Runtime`, and
-`Microsoft.AspNetCore.App` is shown as `ASP.NET Core`. When the selected NuGet
-group is empty, successful framework-reference evidence contains no explicit
-references, and the active target is a supported `net` or `netcoreapp` target,
-the Browser adds `.NET Runtime` as the target's default platform reference.
+`Microsoft.AspNetCore.App` is shown as `ASP.NET Core`. When NuGet selection
+successfully reports no dependency groups or an empty selected group,
+successful framework-reference evidence contains no explicit references, and
+the active target is a supported `net` or `netcoreapp` target, the Browser adds
+`.NET Runtime` as the target's default platform reference.
 It does not add that default to a non-empty NuGet group or turn unavailable or
 invalid framework-reference evidence into a successful fallback. The NuGet
-and platform rows remain separate lists and typed graph nodes. Library
-References continues to show only the selected Library's assembly references.
+and platform rows remain separate lists and typed graph nodes. Explicit
+platform references remain visible across dependency-group selection; an
+implicit runtime default follows the selected group's emptiness in the list,
+status, and graph. Library References continues to show only the selected
+Library's assembly references.
 Internal `dependencies` route and contract identities remain unchanged.
 
 Each NuGet dependency row displays the package's embedded icon when its exact

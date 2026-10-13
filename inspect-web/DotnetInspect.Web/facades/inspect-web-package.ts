@@ -855,6 +855,7 @@ export interface BrowserPackageLoadResult {
 export interface BrowserPackagePlatformReference {
   readonly family: string;
   readonly label: string;
+  readonly isImplicit: boolean;
 }
 
 export interface BrowserPackageQueryAnswer {

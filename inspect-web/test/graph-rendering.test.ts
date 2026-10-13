@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mermaidLabel } from "../src/data.ts";
+import {
+  mermaidLabel,
+  platformReferencesForDependencyGroup,
+} from "../src/data.ts";
 import {
   buildAnnotatedRelationshipGraphMermaid,
   buildAssemblyReferenceGraphMermaid,
@@ -307,6 +310,7 @@ test("dependency graph renders a direct non-navigable platform edge", async () =
         platformReferences: [{
           family: "runtime",
           label: ".NET Runtime",
+          isImplicit: true,
         }],
       },
       dependenciesGroupIndex: 0,
@@ -331,4 +335,22 @@ test("dependency graph renders a direct non-navigable platform edge", async () =
     [...graph.nodeInfoById.values()]
       .find(info => info.kind === "platform")?.packageKey,
     "");
+});
+
+test("platform references follow the selected dependency group's emptiness", () => {
+  const references = [
+    { family: "aspnetcore", label: "ASP.NET Core", isImplicit: false },
+    { family: "runtime", label: ".NET Runtime", isImplicit: true },
+  ];
+  const groups = [
+    { index: 0, dependencies: [] },
+    { index: 1, dependencies: [{ id: "Example.Dependency" }] },
+  ];
+
+  assert.deepEqual(
+    platformReferencesForDependencyGroup(references, groups, 0),
+    references);
+  assert.deepEqual(
+    platformReferencesForDependencyGroup(references, groups, 1),
+    [references[0]]);
 });

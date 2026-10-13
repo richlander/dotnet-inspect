@@ -3097,7 +3097,57 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             ".NET Runtime",
             platformReference.Label);
+        Assert.True(platformReference.IsImplicit);
         Assert.Null(projection.Error);
+    }
+
+    [Fact]
+    public async Task PackageDependencies_UnmatchedGroupDoesNotDefaultToRuntime()
+    {
+        string packageId = $"Browser.Dependency.Unmatched.{Guid.NewGuid():N}";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] nupkg = PackageWithManifest(
+            image,
+            $"lib/net10.0/{packageId}.dll",
+            $"""
+             <package>
+               <metadata>
+                 <id>{packageId}</id>
+                 <version>1.0.0</version>
+                 <dependencies>
+                   <group targetFramework="net11.0">
+                     <dependency id="Browser.Dependency.Child" version="[2.0.0]" />
+                   </group>
+                 </dependencies>
+               </metadata>
+             </package>
+             """);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                nupkg,
+                fromCache: false));
+
+        string json =
+            await DotnetInspect.Web.Interop.Package.PackageExports
+                .QueryPackageDependencies(
+                    packageId,
+                    "1.0.0",
+                    "net10.0",
+                    $"{packageId}.dll");
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        Assert.NotEqual(
+            JsonValueKind.Null,
+            root.GetProperty("dependencyGroupError").ValueKind);
+        Assert.Empty(
+            root.GetProperty("platformReferences").EnumerateArray());
+        Assert.Equal(
+            JsonValueKind.Null,
+            root.GetProperty("platformReferenceError").ValueKind);
     }
 
     [Fact]
@@ -3155,6 +3205,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             "ASP.NET Core",
             platformReference.Label);
+        Assert.False(platformReference.IsImplicit);
         Assert.Null(projection.Error);
     }
 

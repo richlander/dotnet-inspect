@@ -877,11 +877,16 @@ public static partial class PackageExports
         BrowserPackageDependencyDeclarationFailure[] declarationFailures =
             ProjectDependencyDeclarationFailures(dependencies);
         bool dependencyGroupIsEmpty =
-            dependencyEvidence.Selection.SelectedGroup is null
-            || !dependencies.Groups.Any(group =>
-                group.Identity
-                    == dependencyEvidence.Selection.SelectedGroup
-                && !group.Declarations.IsEmpty);
+            dependencyEvidence.Selection.Status
+                == PackageDependencyEvidenceSelectionStatus.NoDependencyGroups
+            || dependencyEvidence.Selection is
+                {
+                    Status: PackageDependencyEvidenceSelectionStatus.Selected,
+                    SelectedGroup: { } selectedGroup,
+                }
+                && dependencies.Groups.Any(group =>
+                    group.Identity == selectedGroup
+                    && group.Declarations.IsEmpty);
         BrowserPackagePlatformReferenceProjection platformReferences =
             BrowserPackagePlatformReferences.Project(
                 realizedCoordinate,
@@ -910,7 +915,8 @@ public static partial class PackageExports
                     .. platformReferences.References.Select(reference =>
                         new BrowserPackagePlatformReference(
                             reference.Family,
-                            reference.Label)),
+                            reference.Label,
+                            reference.IsImplicit)),
                 ],
                 declarationFailures,
                 assemblyReferences,

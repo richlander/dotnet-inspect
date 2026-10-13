@@ -9,7 +9,7 @@ internal sealed record BrowserPackagePlatformReferenceProjection(
     ImmutableArray<BrowserPackagePlatformReferenceProjection.Row> References,
     string? Error)
 {
-    internal sealed record Row(string Family, string Label);
+    internal sealed record Row(string Family, string Label, bool IsImplicit);
 }
 
 [SupportedOSPlatform("browser")]
@@ -105,12 +105,22 @@ internal static class BrowserPackagePlatformReferences
             return [];
         }
 
-        return [Runtime];
+        return [ImplicitRuntime];
     }
 
     static BrowserPackagePlatformReferenceProjection.Row Runtime { get; } =
-        new(BrowserPlatformWorkspace.RuntimeFamily, ".NET Runtime");
+        new(
+            BrowserPlatformWorkspace.RuntimeFamily,
+            ".NET Runtime",
+            IsImplicit: false);
 
     static BrowserPackagePlatformReferenceProjection.Row AspNetCore { get; } =
-        new(BrowserPlatformWorkspace.AspNetCoreFamily, "ASP.NET Core");
+        new(
+            BrowserPlatformWorkspace.AspNetCoreFamily,
+            "ASP.NET Core",
+            IsImplicit: false);
+
+    static BrowserPackagePlatformReferenceProjection.Row ImplicitRuntime
+        { get; } =
+        Runtime with { IsImplicit = true };
 }

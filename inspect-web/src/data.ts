@@ -333,6 +333,25 @@ export function dependencyGraphExternalKey(packageId: string, declaredRange: str
   return `external\u0000${packageId.toLowerCase()}\u0000${declaredRange || ""}`;
 }
 
+export function platformReferencesForDependencyGroup<
+  TReference extends { readonly isImplicit: boolean },
+  TGroup extends {
+    readonly index: number;
+    readonly dependencies: readonly unknown[];
+  },
+>(
+  references: readonly TReference[],
+  groups: readonly TGroup[],
+  selectedGroupIndex: number | null,
+): readonly TReference[] {
+  if (!groups.length) return references;
+  const selected = groups.find(group => group.index === selectedGroupIndex)
+    ?? groups[0];
+  if (!selected) return [];
+  return references.filter(reference =>
+    !reference.isImplicit || selected.dependencies.length === 0);
+}
+
 export interface BoundedGraphNodeResult<T> {
   node: T | null;
   truncated: boolean;
@@ -543,6 +562,7 @@ export interface DependencyGroupData {
   platformReferences?: readonly {
     family: string;
     label: string;
+    isImplicit: boolean;
   }[];
   platformReferenceError?: string | null;
 }
