@@ -1,4 +1,5 @@
 import type { EngineClient } from "./engine-client.ts";
+import type { PackageQueryFacetData } from "./package-query-source.ts";
 import type {
   PackageQueryDurableRowPresentationLayout,
 } from "./package-query-durable-row.ts";
@@ -27,13 +28,14 @@ export interface EngineStartupClient {
     EngineClient["catalog"],
     "inspectVocabulary" | "listEcosystems" | "listHomeDemos"
   >;
-  readonly package: Pick<
-    EngineClient["package"],
-    "listPackageActivityEcosystems" | "listPackageQueryCatalog"
-  > & {
-    readonly packageQueryDurableRowLayout:
-      () => Promise<PackageQueryDurableRowPresentationLayout>;
-  };
+  readonly package:
+    Pick<EngineClient["package"], "listPackageActivityEcosystems">
+    & {
+      readonly inspectPackageQueryFacets:
+        () => Promise<PackageQueryFacetData>;
+      readonly packageQueryDurableRowLayout:
+        () => Promise<PackageQueryDurableRowPresentationLayout>;
+    };
 }
 
 interface StartupReads {
@@ -43,7 +45,8 @@ interface StartupReads {
   readonly listHomeDemos: EngineStartupClient["catalog"]["listHomeDemos"];
   readonly listPackageActivityEcosystems:
     EngineStartupClient["package"]["listPackageActivityEcosystems"];
-  readonly listPackageQueryCatalog: EngineStartupClient["package"]["listPackageQueryCatalog"];
+  readonly inspectPackageQueryFacets:
+    () => Promise<unknown>;
   readonly packageQueryDurableRowLayout:
     EngineStartupClient["package"]["packageQueryDurableRowLayout"];
 }
@@ -57,7 +60,10 @@ export function registerEngineWorkerStartupOperations(
   operations: WorkerOperationCatalog,
   reads: StartupReads,
 ): void {
-  function register<TValue>(operation: StartupOperation<TValue>, read: () => Promise<TValue>) {
+  function register<TValue>(
+    operation: StartupOperation<TValue>,
+    read: () => Promise<unknown>,
+  ) {
     operations.register({
       kind: operation.kind,
       allowance: { kind: "unbounded" },
@@ -83,7 +89,9 @@ export function registerEngineWorkerStartupOperations(
   register(
     engineStartupOperations.listPackageActivityEcosystems,
     reads.listPackageActivityEcosystems);
-  register(engineStartupOperations.listPackageQueryCatalog, reads.listPackageQueryCatalog);
+  register(
+    engineStartupOperations.inspectPackageQueryFacets,
+    reads.inspectPackageQueryFacets);
 }
 
 export function bindEngineWorkerStartupClient(
@@ -167,7 +175,8 @@ export function bindEngineWorkerStartupClient(
     package: {
       listPackageActivityEcosystems:
         bind(engineStartupOperations.listPackageActivityEcosystems),
-      listPackageQueryCatalog: bind(engineStartupOperations.listPackageQueryCatalog),
+      inspectPackageQueryFacets:
+        bind(engineStartupOperations.inspectPackageQueryFacets),
       packageQueryDurableRowLayout:
         bind(engineStartupOperations.packageQueryDurableRowLayout),
     },

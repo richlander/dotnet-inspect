@@ -1131,7 +1131,14 @@ async function installFacades(
           }],
         };
       }
-      export function listPackageQueryCatalog() { return { presets: [], terms: [] }; }
+      export function inspectPackageQueryFacets() {
+        return JSON.stringify({
+          selection: { kind: "query-facets", completeness: "Complete" },
+          facet_order: [],
+          facets: {},
+          bindings: {},
+        });
+      }
       const packageQueryOperations = new Map();
       function packageQueryRow(ecosystemId, index) {
         const packageId = index === 0

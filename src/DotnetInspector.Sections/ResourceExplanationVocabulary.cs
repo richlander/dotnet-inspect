@@ -51,6 +51,9 @@ internal static class ResourceExplanationVocabulary
     internal static readonly ExplanationDataShapeIdentity
         OpaqueExternalIdentityShape =
             new(QuerySchemaIdentity, "opaque-external-identity");
+    internal static readonly ExplanationDataShapeIdentity
+        QueryFacetOptionShape =
+            new(QuerySchemaIdentity, "query-facet-option");
     internal static readonly ExplanationPublicAddressKindIdentity
         ResourcePathAddressKind =
             new(CoreSchemaIdentity, "resource-path");
@@ -143,6 +146,10 @@ internal static class ResourceExplanationVocabulary
         new ExplanationValue.Scalar(
             ExplanationScalarValue.FromInteger(new BigInteger(value)));
 
+    internal static ExplanationValue Boolean(bool value) =>
+        new ExplanationValue.Scalar(
+            ExplanationScalarValue.FromBoolean(value));
+
     internal static ExplanationFactObservation TextFact(
         ExplanationResourceTypeIdentity resourceType,
         string identity,
@@ -160,6 +167,24 @@ internal static class ResourceExplanationVocabulary
             Fact(resourceType, identity),
             ExplanationObservationState.Available,
             [Integer(value)]);
+
+    internal static ExplanationFactObservation BooleanFact(
+        ExplanationResourceTypeIdentity resourceType,
+        string identity,
+        bool value) =>
+        new(
+            Fact(resourceType, identity),
+            ExplanationObservationState.Available,
+            [Boolean(value)]);
+
+    internal static ExplanationFactObservation ValuesFact(
+        ExplanationResourceTypeIdentity resourceType,
+        string identity,
+        IEnumerable<ExplanationValue> values) =>
+        new(
+            Fact(resourceType, identity),
+            ExplanationObservationState.Available,
+            values);
 
     internal static ExplanationFactObservation TextsFact(
         ExplanationResourceTypeIdentity resourceType,
@@ -344,6 +369,32 @@ internal static class ResourceExplanationVocabulary
                 "A Boolean value.",
                 valueBudget,
                 ExplanationScalarKind.Boolean);
+        var queryFacetOptionShape =
+            new ExplanationDataShapeDeclaration.Record(
+                QueryFacetOptionShape,
+                "Query facet option",
+                "One owner-issued query-facet option or suggestion.",
+                valueBudget,
+                [
+                    MapField(
+                        QueryFacetOptionShape,
+                        "value",
+                        "Value",
+                        "The portable operand value.",
+                        TextShape),
+                    MapField(
+                        QueryFacetOptionShape,
+                        "label",
+                        "Label",
+                        "The display label.",
+                        TextShape),
+                    MapField(
+                        QueryFacetOptionShape,
+                        "summary",
+                        "Summary",
+                        "The option meaning.",
+                        TextShape),
+                ]);
         var mapDeclarationShape =
             new ExplanationDataShapeDeclaration.Record(
                 MapDeclarationShape,
@@ -646,6 +697,33 @@ internal static class ResourceExplanationVocabulary
                     TextsFact("examples", "Examples", 256),
                     TextsFact("effects", "Effects", 256),
                     TextsFact("input-rules", "Input rules", 64),
+                    OptionalIntegerFact(
+                        "presentation-order",
+                        "Presentation order"),
+                    OptionalTextFact("control-kind", "Control kind"),
+                    OptionalTextFact(
+                        "presentation-kind",
+                        "Presentation kind"),
+                    OptionalTextFact(
+                        "execution-class",
+                        "Execution class"),
+                    OptionalTextFact(
+                        "selection-group",
+                        "Selection group"),
+                    OptionalBooleanFact(
+                        "combines-within-selection-group",
+                        "Combines within selection group"),
+                    OptionalTextFact(
+                        "replacement-group",
+                        "Replacement group"),
+                    OptionalTextFact(
+                        "option-source",
+                        "Option source"),
+                    ShapedFact(
+                        "options",
+                        "Options",
+                        QueryFacetOptionShape,
+                        256),
                 ],
                 [
                     Relationship(
@@ -798,7 +876,7 @@ internal static class ResourceExplanationVocabulary
             new(
                 QuerySchemaIdentity,
                 Version,
-                [opaqueExternalIdentityShape],
+                [opaqueExternalIdentityShape, queryFacetOptionShape],
                 [querySpace, queryFacet]),
             new(
                 ConsumerSchemaIdentity,
@@ -936,6 +1014,36 @@ internal static class ResourceExplanationVocabulary
                     displayName,
                     $"The optional {displayName.ToLowerInvariant()} fact.",
                     TextShape,
+                    ExplanationCardinality.OptionalOne,
+                    ExplanationObservationStates.Available
+                        | ExplanationObservationStates.Absent);
+
+        Func<
+            ExplanationResourceTypeIdentity,
+            ExplanationFactDeclaration> OptionalIntegerFact(
+            string identity,
+            string displayName) =>
+            resourceType =>
+                new(
+                    Fact(resourceType, identity),
+                    displayName,
+                    $"The optional {displayName.ToLowerInvariant()} fact.",
+                    IntegerShape,
+                    ExplanationCardinality.OptionalOne,
+                    ExplanationObservationStates.Available
+                        | ExplanationObservationStates.Absent);
+
+        Func<
+            ExplanationResourceTypeIdentity,
+            ExplanationFactDeclaration> OptionalBooleanFact(
+            string identity,
+            string displayName) =>
+            resourceType =>
+                new(
+                    Fact(resourceType, identity),
+                    displayName,
+                    $"The optional {displayName.ToLowerInvariant()} fact.",
+                    BooleanShape,
                     ExplanationCardinality.OptionalOne,
                     ExplanationObservationStates.Available
                         | ExplanationObservationStates.Absent);

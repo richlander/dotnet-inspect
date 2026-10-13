@@ -1061,9 +1061,13 @@ website-shaped descriptor or a graph-depth expansion.
 
 The claim is: a query-preparation selection preserves the selected
 facets' issued meaning, operators, operand kinds, examples, listed values,
-effects, registered input rules, declared required context, and applicable
-consumer-binding syntax and exposure. Its stated preparation questions resolve
-locally. Direct JSON and HAL carry equivalent selected knowledge; lowering
+effects, registered input rules, declared required context, related-operation
+affordances, and applicable consumer-binding syntax and exposure. When a route
+registers host-neutral presentation, the same selection also preserves its
+order, control and presentation kinds, execution class, grouping, combining
+behavior, structured options, and external option-source identity. Its stated
+preparation questions resolve locally. Direct JSON and HAL carry equivalent
+selected knowledge; lowering
 vocabulary does not choose a larger population or add domain meaning.
 Completeness qualifies the selected population and semantic profile, not every
 facet in the installed catalog or every validation rule in the operation.
@@ -1076,8 +1080,9 @@ Query Space's facet facts and the binding's host syntax, rather than separately
 maintaining an agent summary or `-Q` inventory. This owner supplies the shared
 selection boundary; CLI admission and narrowing gestures remain with the CLI
 owner. A narrowing gesture can reduce the work left for jq without selecting a
-second schema or changing the facts' meaning. Full contract inspection and
-richer website authoring descriptors remain independent consumers.
+second schema or changing the facts' meaning. Full contract inspection remains
+an independent consumer. Browser interaction and layout remain host-owned while
+consuming the same owner-issued preparation and optional presentation facts.
 
 A selected reading document normalizes prerequisite records and shared binding
 rules once. A small binding exposure index is justified by the critical query
@@ -1105,11 +1110,11 @@ whose direct dependency evidence appears in the
 The example source is the retained NativeAOT command-local HAL response from
 `88500f2d8298e3ede5640c9284ad00ddbdb86c15`. The local projector recovers every
 selected semantic field, compares five jq questions across both lowerings,
-checks source answers, and rejects unresolved required context. All 19 facets
-and binding rules occupy 8,198 B in direct JSON or 8,450 B in HAL, compared with
-18,509 B for the minified source. A direct-dependency preparation selection
-occupies 2,170 B or 2,320 B respectively. These are byte measurements, not
-runtime or agent-performance claims. The examples retain whole prose rules;
+checks source answers, and rejects unresolved required context. Its retained
+byte measurements predate the optional presentation and related-operation
+projection added for the Browser consumer; they remain historical reading
+evidence rather than current payload-size claims. These are byte measurements,
+not runtime or agent-performance claims. The examples retain whole prose rules;
 they do not trim conditional constraints by guessing which sentences matter.
 
 The shared implementation emits `scope.profile = query-preparation/v1` in
@@ -1121,6 +1126,11 @@ facet remains unknown. Operators are always present. Direct JSON has keyed
 facet and binding tables plus `facet_order`; HAL embeds the same complete
 records as relation arrays. Binding keys retain their owner-issued identities
 and records retain consumer kind, gesture, input rules, and selected exposure.
+Registered presentation fields use the same `snake_case` lowering as the core
+facet fields. An explicitly absent presentation or optional presentation value
+is `null`; unavailable or failed observations reject the selection rather than
+becoming absence. `related_operations` retains owner-issued operation
+identities and is present as an array, including when empty.
 
 `ResourceExplanationDataset.Create` optionally accepts facet keys at a query
 space root, closes declared context, retains all registered rule prose, and
@@ -1324,11 +1334,19 @@ validation task benefits from that structure. Both `.data` and `.hal` retain
 these declarations; HAL's navigation does not supply operand semantics.
 
 A facet response preserves its issued key, operand kind, operators, values,
-examples, effects, and declared relationship targets. Vocabulary navigation
-does not mean the facet accepts all vocabulary terms. An empty values list
-does not establish an open domain. Query-local constraints remain Query Space
-facts; an accepted subset or open-domain assertion requires that owner's
-explicit declaration.
+examples, effects, input rules, related operations, and declared relationship
+targets. When the route owner registers presentation, selected facet data also
+preserves order, control and presentation kinds, execution class, selection and
+replacement groups, combining behavior, structured inline options, and an
+external option-source identity. Missing presentation remains explicit absent
+state; Resource Explanation does not infer it from operators or display text.
+
+Vocabulary navigation does not mean the facet accepts all vocabulary terms. An
+empty values list does not establish an open domain. Query-local constraints
+remain Query Space facts; an accepted subset or open-domain assertion requires
+that owner's explicit declaration. Inline presentation option values equal the
+effective Query Space values; an external option-source identity delegates
+choice population to another owner-issued product catalog.
 
 Acceptance uses three current production witnesses:
 

@@ -83,8 +83,10 @@ registerEngineWorkerStartupOperations(operations, {
     return (await import("/inspect-web-package.js"))
       .listPackageActivityEcosystems();
   },
-  async listPackageQueryCatalog() {
-    return (await import("/inspect-web-package.js")).listPackageQueryCatalog();
+  async inspectPackageQueryFacets() {
+    const data: unknown = JSON.parse(
+      (await import("/inspect-web-package.js")).inspectPackageQueryFacets());
+    return data;
   },
 });
 let sourceFacade:

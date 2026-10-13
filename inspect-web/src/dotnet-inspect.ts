@@ -746,7 +746,7 @@ import {
 } from "./package-query-announcements.ts";
 import {
   createBrowserPackageQueryDataSource,
-  packageQueryCatalog,
+  packageQueryFacets,
   type BrowserPackageQueryInspection,
 } from "./package-query-source.ts";
 import {
@@ -1070,6 +1070,7 @@ let inspectEncodeWorkspaceShareState:
 let inspectRunHomeDemo: EngineClient["catalog"]["runHomeDemo"];
 let productHomeDemoCatalogError = "";
 let productEcosystemCatalogError = "";
+let productEcosystemCatalogAvailable = false;
 
 // The Worker client stays off the first-paint path. It is imported after the
 // home view paints, then starts exactly one epoch when bootstrap supplies the
@@ -27083,10 +27084,12 @@ async function bootstrap() {
       setProductEcosystemCatalog(
         (await engineClient.catalog.listEcosystems()).ecosystems ?? []);
       productEcosystemCatalogError = "";
+      productEcosystemCatalogAvailable = true;
     } catch (error) {
       setProductEcosystemCatalog([]);
       productEcosystemCatalogError =
         `Ecosystems are unavailable: ${errorMessage(error) || "Unknown error."}`;
+      productEcosystemCatalogAvailable = false;
     }
     try {
       state.packageChangesEcosystems = packageChangesEcosystems(
@@ -27098,11 +27101,17 @@ async function bootstrap() {
         `Package Activity ecosystems are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
-      const [catalogResult, durableRowLayout] = await Promise.all([
-        engineClient.package.listPackageQueryCatalog(),
+      const [facetData, durableRowLayout] = await Promise.all([
+        engineClient.package.inspectPackageQueryFacets(),
         engineClient.package.packageQueryDurableRowLayout(),
       ]);
-      const catalog = packageQueryCatalog(catalogResult);
+      const catalog = packageQueryFacets(
+        facetData,
+        {
+          productEcosystems: productEcosystemCatalogAvailable
+            ? productEcosystemCatalog()
+            : null,
+        });
       state.packageQueryDurableRowLayout = durableRowLayout;
       state.packageQueryPresets = catalog.presets;
       state.packageQueryTerms = catalog.terms;

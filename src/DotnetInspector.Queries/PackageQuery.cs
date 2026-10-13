@@ -946,6 +946,21 @@ public static partial class PackageQuery
             PortableQueryModel.TextOf(PortableQueryOperator.StartsWith),
         ];
 
+    private static readonly ImmutableArray<PackageQueryTermOptionDescriptor>
+        CommonTargetFrameworkOptions =
+        [
+            TargetFrameworkOption("net11.0"),
+            TargetFrameworkOption("net10.0"),
+            TargetFrameworkOption("net9.0"),
+            TargetFrameworkOption("net8.0"),
+            TargetFrameworkOption("net7.0"),
+            TargetFrameworkOption("net6.0"),
+            TargetFrameworkOption("netstandard2.1"),
+            TargetFrameworkOption("netstandard2.0"),
+            TargetFrameworkOption("net48"),
+            TargetFrameworkOption("net472"),
+        ];
+
     private static readonly ImmutableArray<PackageQueryTermDescriptor>
         DeclaredTerms =
     [
@@ -1058,6 +1073,15 @@ public static partial class PackageQuery
         {
             SelectionGroupId =
                 PackageQueryVocabulary.DependencyTargetFamily,
+            Options =
+            [
+                new(
+                    "all",
+                    "All target frameworks",
+                    "Do not filter declared dependency groups by target "
+                    + "framework."),
+                .. CommonTargetFrameworkOptions,
+            ],
             InputRules =
             [
                 "Requires at least one depends, depends-transitive, depends-ecosystem, or dependencies term; applies to all dependency predicates in the query.",
@@ -1094,7 +1118,10 @@ public static partial class PackageQuery
             "canonical ecosystem ID",
             "ecosystem.aspire",
             PackageQueryTermRole.Inspection,
-            PackageQueryTermControlKind.Input),
+            PackageQueryTermControlKind.Input)
+        {
+            OptionSourceId = "product-ecosystems",
+        },
         new(
             DependsTransitiveTermKey,
             "transitively depends on package",
@@ -1244,6 +1271,7 @@ public static partial class PackageQuery
             SelectionGroupId = PackageQueryVocabulary.ToolFormatFamily,
             CombinesWithinSelectionGroup = true,
             ReplacementGroupId = ToolReplacementGroupId,
+            PresentationKind = PackageQueryTermPresentationKind.ValueQuery,
         },
         new(
             ReferencesTermKey,
@@ -1312,8 +1340,18 @@ public static partial class PackageQuery
             "NuGet target framework",
             "net10.0",
             PackageQueryTermRole.Context,
-            PackageQueryTermControlKind.Input),
+            PackageQueryTermControlKind.Input)
+        {
+            Options = CommonTargetFrameworkOptions,
+        },
     ];
+
+    private static PackageQueryTermOptionDescriptor TargetFrameworkOption(
+        string value) =>
+        new(
+            value,
+            value,
+            $"Use the exact NuGet target framework '{value}'.");
 
     /// <summary>The complete ordered Package Query vocabulary.</summary>
     public static ImmutableArray<PackageQueryTermDescriptor> Terms =>
