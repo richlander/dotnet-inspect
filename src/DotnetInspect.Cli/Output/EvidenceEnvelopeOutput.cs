@@ -5,6 +5,7 @@ namespace DotnetInspect.Cli.Output;
 
 internal static class EvidenceEnvelopeOutput
 {
+#if DEBUG
     /// <summary>
     /// Serializes one inspection and the House acquisitions its operation
     /// made, and publishes them to the evidence path, reporting any failure
@@ -44,6 +45,7 @@ internal static class EvidenceEnvelopeOutput
         CommandError.WriteLine($"Evidence envelope: {evidencePath}");
         return true;
     }
+#endif
 
     internal static bool TryResolvePath(
         string path,

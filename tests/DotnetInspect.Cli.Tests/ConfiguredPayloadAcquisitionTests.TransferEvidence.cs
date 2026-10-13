@@ -221,6 +221,49 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.False(File.Exists(Path.Combine(_root, "member-evidence.json")));
     }
 
+    /// <summary>
+    /// A Library API Diff request whose endpoints are two Libraries each,
+    /// as the real NUnit 4.1.0 and 4.2.2 archives are, has the merged API
+    /// changes view, which has no baseline envelope: the option is refused
+    /// once the endpoints are acquired, with no output and no sidecar.
+    /// </summary>
+    [Fact]
+    public async Task PairwiseDiffEvidenceEnvelope_RefusesMultiLibraryEndpointsBeforeOutput()
+    {
+        const string NUnitId = "NUnit";
+        var packages = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        foreach (string version in new[] { "4.1.0", "4.2.2" })
+        {
+            packages.Add(
+                version,
+                await File.ReadAllBytesAsync(
+                    Path.Combine(
+                        AppContext.BaseDirectory,
+                        "RealAssets",
+                        "PackageEndpointScope",
+                        $"nunit.{version}.nupkg"),
+                    TestContext.Current.CancellationToken));
+        }
+        UseFeed(new RangeHonoringHistoryFeedHandler(FirstFeed, NUnitId, packages));
+        string sidecar = Path.Combine(_root, "nunit-evidence.json");
+
+        var result = await RunCommandAsync(
+        [
+            "diff", "--package", $"{NUnitId}@4.1.0..4.2.2",
+            "--tfm", "net6.0", "--source", FirstFeed,
+            "--evidence-envelope", sidecar,
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Equal("", result.Output);
+        Assert.Contains(
+            "--evidence-envelope requires Library API Diff, which needs exactly one Library "
+                + "at each endpoint; resolved 2 before and 2 after. Use --analysis api.",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.False(File.Exists(sidecar));
+    }
+
     private static async Task<JsonElement[]> ReadPairwiseAcquisitionsAsync(
         string sidecar,
         string resultKind)

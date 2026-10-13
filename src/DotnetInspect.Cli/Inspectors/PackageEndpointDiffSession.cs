@@ -40,6 +40,7 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
 
     internal PackageEndpointScope To { get; }
 
+#if DEBUG
     /// <summary>
     /// The House acquisitions that opened the two endpoints, before then
     /// after (docs/design/package-transfer-receipt.md#delivery).
@@ -47,11 +48,10 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
     internal PackageAcquisitionEvidence AcquisitionEvidence =>
         new(
         [
-            .. new[] { From, To }
-                .Select(static scope => scope.Contribution.Result.Evidence.Acquisition)
-                .OfType<PackageHouseAcquisitionReceipt>()
-                .Select(PackageAcquisitionEvidenceEntry.From),
+            PackageAcquisitionEvidenceEntry.From(From.Contribution.Acquisition),
+            PackageAcquisitionEvidenceEntry.From(To.Contribution.Acquisition),
         ]);
+#endif
 
     /// <summary>
     /// The House demands one pairwise package diff request declares, or

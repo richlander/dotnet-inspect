@@ -181,7 +181,7 @@ serializer.
 | 5. A refused credential | no fallback request; the refused request is recorded | contract suite |
 | 6. The House acquisition receipt | its origin agrees with the transfer receipt's path | contract suite |
 | 7. More requests than the bound | the first 256 kept, marked truncated, totals complete | contract suite |
-| 8. Debug evidence delivery | `diff --history --evidence-envelope`, and a pairwise `diff --package` Library API Diff or API analysis set with `--evidence-envelope`, list each acquisition with its receipt; the ordinary output is unchanged; a pairwise view without a baseline envelope refuses the option before any package read | evidence and serializer: contract suite; delivery: CLI harness, Debug |
+| 8. Debug evidence delivery | `diff --history --evidence-envelope`, and a pairwise `diff --package` Library API Diff or API analysis set with `--evidence-envelope`, list each acquisition with its receipt; the ordinary output is unchanged; a pairwise request shape without a baseline envelope refuses the option before any package read, and a Library API Diff request whose endpoints are not one Library each refuses it after acquisition with no output and no sidecar | evidence and serializer: contract suite; delivery: CLI harness, Debug |
 | 9. Retired flags | `--info` and `--trace-mermaid` are rejected as unknown options | CLI harness |
 
 ## Adoption
@@ -213,11 +213,16 @@ serializer.
    their endpoints open through the
    [package endpoint scope](package-endpoint-scope.md#adoption), step 4
    part 2. The evidence lists the before endpoint's acquisition, then the
-   after endpoint's. The merged API changes view has no baseline envelope,
-   so it refuses the option before any package read. A request that takes
-   the legacy endpoint route, such as `--tfm all` or an offline `*` pattern,
-   fails the publication, because that route issues no receipts. A body view
-   adopts the evidence when its endpoints move onto the scope.
+   after endpoint's. A request shape with no baseline envelope, such as a
+   member target or a section other than Changes, refuses the option before
+   any package read. A Library API Diff request whose endpoints turn out not
+   to be one Library each has the merged API changes view instead, which has
+   no baseline envelope; it refuses the option after acquisition, with no
+   output and no sidecar, and names `--analysis api`, whose envelope covers
+   the merged surface. A request that takes the legacy endpoint route, such
+   as an offline `*` pattern, fails the publication, because that route
+   issues no receipts. A body view adopts the evidence when its endpoints
+   move onto the scope.
 
 ## Non-claims
 
