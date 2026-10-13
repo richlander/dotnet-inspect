@@ -92,7 +92,7 @@ const facetPayload = {
       examples: ["Microsoft.Extensions.Hosting"],
       effects: ["AcquisitionTier: nuspec"],
       input_rules: [],
-      presentation_order: 10,
+      presentation_order: "10",
       control_kind: "input",
       presentation_kind: "value-query",
       execution_class: "nuspec",
@@ -479,6 +479,36 @@ test("startup decoders preserve extra JSON data and reject invalid DTO shapes", 
         depends: {
           ...facetPayload.facets.depends,
           presentation_order: "first",
+        },
+      },
+    })).kind, "rejected");
+  assert.equal(engineStartupOperations.inspectPackageQueryFacets.value.decode(
+    JSON.stringify({
+      ...facetPayload,
+      facets: {
+        depends: {
+          ...facetPayload.facets.depends,
+          presentation_order: 10,
+        },
+      },
+    })).kind, "rejected");
+  assert.equal(engineStartupOperations.inspectPackageQueryFacets.value.decode(
+    JSON.stringify({
+      ...facetPayload,
+      facets: {
+        depends: {
+          ...facetPayload.facets.depends,
+          presentation_order: "01",
+        },
+      },
+    })).kind, "rejected");
+  assert.equal(engineStartupOperations.inspectPackageQueryFacets.value.decode(
+    JSON.stringify({
+      ...facetPayload,
+      facets: {
+        depends: {
+          ...facetPayload.facets.depends,
+          presentation_order: "9007199254740992",
         },
       },
     })).kind, "rejected");
