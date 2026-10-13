@@ -1093,11 +1093,12 @@ the active target is a supported `net` or `netcoreapp` target, the Browser adds
 `.NET Runtime` as the target's default platform reference.
 It does not add that default to a non-empty NuGet group or turn unavailable or
 invalid framework-reference evidence into a successful fallback. The NuGet
-and platform rows remain separate lists and typed graph nodes. Explicit
-platform references remain visible across dependency-group selection; an
-implicit runtime default follows the selected group's emptiness in the list,
-status, and graph. Library References continues to show only the selected
-Library's assembly references.
+and platform rows remain separate lists and typed graph nodes. The managed
+boundary carries explicit references separately from eligible default-runtime
+evidence. Explicit platform references remain visible across dependency-group
+selection; the default appears only for a successfully normalized empty
+selected group, consistently in the list, status, and graph. Library References
+continues to show only the selected Library's assembly references.
 Internal `dependencies` route and contract identities remain unchanged.
 
 Each NuGet dependency row displays the package's embedded icon when its exact

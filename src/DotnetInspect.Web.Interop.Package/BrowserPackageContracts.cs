@@ -1296,6 +1296,7 @@ public sealed record BrowserPackageDependencies(
     string? Assembly,
     BrowserPackageDependencyGroup[] DependencyGroups,
     BrowserPackagePlatformReference[] PlatformReferences,
+    BrowserPackagePlatformReference? DefaultPlatformReference,
     BrowserPackageDependencyDeclarationFailure[] DeclarationFailures,
     BrowserAssemblyReferenceResult AssemblyReferences,
     string? DependencyGroupError,
@@ -1304,8 +1305,7 @@ public sealed record BrowserPackageDependencies(
 
 public sealed record BrowserPackagePlatformReference(
     string Family,
-    string Label,
-    bool IsImplicit);
+    string Label);
 
 public sealed record BrowserLibraryQueryInspection(
     BrowserLibraryQueryDocument Content,
@@ -1353,6 +1353,7 @@ public sealed record BrowserPackageDependencyGroup(
     int Index,
     string Framework,
     bool IsActive,
+    bool IsComplete,
     BrowserPackageDependency[] Dependencies);
 
 public sealed record BrowserPackageDependency(

@@ -11237,6 +11237,7 @@ function packageDependenciesStatus(
   const dependencyCount = selectedGroup?.dependencies?.length ?? 0;
   const platformCount = platformReferencesForDependencyGroup(
     data.platformReferences ?? [],
+    data.defaultPlatformReference,
     groups,
     selectedGroupIndex,
   ).length;
@@ -11325,6 +11326,7 @@ function renderPackageDependencies() {
     platformReferenceSectionHtml(data, selectedGroupIndex);
   const platformReferences = platformReferencesForDependencyGroup(
     data.platformReferences,
+    data.defaultPlatformReference,
     groups,
     selectedGroupIndex,
   );
@@ -11370,6 +11372,7 @@ function platformReferenceSectionHtml(
 ) {
   const references = platformReferencesForDependencyGroup(
     data.platformReferences || [],
+    data.defaultPlatformReference,
     data.dependencyGroups || [],
     selectedGroupIndex,
   );
@@ -23094,6 +23097,7 @@ async function renderDependencyGraph() {
         ...state.packageDependencies,
         platformReferences: platformReferencesForDependencyGroup(
           state.packageDependencies.platformReferences,
+          state.packageDependencies.defaultPlatformReference,
           groups,
           selectedGroupIndex,
         ),

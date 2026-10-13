@@ -3102,9 +3102,10 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       fixtureFramework,
       healthyAssemblyFileName,
     );
-    expect(runtime.platformReferences).toEqual([
-      { family: "runtime", label: ".NET Runtime", isImplicit: true },
-    ]);
+    expect(runtime.platformReferences).toEqual([]);
+    expect(runtime.defaultPlatformReference).toEqual(
+      { family: "runtime", label: ".NET Runtime" },
+    );
     expect(runtime.platformReferenceError).toBeNull();
 
     const aspNetCore = await engine.queryDependencies(
@@ -3114,8 +3115,9 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       healthyAssemblyFileName,
     );
     expect(aspNetCore.platformReferences).toEqual([
-      { family: "aspnetcore", label: "ASP.NET Core", isImplicit: false },
+      { family: "aspnetcore", label: "ASP.NET Core" },
     ]);
+    expect(aspNetCore.defaultPlatformReference).toBeNull();
     expect(aspNetCore.platformReferenceError).toBeNull();
 
     await page.goto(

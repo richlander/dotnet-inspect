@@ -7,17 +7,17 @@ namespace DotnetInspect.Web;
 
 internal sealed record BrowserPackagePlatformReferenceProjection(
     ImmutableArray<BrowserPackagePlatformReferenceProjection.Row> References,
+    BrowserPackagePlatformReferenceProjection.Row? DefaultReference,
     string? Error)
 {
-    internal sealed record Row(string Family, string Label, bool IsImplicit);
+    internal sealed record Row(string Family, string Label);
 }
 
 [SupportedOSPlatform("browser")]
 internal static class BrowserPackagePlatformReferences
 {
     public static BrowserPackagePlatformReferenceProjection Project(
-        BrowserPackageCoordinate coordinate,
-        bool dependencyGroupIsEmpty)
+        BrowserPackageCoordinate coordinate)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
 
@@ -33,13 +33,13 @@ internal static class BrowserPackagePlatformReferences
                     .Select(reference => reference!)
                     .DistinctBy(reference => reference.Family)];
             if (references.IsEmpty
-                && selected.Evidence.References.IsEmpty
-                && dependencyGroupIsEmpty)
-            {
-                references = DefaultRuntimeReference(coordinate.Framework);
-            }
+                && selected.Evidence.References.IsEmpty)
+                return new(
+                    references,
+                    DefaultRuntimeReference(coordinate.Framework),
+                    Error: null);
 
-            return new(references, Error: null);
+            return new(references, DefaultReference: null, Error: null);
         }
 
         if (outcome
@@ -47,15 +47,15 @@ internal static class BrowserPackagePlatformReferences
                 .NoFrameworkReferenceGroups)
         {
             return new(
-                dependencyGroupIsEmpty
-                    ? DefaultRuntimeReference(coordinate.Framework)
-                    : [],
+                [],
+                DefaultRuntimeReference(coordinate.Framework),
                 Error: null);
         }
 
         return new(
             [],
-            outcome switch
+            DefaultReference: null,
+            Error: outcome switch
             {
                 null =>
                     "Platform reference evidence is unavailable.",
@@ -92,7 +92,7 @@ internal static class BrowserPackagePlatformReferences
             _ => null,
         };
 
-    static ImmutableArray<BrowserPackagePlatformReferenceProjection.Row>
+    static BrowserPackagePlatformReferenceProjection.Row?
         DefaultRuntimeReference(string targetFramework)
     {
         if (!PlatformTargetFramework.TryParse(
@@ -102,25 +102,15 @@ internal static class BrowserPackagePlatformReferences
                 is not (PlatformTargetFrameworkForm.Net
                     or PlatformTargetFrameworkForm.NetCoreApp))
         {
-            return [];
+            return null;
         }
 
-        return [ImplicitRuntime];
+        return Runtime;
     }
 
     static BrowserPackagePlatformReferenceProjection.Row Runtime { get; } =
-        new(
-            BrowserPlatformWorkspace.RuntimeFamily,
-            ".NET Runtime",
-            IsImplicit: false);
+        new(BrowserPlatformWorkspace.RuntimeFamily, ".NET Runtime");
 
     static BrowserPackagePlatformReferenceProjection.Row AspNetCore { get; } =
-        new(
-            BrowserPlatformWorkspace.AspNetCoreFamily,
-            "ASP.NET Core",
-            IsImplicit: false);
-
-    static BrowserPackagePlatformReferenceProjection.Row ImplicitRuntime
-        { get; } =
-        Runtime with { IsImplicit = true };
+        new(BrowserPlatformWorkspace.AspNetCoreFamily, "ASP.NET Core");
 }

@@ -23,7 +23,8 @@ const data: BrowserPackageDependencies = {
   package: "Example.Package", version: "1.0.0", activeFramework: "net10.0",
   assembly: "Example.Core",
   dependencyGroups: [], declarationFailures: [], dependencyGroupError: null,
-  platformReferences: [], platformReferenceError: null,
+  platformReferences: [], defaultPlatformReference: null,
+  platformReferenceError: null,
   assemblyReferences: referenceList,
   compileLibrary: { status: "Selected", targetFramework: "net10.0", message: null },
 };

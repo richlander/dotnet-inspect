@@ -3046,6 +3046,9 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Empty(root.GetProperty("platformReferences").EnumerateArray());
         Assert.Equal(
             JsonValueKind.Null,
+            root.GetProperty("defaultPlatformReference").ValueKind);
+        Assert.Equal(
+            JsonValueKind.Null,
             root.GetProperty("platformReferenceError").ValueKind);
         Assert.False(root.TryGetProperty("assemblyReferenceError", out _));
     }
@@ -3086,18 +3089,17 @@ public sealed partial class BrowserEngineBoundaryTests
                 TestContext.Current.CancellationToken)).Realization;
 
         BrowserPackagePlatformReferenceProjection projection =
-            BrowserPackagePlatformReferences.Project(
-                realization.Coordinate,
-                dependencyGroupIsEmpty: true);
+            BrowserPackagePlatformReferences.Project(realization.Coordinate);
         BrowserPackagePlatformReferenceProjection.Row platformReference =
-            Assert.Single(projection.References);
+            Assert.IsType<BrowserPackagePlatformReferenceProjection.Row>(
+                projection.DefaultReference);
         Assert.Equal(
             BrowserPlatformWorkspace.RuntimeFamily,
             platformReference.Family);
         Assert.Equal(
             ".NET Runtime",
             platformReference.Label);
-        Assert.True(platformReference.IsImplicit);
+        Assert.Empty(projection.References);
         Assert.Null(projection.Error);
     }
 
@@ -3147,7 +3149,66 @@ public sealed partial class BrowserEngineBoundaryTests
             root.GetProperty("platformReferences").EnumerateArray());
         Assert.Equal(
             JsonValueKind.Null,
+            root.GetProperty("defaultPlatformReference").ValueKind);
+        Assert.Equal(
+            JsonValueKind.Null,
             root.GetProperty("platformReferenceError").ValueKind);
+    }
+
+    [Fact]
+    public async Task PackageDependencies_EmptyAlternativeCanDefaultToRuntime()
+    {
+        string packageId = $"Browser.Dependency.Alternative.{Guid.NewGuid():N}";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] nupkg = PackageWithManifest(
+            image,
+            $"lib/net10.0/{packageId}.dll",
+            $"""
+             <package>
+               <metadata>
+                 <id>{packageId}</id>
+                 <version>1.0.0</version>
+                 <dependencies>
+                   <group targetFramework="net10.0">
+                     <dependency id="Browser.Dependency.Child" version="[2.0.0]" />
+                   </group>
+                   <group targetFramework="net9.0" />
+                 </dependencies>
+               </metadata>
+             </package>
+             """);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                nupkg,
+                fromCache: false));
+
+        BrowserPackageDependencies dependencies =
+            Assert.IsType<BrowserPackageDependencies>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageDependencies(
+                        packageId,
+                        "1.0.0",
+                        "net10.0",
+                        $"{packageId}.dll"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageDependencies));
+
+        Assert.Equal(2, dependencies.DependencyGroups.Length);
+        Assert.All(
+            dependencies.DependencyGroups,
+            group => Assert.True(group.IsComplete));
+        Assert.NotEmpty(dependencies.DependencyGroups[0].Dependencies);
+        Assert.Empty(dependencies.DependencyGroups[1].Dependencies);
+        BrowserPackagePlatformReference defaultReference =
+            Assert.IsType<BrowserPackagePlatformReference>(
+                dependencies.DefaultPlatformReference);
+        Assert.Equal(
+            BrowserPlatformWorkspace.RuntimeFamily,
+            defaultReference.Family);
+        Assert.Empty(dependencies.PlatformReferences);
     }
 
     [Fact]
@@ -3194,9 +3255,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 TestContext.Current.CancellationToken)).Realization;
 
         BrowserPackagePlatformReferenceProjection projection =
-            BrowserPackagePlatformReferences.Project(
-                realization.Coordinate,
-                dependencyGroupIsEmpty: false);
+            BrowserPackagePlatformReferences.Project(realization.Coordinate);
         BrowserPackagePlatformReferenceProjection.Row platformReference =
             Assert.Single(projection.References);
         Assert.Equal(
@@ -3205,7 +3264,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             "ASP.NET Core",
             platformReference.Label);
-        Assert.False(platformReference.IsImplicit);
+        Assert.Null(projection.DefaultReference);
         Assert.Null(projection.Error);
     }
 
@@ -3467,7 +3526,9 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserPackageDependencyGroup group =
             Assert.Single(dependencies.DependencyGroups);
         Assert.True(group.IsActive);
+        Assert.False(group.IsComplete);
         Assert.Empty(group.Dependencies);
+        Assert.Null(dependencies.DefaultPlatformReference);
         BrowserPackageDependencyDeclarationFailure dependencyFailure =
             Assert.Single(dependencies.DeclarationFailures);
         Assert.Equal(

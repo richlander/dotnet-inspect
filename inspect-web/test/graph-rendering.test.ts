@@ -305,12 +305,12 @@ test("dependency graph renders a direct non-navigable platform edge", async () =
           index: 0,
           framework: "net10.0",
           isActive: true,
+          isComplete: true,
           dependencies: [],
         }],
         platformReferences: [{
           family: "runtime",
           label: ".NET Runtime",
-          isImplicit: true,
         }],
       },
       dependenciesGroupIndex: 0,
@@ -339,18 +339,38 @@ test("dependency graph renders a direct non-navigable platform edge", async () =
 
 test("platform references follow the selected dependency group's emptiness", () => {
   const references = [
-    { family: "aspnetcore", label: "ASP.NET Core", isImplicit: false },
-    { family: "runtime", label: ".NET Runtime", isImplicit: true },
+    { family: "aspnetcore", label: "ASP.NET Core" },
   ];
+  const defaultReference = { family: "runtime", label: ".NET Runtime" };
   const groups = [
-    { index: 0, dependencies: [] },
-    { index: 1, dependencies: [{ id: "Example.Dependency" }] },
+    { index: 0, isComplete: true, dependencies: [] },
+    {
+      index: 1,
+      isComplete: true,
+      dependencies: [{ id: "Example.Dependency" }],
+    },
+    { index: 2, isComplete: false, dependencies: [] },
   ];
 
   assert.deepEqual(
-    platformReferencesForDependencyGroup(references, groups, 0),
+    platformReferencesForDependencyGroup(
+      references,
+      defaultReference,
+      groups,
+      0),
+    [...references, defaultReference]);
+  assert.deepEqual(
+    platformReferencesForDependencyGroup(
+      references,
+      defaultReference,
+      groups,
+      1),
     references);
   assert.deepEqual(
-    platformReferencesForDependencyGroup(references, groups, 1),
-    [references[0]]);
+    platformReferencesForDependencyGroup(
+      references,
+      defaultReference,
+      groups,
+      2),
+    references);
 });

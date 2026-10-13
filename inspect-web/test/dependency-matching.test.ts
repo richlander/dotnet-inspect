@@ -10,6 +10,7 @@ import {
   dependencyCoordinateCandidates,
   dependencyGraphRenderSignature,
   packageIdentityKey,
+  platformReferencesForDependencyGroup,
 } from "../src/data.ts";
 import {
   buildDependencyGraphMermaid,
@@ -52,9 +53,9 @@ const unique: BrowserDependencyCoordinateMatch = {
 };
 const noMatch: BrowserDependencyCoordinateMatch = { outcome: "NoMatch", candidateKey: null };
 const groups: BrowserPackageDependencyGroup[] = [
-  { index: 0, framework: "net10.0", isActive: true,
+  { index: 0, framework: "net10.0", isActive: true, isComplete: true,
     dependencies: [{ id: "Dependency", versionRange: "[2.0,3.0)" }] },
-  { index: 1, framework: "net9.0", isActive: false,
+  { index: 1, framework: "net9.0", isActive: false, isComplete: true,
     dependencies: [{ id: "External", versionRange: "[4.0]" }] },
 ];
 
@@ -83,6 +84,7 @@ test("package graph presentation roles remain independent from navigation kinds"
         index: 0,
         framework: "net10.0",
         isActive: true,
+        isComplete: true,
         dependencies: [
           { id: "Microsoft.Extensions.Logging", versionRange: "[10.0.0]" },
           { id: "Microsoft.Extensions.Options", versionRange: "[10.0.0]" },
@@ -231,6 +233,7 @@ function harness(
     },
     getComputedStyle: () => ({ getPropertyValue: () => "#fff" }),
     dependencyCoordinateCandidates, packageIdentityKey,
+    platformReferencesForDependencyGroup,
     packageDependenciesSignature: () =>
       `${state.package.id}@${state.package.version}/${state.package.activeFramework}`,
     createDependencyGraphPendingState, dependencyGraphRenderSignature,
@@ -365,6 +368,7 @@ test("duplicate exact coordinates share one package icon request", async () => {
       index: 0,
       framework: "net10.0",
       isActive: true,
+      isComplete: true,
       dependencies: [
         { id: "Duplicate", versionRange: "[4.0.0]" },
         { id: "Duplicate", versionRange: "[4.0.0]" },
@@ -398,6 +402,7 @@ test("dependency icon requests use at most four concurrent operations", async ()
       index: 0,
       framework: "net10.0",
       isActive: true,
+      isComplete: true,
       dependencies: Array.from({ length: 6 }, (_, index) => ({
         id: `Dependency.${index}`,
         versionRange: "[4.0.0]",

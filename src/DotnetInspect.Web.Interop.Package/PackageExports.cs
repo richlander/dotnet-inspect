@@ -876,21 +876,24 @@ public static partial class PackageExports
                     : null;
         BrowserPackageDependencyDeclarationFailure[] declarationFailures =
             ProjectDependencyDeclarationFailures(dependencies);
-        bool dependencyGroupIsEmpty =
-            dependencyEvidence.Selection.Status
-                == PackageDependencyEvidenceSelectionStatus.NoDependencyGroups
-            || dependencyEvidence.Selection is
-                {
-                    Status: PackageDependencyEvidenceSelectionStatus.Selected,
-                    SelectedGroup: { } selectedGroup,
-                }
-                && dependencies.Groups.Any(group =>
-                    group.Identity == selectedGroup
-                    && group.Declarations.IsEmpty);
+        bool GroupIsComplete(PackageDependencyEvidenceGroup group) =>
+            !dependencies.Failures.Any(failure =>
+                DependencyDeclarationFailureBelongsToGroup(
+                    failure,
+                    group.Identity));
+        bool canSelectEmptyCompleteGroup =
+            dependencyEvidence.Selection.Status switch
+            {
+                PackageDependencyEvidenceSelectionStatus.NoDependencyGroups =>
+                    dependencies.Failures.IsEmpty,
+                PackageDependencyEvidenceSelectionStatus.Selected =>
+                    dependencies.Groups.Any(group =>
+                        group.Declarations.IsEmpty
+                        && GroupIsComplete(group)),
+                _ => false,
+            };
         BrowserPackagePlatformReferenceProjection platformReferences =
-            BrowserPackagePlatformReferences.Project(
-                realizedCoordinate,
-                dependencyGroupIsEmpty);
+            BrowserPackagePlatformReferences.Project(realizedCoordinate);
         return new BrowserPackageDependencies(
                 coordinate.PackageId,
                 coordinate.Version,
@@ -904,6 +907,7 @@ public static partial class PackageExports
                                 group.FrameworkScope.SourceSpelling.ToString()),
                             group.Identity
                                 == dependencyEvidence.Selection.SelectedGroup,
+                            GroupIsComplete(group),
                             [
                                 .. group.Declarations.Select(dependency =>
                                     new BrowserPackageDependency(
@@ -915,9 +919,14 @@ public static partial class PackageExports
                     .. platformReferences.References.Select(reference =>
                         new BrowserPackagePlatformReference(
                             reference.Family,
-                            reference.Label,
-                            reference.IsImplicit)),
+                            reference.Label)),
                 ],
+                canSelectEmptyCompleteGroup
+                    && platformReferences.DefaultReference is { } defaultReference
+                        ? new BrowserPackagePlatformReference(
+                            defaultReference.Family,
+                            defaultReference.Label)
+                        : null,
                 declarationFailures,
                 assemblyReferences,
                 dependencyGroupError,
