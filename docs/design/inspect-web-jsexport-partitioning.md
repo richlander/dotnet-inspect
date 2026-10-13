@@ -38,7 +38,7 @@ with seven independently generated facade modules:
 | `inspect-web-analysis` | `DotnetInspect.Web.Interop.Analysis` | `DotnetInspect.Web.Interop.Analysis.ts` | `DotnetInspect.Web/facades/inspect-web-analysis.ts` | Analysis, integration, opportunity, and performance results |
 | `inspect-web-source` | `DotnetInspect.Web.Interop.Source` | `DotnetInspect.Web.Interop.Source.ts` | `DotnetInspect.Web/facades/inspect-web-source.ts` | Source and annotated-source projection |
 | `inspect-web-call-graph` | `DotnetInspect.Web.Interop.CallGraph` | `DotnetInspect.Web.Interop.CallGraph.ts` | `DotnetInspect.Web/facades/inspect-web-call-graph.ts` | Package and platform call-graph expansion |
-| `inspect-web-catalog` | `DotnetInspect.Web.Interop.Catalog` | `DotnetInspect.Web.Interop.Catalog.ts` | `DotnetInspect.Web/facades/inspect-web-catalog.ts` | Product vocabulary, home demos, and workspace-share transport |
+| `inspect-web-catalog` | `DotnetInspect.Web.Interop.Catalog` | `DotnetInspect.Web.Interop.Catalog.ts` | `DotnetInspect.Web/facades/inspect-web-catalog.ts` | Product vocabulary, ecosystems, home demos, workspace-share transport, and retained-workspace lifecycle |
 
 `DotnetInspect.Web` declares the production set in compiled metadata:
 
@@ -337,19 +337,59 @@ Both package and platform traversal return the same browser call-graph
 contract. Graph-target member projection remains in the metadata facade because
 it projects one API member after navigation rather than expanding topology.
 
-### Catalog facade: 6 exports
+### Catalog facade: 31 exports
 
-- `DecodeWorkspaceShareState`
-- `EncodeWorkspaceShareState`
+Product vocabulary, ecosystems, and home demos:
+
+- `ExplainVocabularies`
+- `InspectVocabulary`
+- `ListEcosystems`
 - `ListHomeDemos`
-- `ListVocabulary`
 - `ResolveHomeDemo`
 - `RunHomeDemo`
 
+Workspace-share transport:
+
+- `CanonicalizeWorkspaceSharePacket`
+- `CaptureCompleteWorkspaceShareState`
+- `DecodeWorkspaceShareState`
+- `EncodeWorkspaceShareState`
+
+Retained-workspace preparation and lifecycle:
+
+- `ActivateRetainedWorkspaceDefinition`
+- `ActivateRetainedWorkspaceDefinitionWithCredentials`
+- `CancelRetainedWorkspaceActivation`
+- `CommitRetainedWorkspaceActivation`
+- `CompleteRetainedWorkspaceActivation`
+- `CompleteRetainedWorkspaceDeactivation`
+- `DeactivateRetainedWorkspaceDefinition`
+- `DescribeWorkspacePackageSources`
+- `ObserveRetainedWorkspaceSettlement`
+- `PrepareEcosystemWorkspaceDefinition`
+- `PreparePackageQueryWorkspaceDefinition`
+- `PrepareRetainedWorkspaceDefinition`
+- `PrepareRetainedWorkspaceDefinitionWithCredentials`
+
+Retained-workspace admission and spotlight:
+
+- `ActivateSpotlightDestination`
+- `AdmitEcosystemPackageToWorkspace`
+- `AdmitRetainedWorkspacePackage`
+- `AdmitRetainedWorkspacePlatform`
+
+Retained-workspace navigation authority:
+
+- `AbandonRetainedWorkspaceNavigation`
+- `AcknowledgeRetainedWorkspaceNavigation`
+- `RecordRetainedWorkspaceNavigationPosting`
+- `ValidateRetainedWorkspaceNavigationAuthority`
+
 The catalog facade adapts product-owned static vocabulary and demo definitions
-plus product-owned workspace-share transport. `RunHomeDemo` may call shared
-package or Platform workspace services through `DotnetInspect.Web.Core`; it
-does not call sibling facades or reuse their wire DTOs.
+plus product-owned workspace-share transport and retained-workspace lifecycle.
+`RunHomeDemo` and retained-workspace activation may call shared package,
+Platform, ecosystem, or workspace services through `DotnetInspect.Web.Core`;
+the facade does not call sibling facades or reuse their wire DTOs.
 Home-demo call graphs likewise ask Web Core to lower the owner-issued neutral
 call-graph projection. The catalog facade does not open Analysis sessions or
 reference the Analysis component directly. Queries resolves the product-issued
