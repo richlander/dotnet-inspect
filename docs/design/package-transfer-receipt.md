@@ -62,8 +62,9 @@ been relying on that."
 The receipt answers one evidence question: **did this acquisition take the
 intended path, and what did it transfer?** It distinguishes plausible wrong
 executions that the ordinary Content cannot: a complete download where a
-ranged read was intended, a ranged read that fell back, a size probe that was
-not abandoned, and a coordinate acquired twice in one invocation.
+ranged read was intended, a ranged read that fell back, and a coordinate
+acquired twice in one invocation. It also distinguishes complete archives
+assembled from ranges from complete GET transfers.
 
 ## Contract
 
@@ -75,6 +76,8 @@ A `PackageTransferReceipt` names:
   - `Cache`: a complete payload from a cache, with no request;
   - `Download`: one complete transfer;
   - `Ranged`: a ranged read;
+  - `CompletedByRanges`: a complete archive assembled from its retained ZIP
+    directory region and the missing prefix, without a complete GET;
   - `RangedThenDownload`: a ranged read that fell back to a complete transfer,
     with a typed fallback reason;
   - `EntryCache`: a ranged read the
@@ -82,9 +85,10 @@ A `PackageTransferReceipt` names:
     with no request.
 - **The requests**, in issue order. Each request records:
   - its **purpose**: `Complete`, `DirectoryTail`, `DirectoryHead`,
-    `EntrySpan`, or `SizeProbe`, the complete request that
-    [size first](package-cache-policy.md#size-first) abandons once its
-    advertised length is above the cut;
+    `EntrySpan`, or `CompletePrefix`, which retrieves the bytes preceding the
+    retained directory region under the
+    [directory-first policy](package-cache-policy.md#directory-first).
+    `SizeProbe` remains a historical classification; this policy emits none;
   - the **requested range**, absent for a complete request;
   - its **outcome**: `Completed`, `Abandoned`, `RangeIgnored`, `Refused`,
     `NotFound`, or `Failed`;
@@ -98,7 +102,10 @@ receipt that carries it.
 
 The request list is bounded by the ranged reader's own limits: one tail read,
 at most one directory read, and at most one span per selected entry, which
-the archive's entry-count limit bounds. A complete transfer is one request.
+the archive's entry-count limit bounds. A complete GET is one request.
+Directory-first completion can use an
+additional `CompletePrefix` request; a tiny archive already contained in the
+directory region needs none.
 A receipt whose request list would exceed 256 entries keeps the first 256 and
 records that it was truncated, with the full totals.
 
@@ -119,8 +126,8 @@ input: the receipt is owner-issued, not reconstructed from ambient events.
 
 `PackageHouseAcquisitionReceipt` carries the transfer receipt beside the
 origin it already records. Its origin and the receipt's path agree: `Cache`
-with `Cache` or `EntryCache`, `Download` with `Download` or
-`RangedThenDownload`, and `Ranged` with `Ranged`.
+with `Cache` or `EntryCache`, `Download` with `Download`,
+`CompletedByRanges`, or `RangedThenDownload`, and `Ranged` with `Ranged`.
 
 Every acquisition through the House has a receipt. Legacy acquisition paths
 that bypass the House, such as the platform pack service, issue none; their
@@ -174,7 +181,8 @@ serializer.
 | --- | --- | --- |
 | 1. Complete download | path `Download`; one `Complete` request, `Completed`; bytes received equals the archive length | contract suite |
 | 2. Cached payload | path `Cache`; no requests | contract suite |
-| 3. Ranged read | path `Ranged`; the abandoned `SizeProbe`, a `DirectoryTail` request, then one `EntrySpan` per span, each with its requested range and bytes received | contract suite, real asset `PCLStorage` 1.0.2 |
+| 3. Ranged read | path `Ranged`; a `DirectoryTail` request, an optional `DirectoryHead`, then one `EntrySpan` per span, each with its requested range and bytes received | contract suite, real asset `PCLStorage` 1.0.2 |
+| 3c. Directory-first completion at or below the cut | path `CompletedByRanges`; directory requests followed by `CompletePrefix` when needed, total bytes equal the archive length; no `SizeProbe` or complete GET | `PackageRangedRealizationTests` cutoff and reconstruction gates |
 | 3a. A read the entry cache answers in full | path `EntryCache`; no requests | `PackageRangedRealizationTests.EntryCache_WarmReadOfTheSameSelection_MakesNoRequest` |
 | 3b. A read with a cached directory and a missing entry | path `Ranged`; only the missing entry's `EntrySpan`, with no `SizeProbe` or `DirectoryTail` | `PackageRangedRealizationTests.EntryCache_WarmReadMissingAnEntry_ReadsOnlyThatEntry` |
 | 4. A server that ignores `Range` | path `RangedThenDownload` with reason `RangeIgnored`; the ignored request, then one `Complete` request | contract suite |
