@@ -721,11 +721,11 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         Action<string>? log,
         PackageArchiveRequestLog requestLog,
         long? knownArchiveLength,
-        IPackageEntryStore? entryStore = null,
-        EntryCacheState? cachedState = null,
-        IPackageRangedContentPolicy? contentPolicy = null,
-        IPackageStore? completeStore = null,
-        IPackagePayloadTransferPolicy? transferPolicy = null)
+        IPackageEntryStore? entryStore,
+        EntryCacheState? cachedState,
+        IPackageRangedContentPolicy? contentPolicy,
+        IPackageStore completeStore,
+        IPackagePayloadTransferPolicy? transferPolicy)
     {
         InertString display = PackageSourceDisplay.ForDiagnostics(authority.Source);
         if (entryStore is { KeepsEntries: false })
@@ -778,7 +778,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                 IPackageContent? admitted = await PackagePayloadAcquisition.TryAdmitAsync(
                     Stream.Null, reader.Directory.ArchiveLength,
                     coordinate, client.Source.Producer.Key, display.ToString(),
-                    completeStore!, log, limits, transferPolicy,
+                    completeStore, log, limits, transferPolicy,
                     operation.CancellationToken, operation.OperationToken,
                     materializeArchive: async token =>
                     {
