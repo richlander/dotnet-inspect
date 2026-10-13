@@ -124,11 +124,12 @@ selection, read it from the participant and never from a file path.
 
 The scope takes the House's package demand, so version and framework
 selection stay in the House and behave as they do for `package`. An exact
-coordinate passes through unchanged. `latest` is an `AlwaysLatest` demand that the House settles through the
+coordinate passes through unchanged. `latest` is an `AlwaysLatest` demand that
+the House settles through the
 [Package Version Service](package-version-service.md), which always refreshes
 it, and a `*` pattern is a `Wildcard` demand that the House settles by
-discovery.md). The host's range parser
-still splits `A..B` into one demand per endpoint.
+discovery. The host's range parser still splits `A..B` into one demand per
+endpoint.
 
 ### Offline
 
@@ -351,6 +352,7 @@ All gates run in Release.
 | 11. Multi-Library and member-targeted views, after step 4 part 2 | the merged participant surface; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0` no longer doubles change rows | CLI harness, real assets |
 | 12. Body views, after step 4 part 3 | implementation participants, never reference stubs, with or without `--tfm` | CLI harness |
 | 13. Legacy retired, after step 4 part 6 | no `diff --package` request reaches the `AssemblySet` endpoint path, except an offline `*` pattern until the House settles `Wildcard` offline | CLI harness |
+| 14. Performance, every step 4 part that changes code | exact-head NativeAOT numbers against `main`, built on linux-x64 and run back to back under `perf-guard`, in the PR body and the session: cold and warm wall time, bytes received, and disk written | perf hosts, fixed pairs: `System.Text.Json` 10.0.0..11.0 with and without `--tfm`; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0`; `NUnit` 4.1.0..4.2.2; `MediatR` 12.2.0..12.4.1; `Microsoft.Extensions.Hosting` 8.0.0..9.0.0; `Microsoft.CodeAnalysis.CSharp` 4.12.0..4.14.0 |
 
 ## Non-claims
 
