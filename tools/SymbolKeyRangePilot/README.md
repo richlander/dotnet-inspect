@@ -31,6 +31,13 @@ its exact byte budget before construction. The pilot obtains that budget while
 opening the metadata census, outside the measured build operation. The builder
 does not issue range values until it freezes the completed backing.
 
+The separate user-text presentation experiment accepts text only through the
+`present --user-text` host boundary. `UserSearchValue` retains that original
+text and its one UTF-8 encoding. Exact equality may produce `UserTextMatch`,
+which exposes the original host text for presentation; it does not expose or
+promote the artifact range. The type makes host construction sites explicit
+and auditable; it is not a capability barrier against trusted pilot code.
+
 ## Scenarios
 
 | Scenario | Timed operation | Retained graph |
@@ -43,6 +50,21 @@ does not issue range values until it freezes the completed backing.
 should allocate no bytes in the timed operation. All scenarios report elapsed
 time and retained managed memory. Output identifies each exact input by
 filename, assembly version, and module MVID.
+
+`present` reports two additional comparisons over the population-backed store:
+
+| Scenario | Normal path | User-text path |
+| --- | --- | --- |
+| `ScanAndPresent` | Scan with the encoded query, then decode and contain each match | Scan with the same bytes, then reuse the matched host text |
+| `MatchedNamePresentation` | Repeatedly decode and contain one already-matched Name | Repeatedly consume the already-proven `UserTextMatch` |
+
+The first scenario measures the realistic end-to-end list operation. The second
+isolates the post-match cost that a large scan can hide. The normal path uses
+the current UTF-16 `InertString` currency as a stand-in for constructing the
+planned `InertUtf8String` from a Name-issued reader. Both cells emit identical
+text; the command rejects a query whose `TextPolicy.Field` presentation would
+require visual containment so the performance comparison does not time
+different output.
 
 ## Run
 
@@ -59,6 +81,13 @@ Run a local harness smoke test:
 ```bash
 dotnet run --project tools/SymbolKeyRangePilot -c Release -- \
   measure --rounds 3 --target-keys 5000 <assembly>...
+```
+
+Run the host-issued user-text experiment with a Name present in every input:
+
+```bash
+dotnet run --project tools/SymbolKeyRangePilot -c Release -- \
+  present --user-text .ctor --rounds 3 --target-keys 5000 <assembly>...
 ```
 
 `--rounds` must be at least 2 because XmR requires a moving range.

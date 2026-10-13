@@ -1,7 +1,9 @@
 using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
+using System.Text;
 
 using ILInspector.Metadata;
+using InertText;
 
 namespace SymbolKeyRangePilot;
 
@@ -287,6 +289,12 @@ internal sealed class RangeKeyStore(
 
     internal override ReadOnlySpan<byte> Bytes(int index)
         => _keys[index].Bytes;
+
+    internal OpaqueByteRange NameRange(int index)
+        => _keys[index].NameRange();
+
+    internal Utf8RangeReader NameReader(int index)
+        => _keys[index].NameReader();
 }
 
 internal static class KeyFormat
@@ -490,6 +498,17 @@ internal readonly struct RangeKey(
     internal ReadOnlySpan<byte> Bytes => _value.Bytes;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal OpaqueByteRange NameRange()
+    {
+        ReadOnlySpan<byte> bytes = _value.Bytes;
+        KeyFormat.NameBounds(
+            bytes,
+            out int offset,
+            out int length);
+        return _value.Slice(offset, length);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal Utf8RangeReader NameReader()
     {
         ReadOnlySpan<byte> bytes = _value.Bytes;
@@ -529,6 +548,26 @@ internal readonly ref struct Utf8RangeReader(
     internal bool ValueTextEquals(
         ReadOnlySpan<byte> query) =>
         _value.SequenceEqual(query);
+
+    internal InertString DecodeAndContainForPilot()
+        => new(
+            TextPolicy.Field,
+            Encoding.UTF8.GetString(_value));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool TryMatchUserText(
+        Utf8RangeReader candidate,
+        UserSearchValue search,
+        out UserTextMatch match)
+    {
+        if (candidate._value.SequenceEqual(search.Utf8))
+        {
+            match = new(search.Text);
+            return true;
+        }
+        match = default;
+        return false;
+    }
 }
 
 internal readonly record struct RangeSlot(

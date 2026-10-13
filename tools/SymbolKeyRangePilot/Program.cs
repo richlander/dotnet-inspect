@@ -43,6 +43,9 @@ try
             + "retained_b\tchecksum");
     }
 
+    UserSearchValue? userText = options.Command == PilotCommand.Present
+        ? new(options.UserText!)
+        : null;
     foreach (NameAsset asset in assets)
     {
         int copies = options.Copies
@@ -51,12 +54,26 @@ try
                     / asset.KeyCount,
                 1,
                 256);
-        PilotResult result = NamePilot.Measure(
-            asset,
-            options.Rounds,
-            copies,
-            samples);
-        Console.Write(NamePilot.Report(result));
+        if (options.Command == PilotCommand.Measure)
+        {
+            PilotResult result = NamePilot.Measure(
+                asset,
+                options.Rounds,
+                copies,
+                samples);
+            Console.Write(NamePilot.Report(result));
+        }
+        else
+        {
+            UserTextPilot.Validate(asset, userText!, copies);
+            UserTextPilotResult result = UserTextPilot.Measure(
+                asset,
+                options.Rounds,
+                copies,
+                userText!,
+                samples);
+            Console.Write(UserTextPilot.Report(result));
+        }
     }
 
     return 0;

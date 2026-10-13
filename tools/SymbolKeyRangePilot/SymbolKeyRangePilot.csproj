@@ -24,6 +24,7 @@
   <ItemGroup>
     <Compile Include="../../src/ILInspector.Metadata/SymbolKey.cs"
              Link="PrivateSymbolKey.cs" />
+    <ProjectReference Include="../../src/InertText/InertText.csproj" />
   </ItemGroup>
 
 </Project>

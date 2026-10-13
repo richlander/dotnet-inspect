@@ -7,6 +7,7 @@ internal enum PilotCommand
 {
     Check,
     Measure,
+    Present,
 }
 
 internal sealed record Options(
@@ -15,10 +16,14 @@ internal sealed record Options(
     int? Copies,
     int TargetKeys,
     string? TsvPath,
+    string? UserText,
     ImmutableArray<string> Paths)
 {
     const string Usage =
-        "usage: check <assembly>... | measure [--rounds N] "
+        "usage: check <assembly>... | "
+        + "measure [--rounds N] [--copies N | --target-keys N] "
+        + "[--tsv path] <assembly>... | "
+        + "present --user-text text [--rounds N] "
         + "[--copies N | --target-keys N] [--tsv path] <assembly>...";
 
     internal static bool TryParse(
@@ -29,20 +34,24 @@ internal sealed record Options(
         options = null;
         error = null;
         if (args.Length == 0
-            || args[0] is not ("check" or "measure"))
+            || args[0] is not ("check" or "measure" or "present"))
         {
             error = Usage;
             return false;
         }
 
-        PilotCommand command = args[0] == "check"
-            ? PilotCommand.Check
-            : PilotCommand.Measure;
+        PilotCommand command = args[0] switch
+        {
+            "check" => PilotCommand.Check,
+            "measure" => PilotCommand.Measure,
+            _ => PilotCommand.Present,
+        };
         int rounds = 30;
         int? copies = null;
         int targetKeys = 50_000;
         bool targetKeysSpecified = false;
         string? tsvPath = null;
+        string? userText = null;
         var paths = ImmutableArray.CreateBuilder<string>();
         for (int index = 1; index < args.Length; index++)
         {
@@ -84,6 +93,9 @@ internal sealed record Options(
                 case "--tsv" when index + 1 < args.Length:
                     tsvPath = args[++index];
                     break;
+                case "--user-text" when index + 1 < args.Length:
+                    userText = args[++index];
+                    break;
                 default:
                     if (arg.StartsWith("--", StringComparison.Ordinal))
                     {
@@ -99,9 +111,21 @@ internal sealed record Options(
             && (rounds != 30
                 || copies is not null
                 || targetKeys != 50_000
-                || tsvPath is not null))
+                || tsvPath is not null
+                || userText is not null))
         {
-            error = "Measurement options are valid only for measure.";
+            error =
+                "Measurement options are valid only for measure or present.";
+            return false;
+        }
+        if (command == PilotCommand.Measure && userText is not null)
+        {
+            error = "--user-text is valid only for present.";
+            return false;
+        }
+        if (command == PilotCommand.Present && userText is null)
+        {
+            error = "present requires --user-text.";
             return false;
         }
         if (copies is not null && targetKeysSpecified)
@@ -130,6 +154,7 @@ internal sealed record Options(
             copies,
             targetKeys,
             tsvPath,
+            userText,
             paths.ToImmutable());
         return true;
     }
