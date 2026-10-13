@@ -161,6 +161,31 @@ case-insensitive, and compatibility paths cannot issue the typed match. This
 optimization is measured against the merged detached-name baseline, not
 against the earlier UTF-16 presentation proxy.
 
+The first end-to-end output adoption is the direct-library, fully qualified
+exact-Type `Type Info` TSV document. It is deliberately narrower than the
+exact-Type inspection boundary:
+
+1. The host creates `MetadataExactTypeInput`; metadata resolution and typed
+   byte-match evidence remain authoritative exactly as above.
+2. `TypeSubject.ContainedType` carries the proven, policy-contained namespace
+   and root-to-leaf Type segments into Presentation without rebuilding that
+   spelling from `MetadataTypeDefinitionName`.
+3. Presentation writes the Type spelling directly to `IBufferWriter<byte>`,
+   and the CLI writes the completed UTF-8 document to standard output without
+   an intermediate UTF-16 document.
+4. The direct document is admitted only for a clean non-generic Type whose
+   established `Type Info` projection needs no rendered base-Type identity.
+   Generic Types, transformed names, nontrivial base Types, other formats,
+   row or column projections, and every broader command shape retain the
+   established renderer.
+
+That eligibility rule preserves byte-identical output while establishing one
+complete host-input-to-byte-sink path. It does not authorize a second Type
+formatter, change raw lookup identity, or claim that the broad `ApiSurface`
+path is byte-native. Performance evidence measures the complete one-shot
+NativeAOT command, including input and plan construction, inspection,
+Presentation, and output.
+
 ## Motivating evidence
 
 Fast Diff's private `SymbolKey`, introduced by
@@ -630,9 +655,11 @@ the repository threat model.
 | Exact-Type selected identity | A fully qualified exact nested Type detaches only its matched namespace and root-to-leaf Name segments into one backing, preserves segment boundaries, keeps raw lookup identity unchanged, and carries the separately contained presentation without applying identity limits to its expanded spelling | First adoption PR |
 | Exact-Type base/head | NativeAOT exact-command time and allocation comparison preserves result semantics; retained-memory claims include the detached matched Name backing and do not count UTF-16 compatibility output as byte-native savings | First adoption PR |
 | Host-input optimization | Exact query bytes are encoded once, typed match evidence is available only after exact equality, and the candidate is compared with the merged exact-Type baseline | Follow-up adoption PR |
+| Exact-Type direct byte output | Direct-library clean non-generic `Type Info` TSV preserves byte-identical output through host input, metadata proof, `TypeSubject`, Presentation, and the CLI UTF-8 sink; ineligible shapes reproduce the established fallback output | End-to-end Type adoption |
+| Exact-Type one-shot cost | Exact-base/head NativeAOT comparison includes command input construction, plan construction, inspection, Presentation, and output; kernel-only measurements remain separately labeled | End-to-end Type adoption |
 | Symbol Key representation pilot | SPC comparison of the current private Symbol Key and the proposed range-backed model measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; exact identity answers must agree | Completed pilot |
 | Fast Diff product path | Exact base/head NativeAOT comparison on all pinned Fast Diff pairs, with identity answers unchanged and no regression | Symbol Key implementation adoption |
-| Direct byte output | Exact-answer and allocation comparison for the first Diff sink that stays byte-native after `InertUtf8String` construction | Diff output adoption |
+| Fast Diff direct byte output | Exact-answer and allocation comparison for the first Diff sink that stays byte-native after `InertUtf8String` construction | Diff output adoption |
 
 Documentation-only design changes require Markdown validation, not product
 builds. Performance claims become implementation claims only when their named
@@ -654,17 +681,22 @@ exact-base/head gates run.
 4. **Exact-Type host-input optimization.** Add the auditable host-created
    exact-input type, return typed evidence from the same successful byte
    comparisons, and compare against the merged step 3 baseline.
-5. **Shared Symbol Key and Fast Diff adoption.** Move Fast Diff's private
+5. **Exact-Type end-to-end output.** Carry the proven contained Type through
+   `TypeSubject` into the first direct Presentation document and write it to a
+   byte-capable CLI sink. Compare the complete one-shot command with the
+   pre-adoption path.
+6. **Shared Symbol Key and Fast Diff adoption.** Move Fast Diff's private
    Symbol Key onto the shared representation and remove the duplicate storage
    owner only with exact base/head NativeAOT parity.
-6. **API qualified anchor adoption.** Carry byte-backed names through
+7. **API qualified anchor adoption.** Carry byte-backed names through
    declaration, signature, and resolver boundaries under
    [#9907](https://github.com/richlander/dotnet-inspect/issues/9907).
-7. **Byte-native Fast Diff result.** Keep applicable result names as domain
+8. **Byte-native Fast Diff result.** Keep applicable result names as domain
    views under Fast Diff's focused owner.
-8. **Direct Presentation output.** Let Presentation consume those views and
+9. **Direct Fast Diff Presentation output.** Let Presentation consume those
+   views and
    write contained UTF-8 directly at byte-capable sinks.
-9. **CLI and Browser/Wasm completion.** Adopt the shared identities and direct
+10. **CLI and Browser/Wasm completion.** Adopt the shared identities and direct
    projections in the product paths tracked by their owning issues.
 
 Each adoption is independently reviewable and keeps its domain semantics with
