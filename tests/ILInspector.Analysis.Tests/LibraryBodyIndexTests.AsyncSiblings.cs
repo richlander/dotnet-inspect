@@ -12,6 +12,7 @@ using System.Text;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using ILInspector.Analysis;
+using ILInspector.Analysis.Planning;
 using ILInspector.Analysis.ClassicAsyncFixtures;
 using ILInspector.Analysis.MalformedOwnershipFixtures;
 using ILInspector.Analysis.UnoptimizedAsyncFixtures;
@@ -25,7 +26,7 @@ public partial class LibraryBodyIndexTests
 {
 
     [Fact]
-    public void OptimizationOpportunities_FindSyncCallsWithAsyncSiblings()
+    public void AsyncSiblingProducer_FindsSyncCallsWithAsyncSiblings()
     {
         string path = typeof(OptimizationOpportunityFixtures)
             .Assembly.Location;
@@ -36,324 +37,179 @@ public partial class LibraryBodyIndexTests
                 IncludeAspNetCoreSharedFramework = false,
                 PreferImplementationAssemblies = true,
             });
-        var index = BodyAnalysisTestExecution.Open(path, resolver);
-        var opportunities = index.Optimization.Opportunities
-            .Where(opportunity =>
-                opportunity.Shape == "sync-call-in-async")
-            .ToArray();
+        AsyncSiblingRow[] rows =
+            AsyncSiblingTestExecution.Execute(path, resolver)
+                .Rows.ToArray();
 
-        var local = Assert.Single(opportunities, opportunity =>
-            opportunity.Method.Name
+        AsyncSiblingRow local = Assert.Single(rows, row =>
+            row.Caller.Name
                 == nameof(OptimizationOpportunityAsyncSiblingFixtures
                     .CallsSyncSiblingFromAsync));
         Assert.Equal(
             nameof(OptimizationOpportunityAsyncSiblingFixtures
                 .CallsSyncSiblingFromAsync),
-            local.Method.Name);
-        Assert.Contains(
-            "ReadValuesAsync",
-            local.Evidence,
-            StringComparison.Ordinal);
+            local.Caller.Name);
         Assert.Equal(
-            "analysis.call-site",
-            local.SourceFinding);
-        Assert.Equal(
-            PerformanceTriageProvenance.Exact,
-            local.Provenance);
-        Assert.Equal("call", local.Operation);
-        Assert.NotNull(local.OperandToken);
-        Assert.Equal(
-            local.Method.MetadataToken,
-            local.EvidenceMethodToken);
-        AsyncSiblingOpportunityEvidence localEvidence =
-            Assert.IsType<AsyncSiblingOpportunityEvidence>(
-                local.AsyncSibling);
-        Assert.Equal(
-            local.Method,
-            localEvidence.SynchronousCall.Caller);
-        Assert.Equal(
-            Assert.IsType<int>(local.EvidenceMethodToken),
-            localEvidence.SynchronousCall
-                .EvidenceMethod.MetadataToken);
-        Assert.Equal(
-            Assert.IsType<int>(local.ILOffset),
-            localEvidence.SynchronousCall.ILOffset);
+            local.Caller,
+            local.SynchronousCall.Caller);
         Assert.Equal(
             nameof(OptimizationOpportunityAsyncSiblingFixtures
                 .ReadValues),
-            localEvidence.SynchronousCall.Callee.Name);
+            local.SynchronousCall.Callee.Name);
         Assert.Equal(
             nameof(OptimizationOpportunityAsyncSiblingFixtures
                 .ReadValuesAsync),
-            localEvidence.AsyncCandidate.Name);
+            local.Alternative.Name);
 
-        var framework = Assert.Single(opportunities, opportunity =>
-            opportunity.Method.Name
+        AsyncSiblingRow framework = Assert.Single(rows, row =>
+            row.Caller.Name
                 == nameof(OptimizationOpportunityFixtures
                     .CallsFileReadLinesFromAsync));
-        Assert.Contains(
-            "System.IO.File::ReadLinesAsync(string, System.Threading.CancellationToken)",
-            framework.Evidence,
-            StringComparison.Ordinal);
-        AsyncSiblingOpportunityEvidence frameworkEvidence =
-            Assert.IsType<AsyncSiblingOpportunityEvidence>(
-                framework.AsyncSibling);
         Assert.Equal(
             nameof(File.ReadLines),
-            frameworkEvidence.SynchronousCall.Callee.Name);
+            framework.SynchronousCall.Callee.Name);
         Assert.Equal(
             nameof(File.ReadLinesAsync),
-            frameworkEvidence.AsyncCandidate.Name);
+            framework.Alternative.Name);
         Assert.Equal(
             TypeRef.CoreLibrary,
-            frameworkEvidence.AsyncCandidate
-                .DeclaringType.Assembly);
+            framework.Alternative.DeclaringType.Assembly);
         Assert.Equal(
             "System.Threading.CancellationToken",
-            frameworkEvidence.AsyncCandidate
+            framework.Alternative
                 .ParameterTypes[^1]
                 .ToQualifiedDisplayString());
-        Assert.All(
-            index.Optimization.Opportunities
-                .Where(opportunity => opportunity.Shape
-                    != "sync-call-in-async"),
-            opportunity => Assert.Null(
-                opportunity.AsyncSibling));
 
-        Assert.DoesNotContain(opportunities, opportunity =>
-            opportunity.Method.Name
+        Assert.DoesNotContain(rows, row =>
+            row.Caller.Name
                 == nameof(OptimizationOpportunityFixtures
                     .CallsSyncSiblingFromNonAsync));
-        Assert.DoesNotContain(opportunities, opportunity =>
-            opportunity.Method.Name
+        Assert.DoesNotContain(rows, row =>
+            row.Caller.Name
                 == nameof(OptimizationOpportunityFixtures
                     .CallsSyncWithoutCompatibleAsyncSibling));
-        Assert.DoesNotContain(opportunities, opportunity =>
-            opportunity.Method.Name
+        Assert.DoesNotContain(rows, row =>
+            row.Caller.Name
                 == nameof(OptimizationOpportunityFixtures
                     .CallsSyncWithMismatchedAsyncReturn));
-        Assert.DoesNotContain(opportunities, opportunity =>
-            opportunity.Method.Name
+        Assert.DoesNotContain(rows, row =>
+            row.Caller.Name
                 == nameof(OptimizationOpportunityFixtures
                     .ExecuteOwnCoreAsync));
-        Assert.DoesNotContain(opportunities, opportunity =>
-            opportunity.Method.Name
+        Assert.DoesNotContain(rows, row =>
+            row.Caller.Name
                 == nameof(OptimizationOpportunityFixtures
                     .CallsBothLifecycleSiblingsAsync));
-        Assert.DoesNotContain(opportunities, opportunity =>
-            opportunity.Method.Name
+        Assert.DoesNotContain(rows, row =>
+            row.Caller.Name
                 == nameof(OptimizationOpportunityFixtures
                     .CallsBothFileReadLinesSiblingsAsync));
-        Assert.DoesNotContain(opportunities, opportunity =>
-            opportunity.Method.Name
+        Assert.DoesNotContain(rows, row =>
+            row.Caller.Name
                 == nameof(GenericSelfSiblingFixture<int>
                     .ReadAsync)
-            && opportunity.Method.DeclaringType.Name
+            && row.Caller.DeclaringType.Name
                 .StartsWith(
                     "GenericSelfSiblingFixture",
                     StringComparison.Ordinal));
-        Assert.DoesNotContain(opportunities, opportunity =>
-            opportunity.Method.Name
+        Assert.DoesNotContain(rows, row =>
+            row.Caller.Name
                 == nameof(InterfaceSelfSiblingFixture
                     .ReadAsync)
-            && opportunity.Method.DeclaringType.Name
+            && row.Caller.DeclaringType.Name
                 == nameof(InterfaceSelfSiblingFixture));
-        Assert.DoesNotContain(opportunities, opportunity =>
-            opportunity.Method.Name
+        Assert.DoesNotContain(rows, row =>
+            row.Caller.Name
                 == nameof(ConstrainedSiblingFixture
                     .CallsConstrainedSiblingFromAsync));
-        Assert.DoesNotContain(opportunities, opportunity =>
-            opportunity.Method.Name
+        Assert.DoesNotContain(rows, row =>
+            row.Caller.Name
                 == nameof(ConstrainedSiblingFixture
                     .CallsAllowsRefStructFromAsync));
-        Assert.DoesNotContain(opportunities, opportunity =>
-            opportunity.Method.Name
+        Assert.DoesNotContain(rows, row =>
+            row.Caller.Name
                 == nameof(DerivedVirtualSelfSiblingFixture
                     .ReadAsync)
-            && opportunity.Method.DeclaringType.Name
+            && row.Caller.DeclaringType.Name
                 == nameof(
                     DerivedVirtualSelfSiblingFixture));
-        Assert.DoesNotContain(opportunities, opportunity =>
-            opportunity.Method.Name
+        Assert.DoesNotContain(rows, row =>
+            row.Caller.Name
                 == nameof(UnsupportedSignatureSiblingFixture
                     .AnalyzeAsync)
-            && opportunity.Method.DeclaringType.Name
+            && row.Caller.DeclaringType.Name
                 == nameof(
                     UnsupportedSignatureSiblingFixture));
 
-        var genericPrivate = Assert.Single(
-            opportunities,
-            opportunity => opportunity.Method.Name
+        Assert.Single(
+            rows,
+            row => row.Caller.Name
                 == nameof(GenericPrivateSiblingFixture<int>
                     .CallsPrivateSiblingFromAsync));
-        Assert.Contains(
-            "ReadAsync",
-            genericPrivate.Evidence,
-            StringComparison.Ordinal);
 
-        Assert.DoesNotContain(opportunities, opportunity =>
-            opportunity.Method.Name
+        Assert.DoesNotContain(rows, row =>
+            row.Caller.Name
                 == nameof(RequiredTokenSiblingFixture
                     .CallsRequiredTokenSiblingAsync));
 
         Assert.DoesNotContain(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                 == nameof(UnrelatedVirtualSiblingConsumer
                     .LoadAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     == nameof(
                         UnrelatedVirtualSiblingConsumer));
 
         Assert.DoesNotContain(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                     == nameof(
                         NewSlotVirtualSiblingLeaf
                             .LoadAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     == nameof(
                         NewSlotVirtualSiblingLeaf));
 
         Assert.DoesNotContain(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                     == nameof(
                         UnrelatedOverrideSiblingConsumer
                             .LoadAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     == nameof(
                         UnrelatedOverrideSiblingConsumer));
         Assert.DoesNotContain(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                     == nameof(
                         GenericNewSlotSiblingLeaf<int, string>
                             .ReadAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     .StartsWith(
                         "GenericNewSlotSiblingLeaf",
                         StringComparison.Ordinal));
         Assert.DoesNotContain(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                     == nameof(
                         GenericMatchingNewSlotSiblingLeaf<int>
                             .ReadAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     .StartsWith(
                         "GenericMatchingNewSlotSiblingLeaf",
                         StringComparison.Ordinal));
 
         Assert.Single(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                 == nameof(GenericInvocationSiblingFixture
                     .CallsDifferentInstantiationAsync));
-        Assert.DoesNotContain(opportunities, opportunity =>
-            opportunity.Method.Name
+        Assert.DoesNotContain(rows, row =>
+            row.Caller.Name
                 == nameof(GenericInvocationSiblingFixture
                     .CallsSameInstantiationAsync));
-    }
-
-    [Fact]
-    public void AsyncSiblingOpportunities_DoNotRequireAllocationAnalysis()
-    {
-        string path = typeof(OptimizationOpportunityFixtures)
-            .Assembly.Location;
-        var resolver = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(path)
-            {
-                IncludeDepsJsonAssets = false,
-                IncludeAspNetCoreSharedFramework = false,
-                PreferImplementationAssemblies = true,
-            });
-        var index = BodyAnalysisTestExecution.Open(
-            path,
-            LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities,
-            resolver);
-
-        Assert.False(index.Receipt.Features.HasFlag(
-            LibraryBodyAnalysisFeatures.Allocations));
-        Assert.False(index.Receipt.Features.HasFlag(
-            LibraryBodyAnalysisFeatures.OptimizationOpportunities));
-        Assert.Contains(
-            index.Optimization.Opportunities,
-            opportunity =>
-                opportunity.Shape == "sync-call-in-async"
-                && opportunity.Method.Name
-                    == nameof(
-                        OptimizationOpportunityAsyncSiblingFixtures
-                            .CallsSyncSiblingFromAsync));
-        Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity =>
-                opportunity.Shape != "sync-call-in-async");
-    }
-
-    [Fact]
-    public void OptimizationOpportunities_DistinctCalleesIndexCandidateTypeOnce()
-    {
-        string path =
-            typeof(OptimizationOpportunityAsyncSiblingFixtures)
-            .Assembly.Location;
-        using var stream = File.OpenRead(path);
-        using var peReader = new PEReader(stream);
-        MetadataReader reader = peReader.GetMetadataReader();
-        TypeDefinitionHandle fixtureType = reader.TypeDefinitions.Single(
-            handle => reader.StringComparer.Equals(
-                reader.GetTypeDefinition(handle).Name,
-                nameof(
-                    OptimizationOpportunityAsyncSiblingFixtures)));
-        int methodCount = reader.GetTypeDefinition(fixtureType)
-            .GetMethods()
-            .Count;
-        var sourceTokens = reader.GetTypeDefinition(fixtureType)
-            .GetMethods()
-            .Where(handle =>
-            {
-                string name = reader.GetString(
-                    reader.GetMethodDefinition(handle).Name);
-                return name is nameof(
-                    OptimizationOpportunityAsyncSiblingFixtures
-                            .CallsSyncSiblingFromAsync)
-                    or nameof(
-                    OptimizationOpportunityAsyncSiblingFixtures
-                            .CallsSameSyncSiblingFromAsync)
-                    or nameof(
-                    OptimizationOpportunityAsyncSiblingFixtures
-                            .CallsOtherSyncSiblingFromAsync);
-            })
-            .Select(handle => MetadataTokens.GetToken(handle))
-            .ToHashSet();
-        Assert.Equal(3, sourceTokens.Count);
-        int scanned = 0;
-        using var builder = new LibraryBodyAnalysisBuilder(
-            path,
-            reader,
-            peReader,
-            asyncSiblingMethodScanned: (definingReader, handle) =>
-            {
-                if (ReferenceEquals(definingReader, reader)
-                    && definingReader.GetMethodDefinition(handle)
-                        .GetDeclaringType() == fixtureType)
-                {
-                    scanned++;
-                }
-            });
-
-        LibraryBodyAnalysisResult result = builder.Build(
-            LibraryBodyAnalysisPlan.Create(
-                LibraryBodyAnalysisFeatures
-                    .OptimizationOpportunities,
-                sourceTokens,
-                typeScope: null));
-
-        Assert.Equal(
-            3,
-            result.Optimizations.Opportunities.Count(opportunity =>
-                opportunity.Shape == "sync-call-in-async"));
-        Assert.Equal(methodCount, scanned);
     }
 
     [Fact]
@@ -407,182 +263,166 @@ public partial class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void OptimizationOpportunities_InheritedSiblingUsesNearestNameLevel()
+    public void AsyncSiblingProducer_InheritedSiblingUsesNearestNameLevel()
     {
-        var index = BodyAnalysisTestExecution.Open(
-            typeof(OptimizationOpportunityFixtures)
-                .Assembly.Location);
-        OptimizationOpportunity[] opportunities =
-            index.Optimization.Opportunities
-                .Where(opportunity => opportunity.Shape
-                    == "sync-call-in-async")
-                .ToArray();
+        AsyncSiblingRow[] rows = AsyncSiblingTestExecution.Execute(
+                typeof(OptimizationOpportunityFixtures)
+                    .Assembly.Location)
+            .Rows.ToArray();
 
-        OptimizationOpportunity inherited = Assert.Single(
-            opportunities,
-            opportunity => opportunity.Method.Name
+        AsyncSiblingRow inherited = Assert.Single(
+            rows,
+            row => row.Caller.Name
                     == nameof(
                         InheritedAsyncSiblingDerived<int>
                             .AnalyzeAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     .StartsWith(
                         nameof(InheritedAsyncSiblingDerived<int>),
-                        StringComparison.Ordinal)
-                && opportunity.Evidence.Contains(
-                    "InheritedAsyncSiblingBase",
-                    StringComparison.Ordinal));
-        AsyncSiblingOpportunityEvidence inheritedEvidence =
-            Assert.IsType<AsyncSiblingOpportunityEvidence>(
-                inherited.AsyncSibling);
+                        StringComparison.Ordinal));
         Assert.Equal(
             nameof(InheritedAsyncSiblingDerived<int>.Read),
-            inheritedEvidence.SynchronousCall.Callee.Name);
+            inherited.SynchronousCall.Callee.Name);
         Assert.Equal(
             nameof(InheritedAsyncSiblingBase<int>.ReadAsync),
-            inheritedEvidence.AsyncCandidate.Name);
+            inherited.Alternative.Name);
         Assert.Equal(
             TypeRefKind.GenericInstance,
-            inheritedEvidence.AsyncCandidate
-                .DeclaringType.Kind);
+            inherited.Alternative.DeclaringType.Kind);
         Assert.Equal(
             TypeRefKind.GenericParameter,
             Assert.Single(
-                inheritedEvidence.AsyncCandidate
+                inherited.Alternative
                     .ParameterTypes).Kind);
         Assert.DoesNotContain(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                     == nameof(
                     HiddenInheritedAsyncSiblingDerived
                         .AnalyzeAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     == nameof(
                         HiddenInheritedAsyncSiblingDerived));
         Assert.Contains(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                     == nameof(
                         NearestInheritedAsyncSiblingLeaf
                             .AnalyzeAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     == nameof(
                         NearestInheritedAsyncSiblingLeaf)
-                && opportunity.Evidence.Contains(
-                    "NearestInheritedAsyncSiblingMiddle"
-                        + "::ReadAsync",
-                    StringComparison.Ordinal));
+                && row.Alternative.DeclaringType.Name
+                    == nameof(
+                        NearestInheritedAsyncSiblingMiddle));
         Assert.Contains(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                     == nameof(
                     ProtectedInheritedAsyncSiblingDerived
                         .AnalyzeAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     == nameof(
                         ProtectedInheritedAsyncSiblingDerived));
         Assert.DoesNotContain(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                     == nameof(
                     ProtectedInheritedAsyncSiblingConsumer
                         .AnalyzeAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     == nameof(
                         ProtectedInheritedAsyncSiblingConsumer));
         Assert.Contains(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                     == nameof(
                     InternalInheritedAsyncSiblingDerived
                         .AnalyzeAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     == nameof(
                         InternalInheritedAsyncSiblingDerived));
     }
 
     [Fact]
     public void
-        OptimizationOpportunities_InheritedSynchronousReceiverHidingFailsClosed()
+        AsyncSiblingProducer_InheritedSynchronousReceiverHidingFailsClosed()
     {
-        OptimizationOpportunity[] opportunities =
-            BodyAnalysisTestExecution.Open(
-                    typeof(OptimizationOpportunityFixtures)
-                        .Assembly.Location)
-                .Optimization.Opportunities
-                .Where(opportunity => opportunity.Shape
-                    == "sync-call-in-async")
-                .ToArray();
+        AsyncSiblingRow[] rows = AsyncSiblingTestExecution.Execute(
+                typeof(OptimizationOpportunityFixtures)
+                    .Assembly.Location)
+            .Rows.ToArray();
 
         Assert.DoesNotContain(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                     == nameof(
                         HiddenInheritedSynchronousSiblingDerived
                             .AnalyzeAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     == nameof(
                         HiddenInheritedSynchronousSiblingDerived));
         Assert.DoesNotContain(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                     == nameof(
                         InheritedSynchronousSiblingConsumer
                             .AnalyzeAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     == nameof(
                         InheritedSynchronousSiblingConsumer));
         Assert.DoesNotContain(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                     == nameof(
                         InheritedSynchronousDerivedReceiverConsumer
                             .AnalyzeAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     == nameof(
                         InheritedSynchronousDerivedReceiverConsumer));
         Assert.DoesNotContain(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                     == nameof(
                         InheritedSynchronousNameBypassConsumer
                             .ReadAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     == nameof(
                         InheritedSynchronousNameBypassConsumer));
         Assert.DoesNotContain(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                     == nameof(
                         InterfaceInheritedSynchronousConsumer
                             .AnalyzeAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     == nameof(
                         InterfaceInheritedSynchronousConsumer));
         Assert.DoesNotContain(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                     == nameof(
                         SameTypeInheritedSynchronousBase
                             .AnalyzeAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     == nameof(
                         SameTypeInheritedSynchronousBase));
         Assert.DoesNotContain(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                     == nameof(
                         StaticInheritedSynchronousConsumer
                             .AnalyzeAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     == nameof(
                         StaticInheritedSynchronousConsumer));
         Assert.Contains(
-            opportunities,
-            opportunity => opportunity.Method.Name
+            rows,
+            row => row.Caller.Name
                     == nameof(
                         SealedSynchronousSiblingConsumer
                             .AnalyzeAsync)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     == nameof(
                         SealedSynchronousSiblingConsumer));
     }
@@ -660,7 +500,7 @@ public partial class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void OptimizationOpportunities_PrefetchedImageDoesNotReopenRootPath()
+    public void AsyncSiblingProducer_PrefetchedImageDoesNotReopenRootPath()
     {
         string sourcePath = typeof(OptimizationOpportunityFixtures)
             .Assembly.Location;
@@ -677,19 +517,14 @@ public partial class LibraryBodyIndexTests
                 PreferImplementationAssemblies = true,
             });
 
-        var index = BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+        AsyncSiblingProducerResult result = AsyncSiblingTestExecution.Execute(
             missingPath,
-            image,
-            LibraryBodyAnalysisFeatures.MethodEvidence
-                | LibraryBodyAnalysisFeatures
-                    .OptimizationOpportunities,
+            [.. image],
             resolver);
 
         Assert.Contains(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name
+            result.Rows,
+            row => row.Caller.Name
                     == nameof(OptimizationOpportunityFixtures
                         .CallsFileReadLinesFromAsync));
     }
@@ -1020,327 +855,212 @@ public partial class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate()
+    public void AsyncSiblingProducer_ClassicAsyncUsesMoveNextEvidenceCoordinate()
     {
         string path = typeof(ClassicAsyncSiblingFixture)
             .Assembly.Location;
-        var index = BodyAnalysisTestExecution.Open(path);
+        AsyncSiblingRow[] rows =
+            AsyncSiblingTestExecution.Execute(path).Rows.ToArray();
 
-        var opportunity = Assert.Single(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name
+        AsyncSiblingRow row = Assert.Single(
+            rows,
+            candidate => candidate.Caller.Name
                     == nameof(ClassicAsyncSiblingFixture
                         .CallsSyncSiblingFromAsync));
+        DirectCall evidence = row.SynchronousCall;
         int evidenceMethodToken =
-            Assert.IsType<int>(opportunity.EvidenceMethodToken);
-        AsyncSiblingOpportunityEvidence evidence =
-            Assert.IsType<AsyncSiblingOpportunityEvidence>(
-                opportunity.AsyncSibling);
+            evidence.EvidenceMethod.MetadataToken;
 
         Assert.NotEqual(
-            opportunity.Method.MetadataToken,
+            row.Caller.MetadataToken,
             evidenceMethodToken);
         Assert.NotEqual(
-            opportunity.Method,
-            evidence.SynchronousCall.Caller);
+            row.Caller,
+            evidence.Caller);
         Assert.Equal(
             evidenceMethodToken,
-            evidence.SynchronousCall.Caller
-                .MetadataToken);
-        Assert.Equal(
-            evidenceMethodToken,
-            evidence.SynchronousCall
-                .EvidenceMethod.MetadataToken);
+            evidence.Caller.MetadataToken);
         Assert.Equal(
             nameof(ClassicAsyncSiblingFixture.ReadValue),
-            evidence.SynchronousCall.Callee.Name);
+            evidence.Callee.Name);
         Assert.Equal(
             nameof(ClassicAsyncSiblingFixture.ReadValueAsync),
-            evidence.AsyncCandidate.Name);
+            row.Alternative.Name);
         Assert.Equal(
             "MoveNext",
-            Assert.Single(
-                index.CallGraph.Methods,
-                method => method.MetadataToken
-                    == evidenceMethodToken).Name);
-        Assert.Equal(
-            "analysis.call-site",
-            opportunity.SourceFinding);
-        Assert.Equal(
-            PerformanceTriageProvenance.Exact,
-            opportunity.Provenance);
-        var memberScoped = BodyAnalysisTestExecution.Open(
-            path,
-            bodyScope: new HashSet<int>
-            {
-                opportunity.Method.MetadataToken,
-            });
-        Assert.Single(
-            memberScoped.Optimization.Opportunities,
-            candidate => candidate.Shape
-                    == "sync-call-in-async"
-                && candidate.Method.MetadataToken
-                    == opportunity.Method.MetadataToken);
-        string sourceTypeName =
-            opportunity.Method.DeclaringType
-                .ToQualifiedDisplayString();
-        Func<TypeRef, bool> sourceTypeScope =
-            type => type.ToQualifiedDisplayString()
-                == sourceTypeName;
-        var typeScoped = BodyAnalysisTestExecution.Open(
-            path,
-            bodyTypeScope: sourceTypeScope);
-        Assert.Single(
-            typeScoped.Optimization.Opportunities,
-            candidate => candidate.Shape
-                    == "sync-call-in-async"
-                && candidate.Method.MetadataToken
-                    == opportunity.Method.MetadataToken);
-        var memberAndTypeScoped =
-            BodyAnalysisTestExecution.Open(
-                path,
-                bodyScope: new HashSet<int>
-                {
-                    opportunity.Method.MetadataToken,
-                },
-                bodyTypeScope: sourceTypeScope);
-        Assert.Single(
-            memberAndTypeScoped
-                .Optimization.Opportunities,
-            candidate => candidate.Shape
-                    == "sync-call-in-async"
-                && candidate.Method.MetadataToken
-                    == opportunity.Method.MetadataToken);
-        var generatedTypeScoped =
-            BodyAnalysisTestExecution.Open(
-                path,
-                bodyTypeScope:
-                    type => type.Name.Contains(
-                        ">d__",
-                        StringComparison.Ordinal));
-        Assert.DoesNotContain(
-            generatedTypeScoped
-                .Optimization.Opportunities,
-            candidate => candidate.Shape
-                    == "sync-call-in-async"
-                && candidate.Method.MetadataToken
-                    == opportunity.Method.MetadataToken);
+            evidence.EvidenceMethod.Name);
 
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.DeclaringType.Name
+            rows,
+            opportunity => opportunity.Caller.DeclaringType.Name
                     == nameof(
                         ClassicGenericSelfSiblingFixture<int>)
-                && opportunity.Method.Name
+                && opportunity.Caller.Name
                     == nameof(
                         ClassicGenericSelfSiblingFixture<int>
                             .ReadAsync));
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.DeclaringType.Name
+            rows,
+            opportunity => opportunity.Caller.DeclaringType.Name
                     == nameof(
                         ClassicGenericMethodSelfSiblingFixture)
-                && opportunity.Method.Name
+                && opportunity.Caller.Name
                     == nameof(
                         ClassicGenericMethodSelfSiblingFixture
                             .ReadAsync));
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name
+            rows,
+            opportunity => opportunity.Caller.Name
                     == nameof(
                         ClassicGenericInterfaceSelfSiblingFixture
                             .LoadAsync));
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name.EndsWith(
+            rows,
+            opportunity => opportunity.Caller.Name.EndsWith(
                     ".FetchAsync",
                     StringComparison.Ordinal));
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name
+            rows,
+            opportunity => opportunity.Caller.Name
                     == nameof(
                         ClassicGenericVirtualSelfSiblingFixture
                             .LookupAsync));
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name
+            rows,
+            opportunity => opportunity.Caller.Name
                     == nameof(
                         ClassicAsyncSiblingFixture
                             .CallsRefWithOutSiblingAsync));
         Assert.Single(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name
+            rows,
+            opportunity => opportunity.Caller.Name
                     == nameof(
                         ClassicAsyncSiblingFixture
                             .CallsCompatibleRefSiblingAsync));
 
         var collision = Assert.Single(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name
+            rows,
+            opportunity => opportunity.Caller.Name
                     == nameof(
                         ClassicStateMachineCollision<int>
                             .AnalyzeAsync)
-                && opportunity.Method.DeclaringType
+                && opportunity.Caller.DeclaringType
                     .Resolution?.Type.Segments[0]
                     == "ClassicStateMachineCollision`1");
         Assert.Equal(
             "ClassicStateMachineCollision`1",
-            collision.Method.DeclaringType
+            collision.Caller.DeclaringType
                 .Resolution?.Type.Segments[0]);
 
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.DeclaringType.Name
+            rows,
+            opportunity => opportunity.Caller.DeclaringType.Name
                     == nameof(
                         ClassicInterfaceCacheFixture)
-                && opportunity.Method.Name
+                && opportunity.Caller.Name
                     == nameof(
                         ClassicInterfaceCacheFixture
                             .AaaOtherAsync));
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.DeclaringType.Name
+            rows,
+            opportunity => opportunity.Caller.DeclaringType.Name
                     == nameof(
                         ClassicInterfaceCacheFixture)
-                && opportunity.Method.Name
+                && opportunity.Caller.Name
                     == nameof(
                         ClassicInterfaceCacheFixture
                             .ReadAsync));
         Assert.Contains(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name
+            rows,
+            opportunity => opportunity.Caller.Name
                     == nameof(
                         ClassicSelfCacheFixture
                             .ZzzAnalyzeAsync));
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name
+            rows,
+            opportunity => opportunity.Caller.Name
                     == nameof(
                         ClassicSelfCacheFixture
                             .AaaAsync));
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.DeclaringType.Name
+            rows,
+            opportunity => opportunity.Caller.DeclaringType.Name
                     == nameof(
                         ClassicProtectedSiblingDerivedFixture)
-                && opportunity.Method.Name
+                && opportunity.Caller.Name
                     == nameof(
                         ClassicProtectedSiblingDerivedFixture
                             .AnalyzeAsync));
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.DeclaringType.Name
+            rows,
+            opportunity => opportunity.Caller.DeclaringType.Name
                     == nameof(
                         ClassicPrivateProtectedSiblingDerivedFixture)
-                && opportunity.Method.Name
+                && opportunity.Caller.Name
                     == nameof(
                         ClassicPrivateProtectedSiblingDerivedFixture
                             .AnalyzeAsync));
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.DeclaringType.Name
+            rows,
+            opportunity => opportunity.Caller.DeclaringType.Name
                     == nameof(
                         ClassicCovariantInterfaceSelfSiblingFixture)
-                && opportunity.Method.Name
+                && opportunity.Caller.Name
                     == nameof(
                         ClassicCovariantInterfaceSelfSiblingFixture
                             .ReadAsync));
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.DeclaringType.Name
+            rows,
+            opportunity => opportunity.Caller.DeclaringType.Name
                     == nameof(
                         ClassicProtectedReceiverDerivedFixture)
-                && opportunity.Method.Name
+                && opportunity.Caller.Name
                     == nameof(
                         ClassicProtectedReceiverDerivedFixture
                             .AnalyzeAsync));
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.DeclaringType.Name
+            rows,
+            opportunity => opportunity.Caller.DeclaringType.Name
                     == nameof(
                         ClassicProtectedStaticSiblingDerivedFixture)
-                && opportunity.Method.Name
+                && opportunity.Caller.Name
                     == nameof(
                         ClassicProtectedStaticSiblingDerivedFixture
                             .AnalyzeAsync));
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.DeclaringType.Name
+            rows,
+            opportunity => opportunity.Caller.DeclaringType.Name
                     == "IClassicContravariantDefaultSiblingFixture`1"
-                && opportunity.Method.Name
+                && opportunity.Caller.Name
                     == nameof(
                         IClassicContravariantDefaultSiblingFixture<
                             object>.ConsumeAsync));
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.DeclaringType.Name
+            rows,
+            opportunity => opportunity.Caller.DeclaringType.Name
                     == nameof(
                         ClassicUnrelatedExplicitDefaultSiblingFixture)
-                && opportunity.Method.Name.EndsWith(
+                && opportunity.Caller.Name.EndsWith(
                     ".ReadAsync",
                     StringComparison.Ordinal));
         Assert.Contains(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.DeclaringType.Name
+            rows,
+            opportunity => opportunity.Caller.DeclaringType.Name
                     .EndsWith(
                         "+"
                         + nameof(
                             ClassicNestedPrivateSiblingFixture.Consumer),
                         StringComparison.Ordinal)
-                && opportunity.Method.Name
+                && opportunity.Caller.Name
                     == nameof(
                         ClassicNestedPrivateSiblingFixture.Consumer
                             .AnalyzeAsync));
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.DeclaringType.Name
+            rows,
+            opportunity => opportunity.Caller.DeclaringType.Name
                     == nameof(
                         IClassicHiddenDerivedSiblingFixture)
-                && opportunity.Method.Name
+                && opportunity.Caller.Name
                     == nameof(
                         IClassicHiddenDerivedSiblingFixture
                             .ReadAsync));
@@ -1348,53 +1068,49 @@ public partial class LibraryBodyIndexTests
 
     [Fact]
     public void
-        OptimizationOpportunities_PrivateAccessIsDirectionalAcrossNestedTypes()
+        AsyncSiblingProducer_PrivateAccessIsDirectionalAcrossNestedTypes()
     {
-        OptimizationOpportunity[] opportunities =
-            BodyAnalysisTestExecution.Open(
-                    typeof(ClassicAsyncSiblingFixture)
-                        .Assembly.Location)
-                .Optimization.Opportunities
-                .Where(opportunity => opportunity.Shape
-                    == "sync-call-in-async")
-                .ToArray();
+        AsyncSiblingRow[] rows = AsyncSiblingTestExecution.Execute(
+                typeof(ClassicAsyncSiblingFixture)
+                    .Assembly.Location)
+            .Rows.ToArray();
 
         Assert.Contains(
-            opportunities,
-            opportunity => opportunity.Method.DeclaringType.Name
+            rows,
+            row => row.Caller.DeclaringType.Name
                     .EndsWith(
                         "+"
                         + nameof(
                             ClassicNestedPrivateSiblingFixture.Consumer),
                         StringComparison.Ordinal)
-                && opportunity.Method.Name
+                && row.Caller.Name
                     == nameof(
                         ClassicNestedPrivateSiblingFixture.Consumer
                             .AnalyzeAsync));
         Assert.DoesNotContain(
-            opportunities,
-            opportunity => opportunity.Method.DeclaringType.Name
+            rows,
+            row => row.Caller.DeclaringType.Name
                     == nameof(
                         ClassicOuterToNestedPrivateSiblingFixture)
-                && opportunity.Method.Name
+                && row.Caller.Name
                     == nameof(
                         ClassicOuterToNestedPrivateSiblingFixture
                             .AnalyzeAsync));
         Assert.DoesNotContain(
-            opportunities,
-            opportunity => opportunity.Method.DeclaringType.Name
+            rows,
+            row => row.Caller.DeclaringType.Name
                     .Contains(
                         nameof(
                             ClassicSiblingNestedPrivateSiblingFixture),
                         StringComparison.Ordinal)
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     .EndsWith(
                         "+"
                         + nameof(
                             ClassicSiblingNestedPrivateSiblingFixture
                                 .Consumer),
                         StringComparison.Ordinal)
-                && opportunity.Method.Name
+                && row.Caller.Name
                     == nameof(
                         ClassicSiblingNestedPrivateSiblingFixture
                             .Consumer.AnalyzeAsync));
@@ -1457,7 +1173,7 @@ public partial class LibraryBodyIndexTests
 
     [Fact]
     public void
-        OptimizationOpportunities_FriendAccessRequiresProvableReceiver()
+        AsyncSiblingProducer_FriendAccessRequiresProvableReceiver()
     {
         string path =
             FixtureCatalog.AnalysisAsyncSiblingFriend
@@ -1470,43 +1186,38 @@ public partial class LibraryBodyIndexTests
                 PreferImplementationAssemblies = true,
             });
 
-        var index = BodyAnalysisTestExecution.Open(path, resolver);
+        AsyncSiblingProducerResult result =
+            AsyncSiblingTestExecution.Execute(path, resolver);
 
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name
+            result.Rows,
+            row => row.Caller.Name
                     == "AnalyzeAsync"
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     == "FriendProtectedReceiver");
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name
+            result.Rows,
+            row => row.Caller.Name
                     == "PublicAnalyzeAsync");
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name
+            result.Rows,
+            row => row.Caller.Name
                     == "InternalAnalyzeAsync");
         Assert.Contains(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name
+            result.Rows,
+            row => row.Caller.Name
                     == "AnalyzeAsync"
-                && opportunity.Method.DeclaringType.Name
+                && row.Caller.DeclaringType.Name
                     == "FriendSiblingConsumer"
-                && opportunity.Evidence.Contains(
-                    "FriendSiblingGrantor::ReadAsync",
-                    StringComparison.Ordinal));
-        var diagnostic = Assert.Single(index.Receipt.Diagnostics);
+                && row.Alternative.DeclaringType.Name
+                    == "FriendSiblingGrantor"
+                && row.Alternative.Name == "ReadAsync");
+        AnalysisDiagnostic diagnostic =
+            Assert.Single(result.Diagnostics);
+        Assert.NotEqual(0, diagnostic.MethodToken);
         Assert.Contains(
-            "MalformedAsyncSourceFixture::AnalyzeAsync",
-            diagnostic.Method,
+            "BadImageFormatException",
+            diagnostic.Message,
             StringComparison.Ordinal);
     }
 
@@ -1604,22 +1315,17 @@ public partial class LibraryBodyIndexTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void OptimizationOpportunities_DuplicateLocalTypeIdentityFailsClosed(
+    public void AsyncSiblingProducer_DuplicateLocalTypeIdentityFailsClosed(
         bool useMemberReference)
     {
         byte[] image = BuildDuplicateLocalTypeAssembly(
             useMemberReference);
-        var index = BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+        AsyncSiblingProducerResult result =
+            AsyncSiblingTestExecution.Execute(
             "DuplicateLocalTypes.dll",
-            [.. image],
-            LibraryBodyAnalysisFeatures.MethodEvidence
-                | LibraryBodyAnalysisFeatures
-                    .OptimizationOpportunities);
+            image);
 
-        Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                == "sync-call-in-async");
+        Assert.Empty(result.Rows);
     }
 
     [Fact]
@@ -1689,7 +1395,7 @@ public partial class LibraryBodyIndexTests
         ParameterAttributes.None,
         ParameterAttributes.Out,
         false)]
-    public void OptimizationOpportunities_ResolvedMemberRefUsesParamDirection(
+    public void AsyncSiblingProducer_ResolvedMemberRefUsesParamDirection(
         bool byRef,
         ParameterAttributes synchronousDirection,
         ParameterAttributes asynchronousDirection,
@@ -1703,27 +1409,20 @@ public partial class LibraryBodyIndexTests
         byte[] caller =
             BuildDirectionProbeCaller(byRef);
 
-        var index =
-            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+        AsyncSiblingProducerResult result =
+            AsyncSiblingTestExecution.Execute(
                 "DirectionProbeCaller.dll",
-                [.. caller],
-                LibraryBodyAnalysisFeatures
-                    .MethodEvidence
-                    | LibraryBodyAnalysisFeatures
-                        .OptimizationOpportunities,
+                caller,
                 new DirectionProbeResolver(dependency));
 
-        int count = index.Optimization.Opportunities.Count(
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name
-                    == "AnalyzeAsync");
+        int count = result.Rows.Count(
+            row => row.Caller.Name == "AnalyzeAsync");
         Assert.Equal(expected ? 1 : 0, count);
-        Assert.Empty(index.Receipt.Diagnostics);
+        Assert.Empty(result.Diagnostics);
     }
 
     [Fact]
-    public void OptimizationOpportunities_AmbiguousResolvedMemberRefDirectionFailsClosed()
+    public void AsyncSiblingProducer_AmbiguousResolvedMemberRefDirectionFailsClosed()
     {
         byte[] dependency =
             BuildDirectionProbeDependency(
@@ -1733,24 +1432,20 @@ public partial class LibraryBodyIndexTests
                 duplicateSynchronous: true);
         byte[] caller =
             BuildDirectionProbeCaller(byRef: true);
-        var index =
-            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+        AsyncSiblingProducerResult result =
+            AsyncSiblingTestExecution.Execute(
                 "DirectionProbeCaller.dll",
-                [.. caller],
-                LibraryBodyAnalysisFeatures.Default,
+                caller,
                 new DirectionProbeResolver(dependency));
 
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name
-                    == "AnalyzeAsync");
-        Assert.Empty(index.Receipt.Diagnostics);
+            result.Rows,
+            row => row.Caller.Name == "AnalyzeAsync");
+        Assert.Empty(result.Diagnostics);
     }
 
     [Fact]
-    public void OptimizationOpportunities_UnresolvedSynchronousMemberFailsClosed()
+    public void AsyncSiblingProducer_UnresolvedSynchronousMemberFailsClosed()
     {
         byte[] dependency =
             BuildDirectionProbeDependency(
@@ -1760,26 +1455,22 @@ public partial class LibraryBodyIndexTests
                 synchronousName: "Gone");
         byte[] caller =
             BuildDirectionProbeCaller(byRef: false);
-        var index =
-            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+        AsyncSiblingProducerResult result =
+            AsyncSiblingTestExecution.Execute(
                 "DirectionProbeCaller.dll",
-                [.. caller],
-                LibraryBodyAnalysisFeatures.Default,
+                caller,
                 new DirectionProbeResolver(dependency));
 
         Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name
-                    == "AnalyzeAsync");
-        Assert.Empty(index.Receipt.Diagnostics);
+            result.Rows,
+            row => row.Caller.Name == "AnalyzeAsync");
+        Assert.Empty(result.Diagnostics);
     }
 
     [Theory]
     [InlineData(true, 1)]
     [InlineData(false, 0)]
-    public void OptimizationOpportunities_AsyncSiblingStaticMetadataMustBeConsistent(
+    public void AsyncSiblingProducer_StaticMetadataMustBeConsistent(
         bool asynchronousMethodIsStatic,
         int expected)
     {
@@ -1792,27 +1483,23 @@ public partial class LibraryBodyIndexTests
                     asynchronousMethodIsStatic);
         byte[] caller =
             BuildDirectionProbeCaller(byRef: false);
-        var index =
-            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+        AsyncSiblingProducerResult result =
+            AsyncSiblingTestExecution.Execute(
                 "DirectionProbeCaller.dll",
-                [.. caller],
-                LibraryBodyAnalysisFeatures.Default,
+                caller,
                 new DirectionProbeResolver(dependency));
 
         Assert.Equal(
             expected,
-            index.Optimization.Opportunities.Count(
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
-                        == "AnalyzeAsync"));
-        Assert.Empty(index.Receipt.Diagnostics);
+            result.Rows.Count(
+                row => row.Caller.Name == "AnalyzeAsync"));
+        Assert.Empty(result.Diagnostics);
     }
 
     [Theory]
     [InlineData(true, 1)]
     [InlineData(false, 0)]
-    public void OptimizationOpportunities_AsyncSiblingGenericCountMatchesRows(
+    public void AsyncSiblingProducer_GenericCountMatchesRows(
         bool addAsynchronousGenericParameter,
         int expected)
     {
@@ -1828,25 +1515,21 @@ public partial class LibraryBodyIndexTests
             BuildDirectionProbeCaller(
                 byRef: false,
                 genericSignature: true);
-        var index =
-            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+        AsyncSiblingProducerResult result =
+            AsyncSiblingTestExecution.Execute(
                 "DirectionProbeCaller.dll",
-                [.. caller],
-                LibraryBodyAnalysisFeatures.Default,
+                caller,
                 new DirectionProbeResolver(dependency));
 
         Assert.Equal(
             expected,
-            index.Optimization.Opportunities.Count(
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
-                        == "AnalyzeAsync"));
-        Assert.Empty(index.Receipt.Diagnostics);
+            result.Rows.Count(
+                row => row.Caller.Name == "AnalyzeAsync"));
+        Assert.Empty(result.Diagnostics);
     }
 
     [Fact]
-    public void OptimizationOpportunities_RuntimeAsyncIgnoresClassicAttribute()
+    public void AsyncSiblingProducer_RuntimeAsyncIgnoresClassicAttribute()
     {
         byte[] dependency =
             BuildDirectionProbeDependency(
@@ -1857,24 +1540,20 @@ public partial class LibraryBodyIndexTests
             BuildDirectionProbeCaller(
                 byRef: false,
                 addStateMachineAttribute: true);
-        var index =
-            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+        AsyncSiblingProducerResult result =
+            AsyncSiblingTestExecution.Execute(
                 "DirectionProbeCaller.dll",
-                [.. caller],
-                LibraryBodyAnalysisFeatures.Default,
+                caller,
                 new DirectionProbeResolver(dependency));
 
         Assert.Single(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name
-                    == "AnalyzeAsync");
-        Assert.Empty(index.Receipt.Diagnostics);
+            result.Rows,
+            row => row.Caller.Name == "AnalyzeAsync");
+        Assert.Empty(result.Diagnostics);
     }
 
     [Fact]
-    public void OptimizationOpportunities_MvidCollisionPreservesRecursiveInterfaceSuppression()
+    public void AsyncSiblingProducer_MvidCollisionPreservesRecursiveInterfaceSuppression()
     {
         Guid dependencyMvid = Guid.Parse(
             "11111111-2222-3333-4444-555555555555");
@@ -1883,41 +1562,41 @@ public partial class LibraryBodyIndexTests
                 dependencyMvid);
         var resolver =
             new MvidCollisionResolver(dependency);
-        var collision =
-            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+        byte[] collisionImage = BuildMvidCollisionRoot(
+            dependencyMvid);
+        byte[] distinctImage = BuildMvidCollisionRoot(
+            Guid.Parse(
+                "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"));
+        AsyncSiblingProducerResult collision =
+            AsyncSiblingTestExecution.Execute(
                 "CollisionRoot.dll",
-                [.. BuildMvidCollisionRoot(
-                    dependencyMvid)],
-                LibraryBodyAnalysisFeatures.Default,
+                collisionImage,
                 resolver);
-        var distinct =
+        AsyncSiblingProducerResult distinct =
+            AsyncSiblingTestExecution.Execute(
+                "CollisionRoot.dll",
+                distinctImage,
+                resolver);
+        LibraryBodyAnalysisExecution collisionEvidence =
             BodyAnalysisTestExecution.OpenFromPrefetchedImage(
                 "CollisionRoot.dll",
-                [.. BuildMvidCollisionRoot(
-                    Guid.Parse(
-                        "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"))],
-                LibraryBodyAnalysisFeatures.Default,
+                [.. collisionImage],
+                LibraryBodyAnalysisFeatures.MethodEvidence,
                 resolver);
 
         Assert.Contains(
-            collision.CallGraph.DirectCalls,
+            collisionEvidence.CallGraph.DirectCalls,
             call => call.Caller.Name
                     == "ReadAsync"
                 && call.Callee.Name == "Read"
                 && call.Callee.DeclaringType.Name
                     == "IReader");
-        Assert.Empty(collision.Receipt.Diagnostics);
+        Assert.Empty(collision.Diagnostics);
         Assert.DoesNotContain(
-            distinct.Optimization.Opportunities,
-            IsRecursiveReadAsyncOpportunity);
+            distinct.Rows,
+            row => row.Caller.Name == "ReadAsync");
         Assert.DoesNotContain(
-            collision.Optimization.Opportunities,
-            IsRecursiveReadAsyncOpportunity);
-
-        static bool IsRecursiveReadAsyncOpportunity(
-            OptimizationOpportunity opportunity)
-            => opportunity.Shape == "sync-call-in-async"
-                && opportunity.Method.Name
-                    == "ReadAsync";
+            collision.Rows,
+            row => row.Caller.Name == "ReadAsync");
     }
 }

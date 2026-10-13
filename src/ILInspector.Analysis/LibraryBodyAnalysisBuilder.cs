@@ -338,15 +338,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _primaryMetadataResolver.HasCompilerGeneratedAttribute(
             attributes);
 
-    void ILibraryMethodAnalysisInfrastructure.ValidateAsyncSource(
-        MethodIdentity method,
-        MethodDefinition methodDefinition,
-        bool typeSourceGenerated) =>
-        _ = _asyncSourceResolver.ResolveSourceMethod(
-            method,
-            methodDefinition,
-            typeSourceGenerated);
-
     AsyncBodyAttribution?
         ILibraryMethodAnalysisInfrastructure
             .ResolveAsyncBody(
@@ -393,28 +384,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             typeSourceGenerated,
             ref asyncSource);
 
-    ImmutableArray<OptimizationOpportunity>
-        ILibraryMethodAnalysisInfrastructure
-            .CollectAsyncSiblingOpportunities(
-                MethodBodyAnalysisContext context,
-                ImmutableArray<DirectCall>.Builder calls,
-                MethodDefinition methodDefinition,
-                bool typeSourceGenerated,
-                ref MethodIdentity? asyncSource)
-    {
-        if (!_declaredSourceResolver.TryResolveAsyncSiblingSource(
-                context.Method,
-                methodDefinition,
-                typeSourceGenerated,
-                ref asyncSource))
-        {
-            return [];
-        }
-        return CollectAsyncSiblingOpportunities(
-            context,
-            calls,
-            asyncSource);
-    }
     bool ILibraryMethodAnalysisInfrastructure.TryResolveLiftedSourceOwner(
         MethodDefinitionHandle liftedHandle,
         MethodDefinition liftedMethod,
@@ -533,10 +502,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 ?.RequiresGeneratedTypeProvenance == true;
         bool includeOpportunities = plan.Includes(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
-        bool includeAsyncSiblingOpportunities = plan.Includes(
-            LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities);
-        bool includeAnyOpportunities =
-            includeOpportunities || includeAsyncSiblingOpportunities;
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
         var methodRunner =
             new LibraryMethodAnalysisRunner(
@@ -593,11 +558,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             if (includeMethodEvidence)
                 _ = _primaryMetadataResolver
                     .AsyncStateMachineTypes();
-            if (includeAnyOpportunities)
+            if (includeOpportunities)
                 _asyncSourceResolver.Prewarm();
             // Prewarm the async-state-machine set so it is fully computed before the parallel
             // pass reads it read-only.
-            if (includeMethodEvidence || includeAnyOpportunities)
+            if (includeMethodEvidence || includeOpportunities)
                 _ = _primaryMetadataResolver.AsyncStateMachineTypes();
             _parallelBuildStarting?.Invoke();
             Parallel.For(0, workItems.Count, i =>

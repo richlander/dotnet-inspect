@@ -1296,9 +1296,7 @@ public partial class LibraryBodyIndexTests
                     index.Optimization.Opportunities,
                     [],
                     index.Optimization.GeneratedFrameworkTypes,
-                    includeAllocationFanout: false)
-                .Where(static opportunity =>
-                    opportunity.Shape != "sync-call-in-async"),
+                    includeAllocationFanout: false),
         ];
 
         OptimizationOpportunityCounts actual =

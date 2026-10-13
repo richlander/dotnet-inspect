@@ -245,12 +245,6 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
                 participant,
                 [SyncCallsInAsyncClosing.Rows]);
 
-        Assert.DoesNotContain(
-            result.RankedMembers.SelectMany(
-                member => member.Member.Ranking.Opportunities),
-            opportunity =>
-                opportunity.Shape
-                == AnalysisFindings.SyncCallInAsyncShape);
         SyncCallsInAsyncResult available =
             Assert.IsType<
                 AssemblyContextEntry<
@@ -270,26 +264,15 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
     }
 
     [Fact]
-    public async Task Execute_ResolvesThroughTheParticipantBindingPolicy()
+    public async Task Execute_DoesNotResolveAsyncSiblingReferences()
     {
         var policy = new RecordingBindingPolicy();
         await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             ContentGroup(workspace, policy);
-        AssemblyContextParticipant participant =
-            Assert.Single(group.Participants);
-
         Execute(group);
 
-        Assert.NotEmpty(policy.Requests);
-        Assert.All(
-            policy.Requests,
-            request => Assert.Same(
-                participant.Assembly.Registration,
-                Assert.IsType<
-                    AssemblyBindingOrigin.RequestingAssembly>(
-                        request.Origin)
-                    .Registration));
+        Assert.Empty(policy.Requests);
     }
 
     [Fact]
