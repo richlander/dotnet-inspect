@@ -72,7 +72,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             result.Output,
             StringComparison.Ordinal);
         Assert.Equal(
-            1,
+            0,
             feed.FullPackageResponses);
         Assert.True(
             feed.RangedResponses >= 2,
@@ -130,7 +130,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "| Built | 2040-01-02 |",
             result.Output,
             StringComparison.Ordinal);
-        Assert.Equal(1, feed.FullPackageResponses);
+        Assert.Equal(0, feed.FullPackageResponses);
         Assert.True(
             feed.RangedResponses >= 2,
             $"ranged responses: {feed.RangedResponses}");
@@ -247,8 +247,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         // The feed is a credential-free HTTP authority, so the ranged entries
         // are durable (docs/design/package-cache-policy.md).
         Assert.Contains("kept in the entry cache", result.Error, StringComparison.Ordinal);
-        // The one complete response is the size probe, abandoned before its body.
-        Assert.Equal(1, feed.FullPackageResponses);
+        // Directory-first acquisition opens the suffix directly.
+        Assert.Equal(0, feed.FullPackageResponses);
         Assert.True(feed.RangedResponses >= 2, $"ranged responses: {feed.RangedResponses}");
         Assert.True(
             feed.PackageBytesServed < assembly.Length + (1024 * 1024),
@@ -264,7 +264,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Equal(result.Output, warm.Output);
         Assert.Contains("from the entry cache", warm.Error, StringComparison.Ordinal);
         Assert.Contains("no request", warm.Error, StringComparison.Ordinal);
-        Assert.Equal(1, feed.FullPackageResponses);
+        Assert.Equal(0, feed.FullPackageResponses);
         Assert.Equal(ranged, feed.RangedResponses);
         Assert.Equal(served, feed.PackageBytesServed);
     }
@@ -306,8 +306,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.True(result.Exit == 0, result.Error);
         Assert.Contains("InvalidateMeasure", result.Output, StringComparison.Ordinal);
         Assert.Contains("payload Ranged", result.Error, StringComparison.Ordinal);
-        // The one complete response is the size probe, abandoned before its body.
-        Assert.Equal(1, feed.FullPackageResponses);
+        // Directory-first acquisition opens the suffix directly.
+        Assert.Equal(0, feed.FullPackageResponses);
         // Search reads the surface only: the whole ref/net10.0 folder (11
         // assemblies and their 11 documentation files) and none of lib/. The
         // archive interleaves other folders' documentation into that folder,
@@ -363,8 +363,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains("payload Ranged", result.Error, StringComparison.Ordinal);
-        // The one complete response is the size probe, abandoned before its body.
-        Assert.Equal(1, feed.FullPackageResponses);
+        // Directory-first acquisition opens the suffix directly.
+        Assert.Equal(0, feed.FullPackageResponses);
     }
 
     /// <summary>

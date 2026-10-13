@@ -1723,9 +1723,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             Assert.Empty(error);
         }
 
-        // The second run is a durable cache hit.
+        // Directory-first completion uses suffix and missing-prefix requests;
+        // the complete-package fallback and second run reuse that archive.
         Assert.Equal(
-            1,
+            2,
             requests.Count(request =>
                 request.EndsWith(".nupkg", StringComparison.Ordinal)));
     }
