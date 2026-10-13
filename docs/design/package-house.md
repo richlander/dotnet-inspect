@@ -1418,10 +1418,12 @@ An exact package Root reacquisition request from
 [#5837](https://github.com/richlander/dotnet-inspect/issues/5837) re-enters the
 same House realization path. Ordinary targeted Roots use the exact-target-only
 mode; durable requests use compatible explicit selection only when their token
-authorizes it; untargeted Roots remain owner-default. Root acquisition consumes
-the House compile receipt directly, retains the original acquisition framework
-and producer spelling, and rejects a replacement generation whose receipt does
-not reproduce the durable selection request.
+authorizes it; initial untargeted Roots use owner-default selection, while
+their durable requests repeat the frozen selected target without rewriting the
+Root's absent caller-requested target. Root acquisition consumes the House
+compile receipt directly, retains the original requested target, acquisition
+framework, and producer spelling, and rejects a replacement generation whose
+receipt does not reproduce the durable selection request.
 
 ## Host boundaries
 

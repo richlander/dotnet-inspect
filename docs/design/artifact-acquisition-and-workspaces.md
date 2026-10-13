@@ -2293,6 +2293,9 @@ field layout: the producer field's `nfp-1` namespace versioned that value.
 The later authorization/outcome split adds a field and therefore uses the
 `pkgroot4` prefix. Preserving whether implementation selection produced one
 universe adds another field and therefore uses the `pkgroot5` prefix.
+Preserving the Root's original requested target separately from frozen compile
+and implementation-selection targets adds another field and therefore uses the
+`pkgroot6` prefix.
 
 A destination coordinate grants no source authority. Reacquisition first
 intersects the requested producer with currently authorized sources by asking
@@ -3255,10 +3258,12 @@ requests are equal exactly when this owner classifies them as the same logical
 Root. It is not `PackageArtifactRootCorrespondence` and carries no Workspace
 identity.
 
-The request preserves seven facts separately:
+The request preserves eight facts separately:
 
 - the realized producer-pinned acquisition coordinate, whose acquisition
   framework may be absent for framework-neutral source acquisition; and
+- the normalized target originally requested for the realized Root, which
+  remains absent when target selection was owner-default; and
 - the normalized compile target used to reduce reference assets and explicit
   empty groups; and
 - the normalized implementation-selection target and runtime identifier that
@@ -3403,17 +3408,21 @@ candidate disposed before the user acts on the result — the owner also issues 
 single opaque token from the request and decodes it back.
 
 The token is this owner's, not a host format: its version tag, field order, and
-encoding are owner-owned, and only the owner's decode reads it. Current
-`pkgroot5` tokens carry selected-implementation presence separately from the
-selection input, compatible authorization, and observed implementation use.
-Previous `pkgroot4` tokens carry the two compatible facts but cannot represent
-an absent implementation universe independently, so decoding conservatively
-treats a present selection target as selected. Earlier `pkgroot3` tokens carry
-only the observed field, so decoding additionally grants compatible
-authorization exactly when that field is true. Older `pkgroot2` tokens infer
-both compatible facts when their two targets differ. Legacy `pkgroot1` tokens
-decode only with their one target applied to both roles and neither compatible
-fact. Older tokens re-encode in the current format.
+encoding are owner-owned, and only the owner's decode reads it. Current `pkgroot6` tokens carry the original Root-requested target separately
+from the frozen compile and implementation-selection targets, selected-
+implementation presence, compatible authorization, and observed implementation
+use. Previous `pkgroot5` tokens carry selected-implementation presence but not
+the original Root-requested target, so decoding uses their implementation-
+selection target as the legacy requested-target interpretation. `pkgroot4`
+tokens carry the two compatible facts but cannot represent an absent
+implementation universe
+independently, so decoding conservatively treats a present selection target as
+selected. Earlier `pkgroot3` tokens carry only the observed field, so decoding
+additionally grants compatible authorization exactly when that field is true.
+Older `pkgroot2` tokens infer both compatible facts when their two targets
+differ. Legacy `pkgroot1` tokens decode only with their one target applied to
+both roles and neither compatible fact. Older tokens re-encode in the current
+format.
 No form carries content,
 generation, Workspace identity, session, lease, path, source URL, or
 credential.
@@ -3450,6 +3459,7 @@ post-disposal replacement against a new content generation.
 
 In `PackageRootAcquisitionTests`:
 `ExplicitCoordinate_AcquiresRootAndIssuesExactRequest`,
+`ExplicitCoordinate_UntargetedRootPreservesCallerIntent`,
 `Acquired_ExposesTheLiveContentTheBindingReads`,
 `ExactRequest_ReacquiresSameLogicalRootThroughToken`,
 `ExactRequest_ReacquiresEmptyCompileGroup`,
@@ -3467,9 +3477,10 @@ acquisition whose `ref/net10.0` compile slice selects a `lib/net8.0`
 implementation universe, then rejects replacement content that changes the
 implementation universe to `lib/net7.0`.
 
-`Token_RoundTripsExactRequest` additionally gates independent `pkgroot5`
-implementation-presence, compatible-selection authorization, and observed-use
-fields plus `pkgroot1` through `pkgroot4` migration.
+`Token_RoundTripsExactRequest` additionally gates independent `pkgroot6`
+Root-requested target, implementation-presence, compatible-selection
+authorization, and observed-use fields plus `pkgroot1` through `pkgroot5`
+migration.
 `Token_RejectsMalformedOrNonCanonicalInput` rejects an observed compatible-use
 claim without its authorization, invalid implementation-presence values,
 selected implementation presence without a selection target, compatible

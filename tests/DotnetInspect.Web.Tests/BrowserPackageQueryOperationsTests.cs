@@ -2197,6 +2197,7 @@ public sealed class BrowserPackageQueryOperationsTests
         return new PackageRootReacquisitionRequest(
             PackageArtifactRootRequest.Create(
                 coordinate,
+                requestedTargetFramework: "net10.0",
                 compileTargetFramework: "net10.0",
                 selectionTargetFramework: "net10.0",
                 selectionRuntimeIdentifier: null,

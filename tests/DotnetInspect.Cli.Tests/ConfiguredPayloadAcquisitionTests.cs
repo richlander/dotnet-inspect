@@ -437,6 +437,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var legacyRequest = new PackageRootReacquisitionRequest(
             PackageArtifactRootRequest.Create(
                 legacyCoordinate,
+                binding.Root.RequestedTargetFramework,
                 binding.CompileTargetFramework,
                 binding.ImplementationSelectionTargetFramework,
                 binding.Root.RequestedRuntimeIdentifier,
