@@ -108,8 +108,8 @@ internal static class LibraryQueryCommand
                 JsonContract,
                 options.EnvelopeOutput,
                 options.CompactJson);
-            WriteDiagnostics(document);
-            return wrote && HasSuccessfulEvaluation(document) ? 0 : 1;
+            WriteDiagnostics(document, options);
+            return wrote && IsComplete(document, options) ? 0 : 1;
         }
 
         if (!CliSemanticRowSelection.TrySelect(
@@ -123,7 +123,7 @@ internal static class LibraryQueryCommand
                     + $"{failure.Failure.AvailableCount} Library rows are available.",
                 out IReadOnlyList<LibraryQueryMatch> displayResults))
         {
-            WriteDiagnostics(document);
+            WriteDiagnostics(document, options);
             return 1;
         }
 
@@ -136,7 +136,7 @@ internal static class LibraryQueryCommand
                 & LibraryQueryIncompleteReason.PopulationFailure) != 0
             && document.Summary.Candidates == 0)
         {
-            WriteDiagnostics(document);
+            WriteDiagnostics(document, options);
             CommandError.Write(
                 "Cannot count Library Query rows because population formation "
                 + "failed before any candidate was evaluated.");
@@ -146,7 +146,8 @@ internal static class LibraryQueryCommand
         LibraryQueryView view = LibraryQuerySections.CreateDocument(
             options.Population?.DisplayName ?? "population",
             displayResults,
-            document.Summary);
+            document.Summary,
+            options.ExplicitTake);
         HashSet<string> includeSections =
             options.IncludeSections
             ?? (options.SelectDefault
@@ -158,19 +159,32 @@ internal static class LibraryQueryCommand
                         : LibraryQuerySections.QuerySummaryName,
                 ]);
         WriteOutput(view, options, includeSections);
-        WriteDiagnostics(document);
-        return HasSuccessfulEvaluation(document) ? 0 : 1;
+        WriteDiagnostics(document, options);
+        return IsComplete(document, options) ? 0 : 1;
     }
 
-    private static bool HasSuccessfulEvaluation(
-        LibraryQueryDocument document) =>
+    /// <summary>
+    /// A population or evaluation failure, or a default candidate ceiling that
+    /// stopped evaluation, leaves a partial view and exits nonzero. A reached
+    /// explicit --take is the answer's scope (cli-execution-bounds.md#
+    /// disclosure).
+    /// </summary>
+    private static bool IsComplete(
+        LibraryQueryDocument document,
+        LibraryQueryOptions options) =>
         (document.Summary.IncompleteReasons
-            & (LibraryQueryIncompleteReason.PopulationFailure
-                | LibraryQueryIncompleteReason.EvaluationFailure))
+            & ~RequestedScope(options))
         == LibraryQueryIncompleteReason.None;
 
+    private static LibraryQueryIncompleteReason RequestedScope(
+        LibraryQueryOptions options) =>
+        options.ExplicitTake
+            ? LibraryQueryIncompleteReason.CandidateLimit
+            : LibraryQueryIncompleteReason.None;
+
     private static void WriteDiagnostics(
-        LibraryQueryDocument document)
+        LibraryQueryDocument document,
+        LibraryQueryOptions options)
     {
         foreach (LibraryQueryFailure failure in document.Failures)
         {
@@ -185,7 +199,19 @@ internal static class LibraryQueryCommand
 
         if ((document.Summary.IncompleteReasons
                 & LibraryQueryIncompleteReason.CandidateLimit)
-            != 0)
+            == 0)
+        {
+            return;
+        }
+        if (options.ExplicitTake)
+        {
+            CommandError.WriteNote(
+                "Library Query scope: the first "
+                + $"{document.Summary.Candidates} of "
+                + $"{document.Summary.PopulationCandidates} Libraries "
+                + "(--take); matches cover only that population.");
+        }
+        else
         {
             CommandError.WriteWarning(
                 "Library Query completion: candidate limit reached; "
