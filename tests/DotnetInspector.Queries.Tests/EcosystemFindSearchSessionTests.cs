@@ -432,6 +432,43 @@ public class EcosystemFindSearchSessionTests
     }
 
     [Fact]
+    public async Task CoreFailuresRetainEachPackageSource()
+    {
+        var registration = new WorkspaceEcosystemRegistrationDeclaration(
+            WorkspaceEcosystemRegistrationId.Create("ecosystem.first"),
+            [],
+            [
+                new PackageCoordinate("First.Core"),
+                new PackageCoordinate("Second.Core"),
+            ],
+            []);
+        var layer = new EcosystemFindLayer(registration, Platform: false);
+        using var session = new EcosystemFindSearchSession<string>(
+            new(TypeFindQuestion.Create(["Thing"], FindVisibility.Public),
+                [layer], [], 500),
+            (source, _) => Task.FromResult(new EcosystemFindBlock<string>(
+                source.CorePackageId!, 0,
+                HasFailures: true, Incomplete: true)
+                { Failure = $"{source.CorePackageId} failed." }),
+            (_, _, token) => Pages(new([]), token),
+            (_, _, _) => Task.FromResult(new EcosystemFindBlock<string>("", 0)),
+            reuseCore: (_, source, _) => source,
+            combineCore: sources => string.Join(",",
+                sources.Select(source => source.Content)));
+
+        EcosystemFindSearchSummary<string> result =
+            await session.ExecuteAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(EcosystemFindCompletion.Failed, result.Completion);
+        Assert.Equal(
+            ["First.Core", "Second.Core"],
+            result.Failures.Select(failure => failure.Source));
+        Assert.Equal(
+            ["First.Core failed.", "Second.Core failed."],
+            result.Failures.Select(failure => failure.Message));
+    }
+
+    [Fact]
     public async Task SharedBoundedCoreIsEvaluatedOnceAndReducedIntoBothLayers()
     {
         EcosystemFindLayer[] layers =

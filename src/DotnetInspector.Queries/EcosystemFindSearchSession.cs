@@ -247,6 +247,9 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                             Memberships = PackageMemberships(core.PackageId),
                         };
                         _coreCache.Add(core.PackageId, source);
+                        if (source.Failure is { } failure)
+                            _sourceFailures.Add(new(
+                                "Bounded", core.PackageId, failure));
                         sources.Add(source);
                     }
                 }
@@ -255,8 +258,6 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                     sources.Any(source => source.HasFailures),
                     sources.Any(source => source.Incomplete))
                 {
-                    Failure = sources.FirstOrDefault(source =>
-                        source.Failure is not null)?.Failure,
                     Memberships =
                     [
                         .. Request.Layers.Select(layer => layer.Registration.Id)
