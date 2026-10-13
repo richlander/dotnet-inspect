@@ -2785,6 +2785,17 @@ public partial class DependsCommand
                         .NotRequested
                 ? null
                 : summary.LatestVersions.DiscoveryFailed,
+            LatestVersionIncompatible = summary.LatestVersions.Completion
+                    == DependencyInspectionLatestVersionCompletion
+                        .NotRequested
+                ? null
+                : summary.LatestVersions.Incompatible,
+            LatestVersionCompatibilityUnavailable =
+                summary.LatestVersions.Completion
+                    == DependencyInspectionLatestVersionCompletion
+                        .NotRequested
+                    ? null
+                    : summary.LatestVersions.CompatibilityUnavailable,
             PruningRoots = summary.Pruning.Completion
                     == DependencyInspectionPruningCompletion.NotRequested
                 ? null

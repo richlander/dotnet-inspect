@@ -30,6 +30,22 @@ public enum DependencyInspectionLatestVersionState
     DiscoveryFailed,
 }
 
+/// <summary>Whether PackageHouse can select a compile slice of Latest for the Compatibility Target.</summary>
+public enum DependencyInspectionLatestCompatibility
+{
+    /// <summary>The House settled the target, including through an explicit empty reference group.</summary>
+    Yes,
+
+    /// <summary>The House found compile assets but none for the target framework.</summary>
+    No,
+
+    /// <summary>The House found no compile assets, as in a dependency-only or tools package.</summary>
+    NoAssets,
+
+    /// <summary>The House could not answer; a typed failure accompanies the row.</summary>
+    Unavailable,
+}
+
 /// <summary>One direct declaration's current version and latest listed versions.</summary>
 public sealed record DependencyInspectionLatestVersion(
     int RootOccurrence,
@@ -44,6 +60,8 @@ public sealed record DependencyInspectionLatestVersion(
     string? LatestVersion,
     PackageVersionLag? Behind,
     int? MajorsBehind,
+    string CompatibilityTarget,
+    DependencyInspectionLatestCompatibility? LatestCompatible,
     DependencyInspectionLatestVersionState State,
     string? FailureKind,
     [property: JsonConverter(typeof(ProseInertStringJsonConverter))]
@@ -57,7 +75,9 @@ public sealed record DependencyInspectionLatestVersionSummary(
     int Behind,
     int NoCurrentVersion,
     int NoListedVersion,
-    int DiscoveryFailed)
+    int DiscoveryFailed,
+    int Incompatible,
+    int CompatibilityUnavailable)
 {
     public static DependencyInspectionLatestVersionSummary NotRequested
     { get; } =
@@ -69,5 +89,7 @@ public sealed record DependencyInspectionLatestVersionSummary(
             Behind: 0,
             NoCurrentVersion: 0,
             NoListedVersion: 0,
-            DiscoveryFailed: 0);
+            DiscoveryFailed: 0,
+            Incompatible: 0,
+            CompatibilityUnavailable: 0);
 }

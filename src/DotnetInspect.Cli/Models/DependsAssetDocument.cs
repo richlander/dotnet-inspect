@@ -340,6 +340,11 @@ internal sealed record DependsLatestVersionJson
 
     public int? MajorsBehind { get; init; }
 
+    public required string CompatibilityTarget { get; init; }
+
+    public DependencyInspectionLatestCompatibility? LatestCompatible
+    { get; init; }
+
     public required DependencyInspectionLatestVersionState State { get; init; }
 
     public string? FailureKind { get; init; }
@@ -365,6 +370,8 @@ internal sealed record DependsLatestVersionJson
             Latest = row.LatestVersion,
             Behind = row.Behind,
             MajorsBehind = row.MajorsBehind,
+            CompatibilityTarget = row.CompatibilityTarget,
+            LatestCompatible = row.LatestCompatible,
             State = row.State,
             FailureKind = row.FailureKind,
             FailureMessage = row.FailureMessage,

@@ -20,8 +20,8 @@ sidecar delivery is implemented under
 [#7293](https://github.com/richlander/dotnet-inspect/issues/7293);
 Browser/Wasm adoption remains proposed.
 The explicit `Latest Versions` section is implemented under
-[#9967](https://github.com/richlander/dotnet-inspect/issues/9967) except
-Compatibility Target and Latest Compatible, which are not yet implemented. The `Pruning` section's library pruning policy for
+[#9967](https://github.com/richlander/dotnet-inspect/issues/9967). The
+`Pruning` section's library pruning policy for
 application-authored declarations is implemented under
 [#9981](https://github.com/richlander/dotnet-inspect/issues/9981).
 
@@ -1328,11 +1328,15 @@ prerelease policy excludes prereleases unless Current is a prerelease. The
 Package Version Service always discovers for that request and fails visibly
 rather than serving a prior settlement, so the receipt is discovery-backed and
 retains its complete discovery result. Latest is the request's resolved
-coordinate. Latest In Major and Majors Behind are derived from the same
-result's admitted listed observations under the same prerelease policy, so all
-three values describe one candidate population, and Current need not be a
-member of it. When Latest does not exceed Current, Behind is `None` and Majors
+coordinate. Latest In Major and Majors Behind come from the House's
+latest-per-major projection of the same result's admitted population, the
+projection `diff` history also uses, so all three values describe one
+candidate population, and Current need not be a member of it. When Latest does not exceed Current, Behind is `None` and Majors
 Behind is zero.
+
+PackageHouse makes every version and framework choice this section reports;
+the section compares and labels the House's answers and never selects a
+version or a compile slice itself.
 
 Latest Compatible answers one question about one version: can Latest be
 consumed by the Compatibility Target? The target is the request's traversal
@@ -1340,18 +1344,20 @@ target framework policy described in
 [Target framework and restored target selection](#target-framework-and-restored-target-selection):
 the supplied `--tfm`, otherwise `TraversalTargetFrameworkPolicy.ProductDefault`
 (`net11.0`). A project whose framework differs supplies it with `--tfm`. The
-answer is PackageHouse's package-local compile selection, specified by
+answer is one PackageHouse target-framework content query over Latest's exact
+coordinate, so the House's package-local compile selection, specified by
 [Package asset-selection correspondence](package-asset-selection-correspondence.md),
-evaluated for the target over Latest's validated archive directory. A selected
-compile slice, including a selected explicit empty reference group, is `Yes`; a
-typed no-match against a non-empty slice inventory is `No`; and an empty slice
-inventory, as in a dependency-only or tools package, is `NoAssets` rather than
-an incompatibility claim. The directory is acquired directory-only under the
-shared [package cache policy](package-cache-policy.md), once per distinct
-Latest coordinate, without extracting entry bodies. An acquisition or selection
-failure reports `Unavailable` and adds a typed `Failures` occurrence without
-changing the row's discovery State. Rows without a Latest leave the field
-empty.
+decides compatibility. A target the House settles, including through an
+explicit empty reference group, is `Yes`; the House's no-match for the target
+framework is `No`; and the House's report that the package has no compile
+assets, as for a dependency-only or tools package, is `NoAssets` rather than an
+incompatibility claim. Any other outcome is `Unavailable` and adds a typed
+`Failures` occurrence without changing the row's discovery State. The query
+asks only for the archive's entry inventory, so the House reads the archive
+directory where the source supports ranged reads and publishes no entry
+content. It runs once per distinct Latest coordinate under the shared
+[package cache policy](package-cache-policy.md). Rows without a Latest leave
+the field empty.
 
 Latest Compatible never selects a different version. Current, Latest, and
 Latest Compatible are reported together because Latest alone hides whether the
@@ -1842,11 +1848,11 @@ targeted Debug-build probe.
 | `Subsumed` delegates, while an older platform-supplied version retains the newer package candidate. | CLI projection test for `System.Text.Json@9.0.0` against platform `11.0.0` and `System.Runtime@4.3.2` against platform `4.3.1`. |
 | Inventory failure and target mismatch remain typed failures and prevent candidate work. | Instrumented inventory tests asserting nonzero status, affected declarations, and `Failures` rows. |
 | Row windows and rendering formats do not reinterpret pruning policy. | Markdown, table, typed JSON, and one-row window tests over the same two policy outcomes. |
-| `Latest Versions` is explicit-only and does not enter `@Dependencies`, verbosity, or bare effective discovery. | Release catalog, category, structural/effective discovery tests, plus an instrumented source test proving `Dependencies` alone performs no version discovery. |
+| `Latest Versions` is explicit-only and does not enter `@Dependencies`, verbosity, or bare effective discovery. | Release catalog, category, structural/effective discovery tests, plus a counted feed proving `Dependencies` alone issues no version-index request. |
 | `Latest Versions` reports `Resolved` only from owner-issued restored associations and `LowerBound` otherwise. | Restored-project and package-root fixtures declaring the same constraint, including an unlisted lower bound, asserting Current and Current Basis, and an open-lower-bound `NoCurrentVersion` row. |
-| Latest, Latest In Major, Behind, and Majors Behind derive from one discovery result. | Fixed version-index fixture spanning several majors, a four-part revision, and prereleases, with stable and prerelease Current values, asserting every field, each Behind value, and exactly one discovery per package identity and prerelease policy across duplicate declarations. |
+| Latest, Latest In Major, Behind, and Majors Behind derive from one discovery result and the House's latest-per-major projection. | Fixed version-index fixture spanning several majors, a four-part revision, and prereleases, with stable and prerelease Current values, asserting every field, each Behind value, and a counted feed asserting exactly one version-index request per package identity and prerelease policy across duplicate declarations. |
 | Discovery failure stays visible per package. | Version-service fixtures for unauthorized, not-found, and incomplete discovery, asserting `DiscoveryFailed`, `Failures`, sibling rows, nonzero status, and exact-count rejection; a prerelease-only package with stable Current asserting `NoListedVersion` without a failure; an `--offline` request asserting an ordinary operation failure before discovery; and a package-prefix request asserting rejection before acquisition. |
-| Latest Compatible evaluates only Latest against the traversal target. | Fixtures whose Latest drops the target (`No`, Latest unchanged), keeps it (`Yes`), selects an explicit empty reference group (`Yes`), has no compile slices (`NoAssets`), and fails directory acquisition (`Unavailable`, `Failures`, State unchanged, exact-count rejection); an omitted `--tfm` asserting Compatibility Target `net11.0`; and an instrumented source test asserting exactly one directory-only read per distinct Latest coordinate and no entry-body extraction. |
+| Latest Compatible evaluates only Latest against the traversal target. | Fixtures whose Latest drops the target (`No`, Latest unchanged), keeps it (`Yes`), selects an explicit empty reference group (`Yes`), has no compile assets (`NoAssets`), and fails acquisition (`Unavailable`, `Failures`, State unchanged, exact-count rejection); an omitted `--tfm` asserting Compatibility Target `net11.0`; and a ranged-feed fixture asserting exactly one archive-directory read per distinct Latest coordinate and no entry-content request. |
 | A local `.nupkg` root consumes source options for `Latest Versions`. | Release CLI test selecting only `Latest Versions` over a local package with a local feed source. |
 | Multi-root depth is preserved per root occurrence rather than by one global distance. | Cyclic DAG fixture in which one shared node is reached at different depths from two roots. |
 | A semantic node that is both a transitive child and a later explicit root does not duplicate or suppress either root's occurrence rows. | Depth-asymmetric two-root fixture run in both root orders, asserting independent per-root expansion and equal tree/table/JSON/count cardinality. |
