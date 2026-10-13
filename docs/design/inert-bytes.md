@@ -96,6 +96,16 @@ producer or scoped source reader
                              -> InertString serves UTF-16/string sinks
 ```
 
+For the first Symbol Key consumer, `NameRange` means the exact
+`OpaqueByteRange` retained privately by `SymbolKeyName`, and `SearchValue`
+means the caller's pre-encoded query. The governing representation rule is:
+
+> To decide whether `NameRange` equals `SearchValue`, perform a closed range
+> evaluation through `Utf8RangeReader.ValueTextEquals`; no contained string is
+> created. To print `NameRange`, first pass its classified reader through
+> `Utf8VisualEncoder` and print the resulting `InertUtf8String` or its fixed
+> `InertString` projection. An opaque range is never printed directly.
+
 The operation boundary decides whether access is safe:
 
 > An operation belongs on an opaque range or its scoped reader when it can
@@ -192,14 +202,14 @@ presentation-containment path. It has no public constructor or factory from
 `OpaqueByteRange`; a typed domain text view is the ordinary creation surface.
 Binary key and Blob views cannot issue it.
 
-Its initial distinguishing capability is `ValueTextEquals`: compare the stored
-range with caller-supplied UTF-8 query bytes without decoding the stored
-candidate. Like the analogous `Utf8JsonReader` operation, it returns an answer
-rather than the value span. This closed-query use is the ordinary path and
-does not continue into containment. When presentation is separately requested,
-the reader can carry the classified source into `Utf8VisualEncoder` without
-exposing that source. Creating this reader does not validate the stored bytes
-or apply `TextPolicy`.
+Its initial distinguishing capability is `ValueTextEquals`: evaluate whether
+the stored range equals caller-supplied UTF-8 query bytes without decoding the
+stored candidate. Like the analogous `Utf8JsonReader` operation, it returns an
+answer rather than the value span. This closed range evaluation is the ordinary
+path; it creates no `InertUtf8String` and does not continue into containment.
+When presentation is separately requested, the reader can carry the classified
+source into `Utf8VisualEncoder` without exposing that source. Creating this
+reader does not validate the stored bytes or apply `TextPolicy`.
 
 ### Inert UTF-8
 
@@ -542,10 +552,10 @@ the repository threat model.
 | Bounds | Empty, edge, nested, overflowed, and out-of-range operations return the specified result without reading outside the backing | PR-fast |
 | No raw projection | Compiled public-surface and field-flow gates reject every forbidden return, callback, store shape, and `InertUtf8String` blessing path | PR-fast |
 | Opaque means untreated | Creating ranges and UTF-8 readers performs no UTF-8 scan, normalization, or `TextPolicy` work | PR-fast |
-| `ValueTextEquals` | Ordinary, non-ASCII, concerning, and ill-formed stored names compare byte-exactly with pre-encoded queries without decoding candidates | PR-fast |
+| `ValueTextEquals` | Ordinary, non-ASCII, concerning, and ill-formed stored names compare byte-exactly with pre-encoded queries without decoding candidates, applying policy, or creating `InertUtf8String` | PR-fast |
 | Domain boundary | Only a typed domain text view can issue `Utf8RangeReader`; ordinary closed queries do not enter containment; an explicit presentation caller may pass that reader to `Utf8VisualEncoder`, while binary key and Blob views cannot accidentally take that route | PR-fast |
 | Exact-byte encoder | Exact bytes reach destination-owned storage without lending the backing; domain eligibility and destination failures remain visible | PR-fast |
-| Containment parity | When presentation is requested, clean, concerning, and ill-formed inputs produce the specified `InertUtf8String`; direct UTF-8 and `InertString` output have identical spelling, concern, form, and truncation evidence | PR-fast |
+| Containment parity | Printing is admitted only after an explicit presentation request produces `InertUtf8String`; for clean, concerning, and ill-formed inputs, direct UTF-8 and `InertString` output have identical spelling, concern, form, and truncation evidence | PR-fast |
 | Shared backing | A generated population of names and nested domain parts retains one backing rather than one array or class per view | PR-fast |
 | Symbol Key representation pilot | SPC comparison of the current private Symbol Key and the proposed range-backed model measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; exact identity answers must agree | Pilot before implementation |
 | Fast Diff product path | Exact base/head NativeAOT comparison on all pinned Fast Diff pairs, with identity answers unchanged and no regression | Symbol Key implementation adoption |

@@ -201,6 +201,15 @@ Symbol Key grammar: this exact child range is a Name
                  -> or InertString with the same spelling and evidence
 ```
 
+The governing Name rule is:
+
+> If a consumer wants to know whether `NameRange` equals `SearchValue`, it asks
+> `Utf8RangeReader.ValueTextEquals` and receives a closed answer over the
+> retained opaque range. If it wants to print `NameRange`, it first requests
+> presentation containment and prints the resulting `InertUtf8String` or its
+> fixed `InertString` projection. Matching does not construct a string, and
+> printing does not expose the opaque range.
+
 Symbol Key therefore owns **which range is a Name** and preserves that fact in
 `SymbolKeyName`. The parent range owner owns **how that range stays opaque,
 answers closed queries, and can enter presentation containment on request**.
@@ -385,8 +394,8 @@ form are the exchange currency between the hosts and checked-in artifacts.
 | Kind totality | The builder refuses to complete a key without a declared first marker; persisted validation refuses marker-free, leading-non-marker, and nested-header keys | PR-fast |
 | Shared backing | Every issued key and part view in one frozen population retains its one opaque-range backing; slots issue no mutable views, inline nested builds create no intermediate payload, and an independently retained key embedded as a `Key` part has only the duplicate bytes required by that grammar | PR-fast |
 | Name boundary | The part reader returns a `SymbolKeyName` retaining exactly the length-prefixed child range without exposing the containing key, its own range, or adjacent parts | PR-fast |
-| Name matching | A `Utf8RangeReader` issued by `SymbolKeyName` matches ordinary, non-ASCII, concerning, and ill-formed stored payloads byte-exactly against pre-encoded queries without decoding or policy work | PR-fast |
-| Name containment | A Name containing `U+202E` remains byte-exact for matching without invoking containment; when presentation is requested, a consumer passing its Name-issued reader to `Utf8VisualEncoder` gets `InertUtf8String`, and direct UTF-8 and derived `InertString` output both emit `\u202E`, `VisualForm.BmpHex`, and `TextConcern.Format` | PR-fast |
+| Name matching | A `Utf8RangeReader` issued by `SymbolKeyName` matches ordinary, non-ASCII, concerning, and ill-formed stored payloads byte-exactly against pre-encoded queries without decoding, policy work, or `InertUtf8String` construction | PR-fast |
+| Name printing | A Name containing `U+202E` remains byte-exact for matching without invoking containment; printing is admitted only after a presentation consumer passes its Name-issued reader to `Utf8VisualEncoder`, producing `InertUtf8String`, and direct UTF-8 and derived `InertString` output both emit `\u202E`, `VisualForm.BmpHex`, and `TextConcern.Format` | PR-fast |
 | Persisted round trip | Every Type and member key of System.Private.CoreLib persisted, converted to text, read back, and compared | PR-fast |
 | Persisted validation | Truncated, trailing, wrong-domain, unknown-version, marker-free, leading-non-marker, undeclared-marker, `Ref`-bearing, nested-header, non-shortest LEB128, over-64-bit integer, over-`int` length, over-deep, and over-long keys are each refused; conversion refuses the same depth and length excesses | PR-fast |
 | Profile separation | In-process and persisted keys do not compile as comparable; a key without `Ref` parts round-trips byte-identically, while a `Ref`-bearing key persists by expansion and returns in `Key` form with the same expansion | PR-fast |
