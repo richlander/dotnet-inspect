@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 using InertText;
 
@@ -21,6 +22,8 @@ public readonly struct MetadataUtf8Name
     public bool ValueTextEquals(ReadOnlySpan<byte> utf8Text) =>
         new Utf8RangeReader(_range).ValueTextEquals(utf8Text);
 
+    internal OpaqueByteRange Range => _range;
+
     /// <summary>Constructs the policy-contained UTF-8 presentation value.</summary>
     public InertUtf8String Contain(TextPolicy policy) =>
         new(policy, new Utf8RangeReader(_range));
@@ -30,7 +33,37 @@ public readonly struct MetadataUtf8Name
 }
 
 /// <summary>
-/// A detached exact metadata Type name over one compact immutable byte backing.
+/// A host-owned exact Type query with one UTF-8 encoding of its structured
+/// metadata name.
+/// </summary>
+public sealed class MetadataExactTypeInput
+{
+    public MetadataExactTypeInput(MetadataTypeDefinitionName type)
+    {
+        Type = type ?? throw new ArgumentNullException(nameof(type));
+        Utf8 = MetadataUtf8TypeDefinitionNameFactory.Create(type);
+    }
+
+    /// <summary>The raw structured identity used for metadata resolution.</summary>
+    public MetadataTypeDefinitionName Type { get; }
+
+    /// <summary>Contains the host-owned UTF-8 query under a presentation policy.</summary>
+    public MetadataContainedTypeDefinitionName Contain(TextPolicy policy) =>
+        Utf8.Contain(policy);
+
+    internal MetadataUtf8TypeDefinitionName Utf8 { get; }
+}
+
+internal readonly struct MetadataExactTypeMatch
+{
+    internal MetadataExactTypeMatch(MetadataUtf8TypeDefinitionName name) =>
+        Name = name;
+
+    internal MetadataUtf8TypeDefinitionName Name { get; }
+}
+
+/// <summary>
+/// An exact metadata Type name over one compact immutable byte backing.
 /// </summary>
 public sealed class MetadataUtf8TypeDefinitionName
 {
@@ -83,6 +116,57 @@ public sealed class MetadataContainedTypeDefinitionName
 
 internal static class MetadataUtf8TypeDefinitionNameReader
 {
+    internal static MetadataExactTypeMatch? Match(
+        PEReader peReader,
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        MetadataExactTypeInput input)
+    {
+        Span<TypeDefinitionHandle> rootToLeaf =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal
+                .TryWalkTypeDefinitionDeclaringChain(
+                    reader,
+                    handle,
+                    rootToLeaf,
+                    out int consumedNodes,
+                    out _,
+                    out _))
+        {
+            throw new BadImageFormatException(
+                "The matched TypeDef declaring chain is malformed.");
+        }
+        if (consumedNodes != input.Utf8.Segments.Length)
+            return null;
+
+        BlobReader heap = GetStringHeap(peReader, reader);
+        TypeDefinition root =
+            reader.GetTypeDefinition(rootToLeaf[0]);
+        if (!RangeEquals(
+                heap,
+                root.Namespace,
+                input.Utf8.Namespace.Range))
+        {
+            return null;
+        }
+
+        for (int i = 0; i < consumedNodes; i++)
+        {
+            TypeDefinition definition =
+                reader.GetTypeDefinition(rootToLeaf[i]);
+            if (!RangeEquals(
+                    heap,
+                    definition.Name,
+                    input.Utf8.Segments[i].Range))
+            {
+                return null;
+            }
+        }
+
+        return new(input.Utf8);
+    }
+
     internal static MetadataUtf8TypeDefinitionName Detach(
         PEReader peReader,
         MetadataReader reader,
@@ -104,12 +188,7 @@ internal static class MetadataUtf8TypeDefinitionNameReader
                 "The matched TypeDef declaring chain is malformed.");
         }
 
-        int stringHeapOffset =
-            reader.GetHeapMetadataOffset(HeapIndex.String);
-        int stringHeapSize =
-            reader.GetHeapSize(HeapIndex.String);
-        BlobReader heap = peReader.GetMetadata()
-            .GetReader(stringHeapOffset, stringHeapSize);
+        BlobReader heap = GetStringHeap(peReader, reader);
 
         Span<(int Offset, int Length)> sourceRanges =
             stackalloc (int Offset, int Length)[consumedNodes + 1];
@@ -156,6 +235,30 @@ internal static class MetadataUtf8TypeDefinitionNameReader
         }
 
         return new(@namespace, segments.MoveToImmutable());
+    }
+
+    private static BlobReader GetStringHeap(
+        PEReader peReader,
+        MetadataReader reader) =>
+        peReader.GetMetadata().GetReader(
+            reader.GetHeapMetadataOffset(HeapIndex.String),
+            reader.GetHeapSize(HeapIndex.String));
+
+    private static unsafe bool RangeEquals(
+        BlobReader heap,
+        StringHandle handle,
+        OpaqueByteRange expected)
+    {
+        (int offset, int length) = GetRange(heap, handle);
+        if (length != expected.Length)
+            return false;
+
+        heap.Offset = offset;
+        return Utf8RangeReader.ValueTextEquals(
+            expected,
+            new ReadOnlySpan<byte>(
+                heap.CurrentPointer,
+                length));
     }
 
     private static OpaqueByteRange CopyRange(
@@ -208,5 +311,52 @@ internal static class MetadataUtf8TypeDefinitionNameReader
                 "A metadata String is not null terminated.");
         }
         return (offset, length);
+    }
+}
+
+internal static class MetadataUtf8TypeDefinitionNameFactory
+{
+    internal static MetadataUtf8TypeDefinitionName Create(
+        MetadataTypeDefinitionName type)
+    {
+        int totalLength = Encoding.UTF8.GetByteCount(type.Namespace);
+        foreach (string segment in type.Segments)
+        {
+            totalLength = checked(
+                totalLength + Encoding.UTF8.GetByteCount(segment));
+        }
+
+        byte[] bytes =
+            GC.AllocateUninitializedArray<byte>(totalLength);
+        var backing = new OpaqueByteBacking(bytes);
+        int offset = 0;
+        MetadataUtf8Name @namespace =
+            Encode(type.Namespace, bytes, backing, ref offset);
+        var segments =
+            ImmutableArray.CreateBuilder<MetadataUtf8Name>(
+                type.Segments.Length);
+        foreach (string segment in type.Segments)
+        {
+            segments.Add(
+                Encode(segment, bytes, backing, ref offset));
+        }
+
+        return new(@namespace, segments.MoveToImmutable());
+    }
+
+    private static MetadataUtf8Name Encode(
+        string value,
+        byte[] destination,
+        OpaqueByteBacking backing,
+        ref int offset)
+    {
+        int length =
+            Encoding.UTF8.GetBytes(
+                value,
+                destination.AsSpan(offset));
+        var range =
+            new OpaqueByteRange(backing, offset, length);
+        offset = checked(offset + length);
+        return new(range);
     }
 }

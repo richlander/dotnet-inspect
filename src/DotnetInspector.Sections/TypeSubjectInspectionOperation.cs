@@ -40,7 +40,8 @@ public static class TypeSubjectInspectionOperation
                         new(
                             request.Plan.Type,
                             execution.MetadataDeclarations,
-                            execution.ExpectedType),
+                            execution.ExpectedType,
+                            exactInput: request.Plan.ExactInput),
                         request.Plan.Bounds),
                     lease,
                     cancellationToken);
@@ -225,7 +226,8 @@ public static class TypeSubjectInspectionOperation
                 new(
                     plan.Type,
                     execution.MetadataDeclarations,
-                    execution.ExpectedType),
+                    execution.ExpectedType,
+                    exactInput: plan.ExactInput),
                 plan.Bounds,
                 cancellationToken);
         int assemblyBytes = checked((int)session.ImageLength);
@@ -512,7 +514,11 @@ public static class TypeSubjectInspectionOperation
                                 parameter.Name,
                                 parameter.Attributes))));
         MetadataContainedTypeDefinitionName containedType =
-            document.MatchedName?.Contain(TextPolicy.Field)
+            document.ReusedExactInput
+                ? plan.ContainedExactInput
+                    ?? throw new InvalidOperationException(
+                        "Reused exact input requires its contained query.")
+                : document.MatchedName?.Contain(TextPolicy.Field)
             ?? throw new InvalidOperationException(
                 "An available Type document requires its matched byte-native Type identity.");
         TypeSubject subject = libraryCorrespondence is null

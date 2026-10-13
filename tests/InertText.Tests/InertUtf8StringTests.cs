@@ -48,6 +48,14 @@ public sealed class InertUtf8StringTests
 
         Assert.True(reader.ValueTextEquals("Résumé"u8));
         Assert.False(reader.ValueTextEquals("Resume"u8));
+        Assert.True(
+            Utf8RangeReader.ValueTextEquals(
+                source,
+                "Résumé"u8));
+        Assert.False(
+            Utf8RangeReader.ValueTextEquals(
+                source,
+                "Resume"u8));
     }
 
     [Theory]

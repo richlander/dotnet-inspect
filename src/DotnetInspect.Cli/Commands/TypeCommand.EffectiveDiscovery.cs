@@ -52,7 +52,8 @@ public static partial class TypeCommand
         var inspectionPlan = new TypeSubjectInspectionPlan(
             typeName,
             s_directDiscoveryBounds,
-            declarations);
+            declarations,
+            new MetadataExactTypeInput(typeName));
         ResolvedAssemblyReference assembly;
         try
         {
