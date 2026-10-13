@@ -77,7 +77,10 @@ reference that adapter. It takes:
 - one target context: an exact framework, or `OwnerDefault`, under which the
   House applies its highest-available compile selection; and
 - one asset demand, with optional
-  [named implementation assemblies](package-read-demand.md#named-implementation-and-aligned-blocks).
+  [named implementation assemblies](package-read-demand.md#named-implementation-and-aligned-blocks);
+  or one exact compile-Library selector, which PackageHouse resolves before
+  acquisition and which cannot be combined with independently named
+  implementation assemblies.
 
 It realizes the package with a `Realize` operation carrying those demands,
 binds the Root to the demand, and adds the Root to a Workspace the scope
@@ -90,6 +93,11 @@ owns. The result is either an open scope or a typed non-success:
 - a Workspace admission failure.
 
 A non-success is never an empty scope.
+When an exact Library selector has complete compile-selection evidence but
+produces no admissible participant, the failure also retains the narrowed Root
+contribution. A semantic operation can therefore preserve its own typed
+missing, ambiguous, or participant-unavailable result without weakening the
+scope invariant that every open endpoint has a surface participant.
 
 The host supplies the House. It chooses ranged or complete access, the store,
 and limits. For example, the CLI supplies ranged access with the per-authority
@@ -341,6 +349,17 @@ never retain a participant after the scope is disposed.
    `InspectionEnvelope<ExactTypeInspectionResult>` remains unchanged; raw
    `WorkspaceContextLoadOptions` are no longer an input to the completed
    operation.
+8. **Exact package Library API inspection.** The eligible cold CLI
+   `type --package ID@VERSION --library LIBRARY --tfm TFM` route plans one
+   exact compile-Library `Surface` demand before acquisition and opens it
+   through this scope. PackageHouse chooses cache, ranged entry acquisition,
+   or complete fallback. The complete compile inventory and selector outcome
+   remain attached to the Root while only the selected Library body becomes a
+   surface participant. The detached Markdown, JSON, envelope, Share,
+   diagnostics, and legacy configured-source identity remain unchanged.
+   Namesake and First Library population semantics remain outside this step;
+   once either produces one exact selector, it can converge on the same
+   operation.
 
 `diff --library` compares local files and needs no scope.
 
@@ -364,6 +383,7 @@ All gates run in Release.
 | 12. Body views, after step 4 part 3 | implementation participants, never reference stubs, with or without `--tfm` | CLI harness |
 | 13. Legacy retired, after step 4 part 6 | no `diff --package` request reaches the `AssemblySet` endpoint path, except an offline `*` pattern until the House settles `Wildcard` offline | CLI harness |
 | 14. Performance, every step 4 part that changes code | exact-head NativeAOT numbers against `main`, built on linux-x64 and run back to back under `perf-guard`, in the PR body and the session: cold and warm wall time, bytes received, and disk written | perf hosts, fixed pairs: `System.Text.Json` 10.0.0..11.0 with and without `--tfm`; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0`; `NUnit` 4.1.0..4.2.2; `MediatR` 12.2.0..12.4.1; `Microsoft.Extensions.Hosting` 8.0.0..9.0.0; `Microsoft.CodeAnalysis.CSharp` 4.12.0..4.14.0 |
+| 15. Exact CLI Library API inspection | unchanged detached output and typed missing/malformed outcomes; complete compile evidence with only the selected Library body materialized | Sections, Services, and CLI contract suites; real assets `System.Text.Json` 10.0.0, `Avalonia` 12.1.3, and `Microsoft.CodeAnalysis.CSharp` 5.9.0 |
 
 ## Non-claims
 

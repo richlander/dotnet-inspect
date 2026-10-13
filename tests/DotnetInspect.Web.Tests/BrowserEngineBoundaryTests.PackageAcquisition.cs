@@ -245,7 +245,7 @@ public sealed partial class BrowserEngineBoundaryTests
             unavailable.Message,
             StringComparison.Ordinal);
         Assert.Equal(requestsAfterSkill, handler.Requested.Count);
-        Assert.Equal(1, handler.OrdinaryPackageResponses);
+        Assert.Equal(0, handler.OrdinaryPackageResponses);
         Assert.True(handler.RangedPackageResponses > 0);
         Assert.True(
             handler.PackageBytesServed < 512 * 1024,
@@ -266,7 +266,7 @@ public sealed partial class BrowserEngineBoundaryTests
             package);
         Assert.Equal(readme, repeatedReadme);
         Assert.Equal(requestsAfterPackage, handler.Requested.Count);
-        Assert.Equal(1, handler.OrdinaryPackageResponses);
+        Assert.Equal(0, handler.OrdinaryPackageResponses);
         Assert.True(handler.RangedPackageResponses > 0);
         Assert.True(
             handler.PackageBytesServed < 512 * 1024,
@@ -357,7 +357,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(expected, first.Text);
         Assert.Equal(first, second);
         Assert.Equal(requests, handler.Requested.Count);
-        Assert.Equal(1, handler.OrdinaryPackageResponses);
+        Assert.Equal(0, handler.OrdinaryPackageResponses);
         Assert.True(handler.RangedPackageResponses > 0);
         Assert.True(
             handler.PackageBytesServed < 256 * 1024,
@@ -435,7 +435,8 @@ public sealed partial class BrowserEngineBoundaryTests
             packageId,
             version,
             PackageWithSkill(packageId, version),
-            omitContentLength: true);
+            omitContentLength: true,
+            ignoreRange: true);
         using IPackageSourceClient source = Gallery(handler);
         PackageManifestFacts manifest = Assert.IsType<
             PackageManifestFactsResult.Available>(
