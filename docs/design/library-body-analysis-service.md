@@ -1102,9 +1102,9 @@ The counted implementation path is:
 5. Publish per-body typed outcomes and per-metric coverage in
    `LibraryImplementationMetricAnalysisResult`.
 6. Adapt the complete implementation profile from the focused result and
-   migrate `AssemblyContextImplementationProfileFamilyQuery` and
-   `AssemblyContextLibraryMetricsQuery`, preserving their existing CLI and
-   Inspect Web consumers.
+   migrate `AssemblyContextImplementationProfileFamilyQuery`, preserving its
+   existing CLI and Inspect Web consumers. `AssemblyContextLibraryMetricsQuery`
+   instead consumes the exact structural result described below.
 7. Retire the monolithic feature bit after remaining complete-profile callers
    move, then let #8445 adopt the selective result through
    `MemberMetricsInspect`.
@@ -1142,8 +1142,11 @@ This request publishes `LibraryStructuralAnalysisResult`; it does not publish
 `MethodImplementationProfile` rows. Research consumes the structural result
 directly and preserves the existing Library Metrics document, compatibility
 receipt, population coverage, diagnostics, ordering, and transport bytes.
-Other queries, including Implementation Profiles and exact-family Member
-Metrics, retain their existing result and execution routes.
+The direct CLI route and the host-neutral
+`AssemblyContextLibraryMetricsQuery` used by package and platform Browser/Wasm
+exports both issue this request. Other queries, including Implementation
+Profiles and exact-family Member Metrics, retain their existing result and
+execution routes.
 
 The CLI exact-family Member Metrics route carries the exact TypeDef token and
 complete public overload selectors already issued by its member projection.
