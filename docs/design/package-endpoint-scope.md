@@ -131,16 +131,22 @@ still splits `A..B` into one demand per endpoint.
 
 ### Offline
 
-The scope has no offline route yet, because the House can't answer offline.
-Today the CLI's offline paths are host routes that don't use a House: `diff`
+The scope already opens offline for an exact coordinate whose package is
+cached. The House realizes it from the host's stores without a network
+request: step 7's exact Type inspection does this through the
+legacy-compatible authority store, and durable authorities also read their own
+NuGet global-packages entries. What the House can't do offline is settle a
+`Selecting` demand, because that needs a version listing.
+
+The CLI's other offline paths are host routes that don't use a House: `diff`
 takes the legacy `AssemblySet` route through `PackageExtractor`, and the
 search Root acquires through the Workspace loader with a filesystem package
-store. Those routes stay until the House can answer offline, the later step
-that [package cache policy](package-cache-policy.md) names. This owner
-requires that step to read the authority-scoped store, the legacy-compatible
-app cache, and the NuGet global-packages folder, so an offline `diff` answers
-from the same caches an online one does. The scope's contract is then the same
-online and offline, and only the House the host supplies differs.
+store. Step 4 part 1 moves offline exact-pin `diff` onto the scope. Offline
+floating-version `diff` stays on the legacy route until the House can settle
+a `Selecting` demand offline from cached listing evidence, the later offline
+step that [package cache policy](package-cache-policy.md) names. The scope's
+contract is the same online and offline; only the House the host supplies
+differs.
 
 ### Disposal
 
@@ -272,7 +278,8 @@ never retain a participant after the scope is disposed.
         and `--tfm net10.0` is required to compare both endpoints for
         `net10.0`, because an explicit target applies to both. The CLI supplies a legacy-compatible store, as
         `type` does, so the scope reads the app cache alongside the NuGet
-        global-packages folder. Offline keeps the host's existing path, as
+        global-packages folder. Offline, an exact pin opens through the scope
+        from those stores, and a floating version keeps the legacy route, as
         [Offline](#offline) states.
      2. **API views over a merged participant surface.** A merged surface
         over every surface participant of an endpoint serves Changes,
@@ -291,9 +298,9 @@ never retain a participant after the scope is disposed.
      6. **Legacy retirement.** The online legacy package route, the cache
         deferral, the admission check and its zero-size-cut House, and the
         testing switch retire, and the parity gates are rewritten as scope
-        gates. The offline route stays until the House can answer offline,
-        as [Offline](#offline) states; that capability is a prerequisite for
-        retiring it, and gate 7 holds until then.
+        gates. The offline floating-version route stays until the House can
+        settle a `Selecting` demand offline, as [Offline](#offline) states;
+        that capability is a prerequisite for retiring it.
 5. **Inspect Web adopts it.** `BrowserPackageWorkspace.OpenScopeAsync` opens
    its package endpoints through `PackageEndpointScope`. It keeps its browser
    store and complete acquisition until Inspect Web adopts ranged access
@@ -333,13 +340,13 @@ All gates run in Release.
 | 4. CLI `find` exact-package search, after step 3 | output byte-identical to before the move | existing `find` gates |
 | 5. `diff --package ID@A..B` Library API Diff | output byte-identical to the legacy path; both endpoints read only their surface and root folders by range; API changes, API Finding Transitions, and a selector mismatch stay on the legacy path, and the first two read nothing by range | CLI harness, real assets `System.Text.Json` 9.0.0 and 10.0.0; `Avalonia` 11.3.14..12.1.2 for the selector fallback |
 | 6. The same pairwise diff twice | the second makes no package request | CLI harness |
-| 7. Offline pairwise diff with both endpoints cached | the same output from the local cache | CLI harness |
+| 7. Offline pairwise diff with both endpoints cached | the same output from the local cache; after step 4 part 1, an exact pin opens through the scope with no request | CLI harness |
 | 8. Inspect Web Compare, after step 5 | the same Library API diff result through the shared scope | Web boundary tests |
 | 9. Pairwise diff without `--tfm`, after step 4 part 1 | each endpoint selects the framework `package` selects for it, through the House's owner-default compile selection, and the output names each endpoint's framework when they differ | CLI harness, `System.Text.Json` 10.0.0 and 11.0 (`net10.0` against `net11.0` by default; both `net10.0` with `--tfm net10.0`), compared with `package`; until 11.0.0 ships, the gate uses the current 11.0 release candidate |
 | 10. Floating pairwise diff, after step 4 part 1 | `*` and `latest` settle as `package` settles them, through the House's selecting demand | CLI harness |
 | 11. Multi-Library and member-targeted views, after step 4 part 2 | the merged participant surface; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0` no longer doubles change rows | CLI harness, real assets |
 | 12. Body views, after step 4 part 3 | implementation participants, never reference stubs, with or without `--tfm` | CLI harness |
-| 13. Legacy retired, after step 4 part 6 | no online `diff --package` request reaches the `AssemblySet` endpoint path; offline does until the House answers offline | CLI harness |
+| 13. Legacy retired, after step 4 part 6 | no `diff --package` request reaches the `AssemblySet` endpoint path, except an offline floating version until the House settles `Selecting` offline | CLI harness |
 
 ## Non-claims
 
