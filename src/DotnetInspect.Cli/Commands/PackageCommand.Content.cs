@@ -1682,6 +1682,7 @@ public partial class PackageCommand
     {
         if (target.IsLocalFile
             || DotnetInspector.Networking.HttpClientFactory.IsOffline
+            || options.JsonOutput
             || targetContext is null
             || producerOptions.Discover is not null
             || producerOptions.IncludeSections is not { Count: 1 } sections
@@ -1723,7 +1724,6 @@ public partial class PackageCommand
     private static bool CanRenderPackageInfoInventory(
         InspectionOptions options) =>
         options.Discover is null
-        && !options.JsonOutput
         && !options.Count
         && !options.Value
         && !options.Urls

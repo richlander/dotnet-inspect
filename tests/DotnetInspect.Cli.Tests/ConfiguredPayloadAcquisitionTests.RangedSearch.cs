@@ -136,8 +136,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             $"ranged responses: {feed.RangedResponses}");
     }
 
-    [Fact]
-    public async Task PackageInfo_TypedJson_RetainsBinarySignals()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task PackageInfo_TypedJson_RetainsBinarySignals(
+        int packageCount)
     {
         string id =
             $"PackageInfo.TypedJson.{Guid.NewGuid():N}";
@@ -161,10 +164,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 package);
         UseFeed(feed);
 
+        string[] packages =
+            Enumerable.Repeat(
+                $"{id}@{Version}",
+                packageCount)
+            .ToArray();
         var result = await RunCommandAsync(
             [
                 "package",
-                $"{id}@{Version}",
+                .. packages,
                 "--source",
                 FirstFeed,
                 "-S",
@@ -175,11 +183,18 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.True(result.Exit == 0, result.Error);
         using JsonDocument json =
             JsonDocument.Parse(result.Output);
-        Assert.Equal(
-            JsonValueKind.Object,
-            json.RootElement
-                .GetProperty("binary_signals")
-                .ValueKind);
+        JsonElement[] documents =
+            json.RootElement.ValueKind == JsonValueKind.Array
+                ? [.. json.RootElement.EnumerateArray()]
+                : [json.RootElement];
+        Assert.Equal(packageCount, documents.Length);
+        Assert.All(
+            documents,
+            document => Assert.Equal(
+                JsonValueKind.Object,
+                document
+                    .GetProperty("binary_signals")
+                    .ValueKind));
         Assert.Equal(1, feed.FullPackageResponses);
         Assert.Equal(0, feed.RangedResponses);
         Assert.True(
