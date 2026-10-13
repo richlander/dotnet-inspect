@@ -208,7 +208,8 @@ Thorough only.
 
 ```bash
 dnx dotnet-inspect -y -- library <target> -S "Library Metrics"
-dnx dotnet-inspect -y -- library <target> -S "Dependency Structure"
+dnx dotnet-inspect -y -- library <target> -S "Dependency Structure" --json \
+  > structure.json
 dnx dotnet-inspect -y -- library <target> -S "Architectural Families"
 dnx dotnet-inspect -y -- library <target> -S "Clone Candidates"
 dnx dotnet-inspect -y -- library <target> -S "Member Metrics" --tsv
@@ -221,7 +222,25 @@ structure; and `Member Metrics` for outliers. Complexity is normal-flow
 cyclomatic complexity over compiled IL: not authored intent, and not a
 maintainability score.
 
-Trace a surprising namespace edge to its types with
+Read structure from the `Dependency Structure` JSON document, which needs one
+exact library (`--namesake-library` or a dll path). `cycles` lists each
+namespace cycle, and every entry in `namespaces` carries `level` and
+`cycleIndex` (`null` outside any cycle), so a Markdown `cycle 0` means cycle
+number 0. Each `namespaceEdges` entry names its strongest contributing type
+pairs in `explainingTypeEdges`, with `remainingContributorCount` for the rest;
+`typeEdges` holds every type pair:
+
+```bash
+jq '.namespaceEdges[]
+  | select(.sourceNamespace == "A.Utilities"
+      and .targetNamespace == "A.Serialization")
+  | {counts, contributingTypeEdgeCount, explainingTypeEdges,
+     remainingContributorCount}' structure.json
+jq '[.typeEdges[] | select((.sourceTypeKey | startswith("A.Utilities."))
+  and (.targetTypeKey | startswith("A.Serialization.")))]' structure.json
+```
+
+Then follow one type pair to its calls with
 `type <T> --package Id@v --all -S "Called Types"`, and to call sites with
 `member <T> --all -m <name> -S Callers`. Non-public and obsolete code needs
 `--all` in `type`, `member`, and `diff`; without it, `type` and `diff` report
@@ -230,14 +249,18 @@ Trace a surprising namespace edge to its types with
 
 Read these with care until their owners close the gaps:
 
-- `Dependency Structure` has no JSON form, and `--json` drops it silently
-  (#3748); use Markdown or TSV. Its level and cycle labels are not
-  defined anywhere yet (#10077); confirm a cycle from mutual edge rows.
+- The package-wide view (`library --package Id@v` without
+  `--namesake-library`) drops `Dependency Structure` and `Clone Candidates`
+  silently (#10080); always select one exact library for them. The installed
+  product does not yet explain the structure fields (#10077); read them as
+  described above.
 - `Member Metrics` has no ranking operators (#10083); rank its rows locally.
 - Architectural Families can include compiler-generated names such as `c`
   and `d` (#10082); set them aside.
-- An empty `Clone Candidates` result carries no receipt (#10080); report it
-  as not established, not as "no clones".
+- `Clone Candidates` can stop early and exit 1 with "result is incomplete";
+  its rows name Members by token, so join them to `Member Metrics`
+  (`member_token`) before reading them. Report a partial or empty result as
+  not established, not as "no clones".
 
 For a dependency that may be used too thinly to justify itself, run
 `graph packages --package Consumer@v --package Provider@v --tfm <tfm>` and

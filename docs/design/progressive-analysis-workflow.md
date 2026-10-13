@@ -34,7 +34,7 @@ This owner defines:
 - where expensive evidence may and may not be spent;
 - result validation before narration;
 - lowlight stages and outcomes;
-- the discovery order an agent uses to find routes;
+- how route guidance is staged between the skill and installed explanation;
 - narrative evidence classes; and
 - focused capability-gap reporting.
 
@@ -293,11 +293,15 @@ tasks. A later explanation-directed variant repeats the same tasks, rubric,
 subjects, participant configuration, and warm-cache state against its own
 build, and the comparison is reported beside this table.
 
-**Setup.** NativeAOT `linux-x64` build of `2e8e54c` with this skill embedded
-(SHA-256 `200a40745cd2d5d774e468fb495fe39ade87aa2b47c580053a8d13ca629c2a75`);
+**Setup.** NativeAOT `linux-x64` builds of `2e8e54c` with this skill embedded:
+B1, B2, and B4 ran against SHA-256
+`200a40745cd2d5d774e468fb495fe39ade87aa2b47c580053a8d13ca629c2a75`, and B3
+against `081ebe95c54b475042de973c8c2182bb680ed60be2ec0acb7a227d325342c401`,
+whose skill differs only in the complexity guidance described below;
 four fresh Claude Opus 5.5 general-purpose agents, one per task; CLI access
 only, through a logging wrapper; no repository, source, or web access; warm
-package cache. The rubric below was frozen before launch.
+package cache; a hard cap of 45 CLI calls for each thorough task. The rubric
+below was frozen before launch.
 
 **Tasks and rubric.** Each material finding scores 1 when stated with
 supporting evidence, 0.5 when partial or unsupported, and 0 when missing or
@@ -316,12 +320,16 @@ wrong.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | B1 | 6 / 6 | 9 | 4 | 0.7 s | 34 KB | 48.6 k | 48 s |
 | B2 | 7 / 7 | 18 | 3 | 7.0 s | 48 KB | 52.8 k | 63 s |
-| B3 | 6.5 / 7 | 30 | — | 8.0 s | 1,290 KB | 100.0 k | 198 s |
+| B3 | 7 / 7 | 20 | — | 5.2 s | 3,539 KB | 94.9 k | 184 s |
 | B4 | 6 / 6 | 37 | — | 3.7 s | 96 KB | 97.8 k | 197 s |
 
-B3 located only 4 of 24 Utilities-to-Serialization calls because no route
-expands a namespace edge into its type pairs
-([#10092](https://github.com/richlander/dotnet-inspect/issues/10092)). B1 spent
+B3 was first run against an earlier revision of the skill that wrongly said
+`Dependency Structure` had no JSON form. That participant scored 6.5 / 7 in 30
+calls and located only 4 of 24 Utilities-to-Serialization calls by guessing
+types. The corrected skill routes namespace-edge tracing through the JSON
+document's `explainingTypeEdges` and `typeEdges`; the re-run located the
+complete edge, dated the cycle against 9.0.1, and is the recorded baseline.
+B1 spent
 an extra round recovering README text. Both thorough reviews stayed under the
 45-call cap and ended every pursued lowlight as confirmed, dismissed, or open.
 Bytes read counts the CLI's output, including large tables the agent filtered
@@ -335,7 +343,9 @@ omitted empty sections
 aggregate path dropping Clone Candidates
 ([#10080](https://github.com/richlander/dotnet-inspect/issues/10080)), and
 unselectable compiler-generated members
-([#10093](https://github.com/richlander/dotnet-inspect/issues/10093)).
+([#10093](https://github.com/richlander/dotnet-inspect/issues/10093)), and
+Clone Candidates stopping at its name-similarity work budget with no paging or
+narrowing ([#10080](https://github.com/richlander/dotnet-inspect/issues/10080)).
 
 This is one descriptive wave per task, not a regression gate or a population
 estimate.

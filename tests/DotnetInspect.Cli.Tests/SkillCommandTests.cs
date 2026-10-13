@@ -309,6 +309,26 @@ public class SkillCommandTests
         Assert.Contains("-S Changes", output);
         Assert.Contains("never to update", output);
         Assert.Contains("**confirmed**, **dismissed**, or **open**", output);
+        foreach (string stage in new[]
+                 { "| Early sign |", "| Located |", "| Traced |", "| Dated |", "| Explained |" })
+        {
+            Assert.Contains(stage, output);
+        }
+
+        int remove = output.IndexOf("**Remove what the platform supplies.**", StringComparison.Ordinal);
+        int weigh = output.IndexOf("**Weigh updates for what remains.**", StringComparison.Ordinal);
+        int impede = output.IndexOf("**Name the impediments.**", StringComparison.Ordinal);
+        Assert.True(remove >= 0 && remove < weigh && weigh < impede);
+
+        Assert.Contains("Dependencies get cheap checks only", output);
+        Assert.Contains("never across its dependencies", output);
+        Assert.Contains("**Validate before you narrate.**", output);
+        Assert.Contains("never read `0`, empty output, or exit code 1", output);
+        Assert.Contains("The bare `library --package Id@v` output", output);
+        Assert.Contains("depends --project <path> --tfm <restored-tfm>", output);
+        Assert.Contains("-S \"Dependency Structure\" --json", output);
+        Assert.Contains("explainingTypeEdges", output);
+        Assert.Contains("-S \"Performance:*\"", output);
         Assert.Contains("-S \"Resource Triage\"", output);
         Assert.Contains("--namesake-library", output);
         Assert.Contains("## Command conventions", output);
@@ -320,7 +340,7 @@ public class SkillCommandTests
         Assert.Contains("skill correctness", output);
         foreach (string issue in new[]
                  {
-                     "#3748", "#7553", "#7805", "#8406", "#10071", "#10072",
+                     "#7553", "#7805", "#8406", "#10071", "#10072",
                      "#10073", "#10074", "#10075", "#10077", "#10080", "#10081",
                      "#10082", "#10083", "#10084", "#10085", "#10086",
                  })
