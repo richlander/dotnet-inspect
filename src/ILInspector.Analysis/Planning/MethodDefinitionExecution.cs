@@ -201,15 +201,26 @@ public sealed class MethodDefinitionExecution
                         "Generated Method-source expansion requires finite "
                         + "work limits."))
                 : null;
+        // Expansion needs only declared-source attribution. The module lookup
+        // still runs on the legacy builder, which then shares the same
+        // attribution and its caches.
+        DeclaredSourceAttribution? attribution =
+            generatedExpansion
+                ? new DeclaredSourceAttribution(
+                    sourceName,
+                    reader,
+                    peReader,
+                    generatedExpansionWork: expansionWork)
+                : null;
         using LibraryBodyAnalysisBuilder? builder =
-            lookupDeclared || generatedExpansion
+            lookupDeclared
             ? new LibraryBodyAnalysisBuilder(
                 sourceName,
                 reader,
                 peReader,
                 bindingPolicy: referenceBinding?.Policy,
                 rootAssembly: referenceBinding?.Subject,
-                generatedExpansionWork: expansionWork)
+                attribution: attribution)
             : null;
         execution._lookup =
             lookupDeclared
@@ -226,7 +237,7 @@ public sealed class MethodDefinitionExecution
                 ImmutableArray<MethodDefinitionHandle> directMethods =
                     ResolveDirectMethods(reader, breadth);
                 MethodDefinitionGeneratedExpansionResult expansion =
-                    builder!.ExpandGeneratedExecutionBodies(
+                    attribution!.ExpandGeneratedExecutionBodies(
                         directMethods);
                 execution._sourceCoverage.RecordGeneratedExpansion(
                     expansion.Coverage);
