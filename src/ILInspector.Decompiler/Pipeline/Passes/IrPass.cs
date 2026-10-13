@@ -416,6 +416,12 @@ public static class IrPasses
         // mismatch) renders an honest marker instead of an uncompilable fp(x).
         new CallIndirectSpellabilityPass(),
         new RefKindDiagnosticsPass(),
+        // Typed raising can leave a struct rvalue spill immediately before a
+        // consumer whose earlier operand is the exact now-decided stack-slot
+        // carrier. Recompose that receiver without crossing effects, then let
+        // the existing final slots-only inliner consume the carrier the removed
+        // local had separated from its use (#9969).
+        new StructReceiverInliningPass(lateStackCarrierTail: true),
         // Wrap every in-domain typed-sink value not provably at its target in
         // a Coerce node, so the printer receives a decided tree and
         // CoercionInvariant is checkable (value-typed-emission.md, slice 3).
