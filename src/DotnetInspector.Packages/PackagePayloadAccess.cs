@@ -66,7 +66,7 @@ public sealed class PackageRangedSelection
 public sealed class PackageRangedRead
 {
     /// <summary>The size cut hosts use unless they set another: 1 MB of archive.</summary>
-    public const long DefaultSizeCut = 1_000_000;
+    public const long DefaultSizeCut = 4_000_000;
 
     public PackageRangedRead(
         PackageEntrySelector selectEntries,
