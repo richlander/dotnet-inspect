@@ -381,6 +381,7 @@ internal static class RenderAbSensor
         var changes = new List<RenderChange>();
         var unavailableChanges = new List<RenderChange>();
         var semanticRegressions = new List<(string Key, string Before, string After, ValidityCheck.RenderedBodyResult BeforeValidity, ValidityCheck.RenderedBodyResult AfterValidity)>();
+        var assignmentUnavailable = new List<(string Key, ValidityCheck.ValidityDiagnostic Diagnostic)>();
         var compileOptions = ValidityCheck.CompileOptions();
         var semanticContexts = new Dictionary<string, SemanticContext?>(StringComparer.Ordinal);
         var featureOptionsByAssembly =
@@ -462,6 +463,9 @@ internal static class RenderAbSensor
                     featureOptions,
                     compileOptions);
                 var transition = SemanticTransitionOf(beforeValidity, afterValidity);
+                if (afterValidity.SemanticUnavailable)
+                    foreach (var diagnostic in Diagnostics(afterValidity))
+                        assignmentUnavailable.Add((kvp.Key, diagnostic));
                 bySemantic[transition]++;
                 if (transition == SemanticTransition.ValidToInvalid)
                     semanticRegressions.Add((kvp.Key, before.Body, sample.Body, beforeValidity, afterValidity));
@@ -575,6 +579,13 @@ internal static class RenderAbSensor
                 "Compile-back unavailable: "
                 + (change.Current.CompileBackUnavailableReason
                     ?? change.Before.CompileBackUnavailableReason));
+        }
+
+        if (assignmentUnavailable.Count > 0)
+        {
+            Console.WriteLine($"Semantic assignment context unavailable: {assignmentUnavailable.Select(x => x.Key).Distinct().Count()}");
+            foreach (var (key, diagnostic) in assignmentUnavailable.Take(maxExamples))
+                Console.WriteLine($"  {key}: {diagnostic.Id}: {diagnostic.Message}");
         }
 
         if (semanticRegressions.Count > 0)
@@ -754,6 +765,8 @@ internal static class RenderAbSensor
 
     static SemanticTransition SemanticTransitionOf(ValidityCheck.RenderedBodyResult before, ValidityCheck.RenderedBodyResult after)
         => before.CompileBackUnavailable || after.CompileBackUnavailable
+            || (before.SemanticUnavailable && !before.HasSemanticDefect)
+            || (after.SemanticUnavailable && !after.HasSemanticDefect)
             ? SemanticTransition.Unavailable
             : (before.IsValid, after.IsValid) switch
         {
