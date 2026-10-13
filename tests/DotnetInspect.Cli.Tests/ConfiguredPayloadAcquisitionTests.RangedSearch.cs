@@ -55,7 +55,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains(
-            "| Content | lib |",
+            "| Content | lib, tools |",
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains(
