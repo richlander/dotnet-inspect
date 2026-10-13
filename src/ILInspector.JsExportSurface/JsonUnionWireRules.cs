@@ -11,7 +11,7 @@ internal static class JsonUnionWireRules
             && !member.IsStatic
             && member.Accessibility is null or "public"
             && member.SignatureModel is { Parameters.Count: 1 } signature
-            && signature.Parameters[0].Modifier is not ("ref" or "in" or "out"));
+            && signature.Parameters[0].Modifier is not ("ref" or "in" or "out" or "ref readonly"));
 
     internal static JsExportUnion Describe(
         ApiType type,

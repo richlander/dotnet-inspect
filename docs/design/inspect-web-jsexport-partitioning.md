@@ -33,7 +33,7 @@ with seven independently generated facade modules:
 | Facade | Managed assembly | Context artifact | Checked-in source | Responsibility |
 | --- | --- | --- | --- | --- |
 | `inspect-web-host` | `DotnetInspect.Web` | `DotnetInspect.Web.ts` | `DotnetInspect.Web/facades/inspect-web-host.ts` | Browser/Wasm lifecycle, host configuration, and build identity |
-| `inspect-web-package` | `DotnetInspect.Web.Interop.Package` | `DotnetInspect.Web.Interop.Package.ts` | `DotnetInspect.Web/facades/inspect-web-package.ts` | Package and platform acquisition, package queries, and package content |
+| `inspect-web-package` | `DotnetInspect.Web.Interop.Package` | `DotnetInspect.Web.Interop.Package.ts` | `DotnetInspect.Web/facades/inspect-web-package.ts` | Package and platform acquisition, query and activity operations, content, capability discovery, and workspace occurrences |
 | `inspect-web-metadata` | `DotnetInspect.Web.Interop.Metadata` | `DotnetInspect.Web.Interop.Metadata.ts` | `DotnetInspect.Web/facades/inspect-web-metadata.ts` | API and metadata projection |
 | `inspect-web-analysis` | `DotnetInspect.Web.Interop.Analysis` | `DotnetInspect.Web.Interop.Analysis.ts` | `DotnetInspect.Web/facades/inspect-web-analysis.ts` | Analysis, integration, opportunity, and performance results |
 | `inspect-web-source` | `DotnetInspect.Web.Interop.Source` | `DotnetInspect.Web.Interop.Source.ts` | `DotnetInspect.Web/facades/inspect-web-source.ts` | Source and annotated-source projection |
@@ -214,34 +214,68 @@ calls. `ConfigureHost` configures shared `DotnetInspect.Web.Core` policy before 
 entry point starts application work. `AsyncLoweringCanary` remains the
 deployment smoke's deterministic awaited operation.
 
-### Package facade: 21 exports
+### Package facade: 39 exports
 
-- `ActivateWorkspacePackageOccurrence`
-- `CancelPackageQuery`
-- `ClearWorkspacePackageOccurrences`
+Package acquisition, content, dependencies, documentation, and ranking:
+
+- `ClassifyPackageGraphIdentities`
 - `GetPackageDocument`
-- `ListPackageAssemblyQueryPatterns`
-- `ListPackageQueryFacets`
-- `LoadRuntimePack`
-- `LoadRuntimePackAssembly`
 - `MatchPackageDependencyCoordinate`
-- `OpenPackageAssemblyQueryResult`
 - `PackageCacheStats`
+- `QueryLibraries`
+- `QueryLibraryApi`
 - `QueryMemberDocumentation`
 - `QueryPackage`
 - `QueryPackageDependencies`
+- `QueryPackageIcon`
+- `QueryPackageRoot`
+- `QueryPackageSummary`
 - `QueryPackageVersions`
-- `QueryWorkspacePackageOccurrences`
-- `RequestPackageQueryMatches`
+- `QueryPackageVulnerabilities`
 - `ResolvePackageDependencyVersion`
-- `RunPackageAssemblyQuery`
-- `RunPackageQuery`
 - `SearchTypes`
+
+Package Query and installed-capability discovery:
+
+- `CancelPackageQuery`
+- `ExplainPackageQuery`
+- `InspectPackageQueryFacets`
+- `RequestPackageQueryMatches`
+- `RunEcosystemPackageQuery`
+- `RunPackageQuery`
+- `SearchCapabilities`
+
+Package Activity and ecosystem annotation:
+
+- `CancelPackageActivity`
+- `ClassifyEcosystemPackages`
+- `ListPackageActivityEcosystems`
+- `RunPackageActivity`
+
+Workspace package occurrences:
+
+- `ActivateWorkspacePackageOccurrence`
+- `ClearWorkspacePackageOccurrences`
+- `QueryWorkspacePackageOccurrences`
+
+Platform acquisition, documentation, and forwarder navigation:
+
+- `ActivatePlatformForwarder`
+- `ClosePlatformForwarderView`
+- `GetPlatformCatalog`
+- `GetPlatformVersions`
+- `LoadRuntimePack`
+- `LoadRuntimePackAssembly`
+- `OpenPlatformForwarderView`
+- `PrefetchPlatformPacks`
+- `QueryPlatformMemberDocumentation`
 
 This facade owns browser adaptation for package and platform acquisition,
 ordered workspace package occurrences and their opaque activation actions,
-package-query streaming, package-shipped documents, package dependency
-coordinates, and the API surface initially loaded for a package or platform.
+Package Query and Package Activity streaming, package-shipped documents,
+vulnerability evidence, package dependency coordinates, installed-capability
+discovery, ecosystem annotation, Platform-forwarder navigation, and the API
+surface initially loaded for a package or platform.
 `SearchTypes` stays here because it ranks candidates from that loaded package
 surface without opening another artifact. The facade adapts its existing
 candidate and hit records through Queries-owned `LoadedTypeSearchRanking`; it
@@ -251,6 +285,12 @@ detached value, so the wire adapter does not reference Metadata identity types.
 Platform-forwarder rows and resolution routes likewise reach the adapter
 through Web Core-owned string projection, so the facade does not inspect
 Metadata identities or structured Type names.
+Web Core owns package and Platform scope realization and operation lifetime;
+Package Queries, Queries, Sections, Services, Ecosystems, Packages, and
+Presentation own the operations and result semantics the facade adapts. Those
+typed paths plus the exact positive project and compiled-assembly ceilings own
+product semantics, so the Package facade retains only runtime platform hazards
+that dependency layering cannot distinguish.
 
 ### Metadata facade: 8 exports
 

@@ -33,6 +33,35 @@ public sealed class MetadataFormatAdmissionTests
     }
 
     [Fact]
+    public void NativeImageDeclaresNoClrHeader()
+    {
+        byte[] native = BuildImage("v4.0.30319");
+        RemoveMetadataDirectory(native);
+        byte[] withoutMetadata = BuildImage("v4.0.30319");
+        ClearCorHeaderMetadataDirectory(withoutMetadata);
+        byte[] sizeless = BuildImage("v4.0.30319");
+        ClearCorHeaderDirectorySize(sizeless);
+        using var managedReader = Open(BuildImage("v4.0.30319"));
+        using var nativeReader = Open(native);
+        using var withoutMetadataReader = Open(withoutMetadata);
+        using var sizelessReader = Open(sizeless);
+        using var textReader = Open("not a portable executable"u8.ToArray());
+
+        Assert.False(MetadataFormatAdmission.IsNativeImage(managedReader));
+        Assert.True(MetadataFormatAdmission.IsNativeImage(nativeReader));
+        // A declared CLR header without readable metadata is malformed, not
+        // native: admission classifies it, and the PE headers reject it.
+        Assert.Throws<MalformedMetadataRootException>(
+            () => MetadataFormatAdmission.AdmitImage(withoutMetadataReader));
+        Assert.Throws<BadImageFormatException>(
+            () => MetadataFormatAdmission.IsNativeImage(withoutMetadataReader));
+        Assert.Throws<BadImageFormatException>(
+            () => MetadataFormatAdmission.IsNativeImage(sizelessReader));
+        Assert.Throws<BadImageFormatException>(
+            () => MetadataFormatAdmission.IsNativeImage(textReader));
+    }
+
+    [Fact]
     public void WindowsMetadataIsRejectedWithoutLeakingTheMarker()
     {
         byte[] image = BuildImage("WindowsRuntime 1.4;CLR v4.0.30319");
@@ -162,6 +191,19 @@ public sealed class MetadataFormatAdmissionTests
             + (peHeader.Magic == PEMagic.PE32Plus ? 112 : 96);
         image.AsSpan(directoryBase + (14 * 8), 8).Clear();
     }
+
+    static void ClearCorHeaderDirectorySize(byte[] image)
+    {
+        using var peReader = Open(image);
+        PEHeader peHeader = peReader.PEHeaders.PEHeader!;
+        int directoryBase =
+            peReader.PEHeaders.PEHeaderStartOffset
+            + (peHeader.Magic == PEMagic.PE32Plus ? 112 : 96);
+        image.AsSpan(directoryBase + (14 * 8) + 4, 4).Clear();
+    }
+
+    static void ClearCorHeaderMetadataDirectory(byte[] image)
+        => image.AsSpan(CorHeaderStart(image) + 8, 8).Clear();
 
     internal static void TruncateMetadataAfterVersionField(byte[] image)
     {

@@ -1646,6 +1646,13 @@ canaries:
   and ordered resolution routes into caller-shaped Browser values. The Package
   facade preserves the generated wire contract without referencing Metadata
   identities or structured Type names.
+- Web Core owns package and Platform scope realization and operation lifetime.
+  Package Queries, Queries, Sections, Services, Ecosystems, Packages, and
+  Presentation own the acquisition, query, activity, vulnerability,
+  documentation, capability, ranking, and result semantics that the Package
+  facade adapts. Its typed paths and positive dependency ceilings therefore
+  own product semantics, and its compiler ban input retains only runtime
+  platform hazards.
 - Web Core's direct project and emitted assembly dependencies are separate
   positive ceilings. They admit the owner-issued package, Platform, workspace,
   query, presentation, call-graph, Metadata identity, and source-acquisition

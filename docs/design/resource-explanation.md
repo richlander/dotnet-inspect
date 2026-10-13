@@ -1671,11 +1671,13 @@ preserve.
 
 ### Vocabulary reading selection
 
-**Status: proposed, not installed.**
+**Status: shared reading implemented; host narrowing pending.**
 [#10013](https://github.com/richlander/dotnet-inspect/issues/10013) and the
 [worked vocabulary reads](../../tools/ExplainReadingScenarios/vocabulary-reading/README.md)
-define the next vocabulary reading profile. Existing vocabulary `.data` and
-`.hal` still emit their current dataset; this proposal admits no host gesture.
+establish the reading profile. Under
+[#10014](https://github.com/richlander/dotnet-inspect/issues/10014), existing
+vocabulary `.data` and `.hal` now use this shared lowering. No host narrowing
+gesture is admitted by this slice.
 Resource Explanation owns the selection and lowering. Product Vocabulary and
 the declaring term owners continue to own identities, maps, meanings,
 defaults, and accepted input identities.
@@ -1721,6 +1723,35 @@ examples advertise only the implemented full-vocabulary `collection` destination
 they invent no address for the experimental selection. No external request is
 needed to interpret embedded terms. `accepted_by` remains an opaque owner-issued
 identity list, not inferred command syntax or whole-vocabulary facet acceptance.
+
+The shared implementation emits `scope.profile = vocabulary-reading/v1`.
+`ResourceExplanationDataset.Create(..., valueIds: ...)` and
+`VocabularyExplanation.SelectData(path, valueIds)` accept optional exact native
+identities on a vocabulary root: null selects all root values; nonempty selections
+are deduplicated and emitted in owner order. Empty, unknown, case-mismatched and
+pattern selections fail. Value selection on a query root, or facet selection on a
+vocabulary root, fails rather than applying a selector to the wrong domain.
+Included vocabulary definitions and values count against the host resource bound;
+term targets count against the target bound. Exceeding either fails without a
+partial dataset. A narrow selection can read an otherwise oversized vocabulary.
+
+Full HAL roots emit one implemented `self` link. Shared API selections emit one
+full-vocabulary `collection` link and no invented selected address. Direct values
+include `value_order`; HAL value arrays carry that order. Both forms include
+`map_order`. The writer projects facts only for selected resources from the
+already composed catalog. Catalog composition itself still builds the installed
+snapshot; this slice does not claim producer pushdown. The prior shared vocabulary
+metadata/navigation lowering and its contract-link binder are retired. Ordinary
+compact explanation and explicit `.contract` still have their own projections.
+
+`VocabularyReadingTests` compares all five current product vocabularies against
+owner declarations, checks direct/HAL knowledge equality, exact and cyclic term
+closure, selected group/default membership, case-sensitive selection and a narrow
+read of an oversized vocabulary. `ResourceExplanationDatasetTests` enforces
+partial-coverage/absent-Boolean refusal and whole-selection limits. CLI
+`ResourceExplanationCommandTests` and Browser `BrowserVocabularyCompositionTests`
+exercise full production entrances and shared content pins. Host value narrowing
+remains in #10015 and #10016; the existing value-root projection rejection remains.
 
 The offline projector checks selected-field recovery and jq answers against
 the unmodified source, including known false versus unselected and unresolved

@@ -246,6 +246,95 @@ public class AssemblySetResolverTests
     }
 
     [Fact]
+    public async Task CollectAsync_DirectorySkipsNativeImagesBesideManagedLibraries()
+    {
+        var directory = Directory.CreateTempSubdirectory("assembly-set-mixed-test").FullName;
+        var sourceAssembly = typeof(AssemblySetResolverTests).Assembly.Location;
+        var managed = Path.Combine(directory, "Managed.dll");
+        var malformed = Path.Combine(directory, "Malformed.dll");
+        var declaredHeader = Path.Combine(directory, "DeclaredHeader.dll");
+        File.Copy(sourceAssembly, managed);
+        WriteNativeImage(sourceAssembly, Path.Combine(directory, "Native.dll"));
+        File.WriteAllText(malformed, "not a portable executable");
+        WriteDeclaredHeaderWithoutMetadata(sourceAssembly, declaredHeader);
+
+        try
+        {
+            using var httpClient = new HttpClient();
+            using var assemblySet = await AssemblySetResolver.CollectAsync(
+                httpClient,
+                new AssemblySetRequest { Directories = [directory] });
+
+            // The native image is not a population member; a file that is not a
+            // readable PE, or declares a CLR header without metadata, stays so
+            // Metadata admission reports it.
+            Assert.Equal(
+                [declaredHeader, malformed, managed],
+                assemblySet.Assemblies.Select(entry => entry.Path).Order(StringComparer.Ordinal));
+            Assert.Empty(assemblySet.Diagnostics);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CollectAsync_NativeOnlyDirectoryIsAFailedSource()
+    {
+        var directory = Directory.CreateTempSubdirectory("assembly-set-native-test").FullName;
+        var empty = Directory.CreateTempSubdirectory("assembly-set-empty-test").FullName;
+        WriteNativeImage(
+            typeof(AssemblySetResolverTests).Assembly.Location,
+            Path.Combine(directory, "Native.dll"));
+
+        try
+        {
+            using var httpClient = new HttpClient();
+            using var assemblySet = await AssemblySetResolver.CollectAsync(
+                httpClient,
+                new AssemblySetRequest { Directories = [directory, empty] });
+
+            Assert.Empty(assemblySet.Assemblies);
+            var diagnostic = Assert.Single(assemblySet.Diagnostics);
+            Assert.Equal(AssemblySetDiagnosticSeverity.Warning, diagnostic.Severity);
+            Assert.Contains(directory, diagnostic.Message);
+            Assert.Contains("contains no managed libraries (1 native image)", diagnostic.Message);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+            Directory.Delete(empty, recursive: true);
+        }
+    }
+
+    /// <summary>Copies a managed image with its CLI header directory cleared.</summary>
+    private static void WriteNativeImage(string managedAssembly, string destination)
+    {
+        byte[] image = File.ReadAllBytes(managedAssembly);
+        Array.Clear(image, CorHeaderDirectoryOffset(image), 8);
+        File.WriteAllBytes(destination, image);
+        Assert.True(AssemblySetResolver.IsNativeImage(destination));
+    }
+
+    /// <summary>Copies a managed image whose CLI header directory keeps its RVA but has no size.</summary>
+    private static void WriteDeclaredHeaderWithoutMetadata(string managedAssembly, string destination)
+    {
+        byte[] image = File.ReadAllBytes(managedAssembly);
+        Array.Clear(image, CorHeaderDirectoryOffset(image) + 4, 4);
+        File.WriteAllBytes(destination, image);
+        Assert.False(AssemblySetResolver.IsNativeImage(destination));
+    }
+
+    private static int CorHeaderDirectoryOffset(byte[] image)
+    {
+        int peHeader = BitConverter.ToInt32(image, 0x3C);
+        int optionalHeader = peHeader + 4 + 20;
+        bool pe32Plus = BitConverter.ToUInt16(image, optionalHeader) == 0x20B;
+        return optionalHeader + (pe32Plus ? 112 : 96) + (14 * 8);
+    }
+
+    [Fact]
     public async Task CollectAsync_UsesRequestedSourceOrder()
     {
         var directory = Directory.CreateTempSubdirectory("assembly-set-order-test").FullName;

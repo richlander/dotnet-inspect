@@ -8,9 +8,9 @@ using InertText;
 
 namespace DotnetInspector.Sections;
 
-public sealed record CompleteTypeDocumentInspectionPlan
+public sealed record TypeDocumentInspectionPlan
 {
-    public CompleteTypeDocumentInspectionPlan(
+    public TypeDocumentInspectionPlan(
         MetadataTypeDefinitionName type,
         ApiSurfaceExtractionBounds bounds,
         TypeMemberGroupSpelling spelling =
@@ -59,11 +59,11 @@ public sealed record CompleteTypeDocumentInspectionPlan
     { get; }
 }
 
-public sealed record CompleteTypeDocumentInspectionRequest
+public sealed record TypeDocumentInspectionRequest
 {
-    public CompleteTypeDocumentInspectionRequest(
+    public TypeDocumentInspectionRequest(
         LibraryReference library,
-        CompleteTypeDocumentInspectionPlan plan)
+        TypeDocumentInspectionPlan plan)
     {
         Library = library
             ?? throw new ArgumentNullException(nameof(library));
@@ -72,10 +72,10 @@ public sealed record CompleteTypeDocumentInspectionRequest
     }
 
     public LibraryReference Library { get; }
-    public CompleteTypeDocumentInspectionPlan Plan { get; }
+    public TypeDocumentInspectionPlan Plan { get; }
 }
 
-public enum CompleteTypeDocumentInspectionRejection
+public enum TypeDocumentInspectionRejection
 {
     LeaseReferenceMismatch,
     AssemblyIdentityMismatch,
@@ -83,14 +83,14 @@ public enum CompleteTypeDocumentInspectionRejection
     TypeAmbiguous,
 }
 
-public enum CompleteTypeDocumentInspectionBound
+public enum TypeDocumentInspectionBound
 {
     MetadataRows,
     Members,
     RetainedTextCharacters,
 }
 
-public enum CompleteTypeDocumentInspectionFailure
+public enum TypeDocumentInspectionFailure
 {
     NotManagedAssembly,
     ManagedModule,
@@ -102,42 +102,42 @@ public enum CompleteTypeDocumentInspectionFailure
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "outcome")]
 [JsonDerivedType(
-    typeof(CompleteTypeDocumentInspectionOutcome.Available),
+    typeof(TypeDocumentInspectionOutcome.Available),
     "available")]
 [JsonDerivedType(
-    typeof(CompleteTypeDocumentInspectionOutcome.Rejected),
+    typeof(TypeDocumentInspectionOutcome.Rejected),
     "rejected")]
 [JsonDerivedType(
-    typeof(CompleteTypeDocumentInspectionOutcome.Incomplete),
+    typeof(TypeDocumentInspectionOutcome.Incomplete),
     "incomplete")]
 [JsonDerivedType(
-    typeof(CompleteTypeDocumentInspectionOutcome.Failed),
+    typeof(TypeDocumentInspectionOutcome.Failed),
     "failed")]
-public abstract record CompleteTypeDocumentInspectionOutcome
+public abstract record TypeDocumentInspectionOutcome
 {
-    private protected CompleteTypeDocumentInspectionOutcome()
+    private protected TypeDocumentInspectionOutcome()
     {
     }
 
     public sealed record Available(TypeDocument Document)
-        : CompleteTypeDocumentInspectionOutcome;
+        : TypeDocumentInspectionOutcome;
 
     public sealed record Rejected(
-        CompleteTypeDocumentInspectionRejection Reason)
-        : CompleteTypeDocumentInspectionOutcome;
+        TypeDocumentInspectionRejection Reason)
+        : TypeDocumentInspectionOutcome;
 
     public sealed record Incomplete(
-        CompleteTypeDocumentInspectionBound Bound,
+        TypeDocumentInspectionBound Bound,
         long Limit,
         long Measured)
-        : CompleteTypeDocumentInspectionOutcome;
+        : TypeDocumentInspectionOutcome;
 
     public sealed record Failed(
-        CompleteTypeDocumentInspectionFailure Reason)
-        : CompleteTypeDocumentInspectionOutcome;
+        TypeDocumentInspectionFailure Reason)
+        : TypeDocumentInspectionOutcome;
 }
 
-public static class CompleteTypeDocumentInspectionOperation
+public static class TypeDocumentInspectionOperation
 {
     private const string SharePath =
         "type-member-group-population-inspection/share";
@@ -145,9 +145,9 @@ public static class CompleteTypeDocumentInspectionOperation
         "A complete portable Workspace scenario was not supplied.";
 
     public static InspectionEnvelope<
-            CompleteTypeDocumentInspectionOutcome>
+            TypeDocumentInspectionOutcome>
         Execute(
-            CompleteTypeDocumentInspectionRequest request,
+            TypeDocumentInspectionRequest request,
             LibraryOperationLease lease,
             CancellationToken cancellationToken = default)
     {
@@ -176,10 +176,10 @@ public static class CompleteTypeDocumentInspectionOperation
     }
 
     private static InspectionEnvelope<
-            CompleteTypeDocumentInspectionOutcome>
+            TypeDocumentInspectionOutcome>
         Project(
             LibraryTypeDocumentInspectionOutcome outcome,
-            CompleteTypeDocumentInspectionPlan plan) =>
+            TypeDocumentInspectionPlan plan) =>
         outcome switch
         {
             LibraryTypeDocumentInspectionOutcome.Completed completed =>
@@ -190,18 +190,18 @@ public static class CompleteTypeDocumentInspectionOperation
                     {
                         LibraryTypeDocumentInspectionRejection
                                 .LeaseReferenceMismatch =>
-                            CompleteTypeDocumentInspectionRejection
+                            TypeDocumentInspectionRejection
                                 .LeaseReferenceMismatch,
                         LibraryTypeDocumentInspectionRejection
                                 .AssemblyIdentityMismatch =>
-                            CompleteTypeDocumentInspectionRejection
+                            TypeDocumentInspectionRejection
                                 .AssemblyIdentityMismatch,
                         _ => throw new InvalidOperationException(
                             "Unknown Library Type document rejection."),
                     }),
             LibraryTypeDocumentInspectionOutcome.Incomplete incomplete =>
                 Incomplete(
-                    CompleteTypeDocumentInspectionBound.MetadataRows,
+                    TypeDocumentInspectionBound.MetadataRows,
                     plan.Bounds.MaxMetadataRows,
                     incomplete.Measured),
             LibraryTypeDocumentInspectionOutcome.Failed failed =>
@@ -210,22 +210,22 @@ public static class CompleteTypeDocumentInspectionOperation
                     {
                         LibraryTypeDocumentInspectionFailure
                                 .NotManagedAssembly =>
-                            CompleteTypeDocumentInspectionFailure
+                            TypeDocumentInspectionFailure
                                 .NotManagedAssembly,
                         LibraryTypeDocumentInspectionFailure.ManagedModule =>
-                            CompleteTypeDocumentInspectionFailure
+                            TypeDocumentInspectionFailure
                                 .ManagedModule,
                         LibraryTypeDocumentInspectionFailure
                                 .UnsupportedWindowsMetadata =>
-                            CompleteTypeDocumentInspectionFailure
+                            TypeDocumentInspectionFailure
                                 .UnsupportedWindowsMetadata,
                         LibraryTypeDocumentInspectionFailure
                                 .MalformedMetadata =>
-                            CompleteTypeDocumentInspectionFailure
+                            TypeDocumentInspectionFailure
                                 .MalformedMetadata,
                         LibraryTypeDocumentInspectionFailure
                                 .EmptyModuleVersionId =>
-                            CompleteTypeDocumentInspectionFailure
+                            TypeDocumentInspectionFailure
                                 .EmptyModuleVersionId,
                         _ => throw new InvalidOperationException(
                             "Unknown Library Type document failure."),
@@ -235,10 +235,10 @@ public static class CompleteTypeDocumentInspectionOperation
         };
 
     private static InspectionEnvelope<
-            CompleteTypeDocumentInspectionOutcome>
+            TypeDocumentInspectionOutcome>
         Project(
             LibraryTypeDocumentCorrespondence correspondence,
-            CompleteTypeDocumentInspectionPlan plan) =>
+            TypeDocumentInspectionPlan plan) =>
         correspondence.Document switch
         {
             MetadataTypeDocumentInspectionOutcome.Available available =>
@@ -248,28 +248,28 @@ public static class CompleteTypeDocumentInspectionOperation
                     available.Document),
             MetadataTypeDocumentInspectionOutcome.TypeNotFound =>
                 Rejected(
-                    CompleteTypeDocumentInspectionRejection.TypeNotFound),
+                    TypeDocumentInspectionRejection.TypeNotFound),
             MetadataTypeDocumentInspectionOutcome.TypeAmbiguous =>
                 Rejected(
-                    CompleteTypeDocumentInspectionRejection.TypeAmbiguous),
+                    TypeDocumentInspectionRejection.TypeAmbiguous),
             MetadataTypeDocumentInspectionOutcome.Incomplete incomplete =>
                 Incomplete(
-                    CompleteTypeDocumentInspectionBound.MetadataRows,
+                    TypeDocumentInspectionBound.MetadataRows,
                     incomplete.Limit,
                     incomplete.Measured),
             MetadataTypeDocumentInspectionOutcome.Failed =>
                 Failed(
-                    CompleteTypeDocumentInspectionFailure
+                    TypeDocumentInspectionFailure
                         .MalformedMetadata),
             _ => throw new InvalidOperationException(
                 "Unknown Metadata Type document outcome."),
         };
 
     private static InspectionEnvelope<
-            CompleteTypeDocumentInspectionOutcome>
+            TypeDocumentInspectionOutcome>
         Project(
             LibraryTypeDocumentCorrespondence correspondence,
-            CompleteTypeDocumentInspectionPlan plan,
+            TypeDocumentInspectionPlan plan,
             MetadataTypeDocument source)
     {
         LibraryAssemblyIdentity assembly =
@@ -278,10 +278,10 @@ public static class CompleteTypeDocumentInspectionOperation
         if (source.Subject.Type.ModuleVersionId == Guid.Empty)
         {
             return Failed(
-                CompleteTypeDocumentInspectionFailure.EmptyModuleVersionId);
+                TypeDocumentInspectionFailure.EmptyModuleVersionId);
         }
         TypeSubject subject =
-            TypeDocumentInspectionOperation.ProjectSubject(
+            TypeSubjectInspectionOperation.ProjectSubject(
                 correspondence,
                 plan.Type,
                 source.Subject,
@@ -302,10 +302,10 @@ public static class CompleteTypeDocumentInspectionOperation
                         {
                             MetadataTypeDeclarationPopulationBound
                                     .Members =>
-                                CompleteTypeDocumentInspectionBound.Members,
+                                TypeDocumentInspectionBound.Members,
                             MetadataTypeDeclarationPopulationBound
                                     .RetainedTextCharacters =>
-                                CompleteTypeDocumentInspectionBound
+                                TypeDocumentInspectionBound
                                     .RetainedTextCharacters,
                             _ => throw new InvalidOperationException(
                                 "Unknown complete Type declaration bound."),
@@ -314,10 +314,10 @@ public static class CompleteTypeDocumentInspectionOperation
                         incomplete.Measured),
             MetadataTypeDeclarationPopulationOutcome.Failed =>
                 Failed(
-                    CompleteTypeDocumentInspectionFailure
+                    TypeDocumentInspectionFailure
                         .MalformedMetadata),
             null => Failed(
-                CompleteTypeDocumentInspectionFailure
+                TypeDocumentInspectionFailure
                     .PopulationResultMismatch),
             _ => throw new InvalidOperationException(
                 "Unknown complete Type declaration outcome."),
@@ -325,12 +325,12 @@ public static class CompleteTypeDocumentInspectionOperation
     }
 
     private static InspectionEnvelope<
-            CompleteTypeDocumentInspectionOutcome>
+            TypeDocumentInspectionOutcome>
         Available(
             TypeSubject subject,
             LibraryAssemblyIdentity assembly,
             int assemblyBytes,
-            CompleteTypeDocumentInspectionPlan plan,
+            TypeDocumentInspectionPlan plan,
             MetadataTypeDeclarationPopulation population)
     {
         MetadataTypeMemberGroupPopulationBinding sourceBinding =
@@ -352,7 +352,7 @@ public static class CompleteTypeDocumentInspectionOperation
                     plan.Receiver))
         {
             return Failed(
-                CompleteTypeDocumentInspectionFailure
+                TypeDocumentInspectionFailure
                     .PopulationResultMismatch);
         }
 
@@ -374,7 +374,7 @@ public static class CompleteTypeDocumentInspectionOperation
                         memberGroups)),
             ];
         return Envelope(
-            new CompleteTypeDocumentInspectionOutcome.Available(
+            new TypeDocumentInspectionOutcome.Available(
                 new(
                     subject,
                     memberGroups,
@@ -469,32 +469,32 @@ public static class CompleteTypeDocumentInspectionOperation
         };
 
     private static InspectionEnvelope<
-            CompleteTypeDocumentInspectionOutcome>
-        Rejected(CompleteTypeDocumentInspectionRejection reason) =>
+            TypeDocumentInspectionOutcome>
+        Rejected(TypeDocumentInspectionRejection reason) =>
         Envelope(
-            new CompleteTypeDocumentInspectionOutcome.Rejected(reason));
+            new TypeDocumentInspectionOutcome.Rejected(reason));
 
     private static InspectionEnvelope<
-            CompleteTypeDocumentInspectionOutcome>
+            TypeDocumentInspectionOutcome>
         Incomplete(
-            CompleteTypeDocumentInspectionBound bound,
+            TypeDocumentInspectionBound bound,
             long limit,
             long measured) =>
         Envelope(
-            new CompleteTypeDocumentInspectionOutcome.Incomplete(
+            new TypeDocumentInspectionOutcome.Incomplete(
                 bound,
                 limit,
                 measured));
 
     private static InspectionEnvelope<
-            CompleteTypeDocumentInspectionOutcome>
-        Failed(CompleteTypeDocumentInspectionFailure reason) =>
+            TypeDocumentInspectionOutcome>
+        Failed(TypeDocumentInspectionFailure reason) =>
         Envelope(
-            new CompleteTypeDocumentInspectionOutcome.Failed(reason));
+            new TypeDocumentInspectionOutcome.Failed(reason));
 
     private static InspectionEnvelope<
-            CompleteTypeDocumentInspectionOutcome>
-        Envelope(CompleteTypeDocumentInspectionOutcome outcome) =>
+            TypeDocumentInspectionOutcome>
+        Envelope(TypeDocumentInspectionOutcome outcome) =>
         new(
             outcome,
             new InspectionShare.NonProjectable(

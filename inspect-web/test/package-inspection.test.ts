@@ -11,6 +11,7 @@ import {
   type PackageInspectionState,
   type PackagePerformance,
   type PackageResourceTriage,
+  type PackageVulnerabilityState,
 } from "../src/package-inspection.ts";
 import {
   packageQueryAssemblyId,
@@ -79,10 +80,7 @@ function inspectionState(
     packageDependenciesLoading: false,
     packageDependenciesError: "",
     packageDependenciesKey: "",
-    packageVulnerabilities: null,
-    packageVulnerabilitiesLoading: false,
-    packageVulnerabilitiesError: "",
-    packageVulnerabilitiesKey: "",
+    packageVulnerabilities: { status: "idle" },
     workspaceDependencies: {},
     workspaceDependencyErrors: {},
     workspaceDependencyLoads: new Set<string>(),
@@ -170,6 +168,29 @@ function vulnerabilityResult(): BrowserPackageVulnerabilityResult {
     observedAt: dateTimeOffsetString("2026-10-05T00:00:00Z"),
   };
 }
+
+test("package vulnerability state rejects contradictory shapes at compile time", () => {
+  const result = vulnerabilityResult();
+  const loadingWithResult: PackageVulnerabilityState = {
+    status: "loading",
+    request: { key: "current" },
+    // @ts-expect-error A loading request cannot also carry completed evidence.
+    result,
+  };
+  const readyWithError: PackageVulnerabilityState = {
+    status: "ready",
+    key: "current",
+    result,
+    // @ts-expect-error Ready evidence cannot also carry a failure diagnostic.
+    error: "failure",
+  };
+  // @ts-expect-error A failed request always carries its visible diagnostic.
+  const failedWithoutError: PackageVulnerabilityState = {
+    status: "failed",
+    key: "current",
+  };
+  void [loadingWithResult, readyWithError, failedWithoutError];
+});
 
 function opportunitiesResult(): BrowserPackageOpportunities {
   return {
@@ -870,11 +891,16 @@ test("package lens loaders reuse cached results without querying or clearing the
       name: "vulnerabilities",
       cached: vulnerabilities,
       state: inspectionState({
-        packageVulnerabilitiesKey: "cached",
-        packageVulnerabilities: vulnerabilities,
+        packageVulnerabilities: {
+          status: "ready",
+          key: "cached",
+          result: vulnerabilities,
+        },
       }),
       read: (state: PackageInspectionState) =>
-        state.packageVulnerabilities,
+        state.packageVulnerabilities.status === "ready"
+          ? state.packageVulnerabilities.result
+          : null,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
         coordinator.loadVulnerabilities(packageItem, "cached"),
     },
@@ -988,7 +1014,7 @@ test("package lens loaders reuse cached failures without querying", async () => 
   assert.equal(state.packagePerformanceError, "cached failure");
 });
 
-test("every package lens preserves its lifecycle and same-coordinate ownership across invalidation", async () => {
+test("scalar-field package lenses preserve lifecycle and ownership across invalidation", async () => {
   const packageItem = packageModel();
 
   await verifyPackageLensLifecycle({
@@ -1007,25 +1033,6 @@ test("every package lens preserves its lifecycle and same-coordinate ownership a
     readError: state => state.packageDependenciesError,
     setKey: (state, key) => { state.packageDependenciesKey = key; },
     setError: (state, error) => { state.packageDependenciesError = error; },
-  });
-  await verifyPackageLensLifecycle({
-    name: "vulnerabilities",
-    result: vulnerabilityResult(),
-    createCoordinator: (state, query, render = () => {}) =>
-      createPackageInspectionCoordinator(
-        inspectionDependencies(state, {
-          queryVulnerabilities: async () => query(),
-          render,
-        })),
-    load: (coordinator, signature) =>
-      coordinator.loadVulnerabilities(packageItem, signature),
-    readResult: state => state.packageVulnerabilities,
-    readLoading: state => state.packageVulnerabilitiesLoading,
-    readError: state => state.packageVulnerabilitiesError,
-    setKey: (state, key) => { state.packageVulnerabilitiesKey = key; },
-    setError: (state, error) => {
-      state.packageVulnerabilitiesError = error;
-    },
   });
   await verifyPackageLensLifecycle({
     name: "integrations",
@@ -1113,6 +1120,94 @@ test("every package lens preserves its lifecycle and same-coordinate ownership a
     setKey: (state, key) => { state.packageMetadataKey = key; },
     setError: (state, error) => { state.packageMetadataError = error; },
   });
+});
+
+test("package vulnerability state owns loading, settlement, caching, and replacement", async () => {
+  const packageItem = packageModel();
+  const result = vulnerabilityResult();
+  const query = deferred<BrowserPackageVulnerabilityResult>();
+  const events: string[] = [];
+  const state = inspectionState({
+    packageVulnerabilities: {
+      status: "failed",
+      key: "old",
+      error: "old failure",
+    },
+  });
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryVulnerabilities: async () => query.promise,
+      render: () => events.push("render"),
+    }));
+
+  const load = coordinator.loadVulnerabilities(packageItem, "current");
+
+  assert.equal(state.packageVulnerabilities.status, "loading");
+  if (state.packageVulnerabilities.status === "loading") {
+    assert.equal(state.packageVulnerabilities.request.key, "current");
+  }
+  assert.deepEqual(events, ["render"]);
+
+  query.resolve(result);
+  await load;
+
+  assert.deepEqual(state.packageVulnerabilities, {
+    status: "ready",
+    key: "current",
+    result,
+  });
+  assert.deepEqual(events, ["render", "render"]);
+
+  let cachedQueries = 0;
+  await createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryVulnerabilities: async () => {
+        cachedQueries++;
+        return result;
+      },
+      render: () => events.push("cached render"),
+    }))
+    .loadVulnerabilities(packageItem, "current");
+  assert.equal(cachedQueries, 0);
+  assert.equal(events.at(-1), "cached render");
+
+  const failed = inspectionState();
+  await createPackageInspectionCoordinator(
+    inspectionDependencies(failed, {
+      queryVulnerabilities: async () => {
+        throw new Error("current failure");
+      },
+    }))
+    .loadVulnerabilities(packageItem, "current");
+  assert.deepEqual(failed.packageVulnerabilities, {
+    status: "failed",
+    key: "current",
+    error: "current failure",
+  });
+
+  const stale = deferred<BrowserPackageVulnerabilityResult>();
+  const replaced = inspectionState();
+  let replacementRenders = 0;
+  const replacementCoordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(replaced, {
+      queryVulnerabilities: async () => stale.promise,
+      render: () => replacementRenders++,
+    }));
+  const staleLoad =
+    replacementCoordinator.loadVulnerabilities(packageItem, "first");
+  const newerRequest = { key: "second" };
+  replaced.packageVulnerabilities = {
+    status: "loading",
+    request: newerRequest,
+  };
+  stale.reject(new Error("stale failure"));
+  await staleLoad;
+
+  assert.deepEqual(replaced.packageVulnerabilities, {
+    status: "loading",
+    request: newerRequest,
+  });
+  assert.equal(replacementRenders, 1);
 });
 
 test("metadata requests suppress duplicates and preserve unique ownership", async () => {
@@ -1221,10 +1316,11 @@ test("invalidation clears package results, failures, keys, and loads without cha
     packageDependenciesLoading: true,
     packageDependenciesError: "dependency failure",
     packageDependenciesKey: "dependencies",
-    packageVulnerabilities: vulnerabilityResult(),
-    packageVulnerabilitiesLoading: true,
-    packageVulnerabilitiesError: "vulnerability failure",
-    packageVulnerabilitiesKey: "vulnerabilities",
+    packageVulnerabilities: {
+      status: "failed",
+      key: "vulnerabilities",
+      error: "vulnerability failure",
+    },
     packageIntegrations: integrationsResult(),
     packageIntegrationsLoading: true,
     packageIntegrationsError: "integration failure",
@@ -1291,8 +1387,11 @@ test("newer same-coordinate vulnerability evidence owns settlement", async () =>
   });
   await Promise.all([firstALoad, packageBLoad]);
 
-  assert.strictEqual(state.packageVulnerabilities, newerEvidence);
-  assert.equal(state.packageVulnerabilitiesLoading, false);
+  assert.deepEqual(state.packageVulnerabilities, {
+    status: "ready",
+    key: "Example.Package@1.0.0",
+    result: newerEvidence,
+  });
 });
 
 test("invalidated package completions cannot publish, render, or start follow-up work", async () => {

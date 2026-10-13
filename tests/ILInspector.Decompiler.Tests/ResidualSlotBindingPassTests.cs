@@ -349,8 +349,35 @@ public class ResidualSlotBindingPassTests
             "return (LoopControlVariable is not null ? 1 : 0) + (Collection is not null ? 1 : 0) + NextVariables.Length + (base.Body is not null ? 1 : 0);",
             output);
         Assert.DoesNotContain("S_256", output);
-        Assert.DoesNotContain("V_0", output);
         Assert.DoesNotContain("S_256_1", output);
+        Assert.DoesNotContain("V_0", output);
+    }
+
+    [Fact]
+    public void RealArgumentRefKindSlotMaterializesAsEnum()
+    {
+        using var source = MetadataSource.Open(typeof(TypeRef).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(TypeRef).FullName!,
+            "FunctionPointerParameterText");
+        Assert.NotNull(function);
+
+        IrPasses.Run(
+            function,
+            IrPasses.Default,
+            PassContext.ForImport(
+                reference => IrImporter.Import(source, reference),
+                source.AreProvablyDisjoint));
+        Assert.DoesNotContain(function.ResidualSlotBindings, static entry => entry.Value.Slot == 0);
+        string output = DecidedPrint.Print(function).Output!;
+
+        Assert.Contains("ArgumentRefKind S_0;", output);
+        Assert.Contains(
+            "S_0 = parameter.Kind == TypeRefKind.ByRef ? ArgumentRefKind.Ref : ArgumentRefKind.Value;",
+            output);
+        Assert.DoesNotContain("bool S_0;", output);
+        Assert.DoesNotContain("S_0_1", output);
     }
 
     [Fact]

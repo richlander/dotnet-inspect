@@ -538,8 +538,10 @@ Partially adopted modes fall back to rendered lines.
 Where a route supports it, `--count` is a terminal projection over the selected
 semantic rows. On sectioned output, select one concrete table for a scalar
 count. Count does not mean “count the unselected input,” and it does not by
-itself authorize unbounded work; incomplete population evidence can prevent an
-exact count.
+itself authorize unbounded work. When a source failed or a limit stopped
+evaluation, `--count` prints the observed count with the same stderr warnings
+and exit status as the rows; a failed source makes `find` and `library query`
+exit 1.
 
 Bare `type ... --count` follows the resolved subject: a Library subject counts
 public Type declarations, while a Type subject counts Members. Explicit `-S`

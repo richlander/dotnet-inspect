@@ -155,10 +155,6 @@ public class MarkoutRowContainmentTests
         "CallerSiteRow.OperandToken",
         "CallerSiteRow.ReturnAddress",
         "CallerSiteRow.Source",
-        "CliSchemaView.Description",
-        "CliSchemaView.Name",
-        "CliSchemaView.Title",
-        "CliSchemaView.Version",
         "ConstructorOverloadView.Title",
         "ConstructorParameterRow.Notes",
         "ConstructorParameterRow.Parameter",
@@ -342,11 +338,11 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt220MembersAcross43Types()
+    public void ResidualCensus_IsPinnedAt216MembersAcross42Types()
     {
-        Assert.Equal(220, NotSelfContaining.Length);
+        Assert.Equal(216, NotSelfContaining.Length);
         Assert.Equal(
-            43,
+            42,
             NotSelfContaining
                 .Select(entry => entry[..entry.IndexOf('.')])
                 .Distinct(StringComparer.Ordinal)
