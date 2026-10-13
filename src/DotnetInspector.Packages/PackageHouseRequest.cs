@@ -170,6 +170,61 @@ public abstract class PackageHouseDemand
 
         public PackageVersionSelectionRequest Request { get; }
     }
+
+    /// <summary>
+    /// The demand one package version spelling declares, as <c>package</c>
+    /// reads it: an exact version is an <see cref="Exact"/> coordinate,
+    /// <c>latest</c> an always-check selection, and a <c>*</c> pattern a
+    /// wildcard selection. Ranges and the bare Current requirement are not
+    /// one endpoint's spelling.
+    /// </summary>
+    public static bool TryCreate(
+        string packageId,
+        string version,
+        bool includePrerelease,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out PackageHouseDemand? demand,
+        out string? error)
+    {
+        demand = null;
+        error = null;
+        if (string.IsNullOrWhiteSpace(version)
+            || version.Contains("..", StringComparison.Ordinal))
+        {
+            error = "One package version, latest, or a wildcard pattern is required.";
+            return false;
+        }
+
+        if (!version.Contains('*')
+            && !version.Equals("latest", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                demand = new Exact(PackageSourceCoordinate.Create(packageId, version));
+                return true;
+            }
+            catch (ArgumentException exception)
+            {
+                error = exception.Message;
+                return false;
+            }
+        }
+
+        if (!DesktopPackageSourceComposition.TryCreateSelectionRequest(
+                packageId,
+                version,
+                includePrerelease,
+                rangeAddress: null,
+                out PackageVersionSelectionRequest? selection,
+                out ConfiguredPackagePayloadResult? failure))
+        {
+            error = failure!.Failures.FirstOrDefault()?.Message
+                ?? "The package version selection is invalid.";
+            return false;
+        }
+
+        demand = new Selecting(selection!);
+        return true;
+    }
 }
 
 /// <summary>One package-owned target-selection context.</summary>

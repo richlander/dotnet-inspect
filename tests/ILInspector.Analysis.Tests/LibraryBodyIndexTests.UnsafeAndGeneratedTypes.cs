@@ -739,15 +739,6 @@ public partial class LibraryBodyIndexTests
         // even though MakesSmallArray would otherwise be a small-array row (#1273).
         Assert.DoesNotContain(index.Optimization.Opportunities, opportunity =>
             opportunity.Method.DeclaringType.Name == nameof(SourceGeneratedOptimizationFixtures));
-        Assert.DoesNotContain(
-            index.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.DeclaringType.Name
-                    .Contains(
-                        nameof(
-                            SourceGeneratedClassicAsyncOuter.Nested),
-                        StringComparison.Ordinal));
     }
 
     [Fact]

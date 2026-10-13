@@ -11384,7 +11384,7 @@ function platformReferenceSectionHtml(
     : `<section class="document-section" id="platform-reference-list-section">
     <div class="section-title"><h2>Platform references</h2><span>${references.length} platform${references.length === 1 ? "" : "s"}</span></div>
     ${references.length
-      ? `<ul class="dep-list">${references.map(reference =>
+      ? `<ul class="dep-list platform-reference-list">${references.map(reference =>
           `<li><span class="dep-name">${escapeHtml(reference.label)}</span></li>`)
         .join("")}</ul>`
       : ""}

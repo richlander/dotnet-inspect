@@ -485,6 +485,12 @@ used immediately. A global-folder entry qualifies only when its
 on a qualifying hit. Otherwise, the package is fetched from an eligible source
 and cached permanently under that producer.
 
+[`WrongTurn@0.1.14`](https://www.nuget.org/packages/WrongTurn/0.1.14) is a
+published exact pin. A mistyped neighboring pin such as `WrongTurn@0.14.0`
+must retain that exact request and return the typed not-found settlement when
+no authorized source supplies it; Browser realization must not replace that
+outcome with a managed exception.
+
 ### Latest stable (`Name`)
 
 This is the default and the most common case. Online single-package CLI

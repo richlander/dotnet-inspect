@@ -1302,6 +1302,46 @@ selection protection, detail, and focus-target identities; and
 focus restoration, and layered Escape. A payload the portable model rejects
 remains a visible failure rather than rendering success-shaped empty output.
 
+## Browser vocabulary explanation admission
+
+`catalog.explainVocabularies(path, depth, valueIds)` reads installed vocabulary
+knowledge without acquiring an artifact. An explicit array of native value IDs
+narrows a vocabulary-root `inspect-resource:/` address with `projection=data` or
+`projection=hal`, at depth zero. Null reads the full population. Empty arrays,
+unknown IDs, wrong case, patterns and combined list strings fail with typed
+`InvalidSelection`, a diagnostic and no explanation. Array entries are native
+identities, not display labels or lower-case resource path segments.
+
+The facade delegates deduplication, owner order, exact term closure, sparse
+memberships, completeness and bounds to
+[Resource Explanation's shared selection](../docs/design/resource-explanation.md#vocabulary-reading-selection).
+Value selection is rejected for ordinary compact output, contracts, collections,
+value-resource roots and nonzero depth. Existing path/depth rejection outcomes
+remain for requests without value selection. An emitted HAL address is passed
+unchanged; selecting values does not override its projection. A narrowed HAL
+response has one full-vocabulary `collection` link. Follow it only when new task
+knowledge is needed, optionally with another selection.
+
+This is the fourth vocabulary slice under
+[#10016](https://github.com/richlander/dotnet-inspect/issues/10016) and overall
+[#9762](https://github.com/richlander/dotnet-inspect/issues/9762), after the proposal,
+shared implementation and CLI admission. Both production hosts consume the same
+profile; no second Browser vocabulary serializer remains to retire. This replaces
+full-only Browser admission. The Settings descriptor snapshot remains its own
+consumer. Structured shared datasets own direct/HAL lowering; the facade retains
+its existing explanation, Share and diagnostics envelope.
+
+Real witnesses are the composed API accessibility, C# body-kind and C# style
+declarations at base `ae8abb390b3dcd8cba666800eee8bc0454695eeb`.
+`BrowserVocabularyCompositionTests` gates shared selected knowledge, native
+identity/order, referenced context, defaults, typed rejection, export round trips
+and collection navigation. The generated-facade and published Wasm smoke gates
+exercise array transport and both full/selected representations. Exact NativeAOT
+facade measurements record payloads, retained jq answers and median/tail timings;
+they are native-host evidence, not Wasm timing claims. The
+[worked reading demo](../tools/ExplainReadingScenarios/vocabulary-reading/README.md#browser-value-reading)
+shows the production entrance.
+
 ## Run
 
 The frontend requires Node.js 24 or later; `npm ci` enforces that requirement.

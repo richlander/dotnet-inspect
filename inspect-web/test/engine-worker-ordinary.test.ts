@@ -2301,6 +2301,36 @@ test("query explanation transport preserves keys, addresses, and visible failure
   ]);
 });
 
+test("vocabulary explanation transport preserves native arrays and typed rejection", async () => {
+  const calls: unknown[][] = [];
+  const address = "inspect-resource:/vocabularies/csharp.body-kinds?projection=hal";
+  const result = {
+    outcome: "InvalidSelection" as const,
+    explanation: null,
+    rejection: { requestedPath: address, message: "Unknown vocabulary value identity.", suggestions: [] },
+  };
+  const state = fixture({
+    catalog: {
+      explainVocabularies: (...args) => {
+        calls.push(args);
+        return result;
+      },
+    },
+  });
+  const selected = state.client.catalog.explainVocabularies(address, 0,
+    ["ObjectCreationExpression", "AddressExpression"]);
+  const full = state.client.catalog.explainVocabularies(address, 0, null);
+  const empty = state.client.catalog.explainVocabularies(address, 0, []);
+  await state.environment.flushAsync();
+  assert.deepEqual(await selected, result);
+  assert.deepEqual(await full, result);
+  assert.deepEqual(await empty, result);
+  assert.deepEqual(calls, [
+    [address, 0, ["ObjectCreationExpression", "AddressExpression"]],
+    [address, 0, null], [address, 0, []],
+  ]);
+});
+
 test("forwarder transport preserves opaque actions, route evidence, and non-success", async () => {
   const calls: unknown[][] = [];
   const result = {

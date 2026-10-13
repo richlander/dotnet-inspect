@@ -138,14 +138,28 @@ path. It deliberately changes only the selected result boundary:
    binding identity. `TypeSubject` carries the contained presentation beside
    it without substituting escaped presentation spellings into identity.
 
-This baseline does not yet change query provenance or matching. The request
-remains a structured string value, `MetadataReader.StringComparer` keeps its
-existing allocation-free candidate comparison, and declaration analysis that
-needs the existing `InertString` identity remains string-backed. The
-follow-up slice may introduce a host-created exact-input type and reuse its
-pre-encoded bytes only when the same byte comparisons prove the selected
-metadata Name is equal. That optimization is measured against this merged
-baseline, not against the earlier UTF-16 presentation proxy.
+The direct command additionally creates one `MetadataExactTypeInput` from the
+validated structured query. That host-owned value retains the raw
+`MetadataTypeDefinitionName` and one compact UTF-8 backing for its namespace
+and root-to-leaf segments. It does not authorize reuse by origin alone.
+`MetadataReader.StringComparer` keeps its existing allocation-free candidate
+comparison and unique-resolution semantics. Only after uniqueness is known
+does the metadata operation compare every selected `#Strings` range byte for
+byte with the corresponding host-owned range. The internal
+`MetadataExactTypeMatch` issued by those comparisons permits the result to
+reuse the query backing; a missing input or any byte mismatch falls back to
+selected-range detachment. The exact-Type plan also contains that host-owned
+query once under `TextPolicy.Field`; successful byte proof permits projection
+to reuse the cached contained value, while fallback results contain the
+detached artifact ranges normally.
+
+`Utf8RangeReader.ValueTextEquals(OpaqueByteRange, ReadOnlySpan<byte>)` owns the
+closed cross-range comparison. The metadata adapter supplies a scoped view
+over the selected `#Strings` bytes; neither the opaque query range nor the
+artifact bytes become a general raw-byte projection. Listing, fuzzy, prefix,
+case-insensitive, and compatibility paths cannot issue the typed match. This
+optimization is measured against the merged detached-name baseline, not
+against the earlier UTF-16 presentation proxy.
 
 ## Motivating evidence
 

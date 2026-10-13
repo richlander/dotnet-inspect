@@ -14,18 +14,31 @@ public sealed record TypeSubjectInspectionPlan
     public TypeSubjectInspectionPlan(
         MetadataTypeDefinitionName type,
         ApiSurfaceExtractionBounds bounds,
-        TypeMemberGroupPopulationRequest? declarations = null)
+        TypeMemberGroupPopulationRequest? declarations = null,
+        MetadataExactTypeInput? exactInput = null)
     {
         Type = type ?? throw new ArgumentNullException(nameof(type));
+        if (exactInput is not null && !type.Equals(exactInput.Type))
+        {
+            throw new ArgumentException(
+                "The exact input must describe the planned Type.",
+                nameof(exactInput));
+        }
         Bounds = bounds
             ?? throw new ArgumentNullException(nameof(bounds));
 
         Declarations = declarations;
+        ExactInput = exactInput;
+        ContainedExactInput =
+            exactInput?.Contain(TextPolicy.Field);
     }
 
     public MetadataTypeDefinitionName Type { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
     public TypeMemberGroupPopulationRequest? Declarations { get; }
+    public MetadataExactTypeInput? ExactInput { get; }
+    internal MetadataContainedTypeDefinitionName? ContainedExactInput
+    { get; }
 }
 
 public sealed record TypeSubjectInspectionRequest

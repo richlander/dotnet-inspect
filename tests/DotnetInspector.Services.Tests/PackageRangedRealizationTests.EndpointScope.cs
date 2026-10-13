@@ -77,6 +77,43 @@ public sealed partial class PackageRangedRealizationTests
                 TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task EndpointScope_ExactLibraryDemandNarrowsTransferAndParticipants()
+    {
+        byte[] archive = ReadAvalonia();
+        var server = new RangeFeed(Avalonia, AvaloniaVersion, archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+
+        await using PackageEndpointScope scope = AssertOpened(
+            await OpenEndpointAsync(
+                environment,
+                new InMemoryPackageStore(),
+                new PackageEndpointScopeRequest(
+                    PackageSourceCoordinate.Create(
+                        Avalonia,
+                        AvaloniaVersion),
+                    "net10.0",
+                    PackageAssetDemand.Surface,
+                    librarySelector: new PackageLibrarySelector(
+                        "Avalonia.Controls.dll"))));
+
+        PackageEndpointParticipant selected =
+            Assert.Single(scope.SurfaceParticipants);
+        Assert.EndsWith(
+            "/Avalonia.Controls.dll",
+            selected.Asset.Path,
+            StringComparison.Ordinal);
+        Assert.Empty(scope.ImplementationParticipants);
+        Assert.Equal(11, scope.Root.Root.AssetSelection.Assets.Count);
+        var content =
+            Assert.IsType<RangedPackageContent>(scope.Payload.Content);
+        Assert.True(content.IsMaterialized(selected.Asset.Path));
+        Assert.False(
+            content.IsMaterialized(
+                $"{AvaloniaSurface}Avalonia.Dialogs.dll"));
+    }
+
     /// <summary>
     /// Gate 2: a <c>SurfaceAndImplementation</c> endpoint also exposes one
     /// implementation participant per realized implementation asset, each
@@ -165,6 +202,84 @@ public sealed partial class PackageRangedRealizationTests
         }
     }
 
+    /// <summary>
+    /// Step 4 part 1: the scope takes the House's package demand and target
+    /// context, as <c>package</c> does. A <c>*</c> pattern settles to the
+    /// version the feed lists, and the owner default selects the highest
+    /// compile slice, the same participants an explicit <c>net10.0</c> opens.
+    /// </summary>
+    [Fact]
+    public async Task EndpointScope_SelectingDemandAndOwnerDefault_SettleInTheHouse()
+    {
+        byte[] archive = ReadAvalonia();
+        var server = new RangeFeed(Avalonia, AvaloniaVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        Assert.True(PackageHouseDemand.TryCreate(
+            Avalonia, "12.1.*", includePrerelease: false, out PackageHouseDemand? demand, out string? error), error);
+        Assert.IsType<PackageHouseDemand.Selecting>(demand);
+
+        await using PackageEndpointScope scope = AssertOpened(await OpenEndpointAsync(
+            environment,
+            new InMemoryPackageStore(),
+            new PackageEndpointScopeRequest(
+                demand,
+                PackageHouseTargetContext.OwnerDefault(),
+                PackageAssetDemand.Surface)));
+
+        Assert.Equal(AvaloniaVersion, scope.PackageVersion);
+        Assert.Equal("net10.0", scope.TargetFramework);
+        Assert.Equal(11, scope.SurfaceParticipants.Length);
+        Assert.All(
+            scope.SurfaceParticipants,
+            participant => Assert.Equal("net10.0", participant.Provenance.TargetFramework));
+    }
+
+    /// <summary>Gate 3 for a selecting demand: a pattern no listed version matches is not found.</summary>
+    [Fact]
+    public async Task EndpointScope_SelectingDemandWithNoMatch_IsNotFound()
+    {
+        var server = new RangeFeed(Avalonia, AvaloniaVersion, ReadAvalonia());
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        Assert.True(PackageHouseDemand.TryCreate(
+            Avalonia, "13.*", includePrerelease: false, out PackageHouseDemand? demand, out _));
+
+        PackageEndpointScopeOutcome outcome = await OpenEndpointAsync(
+            environment,
+            new InMemoryPackageStore(),
+            new PackageEndpointScopeRequest(
+                demand,
+                PackageHouseTargetContext.OwnerDefault(),
+                PackageAssetDemand.Surface));
+
+        var failed = Assert.IsType<PackageEndpointScopeOutcome.Failed>(outcome);
+        Assert.Equal(PackageEndpointScopeFailureKind.NotFound, failed.Kind);
+        Assert.NotNull(failed.HouseResult);
+        Assert.StartsWith($"{Avalonia} 13.* was not found", failed.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void EndpointScopeRequest_TakesExactOrSelectingDemandsOnly()
+    {
+        Assert.True(PackageHouseDemand.TryCreate(
+            Avalonia, AvaloniaVersion, includePrerelease: false, out PackageHouseDemand? exact, out _));
+        var request = new PackageEndpointScopeRequest(
+            exact,
+            PackageHouseTargetContext.OwnerDefault(),
+            PackageAssetDemand.Surface);
+        Assert.Same(exact, request.Demand);
+        Assert.Equal(PackageHouseTargetSelectionMode.OwnerDefault, request.Target.Mode);
+
+        Assert.True(PackageHouseDemand.TryCreate(
+            Avalonia, "LATEST", includePrerelease: false, out PackageHouseDemand? latest, out _));
+        Assert.IsType<PackageVersionSelectionRequest.AlwaysLatest>(
+            Assert.IsType<PackageHouseDemand.Selecting>(latest).Request);
+        Assert.False(PackageHouseDemand.TryCreate(
+            Avalonia, "1.0.0..2.0.0", includePrerelease: false, out _, out string? range));
+        Assert.NotNull(range);
+        Assert.False(PackageHouseDemand.TryCreate(
+            Avalonia, "not-a-version", includePrerelease: false, out _, out _));
+    }
+
     private static PackageEndpointScope AssertOpened(PackageEndpointScopeOutcome outcome)
     {
         if (outcome is PackageEndpointScopeOutcome.Failed failed)
@@ -177,13 +292,20 @@ public sealed partial class PackageRangedRealizationTests
         IPackageStore store,
         PackageEndpointScopeRequest request)
     {
+        PackagePayloadAcquisitionPlan acquisition =
+            request.LibrarySelector is null
+                ? new PackagePayloadAcquisitionPlan(
+                    (_, _) => store,
+                    access: PackagePayloadAccess.Ranged,
+                    log: environment.Log.Enqueue,
+                    rangedSizeCut: 0)
+                : PackagePayloadAcquisitionPlan.ForContentQueries(
+                    (_, _) => store,
+                    log: environment.Log.Enqueue,
+                    rangedSizeCut: 0);
         var house = new PackageHouse(
             environment.Authorization,
-            new PackagePayloadAcquisitionPlan(
-                (_, _) => store,
-                access: PackagePayloadAccess.Ranged,
-                log: environment.Log.Enqueue,
-                rangedSizeCut: 0));
+            acquisition);
         var operation = PackageHouseOperation.Create(PackageHouseOperationProfile.Realize);
         return PackageEndpointScope.OpenAsync(
             house,

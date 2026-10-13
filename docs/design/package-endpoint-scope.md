@@ -77,7 +77,10 @@ reference that adapter. It takes:
 - one target context: an exact framework, or `OwnerDefault`, under which the
   House applies its highest-available compile selection; and
 - one asset demand, with optional
-  [named implementation assemblies](package-read-demand.md#named-implementation-and-aligned-blocks).
+  [named implementation assemblies](package-read-demand.md#named-implementation-and-aligned-blocks);
+  or one exact compile-Library selector, which PackageHouse resolves before
+  acquisition and which cannot be combined with independently named
+  implementation assemblies.
 
 It realizes the package with a `Realize` operation carrying those demands,
 binds the Root to the demand, and adds the Root to a Workspace the scope
@@ -90,6 +93,11 @@ owns. The result is either an open scope or a typed non-success:
 - a Workspace admission failure.
 
 A non-success is never an empty scope.
+When an exact Library selector has complete compile-selection evidence but
+produces no admissible participant, the failure also retains the narrowed Root
+contribution. A semantic operation can therefore preserve its own typed
+missing, ambiguous, or participant-unavailable result without weakening the
+scope invariant that every open endpoint has a surface participant.
 
 The host supplies the House. It chooses ranged or complete access, the store,
 and limits. For example, the CLI supplies ranged access with the per-authority
@@ -149,8 +157,12 @@ The CLI's other offline paths are host routes that don't use a House: `diff`
 takes the legacy `AssemblySet` route through `PackageExtractor`, and the
 search Root acquires through the Workspace loader with a filesystem package
 store. Step 4 part 1 moves offline `diff` onto the scope, except a diff with
-any `*` endpoint, which keeps the legacy route as a whole, so a scope endpoint
-is never compared with an `AssemblySet` endpoint, until the House settles a
+any endpoint that only discovery can settle, a `*` pattern or `latest`, which
+keeps the legacy route as a whole, so a scope endpoint is never compared with
+an `AssemblySet` endpoint. The legacy route answers a `*` pattern from its
+cached listings and reports why `latest` can't be resolved offline, as
+`package` does; the House route has no such answer for either, and surfaces
+only the network guard. A `*` pattern moves when the House settles a
 `Wildcard` selection offline, through the Version Service's adoption of
 wildcard keys or from cached listing evidence. The scope's contract is the
 same online and offline; only the House the host supplies differs.
@@ -283,10 +295,17 @@ never retain a participant after the scope is disposed.
         endpoint's framework. For example, `System.Text.Json@10.0.0..11.0.0`
         compares 10.0.0 for `net10.0` with 11.0.0 for `net11.0` by default,
         and `--tfm net10.0` is required to compare both endpoints for
-        `net10.0`, because an explicit target applies to both. The CLI supplies a legacy-compatible store, as
-        `type` does, so the scope reads the app cache alongside the NuGet
-        global-packages folder. Offline `diff` opens through the scope too,
-        except a `*` pattern, as [Offline](#offline) states.
+        `net10.0`, because an explicit target applies to both. The CLI
+        supplies a legacy-compatible store, as `type` does, so the scope
+        reads the app cache alongside the NuGet global-packages folder.
+        Offline `diff` opens through the scope too, except a `*` pattern or
+        `latest`, as [Offline](#offline) states. This part keeps step 2's
+        admission rule, now over the settled version: a floating endpoint's
+        directory check settles it once, and the Realize opens that exact
+        version. Without `--tfm`, the rule compares the legacy no-target
+        selector with the House's owner-default selection. Library API Diff
+        names the endpoint frameworks on both routes, so the route doesn't
+        change output; the other views name them when they move.
      2. **API views over a merged participant surface.** A merged surface
         over every surface participant of an endpoint serves Changes,
         multi-Library packages, member targets, Changes filters, the
@@ -330,6 +349,17 @@ never retain a participant after the scope is disposed.
    `InspectionEnvelope<ExactTypeInspectionResult>` remains unchanged; raw
    `WorkspaceContextLoadOptions` are no longer an input to the completed
    operation.
+8. **Exact package Library API inspection.** The eligible cold CLI
+   `type --package ID@VERSION --library LIBRARY --tfm TFM` route plans one
+   exact compile-Library `Surface` demand before acquisition and opens it
+   through this scope. PackageHouse chooses cache, ranged entry acquisition,
+   or complete fallback. The complete compile inventory and selector outcome
+   remain attached to the Root while only the selected Library body becomes a
+   surface participant. The detached Markdown, JSON, envelope, Share,
+   diagnostics, and legacy configured-source identity remain unchanged.
+   Namesake and First Library population semantics remain outside this step;
+   once either produces one exact selector, it can converge on the same
+   operation.
 
 `diff --library` compares local files and needs no scope.
 
@@ -345,14 +375,15 @@ All gates run in Release.
 | 4. CLI `find` exact-package search, after step 3 | output byte-identical to before the move | existing `find` gates |
 | 5. `diff --package ID@A..B` Library API Diff | output byte-identical to the legacy path; both endpoints read only their surface and root folders by range; API changes, API Finding Transitions, and a selector mismatch stay on the legacy path, and the first two read nothing by range | CLI harness, real assets `System.Text.Json` 9.0.0 and 10.0.0; `Avalonia` 11.3.14..12.1.2 for the selector fallback |
 | 6. The same pairwise diff twice | the second makes no package request | CLI harness |
-| 7. Offline pairwise diff with both endpoints cached | the same output from the local cache; after step 4 part 1, an exact pin opens through the scope with no request, with and without `--tfm`, `latest` fails visibly as on the legacy route, and a `*` pattern keeps the legacy route's cached-listing answer | CLI harness |
+| 7. Offline pairwise diff with both endpoints cached | the same output from the local cache; after step 4 part 1, an exact pin opens through the scope with no request, with and without `--tfm`, and `latest` and a `*` pattern keep the legacy route, which reports `latest` as `package` does and answers a `*` pattern from cached listings | CLI harness: exact pins with and without `--tfm` against a feed that rejects every request; the route for offline `latest` and `*` by the scope-selection theory |
 | 8. Inspect Web Compare, after step 5 | the same Library API diff result through the shared scope | Web boundary tests |
-| 9. Pairwise diff without `--tfm`, after step 4 part 1 | each endpoint selects the framework `package` selects for it, through the House's owner-default compile selection, and the output names each endpoint's framework when they differ | CLI harness, `System.Text.Json` 10.0.0 and 11.0 (`net10.0` against `net11.0` by default; both `net10.0` with `--tfm net10.0`), compared with `package`; until 11.0.0 ships, the gate uses the current 11.0 release candidate |
-| 10. Floating pairwise diff, after step 4 part 1 | `*` and `latest` settle as `package` settles them, through the House's selecting demand | CLI harness |
+| 9. Pairwise diff without `--tfm`, after step 4 part 1 | each endpoint selects the framework `package` selects for it, through the House's owner-default compile selection, and the output names each endpoint's framework when they differ | CLI harness, real assets `System.Text.Json` 9.0.0 and 10.0.0: `net9.0` against `net10.0` by default, each the framework `package` reports for that version, and both `net9.0` with `--tfm net9.0`. The operator's example, 10.0.0 against the 11.0 release candidate (`net10.0` against `net11.0`), is the same rule; it is checked live on nuget.org, not gated |
+| 10. Floating pairwise diff, after step 4 part 1 | `*` and `latest` settle as `package` settles them, through the House's selecting demand, once per endpoint | CLI harness, `System.Text.Json` 9.0.0 and 10.0.0 with a prerelease above 10.0.0, so `*` (prerelease included) and `latest` (stable) settle differently; each settled version equals `package`'s for the same spelling |
 | 11. Multi-Library and member-targeted views, after step 4 part 2 | the merged participant surface; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0` no longer doubles change rows | CLI harness, real assets |
 | 12. Body views, after step 4 part 3 | implementation participants, never reference stubs, with or without `--tfm` | CLI harness |
 | 13. Legacy retired, after step 4 part 6 | no `diff --package` request reaches the `AssemblySet` endpoint path, except an offline `*` pattern until the House settles `Wildcard` offline | CLI harness |
 | 14. Performance, every step 4 part that changes code | exact-head NativeAOT numbers against `main`, built on linux-x64 and run back to back under `perf-guard`, in the PR body and the session: cold and warm wall time, bytes received, and disk written | perf hosts, fixed pairs: `System.Text.Json` 10.0.0..11.0 with and without `--tfm`; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0`; `NUnit` 4.1.0..4.2.2; `MediatR` 12.2.0..12.4.1; `Microsoft.Extensions.Hosting` 8.0.0..9.0.0; `Microsoft.CodeAnalysis.CSharp` 4.12.0..4.14.0 |
+| 15. Exact CLI Library API inspection | unchanged detached output and typed missing/malformed outcomes; complete compile evidence with only the selected Library body materialized | Sections, Services, and CLI contract suites; real assets `System.Text.Json` 10.0.0, `Avalonia` 12.1.3, and `Microsoft.CodeAnalysis.CSharp` 5.9.0 |
 
 ## Non-claims
 

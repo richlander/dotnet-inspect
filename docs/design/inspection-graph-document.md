@@ -996,15 +996,15 @@ design target; the producer's owning contract remains authoritative.
 
 ### Async sibling calls (#4091, #8341)
 
-Analysis publishes `sync-call-in-async` evidence with exact
-`analysis.call-site` Finding provenance and a typed callable async candidate.
+Analysis publishes a typed async-sibling producer row with the authenticated
+caller, exact physical synchronous `DirectCall`, and callable async candidate.
 The current L1 adoption projects it as the Analysis-owned
 `analysis.async-sibling-opportunity` relationship defined under
 [Async-sibling opportunity composition](#async-sibling-opportunity-composition):
 
 - the observed synchronous call remains a `call`;
 - the candidate relationship remains an opportunity;
-- the physical call site and Finding key remain attached;
+- the physical MethodDef/IL call coordinate remains attached;
 - missing graph endpoints or physical evidence remain explicit join outcomes.
 
 Type/package roll-up and presentation remain design targets. No graph presents

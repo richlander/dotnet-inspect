@@ -1017,7 +1017,8 @@ public sealed partial class BrowserEngineBoundaryTests
         System.Net.HttpStatusCode packageStatus =
             System.Net.HttpStatusCode.OK,
         bool omitContentLength = false,
-        Task? payloadRelease = null)
+        Task? payloadRelease = null,
+        bool ignoreRange = false)
         : HttpMessageHandler
     {
         readonly string _package = packageId.ToLowerInvariant();
@@ -1087,7 +1088,7 @@ public sealed partial class BrowserEngineBoundaryTests
             {
                 RangeItemHeaderValue? range =
                     request.Headers.Range?.Ranges.SingleOrDefault();
-                if (range is not null)
+                if (range is not null && !ignoreRange)
                 {
                     long start;
                     long end;
@@ -1107,10 +1108,14 @@ public sealed partial class BrowserEngineBoundaryTests
                     }
 
                     int count = checked((int)(end - start + 1));
-                    var content = new ByteArrayContent(
-                        archive,
-                        checked((int)start),
-                        count);
+                    HttpContent content = payloadRelease is not null
+                        ? new StreamContent(new GatedPayloadStream(
+                            archive.AsSpan(checked((int)start), count).ToArray(),
+                            PayloadReadStarted,
+                            payloadRelease,
+                            read => PackageBytesServed += read))
+                        : new ByteArrayContent(archive, checked((int)start), count);
+                    content.Headers.ContentLength = count;
                     content.Headers.ContentRange =
                         new ContentRangeHeaderValue(
                             start,
@@ -1121,7 +1126,8 @@ public sealed partial class BrowserEngineBoundaryTests
                     response.Content = content;
                     response.Headers.AcceptRanges.Add("bytes");
                     RangedPackageResponses++;
-                    PackageBytesServed += count;
+                    if (payloadRelease is null)
+                        PackageBytesServed += count;
                     return Task.FromResult(response);
                 }
 

@@ -60,12 +60,17 @@ public sealed class PackageLibrarySelector
             if (Kind == PackageLibrarySelectionKind.AssetId || identities.Length > 0)
                 return identities;
         }
+        string path = Kind == PackageLibrarySelectionKind.Query
+            && Value.Contains('/')
+            && !Value.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                ? Value + ".dll"
+                : Value;
         return [.. selection.Assets.Where(asset =>
         {
             PackageCompileAsset? implementation = selection.FindImplementationAsset(asset);
             return Kind == PackageLibrarySelectionKind.AssetPath || Value.Contains('/')
-                ? asset.Path.Equals(Value, StringComparison.OrdinalIgnoreCase)
-                    || implementation?.Path.Equals(Value, StringComparison.OrdinalIgnoreCase) == true
+                ? asset.Path.Equals(path, StringComparison.OrdinalIgnoreCase)
+                    || implementation?.Path.Equals(path, StringComparison.OrdinalIgnoreCase) == true
                 : NameMatches(asset.AssemblyName, Value)
                     || implementation is not null && NameMatches(implementation.AssemblyName, Value);
         })];

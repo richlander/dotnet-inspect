@@ -6,7 +6,7 @@ owned by Resource Explanation. Product Vocabulary owns the declarations being
 read. These are **offline proposal examples**, not installed narrowing syntax.
 The examples remain pinned proposal evidence. Shared production reading is
 [implemented below](#shared-production-reading); [CLI value reading](#cli-value-reading)
-is admitted, while Browser narrowing remains pending.
+is admitted, as is [Browser value reading](#browser-value-reading).
 
 The design starts with questions, as in the pinned
 [CVE schema design](https://github.com/dotnet/designs/blob/b9bc7465feae40aa606b8e781fc290c20b690748/accepted/2025/cve-schema/cve_schema.md#design-philosophy):
@@ -300,6 +300,40 @@ dotnet-inspect explain vocabularies/csharp.style-choices .hal --json \
 The shared selection embeds their exact `Lens` term. It does not automatically
 expand optional group peers. A bare `-Q` after `.hal --json` requests the full
 reading; empty, unknown, pattern or case-mismatched identities fail visibly.
-`--depth` and capability-search `-n` retain their distinct meanings. Browser
-value admission remains #10016, and release-owned skill recipe updates are
-tracked on #8151 before packaging.
+`--depth` and capability-search `-n` retain their distinct meanings. Browser value admission is described below; release-owned skill recipe updates
+are tracked on #8151 before packaging.
+
+## Browser value reading
+
+The initialized generated catalog facade exposes the same shared selection via
+`explainVocabularies(address, depth, valueIds)`. Unlike CLI list syntax, the third
+argument is an array of exact native IDs, or null for the full reading. The
+address selects direct or HAL; the array only narrows its data.
+
+```javascript
+const address = "inspect-resource:/vocabularies/csharp.body-kinds?projection=hal";
+const result = catalog.explainVocabularies(address, 0, ["ObjectCreationExpression"]);
+if (result.outcome !== "Explained") throw new Error(result.rejection.message);
+const content = result.explanation.content;
+const kinds = content._embedded.vocabularies.find(v => v.id === "csharp.body-kinds");
+console.log(kinds._embedded.values[0].id); // ObjectCreationExpression
+```
+
+The agent stops with that identity. If its question changes to address
+expressions, the emitted collection address supports another narrowed read:
+
+```javascript
+catalog.explainVocabularies(content._links.collection.href, 0, ["AddressExpression"]);
+```
+
+Use null to discover the full population when identities are not yet known.
+Do not infer false from an unselected value or request the collection merely to
+verify an embedded answer. A style read of `["slot-local-names"]` embeds that
+choice and the exact `Synthesis` tier, as in the CLI demo. `projection=data`
+returns equivalent knowledge in lookup tables. Empty arrays, unknown or
+case-mismatched IDs, combined list strings and patterns return typed rejection,
+with no explanation. Depth is zero for both reading projections.
+
+[Browser admission](../../../inspect-web/README.md#browser-vocabulary-explanation-admission)
+owns the facade gesture under #10016. The Worker bridge transports the native
+array unchanged; reusable selection and JSON lowering remain shared.

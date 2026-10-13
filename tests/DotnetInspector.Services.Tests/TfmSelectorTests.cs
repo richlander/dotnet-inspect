@@ -671,6 +671,66 @@ public class TfmSelectorTests : IDisposable
         Assert.DoesNotContain("lib/net8.0/fr/MyLib.resources.dll", extracted);
     }
 
+    [Theory]
+    [InlineData("RealAssets/PackageAdmission/System.Text.Json.10.0.0.nupkg")]
+    [InlineData("fixtures/nugetfetch/pclstorage.1.0.2.nupkg")]
+    public void SelectHighestAssembliesFromEntries_MatchesTheExtractedSelection(string archive)
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, archive);
+        string[] entries;
+        using (var zip = System.IO.Compression.ZipFile.OpenRead(path))
+        {
+            entries = [.. zip.Entries.Select(static entry => entry.FullName)];
+        }
+        System.IO.Compression.ZipFile.ExtractToDirectory(path, _tempDir);
+
+        Assert.Equal(ExtractedHighest(), TfmSelector.SelectHighestAssembliesFromEntries(entries));
+    }
+
+    /// <summary>
+    /// With no target framework the legacy selector reads the first of
+    /// <c>tools</c>, <c>ref</c>, and <c>lib</c> that ships a DLL, so a
+    /// package with <c>ref/</c> selects its reference assemblies only, at
+    /// the highest framework, less satellites.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SelectHighestAssembliesFromEntries_MatchesTheExtractedSelectionForRootsAndSatellites(
+        bool withTools)
+    {
+        List<string> entries =
+        [
+            "lib/net8.0/MyLib.dll",
+            "lib/net10.0/MyLib.dll",
+            "lib/net10.0/fr/MyLib.resources.dll",
+            "ref/net8.0/MyLib.dll",
+            "ref/net10.0/MyLib.dll",
+            "ref/net10.0/de/MyLib.resources.dll",
+            "runtimes/win/lib/net10.0/MyLib.dll",
+            "analyzers/dotnet/cs/MyLib.Analyzers.dll",
+            "ref/net10.0/",
+        ];
+        if (withTools)
+            entries.Add("tools/net8.0/any/Tool.dll");
+        foreach (string entry in entries.Where(static entry => !entry.EndsWith('/')))
+            WriteDll(entry);
+
+        string[] extracted = ExtractedHighest();
+
+        Assert.Equal(extracted, TfmSelector.SelectHighestAssembliesFromEntries(entries));
+        Assert.Equal(
+            withTools ? ["tools/net8.0/any/Tool.dll"] : ["ref/net10.0/MyLib.dll"],
+            extracted);
+    }
+
+    string[] ExtractedHighest() =>
+    [
+        .. TfmSelector.SelectHighestAssembliesFromPackage(_tempDir).paths
+            .Select(selected => Path.GetRelativePath(_tempDir, selected).Replace('\\', '/'))
+            .Order(StringComparer.Ordinal),
+    ];
+
     private string WriteDll(string relativePath)
     {
         var path = Path.Combine(_tempDir, relativePath.Replace('/', Path.DirectorySeparatorChar));

@@ -833,7 +833,7 @@ operation, source authorization, authority-scoped store plan, limits, transfer
 policy, and operation lease. It owns a package-wide semantic Files query,
 combined with File List over the same directory snapshot, case-insensitive
 manifest resolution, actual-path preservation, and generation-bound
-`OpenRead()`. PackageHouse owns cache-first and size-first ranged execution
+`OpenRead()`. PackageHouse owns cache-first and directory-first ranged execution
 plus complete fallback; either path publishes only the exact queried entry
 even when the store retains the complete archive. The File List preserves the
 complete physical inventory for follow-on decisions such as legacy tool-wrapper
@@ -1294,7 +1294,7 @@ this handoff. It accepts one exact or version-selecting package demand, exact
 target framework, typed Library selector, selection or implementation depth,
 optional companion demand, source authorization, authority-scoped ranged
 store plan, and operation lease. It owns compile `Realize` request
-construction, cache-first and size-first execution, named implementation
+construction, cache-first and directory-first execution, named implementation
 demand, and resolution of exactly one settlement-issued compile handoff.
 Hosts bind their environment and consume the typed result; they do not
 recreate those steps.

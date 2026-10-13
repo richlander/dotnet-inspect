@@ -130,10 +130,6 @@ public class ApiMemberAnalysisInspectionTests
                     result.Result.Receipts.Single().Receipt
                         .For(AsyncSiblingProducer.Instance)
                         .Outcome);
-                Assert.False(
-                    result.Session.AnalysisExecution.Receipt.Features.HasFlag(
-                    ILInspector.Analysis.LibraryBodyAnalysisFeatures
-                        .AsyncSiblingOpportunities));
                 Assert.False(result.Session.AnalysisExecution.Receipt.Features.HasFlag(
                     ILInspector.Analysis.LibraryBodyAnalysisFeatures
                         .Allocations));
@@ -311,10 +307,6 @@ public class ApiMemberAnalysisInspectionTests
                     result.Result.Receipts.Single().Receipt
                         .For(AsyncSiblingProducer.Instance)
                         .Outcome);
-                Assert.False(
-                    result.Session.AnalysisExecution.Receipt.Features.HasFlag(
-                    ILInspector.Analysis.LibraryBodyAnalysisFeatures
-                        .AsyncSiblingOpportunities));
                 Assert.False(result.Session.AnalysisExecution.Receipt.Features.HasFlag(
                     ILInspector.Analysis.LibraryBodyAnalysisFeatures
                         .Allocations));
