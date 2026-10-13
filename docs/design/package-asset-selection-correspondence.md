@@ -87,16 +87,20 @@ asset identities as comparison provenance.
 
 The policy-taking `PackageCompileAssetSelector.Evaluate` overload returns
 `PackageCompileAssetSelectionReceipt` with the same generation and request
-evidence plus the exact package ID, `HighestAvailable` or `ExplicitTarget`
-policy source, and `PackageCompileAssetSelection` outcome. Requested and
-selected target frameworks remain separate.
+evidence plus the exact package ID, `HighestAvailable`, `ExplicitTarget`, or
+`ExactTarget` policy source, nested-candidate eligibility, and
+`PackageCompileAssetSelection` outcome. Requested and selected target
+frameworks remain separate.
 
-`ExactTarget` is a transitional, non-PackageHouse policy for existing
-consumers that have not reached their aggregate-adoption slice. It selects only
-direct assets from an exactly named available slice while retaining nested
-candidates in `AvailableSlices`. PackageHouse correspondence rejects that
-policy, so an exact-only consumer cannot accidentally satisfy the new
-package-local contract.
+The existing exact-only selector convenience remains direct-only: it issues
+`ExactTarget`, selects direct assets from an exactly named available slice, and
+retains nested candidates only in `AvailableSlices`. PackageHouse may also
+issue `ExactTarget`, but its target context and receipt must agree separately
+on nested-candidate eligibility. Caller-authored exact-target realization
+retains the direct-only behavior. Frozen owner-selected realization accepts
+only the named framework while retaining owner-default eligibility, including
+nested compile assets. A standalone selector receipt therefore cannot satisfy
+House correspondence merely by naming the same policy and target.
 
 The receipts are resource-free. They do not retain `IPackageContent`, streams,
 filesystem paths outside the existing package-relative asset outcomes, package
@@ -111,10 +115,11 @@ through a lower-owner prerequisite.
 ## Composition and adoption
 
 The immediate consumer is the focused PackageHouse package-local compile
-contract in #7423. PackageHouse maps absent and explicit target context to the
-selector policies above and preserves the returned receipt unchanged. The
-aggregate recommendation and exact/namesake narrowing contract remains owned
-by Navigation in #7318.
+contract in #7423. PackageHouse maps absent, compatible explicit,
+caller-authored exact, and frozen owner-selected target contexts to the
+selector policy and candidate-eligibility facts above and preserves the
+returned receipt unchanged. The aggregate recommendation and exact/namesake
+narrowing contract remains owned by Navigation in #7318.
 
 PackageHouse may compare a selector receipt's generation and exact request
 arguments with its acquisition and target-context receipts. It does not
@@ -146,7 +151,7 @@ dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
 | Compile evaluation retains generation, request, explicit policy, and outcome | `Evaluate_RetainsGenerationRequestAndSelection` |
 | An absent target records `HighestAvailable` and selects the highest slice | `Evaluate_AbsentTargetRetainsHighestAvailablePolicy` |
 | Explicit targets retain requested and compatible selected frameworks separately | `ExplicitTarget_SelectsCompatibleLowerSlice` and `ExactCompileRealizeBindsSelectionAndLibraryHandoff` |
-| Existing exact-only consumers cannot satisfy PackageHouse policy | `ExactTargetConveniencePathDoesNotApplyPackageLocalFallback` and `CompileReceiptRejectsExactTargetOutsideHousePolicy` |
+| Exact policy alone cannot satisfy PackageHouse correspondence | `ExactTargetConveniencePathDoesNotApplyPackageLocalFallback`, `CompileReceiptRejectsExactTargetOutsideHousePolicy`, `CompileReceiptRejectsDifferentCandidateEligibility`, and `FrozenTargetCompileRealizePreservesNestedOwnerEligibility` |
 | Policy and target cardinality must agree | `PackageLocalPolicyRejectsAnInconsistentTarget` |
 | Marker-only and highest-marker packages remain selected-empty inventory | `EmptyReferenceGroup_AloneIsASelectedEmptySlice` and `HighestAvailable_ChoosesHigherEmptySliceOverLowerLibrarySlice` |
 | Marker suppression is framework-local and real references win | `EmptyReferenceGroup_InALowerSliceDoesNotSuppressSelectedHigherSlice` and `EmptyReferenceGroup_LosesToRealReferenceAssetsAtTheSelectedFramework` |

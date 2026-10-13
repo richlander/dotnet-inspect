@@ -6,6 +6,8 @@ public sealed record CompleteRestorationExecutionOptions
 {
     public required WorkspaceContextLoadOptions ContextLoad { get; init; }
 
+    public PackageRootHouseExecution? PackageRootHouse { get; init; }
+
     public required DateTimeOffset ScopeDeadline { get; init; }
 
     public required ViewFacetRegistry Facets { get; init; }

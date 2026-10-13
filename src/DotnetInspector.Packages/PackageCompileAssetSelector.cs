@@ -219,6 +219,7 @@ public sealed class PackageCompileAssetSelectionReceipt
         PackageCompileAssetSelectionPolicy policy,
         string? requestedTargetFramework,
         string? requestedRuntimeIdentifier,
+        bool includesNestedCompileAssets,
         PackageCompileAssetSelection selection)
     {
         ArgumentNullException.ThrowIfNull(generation);
@@ -229,6 +230,7 @@ public sealed class PackageCompileAssetSelectionReceipt
         Policy = policy;
         RequestedTargetFramework = requestedTargetFramework;
         RequestedRuntimeIdentifier = requestedRuntimeIdentifier;
+        IncludesNestedCompileAssets = includesNestedCompileAssets;
         Selection = selection;
     }
 
@@ -241,6 +243,8 @@ public sealed class PackageCompileAssetSelectionReceipt
     public string? RequestedTargetFramework { get; }
 
     public string? RequestedRuntimeIdentifier { get; }
+
+    public bool IncludesNestedCompileAssets { get; }
 
     public PackageCompileAssetSelection Selection { get; }
 }
@@ -320,7 +324,23 @@ public static class PackageCompileAssetSelector
         string packageId,
         PackageCompileAssetSelectionPolicy policy,
         string? targetFramework = null,
-        string? runtimeIdentifier = null)
+        string? runtimeIdentifier = null) =>
+        Evaluate(
+            content,
+            packageId,
+            policy,
+            targetFramework,
+            runtimeIdentifier,
+            includeNestedCompileAssets:
+                policy != PackageCompileAssetSelectionPolicy.ExactTarget);
+
+    internal static PackageCompileAssetSelectionReceipt Evaluate(
+        IPackageContent content,
+        string packageId,
+        PackageCompileAssetSelectionPolicy policy,
+        string? targetFramework,
+        string? runtimeIdentifier,
+        bool includeNestedCompileAssets)
     {
         ArgumentNullException.ThrowIfNull(content);
         if (!Enum.IsDefined(policy))
@@ -348,13 +368,14 @@ public static class PackageCompileAssetSelector
             policy,
             targetFramework,
             runtimeIdentifier,
+            includeNestedCompileAssets,
             SelectCore(
                 content,
                 packageId,
                 targetFramework,
                 runtimeIdentifier,
                 includeNestedCompileAssets:
-                    policy != PackageCompileAssetSelectionPolicy.ExactTarget,
+                    includeNestedCompileAssets,
                 allowCompatibleFallback:
                     policy == PackageCompileAssetSelectionPolicy.ExplicitTarget));
     }
@@ -398,6 +419,7 @@ public static class PackageCompileAssetSelector
             policy,
             targetFramework,
             runtimeIdentifier,
+            policy != PackageCompileAssetSelectionPolicy.ExactTarget,
             selection);
     }
 
