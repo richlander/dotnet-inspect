@@ -169,7 +169,7 @@ public sealed partial class ResourceExplanationDataset
     }
 
     private static JsonNode RequireFact(JsonObject facts, string field) => facts[field]
-        ?? throw new InvalidOperationException("A selected query-preparation fact is unavailable: " + field);
+        ?? throw new InvalidOperationException("A selected reading fact is unavailable: " + field);
 
     private static JsonNode? AvailableOrAbsent(
         JsonObject facts,
@@ -182,7 +182,7 @@ public sealed partial class ResourceExplanationDataset
             && state["state"]?.GetValue<string>() == "Absent")
             return null;
         throw new InvalidOperationException(
-            "A selected query-preparation fact is unavailable: " + field);
+            "A selected reading fact is unavailable: " + field);
     }
 
     private static JsonObject WithKey(KeyValuePair<string, JsonNode?> pair)
