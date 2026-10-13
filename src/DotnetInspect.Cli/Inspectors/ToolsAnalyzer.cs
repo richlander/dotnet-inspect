@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Models;
 using System.Xml.Linq;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 
@@ -108,6 +109,204 @@ public static class ToolsAnalyzer
         {
             result.ContentDirectories = found;
         }
+    }
+
+    public static void AnalyzePackageInventory(
+        IReadOnlyList<PackageContentEntry> entries,
+        IReadOnlyList<string> directories,
+        InspectionResult result)
+    {
+        string[] paths =
+        [
+            .. entries.Select(static entry => entry.Path),
+        ];
+        HashSet<string> topLevelDirectories =
+        [
+            .. directories.Select(static path =>
+                path.Split('/', 2)[0]),
+        ];
+        string[] standardDirectories =
+        [
+            "lib",
+            "tools",
+            "analyzers",
+            "build",
+            "buildTransitive",
+            "contentFiles",
+            "ref",
+            "runtimes",
+        ];
+        List<string> contentDirectories =
+        [
+            .. standardDirectories.Where(
+                topLevelDirectories.Contains),
+        ];
+        if (contentDirectories.Count > 0)
+            result.ContentDirectories = contentDirectories;
+
+        List<string> frameworkFolders =
+            TfmSelector.GetPackageFrameworkFolders(directories);
+        result.TargetFrameworks =
+            frameworkFolders.Count > 0
+                ? frameworkFolders
+                : null;
+        if (result.PackageTypes is not { Count: > 0 })
+        {
+            result.IsToolPackage =
+                topLevelDirectories.Contains("tools")
+                && !topLevelDirectories.Contains("lib")
+                && result.TargetFrameworks is { Count: > 0 };
+        }
+
+        IEnumerable<string> assemblyCandidates =
+            SelectAssemblyCandidates(
+                paths,
+                topLevelDirectories);
+        result.AssemblyCount = assemblyCandidates
+            .Where(static path => !path.EndsWith(
+                ".resources.dll",
+                StringComparison.OrdinalIgnoreCase))
+            .Select(static path => Path.GetFileName(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+
+        List<string> libraryFiles =
+        [
+            .. paths
+                .Where(static path => path.StartsWith(
+                    "lib/",
+                    StringComparison.Ordinal))
+                .Order(StringComparer.Ordinal),
+        ];
+        if (libraryFiles.Count > 0)
+            result.LibraryFiles = libraryFiles;
+
+        List<string> supportedRids =
+        [
+            .. directories
+                .Select(static path => path.Split('/'))
+                .Where(static parts =>
+                    parts.Length == 3
+                    && parts[0].Equals(
+                        "tools",
+                        StringComparison.Ordinal))
+                .Select(static parts => parts[2])
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal),
+        ];
+        if (supportedRids.Any(static rid =>
+                !rid.Equals(
+                    "any",
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            result.HasRidSpecificAssets = true;
+        }
+        if (!result.IsRidSpecificPointerPackage
+            && supportedRids.Any(static rid => rid.Equals(
+                "any",
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            result.IsFrameworkDependent = true;
+        }
+
+        if (topLevelDirectories.Contains("lib")
+            && topLevelDirectories.Contains("runtimes"))
+        {
+            supportedRids.AddRange(
+                directories
+                    .Select(static path => path.Split('/'))
+                    .Where(static parts =>
+                        parts.Length == 2
+                        && parts[0].Equals(
+                            "runtimes",
+                            StringComparison.Ordinal))
+                    .Select(static parts => parts[1]));
+            result.HasRidSpecificAssets = true;
+        }
+        result.SupportedRids =
+        [
+            .. supportedRids
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal),
+        ];
+        if (result.SupportedRids.Count == 0)
+            result.SupportedRids = null;
+
+        if (!topLevelDirectories.Contains("lib")
+            || !topLevelDirectories.Contains("runtimes"))
+        {
+            return;
+        }
+
+        string[] runtimePaths =
+        [
+            .. paths.Where(static path => path.StartsWith(
+                "runtimes/",
+                StringComparison.Ordinal)),
+        ];
+        List<string> nativeFiles =
+        [
+            .. runtimePaths
+                .Select(static path => path.Split('/'))
+                .Where(static parts =>
+                    parts.Length == 4
+                    && parts[2].Equals(
+                        "native",
+                        StringComparison.Ordinal))
+                .Select(static parts =>
+                    $"{parts[1]}: {parts[3]}")
+                .Order(StringComparer.Ordinal),
+        ];
+        if (nativeFiles.Count > 0)
+        {
+            result.HasNativeDependencies = true;
+            result.NativeFiles = nativeFiles;
+        }
+    }
+
+    private static IEnumerable<string> SelectAssemblyCandidates(
+        IEnumerable<string> paths,
+        HashSet<string> topLevelDirectories)
+    {
+        IEnumerable<string> dlls = paths.Where(static path =>
+            path.EndsWith(
+                ".dll",
+                StringComparison.OrdinalIgnoreCase));
+        if (topLevelDirectories.Contains("tools"))
+        {
+            string[] tools =
+            [
+                .. dlls.Where(static path => path.StartsWith(
+                    "tools/",
+                    StringComparison.Ordinal)),
+            ];
+            if (tools.Length > 0)
+                return tools;
+        }
+        if (topLevelDirectories.Contains("ref"))
+        {
+            string[] references =
+            [
+                .. dlls.Where(static path => path.StartsWith(
+                    "ref/",
+                    StringComparison.Ordinal)),
+            ];
+            if (references.Length > 0)
+                return references;
+        }
+        if (topLevelDirectories.Contains("lib"))
+        {
+            string[] libraries =
+            [
+                .. dlls.Where(static path => path.StartsWith(
+                    "lib/",
+                    StringComparison.Ordinal)),
+            ];
+            if (libraries.Length > 0)
+                return libraries;
+        }
+
+        return dlls;
     }
 
     /// <summary>

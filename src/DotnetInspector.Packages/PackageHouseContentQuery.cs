@@ -198,8 +198,10 @@ public sealed class PackageHouseFileList
     internal PackageHouseFileList(
         PackageHouseContentNarrowingReceipt narrowing,
         IReadOnlyList<PackageContentEntry> entries,
-        IReadOnlyList<string>? directories = null)
+        IReadOnlyList<string>? directories = null,
+        IReadOnlyList<PackageContentEntry>? directoryEntries = null)
     {
+        DirectoryEntries = directoryEntries;
         Directories = directories;
         Narrowing = narrowing
             ?? throw new ArgumentNullException(nameof(narrowing));
@@ -217,6 +219,12 @@ public sealed class PackageHouseFileList
 
     /// <summary>Optional complete package-wide directory facts from the same admitted generation.</summary>
     public IReadOnlyList<string>? Directories { get; }
+
+    /// <summary>
+    /// Optional explicit archive directory entries, including their timestamps,
+    /// from the same admitted generation.
+    /// </summary>
+    public IReadOnlyList<PackageContentEntry>? DirectoryEntries { get; }
 
     /// <summary>
     /// Creates a later exact Files query from entries issued by this exact
