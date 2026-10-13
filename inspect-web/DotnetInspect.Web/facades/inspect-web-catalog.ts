@@ -983,7 +983,7 @@ type $ManagedExports = {
             readonly "DecodeWorkspaceShareState.304094707": (encoded: string) => string;
             readonly "DescribeWorkspacePackageSources.304094707": (canonicalPacket: string) => string;
             readonly "EncodeWorkspaceShareState.304094707": (stateJson: string) => string;
-            readonly "ExplainVocabularies.146925470": (path: string, depth: number) => string;
+            readonly "ExplainVocabularies.1772831633": (path: string, depth: number, valueIds: string[] | null) => string;
             readonly "InspectVocabulary.1310674786": () => string;
             readonly "ListEcosystems.1310674786": () => string;
             readonly "ListHomeDemos.1310674786": () => string;
@@ -1268,9 +1268,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Catalog");
     value = $ownDataProperty(value, "CatalogExports");
-    value = $ownDataProperty(value, "ExplainVocabularies.146925470");
+    value = $ownDataProperty(value, "ExplainVocabularies.1772831633");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ExplainVocabularies.146925470\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ExplainVocabularies.1772831633\u0027 is not callable.");
     }
   }
   {
@@ -1572,8 +1572,8 @@ export function encodeWorkspaceShareState(stateJson: BrowserWorkspaceShareState)
   return $parsed as BrowserWorkspaceShareEncodeResult;
 }
 
-export function explainVocabularies(path: string, depth: number): BrowserVocabularyExplanationResult {
-  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ExplainVocabularies.146925470"](path, depth);
+export function explainVocabularies(path: string, depth: number, valueIds: string[] | null): BrowserVocabularyExplanationResult {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ExplainVocabularies.1772831633"](path, depth, valueIds);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserVocabularyExplanationResult;
 }

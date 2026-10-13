@@ -3132,6 +3132,23 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(panel.getByRole("heading", { name: "Dependency graph" }))
       .toBeVisible();
     await expect(panel.locator("#dependency-graph-diagram svg")).toBeVisible();
+
+    await page.goto(
+      `/index.html?package=${aspNetCoreReference.packageId}&version=${version}`
+        + `&framework=${fixtureFramework}#pkg:dependencies`,
+    );
+    await expect(
+      panel.getByRole("heading", { name: "References", exact: true }),
+    ).toBeVisible({ timeout: 60_000 });
+    const platformReference =
+      panel.locator(".platform-reference-list .dep-name");
+    await expect(platformReference).toHaveText("ASP.NET Core");
+    const platformReferenceWidth = await platformReference.evaluate(element => ({
+      client: element.clientWidth,
+      scroll: element.scrollWidth,
+    }));
+    expect(platformReferenceWidth.client)
+      .toBeGreaterThanOrEqual(platformReferenceWidth.scroll);
   });
 
   test("renders the available reference rows on the production package page", async ({

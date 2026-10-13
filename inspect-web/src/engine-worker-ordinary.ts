@@ -2173,7 +2173,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     explainVocabularies: valueOperation(
       "ordinary-catalog-explain-vocabularies",
-      2,
+      3,
       (
         facades,
         ...args: Parameters<CatalogFacade["explainVocabularies"]>
