@@ -132,9 +132,11 @@ path. It deliberately changes only the selected result boundary:
    matched root namespace and root-to-leaf metadata-name segments into one
    compact immutable backing. No unmatched candidate Name is copied.
 3. Its `MetadataUtf8Name` views issue `Utf8RangeReader`; projection constructs
-   `InertUtf8String(TextPolicy.Field, reader)`.
-4. The existing `MetadataTypeDefinitionName` and host models remain the
-   UTF-16 compatibility boundary for this slice.
+   `InertUtf8String(TextPolicy.Field, reader)` values in a separate
+   `MetadataContainedTypeDefinitionName`.
+4. The existing raw `MetadataTypeDefinitionName` remains the exact lookup and
+   binding identity. `TypeSubject` carries the contained presentation beside
+   it without substituting escaped presentation spellings into identity.
 
 This baseline does not yet change query provenance or matching. The request
 remains a structured string value, `MetadataReader.StringComparer` keeps its
@@ -611,7 +613,7 @@ the repository threat model.
 | Exact-byte encoder | Exact bytes reach destination-owned storage without lending the backing; domain eligibility and destination failures remain visible | PR-fast |
 | Containment parity | Printing is admitted only from constructed `InertUtf8String`; for clean, concerning, and ill-formed inputs, direct UTF-8 and `InertString` output have identical spelling, concern, form, and truncation evidence | PR-fast |
 | Shared backing | A generated population of names and nested domain parts retains one backing rather than one array or class per view | PR-fast |
-| Exact-Type selected identity | A fully qualified exact nested Type detaches only its matched namespace and root-to-leaf Name segments into one backing, preserves segment boundaries, and projects the same structured identity after containment | First adoption PR |
+| Exact-Type selected identity | A fully qualified exact nested Type detaches only its matched namespace and root-to-leaf Name segments into one backing, preserves segment boundaries, keeps raw lookup identity unchanged, and carries the separately contained presentation without applying identity limits to its expanded spelling | First adoption PR |
 | Exact-Type base/head | NativeAOT exact-command time and allocation comparison preserves result semantics; retained-memory claims include the detached matched Name backing and do not count UTF-16 compatibility output as byte-native savings | First adoption PR |
 | Host-input optimization | Exact query bytes are encoded once, typed match evidence is available only after exact equality, and the candidate is compared with the merged exact-Type baseline | Follow-up adoption PR |
 | Symbol Key representation pilot | SPC comparison of the current private Symbol Key and the proposed range-backed model measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; exact identity answers must agree | Completed pilot |
@@ -633,7 +635,8 @@ exact-base/head gates run.
 3. **Exact-Type baseline adoption.** Implement the immutable backing, opaque
    range, scoped reader, and Inert UTF-8 containment path. Detach only the
    unique fully qualified Type match into `MetadataUtf8TypeDefinitionName`;
-   preserve the existing search algorithm and UTF-16 host contracts.
+   preserve the existing search algorithm and raw structured identity, and
+   carry contained presentation separately from that identity.
 4. **Exact-Type host-input optimization.** Add the auditable host-created
    exact-input type, return typed evidence from the same successful byte
    comparisons, and compare against the merged step 3 baseline.

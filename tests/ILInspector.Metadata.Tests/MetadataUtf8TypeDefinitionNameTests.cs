@@ -1,6 +1,8 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 using InertText;
 
@@ -50,11 +52,47 @@ public sealed class MetadataUtf8TypeDefinitionNameTests
             detached.Segments
                 .Select(segment =>
                     segment.Contain(TextPolicy.Field).ToString()));
-        Assert.Equal(name, detached.ToDefinitionName(TextPolicy.Field));
+        MetadataContainedTypeDefinitionName contained =
+            detached.Contain(TextPolicy.Field);
+        Assert.Equal(
+            "ILInspector.Metadata.Tests",
+            contained.Namespace.ToString());
+        Assert.Equal(
+            [
+                nameof(MetadataUtf8TypeDefinitionNameTests),
+                nameof(NestedFixture),
+            ],
+            contained.Segments.Select(segment =>
+                segment.ToString()));
         object backing = Backing(detached.Namespace);
         Assert.All(
             detached.Segments,
             segment => Assert.Same(backing, Backing(segment)));
+    }
+
+    [Fact]
+    public void Contain_KeepsPresentationSeparateFromExactIdentity()
+    {
+        string rawSegment = new('\u202E', 700);
+        byte[] rawBytes = Encoding.UTF8.GetBytes(rawSegment);
+        var detached =
+            new MetadataUtf8TypeDefinitionName(
+                new(
+                    OpaqueByteRange.Copy("Example"u8)),
+                ImmutableArray.Create(
+                    new MetadataUtf8Name(
+                        OpaqueByteRange.Copy(rawBytes))));
+
+        MetadataContainedTypeDefinitionName contained =
+            detached.Contain(TextPolicy.Field);
+
+        MetadataUtf8Name segment = Assert.Single(detached.Segments);
+        Assert.True(segment.ValueTextEquals(rawBytes));
+        Assert.Equal(4_200, Assert.Single(contained.Segments).Length);
+        Assert.Equal(
+            string.Concat(
+                Enumerable.Repeat("\\u202E", 700)),
+            Assert.Single(contained.Segments).ToString());
     }
 
     private static object Backing(MetadataUtf8Name name)

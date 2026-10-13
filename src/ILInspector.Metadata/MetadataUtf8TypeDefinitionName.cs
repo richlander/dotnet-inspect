@@ -49,26 +49,36 @@ public sealed class MetadataUtf8TypeDefinitionName
     public ImmutableArray<MetadataUtf8Name> Segments { get; }
 
     /// <summary>
-    /// Projects this byte-native identity through containment to the existing structured
-    /// UTF-16 compatibility model.
+    /// Projects this byte-native identity into contained presentation values.
     /// </summary>
-    public MetadataTypeDefinitionName ToDefinitionName(TextPolicy policy)
+    public MetadataContainedTypeDefinitionName Contain(
+        TextPolicy policy) =>
+        new(
+            Namespace.Contain(policy),
+            [
+                .. Segments.Select(segment =>
+                    segment.Contain(policy)),
+            ]);
+}
+
+/// <summary>
+/// The contained presentation of one metadata Type name.
+/// </summary>
+public sealed class MetadataContainedTypeDefinitionName
+{
+    internal MetadataContainedTypeDefinitionName(
+        InertUtf8String @namespace,
+        ImmutableArray<InertUtf8String> segments)
     {
-        string @namespace =
-            Namespace.Contain(policy).ToString();
-        ImmutableArray<string> segments =
-        [
-            .. Segments.Select(segment =>
-                segment.Contain(policy).ToString()),
-        ];
-        return MetadataTypeDefinitionName.Create(
-                @namespace,
-                segments)
-            is MetadataTypeDefinitionNameResult.Valid valid
-                ? valid.Name
-                : throw new InvalidOperationException(
-                    "The matched metadata Type name did not preserve a valid structured identity.");
+        Namespace = @namespace;
+        Segments = segments;
     }
+
+    /// <summary>The contained root Type namespace.</summary>
+    public InertUtf8String Namespace { get; }
+
+    /// <summary>The contained root-to-leaf metadata-name segments.</summary>
+    public ImmutableArray<InertUtf8String> Segments { get; }
 }
 
 internal static class MetadataUtf8TypeDefinitionNameReader

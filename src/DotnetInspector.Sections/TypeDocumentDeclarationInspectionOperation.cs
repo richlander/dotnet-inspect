@@ -283,7 +283,8 @@ public static class TypeDocumentInspectionOperation
         TypeSubject subject =
             TypeSubjectInspectionOperation.ProjectSubject(
                 correspondence,
-                source.MatchedName?.ToDefinitionName(TextPolicy.Field)
+                plan.Type,
+                source.MatchedName?.Contain(TextPolicy.Field)
                     ?? throw new InvalidOperationException(
                         "An available Type document requires its matched byte-native Type identity."),
                 source.Subject,

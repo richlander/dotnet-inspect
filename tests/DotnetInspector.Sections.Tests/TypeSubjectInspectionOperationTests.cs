@@ -122,6 +122,17 @@ public sealed class TypeSubjectInspectionOperationTests
 
         TypeSubjectInspectionContent document = Available(envelope);
         Assert.Equal(expected, document.Subject.Type);
+        Assert.NotNull(document.Subject.ContainedType);
+        Assert.Equal(
+            "DotnetInspector.Sections.Tests",
+            document.Subject.ContainedType.Namespace.ToString());
+        Assert.Equal(
+            [
+                nameof(TypeSubjectInspectionOperationTests),
+                nameof(ByteNativeNestedFixture),
+            ],
+            document.Subject.ContainedType.Segments.Select(segment =>
+                segment.ToString()));
         Assert.Equal(
             [
                 nameof(TypeSubjectInspectionOperationTests),
