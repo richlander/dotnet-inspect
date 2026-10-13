@@ -12,8 +12,10 @@ website."
 
 The claim:
 
-> Given a PackageHouse, one exact package coordinate, one target framework,
-> and one [asset demand](package-read-demand.md#asset-demand), a package
+> Given a PackageHouse, one package demand (an exact coordinate or a
+> selection the House settles), one target context (an exact framework or the
+> House's owner default), and one
+> [asset demand](package-read-demand.md#asset-demand), a package
 > endpoint scope realizes the package Root into an `InspectionWorkspace` and
 > exposes the Root's surface participants, and its implementation participants
 > when the demand includes them. The scope owns the realized resources until
@@ -70,17 +72,20 @@ consumes; `DotnetInspector.Queries`, which owns the package Root, cannot
 reference that adapter. It takes:
 
 - a PackageHouse and a source operation lease;
-- one exact coordinate, meaning a package ID and a normalized version;
-- one target framework; and
+- one package demand: an exact coordinate, meaning a package ID and a
+  normalized version, or a `Selecting` demand that the House settles;
+- one target context: an exact framework, or `OwnerDefault`, under which the
+  House applies its highest-available compile selection; and
 - one asset demand, with optional
   [named implementation assemblies](package-read-demand.md#named-implementation-and-aligned-blocks).
 
-It realizes the coordinate with a `Realize` operation carrying that demand,
+It realizes the package with a `Realize` operation carrying those demands,
 binds the Root to the demand, and adds the Root to a Workspace the scope
 owns. The result is either an open scope or a typed non-success:
 
 - not found;
-- no compatible target framework;
+- no compatible target framework, or no compile selection under the owner
+  default;
 - a realization failure, carrying the House evidence; or
 - a Workspace admission failure.
 
@@ -117,10 +122,12 @@ selection, read it from the participant and never from a file path.
 
 ### Versions
 
-The scope takes exact coordinates. Host-level version selection runs before
-opening, through the owner the host already uses: the
-[Package Version Service](package-version-service.md) for floating versions,
-and the host's range parser for `A..B`.
+The scope takes the House's package demand, so version and framework
+selection stay in the House and behave as they do for `package`. An exact
+coordinate passes through unchanged. A floating version (`*`, `latest`) is a
+`Selecting` demand that the House settles through the
+[Package Version Service](package-version-service.md). The host's range parser
+still splits `A..B` into one demand per endpoint.
 
 ### Offline
 
@@ -247,15 +254,18 @@ never retain a participant after the scope is disposed.
      paired steps ([diff system](diff-system.md#adoption-and-retirement), step
      4) reuse them:
      1. **The House's selection, as `package` has it.** The scope request
-        carries a PackageHouse demand and target context instead of an exact
-        coordinate and framework, so `diff` selects exactly as `package`
-        does, and no consumer chooses a version or framework itself. A
-        floating version (`*`, `latest`) is a `Selecting` demand that the
-        House settles. Without `--tfm`, the target context is
-        `OwnerDefault`, and the House applies its highest-available compile
-        selection to each endpoint. Offline, the scope opens from the local
-        stores without a network request, and it reads the legacy app cache
-        as `type` does, alongside the NuGet global-packages folder.
+        carries a PackageHouse demand and target context, as
+        [Opening](#opening) and [Versions](#versions) state, so `diff`
+        selects exactly as `package` does, and no consumer chooses a version
+        or framework itself. A floating version (`*`, `latest`) is a
+        `Selecting` demand that the House settles. Without `--tfm`, the
+        target context is `OwnerDefault`, and the House applies its
+        highest-available compile selection to each endpoint. When the two
+        endpoints select different frameworks, the output names each
+        endpoint's framework. The CLI supplies a legacy-compatible store, as
+        `type` does, so the scope reads the app cache alongside the NuGet
+        global-packages folder. Offline keeps the host's existing path, as
+        [Offline](#offline) states.
      2. **API views over a merged participant surface.** A merged surface
         over every surface participant of an endpoint serves Changes,
         multi-Library packages, member targets, Changes filters, the
@@ -270,9 +280,15 @@ never retain a participant after the scope is disposed.
      5. **The workspace implementation comparison and Annotated Source
         Diff** open their Roots from the scope, and a forwarded target is
         acquired through the House rather than a pinned extraction.
-     6. **Legacy retirement.** The legacy package route, the cache deferral,
-        the admission check and its zero-size-cut House, and the testing
-        switch retire, and the parity gates are rewritten as scope gates.
+     6. **Legacy retirement.** The online legacy package route, the cache
+        deferral, the admission check and its zero-size-cut House, and the
+        testing switch retire, and the parity gates are rewritten as scope
+        gates. The offline route stays until the House can answer offline
+        from the authority-scoped, legacy-compatible, and global-packages
+        stores, the later step that
+        [package cache policy](package-cache-policy.md) names; that
+        capability is a prerequisite for retiring it, and gate 7 holds
+        until then.
 5. **Inspect Web adopts it.** `BrowserPackageWorkspace.OpenScopeAsync` opens
    its package endpoints through `PackageEndpointScope`. It keeps its browser
    store and complete acquisition until Inspect Web adopts ranged access
@@ -314,11 +330,11 @@ All gates run in Release.
 | 6. The same pairwise diff twice | the second makes no package request | CLI harness |
 | 7. Offline pairwise diff with both endpoints cached | the same output from the local cache | CLI harness |
 | 8. Inspect Web Compare, after step 5 | the same Library API diff result through the shared scope | Web boundary tests |
-| 9. Pairwise diff without `--tfm`, after step 4 part 1 | each endpoint selects the framework `package` selects for it, through the House's owner-default compile selection | CLI harness, a package that adds a framework between versions, compared with `package` |
-| 10. Floating and offline pairwise diff, after step 4 part 1 | `*` and `latest` settle as `package` settles them, through the House's selecting demand; offline answers from the local stores with no request | CLI harness |
+| 9. Pairwise diff without `--tfm`, after step 4 part 1 | each endpoint selects the framework `package` selects for it, through the House's owner-default compile selection, and the output names each endpoint's framework when they differ | CLI harness, a package that adds a framework between versions, compared with `package` |
+| 10. Floating pairwise diff, after step 4 part 1 | `*` and `latest` settle as `package` settles them, through the House's selecting demand | CLI harness |
 | 11. Multi-Library and member-targeted views, after step 4 part 2 | the merged participant surface; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0` no longer doubles change rows | CLI harness, real assets |
 | 12. Body views, after step 4 part 3 | implementation participants, never reference stubs, with or without `--tfm` | CLI harness |
-| 13. Legacy retired, after step 4 part 6 | no `diff --package` request reaches the `AssemblySet` endpoint path | CLI harness and dependency gate |
+| 13. Legacy retired, after step 4 part 6 | no online `diff --package` request reaches the `AssemblySet` endpoint path; offline does until the House answers offline | CLI harness |
 
 ## Non-claims
 
@@ -326,7 +342,9 @@ This document does not:
 
 - change any comparison, correspondence, History, Count, or rendering
   contract;
-- change version selection or range parsing;
+- change version selection or range parsing: the House and the Package
+  Version Service keep selection, and the scope only passes their demand
+  through;
 - choose a host's acquisition policy, store, or limits;
 - move `diff --library` or platform endpoints; or
 - add a Package comparison: pairwise `diff --package` remains a Library
