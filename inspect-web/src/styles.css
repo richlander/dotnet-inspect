@@ -2820,6 +2820,7 @@ kbd {
 .dep-name.as-link { border: 0; background: transparent; padding: 0; text-align: left; cursor: pointer; color: var(--blue); }
 .dep-name.as-link:hover { text-decoration: underline; }
 .dep-version { flex: 0 0 auto; font: 13px var(--mono); color: var(--dim); white-space: nowrap; }
+.platform-reference-list li { grid-template-columns: minmax(0, 1fr); }
 .package-vulnerabilities-basis { padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--chrome); color: var(--muted); font-size: 12px; }
 .package-vulnerabilities-basis p { margin: 0; }
 .package-vulnerabilities-state { min-height: 240px; align-content: center; }

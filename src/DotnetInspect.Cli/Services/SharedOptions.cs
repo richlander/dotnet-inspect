@@ -1066,7 +1066,7 @@ public class SharedOptions
         => parseResult.GetResult(Details) is { Implicit: false }
             && parseResult.GetValue(Details);
 
-    private static string[]? ParseProjectionList(ParseResult parseResult, Option<string?> option)
+    internal static string[]? ParseProjectionList(ParseResult parseResult, Option<string?> option)
     {
         var values = ParseCommaSeparatedList(parseResult.GetValue(option));
         // Bare flag with no value: return empty array (signals "discover")
