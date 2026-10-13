@@ -287,37 +287,48 @@ public class SkillCommandTests
     }
 
     [Fact]
-    public async Task ProjectAnalysisSkill_ProvidesConcreteWorkflowCatalog()
+    public async Task ProjectAnalysisSkill_ComposesScenariosDepthsAndExplainDiscovery()
     {
         var (exitCode, output, _) = await ConsoleCapture.RunAsync(
             () => Task.FromResult(SkillCommand.ExecuteSkill("project-analysis")));
 
         Assert.Equal(0, exitCode);
-        Assert.Contains("## 1. Supply-chain dossier", output);
-        Assert.Contains("## 2. Dependency neighborhood", output);
-        Assert.Contains("## 3. Architecture and implementation map", output);
-        Assert.Contains("## 4. Performance leverage", output);
-        Assert.Contains("## 5. Unsafe and ownership review", output);
-        Assert.Contains("## 6. Upgrade impact", output);
-        Assert.Contains("## 7. Ecosystem integration", output);
-        Assert.Contains("skill signals", output);
-        Assert.Contains("skill correctness", output);
-        Assert.Contains("skill relationships", output);
-        Assert.Contains("skill performance", output);
-        Assert.Contains("skill compatibility", output);
-        Assert.Contains("-S \"Resource Triage\"", output);
-        Assert.Contains("positive completion receipt", output);
-        Assert.Contains("ownership coverage as `unverified`", output);
+        Assert.Contains("### Learn", output);
+        Assert.Contains("### Dependency risk", output);
+        Assert.Contains("### Complexity and clustering", output);
+        Assert.Contains("### Topic deep-dive", output);
+        Assert.Contains("## Quick review: the elevator pitch", output);
+        Assert.Contains("## Thorough review: the explanatory deep dive", output);
+        Assert.Contains("*snapshot*", output);
+        Assert.Contains("*delta*", output);
+        Assert.Contains("about 30 seconds", output);
+        Assert.Contains("explain \"<task text>\"", output);
+        Assert.Contains("explain library/sections", output);
+        Assert.Contains(".hal --json", output);
+        Assert.Contains("-E .tips", output);
+        Assert.Contains("-Q \"<Section>\"", output);
+        Assert.Contains("-S Pruning", output);
+        Assert.Contains("-S \"Latest Versions\"", output);
+        Assert.Contains("--breaking", output);
         Assert.Contains("-S Changes", output);
-        Assert.Contains("`unclassified`", output);
-        Assert.Contains("-D --details", output);
-        Assert.Contains("-Q", output);
-        Assert.Contains("--envelope", output);
-        Assert.Contains("--share url", output);
-        Assert.Contains("The local package cache does not prove", output);
-        Assert.Contains("#7916", output);
-        Assert.Contains("#8406", output);
-        Assert.Contains("#8517", output);
+        Assert.Contains("never to update", output);
+        Assert.Contains("**confirmed**, **dismissed**, or **open**", output);
+        Assert.Contains("-S \"Unsafe Members,Resource Triage\"", output);
+        Assert.Contains("pooled-resource coverage as unverified", output);
+        Assert.Contains("skill relationships", output);
+        Assert.Contains("skill compatibility", output);
+        Assert.Contains("skill signals", output);
+        Assert.Contains("skill performance", output);
+        Assert.Contains("skill correctness", output);
+        foreach (string issue in new[]
+                 {
+                     "#7553", "#8406", "#10067", "#10068", "#10069", "#10070",
+                     "#10071", "#10072", "#10073", "#10074", "#10075", "#10076",
+                     "#10077", "#10080", "#10081", "#10082", "#10083", "#10084", "#10085", "#10086", "#3748", "#7805",
+                 })
+        {
+            Assert.Contains(issue, output);
+        }
     }
 
     [Fact]
