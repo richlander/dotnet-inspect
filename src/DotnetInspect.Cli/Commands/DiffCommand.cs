@@ -328,6 +328,7 @@ public partial class DiffCommand
                         analysisPlan)
                         ? await TryExecuteScopedPackageDiffAsync(
                             options,
+                            analysisPlan is not null,
                             logger,
                             context.HttpClient,
                             cancellationToken)
@@ -995,6 +996,7 @@ public partial class DiffCommand
     private static async Task<(DiffInputs? inputs, string? error)>
         TryExecuteScopedPackageDiffAsync(
             DiffOptions options,
+            bool runsAnalysisSet,
             VerboseLogger logger,
             HttpClient httpClient,
             CancellationToken cancellationToken)
@@ -1025,9 +1027,10 @@ public partial class DiffCommand
         try
         {
             // Library API Diff compares the one Library of each endpoint
-            // through its participant; every other API view reads the
-            // endpoint's merged participant surface.
-            if (UsesSharedLibraryApiDiff(
+            // through its participant; every other API view, and every
+            // analysis set, reads the endpoint's merged participant surface.
+            if (!runsAnalysisSet
+                && UsesSharedLibraryApiDiff(
                     session.From.SurfaceParticipants.Length,
                     session.To.SurfaceParticipants.Length,
                     options))

@@ -36,13 +36,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
     /// <summary>
     /// The merged-surface API views over the same archives: API changes (a
-    /// member target leaves the Library API Diff route) and API Finding
-    /// Transitions.
+    /// member target leaves the Library API Diff route), API Finding
+    /// Transitions, and an API analysis set with its default views, which
+    /// reads the merged surface though each endpoint is one Library.
     /// </summary>
     private static readonly string[][] SystemTextJsonMergedSurfaceViews =
     [
         ["--member", "System.Text.Json.JsonSerializer.SerializeAsync:1"],
         ["--type", "System.Text.Json.JsonSerializer", "--analysis", "api", "-S", "Transitions"],
+        ["--type", "System.Text.Json.JsonSerializer", "--analysis", "api"],
     ];
 
     /// <summary>
