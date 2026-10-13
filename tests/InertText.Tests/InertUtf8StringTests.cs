@@ -54,7 +54,10 @@ public sealed class InertUtf8StringTests
     [InlineData("ordinary", "ordinary")]
     [InlineData("a\nb", "a\\^Jb")]
     [InlineData(@"c:\tmp", @"c:\tmp")]
+    [InlineData(@"literal\u0041", @"literal\\u0041")]
     [InlineData(@"literal\u202E", @"literal\\u202E")]
+    [InlineData(@"literal\U0001F600", @"literal\\U0001F600")]
+    [InlineData(@"literal\u202e", @"literal\u202e")]
     [InlineData("a\u202Eb", "a\\u202Eb")]
     public void Containment_MatchesUtf16SpellingAndEvidence(
         string source,

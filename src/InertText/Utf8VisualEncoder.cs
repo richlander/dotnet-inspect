@@ -217,18 +217,12 @@ public static class Utf8VisualEncoder
                     || value[2] is >= (byte)'@' and <= (byte)'_'),
             (byte)'u' =>
                 TryReadHex(value[2..], 4, out uint bmp)
-                && (bmp <= 0x1F
-                    || bmp is 0x7F or '\\'
-                    || (bmp is >= 0xD800 and <= 0xDFFF)
-                    || (Rune.IsValid((int)bmp)
-                        && ScalarPolicies.IsNonGraphic(
-                            new Rune((int)bmp)))),
+                && bmp > 0x1F
+                && bmp is not (0x7F or '\\'),
             (byte)'U' =>
                 TryReadHex(value[2..], 8, out uint astral)
                 && astral > 0xFFFF
-                && Rune.IsValid((int)astral)
-                && ScalarPolicies.IsNonGraphic(
-                    new Rune((int)astral)),
+                && Rune.IsValid((int)astral),
             _ => false,
         };
     }
@@ -250,8 +244,6 @@ public static class Utf8VisualEncoder
                     (uint)(source[i] - (byte)'0'),
                 >= (byte)'A' and <= (byte)'F' =>
                     (uint)(source[i] - (byte)'A' + 10),
-                >= (byte)'a' and <= (byte)'f' =>
-                    (uint)(source[i] - (byte)'a' + 10),
                 _ => uint.MaxValue,
             };
             if (digit == uint.MaxValue)
