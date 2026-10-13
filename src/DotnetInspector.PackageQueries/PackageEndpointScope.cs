@@ -6,17 +6,52 @@ using NuGetFetch;
 
 namespace DotnetInspector.PackageQueries;
 
-/// <summary>What one package endpoint opens: an exact coordinate, one target framework, and one asset demand.</summary>
+/// <summary>
+/// What one package endpoint opens: one PackageHouse package demand, one
+/// target context, and one asset demand. Version and framework selection
+/// stay in the House, as they do for <c>package</c>.
+/// </summary>
 public sealed class PackageEndpointScopeRequest
 {
+    /// <summary>Opens one exact coordinate for one exact target framework.</summary>
     public PackageEndpointScopeRequest(
         PackageSourceCoordinate coordinate,
         string targetFramework,
         PackageAssetDemand assetDemand,
         IEnumerable<string>? implementationNames = null)
+        : this(
+            new PackageHouseDemand.Exact(
+                coordinate ?? throw new ArgumentNullException(nameof(coordinate))),
+            PackageHouseTargetContext.Exact(
+                string.IsNullOrWhiteSpace(targetFramework)
+                    ? throw new ArgumentException(
+                        "A target framework is required.",
+                        nameof(targetFramework))
+                    : targetFramework),
+            assetDemand,
+            implementationNames)
     {
-        ArgumentNullException.ThrowIfNull(coordinate);
-        ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
+    }
+
+    /// <summary>
+    /// Opens the package an <see cref="PackageHouseDemand.Exact"/> or
+    /// <see cref="PackageHouseDemand.Selecting"/> demand names, for an exact
+    /// framework or the House's owner-default compile selection.
+    /// </summary>
+    public PackageEndpointScopeRequest(
+        PackageHouseDemand demand,
+        PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand,
+        IEnumerable<string>? implementationNames = null)
+    {
+        ArgumentNullException.ThrowIfNull(demand);
+        ArgumentNullException.ThrowIfNull(target);
+        if (demand is not (PackageHouseDemand.Exact or PackageHouseDemand.Selecting))
+        {
+            throw new ArgumentException(
+                "A package endpoint opens an exact coordinate or a selecting demand.",
+                nameof(demand));
+        }
         if (!Enum.IsDefined(assetDemand))
             throw new ArgumentOutOfRangeException(nameof(assetDemand));
         if (implementationNames is not null
@@ -27,17 +62,19 @@ public sealed class PackageEndpointScopeRequest
                 nameof(implementationNames));
         }
 
-        Coordinate = coordinate;
-        TargetFramework = targetFramework;
+        Demand = demand;
+        Target = target;
         AssetDemand = assetDemand;
         ImplementationNames = implementationNames is null
             ? null
             : [.. implementationNames];
     }
 
-    public PackageSourceCoordinate Coordinate { get; }
+    /// <summary>The package demand the House settles: exact or selecting.</summary>
+    public PackageHouseDemand Demand { get; }
 
-    public string TargetFramework { get; }
+    /// <summary>An exact framework, or the House's owner-default compile selection.</summary>
+    public PackageHouseTargetContext Target { get; }
 
     public PackageAssetDemand AssetDemand { get; }
 
@@ -196,6 +233,12 @@ public sealed class PackageEndpointScope : IAsyncDisposable
     /// <summary>The acquired payload, whose content the Root reads.</summary>
     public AcquiredPackageSourcePayload Payload { get; }
 
+    /// <summary>The package version the House settled the demand to.</summary>
+    public string PackageVersion => Root.Root.PackageVersion;
+
+    /// <summary>The target framework the House's compile selection chose.</summary>
+    public string TargetFramework => Root.Root.AssetSelection.TargetFramework!;
+
     /// <summary>One per selected compile asset, in selection order.</summary>
     public ImmutableArray<PackageEndpointParticipant> SurfaceParticipants { get; }
 
@@ -203,8 +246,9 @@ public sealed class PackageEndpointScope : IAsyncDisposable
     public ImmutableArray<PackageEndpointParticipant> ImplementationParticipants { get; }
 
     /// <summary>
-    /// Realizes one exact coordinate through the supplied House, binds the
-    /// Root to the demand, and admits it into a Workspace this scope owns.
+    /// Realizes the requested package through the supplied House, which
+    /// settles its version and selects its framework, binds the Root to the
+    /// demand, and admits it into a Workspace this scope owns.
     /// The House consumes <paramref name="sourceOperation"/>.
     /// </summary>
     public static async Task<PackageEndpointScopeOutcome> OpenAsync(
@@ -221,12 +265,12 @@ public sealed class PackageEndpointScope : IAsyncDisposable
         try
         {
             houseRequest = new PackageHouseRequest(
-                new PackageHouseDemand.Exact(request.Coordinate),
+                request.Demand,
                 PackageHouseOperation.Create(
                     PackageHouseOperationProfile.Realize,
                     sourceOperation.RequestTimeout,
                     sourceOperation.OperationTimeout),
-                PackageHouseTargetContext.Exact(request.TargetFramework),
+                request.Target,
                 PackageHouseAssetSelectionKind.Compile,
                 assetDemand: request.AssetDemand,
                 implementationNames: request.ImplementationNames);
@@ -242,12 +286,18 @@ public sealed class PackageEndpointScope : IAsyncDisposable
                 .ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         PackageHouseResult result = settlement.Result;
-        if (result is PackageHouseResult.NotFound notFound)
+        string package = Describe(request.Demand);
+        // A selection no listed version matches is not found; a framework
+        // mismatch is a NoMatch too, and keeps its own failure below.
+        if (result is PackageHouseResult.NotFound
+            || result is PackageHouseResult.NoMatch
+            {
+                Evidence.Decision.VersionResolution: PackageVersionResolutionReceipt.NoMatch,
+            })
         {
             return Failure(
                 PackageEndpointScopeFailureKind.NotFound,
-                $"{request.Coordinate.PackageId} {request.Coordinate.Version} was not found: "
-                    + notFound.Reason,
+                $"{package} was not found: {Describe(result)}",
                 result);
         }
 
@@ -259,7 +309,7 @@ public sealed class PackageEndpointScope : IAsyncDisposable
             var none = (PackageHouseRootContributionOutcome.NoContribution)adaptation;
             return Failure(
                 PackageEndpointScopeFailureKind.RealizationFailed,
-                $"{request.Coordinate.PackageId} {request.Coordinate.Version} was not realized "
+                $"{package} was not realized "
                     + $"({none.Reason}): {Describe(result)}",
                 result);
         }
@@ -271,8 +321,9 @@ public sealed class PackageEndpointScope : IAsyncDisposable
         {
             return Failure(
                 PackageEndpointScopeFailureKind.NoCompatibleFramework,
-                $"{request.Coordinate.PackageId} {request.Coordinate.Version} has no compile "
-                    + $"assets for {request.TargetFramework} ({selection.Status}).",
+                $"{package} has no compile assets for "
+                    + (request.Target.RequestedFramework ?? "the owner-default selection")
+                    + $" ({selection.Status}).",
                 result,
                 selection);
         }
@@ -599,6 +650,16 @@ public sealed class PackageEndpointScope : IAsyncDisposable
         PackageCompileAssetSelection? selection = null,
         WorkspaceScopeOperationResult? admission = null) =>
         new(kind, message, result, selection, admission);
+
+    static string Describe(PackageHouseDemand demand) =>
+        demand switch
+        {
+            PackageHouseDemand.Exact exact =>
+                $"{exact.Coordinate.PackageId} {exact.Coordinate.Version}",
+            PackageHouseDemand.Selecting selecting =>
+                $"{selecting.Request.PackageId} ({selecting.Request.GetType().Name})",
+            _ => demand.GetType().Name,
+        };
 
     static string Describe(PackageHouseResult result) =>
         result switch

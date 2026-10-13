@@ -437,7 +437,9 @@ public partial class DiffCommand
                         inputs.Name,
                         inputs.FromVersion,
                         inputs.ToVersion,
-                        options);
+                        options,
+                        hasPackage ? inputs.From.Framework : null,
+                        hasPackage ? inputs.To.Framework : null);
                 }
                 WorkspaceImplementationTarget? workspaceTarget =
                     SelectsComplexityContext(options)
@@ -953,19 +955,22 @@ public partial class DiffCommand
         if (packageName is null
             || fromVersion is null
             || toVersion is null
-            || !PackageEndpointDiffSession.IsEligible(
-                packageName,
-                fromVersion,
-                toVersion,
-                options.Tfm))
+            || PackageEndpointDiffSession.TryCreateSelection(
+                    packageName,
+                    fromVersion,
+                    toVersion,
+                    options.Tfm) is not { } selection)
         {
             return (null, null);
         }
 
-        // The legacy path answers both endpoints from local caches with no
-        // network request, which the House authority stores don't read yet
-        // (docs/design/package-endpoint-scope.md, steps 2 and 4).
-        if (await DotnetInspector.Packages.PackageExtractor.IsExactPackageCachedAsync(
+        // Online, the legacy path answers two cached exact pins with no
+        // network request, and keeps them until the legacy route retires
+        // (docs/design/package-endpoint-scope.md, step 4 parts 1 and 6).
+        // Offline, the scope's legacy-compatible store reads the same caches.
+        if (!DotnetInspector.Networking.HttpClientFactory.IsOffline
+            && selection.IsExact
+            && await DotnetInspector.Packages.PackageExtractor.IsExactPackageCachedAsync(
                 $"{packageName}@{fromVersion}", options.SourceOptions, cancellationToken)
             && await DotnetInspector.Packages.PackageExtractor.IsExactPackageCachedAsync(
                 $"{packageName}@{toVersion}", options.SourceOptions, cancellationToken))
@@ -979,10 +984,7 @@ public partial class DiffCommand
         PackageEndpointDiffSession? session =
             await PackageEndpointDiffSession.TryOpenAsync(
                 httpClient,
-                packageName,
-                fromVersion,
-                toVersion,
-                options.Tfm!,
+                selection,
                 options.SourceOptions,
                 logger,
                 cancellationToken);

@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Inspectors;
 using DotnetInspector.Packages;
 
 using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
@@ -9,7 +10,7 @@ using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 namespace DotnetInspect.Cli.Tests;
 
 /// <summary>
-/// Package endpoint scope gates 5 to 7
+/// Package endpoint scope gates 5 to 7, 9, and 10
 /// (docs/design/package-endpoint-scope.md#pathological-cases-and-gates):
 /// Library API Diff over pairwise <c>diff --package ID@A..B</c> opens each
 /// endpoint as a package endpoint scope read by range, every other API view
@@ -124,7 +125,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
     /// <summary>
     /// Gate 7: offline, with both endpoints in the local package cache, the
-    /// API views give the same output; offline requests take the legacy path.
+    /// API views give the same output; Library API Diff opens both exact
+    /// pins through the scope, and the other views keep the legacy path.
     /// </summary>
     [Fact]
     public async Task PairwiseDiff_OfflineWithCachedEndpoints_GivesTheSameOutput()
@@ -144,8 +146,13 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             UseFeed(new RejectNetworkHandler(new HttpClientHandler()));
             for (int view = 0; view < requests.Length; view++)
             {
-                var offline = await RunCommandAsync(requests[view]);
+                var offline = await RunCommandAsync([.. requests[view], "--verbose"]);
                 Assert.True(online[view] == offline.Output, offline.Error);
+                // Step 4 part 1: exact pins open through the scope offline,
+                // from the legacy-compatible store, with no request.
+                Assert.Equal(
+                    view < SystemTextJsonLibraryApiDiffs.Length ? 2 : 0,
+                    CountOccurrences(offline.Error, "Using package endpoint scope for System.Text.Json@"));
             }
         }
         finally
@@ -334,11 +341,157 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         }
     }
 
+    /// <summary>
+    /// Gate 9: without <c>--tfm</c>, each endpoint selects the framework
+    /// <c>package</c> selects for it, through the House's owner-default
+    /// compile selection: <c>net9.0</c> for 9.0.0 and <c>net10.0</c> for
+    /// 10.0.0, each read by range, and the versions name both. An explicit
+    /// <c>--tfm</c> applies to both endpoints and names neither. Both equal
+    /// the legacy path's output.
+    /// </summary>
+    [Fact]
+    public async Task PairwiseDiff_WithoutTfm_EachEndpointSelectsItsOwnFramework()
+    {
+        Dictionary<string, byte[]> packages = await ReadSystemTextJsonPackagesAsync();
+        string[][] requests =
+        [
+            PairwiseSystemTextJsonDiff([], targetFramework: null),
+            PairwiseSystemTextJsonDiff([], targetFramework: "net9.0"),
+        ];
+        string[] legacy = await RunLegacyPairwiseDiffsAsync(
+            SystemTextJsonId, packages, requests);
+
+        var feed = new RangeHonoringHistoryFeedHandler(FirstFeed, SystemTextJsonId, packages);
+        UseFeed(feed);
+        var ownerDefault = await RunCommandAsync([.. requests[0], "--verbose"]);
+
+        Assert.True(legacy[0] == ownerDefault.Output, ownerDefault.Error);
+        Assert.Contains(
+            "**9.0.0** (net9.0) → **10.0.0** (net10.0)",
+            ownerDefault.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Using package endpoint scope for System.Text.Json@9.0.0 (1 surface assembly for net9.0;",
+            ownerDefault.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Using package endpoint scope for System.Text.Json@10.0.0 (1 surface assembly for net10.0;",
+            ownerDefault.Error,
+            StringComparison.Ordinal);
+        foreach ((string version, string folder) in new[] { ("9.0.0", "lib/net9.0"), ("10.0.0", "lib/net10.0") })
+        {
+            AssertEachCellReadsOnly(
+                feed,
+                new Dictionary<string, byte[]> { [version] = packages[version] },
+                [folder, ""]);
+        }
+
+        var explicitTarget = await RunCommandAsync([.. requests[1], "--verbose"]);
+
+        Assert.True(legacy[1] == explicitTarget.Output, explicitTarget.Error);
+        Assert.Contains("**9.0.0** → **10.0.0**", explicitTarget.Output, StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            CountOccurrences(explicitTarget.Error, "surface assembly for net9.0;"));
+    }
+
+    /// <summary>
+    /// Gate 10: a <c>*</c> pattern and <c>latest</c> settle in the House, as
+    /// <c>package</c> settles them, once per endpoint; the output equals the
+    /// legacy path's, which keeps the spelling the request used.
+    /// </summary>
+    [Fact]
+    public async Task PairwiseDiff_FloatingVersions_SettleInTheHouse()
+    {
+        Dictionary<string, byte[]> packages = await ReadSystemTextJsonPackagesAsync();
+        string[][] requests =
+        [
+            [
+                "diff", "--package", $"{SystemTextJsonId}@9.0.0..10.*",
+                "--tfm", "net8.0", "--source", FirstFeed, "--tips", "q",
+            ],
+            [
+                "diff", "--package", $"{SystemTextJsonId}@9.*..latest",
+                "--tfm", "net8.0", "--source", FirstFeed, "--tips", "q",
+            ],
+        ];
+        string[] legacy = await RunLegacyPairwiseDiffsAsync(
+            SystemTextJsonId, packages, requests);
+
+        var feed = new RangeHonoringHistoryFeedHandler(FirstFeed, SystemTextJsonId, packages);
+        UseFeed(feed);
+        for (int view = 0; view < requests.Length; view++)
+        {
+            var result = await RunCommandAsync([.. requests[view], "--verbose"]);
+
+            Assert.True(legacy[view] == result.Output, result.Error);
+            Assert.Equal(
+                2,
+                CountOccurrences(result.Error, "Using package endpoint scope for System.Text.Json@"));
+            Assert.Contains(
+                "settled to 10.0.0",
+                result.Error,
+                StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// The scope route's demands: exact pins, <c>latest</c>, and <c>*</c>
+    /// patterns online; an absent <c>--tfm</c> is the owner default. Offline,
+    /// an endpoint only discovery can settle keeps the whole request on the
+    /// legacy path, and <c>--tfm all</c> always does.
+    /// </summary>
+    [Theory]
+    [InlineData(false, "9.0.0", "10.0.0", null, true)]
+    [InlineData(false, "9.0.0", "latest", "net8.0", true)]
+    [InlineData(false, "9.*", "10.0.0", null, true)]
+    [InlineData(true, "9.0.0", "10.0.0", null, true)]
+    [InlineData(true, "9.0.0", "10.0.0", "net8.0", true)]
+    [InlineData(true, "9.0.0", "latest", "net8.0", false)]
+    [InlineData(true, "9.*", "10.0.0", "net8.0", false)]
+    [InlineData(false, "9.0.0", "10.0.0", "all", false)]
+    [InlineData(false, "9.0.0", "not-a-version", null, false)]
+    public void PairwiseDiff_ScopeSelection_FollowsThePackageGrammar(
+        bool offline,
+        string from,
+        string to,
+        string? targetFramework,
+        bool expected)
+    {
+        bool wasOffline = CoreHttpClientFactory.IsOffline;
+        try
+        {
+            CoreHttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = offline });
+            PackageEndpointDiffSelection? selection =
+                PackageEndpointDiffSession.TryCreateSelection(
+                    SystemTextJsonId, from, to, targetFramework);
+
+            Assert.Equal(expected, selection is not null);
+            if (selection is not null)
+            {
+                Assert.Equal(
+                    targetFramework is null
+                        ? PackageHouseTargetSelectionMode.OwnerDefault
+                        : PackageHouseTargetSelectionMode.Exact,
+                    selection.Target.Mode);
+            }
+        }
+        finally
+        {
+            CoreHttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = wasOffline });
+        }
+    }
+
     private static string[] PairwiseSystemTextJsonDiff(string[] view) =>
+        PairwiseSystemTextJsonDiff(view, "net8.0");
+
+    private static string[] PairwiseSystemTextJsonDiff(string[] view, string? targetFramework) =>
     [
         "diff",
         "--package", $"{SystemTextJsonId}@{SystemTextJsonVersions[0]}..{SystemTextJsonVersions[1]}",
-        "--tfm", "net8.0",
+        .. targetFramework is null ? (string[])[] : ["--tfm", targetFramework],
         "--source", FirstFeed,
         "--tips", "q",
         .. view,

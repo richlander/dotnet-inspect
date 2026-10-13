@@ -149,8 +149,12 @@ The CLI's other offline paths are host routes that don't use a House: `diff`
 takes the legacy `AssemblySet` route through `PackageExtractor`, and the
 search Root acquires through the Workspace loader with a filesystem package
 store. Step 4 part 1 moves offline `diff` onto the scope, except a diff with
-any `*` endpoint, which keeps the legacy route as a whole, so a scope endpoint
-is never compared with an `AssemblySet` endpoint, until the House settles a
+any endpoint that only discovery can settle, a `*` pattern or `latest`, which
+keeps the legacy route as a whole, so a scope endpoint is never compared with
+an `AssemblySet` endpoint. The legacy route answers a `*` pattern from its
+cached listings and reports why `latest` can't be resolved offline, as
+`package` does; the House route has no such answer for either, and surfaces
+only the network guard. A `*` pattern moves when the House settles a
 `Wildcard` selection offline, through the Version Service's adoption of
 wildcard keys or from cached listing evidence. The scope's contract is the
 same online and offline; only the House the host supplies differs.
@@ -283,10 +287,17 @@ never retain a participant after the scope is disposed.
         endpoint's framework. For example, `System.Text.Json@10.0.0..11.0.0`
         compares 10.0.0 for `net10.0` with 11.0.0 for `net11.0` by default,
         and `--tfm net10.0` is required to compare both endpoints for
-        `net10.0`, because an explicit target applies to both. The CLI supplies a legacy-compatible store, as
-        `type` does, so the scope reads the app cache alongside the NuGet
-        global-packages folder. Offline `diff` opens through the scope too,
-        except a `*` pattern, as [Offline](#offline) states.
+        `net10.0`, because an explicit target applies to both. The CLI
+        supplies a legacy-compatible store, as `type` does, so the scope
+        reads the app cache alongside the NuGet global-packages folder.
+        Offline `diff` opens through the scope too, except a `*` pattern or
+        `latest`, as [Offline](#offline) states. This part keeps step 2's
+        admission rule, now over the settled version: a floating endpoint's
+        directory check settles it once, and the Realize opens that exact
+        version. Without `--tfm`, the rule compares the legacy no-target
+        selector with the House's owner-default selection. Library API Diff
+        names the endpoint frameworks on both routes, so the route doesn't
+        change output; the other views name them when they move.
      2. **API views over a merged participant surface.** A merged surface
         over every surface participant of an endpoint serves Changes,
         multi-Library packages, member targets, Changes filters, the
@@ -345,7 +356,7 @@ All gates run in Release.
 | 4. CLI `find` exact-package search, after step 3 | output byte-identical to before the move | existing `find` gates |
 | 5. `diff --package ID@A..B` Library API Diff | output byte-identical to the legacy path; both endpoints read only their surface and root folders by range; API changes, API Finding Transitions, and a selector mismatch stay on the legacy path, and the first two read nothing by range | CLI harness, real assets `System.Text.Json` 9.0.0 and 10.0.0; `Avalonia` 11.3.14..12.1.2 for the selector fallback |
 | 6. The same pairwise diff twice | the second makes no package request | CLI harness |
-| 7. Offline pairwise diff with both endpoints cached | the same output from the local cache; after step 4 part 1, an exact pin opens through the scope with no request, with and without `--tfm`, `latest` fails visibly as on the legacy route, and a `*` pattern keeps the legacy route's cached-listing answer | CLI harness |
+| 7. Offline pairwise diff with both endpoints cached | the same output from the local cache; after step 4 part 1, an exact pin opens through the scope with no request, with and without `--tfm`, and `latest` and a `*` pattern keep the legacy route, which reports `latest` as `package` does and answers a `*` pattern from cached listings | CLI harness |
 | 8. Inspect Web Compare, after step 5 | the same Library API diff result through the shared scope | Web boundary tests |
 | 9. Pairwise diff without `--tfm`, after step 4 part 1 | each endpoint selects the framework `package` selects for it, through the House's owner-default compile selection, and the output names each endpoint's framework when they differ | CLI harness, `System.Text.Json` 10.0.0 and 11.0 (`net10.0` against `net11.0` by default; both `net10.0` with `--tfm net10.0`), compared with `package`; until 11.0.0 ships, the gate uses the current 11.0 release candidate |
 | 10. Floating pairwise diff, after step 4 part 1 | `*` and `latest` settle as `package` settles them, through the House's selecting demand | CLI harness |
