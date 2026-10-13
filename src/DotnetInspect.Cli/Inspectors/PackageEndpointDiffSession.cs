@@ -11,12 +11,11 @@ namespace DotnetInspect.Cli.Inspectors;
 
 /// <summary>
 /// CLI host policy for the two endpoints of a pairwise
-/// <c>diff --package ID@A..B</c> Library API Diff opened as package endpoint
-/// scopes (docs/design/package-endpoint-scope.md, adoption step 2 and step 4
-/// part 1): the House's version and framework selection, as <c>package</c>
-/// has it, ranged House access over the legacy-compatible per-authority
-/// store, and the admission rule that keeps the output identical to the
-/// legacy extraction path.
+/// <c>diff --package ID@A..B</c> API view opened as package endpoint scopes
+/// (docs/design/package-endpoint-scope.md, adoption step 2 and step 4 parts
+/// 1 and 2): the House's version and framework selection, as
+/// <c>package</c> has it, and ranged House access over the
+/// legacy-compatible per-authority store.
 /// </summary>
 internal sealed class PackageEndpointDiffSession : IAsyncDisposable
 {
@@ -96,11 +95,10 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
     }
 
     /// <summary>
-    /// Opens both endpoints with the <c>Surface</c> demand by range, or
-    /// returns <see langword="null"/> when either endpoint must take the
-    /// legacy path: its demand did not settle, the legacy selector would
-    /// pick other assemblies from its archive than the scope's surface
-    /// participants, its surface is not one Library, or it did not open.
+    /// Opens both endpoints with the <c>Surface</c> demand by range, each
+    /// settling its own demand in the House, or returns
+    /// <see langword="null"/> when either endpoint did not open, so the
+    /// legacy path reports the failure.
     /// </summary>
     internal static async Task<PackageEndpointDiffSession?> TryOpenAsync(
         HttpClient httpClient,
@@ -126,59 +124,14 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
                     access: PackagePayloadAccess.Ranged),
                 sourceOptions,
                 logger.Log);
-            // The admission check reads by range whatever the archive's size:
-            // a zero size cut, so a fallback never downloads an archive the
-            // legacy path then downloads again. Realization keeps size first.
-            // This transitional exception is registered in the package cache
-            // policy's Size first contract; endpoint-scope step 4 retires it.
-            PackageHouse checkHouse = composition.CreateRealizationHouse(
-                new PackagePayloadAcquisitionPlan(
-                    stores.GetLegacyCompatibleStore,
-                    PackagePayloadLimits.Default,
-                    log: logger.Log,
-                    access: PackagePayloadAccess.Ranged,
-                    rangedSizeCut: 0),
-                sourceOptions,
-                logger.Log);
-            // Admission first: both directory checks run to completion at once,
-            // neither cancelling the other, so each archive's directory and
-            // root folder reach the entry cache and a repeated request makes
-            // no package request, whichever endpoint falls back.
-            Task<PackageSourceCoordinate?> fromCheck = LegacySelectionMatchesAsync(
-                composition, checkHouse, packageId, selection.FromVersion, selection.From, target, logger, cancellationToken);
-            Task<PackageSourceCoordinate?> toCheck = LegacySelectionMatchesAsync(
-                composition, checkHouse, packageId, selection.ToVersion, selection.To, target, logger, cancellationToken);
-            try
-            {
-                await Task.WhenAll(fromCheck, toCheck).ConfigureAwait(false);
-            }
-            catch
-            {
-                // Each check's outcome is inspected below.
-            }
-            cancellationToken.ThrowIfCancellationRequested();
-            if (new[] { fromCheck, toCheck }
-                    .Where(static task => task.IsFaulted)
-                    .Select(static task => task.Exception!.InnerException!)
-                    .FirstOrDefault() is { } checkFailure)
-            {
-                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(checkFailure);
-            }
-            if (fromCheck.Result is not { } fromCoordinate
-                || toCheck.Result is not { } toCoordinate)
-            {
-                closed = true;
-                await CloseAsync(null, null, composition, stores).ConfigureAwait(false);
-                return null;
-            }
 
-            // Then both surfaces realize at once. A realization that fails
+            // Both surfaces realize at once. A realization that fails
             // cancels its sibling, whose work the legacy path would discard.
             using var sibling = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            // Each endpoint realizes the exact version its check settled, so
-            // a floating demand is settled once.
-            Task<PackageEndpointScope?> fromTask = OpenOrCancelSiblingAsync(fromCoordinate);
-            Task<PackageEndpointScope?> toTask = OpenOrCancelSiblingAsync(toCoordinate);
+            Task<PackageEndpointScope?> fromTask =
+                OpenOrCancelSiblingAsync(selection.FromVersion, selection.From);
+            Task<PackageEndpointScope?> toTask =
+                OpenOrCancelSiblingAsync(selection.ToVersion, selection.To);
             try
             {
                 await Task.WhenAll(fromTask, toTask).ConfigureAwait(false);
@@ -204,12 +157,13 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
             }
 
             async Task<PackageEndpointScope?> OpenOrCancelSiblingAsync(
-                PackageSourceCoordinate coordinate)
+                string version,
+                PackageHouseDemand demand)
             {
                 try
                 {
                     PackageEndpointScope? scope = await OpenAsync(
-                            composition, house, packageId, coordinate, target, logger, sibling.Token)
+                            composition, house, packageId, version, demand, target, logger, sibling.Token)
                         .ConfigureAwait(false);
                     if (scope is null)
                         await sibling.CancelAsync().ConfigureAwait(false);
@@ -236,14 +190,14 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
         DesktopPackageSourceComposition composition,
         PackageHouse house,
         string packageId,
-        PackageSourceCoordinate coordinate,
+        string version,
+        PackageHouseDemand demand,
         PackageHouseTargetContext target,
         VerboseLogger logger,
         CancellationToken cancellationToken)
     {
-        string version = coordinate.Version;
         var request = new PackageEndpointScopeRequest(
-            new PackageHouseDemand.Exact(coordinate),
+            demand,
             target,
             PackageAssetDemand.Surface);
 
@@ -277,124 +231,18 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
             return null;
         }
 
-        // Admission already matched the legacy selection and one Library
-        // over this archive's directory.
         PackageEndpointScope scope = ((PackageEndpointScopeOutcome.Opened)outcome).Scope;
-        logger.Log(
-            $"Using package endpoint scope for {packageId}@{version} "
-                + $"({scope.SurfaceParticipants.Length} surface assembly for {scope.TargetFramework}; "
-                + $"payload {scope.Payload.Origin}).");
-        return scope;
-    }
-
-    /// <summary>
-    /// Settles one endpoint's demand and decides, from the archive directory
-    /// alone, whether the legacy selector picks exactly the compile surface
-    /// the endpoint scope would realize, before any surface-folder byte is
-    /// read. Returns the settled coordinate, or <see langword="null"/> when
-    /// the endpoint takes the legacy path.
-    /// </summary>
-    /// <remarks>
-    /// Transitional (docs/design/package-endpoint-scope.md, adoption step 2):
-    /// the House reads a directory by range only for a Realize or a file
-    /// demand, so this reads the directory with a file demand for the
-    /// nuspec, which also reads the archive's root folder. It retires with
-    /// the legacy selector in step 4. The Realize that follows an admitted
-    /// check reads the cached directory's tail again.
-    /// </remarks>
-    static async Task<PackageSourceCoordinate?> LegacySelectionMatchesAsync(
-        DesktopPackageSourceComposition composition,
-        PackageHouse house,
-        string packageId,
-        string version,
-        PackageHouseDemand demand,
-        PackageHouseTargetContext target,
-        VerboseLogger logger,
-        CancellationToken cancellationToken)
-    {
-        long started = System.Diagnostics.Stopwatch.GetTimestamp();
-        PackageSourceOperationLease operation =
-            composition.IssueSettlementOperation(cancellationToken);
-        PackageHouseRequest request;
-        try
-        {
-            request = new PackageHouseRequest(
-                demand,
-                PackageHouseOperation.Create(
-                    PackageHouseOperationProfile.Acquire,
-                    operation.RequestTimeout,
-                    operation.OperationTimeout),
-                fileDemand: PackageFileDemand.Create([$"{packageId}.nuspec"]));
-        }
-        catch
-        {
-            operation.Dispose();
-            throw;
-        }
-
-        PackageHouseSettlement settlement =
-            await house.ExecuteAsync(request, operation).ConfigureAwait(false);
-        cancellationToken.ThrowIfCancellationRequested();
-        LogTransfer(logger, packageId, version, "directory check", settlement.Result, started);
-        if (settlement is not PackageHouseSettlement.Acquired
-            {
-                Result: PackageHouseResult.Settled,
-            } acquired)
-        {
-            logger.Log(
-                $"Package endpoint {packageId}@{version} takes the legacy path: its archive "
-                    + "directory was not read.");
-            return null;
-        }
-
-        PackageSourceCoordinate settled = acquired.Payload.Coordinate;
         if (demand is PackageHouseDemand.Selecting)
         {
             logger.Log(
-                $"Package endpoint {packageId}@{version} settled to {settled.Version}.");
-            version = settled.Version;
+                $"Package endpoint {packageId}@{version} settled to {scope.PackageVersion}.");
         }
-
-        IPackageContent content = acquired.Payload.Content;
-        string? targetFramework = target.RequestedFramework;
-        string[] legacy =
-        [
-            .. targetFramework is null
-                ? TfmSelector.SelectHighestAssembliesFromEntries(content.EnumerateEntries())
-                : TfmSelector.SelectAssembliesByTfmFromEntries(
-                    content.EnumerateEntries(),
-                    targetFramework),
-        ];
-        PackageCompileAssetSelection selection =
-            PackageCompileAssetSelector.Evaluate(
-                content,
-                packageId,
-                targetFramework is null
-                    ? PackageCompileAssetSelectionPolicy.HighestAvailable
-                    : PackageCompileAssetSelectionPolicy.ExplicitTarget,
-                targetFramework).Selection;
-        string[] surface =
-        [
-            .. selection.Assets
-                .Select(static asset => asset.Path)
-                .Order(StringComparer.Ordinal),
-        ];
-        if (legacy.SequenceEqual(surface, StringComparer.Ordinal))
-        {
-            if (surface.Length == 1)
-                return settled;
-            logger.Log(
-                $"Package endpoint {packageId}@{version} takes the legacy path: its surface "
-                    + $"has {surface.Length} Libraries, and the endpoint scope serves "
-                    + "single-Library API Diff only.");
-            return null;
-        }
-
         logger.Log(
-            $"Package endpoint {packageId}@{version} takes the legacy path: the legacy "
-                + $"selector picks [{string.Join(", ", legacy)}], the endpoint scope's "
-                + $"surface is [{string.Join(", ", surface)}].");
-        return null;
+            $"Using package endpoint scope for {packageId}@{version} "
+                + $"({scope.SurfaceParticipants.Length} surface "
+                + (scope.SurfaceParticipants.Length == 1 ? "assembly" : "assemblies")
+                + $" for {scope.TargetFramework}; payload {scope.Payload.Origin}).");
+        return scope;
     }
 
     /// <summary>
@@ -479,9 +327,4 @@ internal sealed record PackageEndpointDiffSelection(
     PackageHouseDemand From,
     string ToVersion,
     PackageHouseDemand To,
-    PackageHouseTargetContext Target)
-{
-    /// <summary>Whether both endpoints are exact coordinates.</summary>
-    public bool IsExact =>
-        From is PackageHouseDemand.Exact && To is PackageHouseDemand.Exact;
-}
+    PackageHouseTargetContext Target);
