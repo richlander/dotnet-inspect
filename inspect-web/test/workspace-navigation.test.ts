@@ -11,6 +11,7 @@ import {
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
+  hierarchyShareTargetFramework,
   parseWorkspaceLocation,
   parseWorkspaceRoute,
   recoverWorkspaceRouteFailure,
@@ -22,6 +23,7 @@ import {
   selectedBrowserCallGraphPackageTabIds,
   shouldInterceptLinkClick,
   workspaceUrlPreservationApplies,
+  workspaceHierarchyShareTabsMatchResolved,
   workspaceShareTabsMatchResolved,
   workspaceShareCaptureTopology,
   workspaceViewSignature,
@@ -797,6 +799,42 @@ test("canonical tabs must remain distinct and ordered after resolution", () => {
     workspaceShareTabsMatchResolved(
       requested,
       [resolved[1]!, resolved[0]!]),
+    false);
+});
+
+test("hierarchy share retains a requested target through compatible asset selection", () => {
+  const tab = {
+    ...workspaceState().tabs[0]!,
+    framework: "net11.0",
+  };
+  const resolved = { ...tab, framework: "net10.0" };
+  const basis = workspaceState({
+    tabs: [tab],
+    view: {
+      ...workspaceState().view,
+      lens: "hierarchy",
+      type: null,
+      section: null,
+      libraries: [],
+    },
+  });
+
+  assert.equal(workspaceShareTabsMatchResolved([tab], [resolved]), false);
+  assert.equal(workspaceHierarchyShareTabsMatchResolved([tab], [resolved]), true);
+  assert.equal(
+    hierarchyShareTargetFramework(
+      basis, { id: tab.source, version: tab.version! }, "hierarchy"),
+    "net11.0");
+  assert.equal(
+    hierarchyShareTargetFramework(
+      basis, { id: tab.source, version: tab.version! }, "overview"),
+    null);
+  assert.equal(
+    workspaceHierarchyShareTabsMatchResolved(
+      [tab], [{ ...resolved, version: "2.0.0" }]),
+    false);
+  assert.equal(
+    workspaceHierarchyShareTabsMatchResolved([tab, tab], [resolved, resolved]),
     false);
 });
 

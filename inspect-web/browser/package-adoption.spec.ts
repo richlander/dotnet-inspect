@@ -310,6 +310,18 @@ const references: FixtureCoordinate = {
     declaredDependency,
   ),
 };
+const fallbackReferences: FixtureCoordinate = {
+  packageId: "InspectWeb.Adoption.FrameworkFallback",
+  version,
+  archive: manifestBackedNupkg(
+    healthyAssembly,
+    healthyAssemblyFileName,
+    "InspectWeb.Adoption.FrameworkFallback",
+    version,
+    declaredDependency,
+    "net10.0",
+  ),
+};
 const manifestOnly: FixtureCoordinate = {
   packageId: manifestOnlyPackageId,
   version,
@@ -1221,6 +1233,24 @@ test.describe("Capability Spotlight search over real Wasm", () => {
 });
 
 test.describe("Package Query website over real Wasm", () => {
+  test("restores a shared hierarchy when compile assets use a compatible framework", async ({ page, context }) => {
+    await installGalleryRoutes(context, new GalleryFixtureRegistry([fallbackReferences]));
+    const packet = Buffer.from(JSON.stringify({
+      f: 1,
+      t: [[fallbackReferences.packageId.toLowerCase(), fallbackReferences.version,
+        fixtureFramework, null]],
+      g: [[0]], a: 0, x: 0, v: "hierarchy",
+    })).toString("base64url");
+
+    await page.goto(`/?w=${packet}`);
+
+    await expect(page.locator("#package-hierarchy-title"))
+      .toHaveText("Dependency Hierarchy", { timeout: 180_000 });
+    await expect(page.locator(".package-hierarchy-tree"))
+      .toContainText(fallbackReferences.packageId.toLowerCase(), { timeout: 180_000 });
+    await expect(page).toHaveURL(new RegExp(`\\?w=${packet}$`));
+  });
+
   test("opens a shared Package Dependency Hierarchy and reports partial traversal", async ({ page, context }) => {
     await installGalleryRoutes(context, new GalleryFixtureRegistry([references]));
     const packet = Buffer.from(JSON.stringify({

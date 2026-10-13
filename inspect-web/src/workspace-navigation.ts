@@ -568,6 +568,40 @@ export function workspaceShareTabsMatchResolved(
     });
 }
 
+// A hierarchy share names the traversal target. Package acquisition may select
+// a compatible compile-asset framework while still honoring that target.
+// Callers must first reacquire the sole package under the requested framework.
+export function workspaceHierarchyShareTabsMatchResolved(
+  requested: readonly BrowserWorkspaceShareTab[],
+  resolved: readonly BrowserWorkspaceShareTab[],
+): boolean {
+  if (requested.length !== 1 || resolved.length !== 1) return false;
+  const target = requested[0]!;
+  const packageTab = resolved[0]!;
+  return target.kind === "package"
+    && packageTab.kind === "package"
+    && Boolean(target.version && target.framework)
+    && workspaceShareTabsMatchResolved(
+      [{ ...target, framework: null }],
+      [{ ...packageTab, framework: null }],
+    );
+}
+
+export function hierarchyShareTargetFramework(
+  basis: BrowserWorkspaceShareState | null,
+  pkg: { id: string; version: string },
+  packageLens: string | null,
+): string | null {
+  const target = basis?.tabs.length === 1 ? basis.tabs[0] : null;
+  return basis?.view.lens === "hierarchy"
+    && packageLens === "hierarchy"
+    && target?.kind === "package"
+    && target.source.toLowerCase() === pkg.id.toLowerCase()
+    && target.version?.toLowerCase() === pkg.version.toLowerCase()
+      ? target.framework
+      : null;
+}
+
 export interface RetainedMissingPlatformTarget {
   tabIndex: number;
   version: string;
