@@ -131,20 +131,26 @@ still splits `A..B` into one demand per endpoint.
 
 ### Offline
 
-The scope already opens offline. For an exact coordinate whose package is
-cached, the House realizes it from the host's stores without a network
-request: step 7's exact Type inspection does this through the
-legacy-compatible authority store, and durable authorities also read their own
-NuGet global-packages entries. For a floating version, the House settles the
-`Selecting` demand through the
-[Package Version Service](package-version-service.md#decision), which offline
-serves a recorded prior regardless of age and fails visibly without one.
+For an exact coordinate whose package is cached, the House opens the scope
+offline from the host's stores without a network request: step 7's exact Type
+inspection does this through the legacy-compatible authority store, and
+durable authorities also read their own NuGet global-packages entries.
+
+A floating version depends on its spelling. `latest` is an `AlwaysLatest`
+selection, which always discovers, so it fails offline on the House route as
+it does on the legacy route. A `*` pattern is a `Wildcard` selection, which the
+[Package Version Service](package-version-service.md#adoption) doesn't serve
+yet, so the House can't settle it offline. The legacy route can: it resolves a
+pattern from version listings it cached within the last hour.
 
 The CLI's other offline paths are host routes that don't use a House: `diff`
 takes the legacy `AssemblySet` route through `PackageExtractor`, and the
 search Root acquires through the Workspace loader with a filesystem package
-store. Step 4 part 1 moves offline `diff` onto the scope. The scope's contract
-is the same online and offline; only the House the host supplies differs.
+store. Step 4 part 1 moves offline `diff` onto the scope, except an endpoint
+with a `*` pattern, which keeps the legacy route until the House settles a
+`Wildcard` selection offline, through the Version Service's adoption of
+wildcard keys or from cached listing evidence. The scope's contract is the
+same online and offline; only the House the host supplies differs.
 
 ### Disposal
 
@@ -276,8 +282,8 @@ never retain a participant after the scope is disposed.
         and `--tfm net10.0` is required to compare both endpoints for
         `net10.0`, because an explicit target applies to both. The CLI supplies a legacy-compatible store, as
         `type` does, so the scope reads the app cache alongside the NuGet
-        global-packages folder. Offline `diff` opens through the scope too, as
-        [Offline](#offline) states.
+        global-packages folder. Offline `diff` opens through the scope too,
+        except a `*` pattern, as [Offline](#offline) states.
      2. **API views over a merged participant surface.** A merged surface
         over every surface participant of an endpoint serves Changes,
         multi-Library packages, member targets, Changes filters, the
@@ -295,7 +301,8 @@ never retain a participant after the scope is disposed.
      6. **Legacy retirement.** The online legacy package route, the cache
         deferral, the admission check and its zero-size-cut House, and the
         testing switch retire, and the parity gates are rewritten as scope
-        gates.
+        gates. The offline `*` route retires once the House settles a
+        `Wildcard` selection offline, as [Offline](#offline) states.
 5. **Inspect Web adopts it.** `BrowserPackageWorkspace.OpenScopeAsync` opens
    its package endpoints through `PackageEndpointScope`. It keeps its browser
    store and complete acquisition until Inspect Web adopts ranged access
@@ -335,13 +342,13 @@ All gates run in Release.
 | 4. CLI `find` exact-package search, after step 3 | output byte-identical to before the move | existing `find` gates |
 | 5. `diff --package ID@A..B` Library API Diff | output byte-identical to the legacy path; both endpoints read only their surface and root folders by range; API changes, API Finding Transitions, and a selector mismatch stay on the legacy path, and the first two read nothing by range | CLI harness, real assets `System.Text.Json` 9.0.0 and 10.0.0; `Avalonia` 11.3.14..12.1.2 for the selector fallback |
 | 6. The same pairwise diff twice | the second makes no package request | CLI harness |
-| 7. Offline pairwise diff with both endpoints cached | the same output from the local cache; after step 4 part 1, an exact pin opens through the scope with no request, with and without `--tfm`, and a floating version settles from its Version Service prior or fails visibly without one | CLI harness |
+| 7. Offline pairwise diff with both endpoints cached | the same output from the local cache; after step 4 part 1, an exact pin opens through the scope with no request, with and without `--tfm`, `latest` fails visibly as on the legacy route, and a `*` pattern keeps the legacy route's cached-listing answer | CLI harness |
 | 8. Inspect Web Compare, after step 5 | the same Library API diff result through the shared scope | Web boundary tests |
 | 9. Pairwise diff without `--tfm`, after step 4 part 1 | each endpoint selects the framework `package` selects for it, through the House's owner-default compile selection, and the output names each endpoint's framework when they differ | CLI harness, `System.Text.Json` 10.0.0 and 11.0 (`net10.0` against `net11.0` by default; both `net10.0` with `--tfm net10.0`), compared with `package`; until 11.0.0 ships, the gate uses the current 11.0 release candidate |
 | 10. Floating pairwise diff, after step 4 part 1 | `*` and `latest` settle as `package` settles them, through the House's selecting demand | CLI harness |
 | 11. Multi-Library and member-targeted views, after step 4 part 2 | the merged participant surface; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0` no longer doubles change rows | CLI harness, real assets |
 | 12. Body views, after step 4 part 3 | implementation participants, never reference stubs, with or without `--tfm` | CLI harness |
-| 13. Legacy retired, after step 4 part 6 | no `diff --package` request reaches the `AssemblySet` endpoint path, online or offline | CLI harness |
+| 13. Legacy retired, after step 4 part 6 | no `diff --package` request reaches the `AssemblySet` endpoint path, except an offline `*` pattern until the House settles `Wildcard` offline | CLI harness |
 
 ## Non-claims
 
