@@ -14,6 +14,8 @@ focused design.
 > view. It can write an opaque range to a declared binary destination that
 > does not interpret it as text. Domain representations retain ranges over
 > that backing rather than creating another byte or string representation.
+> Every range reader preserves the same non-disclosure invariant, and every
+> text projection ends in contained UTF-8 or `InertString`.
 
 This owner defines:
 
@@ -21,6 +23,8 @@ This owner defines:
 - the owner/range representation split;
 - byte-exact equality, hashing, ordering, and query comparison;
 - bounded slicing and structural reads that return values or further ranges;
+- the single inert-flow invariant from an untreated backing, through every
+  range and domain view, to contained UTF-8 or `InertString`;
 - the rule deciding whether an operation belongs on untreated bytes;
 - explicit opaque transfer to a destination that consumes binary data without
   interpreting it as text;
@@ -252,6 +256,43 @@ accidental raw propagation and gives value-flow analysis one small surface to
 audit. A new convenience that returns bulk untreated data would change that
 surface and requires a focused design change.
 
+## Single inert-flow contract
+
+`InertBytes` and `InertString` represent different stages of one invariant:
+
+> Untreated source content never becomes caller-observable bytes, characters,
+> text, or callback input. An operation may return an answer, retain the same
+> contract in another `InertBytes` range or typed domain view, write an
+> explicitly authorized opaque binary copy directly to its destination, or
+> apply a named `TextPolicy` and produce contained UTF-8 or `InertString`. No
+> hop can downgrade the value to general untreated content.
+
+`InertBytes` is inert by **non-disclosure**: its payload is not yet visually
+encoded, but callers cannot observe that payload directly. `InertString` is
+inert by **contained payload**: its retained UTF-16 has already passed the
+closed Inert Text policy and may be converted to `string` without exposing the
+source. These are not two safety models. They are the opaque and contained
+states of the same flow.
+
+A range reader is a bounded structural cursor over `InertBytes`, not a borrow.
+It may:
+
+- return grammar answers such as a tag, integer, length, or end-of-range;
+- return a checked child `InertBytes` range; or
+- construct a typed domain view that retains such a range.
+
+The answer must be a semantic grammar result rather than a byte-by-byte
+projection, and every returned range keeps the same non-disclosure contract.
+A reader receives no raw span and cannot run caller code while it examines
+source bytes. Domain validation may determine what a child range means; it
+cannot weaken how that range may be observed.
+
+Only the closed UTF-8 projection can cross from the opaque state to the
+contained state. It decodes internally, runs no caller callback, and either
+writes contained UTF-8 directly to a destination or creates `InertString`.
+Both routes use the same Inert Text policy and speller and report the same
+containment evidence.
+
 ### Operations not admitted
 
 The initial contract has no:
@@ -281,7 +322,7 @@ Domain views own:
 - domain-specific budgets;
 - semantic equality when it differs from ordinal bytes;
 - interpretation of child ranges; and
-- which ranges represent UTF-8 text.
+- which exact validated ranges represent UTF-8 text.
 
 They do not own:
 
@@ -309,9 +350,11 @@ identity.
 ### Text is a domain interpretation
 
 An arbitrary byte range is not automatically text. A domain identifies a range
-as UTF-8 text when its source contract gives the bytes that meaning. The range
-may still contain ill-formed UTF-8; replacement decoding is never used for
-identity or matching.
+as UTF-8 text when its grammar or source contract gives the exact bounded range
+that meaning. `InertBytes` owns the generic projection mechanism; it does not
+own concepts such as Symbol Key `Name`, metadata namespace, or package ID.
+The range may still contain ill-formed UTF-8; replacement decoding is never
+used for identity or matching.
 
 The UTF-8 text view adds:
 
@@ -400,12 +443,14 @@ checks.
 ## Audit boundary
 
 The external actor is the artifact author. The input path is an admitted
-artifact byte source. The invariant is:
+artifact byte source. The
+[single inert-flow contract](#single-inert-flow-contract) is the invariant;
+at this audit boundary its permitted exits are:
 
 > Untreated bytes remain in immutable backing and cross its public boundary
 > only as an answer, a bounded `InertBytes` subrange, an explicit write to a
 > declared opaque binary destination, or output contained by the closed Inert
-> Text policy.
+> Text policy as UTF-8 or `InertString`.
 
 The implementation gate combines:
 
@@ -427,6 +472,7 @@ the repository threat model.
 | Immutable range value | Equal ranges over different backings compare and hash equally; default and explicit empty agree; slices retain their owner | PR-fast |
 | Bounds | Empty, edge, nested, overflowed, and out-of-range structural reads return the specified result without reading outside the backing | PR-fast |
 | No raw projection | Compiled public-surface and field-flow gates reject every forbidden return, callback, and store shape | PR-fast |
+| Inert-flow continuity | Structural readers return only semantic answers or ranges; domain views preserve non-disclosure; direct UTF-8 and `InertString` exits share policy, spelling, concern, and truncation evidence | PR-fast |
 | Opaque binary transfer | Exact bytes reach the declared binary destination; no backing alias escapes; destination failure remains visible | PR-fast |
 | Query matching | Ordinary, non-ASCII, concerning, and ill-formed UTF-8 names compare without decoding stored values | PR-fast |
 | Containment parity | Well-formed inputs produce the same spelling and evidence through direct UTF-8 output and current UTF-16 `InertString`; byte-distinct malformed inputs remain visibly distinct | PR-fast |

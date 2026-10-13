@@ -421,6 +421,47 @@ locals to the one two-local Boolean-to-enum web above. Every other residual
 group, zero late-decidable and nested webs, and the same four known pass bugs
 remain unchanged.
 
+### Late typed spill recomposition
+
+Typed identity decisions may make a previously separated expression tail safe
+to recompose. The late `StructReceiverInliningPass` run owns one exact adjacent
+tail: a single-use stack carrier whose store and load have the same decided
+`int` type and whose value is the canonical two-term additive Boolean-count
+form issued by `ArithmeticBoolOperandPass`, followed by a single-use value-type
+rvalue receiver store, followed by a return that reads the carrier before the
+receiver. The carrier read neither throws, mutates, nor invokes user code.
+Requiring that tail prevents the late run from rediscovering ordinary receiver
+folds outside this claim. Every other carrier shape, local or slot read, call,
+property or field read, conversion, conditional position, and unrecognized
+operation remains a barrier, while the existing adjacency,
+single-receiver-use, unnamed-local, and whole-slot safety requirements remain
+unchanged.
+
+The fold runs immediately before the final slots-only
+`ExpressionInliningPass`. Removing the receiver local can therefore make a
+typed arithmetic stack carrier adjacent to its sole consumer; the existing
+slots-only rule then substitutes that carrier without admitting user locals or
+duplicating any operand. This is a sequenced composition of two existing typed
+raises, not general local elimination or permission to rerun the broad early
+inliner.
+
+Microsoft.CodeAnalysis.Common 5.0.0
+`ForEachLoopOperation.get_ChildOperationsCount` is the pinned witness. Its
+proved I4 count, `NextVariables` value-type receiver, and final `Body` test
+recompose to one four-term return expression matching the checksum-verified
+Roslyn source shape. Synthetic tests separately gate the stable-read receiver
+prefix, effectful-prefix decline, and adjacent arithmetic-carrier substitution.
+
+On the fixed 14-assembly, 89,065-method corpus, the late pass changes exactly
+this one method; the same four known pass bugs remain. The residual-storage
+census is unchanged at 57 webs, 96 locals, 31 methods, and 26 split webs, so
+this is source-shape recovery rather than additional storage retirement. The
+result remains `Full`, but exact compile-back is not claimed: product-artifact
+ReturnToSender currently stalls its declaration closure on missing
+`OperationVisitor`, while the whole-module scaffold reaches an unrelated
+`CS0075` negative-cast error. Both are explicit `RecompileFail` outcomes rather
+than semantic-difference evidence.
+
 ### Join target testimony
 
 Join target compatibility is decided before printing (#2095). Its
