@@ -4,7 +4,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
-namespace DotnetInspect.Cli.Output;
+namespace DotnetInspector.Presentation;
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,

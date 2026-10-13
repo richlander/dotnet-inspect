@@ -9,7 +9,7 @@ using ILInspector.Analysis;
 using ILInspector.Metadata;
 using Inspector.Findings;
 
-namespace DotnetInspect.Cli.Output;
+namespace DotnetInspector.Presentation;
 
 public static class DiffHistoryJsonOutput
 {
