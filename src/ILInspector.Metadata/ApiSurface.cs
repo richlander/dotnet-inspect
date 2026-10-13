@@ -297,6 +297,25 @@ public class ApiSurface
         }
     }
 
+    /// <summary>
+    /// Adds one assembly's surface to this merged surface: its Types, type
+    /// forwarders, inspection failures, and counts. The caller orders the
+    /// merged Types once every assembly is added.
+    /// </summary>
+    public void MergeAssemblySurface(ApiSurface surface)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        Types.AddRange(surface.Types);
+        TypeForwarders.AddRange(surface.TypeForwarders);
+        IsTypeForwardingAssembly |= surface.IsTypeForwardingAssembly;
+        MergeInspectionFailuresFrom(surface);
+        PublicTypeCount += surface.PublicTypeCount;
+        PublicMethodCount += surface.PublicMethodCount;
+        PublicPropertyCount += surface.PublicPropertyCount;
+        PublicEventCount += surface.PublicEventCount;
+        PublicFieldCount += surface.PublicFieldCount;
+    }
+
     public void SetInspectionSourceAssemblyPath(string path)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);

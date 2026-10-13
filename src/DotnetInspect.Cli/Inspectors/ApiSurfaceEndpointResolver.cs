@@ -18,16 +18,30 @@ internal sealed class ApiSurfaceEndpoint : IDisposable
     }
 
     /// <summary>
-    /// An endpoint opened as a package endpoint scope. Only Library API Diff
-    /// reads it, through the scope's participants; it has no merged surface
-    /// and no extracted file paths. The scope's owner disposes it.
+    /// An endpoint opened as a package endpoint scope for Library API Diff,
+    /// which reads the scope's one Library through its participant; it has
+    /// no merged surface and no extracted file paths. The scope's owner
+    /// disposes it.
     /// </summary>
     internal ApiSurfaceEndpoint(
         DotnetInspector.PackageQueries.PackageEndpointScope packageScope)
     {
         PackageScope = packageScope;
         _surface = new(static () => throw new InvalidOperationException(
-            "A package endpoint scope serves Library API Diff only; it has no merged API surface."));
+            "This package endpoint scope was opened for Library API Diff; it has no merged API surface."));
+    }
+
+    /// <summary>
+    /// An endpoint opened as a package endpoint scope for the API views,
+    /// with the scope's merged participant surface. It has no extracted
+    /// file paths, so views that read method bodies don't take it.
+    /// </summary>
+    internal ApiSurfaceEndpoint(
+        DotnetInspector.PackageQueries.PackageEndpointScope packageScope,
+        ApiSurface surface)
+    {
+        PackageScope = packageScope;
+        _surface = new(() => surface);
     }
 
     internal ApiSurfaceEndpoint(
@@ -48,7 +62,7 @@ internal sealed class ApiSurfaceEndpoint : IDisposable
     public AssemblySet AssemblySet =>
         _assemblySet
         ?? throw new InvalidOperationException(
-            "A package endpoint scope has no extracted assembly set; only API views read it.");
+            "A package endpoint scope has no extracted assembly set; only the API views read it.");
 
     /// <summary>The number of Libraries in this endpoint's population.</summary>
     public int LibraryCount =>

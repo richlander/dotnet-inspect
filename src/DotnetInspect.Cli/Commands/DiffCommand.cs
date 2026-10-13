@@ -2,6 +2,7 @@ using ILInspector.Metadata;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
@@ -319,9 +320,15 @@ public partial class DiffCommand
             if (hasPackage)
             {
                 var result =
-                    AdmitsPackageEndpointScope(options, implementationTransport)
+                    AdmitsPackageEndpointScope(
+                        catalog,
+                        options,
+                        implementationTransport,
+                        annotatedSourceTransport,
+                        analysisPlan)
                         ? await TryExecuteScopedPackageDiffAsync(
                             options,
+                            analysisPlan is not null,
                             logger,
                             context.HttpClient,
                             cancellationToken)
@@ -338,7 +345,7 @@ public partial class DiffCommand
                     CommandError.Write(result.error);
                     return 1;
                 }
-                inputs = result.inputs!;
+                inputs = result.inputs!.WithEndpointFrameworkLabels();
             }
             else if (hasPlatform)
             {
@@ -531,8 +538,8 @@ public partial class DiffCommand
                         DiffOutputFormatter.BuildComplexityContextView(
                             inputs.Name,
                             result.Complexity,
-                            inputs.FromVersion,
-                            inputs.ToVersion);
+                            inputs.FromLabel,
+                            inputs.ToLabel);
                     if (options.Tabular || options.Tsv || options.Jsonl)
                     {
                         OutputFormatter.WriteProjectedTable(
@@ -572,8 +579,8 @@ public partial class DiffCommand
                         DiffOutputFormatter.BuildStructuralContextView(
                             inputs.Name,
                             result.Complexity,
-                            inputs.FromVersion,
-                            inputs.ToVersion);
+                            inputs.FromLabel,
+                            inputs.ToLabel);
                     if (options.Tabular || options.Tsv || options.Jsonl)
                     {
                         OutputFormatter.WriteProjectedTable(
@@ -618,8 +625,8 @@ public partial class DiffCommand
                                     inputs.Name,
                                     workspaceTarget!.Display,
                                     workspaceImplementation,
-                                    inputs.FromVersion,
-                                    inputs.ToVersion);
+                                    inputs.FromLabel,
+                                    inputs.ToLabel);
                     }
                     else
                     {
@@ -641,8 +648,8 @@ public partial class DiffCommand
                         view = DiffOutputFormatter.BuildImplementationDiffView(
                             inputs.Name,
                             implementation.Local,
-                            inputs.FromVersion,
-                            inputs.ToVersion,
+                            inputs.FromLabel,
+                            inputs.ToLabel,
                             implementation.SelectedSource?.Content);
                     }
                     if (options.Tabular)
@@ -665,8 +672,8 @@ public partial class DiffCommand
                                 : DiffOutputFormatter.RenderDocumentView(
                                     DiffOutputFormatter.BuildDocumentView(
                                         inputs.Name,
-                                        inputs.FromVersion,
-                                        inputs.ToVersion,
+                                        inputs.FromLabel,
+                                        inputs.ToLabel,
                                         changes: null,
                                         analysisDiff: null,
                                         implementationDiff: view,
@@ -696,8 +703,8 @@ public partial class DiffCommand
                         view =
                             DiffOutputFormatter.BuildAnalysisDiffFailureView(
                                 inputs.Name,
-                                inputs.FromVersion,
-                                inputs.ToVersion,
+                                inputs.FromLabel,
+                                inputs.ToLabel,
                                 workspaceAnalysisFailure);
                     }
                     else
@@ -712,8 +719,8 @@ public partial class DiffCommand
                             inputs.Name,
                             analysis.Rows,
                             analysis.Summary,
-                            inputs.FromVersion,
-                            inputs.ToVersion,
+                            inputs.FromLabel,
+                            inputs.ToLabel,
                             decorateMember: !options.Jsonl);
                     }
                     if (options.Tabular)
@@ -736,8 +743,8 @@ public partial class DiffCommand
                                 : DiffOutputFormatter.RenderDocumentView(
                                     DiffOutputFormatter.BuildDocumentView(
                                         inputs.Name,
-                                        inputs.FromVersion,
-                                        inputs.ToVersion,
+                                        inputs.FromLabel,
+                                        inputs.ToLabel,
                                         changes: null,
                                         analysisDiff: view,
                                         implementationDiff: null,
@@ -769,7 +776,7 @@ public partial class DiffCommand
                     var typeDiffs = ApplyFilters(diff, options);
                     if (SelectsDetailedChanges(options))
                     {
-                        var view = DiffOutputFormatter.BuildDetailedChangesView(inputs.Name, typeDiffs, inputs.FromVersion, inputs.ToVersion);
+                        var view = DiffOutputFormatter.BuildDetailedChangesView(inputs.Name, typeDiffs, inputs.FromLabel, inputs.ToLabel);
                         OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
                             options.Columns, options.Fields,
                             (writer, formatter, writerOptions) =>
@@ -778,7 +785,7 @@ public partial class DiffCommand
                     }
                     else
                     {
-                        var view = DiffOutputFormatter.BuildTableView(inputs.Name, typeDiffs, inputs.FromVersion, inputs.ToVersion);
+                        var view = DiffOutputFormatter.BuildTableView(inputs.Name, typeDiffs, inputs.FromLabel, inputs.ToLabel);
                         OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
                             options.Columns, options.Fields,
                             (writer, formatter, writerOptions) =>
@@ -791,7 +798,7 @@ public partial class DiffCommand
                 }
                 else
                 {
-                    var output = RenderDiff(inputs.Name, diff, inputs.FromVersion, inputs.ToVersion, options);
+                    var output = RenderDiff(inputs.Name, diff, inputs.FromLabel, inputs.ToLabel, options);
                     Console.WriteLine(output);
                     if (options.NameOnly)
                     {
@@ -822,6 +829,32 @@ public partial class DiffCommand
         string Name,
         IAsyncDisposable? Owner = null) : IAsyncDisposable
     {
+        /// <summary>
+        /// The before version as the views name it: the version, and the
+        /// endpoint's framework when the two package endpoints select
+        /// different frameworks (docs/design/package-endpoint-scope.md,
+        /// step 4 parts 1 and 2).
+        /// </summary>
+        public string FromLabel { get; init; } = FromVersion;
+
+        /// <summary>The after version as the views name it.</summary>
+        public string ToLabel { get; init; } = ToVersion;
+
+        /// <summary>
+        /// Names each endpoint's framework in the version labels when the
+        /// endpoints select different frameworks.
+        /// </summary>
+        public DiffInputs WithEndpointFrameworkLabels()
+            => From.Framework is { } before
+                && To.Framework is { } after
+                && !before.Equals(after, StringComparison.OrdinalIgnoreCase)
+                    ? this with
+                    {
+                        FromLabel = $"{FromVersion} ({before})",
+                        ToLabel = $"{ToVersion} ({after})",
+                    }
+                    : this;
+
         public ApiSurface FromSurface => From.Surface;
         public ApiSurface ToSurface => To.Surface;
         public IReadOnlyList<string> FromPaths => From.Paths;
@@ -932,13 +965,29 @@ public partial class DiffCommand
     /// The endpoints' one-Library requirement is checked from each archive
     /// directory.
     /// </summary>
+    /// <summary>
+    /// Whether the request's views read only the API surface, so its package
+    /// endpoints open as package endpoint scopes
+    /// (docs/design/package-endpoint-scope.md, step 4 part 2): every
+    /// requested section runs the API comparison alone, and an analysis set
+    /// selects only API-metadata analyses. Views that read method bodies
+    /// keep the legacy path until step 4 part 3.
+    /// </summary>
     static bool AdmitsPackageEndpointScope(
+        DiffSectionCatalog catalog,
         DiffOptions options,
-        bool implementationTransport)
+        bool implementationTransport,
+        bool annotatedSourceTransport,
+        DiffAnalysisPlan? analysisPlan)
         => !LegacyPackageEndpointsForTesting.Value
             && !implementationTransport
+            && !annotatedSourceTransport
             && !options.IncludePdbSource
-            && UsesSharedLibraryApiDiff(1, 1, options);
+            && (analysisPlan is null
+                ? GetRequestedQueryPlan(catalog, options).RequestedQueries.All(
+                    static query => query == ApiComparisonQuery.Definition)
+                : analysisPlan.StringLiteralQuery is null
+                    && DiffAnalysisCatalog.ReadsOnlyApiSurface(analysisPlan.Selection));
 
     /// <summary>
     /// Opens both endpoints as package endpoint scopes, or returns neither
@@ -947,6 +996,7 @@ public partial class DiffCommand
     private static async Task<(DiffInputs? inputs, string? error)>
         TryExecuteScopedPackageDiffAsync(
             DiffOptions options,
+            bool runsAnalysisSet,
             VerboseLogger logger,
             HttpClient httpClient,
             CancellationToken cancellationToken)
@@ -964,23 +1014,6 @@ public partial class DiffCommand
             return (null, null);
         }
 
-        // Online, the legacy path answers two cached exact pins with no
-        // network request, and keeps them until the legacy route retires
-        // (docs/design/package-endpoint-scope.md, step 4 parts 1 and 6).
-        // Offline, the scope's legacy-compatible store reads the same caches.
-        if (!DotnetInspector.Networking.HttpClientFactory.IsOffline
-            && selection.IsExact
-            && await DotnetInspector.Packages.PackageExtractor.IsExactPackageCachedAsync(
-                $"{packageName}@{fromVersion}", options.SourceOptions, cancellationToken)
-            && await DotnetInspector.Packages.PackageExtractor.IsExactPackageCachedAsync(
-                $"{packageName}@{toVersion}", options.SourceOptions, cancellationToken))
-        {
-            logger.Log(
-                $"Both {packageName} endpoints are in the local package cache; "
-                    + "the legacy path answers them with no request.");
-            return (null, null);
-        }
-
         PackageEndpointDiffSession? session =
             await PackageEndpointDiffSession.TryOpenAsync(
                 httpClient,
@@ -991,13 +1024,47 @@ public partial class DiffCommand
         if (session is null)
             return (null, null);
 
-        return (new DiffInputs(
-            new ApiSurfaceEndpoint(session.From),
-            new ApiSurfaceEndpoint(session.To),
-            fromVersion,
-            toVersion,
-            packageName,
-            session), null);
+        try
+        {
+            // Library API Diff compares the one Library of each endpoint
+            // through its participant; every other API view, and every
+            // analysis set, reads the endpoint's merged participant surface.
+            if (!runsAnalysisSet
+                && UsesSharedLibraryApiDiff(
+                    session.From.SurfaceParticipants.Length,
+                    session.To.SurfaceParticipants.Length,
+                    options))
+            {
+                return (new DiffInputs(
+                    new ApiSurfaceEndpoint(session.From),
+                    new ApiSurfaceEndpoint(session.To),
+                    fromVersion,
+                    toVersion,
+                    packageName,
+                    session), null);
+            }
+
+            ApiSurfaceScope apiScope = options.IncludeAll
+                ? ApiSurfaceScope.IncludeAll
+                : ApiSurfaceScope.Public;
+            Task<ApiSurface> fromSurface = PackageEndpointApiSurfaceQuery.ExecuteAsync(
+                session.From, packageName, apiScope, logger.Log, cancellationToken);
+            Task<ApiSurface> toSurface = PackageEndpointApiSurfaceQuery.ExecuteAsync(
+                session.To, packageName, apiScope, logger.Log, cancellationToken);
+            await Task.WhenAll(fromSurface, toSurface);
+            return (new DiffInputs(
+                new ApiSurfaceEndpoint(session.From, fromSurface.Result),
+                new ApiSurfaceEndpoint(session.To, toSurface.Result),
+                fromVersion,
+                toVersion,
+                packageName,
+                session), null);
+        }
+        catch
+        {
+            await session.DisposeAsync();
+            throw;
+        }
     }
 
     private static async Task<(DiffInputs? inputs, string? error)>
@@ -1382,8 +1449,8 @@ public partial class DiffCommand
                 changesView =
                     DiffOutputFormatter.BuildDetailedChangesFailureView(
                         inputs.Name,
-                        inputs.FromVersion,
-                        inputs.ToVersion,
+                        inputs.FromLabel,
+                        inputs.ToLabel,
                         exception.Message);
             }
             if (changesDiff is not null)
@@ -1391,8 +1458,8 @@ public partial class DiffCommand
                 changesView = DiffOutputFormatter.BuildDetailedChangesView(
                     inputs.Name,
                     ApplyFilters(changesDiff, options),
-                    inputs.FromVersion,
-                    inputs.ToVersion);
+                    inputs.FromLabel,
+                    inputs.ToLabel);
             }
         }
 
@@ -1406,8 +1473,8 @@ public partial class DiffCommand
                 analysisView =
                     DiffOutputFormatter.BuildAnalysisDiffFailureView(
                         inputs.Name,
-                        inputs.FromVersion,
-                        inputs.ToVersion,
+                        inputs.FromLabel,
+                        inputs.ToLabel,
                         workspaceAnalysisFailure);
             }
             else
@@ -1422,8 +1489,8 @@ public partial class DiffCommand
                     inputs.Name,
                     analysis.Rows,
                     analysis.Summary,
-                    inputs.FromVersion,
-                    inputs.ToVersion,
+                    inputs.FromLabel,
+                    inputs.ToLabel,
                     decorateMember: false);
             }
         }
@@ -1438,8 +1505,8 @@ public partial class DiffCommand
                         inputs.Name,
                         workspaceTargetDisplay!,
                         workspaceImplementation,
-                        inputs.FromVersion,
-                        inputs.ToVersion);
+                        inputs.FromLabel,
+                        inputs.ToLabel);
             }
             else
             {
@@ -1462,8 +1529,8 @@ public partial class DiffCommand
                     DiffOutputFormatter.BuildImplementationDiffView(
                         inputs.Name,
                         implementation.Local,
-                        inputs.FromVersion,
-                        inputs.ToVersion,
+                        inputs.FromLabel,
+                        inputs.ToLabel,
                         implementation.SelectedSource?.Content);
             }
         }
@@ -1480,8 +1547,8 @@ public partial class DiffCommand
                 DiffOutputFormatter.BuildComplexityContextView(
                     inputs.Name,
                     result.Complexity,
-                    inputs.FromVersion,
-                    inputs.ToVersion);
+                    inputs.FromLabel,
+                    inputs.ToLabel);
         }
 
         StructuralContextView? structuralContextView = null;
@@ -1496,14 +1563,14 @@ public partial class DiffCommand
                     DiffOutputFormatter.BuildStructuralContextView(
                         inputs.Name,
                         result.Complexity,
-                        inputs.FromVersion,
-                        inputs.ToVersion);
+                        inputs.FromLabel,
+                        inputs.ToLabel);
         }
 
         var view = DiffOutputFormatter.BuildDocumentView(
             inputs.Name,
-            inputs.FromVersion,
-            inputs.ToVersion,
+            inputs.FromLabel,
+            inputs.ToLabel,
             changesView,
             analysisView,
             implementationView,

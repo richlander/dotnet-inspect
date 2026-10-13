@@ -887,46 +887,6 @@ public static class PackageExtractor
     }
 
     /// <summary>
-    /// Whether extracting an exact <c>id@version</c> reference would be
-    /// answered from a local cache (the application cache or a NuGet
-    /// global-packages folder) with no network request. It runs the same
-    /// source resolution and cache lookup as the extraction and makes no
-    /// request itself.
-    /// </summary>
-    public static async Task<bool> IsExactPackageCachedAsync(
-        string packageSource,
-        NuGetSourceOptions? sourceOptions,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(packageSource);
-        (string packageName, string? version) = ParsePackageReference(packageSource);
-        if (version is null
-            || version.Contains('*')
-            || version.Equals("latest", StringComparison.OrdinalIgnoreCase)
-            || !IsValidPackageId(packageName))
-        {
-            return false;
-        }
-
-        IReadOnlyList<NuGetSource> authorizedSources =
-            NuGetSourceResolver.ResolveAuthorizedSources(
-                sourceOptions,
-                NuGetSourceResolver.ResolveSourcesForPackage(
-                    sourceOptions,
-                    packageName));
-        (PackageExtractionResult? cached, _) =
-            await TryGetCachedResolvedPackageAsync(
-                packageName,
-                version,
-                packageName.ToLowerInvariant(),
-                version.ToLowerInvariant(),
-                authorizedSources,
-                log: null,
-                cancellationToken).ConfigureAwait(false);
-        return cached is not null;
-    }
-
-    /// <summary>
     /// The first admissible cached copy of a resolved package, from the
     /// authorized sources' application-cache slots and then the NuGet
     /// global-packages tier, with the last rejection when none is admissible.
