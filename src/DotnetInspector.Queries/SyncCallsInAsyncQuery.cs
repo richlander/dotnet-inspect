@@ -129,16 +129,40 @@ public static class SyncCallsInAsyncQuery
         AssemblyInspectionSession session,
         AssemblyReferenceBindingAccess referenceBinding,
         IReadOnlyList<SyncCallsInAsyncClosing> closings) =>
-        Execute(Prepare(session, referenceBinding, closings));
+        Execute(
+            Prepare(
+                session,
+                referenceBinding,
+                closings,
+                MethodDefinitionSourceBreadth.AllDefinitions));
+
+    public static SyncCallsInAsyncResult Execute(
+        AssemblyInspectionSession session,
+        AssemblyReferenceBindingAccess referenceBinding,
+        IReadOnlyList<SyncCallsInAsyncClosing> closings,
+        MethodDefinitionSourceBreadth breadth) =>
+        Execute(Prepare(session, referenceBinding, closings, breadth));
 
     public static PreparedSyncCallsInAsyncQuery Prepare(
         AssemblyInspectionSession session,
         AssemblyReferenceBindingAccess referenceBinding,
-        IReadOnlyList<SyncCallsInAsyncClosing> closings)
+        IReadOnlyList<SyncCallsInAsyncClosing> closings) =>
+        Prepare(
+            session,
+            referenceBinding,
+            closings,
+            MethodDefinitionSourceBreadth.AllDefinitions);
+
+    public static PreparedSyncCallsInAsyncQuery Prepare(
+        AssemblyInspectionSession session,
+        AssemblyReferenceBindingAccess referenceBinding,
+        IReadOnlyList<SyncCallsInAsyncClosing> closings,
+        MethodDefinitionSourceBreadth breadth)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(referenceBinding);
         ArgumentNullException.ThrowIfNull(closings);
+        ArgumentNullException.ThrowIfNull(breadth);
         ImmutableArray<SyncCallsInAsyncClosing> distinct =
             [.. closings.Distinct()];
         if (distinct.IsEmpty)
@@ -173,7 +197,8 @@ public static class SyncCallsInAsyncQuery
                 MethodDefinitionSourceRequest<AsyncSiblingProducerResult>.Create(
                     SyncCallsInAsyncQuerySpace.CreateRequest(closing),
                     work,
-                    AsyncSiblingProducer.Instance);
+                    AsyncSiblingProducer.Instance,
+                    breadth);
             MethodDefinitionSourceAssociation association =
                 MethodDefinitionSourceAssociation.Create(request);
             associations.Add(association);
