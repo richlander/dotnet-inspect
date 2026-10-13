@@ -236,9 +236,14 @@ jq '.namespaceEdges[]
       and .targetNamespace == "A.Serialization")
   | {counts, contributingTypeEdgeCount, explainingTypeEdges,
      remainingContributorCount}' structure.json
-jq '[.typeEdges[] | select((.sourceTypeKey | startswith("A.Utilities."))
-  and (.targetTypeKey | startswith("A.Serialization.")))]' structure.json
+jq '(.types | map({(.typeKey): .namespace}) | add) as $ns
+  | [.typeEdges[] | select($ns[.sourceTypeKey] == "A.Utilities"
+      and $ns[.targetTypeKey] == "A.Serialization")]' structure.json
 ```
+
+Join type pairs to namespaces through `types[].namespace`, never by key
+prefix, because a prefix also matches child namespaces. The pair count must
+equal the edge's `contributingTypeEdgeCount`.
 
 Then follow one type pair to its calls with
 `type <T> --package Id@v --all -S "Called Types"`, and to call sites with
@@ -250,16 +255,18 @@ Then follow one type pair to its calls with
 Read these with care until their owners close the gaps:
 
 - The package-wide view (`library --package Id@v` without
-  `--namesake-library`) drops `Dependency Structure` and `Clone Candidates`
-  silently (#10080); always select one exact library for them. The installed
+  `--namesake-library`) silently drops `Dependency Structure` from `--json`
+  output and drops `Clone Candidates` entirely (#10080); always select one
+  exact library for them. The installed
   product does not yet explain the structure fields (#10077); read them as
   described above.
 - `Member Metrics` has no ranking operators (#10083); rank its rows locally.
 - Architectural Families can include compiler-generated names such as `c`
   and `d` (#10082); set them aside.
 - `Clone Candidates` can stop early and exit 1 with "result is incomplete";
-  its rows name Members by token, so join them to `Member Metrics`
-  (`member_token`) before reading them. Report a partial or empty result as
+  its rows name Members as `<assembly>!<mvid>:0x0600001B`, so strip that
+  prefix and compare case-insensitively with `Member Metrics` `member_token`
+  (`0x0600001b`) before reading them. Report a partial or empty result as
   not established, not as "no clones".
 
 For a dependency that may be used too thinly to justify itself, run

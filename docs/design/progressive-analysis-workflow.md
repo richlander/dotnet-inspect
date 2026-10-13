@@ -329,6 +329,9 @@ calls and located only 4 of 24 Utilities-to-Serialization calls by guessing
 types. The corrected skill routes namespace-edge tracing through the JSON
 document's `explainingTypeEdges` and `typeEdges`; the re-run located the
 complete edge, dated the cycle against 9.0.1, and is the recorded baseline.
+Review later tightened the type-pair recipe to join by exact namespace rather
+than key prefix; the measured edge has no child namespaces, so its result is
+unchanged.
 B1 spent
 an extra round recovering README text. Both thorough reviews stayed under the
 45-call cap and ended every pursued lowlight as confirmed, dismissed, or open.
@@ -340,8 +343,7 @@ counted as breaking removals
 ([#3021](https://github.com/richlander/dotnet-inspect/issues/3021)), silently
 omitted empty sections
 ([#10073](https://github.com/richlander/dotnet-inspect/issues/10073)), the
-aggregate path dropping Clone Candidates
-([#10080](https://github.com/richlander/dotnet-inspect/issues/10080)), and
+aggregate path dropping exact-library sections, and
 unselectable compiler-generated members
 ([#10093](https://github.com/richlander/dotnet-inspect/issues/10093)), and
 Clone Candidates stopping at its name-similarity work budget with no paging or
@@ -393,8 +395,10 @@ Member Metrics ranking
 Resource Triage failure
 ([#10084](https://github.com/richlander/dotnet-inspect/issues/10084)),
 ignored `--top` ([#10085](https://github.com/richlander/dotnet-inspect/issues/10085)),
-the JSON section drop
-([#3748](https://github.com/richlander/dotnet-inspect/issues/3748)), Diff History
+a reported JSON section drop
+([#3748](https://github.com/richlander/dotnet-inspect/issues/3748); later shown
+to affect only the package-wide view, see
+[#10080](https://github.com/richlander/dotnet-inspect/issues/10080)), Diff History
 stopping at a missing Member
 ([#7805](https://github.com/richlander/dotnet-inspect/issues/7805)), aggregate row
 output ([#7430](https://github.com/richlander/dotnet-inspect/issues/7430)), and
