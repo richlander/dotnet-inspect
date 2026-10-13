@@ -339,11 +339,11 @@ source may require one ownership copy. Those are destination and lifetime
 boundaries, not intermediate representations.
 
 A retained immutable source plus a byte-capable sink can therefore remain
-byte-native all the way through analysis, Diff, domain views, containment, and
-final output. Fast Diff is the first planned proof: after Symbol Key adopts the
-backing, a separate Diff-owned slice can keep matched names and result
-representations byte-native until a presentation sink asks for contained
-output.
+byte-native all the way through analysis, domain views, a Fast Diff-owned
+result, Presentation containment, and final output. Fast Diff is the first
+planned proof: after Symbol Key adopts the backing, a separate Fast Diff slice
+can keep matched names and result representations byte-native until
+Presentation asks for contained output.
 
 ## Failure and bounds
 
@@ -417,9 +417,11 @@ exact-base/head gates run.
 4. **API qualified anchor adoption.** Carry byte-backed names through
    declaration, signature, and resolver boundaries under
    [#9907](https://github.com/richlander/dotnet-inspect/issues/9907).
-5. **Byte-native Diff output.** Keep applicable Diff result names as domain
-   views and write contained UTF-8 directly at byte-capable sinks.
-6. **CLI and Browser/Wasm completion.** Adopt the shared identities and direct
+5. **Byte-native Fast Diff result.** Keep applicable result names as domain
+   views under Fast Diff's focused owner.
+6. **Direct Presentation output.** Let Presentation consume those views and
+   write contained UTF-8 directly at byte-capable sinks.
+7. **CLI and Browser/Wasm completion.** Adopt the shared identities and direct
    projections in the product paths tracked by their owning issues.
 
 Each adoption is independently reviewable and keeps its domain semantics with
