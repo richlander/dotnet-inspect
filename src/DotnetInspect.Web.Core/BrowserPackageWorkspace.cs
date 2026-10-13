@@ -926,11 +926,17 @@ internal static class BrowserPackageWorkspace
                 sourceOperation).ConfigureAwait(false);
         if (houseSettlement is not PackageHouseSettlement.Acquired acquired)
         {
+            if (librarySelector is null)
+            {
+                return new BrowserPackageRealizationResult.NotSettled(
+                    PackageVersionSettlementInspection.ProjectAcquisitionFailure(
+                        settled.Result.Request,
+                        houseSettlement.Result));
+            }
+
             string message = "Package realization did not acquire the settled package "
                 + $"({DescribePackageHouseResult(houseSettlement.Result)}).";
-            throw librarySelector is null
-                ? new InvalidOperationException(message)
-                : new BrowserPackageLibraryAcquisitionException(message);
+            throw new BrowserPackageLibraryAcquisitionException(message);
         }
         if (PackageHouseRootContributionAdapter.Create(houseSettlement)
             is not PackageHouseRootContributionOutcome.Contributed contributed)

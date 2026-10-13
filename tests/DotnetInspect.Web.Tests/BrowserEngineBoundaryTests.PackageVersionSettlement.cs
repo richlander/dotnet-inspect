@@ -202,6 +202,41 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageRealization_ExactMissingPayloadReturnsTypedFailure()
+    {
+        var handler = new GalleryPackageHandler(
+            "WrongTurn",
+            "0.14.0",
+            PackageDocuments(1),
+            packageStatus: System.Net.HttpStatusCode.NotFound);
+        using IPackageSourceClient source = Gallery(handler);
+
+        var result = Assert.IsType<BrowserPackageRealizationResult.NotSettled>(
+            await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                "WrongTurn",
+                "0.14.0",
+                "net11.0",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken));
+        var failure = Assert.IsType<PackageVersionSettlementOutcome.NotSettled>(
+            result.VersionSettlement.Content).Failure;
+
+        Assert.Equal("wrongturn", failure.Request.PackageId);
+        Assert.Equal("0.14.0", failure.Request.Version);
+        Assert.Equal(PackageVersionSettlementFailureKind.NotFound, failure.Kind);
+        Assert.Contains(
+            "No authorized source supplied the exact package payload",
+            failure.Reason.ToString(),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            handler.Requested,
+            request => request.EndsWith(
+                "/wrongturn.0.14.0.nupkg",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task PackageRealization_SharesOneHouseGenerationWithPackageInfoAndRoot()
     {
         string packageId = $"package.info.browser.{Guid.NewGuid():N}";
