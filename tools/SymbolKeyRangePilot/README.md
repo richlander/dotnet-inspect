@@ -106,7 +106,47 @@ SPC ratios are candidate divided by baseline. Values below `1` favor the
 population-backed range, values above `1` favor the private per-key baseline,
 and the assessment requires the full control interval to clear `1`.
 
-## Accepted evidence
+## User-text presentation evidence
+
+Candidate `47b72faee5881e8cd4eca5831f05f10cd6d35712` ran as
+linux-x64 NativeAOT on `dotnet-inspect-perf` under one `perf-guard` lease. The
+host was 98.55 percent idle when the lease began. Thirty rotated rounds measured
+at least 50,000 keys per asset:
+
+```text
+perf-guard ./symbol-key-range-pilot present \
+  --user-text .ctor --rounds 30 --target-keys 50000 \
+  --tsv results.tsv \
+  System.Private.CoreLib.dll \
+  System.Text.Json.dll \
+  Microsoft.Extensions.Configuration.dll
+```
+
+The binary SHA-256 was
+`04c47a7cc60dbbee6cbfe6f4920709cee46d0c3c8aabd9fcb77b2a9be9698d49`.
+Every normal and user-text cell produced identical output. Ratios are
+`ReuseHostText` divided by `DecodeAndContain`:
+
+| Asset | Keys | Matches | Scan and present | Matched presentation | Normal scan allocation | User-text allocation |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| CoreLib | 62,986 | 2,553 | 0.928x, inconclusive | 0.124x, win | 81,696 B | 0 B |
+| System.Text.Json | 53,662 | 2,422 | 0.915x, win | 0.125x, win | 77,504 B | 0 B |
+| Microsoft.Extensions.Configuration | 50,290 | 2,889 | 0.885x, inconclusive | 0.125x, win | 92,448 B | 0 B |
+
+The isolated matched-presentation baseline allocated 32 bytes per operation;
+the user-text path allocated none. Its paired control intervals were
+0.077x-0.159x, 0.088x-0.162x, and 0.108x-0.143x. Full scan-and-presentation
+allocation also fell to zero, but only System.Text.Json had a timing interval
+fully below parity. CoreLib and Configuration remained inconclusive.
+
+The shortcut therefore has a clear post-match benefit and can materially help
+when one query presents many exact matches. It does not establish a general
+scan-speed win. The result supports a typed host-input design, not promotion of
+the matched opaque range into trusted text. Product adoption must compare this
+path with the actual `InertUtf8String` implementation once that currency exists;
+the pilot's normal cell uses the current UTF-16 `InertString` path.
+
+## Range representation evidence
 
 The acceptance goal is parity or better with the private byte-native
 `SymbolKey`, together with the large advantage over eager `InertString`
