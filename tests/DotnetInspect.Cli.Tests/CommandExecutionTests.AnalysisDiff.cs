@@ -2540,6 +2540,31 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Diff_DiscoveryTreePreservesAuthoredSectionItems()
+    {
+        var result = await RunAppAsync(
+            "diff",
+            "-D",
+            DiffSections.AnalysisDiff.Name,
+            "--tree");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            """
+            ├─ Member (section)
+            ├─ Signal (section)
+            ├─ Old (section)
+            ├─ New (section)
+            ├─ Delta (section)
+            ├─ Shape (section)
+            └─ Evidence (section)
+
+            """.ReplaceLineEndings(),
+            result.Output);
+    }
+
+    [Fact]
     public async Task Diff_SchemaRequiresDiscovery()
     {
         var (exit, output, error) = await RunAppAsync(

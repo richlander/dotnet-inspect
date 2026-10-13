@@ -93,35 +93,66 @@ public sealed class DiscoveryHierarchyProjectionTests
     }
 
     [Fact]
-    public void StructuralSuggestionsRemainTreeMembers()
+    public void AuthoredItemsRemainTreeMembersWhileQueryItemsDoNot()
     {
         DiscoveryResourceIdentity section = Section("Unresolved");
+        DiscoveryResourceIdentity authoredSection =
+            Item("Unresolved", "Member", "section");
         DiscoveryResourceIdentity suggestion =
             Item("Unresolved", "Available", "suggestion");
-        DiscoveryResourceIdentity query =
+        DiscoveryResourceIdentity defaultOrder =
+            Item("Unresolved", "Triage", "default-order");
+        DiscoveryResourceIdentity orderStep =
+            Item("Unresolved", "Priority", "order-step");
+        DiscoveryResourceIdentity filterable =
+            Item("Unresolved", "Signal", "filterable");
+        DiscoveryResourceIdentity sortable =
             Item("Unresolved", "Available", "sortable");
         var document = new DiscoveryDocument(
             "library",
             [
                 new DiscoveryResource(
                     section,
-                    members: [suggestion, query]),
+                    members:
+                    [
+                        authoredSection,
+                        suggestion,
+                        defaultOrder,
+                        orderStep,
+                        filterable,
+                        sortable,
+                    ]),
+                new DiscoveryResource(authoredSection),
                 new DiscoveryResource(suggestion),
-                new DiscoveryResource(query),
+                new DiscoveryResource(defaultOrder),
+                new DiscoveryResource(orderStep),
+                new DiscoveryResource(filterable),
+                new DiscoveryResource(sortable),
             ],
             [section],
             new DiscoverySelection(
                 isCatalog: false,
                 addressedResources: [section],
-                rows: [suggestion, query]));
+                rows:
+                [
+                    authoredSection,
+                    suggestion,
+                    defaultOrder,
+                    orderStep,
+                    filterable,
+                    sortable,
+                ]));
 
-        DiscoveryHierarchyRow row =
-            Assert.Single(
-                DiscoveryHierarchyProjection.Rows(document));
+        var rows = DiscoveryHierarchyProjection.Rows(document);
 
-        Assert.Equal("Available", row.Parent.Identity.Name);
-        Assert.Equal("suggestion", row.Parent.Identity.ItemKind);
-        Assert.True(row.Parent.IncludeKind);
+        Assert.Equal(
+            [("Member", "section"), ("Available", "suggestion")],
+            rows.Select(static row =>
+                (
+                    row.Parent.Identity.Name,
+                    row.Parent.Identity.ItemKind)));
+        Assert.All(rows, static row =>
+            Assert.True(row.Parent.IncludeKind));
     }
 
     [Fact]

@@ -203,7 +203,11 @@ public static class DiscoveryHierarchyProjection
             .Where(static identity =>
                 identity.Kind == DiscoveryResourceKind.Item
                 && identity.ItemKind
-                    is "field" or "column" or "suggestion")
+                    is not (
+                        "default-order"
+                        or "order-step"
+                        or "filterable"
+                        or "sortable"))
             .Select(identity =>
                 new DiscoveryHierarchyNode(
                     identity,
