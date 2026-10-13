@@ -13,7 +13,8 @@ public sealed class PackageEndpointScopeRequest
         PackageSourceCoordinate coordinate,
         string targetFramework,
         PackageAssetDemand assetDemand,
-        IEnumerable<string>? implementationNames = null)
+        IEnumerable<string>? implementationNames = null,
+        PackageLibrarySelector? librarySelector = null)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
@@ -26,6 +27,12 @@ public sealed class PackageEndpointScopeRequest
                 "Named implementation assemblies require the SurfaceAndImplementation demand.",
                 nameof(implementationNames));
         }
+        if (implementationNames is not null && librarySelector is not null)
+        {
+            throw new ArgumentException(
+                "An exact Library selector cannot be combined with independently named implementation assemblies.",
+                nameof(implementationNames));
+        }
 
         Coordinate = coordinate;
         TargetFramework = targetFramework;
@@ -33,6 +40,7 @@ public sealed class PackageEndpointScopeRequest
         ImplementationNames = implementationNames is null
             ? null
             : [.. implementationNames];
+        LibrarySelector = librarySelector;
     }
 
     public PackageSourceCoordinate Coordinate { get; }
@@ -42,6 +50,9 @@ public sealed class PackageEndpointScopeRequest
     public PackageAssetDemand AssetDemand { get; }
 
     public ImmutableArray<string>? ImplementationNames { get; }
+
+    /// <summary>The exact compile Library to select before acquisition, or <see langword="null"/> for the complete role population.</summary>
+    public PackageLibrarySelector? LibrarySelector { get; }
 
     /// <summary>The host's realization limits, or <see langword="null"/> for the Workspace defaults.</summary>
     public PackageAssemblyContextRealizationOptions? RealizationOptions { get; init; }
@@ -134,13 +145,17 @@ public abstract class PackageEndpointScopeOutcome
             string message,
             PackageHouseResult? houseResult,
             PackageCompileAssetSelection? selection = null,
-            WorkspaceScopeOperationResult? admission = null)
+            WorkspaceScopeOperationResult? admission = null,
+            PackageHouseRootContribution? contribution = null,
+            string? legacyProducerKey = null)
         {
             Kind = kind;
             Message = message;
             HouseResult = houseResult;
             Selection = selection;
             Admission = admission;
+            Contribution = contribution;
+            LegacyProducerKey = legacyProducerKey;
         }
 
         public PackageEndpointScopeFailureKind Kind { get; }
@@ -155,6 +170,12 @@ public abstract class PackageEndpointScopeOutcome
 
         /// <summary>The Workspace result, when admission failed.</summary>
         public WorkspaceScopeOperationResult? Admission { get; }
+
+        /// <summary>The narrowed Root contribution, when House realization succeeded before the endpoint failed.</summary>
+        public PackageHouseRootContribution? Contribution { get; }
+
+        /// <summary>The legacy configured-source producer key retained by the acquired payload.</summary>
+        public string? LegacyProducerKey { get; }
     }
 }
 
@@ -220,16 +241,28 @@ public sealed class PackageEndpointScope : IAsyncDisposable
         PackageHouseRequest houseRequest;
         try
         {
-            houseRequest = new PackageHouseRequest(
-                new PackageHouseDemand.Exact(request.Coordinate),
+            var demand = new PackageHouseDemand.Exact(request.Coordinate);
+            PackageHouseOperation operation =
                 PackageHouseOperation.Create(
                     PackageHouseOperationProfile.Realize,
                     sourceOperation.RequestTimeout,
-                    sourceOperation.OperationTimeout),
-                PackageHouseTargetContext.Exact(request.TargetFramework),
-                PackageHouseAssetSelectionKind.Compile,
-                assetDemand: request.AssetDemand,
-                implementationNames: request.ImplementationNames);
+                    sourceOperation.OperationTimeout);
+            PackageHouseTargetContext target =
+                PackageHouseTargetContext.Exact(request.TargetFramework);
+            houseRequest = request.LibrarySelector is null
+                ? new PackageHouseRequest(
+                    demand,
+                    operation,
+                    target,
+                    PackageHouseAssetSelectionKind.Compile,
+                    assetDemand: request.AssetDemand,
+                    implementationNames: request.ImplementationNames)
+                : PackageHouseRequest.CompileLibrary(
+                    demand,
+                    operation,
+                    target,
+                    request.LibrarySelector,
+                    request.AssetDemand);
         }
         catch
         {
@@ -274,7 +307,12 @@ public sealed class PackageEndpointScope : IAsyncDisposable
                 $"{request.Coordinate.PackageId} {request.Coordinate.Version} has no compile "
                     + $"assets for {request.TargetFramework} ({selection.Status}).",
                 result,
-                selection);
+                selection,
+                contribution: contribution,
+                legacyProducerKey:
+                    ((PackageHouseSettlement.Acquired)settlement)
+                        .Payload
+                        .LegacyProducerKey);
         }
 
         var workspace = new InspectionWorkspace();
@@ -313,7 +351,9 @@ public sealed class PackageEndpointScope : IAsyncDisposable
             return Failure(
                 PackageEndpointScopeFailureKind.AdmissionFailed,
                 "The Workspace scope is unavailable: " + unavailable.RuntimeFailure,
-                result);
+                result,
+                contribution: contribution,
+                legacyProducerKey: settlement.Payload.LegacyProducerKey);
         }
 
         WorkspaceScopeRevision revision =
@@ -340,7 +380,9 @@ public sealed class PackageEndpointScope : IAsyncDisposable
                 PackageEndpointScopeFailureKind.AdmissionFailed,
                 "The package Root was not admitted: " + Describe(admission),
                 result,
-                admission: admission);
+                admission: admission,
+                contribution: contribution,
+                legacyProducerKey: settlement.Payload.LegacyProducerKey);
         }
 
         WorkspacePackageOccurrenceDescriptor root =
@@ -354,7 +396,9 @@ public sealed class PackageEndpointScope : IAsyncDisposable
                 PackageEndpointScopeFailureKind.AdmissionFailed,
                 "The committed package Root did not publish query admission.",
                 result,
-                admission: admission);
+                admission: admission,
+                contribution: contribution,
+                legacyProducerKey: settlement.Payload.LegacyProducerKey);
         }
 
         ArtifactRootResult<(
@@ -375,7 +419,9 @@ public sealed class PackageEndpointScope : IAsyncDisposable
                 PackageEndpointScopeFailureKind.AdmissionFailed,
                 "The package Root rejected its first query: " + rejected.Failure,
                 result,
-                admission: admission);
+                admission: admission,
+                contribution: contribution,
+                legacyProducerKey: settlement.Payload.LegacyProducerKey);
         }
 
         var participants = ((ArtifactRootResult<(
@@ -387,7 +433,9 @@ public sealed class PackageEndpointScope : IAsyncDisposable
                 PackageEndpointScopeFailureKind.AdmissionFailed,
                 "The admitted package Root realized no surface participant.",
                 result,
-                admission: admission);
+                admission: admission,
+                contribution: contribution,
+                legacyProducerKey: settlement.Payload.LegacyProducerKey);
         }
 
         return new PackageEndpointScopeOutcome.Opened(
@@ -597,8 +645,17 @@ public sealed class PackageEndpointScope : IAsyncDisposable
         string message,
         PackageHouseResult? result,
         PackageCompileAssetSelection? selection = null,
-        WorkspaceScopeOperationResult? admission = null) =>
-        new(kind, message, result, selection, admission);
+        WorkspaceScopeOperationResult? admission = null,
+        PackageHouseRootContribution? contribution = null,
+        string? legacyProducerKey = null) =>
+        new(
+            kind,
+            message,
+            result,
+            selection,
+            admission,
+            contribution,
+            legacyProducerKey);
 
     static string Describe(PackageHouseResult result) =>
         result switch

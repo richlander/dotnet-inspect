@@ -77,6 +77,43 @@ public sealed partial class PackageRangedRealizationTests
                 TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task EndpointScope_ExactLibraryDemandNarrowsTransferAndParticipants()
+    {
+        byte[] archive = ReadAvalonia();
+        var server = new RangeFeed(Avalonia, AvaloniaVersion, archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+
+        await using PackageEndpointScope scope = AssertOpened(
+            await OpenEndpointAsync(
+                environment,
+                new InMemoryPackageStore(),
+                new PackageEndpointScopeRequest(
+                    PackageSourceCoordinate.Create(
+                        Avalonia,
+                        AvaloniaVersion),
+                    "net10.0",
+                    PackageAssetDemand.Surface,
+                    librarySelector: new PackageLibrarySelector(
+                        "Avalonia.Controls.dll"))));
+
+        PackageEndpointParticipant selected =
+            Assert.Single(scope.SurfaceParticipants);
+        Assert.EndsWith(
+            "/Avalonia.Controls.dll",
+            selected.Asset.Path,
+            StringComparison.Ordinal);
+        Assert.Empty(scope.ImplementationParticipants);
+        Assert.Equal(11, scope.Root.Root.AssetSelection.Assets.Count);
+        var content =
+            Assert.IsType<RangedPackageContent>(scope.Payload.Content);
+        Assert.True(content.IsMaterialized(selected.Asset.Path));
+        Assert.False(
+            content.IsMaterialized(
+                $"{AvaloniaSurface}Avalonia.Dialogs.dll"));
+    }
+
     /// <summary>
     /// Gate 2: a <c>SurfaceAndImplementation</c> endpoint also exposes one
     /// implementation participant per realized implementation asset, each
@@ -177,13 +214,20 @@ public sealed partial class PackageRangedRealizationTests
         IPackageStore store,
         PackageEndpointScopeRequest request)
     {
+        PackagePayloadAcquisitionPlan acquisition =
+            request.LibrarySelector is null
+                ? new PackagePayloadAcquisitionPlan(
+                    (_, _) => store,
+                    access: PackagePayloadAccess.Ranged,
+                    log: environment.Log.Enqueue,
+                    rangedSizeCut: 0)
+                : PackagePayloadAcquisitionPlan.ForContentQueries(
+                    (_, _) => store,
+                    log: environment.Log.Enqueue,
+                    rangedSizeCut: 0);
         var house = new PackageHouse(
             environment.Authorization,
-            new PackagePayloadAcquisitionPlan(
-                (_, _) => store,
-                access: PackagePayloadAccess.Ranged,
-                log: environment.Log.Enqueue,
-                rangedSizeCut: 0));
+            acquisition);
         var operation = PackageHouseOperation.Create(PackageHouseOperationProfile.Realize);
         return PackageEndpointScope.OpenAsync(
             house,

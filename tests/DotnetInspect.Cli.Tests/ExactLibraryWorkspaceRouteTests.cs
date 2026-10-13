@@ -29,10 +29,9 @@ public sealed class ExactLibraryWorkspaceRouteTests
         new("test", SourceUrl);
 
     [Fact]
-    public async Task EligibleListingUsesInjectedWorkspaceCapabilities()
+    public async Task EligibleListingUsesInjectedPackageHouse()
     {
         var store = await CachedStoreAsync();
-        using var client = new HttpClient(new FailingHandler());
         var options = new TypeOptions
         {
             PackagePath = $"{PackageId}@{Version}",
@@ -43,17 +42,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
 
         (int exitCode, string output, string error) =
             await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(
-                    options,
-                    ResolvedMemberInspectionPlan
-                        .FromCompatibilityOptions(options),
-                    new WorkspaceContextLoadOptions
-                    {
-                        HttpClient = client,
-                        SourceAuthorization =
-                            new UniformPackageSourceAuthorization([Source]),
-                        PackageStore = store,
-                    }));
+                () => ExecuteEligibleRouteAsync(options, store));
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
@@ -71,7 +60,6 @@ public sealed class ExactLibraryWorkspaceRouteTests
     public async Task EnvelopePreservesExplicitTipsOnStderr()
     {
         var store = await CachedStoreAsync();
-        using var client = new HttpClient(new FailingHandler());
         var options = new TypeOptions
         {
             PackagePath = $"{PackageId}@{Version}",
@@ -84,17 +72,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
 
         (int exitCode, string output, string error) =
             await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(
-                    options,
-                    ResolvedMemberInspectionPlan
-                        .FromCompatibilityOptions(options),
-                    new WorkspaceContextLoadOptions
-                    {
-                        HttpClient = client,
-                        SourceAuthorization =
-                            new UniformPackageSourceAuthorization([Source]),
-                        PackageStore = store,
-                    }));
+                () => ExecuteEligibleRouteAsync(options, store));
 
         Assert.Equal(0, exitCode);
         using JsonDocument document = JsonDocument.Parse(output);
@@ -117,7 +95,6 @@ public sealed class ExactLibraryWorkspaceRouteTests
             SourceForwarderResolutionTests.BuildTargetWithMalformedType(
                 requestedTypeIsMalformed: true);
         var store = await CachedStoreAsync(libraryContent);
-        using var client = new HttpClient(new FailingHandler());
         var options = new TypeOptions
         {
             PackagePath = $"{PackageId}@{Version}",
@@ -133,17 +110,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
 
         (int exitCode, string output, string error) =
             await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(
-                    options,
-                    ResolvedMemberInspectionPlan
-                        .FromCompatibilityOptions(options),
-                    new WorkspaceContextLoadOptions
-                    {
-                        HttpClient = client,
-                        SourceAuthorization =
-                            new UniformPackageSourceAuthorization([Source]),
-                        PackageStore = store,
-                    }));
+                () => ExecuteEligibleRouteAsync(options, store));
 
         Assert.Equal(1, exitCode);
         if (jsonOutput)
@@ -357,7 +324,6 @@ public sealed class ExactLibraryWorkspaceRouteTests
     public async Task EnvelopeContentMatchesUnprojectedJson()
     {
         var store = await CachedStoreAsync();
-        using var client = new HttpClient(new FailingHandler());
         var baseline = new TypeOptions
         {
             PackagePath = $"{PackageId}@{Version}",
@@ -366,17 +332,10 @@ public sealed class ExactLibraryWorkspaceRouteTests
             CompanionOutput = CompanionOutput.None,
             CompactJson = true,
         };
-        WorkspaceContextLoadOptions capabilities = new()
-        {
-            HttpClient = client,
-            SourceAuthorization =
-                new UniformPackageSourceAuthorization([Source]),
-            PackageStore = store,
-        };
 
         (int jsonExit, string jsonOutput, string jsonError) =
             await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(
+                () => ExecuteEligibleRouteAsync(
                     baseline with
                     {
                         JsonOutput = true,
@@ -384,16 +343,12 @@ public sealed class ExactLibraryWorkspaceRouteTests
                         FormatExplicitlySet = true,
                         FormatFlagExplicitlySet = true,
                     },
-                    ResolvedMemberInspectionPlan
-                        .FromCompatibilityOptions(baseline),
-                    capabilities));
+                    store));
         (int envelopeExit, string envelopeOutput, string envelopeError) =
             await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(
+                () => ExecuteEligibleRouteAsync(
                     baseline with { EnvelopeOutput = true },
-                    ResolvedMemberInspectionPlan
-                        .FromCompatibilityOptions(baseline),
-                    capabilities));
+                    store));
 
         Assert.Equal(0, jsonExit);
         Assert.Equal(0, envelopeExit);
@@ -554,7 +509,6 @@ public sealed class ExactLibraryWorkspaceRouteTests
     public async Task MissingLibraryPreservesCompatibilityError()
     {
         var store = await CachedStoreAsync();
-        using var client = new HttpClient(new FailingHandler());
         var options = new TypeOptions
         {
             PackagePath = $"{PackageId}@{Version}",
@@ -565,17 +519,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
 
         (int exitCode, string output, string error) =
             await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(
-                    options,
-                    ResolvedMemberInspectionPlan
-                        .FromCompatibilityOptions(options),
-                    new WorkspaceContextLoadOptions
-                    {
-                        HttpClient = client,
-                        SourceAuthorization =
-                            new UniformPackageSourceAuthorization([Source]),
-                        PackageStore = store,
-                    }));
+                () => ExecuteEligibleRouteAsync(options, store));
 
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
@@ -589,7 +533,6 @@ public sealed class ExactLibraryWorkspaceRouteTests
     public async Task MissingLibraryContentJsonRemainsVisible()
     {
         var store = await CachedStoreAsync();
-        using var client = new HttpClient(new FailingHandler());
         var options = new TypeOptions
         {
             PackagePath = $"{PackageId}@{Version}",
@@ -603,17 +546,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
 
         (int exitCode, string output, string error) =
             await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(
-                    options,
-                    ResolvedMemberInspectionPlan
-                        .FromCompatibilityOptions(options),
-                    new WorkspaceContextLoadOptions
-                    {
-                        HttpClient = client,
-                        SourceAuthorization =
-                            new UniformPackageSourceAuthorization([Source]),
-                        PackageStore = store,
-                    }));
+                () => ExecuteEligibleRouteAsync(options, store));
 
         Assert.Equal(1, exitCode);
         using JsonDocument document = JsonDocument.Parse(output);
@@ -634,13 +567,58 @@ public sealed class ExactLibraryWorkspaceRouteTests
                     ?? await File.ReadAllBytesAsync(
                         typeof(ApiSurface).Assembly.Location,
                         TestContext.Current.CancellationToken)));
-        await store.CommitAsync(
-            PackageId,
-            Version,
-            NuGetCache.GetSourceKey(SourceUrl),
-            new MemoryStream(package),
-            TestContext.Current.CancellationToken);
+        foreach (string producerKey in FixtureProducerKeys())
+        {
+            await store.CommitAsync(
+                PackageId,
+                Version,
+                producerKey,
+                new MemoryStream(package),
+                TestContext.Current.CancellationToken);
+        }
         return store;
+    }
+
+    static string[] FixtureProducerKeys()
+    {
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                Source,
+                PackageSourceAssociation.Create(),
+                new FailingHandler());
+        return
+        [
+            NuGetCache.GetSourceKey(SourceUrl),
+            client.Source.Producer.Key,
+        ];
+    }
+
+    static async Task<int> ExecuteEligibleRouteAsync(
+        TypeOptions options,
+        IPackageStore store)
+    {
+        var authorization =
+            new UniformPackageSourceAuthorization([Source]);
+        ConfiguredPackageAuthority authority = Assert.Single(
+            authorization.AuthorizeSourcesFor(PackageId).Authorities);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                authority.Source,
+                authority.Association,
+                new FailingHandler());
+        await using PackageSourceSettlementLease source =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var house = new PackageHouse(
+            authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => store));
+        return await TypeCommand.ExecuteAsync(
+            options,
+            ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options),
+            house,
+            cancellationToken =>
+                source.IssueOperationLease(cancellationToken));
     }
 
     static byte[] Archive(
