@@ -179,11 +179,14 @@ exact-Type inspection boundary:
    row or column projections, and every broader command shape retain the
    established renderer.
 
-That eligibility rule preserves byte-identical output while establishing one
-complete host-input-to-byte-sink path. It does not authorize a second Type
-formatter, change raw lookup identity, or claim that the broad `ApiSurface`
-path is byte-native. Performance evidence measures the complete one-shot
-NativeAOT command, including input and plan construction, inspection,
+That eligibility rule preserves the byte-identical selected document while
+establishing one complete host-input-to-byte-sink path. Diagnostic reach
+follows the work actually performed: the bounded exact-Type path does not
+reproduce warnings or failure status caused only by unrelated metadata rows
+visited by the broader `ApiSurface` traversal. It does not authorize a second
+Type formatter, change raw lookup identity, or claim that the broad
+`ApiSurface` path is byte-native. Performance evidence measures the complete
+one-shot NativeAOT command, including input and plan construction, inspection,
 Presentation, and output.
 
 ## Motivating evidence

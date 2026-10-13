@@ -1080,6 +1080,45 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        Type_DirectLibraryExactType_SystemTextJsonWritesThroughUtf8Sink()
+    {
+        string assemblyPath =
+            typeof(JsonSerializer).Assembly.Location;
+        var bytes = new ArrayBufferWriter<byte>();
+
+        var (exit, output, error) =
+            await ConsoleCapture.RunAsync(async () =>
+            {
+                using IDisposable redirect =
+                    Utf8StandardOutput.Redirect(payload =>
+                    {
+                        payload.Span.CopyTo(
+                            bytes.GetSpan(payload.Length));
+                        bytes.Advance(payload.Length);
+                    });
+                return await InvokeAppAsync(
+                    [
+                        "type",
+                        "System.Text.Json.JsonSerializer",
+                        "--library",
+                        assemblyPath,
+                        "-S",
+                        SectionNames.TypeInfo,
+                        "--tsv",
+                    ]);
+            });
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Empty(error);
+        Assert.Contains(
+            "Type\tSystem.Text.Json.JsonSerializer\n",
+            Encoding.UTF8.GetString(bytes.WrittenSpan),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
         Type_DirectLibraryNestedExactType_WritesEverySegmentThroughUtf8Sink()
     {
         string assemblyPath =
