@@ -814,6 +814,22 @@ through this path. The CLI still owns endpoint-range parsing, compatibility filt
 ranking, and rendering; it does not select package TFMs, merge assembly surfaces, or manage
 extraction directories.
 
+**Directory sources.** A directory source (`--bin`, caller scopes, corpus entries)
+contributes its top-level managed images to the Library population. A readable PE image that
+declares no CLR header is a native image, not a population member: the resolver skips it and
+logs the skip only under `--verbose`. The resolver asks `MetadataFormatAdmission.IsNativeImage`
+rather than decoding PE headers itself. A file that is not a readable PE, or that declares a
+CLR header without readable metadata, is malformed and stays in the set so Metadata admission
+reports it visibly. A directory with native images and no managed image is a failed source,
+reported by one warning diagnostic exactly as a missing directory is; an empty directory
+contributes nothing and reports nothing. An explicitly named non-managed library is not a
+directory member and remains a failure. This matches assembly projection on the Workspace
+path, which admits managed participants only
+(`ResolvedAssemblyReference.CreateFromArtifactIfManaged`).
+Gated by `AssemblySetResolverTests.CollectAsync_DirectorySkipsNativeImagesBesideManagedLibraries`,
+`CollectAsync_NativeOnlyDirectoryIsAFailedSource`, and
+`MetadataFormatAdmissionTests.NativeImageDeclaresNoClrHeader`.
+
 **Declaration and contextual Member populations.** Assembly Inspection can
 publish a completed declaration-only `ApiSurface` through
 `AssemblyInspectionSession.ApiSurface`, its bounded peer, and the underlying

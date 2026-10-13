@@ -441,9 +441,10 @@ weak Type would require the complete fallback census that Head exists to avoid.
 Use `--members` or the leading-dot shorthand when Member rows are the requested
 bounded answer. Plain `--json` keeps its root `TypeFindResult` array, so a
 member-only broadened answer appears there as an empty array. `--count` counts
-Type rows and rejects a broadened answer that contains member rows, or whose
-member source failed or was incomplete, rather than silently counting only one
-kind.
+Type rows and rejects a broadened answer that contains member rows rather than
+counting only one kind. A member source that failed or was incomplete without
+contributing member rows is a partial view, not a mixed one: Count reports the
+observed Type rows with the warnings and exit status Rows has.
 
 Semantic row selection (`-n`, `--tail`, `--rows`) selects from the whole
 answer in presented order when implicit Member fallback runs: member rows
@@ -488,8 +489,18 @@ diagnostics retain the failed metadata operation, token, failure kind, and
 detail. An operation-wide exception propagates to `FindCommand`, which owns
 the hard error and exit status.
 
-An empty result is therefore not proof that every source succeeded; the stderr
-diagnostic stream remains part of the CLI operation outcome. Structured locator
+A per-source failure, or a default package-prefix limit that stopped source
+selection, leaves the answer a partial view under the section-row owner's
+[incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation).
+Type and Member rows and `--count` print what was observed, the warnings
+disclose the gap, and `find` exits 1. A `-n` Head or closed `--rows` window
+filled after an earlier failure stays incomplete, because those rows need not
+be the requested ones; a Head that settles before reaching a failing source
+never observes that failure. An incomplete empty answer is an observed zero
+and prints no "No types found" or "No members found" empty state. A
+directory's native images are not Library population members; see
+[directory sources](assembly-inspection-query.md) in Assembly inspection query.
+Structured locator
 completion and coverage remain in the internal operation envelope; they do not
 change the CLI compatibility result or its renderers.
 

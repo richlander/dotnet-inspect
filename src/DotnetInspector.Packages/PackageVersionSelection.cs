@@ -497,6 +497,24 @@ public abstract class PackageVersionResolutionReceipt
 public static class PackageVersionSelectionResolver
 {
     /// <summary>
+    /// The listed versions an <see cref="PackageVersionSelectionRequest.AlwaysLatest"/>
+    /// request selects from: every discovered version under the request's
+    /// prerelease policy. Latest is the highest of this population.
+    /// </summary>
+    public static IEnumerable<NuGetVersion> AdmittedVersions(
+        PackageVersionSelectionRequest.AlwaysLatest request,
+        PackageVersionDiscoveryResult discovery)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(discovery);
+        IEnumerable<NuGetVersion> versions = discovery.Versions
+            .Select(NuGetVersion.Parse);
+        return request.Discovery.IncludePrerelease
+            ? versions
+            : versions.Where(static version => !version.IsPrerelease);
+    }
+
+    /// <summary>
     /// Resolves one request from the supplied discovery evidence without
     /// performing source I/O.
     /// </summary>
@@ -815,9 +833,10 @@ internal static class PackageVersionSelectionContract
             PackageVersionSelectionRequest.LatestPrerelease =>
                 SelectLatest(versions),
             PackageVersionSelectionRequest.AlwaysLatest always =>
-                SelectLatest(always.Discovery.IncludePrerelease
-                    ? versions
-                    : versions.Where(version => !version.IsPrerelease)),
+                SelectLatest(
+                    PackageVersionSelectionResolver.AdmittedVersions(
+                        always,
+                        discovery)),
             PackageVersionSelectionRequest.Wildcard wildcard =>
                 SelectLatest(versions.Where(version =>
                     version.ToNormalizedString().StartsWith(

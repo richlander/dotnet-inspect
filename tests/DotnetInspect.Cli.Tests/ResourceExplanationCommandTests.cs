@@ -50,17 +50,17 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         using JsonDocument document = JsonDocument.Parse(result.Output);
         JsonElement vocabularies = document.RootElement.GetProperty("vocabularies");
         JsonElement choices = vocabularies.GetProperty("csharp.style-choices");
-        Assert.Equal(17, choices.GetProperty("values").GetArrayLength());
-        Assert.Equal(4, vocabularies.GetProperty("csharp.style-tiers").GetProperty("values").GetArrayLength());
+        Assert.Equal(17, choices.GetProperty("values").EnumerateObject().Count());
+        Assert.Equal(4, vocabularies.GetProperty("csharp.style-tiers").GetProperty("values").EnumerateObject().Count());
         JsonElement sets = choices.GetProperty("property_sets");
         Assert.Equal(2, sets.GetProperty("byte_divergent").GetArrayLength());
         Assert.Equal(5, sets.GetProperty("oracle_endorsed").GetArrayLength());
         Assert.Single(sets.GetProperty("corpus_endorsed").EnumerateArray());
         Assert.Equal(2, choices.GetProperty("property_groups").GetProperty("conflict_group").EnumerateObject().Count());
-        foreach (JsonElement choice in choices.GetProperty("values").EnumerateArray())
+        foreach (JsonProperty choice in choices.GetProperty("values").EnumerateObject())
         {
-            Assert.False(choice.TryGetProperty("byte_divergent", out _));
-            Assert.False(choice.TryGetProperty("conflict_group", out _));
+            Assert.False(choice.Value.TryGetProperty("byte_divergent", out _));
+            Assert.False(choice.Value.TryGetProperty("conflict_group", out _));
         }
     }
 
@@ -280,10 +280,10 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.False(root.TryGetProperty("facts", out _));
         Assert.False(root.TryGetProperty("identity", out _));
         Assert.False(root.TryGetProperty("selection", out _));
-        Assert.Equal(path.StartsWith("vocabularies/", StringComparison.Ordinal), root.TryGetProperty("name", out _));
+        Assert.False(root.TryGetProperty("name", out _));
         JsonElement links = root.GetProperty("_links");
         Assert.False(links.TryGetProperty("curies", out _));
-        Assert.Equal(path.StartsWith("vocabularies/", StringComparison.Ordinal), links.TryGetProperty("describedby", out _));
+        Assert.False(links.TryGetProperty("describedby", out _));
         Assert.Equal("application/hal+json", links.GetProperty("self").GetProperty("type").GetString());
         string href = links.GetProperty("self").GetProperty("href").GetString()!;
         var followed = await RunAsync("explain", href, "--json");
@@ -300,7 +300,9 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         JsonElement embedded = root.GetProperty("_embedded");
         Assert.All(embedded.EnumerateObject(), relation => Assert.Equal(JsonValueKind.Array, relation.Value.ValueKind));
         if (path.StartsWith("vocabularies/", StringComparison.Ordinal))
-            Assert.Equal(17, embedded.GetProperty("values").GetArrayLength());
+            Assert.Equal(17, embedded.GetProperty("vocabularies").EnumerateArray()
+                .Single(vocabulary => vocabulary.GetProperty("id").GetString() == "csharp.style-choices")
+                .GetProperty("_embedded").GetProperty("values").GetArrayLength());
         else
             Assert.Equal(19, embedded.GetProperty("facets").GetArrayLength());
     }

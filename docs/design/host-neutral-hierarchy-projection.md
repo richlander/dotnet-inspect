@@ -66,6 +66,12 @@ owns their exact C# spelling and streams the native Tree without a retained
 Markout graph. This adoption does not preempt the later Composition Count
 heading change.
 
+CLI command-schema introspection is the sixth adopter. The command-line owner
+retains command, argument, and option membership, ordering, visibility,
+verbosity, and exact spelling. Shared presentation owns the title,
+description, and streaming native Tree lowering without a CLI-built Markout
+graph.
+
 ## Owner and exact claim
 
 Host-neutral hierarchy projection owns this exact claim:

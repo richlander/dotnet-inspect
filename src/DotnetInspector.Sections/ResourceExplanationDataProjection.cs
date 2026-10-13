@@ -29,25 +29,6 @@ public static class ResourceExplanationDataProjection
         return result.RootElement.Clone();
     }
 
-    internal static ImmutableArray<JsonElement> CreateResources(
-        ResourceExplanationCatalog catalog,
-        IEnumerable<ResourceExplanationResource> resources,
-        Func<ResourcePath, string> bindAddress)
-    {
-        using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream))
-        {
-            var projection = new Projection(catalog.Schemas, catalog.Relationships,
-                null, bindAddress, writer);
-            writer.WriteStartArray();
-            foreach (ResourceExplanationResource resource in resources)
-                projection.WriteResource(resource);
-            writer.WriteEndArray();
-        }
-        using JsonDocument result = JsonDocument.Parse(stream.ToArray());
-        return [.. result.RootElement.EnumerateArray().Select(value => value.Clone())];
-    }
-
     internal static ImmutableArray<JsonElement> CreateFactResources(
         ResourceExplanationCatalog catalog, IEnumerable<ResourceExplanationResource> resources)
     {
