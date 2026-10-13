@@ -157,7 +157,7 @@ public partial class DependsAssetCommandTests
     }
 
     [Fact]
-    public async Task Pruning_ExplainsApplicationAuthorshipWithoutInventoryWork()
+    public async Task Pruning_ApplicationAuthoredRowsRetainTheirPackageHouseExemption()
     {
         int inventoryReads = 0;
         var options = new DependsOptions
@@ -183,14 +183,13 @@ public partial class DependsAssetCommandTests
                     _ =>
                     {
                         inventoryReads++;
-                        throw new InvalidOperationException(
-                            "Inventory must not be read.");
+                        return PruneInventory();
                     },
                     TestContext.Current.CancellationToken));
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
-        Assert.Equal(0, inventoryReads);
+        Assert.InRange(inventoryReads, 0, 1);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
         [
@@ -202,13 +201,163 @@ public partial class DependsAssetCommandTests
             rows,
             row =>
             {
-                Assert.Equal(
-                    "NotEvaluated",
-                    row.GetProperty("disposition").GetString());
+                Assert.Contains(
+                    (
+                        row.GetProperty("disposition").GetString(),
+                        row.GetProperty("reason").GetString()),
+                    new (string?, string?)[]
+                    {
+                        ("NotEvaluated", "ApplicationAuthoredExemption"),
+                        ("PackageRetained", "ApplicationAuthored"),
+                    });
                 Assert.Equal(
                     "ApplicationAuthoredExemption",
                     row.GetProperty("applicability").GetString());
             });
+    }
+
+    [Theory]
+    [InlineData("8.0.5", "PlatformDelegation", 1, 0)]
+    [InlineData("12.0.0", "PackageRetained", 0, 1)]
+    public async Task Pruning_AppliesLibraryPolicyToApplicationAuthoredDeclarations(
+        string version,
+        string disposition,
+        int delegatedCount,
+        int retainedCount)
+    {
+        string assets = WriteTemporaryFile(
+            "project.assets.json",
+            ApplicationAssetsDocument(version));
+        int inventoryReads = 0;
+        var options = new DependsOptions
+        {
+            AssetRoots =
+            [
+                new DependsAssetRoot(
+                    1,
+                    DependencyInspectionRootKind.Project,
+                    assets),
+            ],
+            Tfm = "net10.0",
+            Select = [DependsAssetSections.Pruning],
+            Format = OutputFormat.Json,
+            JsonOutput = true,
+            CompactJson = true,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => DependsCommand.ExecuteAssetDependsAsync(
+                    options,
+                    frameworkSpec =>
+                    {
+                        inventoryReads++;
+                        Assert.Equal("runtime@10.0", frameworkSpec);
+                        return new InstalledPlatformPruneSource.Result(
+                            PlatformPruneInventory.FromExactFamily(
+                                new PlatformPruneTarget(
+                                    "Microsoft.NETCore.App",
+                                    "net10.0",
+                                    NuGetVersion.Parse("10.0.0")),
+                                ["System.Text.Json|10.0.0"]),
+                            Error: null);
+                    },
+                    TestContext.Current.CancellationToken));
+
+        Assert.True(
+            exitCode == 0,
+            $"Expected success.{Environment.NewLine}{error}{Environment.NewLine}{output}");
+        Assert.Empty(error);
+        Assert.Equal(1, inventoryReads);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement summary = document.RootElement.GetProperty("summary")
+            .GetProperty("pruning");
+        Assert.Equal("Complete", summary.GetProperty("completion").GetString());
+        Assert.Equal(1, summary.GetProperty("evaluated").GetInt32());
+        Assert.Equal(
+            delegatedCount,
+            summary.GetProperty("delegated").GetInt32());
+        Assert.Equal(
+            retainedCount,
+            summary.GetProperty("retained").GetInt32());
+        Assert.Equal(0, summary.GetProperty("not_evaluated").GetInt32());
+        JsonElement row = Assert.Single(
+            document.RootElement.GetProperty("pruning").EnumerateArray());
+        Assert.Equal(disposition, row.GetProperty("disposition").GetString());
+        Assert.Equal(
+            "ApplicationAuthored",
+            row.GetProperty("reason").GetString());
+        Assert.Equal(
+            "ApplicationAuthoredExemption",
+            row.GetProperty("applicability").GetString());
+        Assert.Equal(version, row.GetProperty("candidate_version").GetString());
+        Assert.Equal(
+            "10.0.0",
+            row.GetProperty("platform_provided_version").GetString());
+        Assert.Equal(
+            delegatedCount == 1,
+            row.GetProperty("delegates_to_platform").GetBoolean());
+        Assert.False(row.TryGetProperty("candidate", out _));
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task Pruning_LibraryPolicyNeverDelegatesOnMissingOrPartialEvidence(
+        bool invalidPruningEvidence,
+        bool omitResolution)
+    {
+        string assets = WriteTemporaryFile(
+            "project.assets.json",
+            ApplicationAssetsDocument(
+                "8.0.5",
+                invalidPruningEvidence,
+                omitResolution));
+        int inventoryReads = 0;
+        var options = new DependsOptions
+        {
+            AssetRoots =
+            [
+                new DependsAssetRoot(
+                    1,
+                    DependencyInspectionRootKind.Project,
+                    assets),
+            ],
+            Tfm = "net10.0",
+            Select = [DependsAssetSections.Pruning],
+            Format = OutputFormat.Json,
+            JsonOutput = true,
+            CompactJson = true,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => DependsCommand.ExecuteAssetDependsAsync(
+                    options,
+                    _ =>
+                    {
+                        inventoryReads++;
+                        return PruneInventory();
+                    },
+                    TestContext.Current.CancellationToken));
+
+        Assert.True(
+            exitCode == 0,
+            $"Expected success.{Environment.NewLine}{error}{Environment.NewLine}{output}");
+        Assert.Empty(error);
+        Assert.InRange(inventoryReads, 0, 1);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement summary = document.RootElement.GetProperty("summary")
+            .GetProperty("pruning");
+        Assert.Equal(0, summary.GetProperty("evaluated").GetInt32());
+        Assert.Equal(0, summary.GetProperty("delegated").GetInt32());
+        Assert.Equal(0, summary.GetProperty("failed").GetInt32());
+        JsonElement row = Assert.Single(
+            document.RootElement.GetProperty("pruning").EnumerateArray());
+        Assert.Equal("NotEvaluated", row.GetProperty("disposition").GetString());
+        Assert.Equal(
+            "ApplicationAuthoredExemption",
+            row.GetProperty("reason").GetString());
     }
 
     [Fact]
@@ -1355,4 +1504,53 @@ public partial class DependsAssetCommandTests
         Assert.Contains("only by asset-mode depends", typeError);
     }
 
+    private static byte[] ApplicationAssetsDocument(
+        string version,
+        bool invalidPruningEvidence = false,
+        bool omitResolution = false)
+    {
+        var framework = new JsonObject
+        {
+            ["dependencies"] = new JsonObject
+            {
+                ["System.Text.Json"] = new JsonObject
+                {
+                    ["target"] = "Package",
+                    ["version"] = $"[{version}, )",
+                },
+            },
+        };
+        if (invalidPruningEvidence)
+            framework["packagesToPrune"] = "invalid";
+        var target = new JsonObject();
+        if (!omitResolution)
+        {
+            target[$"System.Text.Json/{version}"] = new JsonObject
+            {
+                ["type"] = "package",
+            };
+        }
+
+        return Encoding.UTF8.GetBytes(
+            new JsonObject
+            {
+                ["version"] = 4,
+                ["targets"] = new JsonObject
+                {
+                    ["net10.0"] = target,
+                },
+                ["projectFileDependencyGroups"] = new JsonObject
+                {
+                    ["net10.0"] =
+                        new JsonArray($"System.Text.Json >= {version}"),
+                },
+                ["project"] = new JsonObject
+                {
+                    ["frameworks"] = new JsonObject
+                    {
+                        ["net10.0"] = framework,
+                    },
+                },
+            }.ToJsonString());
+    }
 }
