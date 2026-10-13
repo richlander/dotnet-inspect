@@ -316,8 +316,6 @@ same content-free hard failure for an exact package-backed library selection.
 `PackageAllLibrariesIdentifierConfusionAudit_PreservesHealthyResultsOnTraversalFailure`
 gates clean diagnostics, healthy partial results, and nonzero completion for
 survey-mode traversal failure.
-`LibraryCommand_TfmAll_PreservesHealthyIdentifierAuditResults` gates the same
-per-source outcome contract across target frameworks.
 `LibraryIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`
 and
 `PackageAllLibrariesIdentifierConfusionAudit_FailsWhenDirectReferencesCannotBeDecoded`

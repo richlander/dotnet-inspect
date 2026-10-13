@@ -279,11 +279,21 @@ public sealed class PackageIntegrationsWorkspaceTests
                 return await CommandLineBuilder.InvokeAsync(parsed);
             });
 
+            if (targetFramework == "all")
+            {
+                // --tfm all is package discovery, so Library inspection fails
+                // before acquisition (docs/design/package-tfm-all-discovery.md).
+                Assert.Equal(1, exit);
+                Assert.Empty(output);
+                Assert.Contains("--library cannot be combined with --tfm all, which is package discovery.", error);
+                return;
+            }
+
             Assert.True(exit == 0, error);
             Assert.Contains("## Integration Opportunities", output);
             Assert.Contains("Npgsql.NpgsqlConnection", output);
             Assert.Equal(
-                targetFramework == "all" ? 2 : 1,
+                1,
                 output.Split(
                     "| Aspire | `Npgsql.NpgsqlConnection` |",
                     StringSplitOptions.None).Length - 1);
@@ -304,18 +314,10 @@ public sealed class PackageIntegrationsWorkspaceTests
                     "Using artifact-backed selected-entry package Integrations.",
                     error);
             }
-            if (targetFramework == "all")
-            {
-                Assert.Contains("net10.0", output);
-                Assert.Contains("net11.0", output);
-            }
-            else
-            {
-                Assert.Contains(targetFramework ?? "net11.0", output);
-                Assert.DoesNotContain(
-                    targetFramework is null ? "net10.0" : "net11.0",
-                    output);
-            }
+            Assert.Contains(targetFramework ?? "net11.0", output);
+            Assert.DoesNotContain(
+                targetFramework is null ? "net10.0" : "net11.0",
+                output);
         }
         finally
         {
@@ -1082,7 +1084,7 @@ public sealed class PackageIntegrationsWorkspaceTests
     }
 
     [Theory]
-    [InlineData("all-frameworks", 2)]
+    [InlineData("all-frameworks", 0)]
     [InlineData("nested", 2)]
     [InlineData("tools", 1)]
     [InlineData("no-nuspec", 1)]
@@ -1180,6 +1182,16 @@ public sealed class PackageIntegrationsWorkspaceTests
             int exit = process.ExitCode;
             string output = await stdout;
             string error = await stderr;
+
+            if (shape == "all-frameworks")
+            {
+                // --tfm all is package discovery, so Library inspection fails
+                // before acquisition (docs/design/package-tfm-all-discovery.md).
+                Assert.Equal(1, exit);
+                Assert.Empty(output);
+                Assert.Contains("--library cannot be combined with --tfm all, which is package discovery.", error);
+                return;
+            }
 
             Assert.True(exit == 0, error);
             Assert.Contains("Using artifact-backed selected-entry package Integrations.", error);

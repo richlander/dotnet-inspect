@@ -218,3 +218,31 @@ Any CLI `-Q` change is a separate owner adoption of this selection, not a new
 fact inventory. Agent testing follows production adoption and measures total
 retrieval, valid preparation, and necessary navigation. The examples establish
 neither an optimal minimum nor coverage of unregistered validation rules.
+
+## Shared production projection
+
+The shared implementation under
+[#9982](https://github.com/richlander/dotnet-inspect/issues/9982) now lowers
+existing query `.data` and `.hal` selections through the reading profile.
+The examples above remain the pinned proposal experiment; their exact sizes
+are not claims about the current installed output.
+
+Production scope includes `profile: query-preparation/v1`, the owner-issued
+query-space identity, the requested routing root, selected completeness, and
+catalog count. Direct JSON additionally retains `facet_order`; binding tables
+use owner-issued binding identities and retain consumer kind. HAL has one
+root self link for implemented exact selections and a collection link for
+facet selections. All selected facets, including a facet root, appear under
+`_embedded.facets` once. No member links or automatic contract links are emitted.
+
+For example, the installed reading commands are:
+
+```bash
+dotnet-inspect package query --explain --json
+dotnet-inspect explain package-query/query .data --json
+dotnet-inspect explain package-query/query/facets/library-literal .hal --json
+```
+
+The reusable `read.jq` adapter accepts both these records and the historical
+examples. Shared key narrowing is an API capability; no CLI narrowing syntax
+or Browser query-explanation entrance is implied by this implementation.

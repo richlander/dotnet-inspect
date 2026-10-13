@@ -1120,12 +1120,7 @@ public static class StructuralViewRegistry
         IReadOnlyDictionary<
             string,
             SectionCardinalityDeclaration>? sectionCardinalities =
-                route.Catalog == InspectionCatalogIdentity.Library
-                && request.Projection is LibraryOptions libraryOptions
-                && LibrarySectionCardinality.IsAllTfmPackageSelection(
-                    libraryOptions)
-                    ? null
-                    : projection.SectionCardinalities;
+                projection.SectionCardinalities;
         if (request.Details)
         {
             if (route.Catalog
