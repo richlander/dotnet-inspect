@@ -185,7 +185,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             JsonElement transfer = entry.GetProperty("transfer");
             Assert.Equal("Ranged", transfer.GetProperty("path").GetString());
             Assert.Equal(
-                ["SizeProbe", "DirectoryTail", "EntrySpan"],
+                ["DirectoryTail", "EntrySpan"],
                 transfer.GetProperty("requests").EnumerateArray()
                     .Select(static request => request.GetProperty("purpose").GetString()));
         }
