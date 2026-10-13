@@ -1154,6 +1154,23 @@ partial, empty, and available outcomes. Integrations presents its detected and
 suggested evidence together while preserving the independent completion and
 failure state of each source.
 
+Detected Integrations evidence has one closed Browser-owned state: `idle`,
+`loading` for one exact Library/coordinate request, `ready` with its
+owner-issued result, or `failed` with its visible diagnostic. Only the current
+`loading` request may publish `ready` or `failed`; replacement and package
+invalidation retire the prior request without publication. Workspace snapshots
+retain `ready` and `failed` evidence but normalize interrupted `loading` to
+`idle`. Suggested Opportunities remains an independently settling neighboring
+source. This contract does not define a generic asynchronous-state framework or
+migrate another Analysis mode.
+
+`Microsoft.Extensions.Http` 10.0.0 on nuget.org supplies the motivating
+production flow: its `Microsoft.Extensions.Http` Library produces HTTP Client
+signals including `IHttpClientFactory` and `AddHttpClient`. Replacing that
+Library/coordinate while the scan is pending must not let the retired request
+replace newer detected evidence. Focused coordinator tests preserve the same
+replacement and invalidation boundary deterministically.
+
 Tabs use manual activation: Left/Right and Home/End move focus, Enter/Space
 select, and rerenders preserve focused-tab identity. The selected tab labels the
 shared results panel. Full labels remain available at narrow widths through
