@@ -23078,8 +23078,16 @@ async function renderDependencyGraph() {
   if (!container) return;
   const pending = createDependencyGraphPendingState(container.dataset);
   const groups = state.packageDependencies?.dependencyGroups || [];
-  if (!groups.length
-    && !(state.packageDependencies?.platformReferences?.length)) {
+  const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
+  const platformReferences = state.packageDependencies
+    ? platformReferencesForDependencyGroup(
+        state.packageDependencies.platformReferences,
+        state.packageDependencies.defaultPlatformReference,
+        groups,
+        selectedGroupIndex,
+      )
+    : [];
+  if (!groups.length && !platformReferences.length) {
     depGraphRenderSequence.invalidate();
     pending.invalidate();
     return;
@@ -23087,20 +23095,10 @@ async function renderDependencyGraph() {
   const pkg = state.package;
   if (!pkg) return;
   const packages = state.packages.map(candidate => ({ ...candidate }));
-  const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
-  const selectedGroup =
-    groups.find(group => group.index === selectedGroupIndex)
-    || groups.find(group => group.isActive)
-    || groups[0];
   const packageDependencies = state.packageDependencies
     ? {
         ...state.packageDependencies,
-        platformReferences: platformReferencesForDependencyGroup(
-          state.packageDependencies.platformReferences,
-          state.packageDependencies.defaultPlatformReference,
-          groups,
-          selectedGroupIndex,
-        ),
+        platformReferences,
       }
     : null;
   const model = {

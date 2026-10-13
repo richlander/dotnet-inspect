@@ -555,6 +555,23 @@ test("duplicate dependency graphs share pending matching and do not cancel their
   assert.equal(h.graph.dataset.graphPending, undefined);
 });
 
+test("default-only platform evidence renders a dependency graph", async () => {
+  const h = harness();
+  h.state.packageDependencies.dependencyGroups = [];
+  Object.assign(h.state.packageDependencies, {
+    platformReferences: [],
+    defaultPlatformReference: {
+      family: "runtime",
+      label: ".NET Runtime",
+    },
+  });
+
+  await h.host.renderDependencyGraph();
+
+  assert.equal(h.diagrams.length, 1);
+  assert.match(h.diagrams[0] ?? "", /\.NET Runtime/);
+});
+
 for (const change of ["framework", "workspace"] as const) {
   for (const completion of ["success", "failure"] as const) {
     test(`late graph matching ${completion} cannot replace the newer ${change} graph`, { timeout: 10_000 }, async () => {
