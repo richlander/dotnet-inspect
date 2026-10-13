@@ -246,15 +246,16 @@ never retain a participant after the scope is disposed.
      pieces live in shared assemblies, not the CLI host, so the diff system's
      paired steps ([diff system](diff-system.md#adoption-and-retirement), step
      4) reuse them:
-     1. **Host pre-steps.** Before any scope opens, the host resolves each
-        endpoint to an exact coordinate: a floating version (`*`, `latest`)
-        resolves through the package version service, and the scope never
-        sees one. Without `--tfm`, the pair compares the **highest framework
-        both endpoints support**, read from their compile assets, on both
-        sides; when the endpoints share none, each side uses its own highest
-        framework and the output says so. Offline, the scope opens from the
-        local stores without a network request. The scope reads the legacy
-        app cache as `type` does, alongside the NuGet global-packages folder.
+     1. **The House's selection, as `package` has it.** The scope request
+        carries a PackageHouse demand and target context instead of an exact
+        coordinate and framework, so `diff` selects exactly as `package`
+        does, and no consumer chooses a version or framework itself. A
+        floating version (`*`, `latest`) is a `Selecting` demand that the
+        House settles. Without `--tfm`, the target context is
+        `OwnerDefault`, and the House applies its highest-available compile
+        selection to each endpoint. Offline, the scope opens from the local
+        stores without a network request, and it reads the legacy app cache
+        as `type` does, alongside the NuGet global-packages folder.
      2. **API views over a merged participant surface.** A merged surface
         over every surface participant of an endpoint serves Changes,
         multi-Library packages, member targets, Changes filters, the
@@ -313,8 +314,8 @@ All gates run in Release.
 | 6. The same pairwise diff twice | the second makes no package request | CLI harness |
 | 7. Offline pairwise diff with both endpoints cached | the same output from the local cache | CLI harness |
 | 8. Inspect Web Compare, after step 5 | the same Library API diff result through the shared scope | Web boundary tests |
-| 9. Pairwise diff without `--tfm`, after step 4 part 1 | both endpoints compare the highest shared framework; with none shared, each its own highest, with a visible note | CLI harness, a package that adds a framework between versions |
-| 10. Floating and offline pairwise diff, after step 4 part 1 | `*` and `latest` resolve to exact coordinates before the scope opens; offline answers from the local stores with no request | CLI harness |
+| 9. Pairwise diff without `--tfm`, after step 4 part 1 | each endpoint selects the framework `package` selects for it, through the House's owner-default compile selection | CLI harness, a package that adds a framework between versions, compared with `package` |
+| 10. Floating and offline pairwise diff, after step 4 part 1 | `*` and `latest` settle as `package` settles them, through the House's selecting demand; offline answers from the local stores with no request | CLI harness |
 | 11. Multi-Library and member-targeted views, after step 4 part 2 | the merged participant surface; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0` no longer doubles change rows | CLI harness, real assets |
 | 12. Body views, after step 4 part 3 | implementation participants, never reference stubs, with or without `--tfm` | CLI harness |
 | 13. Legacy retired, after step 4 part 6 | no `diff --package` request reaches the `AssemblySet` endpoint path | CLI harness and dependency gate |
