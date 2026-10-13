@@ -352,6 +352,14 @@ public sealed class PackageVersionVector
     }
 
     /// <summary>
+    /// The normalized range text, Start..End, for a caller that presents the
+    /// vector without depending on NuGet versioning. It is a method, not a
+    /// property, so serialized vectors are unchanged.
+    /// </summary>
+    public string FormatRange() =>
+        $"{Start.ToNormalizedString()}..{End.ToNormalizedString()}";
+
+    /// <summary>
     /// Creates an ascending vector from versions its caller already admitted,
     /// deduplicated, and ordered, such as a version window's population.
     /// </summary>

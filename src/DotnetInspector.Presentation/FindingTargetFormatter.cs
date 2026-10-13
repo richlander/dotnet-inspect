@@ -1,7 +1,7 @@
 using ILInspector.Analysis;
 using Inspector.Findings;
 
-namespace DotnetInspector.ResearchSections;
+namespace DotnetInspector.Presentation;
 
 public static class FindingTargetFormatter
 {

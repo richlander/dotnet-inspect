@@ -329,7 +329,7 @@ a text diff of printed IL; `IlBodyDiff` stays Implementation Diff's IL lane.
   every annotation and change label its document holds; a projection that
   drops one says so in its owner's design.
 - Each document has one serialization owner. History's JSON moves from the
-  CLI host into Presentation in adoption step 2.
+  CLI host into Presentation in adoption step 2b.
 
 ## Markout
 
@@ -525,7 +525,7 @@ first, so later steps retire duplicates rather than add adapters.
 | --- | --- | --- |
 | 1 | This design | None |
 | 2 | Create `DotnetInspector.Diff` with `DiffRequest` and `DiffOperation`. Move Diff History's orchestration into it as the per-point mode, returning `DiffHistoryOutcome` unchanged. `diff --history` calls it. Done: `DiffOperation.ExecuteAsync` and `ExecuteWithEvidenceAsync` take a `DiffHistoryRequest` and a `DiffAcquisition`, and the engines are internal to the diff system. Per-version cell evaluators stay in `PackageQueries` until step 3. | `DiffHistoryInspector`, `DiffHistoryMethodology` and History request types in `PackageQueries`; `DiffHistoryInspection` in `DotnetInspector.Sections` |
-| 2b | History's lowering moves from the CLI host into Presentation, after `FindingTargetFormatter` moves below Presentation; next-action command text stays in the CLI | `DiffHistoryOutput` and `DiffHistoryJsonOutput` in the CLI |
+| 2b | History's lowering moves from the CLI host into Presentation, after `FindingTargetFormatter` moves below Presentation; next-action command text stays in the CLI. Done: `DiffHistoryPresentation.Project` builds the Markout view and takes the host's `DiffHistoryNextActionFormatter`; `DiffHistoryJsonOutput` and its context serialize the outcome; Presentation admits `NuGet.Versioning`, which package-version contracts expose. | `DiffHistoryJsonOutput`, the view models and the projection in the CLI; the CLI keeps writing, section selection, row selection and command text |
 | 3 | Every point opens through its kind's seam, in both hosts, finishing [package endpoint scope](package-endpoint-scope.md#adoption) adoption. The browser gains the endpoint scope and a population cell executor; both hosts share one Root and Workspace composition behind the two seams. Prerequisites: the [package cache policy](package-cache-policy.md) decision that endpoint scope adoption names, and Platform endpoints from Platform realization. | `ApiSurfaceEndpointResolver` diff routes; `PackageEndpointDiffSession`; the browser's per-export `OpenScopeAsync` pairs; the duplicate Root and Workspace composition in the CLI's cell executor |
 | 4 | Add the paired-steps mode, version-window requests and the request-set entry. Run Fast Diff as a paired producer, with its slicing driven by the operation. Rename Fast Diff steps to slices. | The browser's own Fast Diff slice loop in `LibraryFastDiffExports` |
 | 5 | One Library correspondence query for paired-mode steps, owned by [compile-asset correspondence](package-asset-selection-correspondence.md#comparison-counterparts). Per-point focus resolution stays History's rule. | `LibraryApiDiffRunner`'s `.Single()` pairing; per-export `FindComparisonAsset` calls |
