@@ -189,7 +189,7 @@ public partial class DependsAssetCommandTests
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
-        Assert.InRange(inventoryReads, 0, 1);
+        Assert.Equal(1, inventoryReads);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
         [
@@ -199,20 +199,45 @@ public partial class DependsAssetCommandTests
         Assert.NotEmpty(rows);
         Assert.All(
             rows,
-            row =>
+            static row => Assert.Equal(
+                "ApplicationAuthoredExemption",
+                row.GetProperty("applicability").GetString()));
+
+        // Only the selected net11.0 target carries restored resolutions, so
+        // its declarations are compared and the net10.0 group's are not.
+        ILookup<string?, JsonElement> byGroup = rows.ToLookup(
+            static row => row.GetProperty("declaration_identity")
+                .GetProperty("group")
+                .GetProperty("restored_project")
+                .GetProperty("pivot_identity")
+                .GetString());
+        Assert.Equal(
+            ["net10.0", "net11.0"],
+            byGroup.Select(static group => group.Key).Order());
+        Assert.All(
+            byGroup["net11.0"],
+            static row =>
             {
-                Assert.Contains(
-                    (
-                        row.GetProperty("disposition").GetString(),
-                        row.GetProperty("reason").GetString()),
-                    new (string?, string?)[]
-                    {
-                        ("NotEvaluated", "ApplicationAuthoredExemption"),
-                        ("PackageRetained", "ApplicationAuthored"),
-                    });
+                Assert.Equal(
+                    "PackageRetained",
+                    row.GetProperty("disposition").GetString());
+                Assert.Equal(
+                    "ApplicationAuthored",
+                    row.GetProperty("reason").GetString());
+                Assert.False(
+                    string.IsNullOrEmpty(
+                        row.GetProperty("candidate_version").GetString()));
+            });
+        Assert.All(
+            byGroup["net10.0"],
+            static row =>
+            {
+                Assert.Equal(
+                    "NotEvaluated",
+                    row.GetProperty("disposition").GetString());
                 Assert.Equal(
                     "ApplicationAuthoredExemption",
-                    row.GetProperty("applicability").GetString());
+                    row.GetProperty("reason").GetString());
             });
     }
 
@@ -300,6 +325,64 @@ public partial class DependsAssetCommandTests
         Assert.False(row.TryGetProperty("candidate", out _));
     }
 
+    [Fact]
+    public async Task Pruning_LibraryPolicyInventoryFailureIsAVisibleFailure()
+    {
+        string assets = WriteTemporaryFile(
+            "project.assets.json",
+            ApplicationAssetsDocument("8.0.5"));
+        var options = new DependsOptions
+        {
+            AssetRoots =
+            [
+                new DependsAssetRoot(
+                    1,
+                    DependencyInspectionRootKind.Project,
+                    assets),
+            ],
+            Tfm = "net10.0",
+            Select =
+            [
+                DependsAssetSections.Pruning,
+                DependsAssetSections.Failures,
+            ],
+            Format = OutputFormat.Json,
+            JsonOutput = true,
+            CompactJson = true,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => DependsCommand.ExecuteAssetDependsAsync(
+                    options,
+                    _ => new InstalledPlatformPruneSource.Result(
+                        null,
+                        "The requested installed inventory is unavailable."),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains(
+            "Package pruning evidence completed as Failed",
+            error,
+            StringComparison.Ordinal);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement summary = document.RootElement.GetProperty("summary")
+            .GetProperty("pruning");
+        Assert.Equal(0, summary.GetProperty("evaluated").GetInt32());
+        Assert.Equal(1, summary.GetProperty("failed").GetInt32());
+        JsonElement row = Assert.Single(
+            document.RootElement.GetProperty("pruning").EnumerateArray());
+        Assert.Equal(
+            "InventoryUnavailable",
+            row.GetProperty("disposition").GetString());
+        JsonElement failure = Assert.Single(
+            document.RootElement.GetProperty("failures").EnumerateArray());
+        Assert.Equal("Pruning", failure.GetProperty("phase").GetString());
+        Assert.Equal(
+            "Inventory",
+            failure.GetProperty("pruning").GetProperty("kind").GetString());
+    }
+
     [Theory]
     [InlineData(false, true)]
     [InlineData(true, false)]
@@ -337,7 +420,8 @@ public partial class DependsAssetCommandTests
                     _ =>
                     {
                         inventoryReads++;
-                        return PruneInventory();
+                        throw new InvalidOperationException(
+                            "Inventory must not be read.");
                     },
                     TestContext.Current.CancellationToken));
 
@@ -345,7 +429,7 @@ public partial class DependsAssetCommandTests
             exitCode == 0,
             $"Expected success.{Environment.NewLine}{error}{Environment.NewLine}{output}");
         Assert.Empty(error);
-        Assert.InRange(inventoryReads, 0, 1);
+        Assert.Equal(0, inventoryReads);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement summary = document.RootElement.GetProperty("summary")
             .GetProperty("pruning");
