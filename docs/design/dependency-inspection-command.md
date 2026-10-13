@@ -1212,21 +1212,18 @@ group; its application-authored declarations follow the
 Candidate-free applicability runs before inventory or package-source work. It
 preserves application-authored exemption, unattributed authorship, unavailable
 or incomplete processing, runtime projection, and prior pruning evaluation as
-distinct outcomes. Two paths reach the inventory. A package-manifest
-declaration that reaches `CandidateRequired` and whose root authorizes
-package-source candidate resolution proceeds to inventory and candidate
-acquisition. An application-authored declaration with an owner-issued restored
-resolution proceeds to the inventory alone under the library pruning policy.
-No other outcome reads the inventory. Direct nuspec and package-prefix roots
-remain source-bounded.
+distinct outcomes. Only a package-manifest declaration that reaches
+`CandidateRequired` and whose root authorizes package-source candidate
+resolution proceeds to inventory and candidate acquisition, except that an
+application-authored declaration continues under the
+[library pruning policy](#library-pruning-policy-for-application-authored-declarations).
+Direct nuspec and package-prefix roots remain source-bounded.
 
 The comparison uses one exact target-bound installed inventory per request.
 Candidate resolution remains declaration- and source-authorized. A policy
 result of `Subsumed` projects `PlatformDelegation`; every other completed
-policy result projects `PackageRetained`. For a candidate-bound row,
-`PlatformDelegation` means the policy receipt authorizes delegation; for a
-restored-resolution row it means the owner-issued comparison found the package
-subsumed, and no receipt is issued. Neither claims that PackageHouse execution,
+policy result projects `PackageRetained`. `PlatformDelegation` means the policy
+receipt authorizes delegation; it does not claim that PackageHouse execution,
 PlatformHouse execution, payload acquisition, or dependency-edge pruning ran.
 
 The candidate version and the platform-provided version are separate fields.
@@ -1266,50 +1263,31 @@ association fields.
 
 ### Library pruning policy for application-authored declarations
 
-The section applies one library pruning policy to every root kind: a direct
-declaration whose package the target platform supplies is reported as pruned,
-whoever authored it. PackageHouse's application-authored exemption is a
-graph-delegation rule and remains unchanged; it no longer ends the section's
-evaluation.
-
-An application-authored declaration that PackageHouse exempts continues to the
-[Platform/package pruning](platform-package-pruning.md) subsumption comparison
-against the request's one exact target-bound inventory. The requested version
-is the declaration's owner-issued restored resolution, the same association
-that populates `Resolved` in `Dependencies`. The row performs no package-source
-candidate resolution, because the restored graph already names the version.
-`Subsumed` projects `PlatformDelegation`; `NotSubsumed` and `NotComparable`
-project `PackageRetained`, because uncertainty resolves away from subsumed.
-Each carries reason `ApplicationAuthored`. For candidate-bound rows `Reason`
-names the comparison answer; for these rows the disposition carries that answer
-and `Reason` names the authorship basis. The row's Candidate is that restored
-version. For these rows `PlatformDelegation` is the section's policy result
-over the owner-issued comparison; no PackageHouse delegation receipt is issued,
-and the graph is unchanged. The typed pruning result carries these rows as a
-receipt-free restored-resolution comparison, counted in the pruning summary as
-evaluated and as delegated or retained exactly like candidate-bound rows.
-Inventory failure affects them exactly as it affects candidate-bound rows. The
-comparison runs only when the selected restored target's owner-issued
-processing result is available and complete. PackageHouse precedence is not
-reordered: the exemption is still decided first, and the section then checks
-processing completeness before comparing. Unavailable, incomplete, or failed
-processing leaves the row at today's outcome, `NotEvaluated` with reason
-`ApplicationAuthoredExemption`, counted as not evaluated and successful, with
-no added failure and no exit-status change; any processing failure the evidence
-owner issues remains reported where it is today. A partial graph therefore
-never produces a delegation. A declaration without a restored resolution keeps
-`NotEvaluated` with reason `ApplicationAuthoredExemption`, because an absent
-version is not a comparison and cannot be subsumed.
+`Pruning` answers whether a reference needs to exist before `Latest Versions`
+asks whether it should move. It assumes the consumer prunes, as libraries and
+packages do, so a direct reference that the target platform already supplies
+at that version or higher is reported as `PlatformDelegation` with reason
+`ApplicationAuthored`, even when the application authored it. The guidance that
+follows is removal, not upgrade: upgrading such a reference past the platform's
+version gives up pruning and gains nothing.
 
 For example, a restored `net10.0` application that references
-`System.Text.Json` 8.0.5 reports `PlatformDelegation` with reason
-`ApplicationAuthored`: the platform supplies a higher version. NuGet keeps that
-direct reference in the restored graph and warns with `NU1510`, while the
-framework copy is what the application binds to. The section reports the
-library policy, under which the reference is unnecessary. It does not replicate
-NuGet's direct-reference restore exemption or the SDK's build-time conflict
-resolution; an agent that needs those observes them by running restore and
-build.
+`System.Text.Json` 8.0.5 reports `PlatformDelegation`, because the platform
+supplies a higher version. The same reference at 12.0.0 reports
+`PackageRetained`.
+
+The policy judges the version the project's restore resolved, so it needs no
+package-source work, and it changes only the section's report. PackageHouse's
+application-authored exemption from graph delegation, its precedence, and the
+graph itself are unchanged. The policy never delegates on missing or partial
+evidence: a declaration without a restored version, or a restored graph whose
+processing is incomplete, keeps its existing `NotEvaluated` outcome, and an
+uncertain comparison retains the package.
+
+The section does not model behavior specific to applications, such as NuGet
+keeping a direct reference in restore with warning `NU1510`, or the SDK binding
+the framework copy at runtime. An agent that needs those answers observes them
+by running restore and build.
 
 ### Latest Versions
 
@@ -1860,7 +1838,7 @@ targeted Debug-build probe.
 | License manifest acquisition failures retain unavailable answer rows and enter `Failures` with the exact package coordinate and typed reason. | Release restored-project test with one available and one missing exact manifest, asserted across JSON, nonzero status, and exact-count rejection. |
 | Pruning is explicit-only and does not enter `@Dependencies`, verbosity, or bare effective discovery. | Release catalog, category, structural/effective discovery, and no-inventory tests. |
 | Candidate-free applicability outcomes other than the restored-resolution comparison perform no inventory or candidate work. | Direct-nuspec source-boundary and unattributed-authorship tests with throwing producers. |
-| Application-authored declarations use the library pruning policy without package-source work. | Restored-project fixtures for a `net10.0` application referencing `System.Text.Json` 8.0.5 (`PlatformDelegation`, `ApplicationAuthored`) and 12.0.0 (`PackageRetained`, `ApplicationAuthored`), plus a declaration without a restored resolution (`NotEvaluated`, `ApplicationAuthoredExemption`) and an incomplete restored graph (`NotEvaluated`, `ApplicationAuthoredExemption`, counted not evaluated and successful, unchanged exit status, no inventory read), with a throwing package-source producer, an instrumented inventory producer called once, and summary counts asserting evaluated, delegated, and retained totals. |
+| Application-authored declarations use the library pruning policy without package-source work and never delegate on missing or partial evidence. | Restored `net10.0` application fixtures with a throwing package-source producer and one instrumented inventory read: `System.Text.Json` 8.0.5 is `PlatformDelegation` with `ApplicationAuthored`; 12.0.0 is `PackageRetained` with `ApplicationAuthored`; a declaration without a restored resolution and an incomplete restored graph each stay `NotEvaluated` with `ApplicationAuthoredExemption`, add no failure, and leave exit status unchanged; summary counts treat compared rows as evaluated and delegated or retained. |
 | `Subsumed` delegates, while an older platform-supplied version retains the newer package candidate. | CLI projection test for `System.Text.Json@9.0.0` against platform `11.0.0` and `System.Runtime@4.3.2` against platform `4.3.1`. |
 | Inventory failure and target mismatch remain typed failures and prevent candidate work. | Instrumented inventory tests asserting nonzero status, affected declarations, and `Failures` rows. |
 | Row windows and rendering formats do not reinterpret pruning policy. | Markdown, table, typed JSON, and one-row window tests over the same two policy outcomes. |
