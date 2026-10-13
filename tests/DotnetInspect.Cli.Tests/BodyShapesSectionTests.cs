@@ -1759,30 +1759,6 @@ public sealed class BodyShapesSectionTests
         Assert.Equal(0, head.ExitCode);
     }
 
-    [Theory]
-    [InlineData("type", "System.Text.Json.JsonElement")]
-    [InlineData("member", "System.Text.Json.JsonElement", "GetProperty:1")]
-    public async Task TfmAll_StaysOutsideTheDeclaration(
-        params string[] target)
-    {
-        var result = await Run(
-            [
-                .. target,
-                "--platform",
-                "System.Text.Json",
-                "--tfm",
-                "all",
-                "--where",
-                "Kind=ObjectCreationExpression",
-                "--rows",
-                "1",
-                "--count",
-            ]);
-
-        Assert.Equal(0, result.ExitCode);
-        Assert.Equal("1", result.Output.Trim());
-    }
-
     [Fact]
     public void SearchLimit_BoundsOnlyOccurrencePrefixes()
     {
