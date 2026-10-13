@@ -15,7 +15,7 @@ namespace DotnetInspect.Web.Tests;
 /// suite failing. These are PR-fast catalog and projection gates with no acquisition.
 /// </summary>
 [SupportedOSPlatform("browser")]
-public sealed class BrowserVocabularyCompositionTests
+public sealed partial class BrowserVocabularyCompositionTests
 {
     [Fact]
     public void BrowserCompositionMatchesTheProductVocabularyPin()
@@ -95,7 +95,7 @@ public sealed class BrowserVocabularyCompositionTests
         BrowserVocabularyExplanationResult? result = JsonSerializer.Deserialize(
             CatalogExports.ExplainVocabularies(
                 "vocabularies/csharp.style-tiers/values/spelling",
-                0),
+                0, null),
             BrowserCatalogJsonContext.Default.BrowserVocabularyExplanationResult);
 
         Assert.NotNull(result);
