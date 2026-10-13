@@ -1617,14 +1617,11 @@ public partial class PackageCommand
             settlement.Result.Evidence.FileList?.Entries
             ?? [];
         if (MayRequireLegacyToolWrapperHandling(
-                settlement.Payload.Content.EnumerateEntries())
-            || entries.Any(static entry => entry.Path.StartsWith(
-                "tools/",
-                StringComparison.OrdinalIgnoreCase)))
+                settlement.Payload.Content.EnumerateEntries()))
         {
             context.Logger.Log(
                 $"{target.PackageName}@{settlement.Payload.Coordinate.Version} "
-                + "contains .NET tool content; inspecting Package Info "
+                + "may be a .NET tool wrapper; inspecting Package Info "
                 + "through the complete package path.");
             return PackageInfoInventoryAttempt.NotHandled;
         }

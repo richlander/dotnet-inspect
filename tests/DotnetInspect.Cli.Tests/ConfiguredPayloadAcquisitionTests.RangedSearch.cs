@@ -27,6 +27,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             extraEntries:
             [
                 ("content/filler.bin", filler),
+                ("tools/net11.0/helper.dll", library),
             ]);
         var feed =
             new RangeHonoringFeedHandler(
