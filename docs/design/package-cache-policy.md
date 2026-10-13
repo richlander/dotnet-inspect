@@ -414,12 +414,15 @@ consumer that needs an entry it lacks reads that entry by range.
 
 ## Host scope
 
-Both hosts retain admitted complete archives, so directory first is one package-owned rule
-for both. The CLI publishes them to the durable authority-scoped store.
-Inspect Web gets the same effect from the browser: nuget.org marks package
-archives `Cache-Control: max-age=86400`, and Inspect Web's requests do not
-opt out of the HTTP cache. A persistent Chromium profile, restarted between
-sessions, measured this on 2026-09-23 for `Avalonia` 12.1.2:
+Directory first is one package-owned acquisition rule for both hosts. The CLI
+publishes admitted complete archives to the durable authority-scoped store;
+Inspect Web retains assembled archives in its session store.
+
+Historical complete-GET evidence establishes browser HTTP-cache reuse for a
+complete response, not for an archive assembled from ranges. Nuget.org marks
+package archives `Cache-Control: max-age=86400`, and Inspect Web's requests do
+not opt out of the HTTP cache. A persistent Chromium profile, restarted between
+sessions, measured complete-GET reuse on 2026-09-23 for `Avalonia` 12.1.2:
 
 | Session | Time | Bytes from the network |
 | --- | --- | --- |

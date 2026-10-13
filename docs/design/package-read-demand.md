@@ -63,7 +63,7 @@ redefine, the House request and its realization
 ([PackageHouse](package-house.md)), role correspondence
 ([package asset-selection correspondence](package-asset-selection-correspondence.md)),
 the ranged read ([package archive range access](package-archive-range-access.md)),
-and size first and the entry cache
+and directory first and the entry cache
 ([package cache policy](package-cache-policy.md)).
 
 ## Basis
@@ -453,17 +453,17 @@ vocabularies:
 
 | Command | Demand | Access at this head |
 | --- | --- | --- |
-| `find` member search, `implements`, `extensions`, `depends`, with one `--package ID@VERSION` and `--tfm` | `Surface` | ranged, size first |
-| `library address` with one exact package Library and non-JSON output | `SurfaceAndImplementation`, one named implementation, and a listed adjacent Portable PDB when source location is selected | ranged, size first |
+| `find` member search, `implements`, `extensions`, `depends`, with one `--package ID@VERSION` and `--tfm` | `Surface` | directory-first, with complete acquisition at or below the cut |
+| `library address` with one exact package Library and non-JSON output | `SurfaceAndImplementation`, one named implementation, and a listed adjacent Portable PDB when source location is selected | directory-first, with complete acquisition at or below the cut |
 | `library address --json` | `SurfaceAndImplementation` plus the established complete Library JSON metadata | complete |
-| CLI package documentation for one exact Library | `SurfaceAndImplementation`; one named implementation and a listed adjacent Portable PDB are added for authored source | ranged, size first |
-| Browser member documentation for one exact Library | `SurfaceAndImplementation`, one named implementation, and a listed adjacent Portable PDB | ranged, size first |
+| CLI package documentation for one exact Library | `SurfaceAndImplementation`; one named implementation and a listed adjacent Portable PDB are added for authored source | directory-first, with complete acquisition at or below the cut |
+| Browser member documentation for one exact Library | `SurfaceAndImplementation`, one named implementation, and a listed adjacent Portable PDB | directory-first, with complete acquisition at or below the cut |
 | `type`, `member`, and other `library` operations | `SurfaceAndImplementation` | complete |
 | `graph` | `SurfaceAndImplementation` | complete |
 | `package` | the whole archive | complete |
-| `package ID@VERSION --content` of a root `README.md` or `skills/**/SKILL.md` | one exact file | ranged, size first |
-| `diff --history`, Metadata cells (API findings) | `Surface` | ranged, size first |
-| `diff --history`, Analysis cells (IL-body findings) | `SurfaceAndImplementation` | ranged, size first |
+| `package ID@VERSION --content` of a root `README.md` or `skills/**/SKILL.md` | one exact file | directory-first, with complete acquisition at or below the cut |
+| `diff --history`, Metadata cells (API findings) | `Surface` | directory-first, with complete acquisition at or below the cut |
+| `diff --history`, Analysis cells (IL-body findings) | `SurfaceAndImplementation` | directory-first, with complete acquisition at or below the cut |
 
 At this head, callers still carry transitional ranged or complete access
 choices. [#8994](https://github.com/richlander/dotnet-inspect/issues/8994)
@@ -555,7 +555,7 @@ acquisition route by route.
 
 This document does not:
 
-- change size first, the entry cache, or the durable identity of HTTP
+- change directory first, the entry cache, or the durable identity of HTTP
   authorities, which the [package cache policy](package-cache-policy.md)
   owns;
 - change which assets a realization selects, only which entries a House-planned
