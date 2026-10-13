@@ -150,6 +150,13 @@ public static class ToolsAnalyzer
             frameworkFolders.Count > 0
                 ? frameworkFolders
                 : null;
+        if (result.PackageTypes is not { Count: > 0 })
+        {
+            result.IsToolPackage =
+                topLevelDirectories.Contains("tools")
+                && !topLevelDirectories.Contains("lib")
+                && result.TargetFrameworks is { Count: > 0 };
+        }
 
         IEnumerable<string> assemblyCandidates =
             SelectAssemblyCandidates(
@@ -174,6 +181,57 @@ public static class ToolsAnalyzer
         if (libraryFiles.Count > 0)
             result.LibraryFiles = libraryFiles;
 
+        List<string> supportedRids =
+        [
+            .. directories
+                .Select(static path => path.Split('/'))
+                .Where(static parts =>
+                    parts.Length == 3
+                    && parts[0].Equals(
+                        "tools",
+                        StringComparison.Ordinal))
+                .Select(static parts => parts[2])
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal),
+        ];
+        if (supportedRids.Any(static rid =>
+                !rid.Equals(
+                    "any",
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            result.HasRidSpecificAssets = true;
+        }
+        if (!result.IsRidSpecificPointerPackage
+            && supportedRids.Any(static rid => rid.Equals(
+                "any",
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            result.IsFrameworkDependent = true;
+        }
+
+        if (topLevelDirectories.Contains("lib")
+            && topLevelDirectories.Contains("runtimes"))
+        {
+            supportedRids.AddRange(
+                directories
+                    .Select(static path => path.Split('/'))
+                    .Where(static parts =>
+                        parts.Length == 2
+                        && parts[0].Equals(
+                            "runtimes",
+                            StringComparison.Ordinal))
+                    .Select(static parts => parts[1]));
+            result.HasRidSpecificAssets = true;
+        }
+        result.SupportedRids =
+        [
+            .. supportedRids
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal),
+        ];
+        if (result.SupportedRids.Count == 0)
+            result.SupportedRids = null;
+
         if (!topLevelDirectories.Contains("lib")
             || !topLevelDirectories.Contains("runtimes"))
         {
@@ -186,24 +244,6 @@ public static class ToolsAnalyzer
                 "runtimes/",
                 StringComparison.Ordinal)),
         ];
-        result.SupportedRids =
-        [
-            .. directories
-                .Select(static path => path.Split('/'))
-                .Where(static parts =>
-                    parts.Length == 2
-                    && parts[0].Equals(
-                        "runtimes",
-                        StringComparison.Ordinal))
-                .Select(static parts => parts[1])
-                .Distinct(StringComparer.Ordinal)
-                .Order(StringComparer.Ordinal),
-        ];
-        if (result.SupportedRids.Count == 0)
-            result.SupportedRids = null;
-        else
-            result.HasRidSpecificAssets = true;
-
         List<string> nativeFiles =
         [
             .. runtimePaths

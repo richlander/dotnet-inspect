@@ -353,9 +353,10 @@ The CLI Package Info selection consumes a compile-inspection settlement:
 package-wide File List evidence plus the selected compile assets required by
 its body-backed Ecosystem Dependencies rollup. It projects package structure
 and the existing `Built` field from owner-issued File List evidence, including
-archive timestamps, without downloading unrelated package content. Direct tool
-content, local archives, metadata enrichment, signature verification, and all
-complete-content sections retain the existing complete-package path.
+archive timestamps, without downloading unrelated package content. Tool
+settings and dependency manifests that require body-backed tool
+classification, local archives, metadata enrichment, signature verification,
+and all complete-content sections retain the existing complete-package path.
 Release gates are `CompileInventoryDemandIsDeclaredBeforeAcquisition`,
 `CompileInventory_UsesHousePlanningAndPreservesMeasurementReceipts`,
 `PackageInventory_RangePreservesSelectionWithoutLibraryBodies`,

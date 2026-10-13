@@ -1617,11 +1617,14 @@ public partial class PackageCommand
             settlement.Result.Evidence.FileList?.Entries
             ?? [];
         if (MayRequireLegacyToolWrapperHandling(
-                settlement.Payload.Content.EnumerateEntries()))
+                settlement.Payload.Content.EnumerateEntries())
+            || entries.Any(static entry =>
+                RequiresLegacyPackageInfoToolContent(entry.Path)))
         {
             context.Logger.Log(
                 $"{target.PackageName}@{settlement.Payload.Coordinate.Version} "
-                + "may be a .NET tool wrapper; inspecting Package Info "
+                + "contains tool metadata requiring complete-content analysis; "
+                + "inspecting Package Info "
                 + "through the complete package path.");
             return PackageInfoInventoryAttempt.NotHandled;
         }
@@ -1734,6 +1737,16 @@ public partial class PackageCommand
         && options.Rows is null
         && options.PackageTfmRowSelection is null
         && options.EcosystemDependencyRowSelection is null;
+
+    private static bool RequiresLegacyPackageInfoToolContent(
+        string path) =>
+        PackageEntryPath.IsToolSettingsPath(path)
+        || path.StartsWith(
+                "tools/",
+                StringComparison.OrdinalIgnoreCase)
+            && path.EndsWith(
+                ".deps.json",
+                StringComparison.OrdinalIgnoreCase);
 
     private static NuspecData? ReadCompileInventoryNuspec(
         IPackageContent content,
