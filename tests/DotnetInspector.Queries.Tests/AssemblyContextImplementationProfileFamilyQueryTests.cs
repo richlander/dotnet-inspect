@@ -81,7 +81,7 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
 
     [Fact]
     public async Task
-            ExecuteParticipant_UsesPreparedFamilyWithoutReprojectingSurface()
+            ExecuteParticipant_UsesExactTypeProjectionForPreparedFamily()
     {
         await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace);
@@ -111,14 +111,13 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
         projected.Surface.InspectionFailures.Add(familyFailure);
         ImplementationProfileFamilySelection selection =
             ImplementationProfileFamilySelection.CreatePrepared(
-                projected.Surface,
                 type,
                 members);
+        Assert.True(type.Members.Remove(members[^1]));
         ImplementationProfileFamilySelection partialSelection =
             ImplementationProfileFamilySelection.CreatePrepared(
-                projected.Surface,
                 type,
-                members.Take(2));
+                members.Take(3));
         var partialFailure = Assert.IsType<
             AssemblyContextEntry<
                 AssemblyImplementationProfileFamilyInspection>.Failed>(
@@ -145,9 +144,7 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
             selection.StableSelectors,
             result.Members.Select(member =>
                 member.StableSelector));
-        Assert.Equal(
-            [familyFailure],
-            result.ApiSurfaceInspectionFailures);
+        Assert.Empty(result.ApiSurfaceInspectionFailures);
         Assert.NotEmpty(result.Profiles);
     }
 
@@ -238,12 +235,20 @@ public sealed class AssemblyContextImplementationProfileFamilyQueryTests
         using AssemblyContextGroup group = Group(workspace);
         AssemblyContextParticipant participant =
             Assert.Single(group.Participants);
+        AssemblyApiSurface projected =
+            Assert.IsType<
+                AssemblyContextEntry<AssemblyApiSurface>.Available>(
+                    AssemblyContextApiSurfaceQuery.ExecuteParticipant(
+                        group,
+                        participant))
+                .Value;
+        ApiType type = Assert.Single(
+            projected.Surface.Types,
+            type => type.Name == "ImplementationHeatWidget");
         ImplementationProfileFamilySelection selection =
-            Selection(
-                group,
-                participant,
-                "ImplementationHeatWidget",
-                "Spin");
+            ImplementationProfileFamilySelection.CreatePrepared(
+                type,
+                type.Members.Where(member => member.Name == "Spin"));
 
         AssemblyImplementationProfileFamilyInspection result =
             Available(

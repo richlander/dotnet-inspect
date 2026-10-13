@@ -44,27 +44,77 @@ public sealed record ImplementationProfileFamilySelection
     public string TypeDefinitionId { get; }
     public ImmutableArray<string> StableSelectors { get; }
 
-    internal ApiSurface? PreparedSurface
+    internal int? PreparedTypeDefinitionToken
     { get; init; }
 
     public static ImplementationProfileFamilySelection CreatePrepared(
-        ApiSurface surface,
         ApiType type,
         IEnumerable<ApiMember> members)
     {
-        ArgumentNullException.ThrowIfNull(surface);
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(members);
 
+        ImmutableArray<ApiMember> family = [.. members];
+        if (family.Any(member =>
+                member.Kind is not ("method" or "extension-method")))
+        {
+            throw new ArgumentException(
+                "Implementation-profile family selection accepts public "
+                    + "methods only.",
+                nameof(members));
+        }
+        string[] names =
+        [
+            .. family.Select(member => member.Name)
+                .Distinct(StringComparer.Ordinal),
+        ];
+        if (names.Length != 1)
+        {
+            throw new ArgumentException(
+                "Implementation-profile family selection requires one "
+                    + "method name.",
+                nameof(members));
+        }
+        ImmutableArray<ApiMember> completeFamily =
+        [
+            .. type.Members.Where(member =>
+                member.Name == names[0]
+                && member.Kind is "method" or "extension-method"),
+        ];
+        HashSet<string> requestedSelectors =
+        [
+            .. family.Select(member =>
+                ApiMemberIdentity
+                    .GetMemberAnchor(type, member)
+                    .StableSelector),
+        ];
+        if (completeFamily.Length != family.Length
+            || completeFamily.Any(member =>
+                !requestedSelectors.Contains(
+                    ApiMemberIdentity
+                        .GetMemberAnchor(type, member)
+                        .StableSelector)))
+        {
+            throw new ArgumentException(
+                $"Implementation-profile selection for "
+                    + $"'{AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(type)}"
+                    + $".{names[0]}' must name the complete public overload "
+                    + "family.",
+                nameof(members));
+        }
+
         var selection = new ImplementationProfileFamilySelection(
             AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(type),
-            members.Select(member =>
+            family.Select(member =>
                 ApiMemberIdentity
                     .GetMemberAnchor(type, member)
                     .StableSelector));
         return selection with
         {
-            PreparedSurface = surface,
+            PreparedTypeDefinitionToken =
+                completeFamily.All(member => member.Kind == "method")
+                    ? type.MetadataToken
+                    : null,
         };
     }
 }
@@ -106,8 +156,11 @@ public static class AssemblyContextImplementationProfileFamilyQuery
                 group,
                 participant,
                 session => SelectFamily(
-                    selection.PreparedSurface
-                        ?? session.CompatibilityApiSurface(
+                    selection.PreparedTypeDefinitionToken is { } typeToken
+                        ? session.ApiTypeSurface(
+                            ApiSurfaceExtractionScope.Public,
+                            typeToken)
+                        : session.CompatibilityApiSurface(
                             ApiSurfaceExtractionScope.Public),
                     selection));
         return selected switch

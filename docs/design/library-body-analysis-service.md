@@ -1145,16 +1145,18 @@ receipt, population coverage, diagnostics, ordering, and transport bytes.
 Other queries, including Implementation Profiles and exact-family Member
 Metrics, retain their existing result and execution routes.
 
-The CLI exact-family Member Metrics route reuses the complete public overload
-family from the detached public API surface already issued by its member
-projection. The Analysis query resolves the exact public identities, declared
-body tokens, and family-scoped API inspection failures from that surface
-instead of reconstructing the whole compatibility API surface before scoped
-body Analysis.
+The CLI exact-family Member Metrics route carries the exact TypeDef token and
+complete public overload selectors already issued by its member projection.
+For ordinary method families, the Analysis query projects only that TypeDef's
+declared public API, authenticates the complete family against the participant,
+and resolves its body tokens and scoped failures without reconstructing the
+whole compatibility API surface before scoped body Analysis.
 Selector-only callers, including the current Browser exports, retain the
-compatibility projection and its validation until the paired Type/Member
-document adoption can issue the same prepared family. Both routes publish the
-same family inspection result and preserve the complete-family requirement.
+compatibility projection and its validation. Prepared families containing
+receiver-contextual extension methods also retain that route because exact
+TypeDef projection intentionally excludes attached extensions. Both routes
+publish the same family inspection result and preserve the complete-family
+requirement.
 
 The Library Metrics physical plan uses one shallow decoded instruction array
 per admitted body. One scan computes instruction, branch, switch, backward-loop,
