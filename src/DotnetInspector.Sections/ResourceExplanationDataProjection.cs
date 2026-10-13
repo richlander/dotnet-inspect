@@ -48,6 +48,26 @@ public static class ResourceExplanationDataProjection
         return [.. result.RootElement.EnumerateArray().Select(value => value.Clone())];
     }
 
+    internal static ImmutableArray<JsonElement> CreateFactResources(
+        ResourceExplanationCatalog catalog, IEnumerable<ResourceExplanationResource> resources)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            var projection = new Projection(catalog.Schemas, [], null, static path => path.Value, writer);
+            writer.WriteStartArray();
+            foreach (ResourceExplanationResource resource in resources)
+            {
+                writer.WriteStartObject();
+                projection.WriteFacts(resource);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+        }
+        using JsonDocument result = JsonDocument.Parse(stream.ToArray());
+        return [.. result.RootElement.EnumerateArray().Select(value => value.Clone())];
+    }
+
     private sealed class Projection(
         ImmutableArray<ExplanationSchema> schemas,
         ImmutableArray<ResourceExplanationRelationship> relationships,
@@ -73,27 +93,7 @@ public static class ResourceExplanationDataProjection
             writer.WriteString("scope", resource.Scope.ToString());
             if (resource.Path is not null)
                 writer.WriteString("path", resource.Path.Value);
-            writer.WritePropertyName("facts");
-            writer.WriteStartObject();
-            foreach (ExplanationFactObservation fact in resource.Facts)
-            {
-                if (fact.State != ExplanationObservationState.Available)
-                    continue;
-                ExplanationFactDeclaration declaration = _facts[fact.Fact];
-                writer.WritePropertyName(fact.Fact.Value);
-                WriteValues(fact.Values, declaration.Cardinality);
-            }
-            writer.WriteEndObject();
-            writer.WritePropertyName("fact_states");
-            writer.WriteStartObject();
-            foreach (ExplanationFactObservation fact in resource.Facts)
-            {
-                if (fact.State == ExplanationObservationState.Available)
-                    continue;
-                writer.WritePropertyName(fact.Fact.Value);
-                WriteOutcome(fact.State, fact.OutcomeData);
-            }
-            writer.WriteEndObject();
+            WriteFacts(resource);
             ResourceExplanationRelationship[] relationships = _relationships[resource.Key].ToArray();
             writer.WritePropertyName("relationships");
             writer.WriteStartObject();
@@ -159,6 +159,31 @@ public static class ResourceExplanationDataProjection
                     writer.WriteEndArray();
                     writer.WriteEndObject();
                 }
+            }
+            writer.WriteEndObject();
+        }
+
+        public void WriteFacts(ResourceExplanationResource resource)
+        {
+            writer.WritePropertyName("facts");
+            writer.WriteStartObject();
+            foreach (ExplanationFactObservation fact in resource.Facts)
+            {
+                if (fact.State != ExplanationObservationState.Available)
+                    continue;
+                ExplanationFactDeclaration declaration = _facts[fact.Fact];
+                writer.WritePropertyName(fact.Fact.Value);
+                WriteValues(fact.Values, declaration.Cardinality);
+            }
+            writer.WriteEndObject();
+            writer.WritePropertyName("fact_states");
+            writer.WriteStartObject();
+            foreach (ExplanationFactObservation fact in resource.Facts)
+            {
+                if (fact.State == ExplanationObservationState.Available)
+                    continue;
+                writer.WritePropertyName(fact.Fact.Value);
+                WriteOutcome(fact.State, fact.OutcomeData);
             }
             writer.WriteEndObject();
         }

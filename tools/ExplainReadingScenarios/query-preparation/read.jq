@@ -6,7 +6,7 @@ def records:
     ._embedded.facets | map({key: .key, value: del(.key)}) | from_entries
   else error("unknown form") end;
 def binding:
-  if $form == "direct" then .bindings.cli
+  if $form == "direct" then (.bindings.cli // (.bindings | to_entries[0].value))
   elif $form == "hal" or $form == "source" then ._embedded.bindings[0]
   else error("unknown form") end;
 def meaning:
