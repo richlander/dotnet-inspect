@@ -127,18 +127,19 @@ internal static class LibraryQueryCommand
             return 1;
         }
 
-        bool complete = document.Summary.IsComplete;
+        // Count reports the rows Rows would render, with the same
+        // completion warnings and exit status (section-row-shaping.md#
+        // incomplete-evaluation). Only a population that failed before
+        // admitting any candidate observed nothing to count.
         if (options.Count
-            && !CliSemanticRowSelection.ProvidesExactCount(
-                options.Plan.RowSelection,
-                document.Results.Length,
-                sourceComplete: complete))
+            && (document.Summary.IncompleteReasons
+                & LibraryQueryIncompleteReason.PopulationFailure) != 0
+            && document.Summary.Candidates == 0)
         {
             WriteDiagnostics(document);
             CommandError.Write(
                 "Cannot count Library Query rows because population formation "
-                + "or candidate evaluation is incomplete; use -n or a closed "
-                + "--rows range that is satisfied by the observed rows.");
+                + "failed before any candidate was evaluated.");
             return 1;
         }
 

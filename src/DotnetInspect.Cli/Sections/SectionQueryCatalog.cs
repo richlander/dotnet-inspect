@@ -54,7 +54,8 @@ public sealed record SectionQueryCatalog(
         {
             queries.Add(new(
                 PackageProfileSections.Packages,
-                PackageQueryOptions.DiscoverySummary,
+                string.Join(" ", new[] { PackageQueryCapability.Route.Descriptor.Summary }
+                    .Concat(PackageQueryCommandCapability.Binding.InputRules)),
                 PackageQueryOptions.QueryKeys));
         }
         if (command == "library query")

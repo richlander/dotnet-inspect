@@ -1,0 +1,102 @@
+{
+  "commands_unrun": [
+    {
+      "purpose": "Exact Microsoft.Azure.SignalR implementation-library decoded literal contains https:// for net8.0, JSON output",
+      "argv": [
+        "dnx",
+        "dotnet-inspect",
+        "-y",
+        "--",
+        "package",
+        "query",
+        "Microsoft.Azure.SignalR",
+        "--where",
+        "library-literal=https://",
+        "--tfm",
+        "net8.0",
+        "--json"
+      ],
+      "provenance": [
+        "response-03.out",
+        "response-12.out"
+      ]
+    },
+    {
+      "purpose": "Exact Microsoft.Azure.SignalR depends on Newtonsoft.Json through at most 3 declaration edges for dependency target net8.0, JSON output",
+      "argv": [
+        "dnx",
+        "dotnet-inspect",
+        "-y",
+        "--",
+        "package",
+        "query",
+        "Microsoft.Azure.SignalR",
+        "--where",
+        "depends=Newtonsoft.Json",
+        "--where",
+        "dependency-depth=3",
+        "--where",
+        "dependency-target=net8.0",
+        "--json"
+      ],
+      "provenance": [
+        "response-05.out",
+        "response-06.out"
+      ]
+    }
+  ],
+  "prefix_example_unrun": {
+    "purpose": "Bound Microsoft.Azure.* candidate inspections at five and final JSON rows at two, illustrated with the literal predicate",
+    "argv": [
+      "dnx",
+      "dotnet-inspect",
+      "-y",
+      "--",
+      "package",
+      "query",
+      "Microsoft.Azure.*",
+      "--where",
+      "library-literal=https://",
+      "--tfm",
+      "net8.0",
+      "--take",
+      "5",
+      "-n",
+      "2",
+      "--json"
+    ],
+    "provenance": [
+      "response-03.out",
+      "response-05.out",
+      "response-06.out"
+    ]
+  },
+  "rules": [
+    "library-literal matches an ordinal substring of each decoded string-literal use across the selected implementation libraries. Preserve operand whitespace, newlines, case, and all other text; do not normalize. The operand is 1..1024 UTF-16 code units. Repeated identical operands collapse, while distinct operands are incompatible.",
+    "The empty library-literal values list is not an allow list: any decoded UTF-16 text satisfying its constraints is accepted. An operand of 600 astral Unicode characters is 1200 UTF-16 code units and is rejected by the 1024-unit maximum.",
+    "library-literal and --tfm require each other. Supply library-target as one exact NuGet TFM through --tfm, while dependency-target is a --where term. Literal inspection downloads package content; dependency predicates use nuspec data.",
+    "Without dependency-depth, exact depends matches direct dependencies. With depth 2, 3, or 4 it matches direct or transitive declaration paths up to that maximum. The preferred new syntax is exact depends plus dependency-depth; legacy depends-transitive matches only paths of depth 2 through the maximum, so a direct-only hit does not satisfy it. A starts-with depends predicate remains direct and cannot alone admit depth.",
+    "dependency-depth accepts exactly 2, 3, or 4, so depth 1 is illegal. Traversal requires an explicit dependency-target TFM and an exact depends or legacy depends-transitive predicate; dependency-target=all is illegal for the second command. The depth is a maximum declaration-edge depth, not a row limit. Repeated exact depends terms are ANDed and share traversal.",
+    "At most five package candidates may be admitted for these inspection predicates; an exact package ID admits one. For Microsoft.Azure.* set --take 5 explicitly to bound candidate work and -n 2 to bound final returned rows. The final-row limit does not substitute for the candidate-work bound.",
+    "The facet explanations report Complete data scope, but these commands were not run. No claim is made that package data was available, the package could be acquired, or either predicate has a hit. A real query may report failures or unavailable data. The explanation resources do not specify additional package-ID case normalization, so no such rule is asserted."
+  ],
+  "provenance": {
+    "guide": "assigned guide output",
+    "literal_facet_and_cli_binding": "response-03.out",
+    "depends_facet_and_cli_binding": "response-05.out",
+    "legacy_dependency_and_embedded_target_depth": "response-06.out",
+    "package_query_space": "response-08.out",
+    "library_target": "response-12.out",
+    "discovery": [
+      "response-02.out",
+      "response-04.out",
+      "response-07.out"
+    ]
+  },
+  "uncertainties": [
+    "No inspection was executed, so actual matches, acquisition outcome, and result completeness for Microsoft.Azure.SignalR remain unknown.",
+    "No package-ID normalization beyond the published exact/prefix semantics was found in the consulted responses."
+  ],
+  "schema_navigation_friction": "Discovery found the literal and dependency facets. HAL embedded the CLI binding and required dependency target/depth facets, which avoided additional link traversals. The library-target embedded resource omitted detail, so its required-context HAL link was followed. The package query space embedded all facets but did not add package-ID normalization detail. One unquoted href failed in zsh before reaching the recorder; retry with shell quotes succeeded.",
+  "truncated_tool_rendering": false
+}

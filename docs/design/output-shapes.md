@@ -714,19 +714,15 @@ The proposed `--envelope` is a separate
 [service-output selector](#content-shapes-and-service-envelopes), not another
 content-shape or presentation modifier.
 
-`library --package ... --tfm all` selects multiple independent inspections. Its
-full output therefore requires a document format: Markdown or JSON.
-Single-table, stream, plain-text, tree, unary projection, and single-row-set
-`--print` output fail closed rather than selecting one inspection or combining
-independent row sets. Count remains valid because it preserves the producer's
-declared aggregate or independent row-set scopes.
+`--tfm all` is package discovery under
+[All-frameworks package discovery](package-tfm-all-discovery.md):
+it selects no compile projection, and requests that inspect assemblies fail
+before acquisition rather than select one Library from several frameworks.
 
 For unreduced output, shape cardinality is evaluated after both section and
 subject selection. `--table`, `--tsv`, and `--jsonl` require exactly one table
 shape; `--tree` requires exactly one tree shape; standalone `--mermaid`
-requires exactly one graph shape. Selecting one section with `--tfm all` still
-produces one shape per inspection, so it does not satisfy any unreduced
-single-shape contract.
+requires exactly one graph shape.
 
 Count does not apply that eligibility test to its contributing inputs. It first
 consumes the already-bound typed reduction result, then evaluates format

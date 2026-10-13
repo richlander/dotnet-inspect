@@ -15,11 +15,17 @@ import {
   dependencyTarget,
   isTraversalDependencyTarget,
   isLibraryLiteralQuery,
+  requiresTraversalDependencyTarget,
 } from "./package-query.ts";
 import {
   resolvePackageQueryRowWindow,
   type PackageQueryViewportSnapshot,
 } from "./package-query-window.ts";
+import {
+  packageQueryDurableRowField,
+  type PackageQueryDurableRowPresentationLayout,
+  type PackageQueryDurableRowTerm,
+} from "./package-query-durable-row.ts";
 import {
   bindPackageQueryEditor,
   capturePackageQueryEditor,
@@ -367,6 +373,7 @@ export function restorePackageQueryScroll(
 export function bindPackageQueryView(
   root: ParentNode,
   actions: PackageQueryBindingActions,
+  request: QueryRequest | null = null,
 ) {
   const prefixInput = () =>
     root.querySelector<HTMLInputElement>("#package-query-prefix");
@@ -388,7 +395,7 @@ export function bindPackageQueryView(
     button.addEventListener("click", () => actions.onPresetToggle(
       button.dataset.queryPreset ?? "",
       prefixInput()?.value ?? "")));
-  bindPackageQueryTerms(root, actions, prefixInput);
+  bindPackageQueryTerms(root, actions, prefixInput, request);
   const prerelease = root.querySelector<HTMLInputElement>(
     "#package-query-prerelease");
   prerelease?.addEventListener("change", () => actions.onSourceChange({
@@ -426,6 +433,7 @@ function bindPackageQueryTerms(
   root: ParentNode,
   actions: PackageQueryBindingActions,
   prefixInput: () => HTMLInputElement | null,
+  request: QueryRequest | null,
 ): void {
   root.querySelectorAll<HTMLElement>("[data-query-term-add]").forEach(button =>
     button.addEventListener("click", () =>
@@ -485,7 +493,6 @@ function bindPackageQueryTerms(
           dependencyReachControl.disabled = false;
         }
         const direct = dependencyReachControl.value === "direct";
-        dependencyTargetControl.disabled = direct;
         dependencyTargetControl.required = !direct;
       };
       termOperator?.addEventListener("change", () => {
@@ -525,12 +532,21 @@ function bindPackageQueryTerms(
           termValue.reportValidity();
           return;
         }
+        const selectedReach = dependencyReachValue(
+          dependencyReachControl?.value);
+        const effectiveReach = selectedReach ?? "direct";
+        const dependencyTargetRequired = request === null
+          ? effectiveReach !== "direct"
+          : requiresTraversalDependencyTarget(
+            request,
+            index,
+            termOperator.value,
+            effectiveReach);
         if (dependencyTargetControl
-          && !dependencyTargetControl.disabled
-          && !isTraversalDependencyTarget(
-            dependencyTargetControl.value)) {
+          && dependencyTargetRequired
+          && !isTraversalDependencyTarget(dependencyTargetControl.value)) {
           dependencyTargetControl.setCustomValidity(
-            "Enter an exact target framework.");
+            "Enter an exact target framework while bounded reach is active.");
           dependencyTargetControl.reportValidity();
           return;
         }
@@ -540,7 +556,7 @@ function bindPackageQueryTerms(
           termOperator.value,
           value,
           prefixInput()?.value ?? "",
-          dependencyReachValue(dependencyReachControl?.value),
+          selectedReach,
           dependencyTargetControl?.value);
       });
     });
@@ -579,8 +595,21 @@ function renderRow(
   row: QueryResultRow,
   index: number,
   rowCount: number,
+  layout: PackageQueryDurableRowPresentationLayout,
   escapeHtml: (value: unknown) => string,
 ): string {
+  const field = (term: PackageQueryDurableRowTerm) =>
+    packageQueryDurableRowField(layout, term).term;
+  const tierField = field("tier");
+  const answersField = field("answers");
+  const evidenceField = field("evidence");
+  const downloadsField = field("total-downloads");
+  const producerField = field("producer");
+  const downloadsSentenceLabel =
+    downloadsField.displayLabel.length === 0
+      ? downloadsField.displayLabel
+      : downloadsField.displayLabel[0]
+        + downloadsField.displayLabel.slice(1).toLocaleLowerCase();
   const answers = row.answers
     .map(item => `<li class="query-answer">${escapeHtml(item.value)}</li>`)
     .join("");
@@ -619,19 +648,19 @@ function renderRow(
           <h2>${escapeHtml(row.packageId)}</h2>
           <span class="query-row-version">${escapeHtml(row.version)}</span>
         </div>
-        <span class="query-tier query-tier-${escapeHtml(row.tier)}">${escapeHtml(row.tier)}</span>
+        <span class="query-tier query-tier-${escapeHtml(row.tier)}">${escapeHtml(row.tier)}<span class="sr-only"> (${escapeHtml(tierField.displayLabel)})</span></span>
       </div>
       ${row.description?.trim()
         ? `<p class="query-row-description">${escapeHtml(row.description)}</p>`
         : ""}
-      ${answers ? `<ul class="query-answers" aria-label="Answers">${answers}</ul>` : ""}
-      ${evidence ? `<ul class="query-evidence">${evidence}</ul>` : ""}
+      ${answers ? `<ul class="query-answers" aria-label="${escapeHtml(answersField.displayLabel)}">${answers}</ul>` : ""}
+      ${evidence ? `<span class="sr-only">${escapeHtml(evidenceField.displayLabel)}</span><ul class="query-evidence">${evidence}</ul>` : ""}
       <div class="query-row-meta">
-        <span>${row.totalDownloads === null
-          ? "Lifetime downloads unavailable"
-          : `${row.totalDownloads.toLocaleString()} lifetime downloads`}</span>
+        <span title="${escapeHtml(downloadsField.summary ?? "")}">${row.totalDownloads === null
+          ? `${escapeHtml(downloadsSentenceLabel)} unavailable`
+          : `${row.totalDownloads.toLocaleString()} ${escapeHtml(downloadsSentenceLabel.toLocaleLowerCase())}`}</span>
         ${row.producer
-          ? `<span>${escapeHtml(row.producer)}</span>`
+          ? `<span aria-label="${escapeHtml(producerField.displayLabel)}: ${escapeHtml(row.producer)}" title="${escapeHtml(producerField.summary ?? "")}">${escapeHtml(row.producer)}</span>`
           : ""}
         ${openAction}
       </div>
@@ -640,14 +669,17 @@ function renderRow(
 
 function renderQueryContext(
   rows: readonly QueryResultRow[],
+  layout: PackageQueryDurableRowPresentationLayout,
   escapeHtml: (value: unknown) => string,
 ): string {
+  const evidenceField =
+    packageQueryDurableRowField(layout, "evidence").term;
   const evidence = rows[0]?.evidence
     .filter(item => item.scope === "query")
     .map(item => `<li>${escapeHtml(formatEvidence(item))}</li>`)
     .join("") ?? "";
   return evidence
-    ? `<section class="query-context" aria-label="Query context"><h2>Query context</h2><ul class="query-evidence">${evidence}</ul></section>`
+    ? `<section class="query-context" aria-label="Query context"><h2>Query context</h2><span class="sr-only">${escapeHtml(evidenceField.displayLabel)}</span><ul class="query-evidence">${evidence}</ul></section>`
     : "";
 }
 
@@ -1034,15 +1066,15 @@ function renderDependencyTermEditor(
         </select>
       </label>
       <label class="query-dependency-target">
-        <span>Shared dependency target framework</span>
+        <span>Shared dependency target framework (optional for direct)</span>
         <input
           data-query-dependency-target
           ${control("dependency-target")}
           type="text"
           value="${escapeHtml(targetFramework)}"
           list="package-query-dependency-target-${identity}-options"
-          placeholder="net10.0"
-          ${effectiveReach === "direct" ? "disabled" : "required"}
+          placeholder="All target frameworks"
+          ${effectiveReach === "direct" ? "" : "required"}
           autocomplete="off"
           spellcheck="false" />
         <datalist id="package-query-dependency-target-${identity}-options">
@@ -1052,7 +1084,7 @@ function renderDependencyTermEditor(
             </option>`).join("")}
         </datalist>
       </label>
-      <p class="query-preset-disclosure">Reach applies to every exact package dependency in this query. Direct only inspects declared dependencies. A bounded reach includes direct and transitive declaration paths and inspects at most five candidates. The target framework scopes every dependency fact.</p>
+      <p class="query-preset-disclosure">Reach applies to every exact package dependency in this query. Direct only inspects declared dependencies; leave target framework blank to inspect all declared groups. A bounded reach includes direct and transitive declaration paths, requires one exact target framework, and inspects at most five candidates. An exact target scopes every dependency fact.</p>
       <div class="query-term-actions">
         <button type="submit" ${control("apply")}>Apply</button>
         ${draft
@@ -1074,10 +1106,13 @@ function renderTermControls(
   const targetOptions = availableTerms.find(term =>
     term.key === "dependency-target")?.options ?? [];
   const draft = state.termDraft;
+  const presentsDependencyFacet = applied.some(term =>
+    term.descriptor.key === "depends")
+    || draft?.descriptor.key === "depends";
   const active = [
     ...applied.map((term, index) => {
       if (term.descriptor.key === "dependency-target"
-        && sharedReach !== "direct") return "";
+        && presentsDependencyFacet) return "";
       const edit = state.termEdits?.[index];
       if (term.descriptor.key === "depends") {
         return renderDependencyTermEditor(
@@ -1104,7 +1139,7 @@ function renderTermControls(
           draft.operator,
           draft.value,
           draft.dependencyReach ?? "direct",
-          draft.dependencyTarget ?? request.targetFramework,
+          draft.dependencyTarget ?? sharedTarget,
           null,
           targetOptions,
           escapeHtml)
@@ -1126,7 +1161,7 @@ function renderTermControls(
   const palette = availableTerms
     .filter(term => term.operators.length > 0
       && term.key !== "depends-transitive"
-      && !(sharedReach !== "direct"
+      && !(presentsDependencyFacet
         && term.key === "dependency-target"))
     .map(term => `
       <button
@@ -1414,6 +1449,7 @@ function renderEmptyState(
 
 export interface RenderPackageQueryOptions {
   state: PackageQueryState;
+  durableRowLayout?: PackageQueryDurableRowPresentationLayout | null;
   prefix?: string;
   viewport?: PackageQueryViewportSnapshot | null;
   availablePresets: readonly QueryPreset[];
@@ -1482,15 +1518,25 @@ function renderAssessments(
 
 function renderResults(
   state: PackageQueryState,
+  durableRowLayout: PackageQueryDurableRowPresentationLayout | null,
   escapeHtml: (value: unknown) => string,
   viewport: PackageQueryViewportSnapshot | null = null,
 ): string {
   const rowCount = state.outcome.rows.length;
+  if (rowCount > 0 && durableRowLayout === null) {
+    throw new Error(
+      "Package Query durable-row presentation metadata is unavailable.");
+  }
   const window = resolvePackageQueryRowWindow(rowCount, viewport);
   const rows = state.outcome.rows
     .slice(window.start, window.end)
     .map((row, offset) =>
-      renderRow(row, window.start + offset, rowCount, escapeHtml))
+      renderRow(
+        row,
+        window.start + offset,
+        rowCount,
+        durableRowLayout!,
+        escapeHtml))
     .join("");
   const assessments = renderAssessments(state, escapeHtml);
   const renderedRows = rows
@@ -1514,7 +1560,7 @@ function renderResults(
       </div>`
     : "";
   return rows
-    ? `${renderProgress(state.outcome, escapeHtml)}${assessments}${renderQueryContext(state.outcome.rows, escapeHtml)}${renderedRows}${renderCompletionFooter(state.request, state.outcome, escapeHtml)}`
+    ? `${renderProgress(state.outcome, escapeHtml)}${assessments}${renderQueryContext(state.outcome.rows, durableRowLayout!, escapeHtml)}${renderedRows}${renderCompletionFooter(state.request, state.outcome, escapeHtml)}`
     : state.outcome.completion.kind === "streaming" && state.request
       ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>Acquiring package input</h2><p>Matches will appear as package candidates are evaluated.</p></section>${renderProgress(state.outcome, escapeHtml)}${assessments}${renderCompletionFooter(state.request, state.outcome, escapeHtml)}`
       : `${assessments}${renderEmptyState(state, escapeHtml)}`;
@@ -1524,7 +1570,7 @@ export function patchPackageQueryStream(
   root: ParentNode,
   options: Pick<
     RenderPackageQueryOptions,
-    "state" | "escapeHtml" | "viewport"
+    "state" | "durableRowLayout" | "escapeHtml" | "viewport"
   >,
   actions: PackageQueryBindingActions,
 ): boolean {
@@ -1540,6 +1586,7 @@ export function patchPackageQueryStream(
   cancel.innerHTML = renderStreamingCancel(options.state);
   results.innerHTML = renderResults(
     options.state,
+    options.durableRowLayout ?? null,
     options.escapeHtml,
     options.viewport);
   bindPackageQueryStreamControls(root, actions);
@@ -1556,6 +1603,7 @@ export function renderPackageQueryView(
 ): string {
   const {
     state,
+    durableRowLayout = null,
     prefix = state.request?.scopeQuery ?? "",
     availablePresets,
     availableTerms = [],
@@ -1569,7 +1617,11 @@ export function renderPackageQueryView(
     activeKeys,
     escapeHtml);
   const failures = renderFailures(state, escapeHtml);
-  const results = renderResults(state, escapeHtml, viewport);
+  const results = renderResults(
+    state,
+    durableRowLayout,
+    escapeHtml,
+    viewport);
   const request = state.request ?? createQueryRequest("");
   const terms = renderTermControls(state, availableTerms, escapeHtml);
   const targetOptions = availableTerms.find(term =>

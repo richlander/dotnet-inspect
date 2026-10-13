@@ -83,6 +83,24 @@ internal sealed record ClassicInverseBlockNode(
         $"block[{StartOffset}]({Children(Statements)})";
 }
 
+internal sealed record ClassicInverseIfNode(
+    ClassicInverseBodyNode Condition,
+    ClassicInverseBodyNode Then)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize()
+        => new IfStatement(Expr(Condition), (Block)Then.Materialize(), null);
+
+    internal override string Signature => $"if({Condition.Signature},{Then.Signature})";
+}
+
+internal sealed record ClassicInverseInitObjectNode(TypeRef Type, ClassicInverseBodyNode Address)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new InitObject(Type, Expr(Address));
+    internal override string Signature => $"init[{TypeText(Type)}]({Address.Signature})";
+}
+
 internal sealed record ClassicInverseReturnNode(ClassicInverseBodyNode? Value)
     : ClassicInverseBodyNode
 {
@@ -758,6 +776,21 @@ internal sealed class ClassicInverseBodyCaptureSession(ClassicInverseTypeBinding
                     : new ClassicInverseBlockNode(
                         block.StartOffset,
                         statements.Value);
+            }
+
+            case IfStatement guarded when !guarded.HasElse:
+            {
+                var condition = TryCapture(guarded.Condition, budget);
+                var then = TryCapture(guarded.Then, budget);
+                return condition is null || then is null
+                    ? null
+                    : new ClassicInverseIfNode(condition, then);
+            }
+
+            case InitObject init:
+            {
+                var address = TryCapture(init.Address, budget);
+                return address is null ? null : new ClassicInverseInitObjectNode(binding.Type(init.Type, budget), address);
             }
 
             case Return ret:

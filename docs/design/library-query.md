@@ -75,12 +75,18 @@ The initial CLI admits exactly one source, so this is an ordinal path order.
 `--take` authorizes Metadata evaluation for at most that many candidates. The
 default is 256 and the maximum is 4,096. The complete population size remains
 known after assembly-set formation, so reaching the bound is reported
-explicitly.
+explicitly. An explicit `--take` fixes the requested candidate population, so
+reaching it is the scope of the answer. The default leaves the population
+incomplete only when it omits known population members; a population no
+larger than the default is evaluated completely.
 
-`-n`, `--head`, `--tail`, and `--rows` run only after matching Library rows
-have been produced. They do not shorten candidate evaluation. Count is exact
-only when candidate evaluation is complete or the selected closed row window
-is already satisfied by observed rows.
+`--tail` and `--rows` run only after matching Library rows have been produced.
+A lone `-n` or `--head` may stop candidate evaluation once N matching rows are
+found, inside the explicit `--take` window or the default bound; it never
+extends evaluation past that bound. Count is exact
+only when candidate evaluation is complete for the request, including an
+explicit `--take` population whose every candidate was evaluated, or the
+selected closed row window is already satisfied by observed rows.
 
 ## Result and evidence
 
@@ -107,13 +113,17 @@ Count follow the existing output-shape rules.
 
 Completion records independent incomplete reasons:
 
-- the candidate bound omitted known population members;
+- the default candidate bound omitted known population members;
 - population formation produced diagnostics; or
 - one or more admitted candidates could not be evaluated authoritatively.
 
-Missing directories or packs, unreadable or non-managed images, unsupported
-metadata formats, malformed assembly identity, and failed reference-table
-reads remain visible failures. They never become nonmatches.
+Missing directories or packs, a directory with native images and no managed
+image, unreadable or malformed images, unsupported metadata formats, malformed
+assembly identity, and failed reference-table reads remain visible failures.
+They never become nonmatches. A native image beside managed ones is not a
+population member and is skipped, under the
+[directory-source rule](assembly-inspection-query.md) in Assembly inspection
+query.
 
 `AssemblyIdentityScanner.ReferencesComplete=false` has precise semantics:
 
@@ -123,13 +133,17 @@ reads remain visible failures. They never become nonmatches.
 - when no reference predicate was requested, incomplete reference rows do not
   invalidate the Library inventory result.
 
-An explicit candidate bound may produce successful partial output and a
-completion warning. Population or evaluation failures produce a nonzero exit.
+A default candidate bound that omits known population members produces partial
+output with a completion warning and a nonzero exit; a reached explicit
+`--take` is the requested scope, not a partial result, and exits zero. Population or evaluation failures produce
+a nonzero exit.
 `--count` counts the rows Rows would render from the same evaluation, with the
 same completion warning and exit status, under the section-row owner's
 [incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation).
 It is exact only when the evaluation, or the selected closed row window, is
-complete for the request.
+complete for the request. Count is withheld only when population formation
+failed before any candidate was evaluated; any other failure yields an observed
+count.
 
 ## Discovery and acquisition boundary
 
@@ -188,7 +202,8 @@ Release gates cover:
   candidate-bound accounting in `DotnetInspector.Queries.Tests`;
 - route-derived query discovery and structural discovery without acquisition
   in `DotnetInspect.Cli.Tests`;
-- directory execution, row selection versus candidate bounds, Count, and
+- directory execution, row selection versus candidate bounds, Count, a
+  population exactly at and one larger than the default bound, and
   malformed-reference visibility in `DotnetInspect.Cli.Tests`; and
 - participant-backed execution, exact Browser asset-ID projection, and Worker
   transport in `DotnetInspector.Queries.Tests` and `DotnetInspect.Web.Tests`;

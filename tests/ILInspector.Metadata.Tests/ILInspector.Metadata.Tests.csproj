@@ -20,8 +20,12 @@
                      Version="[11.0.0-rc.1.26425.128]" />
     <PackageDownload Include="System.Net.Http.Json"
                      Version="[10.0.0]" />
+    <PackageDownload Include="Microsoft.Extensions.Configuration"
+                     Version="[10.0.10]" />
+    <PackageDownload Include="Microsoft.AspNetCore.App.Ref"
+                     Version="[10.0.10]" />
     <PackageDownload Include="System.Text.Json"
-                     Version="[10.0.0]" />
+                     Version="[9.0.0];[10.0.0]" />
     <PackageDownload Include="Microsoft.NETCore.App.Ref"
                      Version="[11.0.0-rc.1.26425.128]" />
   </ItemGroup>
@@ -32,6 +36,15 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.net.http.json/10.0.0/lib/net10.0/System.Net.Http.Json.dll"
           Link="PinnedArtifacts\System.Net.Http.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.aspnetcore.app.ref/10.0.10/ref/net10.0/Microsoft.Extensions.Configuration.dll"
+          Link="PinnedArtifacts\packages\Microsoft.Extensions.Configuration.10.0.10.ref.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.extensions.configuration/10.0.10/lib/net10.0/Microsoft.Extensions.Configuration.dll"
+          Link="PinnedArtifacts\packages\Microsoft.Extensions.Configuration.10.0.10.lib.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.text.json/9.0.0/lib/net9.0/System.Text.Json.dll"
+          Link="PinnedArtifacts\packages\System.Text.Json.9.0.0.dll"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net10.0/System.Text.Json.dll"
           Link="PinnedArtifacts\packages\System.Text.Json.10.0.0.dll"

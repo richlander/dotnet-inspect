@@ -85,9 +85,9 @@ public class CorpusSensorComparisonTests
         Assert.Equal(CorpusSensor.CurrentSchemaVersion, baseline.SchemaVersion);
         Assert.Equal(CorpusFidelityOracle.ReturnToSenderCutover, baseline.FidelityOracle);
         Assert.Equal(682, cutover.SelectedMethods);
-        Assert.Equal(44, cutover.ExactLossMethods);
-        Assert.Equal(42, cutover.AvailabilityLossMethods);
-        Assert.Equal(34, legacyExactNativeUncheckable);
+        Assert.Equal(31, cutover.ExactLossMethods);
+        Assert.Equal(34, cutover.AvailabilityLossMethods);
+        Assert.Equal(28, legacyExactNativeUncheckable);
         Assert.Equal(0, cutover.CompileBackFloorAppliedMethods);
     }
 
@@ -1357,6 +1357,7 @@ public class CorpusSensorComparisonTests
     [Theory]
     [InlineData("not-sampled")]
     [InlineData("syntax-valid")]
+    [InlineData("semantic-unavailable:VLD0002")]
     public void Compare_PinnedValidityCoverageChangeIsNotARegression(string currentValidity)
     {
         var baseline = Snapshot(
@@ -1370,7 +1371,7 @@ public class CorpusSensorComparisonTests
             1,
             10_000,
             [SnapshotMethod("Stable", validity: currentValidity)],
-            semanticCheckedMethods: currentValidity == "syntax-valid" ? 0 : 1);
+            semanticCheckedMethods: currentValidity is "syntax-valid" or "semantic-unavailable:VLD0002" ? 0 : 1);
 
         var regressions = CorpusSensor.PinnedMethodRegressions(baseline, current);
 
@@ -1379,6 +1380,19 @@ public class CorpusSensorComparisonTests
             regression => regression.StartsWith(
                 "valid method regressed (pinned)",
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_AssignmentContextDeclineStillFailsCoverageGate()
+    {
+        var baseline = Snapshot(1, 1, 10_000,
+            [SnapshotMethod("Stable", validity: "valid")], semanticCheckedMethods: 1);
+        var current = Snapshot(1, 1, 10_000,
+            [SnapshotMethod("Stable", validity: "semantic-unavailable:VLD0002")], semanticCheckedMethods: 0);
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+        Assert.Contains("semantic checked methods lower than baseline (baseline 1, current 0)", regressions);
+        Assert.DoesNotContain(regressions, regression => regression.StartsWith("valid method regressed (pinned)", StringComparison.Ordinal));
     }
 
     [Fact]

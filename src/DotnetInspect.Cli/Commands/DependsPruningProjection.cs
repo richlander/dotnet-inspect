@@ -34,6 +34,7 @@ public partial class DependsCommand
         var rows = ImmutableArray.CreateBuilder<DependencyInspectionPruning>();
         var failures = ImmutableArray.CreateBuilder<DependencyInspectionFailure>();
         var pending = new List<PendingPruningDeclaration>();
+        var restoredPending = new List<PendingRestoredDeclaration>();
         int failedLibraryRoots = libraries.Count(
             static library => library.Document is null);
         int roots = evidence.Roots.Length
@@ -124,6 +125,22 @@ public partial class DependsCommand
                 producedOutcome = true;
                 declarations++;
                 if (applicability.State
+                        == PackageHouseDependencyPruningApplicabilityState
+                            .ApplicationAuthoredExemption
+                    && FindRestoredResolution(root, declaration)
+                        is { } restored)
+                {
+                    restoredPending.Add(
+                        new PendingRestoredDeclaration(
+                            admittedIndexes[inputIndex],
+                            root,
+                            declaration,
+                            applicability,
+                            restored));
+                    continue;
+                }
+
+                if (applicability.State
                     != PackageHouseDependencyPruningApplicabilityState
                         .CandidateRequired)
                 {
@@ -186,7 +203,7 @@ public partial class DependsCommand
         int evaluated = 0;
         int delegated = 0;
         int retained = 0;
-        if (pending.Count > 0)
+        if (pending.Count > 0 || restoredPending.Count > 0)
         {
             string family =
                 (options.PruningPlatformFamily ?? "runtime")
@@ -196,49 +213,28 @@ public partial class DependsCommand
                 requestedFramework);
             InstalledPlatformPruneSource.Result inventoryResult =
                 pruneSource(frameworkSpec);
-            if (inventoryResult.Inventory is not { } inventory)
-            {
-                string message = inventoryResult.Error
-                    ?? $"The installed {family} pruning inventory is unavailable for '{requestedFramework}'.";
-                ImmutableArray<int> affectedRoots =
-                [
-                    .. pending
-                        .Select(static item => item.RootOccurrence)
-                        .Distinct()
-                        .Order(),
-                ];
-                failures.Add(
-                    new DependencyInspectionFailure.Pruning(
-                        new DependencyInspectionPruningFailure.Inventory(
-                            family,
-                            requestedFramework,
-                            new InertString(TextPolicy.Prose, message),
-                            affectedRoots,
-                            pending.Count)));
-                foreach (PendingPruningDeclaration item in pending)
-                {
-                    rows.Add(
-                        CreateUnavailableRow(
-                            item.RootOccurrence,
-                            item.Root,
-                            item.Declaration,
-                            item.Applicability,
-                            DependencyInspectionPruningDisposition.InventoryUnavailable,
-                            message));
-                }
-                failed += pending.Count;
-            }
-            else if (!TryCreateTargetContext(
-                         requestedFramework,
-                         family,
-                         inventory,
-                         out PackageHouseTargetContext? target,
-                         out string? targetError))
+            PlatformPruneInventory? inventory = inventoryResult.Inventory;
+            PackageHouseTargetContext? target = null;
+            string? inventoryError = inventory is null
+                ? inventoryResult.Error
+                    ?? $"The installed {family} pruning inventory is unavailable for '{requestedFramework}'."
+                : !TryCreateTargetContext(
+                        requestedFramework,
+                        family,
+                        inventory,
+                        out target,
+                        out string? targetError)
+                    ? targetError
+                    : null;
+            if (inventoryError is not null)
             {
                 ImmutableArray<int> affectedRoots =
                 [
                     .. pending
                         .Select(static item => item.RootOccurrence)
+                        .Concat(
+                            restoredPending.Select(
+                                static item => item.RootOccurrence))
                         .Distinct()
                         .Order(),
                 ];
@@ -249,9 +245,21 @@ public partial class DependsCommand
                             requestedFramework,
                             new InertString(
                                 TextPolicy.Prose,
-                                targetError),
+                                inventoryError),
                             affectedRoots,
-                            pending.Count)));
+                            pending.Count + restoredPending.Count)));
+                foreach (PendingRestoredDeclaration item in restoredPending)
+                {
+                    rows.Add(
+                        CreateUnavailableRow(
+                            item.RootOccurrence,
+                            item.Root,
+                            item.Declaration,
+                            item.Applicability,
+                            DependencyInspectionPruningDisposition
+                                .InventoryUnavailable,
+                            inventoryError));
+                }
                 foreach (PendingPruningDeclaration item in pending)
                 {
                     rows.Add(
@@ -262,12 +270,38 @@ public partial class DependsCommand
                             item.Applicability,
                             DependencyInspectionPruningDisposition
                                 .InventoryUnavailable,
-                            targetError));
+                            inventoryError));
                 }
-                failed += pending.Count;
+                failed += pending.Count + restoredPending.Count;
             }
             else
             {
+                foreach (PendingRestoredDeclaration item in restoredPending)
+                {
+                    DependencyInspectionPruning row = CreateRestoredRow(
+                        item,
+                        target!,
+                        inventory!);
+                    rows.Add(row);
+                    evaluated++;
+                    if (row.Disposition
+                        == DependencyInspectionPruningDisposition
+                            .PlatformDelegation)
+                    {
+                        delegated++;
+                    }
+                    else
+                    {
+                        retained++;
+                    }
+                    successful++;
+                }
+            }
+
+            if (inventoryError is null && pending.Count > 0)
+            {
+                PackageHouseTargetContext boundTarget = target!;
+                PlatformPruneInventory boundInventory = inventory!;
                 var candidateSource =
                     new DesktopPackageDependencyCandidateSource(
                         composition,
@@ -280,8 +314,8 @@ public partial class DependsCommand
                                 new PackageDependencyPruningInspectionSubject(
                                     item.Root,
                                     item.Declaration)),
-                        target,
-                        inventory);
+                        boundTarget,
+                        boundInventory);
                 InspectionEnvelope<PackageDependencyPruningInspectionResult>
                     inspection =
                         await PackageDependencyPruningInspection.ExecuteAsync(
@@ -319,8 +353,8 @@ public partial class DependsCommand
                             CreateCandidateUnavailableRow(
                                 item,
                                 candidateUnavailable,
-                                target,
-                                inventory));
+                                boundTarget,
+                                boundInventory));
                         failures.Add(
                             new DependencyInspectionFailure.Pruning(
                                 new DependencyInspectionPruningFailure.Candidate(
@@ -566,6 +600,82 @@ public partial class DependsCommand
             outcome.Result);
     }
 
+    private static PackageSourceCoordinate? FindRestoredResolution(
+        PackageDependencyEvidenceRoot root,
+        PackageDependencyEvidenceDeclaration declaration)
+    {
+        if (root.Processing
+                is not PackageDependencyEvidenceProcessingResult.Available
+                {
+                    IsComplete: true,
+                }
+            || root.Relationships
+                is not PackageDependencyEvidenceRelationshipResult.Available
+                {
+                    Completion: PackageDependencyEvidencePhaseCompletion
+                        .Complete,
+                } relationships)
+        {
+            return null;
+        }
+
+        PackageSourceCoordinate[] resolved =
+        [
+            .. relationships.Relationships
+                .Where(relationship =>
+                    relationship.DeclarationAssociation
+                        == declaration.Identity
+                    && relationship.ResolvedCoordinate.PackageId.Equals(
+                        declaration.CanonicalPackageId,
+                        StringComparison.OrdinalIgnoreCase))
+                .Select(static relationship =>
+                    relationship.ResolvedCoordinate)
+                .Distinct(),
+        ];
+        return resolved.Length == 1 ? resolved[0] : null;
+    }
+
+    private static DependencyInspectionPruning CreateRestoredRow(
+        PendingRestoredDeclaration item,
+        PackageHouseTargetContext target,
+        PlatformPruneInventory inventory)
+    {
+        PlatformFamilyTarget platform = target.PlatformTarget!;
+        PlatformSupply supply = PlatformPrunePolicy.Decide(
+            inventory,
+            new PackageCoordinate(
+                item.Resolved.PackageId,
+                item.Resolved.Version));
+        string? provided = supply.SuppliedVersion?.ToNormalizedString();
+        return CreateRow(
+            item.RootOccurrence,
+            item.Root,
+            item.Declaration,
+            item.Applicability,
+            item.Resolved.Version,
+            platform.Family.ToString(),
+            platform.TargetFramework.ToString(),
+            platform.Version.Value,
+            provided,
+            supply.DelegatesToPlatform
+                ? DependencyInspectionPruningDisposition.PlatformDelegation
+                : DependencyInspectionPruningDisposition.PackageRetained,
+            "ApplicationAuthored",
+            CandidateOutcome: null,
+            Result: null) with
+        {
+            Result =
+                new DependencyInspectionPruningResult.RestoredResolution(
+                    item.Resolved,
+                    platform.Family,
+                    platform.TargetFramework.ToString(),
+                    platform.Version.Value,
+                    provided,
+                    supply.Subsumption,
+                    supply.DelegatesToPlatform),
+        };
+    }
+
     private static DependencyInspectionPruning CreateRow(
         int rootOccurrence,
         PackageDependencyEvidenceRoot root,
@@ -622,6 +732,13 @@ public partial class DependsCommand
         PackageDependencyEvidenceRoot Root,
         PackageDependencyEvidenceDeclaration Declaration,
         PackageHouseDependencyPruningApplicability Applicability);
+
+    private sealed record PendingRestoredDeclaration(
+        int RootOccurrence,
+        PackageDependencyEvidenceRoot Root,
+        PackageDependencyEvidenceDeclaration Declaration,
+        PackageHouseDependencyPruningApplicability Applicability,
+        PackageSourceCoordinate Resolved);
 
     private sealed record DependsPruningProjectionResult(
         ImmutableArray<DependencyInspectionPruning> Rows,

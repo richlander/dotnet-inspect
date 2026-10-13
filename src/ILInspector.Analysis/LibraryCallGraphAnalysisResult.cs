@@ -163,37 +163,22 @@ public sealed class LibraryCallGraphAnalysisResult
     public DirectCallTarget ResolveTarget(DirectCall call)
     {
         ArgumentNullException.ThrowIfNull(call);
-        if (call.Kind == CallKind.CallIndirect)
-            return new DirectCallTarget.Unresolved(
-                DirectCallTargetUnresolvedReason.Indirect);
-
-        MethodDefinitionMap map = DeclaredMethodMap;
-        TypeRef declaring = call.Callee.DeclaringType;
-        if (!map.ContainsToken(call.CalleeDefinitionToken)
-            && call.Callee.Kind != MemberKind.Unsupported)
+        SameModuleCallTarget target = DeclaredMethodMap.ResolveTarget(call);
+        return target.Kind switch
         {
-            if (declaring.Kind is TypeRefKind.Array or TypeRefKind.SzArray)
-                return new DirectCallTarget.RuntimeProvided();
-            TypeRef definition =
-                declaring.Kind == TypeRefKind.GenericInstance
-                    ? declaring.ElementType ?? declaring
-                    : declaring;
-            if (!map.CanResolveToCurrentModule(declaring)
-                && definition.Resolution?.Origin is { } origin)
-            {
-                return new DirectCallTarget.External(origin);
-            }
-        }
-
-        MethodResolution resolution = map.ResolveTyped(call);
-        return resolution.Token != 0
-            && DeclaredMethodsByToken.TryGetValue(
-                resolution.Token,
-                out MethodIdentity? method)
-                ? new DirectCallTarget.CurrentModule(method)
-                : new DirectCallTarget.Unresolved(resolution.Token != 0
-                    ? DirectCallTargetUnresolvedReason.Unmatched
-                    : resolution.Reason);
+            SameModuleCallTargetKind.CurrentModule =>
+                DeclaredMethodsByToken.TryGetValue(
+                    target.Token,
+                    out MethodIdentity? method)
+                    ? new DirectCallTarget.CurrentModule(method)
+                    : new DirectCallTarget.Unresolved(
+                        DirectCallTargetUnresolvedReason.Unmatched),
+            SameModuleCallTargetKind.External =>
+                new DirectCallTarget.External(target.Origin!),
+            SameModuleCallTargetKind.RuntimeProvided =>
+                new DirectCallTarget.RuntimeProvided(),
+            _ => new DirectCallTarget.Unresolved(target.Reason),
+        };
     }
 
     IReadOnlyDictionary<int, MethodIdentity> DeclaredMethodsByToken =>

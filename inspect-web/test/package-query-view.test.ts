@@ -9,11 +9,12 @@ import {
   decodeLibraryLiteralEditorValue,
   encodeLibraryLiteralEditorValue,
   packageQueryNeedsMoreMatches,
-  patchPackageQueryStream,
-  renderPackageQueryView,
+  patchPackageQueryStream as patchPackageQueryStreamCore,
+  renderPackageQueryView as renderPackageQueryViewCore,
   restorePackageQueryFocus,
   restorePackageQueryScroll,
   type PackageQueryBindingActions,
+  type RenderPackageQueryOptions,
 } from "../src/package-query-view.ts";
 import {
   createPackageQueryRenderScheduler,
@@ -40,6 +41,9 @@ import {
   type QueryTermDescriptor,
 } from "../src/package-query.ts";
 import { fakeDom } from "./fake-dom.ts";
+import {
+  packageQueryDurableRowLayoutFixture,
+} from "./package-query-durable-row-fixture.ts";
 
 const escapeHtml = (value: unknown) => String(value)
   .replace(/&/g, "&amp;")
@@ -49,6 +53,32 @@ const escapeHtml = (value: unknown) => String(value)
 const styles = readFileSync(
   new URL("../src/styles.css", import.meta.url),
   "utf8");
+
+function renderPackageQueryView(
+  options: Omit<RenderPackageQueryOptions, "durableRowLayout">,
+): string {
+  return renderPackageQueryViewCore({
+    ...options,
+    durableRowLayout: packageQueryDurableRowLayoutFixture,
+  });
+}
+
+function patchPackageQueryStream(
+  root: ParentNode,
+  options: Pick<
+    RenderPackageQueryOptions,
+    "state" | "escapeHtml" | "viewport"
+  >,
+  actions: PackageQueryBindingActions,
+): boolean {
+  return patchPackageQueryStreamCore(
+    root,
+    {
+      ...options,
+      durableRowLayout: packageQueryDurableRowLayoutFixture,
+    },
+    actions);
+}
 
 const NUSPEC_FACET: QueryPreset = {
   id: "readme:eq:true",
@@ -582,7 +612,7 @@ test("active value queries render above the query-by-value palette", () => {
   assert.match(html, /value="Microsoft\.Extensions\.DependencyInjection"/);
   assert.match(html, /data-query-term-add="depends"/);
   assert.match(html, /Add Direct dependency/);
-  assert.match(html, /Add Dependency target/);
+  assert.doesNotMatch(html, /Add Dependency target/);
   assert.match(html, /Add Depends on ecosystem/);
   assert.match(html, /Add DotnetCliTool/);
   assert.doesNotMatch(html, /Add Transitively depends on package/);
@@ -616,6 +646,7 @@ test("dependency package, reach, and target render as one facet", () => {
   assert.match(html, /value="2" selected/);
   assert.match(html, /data-query-dependency-target/);
   assert.match(html, /value="net10\.0"/);
+  assert.match(html, /optional for direct/);
   assert.doesNotMatch(html, /data-query-preset="dependency-depth:eq:2"/);
   assert.doesNotMatch(html, /data-query-term-form="1"/);
   assert.doesNotMatch(html, /Add Dependency target/);
@@ -722,7 +753,7 @@ test("unrelated fact toggles preserve pending dependency controls", () => {
     "direct",
     "net10.0",
     null,
-    null);
+    DEPENDENCY_TARGET_TERM);
   const request = togglePreset(previous, NUSPEC_FACET);
   const termEdits = synchronizeTermEdits(previous, request, [{
     operator: "eq",
@@ -825,6 +856,57 @@ test("basic metadata rows show producer evidence and unavailable lifetime downlo
       assert.doesNotMatch(html, /Lifetime downloads unavailable/);
     }
   }
+});
+
+test("result presentation consumes durable-row Vocabulary labels", () => {
+  const labels = new Map([
+    ["tier", "Resolved Tier"],
+    ["answers", "Resolved Answers"],
+    ["evidence", "Resolved Evidence"],
+    ["total-downloads", "Resolved Downloads"],
+    ["producer", "Resolved Source"],
+  ]);
+  const durableRowLayout = {
+    ...packageQueryDurableRowLayoutFixture,
+    fields: packageQueryDurableRowLayoutFixture.fields.map(field => ({
+      ...field,
+      term: {
+        ...field.term,
+        displayLabel:
+          labels.get(field.term.identity.value)
+          ?? field.term.displayLabel,
+      },
+    })),
+  };
+  const html = renderPackageQueryViewCore({
+    state: {
+      request: createQueryRequest(""),
+      outcome: appendRows(emptyOutcome(), [{
+        ...row("Producer.Result"),
+        answers: [{ id: "license", value: "MIT" }],
+        evidence: [{
+          id: "downloads",
+          scope: "package",
+          summary: null,
+          properties: [],
+          number: 0,
+        }],
+        totalDownloads: null,
+        producer: "contoso.example/v3",
+      }]),
+    },
+    durableRowLayout,
+    availablePresets: [],
+    escapeHtml,
+  });
+
+  assert.match(html, /Resolved Tier/);
+  assert.match(html, /aria-label="Resolved Answers"/);
+  assert.match(html, /Resolved Evidence/);
+  assert.match(html, /Resolved downloads unavailable/);
+  assert.match(
+    html,
+    /aria-label="Resolved Source: contoso\.example\/v3"/);
 });
 
 test("a large outcome mounts only the scrolled row window while retaining total accounting", () => {
@@ -2334,7 +2416,9 @@ test("bindPackageQueryView applies dependency reach and target atomically", () =
 
   form.dispatch("submit", fakeDom.event({ preventDefault() {} }));
 
-  assert.equal(target.customValidity, "Enter an exact target framework.");
+  assert.equal(
+    target.customValidity,
+    "Enter an exact target framework while bounded reach is active.");
   assert.equal(target.validityReports, 1);
   assert.deepEqual(calls, []);
 
@@ -2350,6 +2434,108 @@ test("bindPackageQueryView applies dependency reach and target atomically", () =
     "2",
     "net10.0",
   ]]);
+});
+
+test("bindPackageQueryView allows an absent target for direct dependencies", () => {
+  const root = new FakeRoot();
+  const prefix = new FakeElement({}, "package-query-prefix");
+  prefix.value = "Microsoft.Extensions.*";
+  const form = new FakeElement({ queryTermForm: "draft" });
+  const value = new FakeElement();
+  value.value = "Microsoft.Extensions.Primitives";
+  const operator = new FakeElement();
+  operator.value = "eq";
+  const reach = new FakeElement();
+  reach.value = "direct";
+  const target = new FakeElement();
+  target.value = "";
+  form.add("[data-query-term-value]", value);
+  form.add("[data-query-term-operator]", operator);
+  form.add("[data-query-dependency-reach]", reach);
+  form.add("[data-query-dependency-target]", target);
+  root.add("#package-query-prefix", prefix);
+  root.add("[data-query-term-form]", form);
+  const calls: unknown[][] = [];
+
+  bindPackageQueryView(fakeDom.parentNode(root), {
+    onBack: () => {},
+    onCancel: () => {},
+    onPresetToggle: () => {},
+    onLibraryTargetInput: () => {},
+    onPrefixInput: () => {},
+    onResultPressure: () => {},
+    onResultViewportChange: () => {},
+    onRowOpen: () => {},
+    onRun: () => {},
+    onSourceChange: () => {},
+    onTermApply: (...args) => calls.push(args),
+  });
+
+  form.dispatch("submit", fakeDom.event({ preventDefault() {} }));
+
+  assert.equal(target.customValidity, "");
+  assert.deepEqual(calls, [[
+    null,
+    "eq",
+    "Microsoft.Extensions.Primitives",
+    "Microsoft.Extensions.*",
+    "direct",
+    "",
+  ]]);
+});
+
+test("bindPackageQueryView preserves a direct draft when another dependency retains bounded reach", () => {
+  const request = withDependencyTerm(
+    createQueryRequest("Contoso.*"),
+    TERMS[0]!,
+    null,
+    "eq",
+    "Contoso.Exact",
+    "2",
+    "net9.0",
+    DEPTH_2_FACET,
+    DEPENDENCY_TARGET_TERM);
+  const root = new FakeRoot();
+  const prefix = new FakeElement({}, "package-query-prefix");
+  prefix.value = "Contoso.*";
+  const form = new FakeElement({ queryTermForm: "draft" });
+  const value = new FakeElement();
+  value.value = "Contoso.Prefix";
+  const operator = new FakeElement();
+  operator.value = "starts-with";
+  const reach = new FakeElement();
+  reach.value = "direct";
+  const target = new FakeElement();
+  target.value = "";
+  form.add("[data-query-term-value]", value);
+  form.add("[data-query-term-operator]", operator);
+  form.add("[data-query-dependency-reach]", reach);
+  form.add("[data-query-dependency-target]", target);
+  root.add("#package-query-prefix", prefix);
+  root.add("[data-query-term-form]", form);
+  const calls: unknown[][] = [];
+
+  bindPackageQueryView(fakeDom.parentNode(root), {
+    onBack: () => {},
+    onCancel: () => {},
+    onPresetToggle: () => {},
+    onLibraryTargetInput: () => {},
+    onPrefixInput: () => {},
+    onResultPressure: () => {},
+    onResultViewportChange: () => {},
+    onRowOpen: () => {},
+    onRun: () => {},
+    onSourceChange: () => {},
+    onTermApply: (...args) => calls.push(args),
+  }, request);
+
+  form.dispatch("submit", fakeDom.event({ preventDefault() {} }));
+
+  assert.equal(
+    target.customValidity,
+    "Enter an exact target framework while bounded reach is active.");
+  assert.equal(target.validityReports, 1);
+  assert.deepEqual(calls, []);
 });
 
 test("assembly row binding forwards the exact opaque Root request", () => {

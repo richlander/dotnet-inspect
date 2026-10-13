@@ -232,13 +232,15 @@ The pattern stages through focused owners rather than sweeping every section:
 3. Under #8228, the Library owner first associates the declaration with exact
    and aggregate routes: single-Library `Library Info` rejects Count and Rows
    before acquisition, while all-libraries `Library Info` remains an
-   independently declared library-row inventory. The legacy `--tfm all`
-   package gesture remains undeclared until its owner defines one semantic row
-   unit; its existing Count and Rows behavior does not inherit the exact scalar
-   declaration. Aggregate detailed Discovery is initially limited to
-   `Library Info`, whose supported formats and Rows/Count terminals are known.
-   Mixed aggregate JSON plus semantic Rows fails visibly because the legacy
-   whole-inspection JSON shape cannot preserve independent section row windows.
+   independently declared library-row inventory. `--tfm all` is package
+   discovery under
+   [All-frameworks package discovery](package-tfm-all-discovery.md),
+   so it never reaches a Library section; Library routes reject it.
+   Aggregate detailed Discovery is initially limited to `Library Info`, whose
+   supported formats and Rows/Count terminals are known.
+   Mixed Package `--library` aggregate JSON plus semantic Rows fails visibly
+   because the legacy whole-inspection JSON shape cannot preserve independent
+   section row windows.
    Focused successor slices then move the preserved overview content through
    one host-neutral operation and envelope in both the CLI and Inspect Web.
 4. Under #8235 and #8278, the Library Type inventory owner publishes exact

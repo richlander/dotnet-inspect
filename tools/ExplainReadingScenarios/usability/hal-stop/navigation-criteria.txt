@@ -1,0 +1,7 @@
+Fixed before dispatch. Assess separately from the unchanged Query/Style tasks.
+The literal starting closure lacks dependency depth/target rules. Both guides
+should permit navigation for these missing facts. Assess the unrun preferred
+dependency/depth/target command, depths 2/3/4, invalid 1/all neighbors, required
+gestures and qualified evidence. Require all later requests to use verbatim
+previously returned hrefs; no search or constructed paths. Record exact trace
+provenance and distinguish failed navigation from domain errors.

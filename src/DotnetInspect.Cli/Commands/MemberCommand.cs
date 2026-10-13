@@ -2372,9 +2372,10 @@ public static class MemberCommand
         if (selectors.Length != candidates.Count)
             return false;
 
-        selection = new ImplementationProfileFamilySelection(
-            AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(apiType),
-            selectors);
+        selection =
+            ImplementationProfileFamilySelection.CreatePrepared(
+                apiType,
+                candidates);
         return true;
     }
 

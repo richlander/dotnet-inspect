@@ -529,6 +529,15 @@ public sealed class BrowserEngineLayeringTests
             .. CapabilityProjectPaths.Where(project =>
                 !project.Equals(
                     CallGraphProjectPath,
+                    StringComparison.OrdinalIgnoreCase)
+                && !project.Equals(
+                    LibraryProjectPath,
+                    StringComparison.OrdinalIgnoreCase)
+                && !project.Equals(
+                    CatalogProjectPath,
+                    StringComparison.OrdinalIgnoreCase)
+                && !project.Equals(
+                    PackageProjectPath,
                     StringComparison.OrdinalIgnoreCase)),
         ];
 
@@ -552,6 +561,24 @@ public sealed class BrowserEngineLayeringTests
     public void CallGraphFacadePinsPlatformHazardsNotBroadInventory()
     {
         AssertPinsPlatformHazardsNotBroadInventory(CallGraphProjectPath);
+    }
+
+    [Fact]
+    public void LibraryFacadePinsPlatformHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(LibraryProjectPath);
+    }
+
+    [Fact]
+    public void CatalogFacadePinsPlatformHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(CatalogProjectPath);
+    }
+
+    [Fact]
+    public void PackageFacadePinsPlatformHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(PackageProjectPath);
     }
 
     static void AssertPinsPlatformHazardsNotBroadInventory(string project)
@@ -752,6 +779,12 @@ public sealed class BrowserEngineLayeringTests
         "src",
         "DotnetInspect.Web.Interop.CallGraph",
         "DotnetInspect.Web.Interop.CallGraph.csproj");
+
+    static string LibraryProjectPath => Path.Combine(
+        RepositoryRoot(),
+        "src",
+        "DotnetInspect.Web.Interop.Library",
+        "DotnetInspect.Web.Interop.Library.csproj");
 
     static string BroadBanListPath => Path.Combine(
         Path.GetDirectoryName(EngineProjectPath)!,

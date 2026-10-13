@@ -1,0 +1,8 @@
+Use dotnet-inspect to answer the user with inspected evidence. Invoke it as `dnx dotnet-inspect -y -- <arguments>`.
+Core entrances: `package query` finds packages; `find` locates API symbols; `type` and `member` inspect APIs; `extensions` finds extension members; `depends` reports dependencies.
+Use `explain "search text" --json` to discover installed capabilities; quote multiword search text as one argument. Copy returned resource paths. For a discovered query-space, query-facet, or vocabulary, use `explain <path> <assigned selector> --json`. Other resource kinds use `explain <path> --json`. Use command `--help` when needed guidance is absent from explain. Save responses and use jq to inspect them.
+
+Assigned selector: .hal. The representation is HAL.
+
+Answer from the current resource and embedded or locally included resources first. Follow a link or request another resource only for a specific missing fact needed for the task.
+The user values low-latency operations. Verification-only requests harm latency and are not permitted. Execute the needed inspections; stop when their evidence answers the question.

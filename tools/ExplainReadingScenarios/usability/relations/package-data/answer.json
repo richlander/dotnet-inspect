@@ -1,0 +1,44 @@
+{
+  "answer": {
+    "application_target": "net10.0",
+    "packages": [
+      {
+        "id": "Microsoft.Extensions.Http.Polly",
+        "inspected_version": "10.0.12",
+        "dependency_on_polly": "direct declared dependency",
+        "framework_evidence": "For requested target net10.0, dotnet-inspect selected the .NETStandard2.0 dependency group (selection-status=Selected).",
+        "dependency_evidence": "The selected .NETStandard2.0 group declares Polly 7.2.4.",
+        "source_response": "response-04.out"
+      }
+    ],
+    "family_exhausted": false,
+    "exhaustiveness_evidence": "The query reported CandidateLimitReached: 40/40 candidates and 1 match; it explicitly said results do not exhaust the requested package-ID scope.",
+    "scope": "This establishes a direct package declaration applicable to net10.0 for the inspected version. It does not establish the resolved dependency graph of any particular application."
+  },
+  "executed_commands": [
+    {
+      "argv": ["explain", "package query dependency search", "--json"],
+      "response": "response-01.out",
+      "purpose": "Discover dependency query resources"
+    },
+    {
+      "argv": ["explain", "package query", "--json"],
+      "response": "response-02.out",
+      "purpose": "Discover the package query space"
+    },
+    {
+      "argv": ["explain", "package-query/query", ".data", "--json"],
+      "response": "response-03.out",
+      "purpose": "Read package query input rules and dependency facet semantics"
+    },
+    {
+      "argv": ["package", "query", "Microsoft.Extensions.*", "--where", "depends=Polly", "--where", "dependency-target=net10.0", "--take", "40", "-n", "3", "--json"],
+      "stdout_response": "response-04.out",
+      "stderr_response": "response-04.err",
+      "purpose": "Search at most 40 Microsoft.Extensions package candidates for direct Polly declarations applicable to net10.0"
+    }
+  ],
+  "uncertainty": "Only one qualifying package was returned within the 40-candidate bound. Other Microsoft.Extensions packages, including packages with indirect Polly dependency paths, may exist beyond this search. No claim is made that the package family is exhausted.",
+  "discovery_schema_navigation_friction": "The initial discovery search returned specific dependency facets rather than the query space. A broader discovery call located package-query/query. Its selected .data representation is a direct top-level JSON object, so a first attempt to read a nested .data field returned null. The query result was otherwise clear and included both the selected framework group and a candidate-limit warning.",
+  "truncation": "No recorder or view output was truncated."
+}

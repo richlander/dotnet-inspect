@@ -1651,7 +1651,7 @@ public static class ApiOutputFormatter
                                 ? BuildCallGraphOpportunityAnnotations(
                                     projection,
                                     analysisInspection
-                                        .CallGraphOptimizationResults)
+                                        .CallGraphAsyncSiblingResults)
                                 : null);
                 memberCode.CallGraph = graphOutput.Graph;
                 memberCode.CallGraphRenderedFieldEvidence =
@@ -2293,7 +2293,7 @@ public static class ApiOutputFormatter
             $"{method.ModuleVersionId:N}:0x{method.MetadataToken:X8}",
             FormatMethod(method));
 
-    static string FormatCallee(Analysis.MemberRef member)
+    internal static string FormatCallee(Analysis.MemberRef member)
     {
         if (member.Kind == Analysis.MemberKind.Unsupported)
             return member.DeclaringType.ToDisplayString();
@@ -2304,46 +2304,64 @@ public static class ApiOutputFormatter
     static IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>
         BuildCallGraphOpportunityAnnotations(
             ILInspector.CallGraph.CallGraphProjection projection,
-            IReadOnlyList<
-                Analysis.LibraryOptimizationAnalysisResult> results)
+            IEnumerable<
+                ApiMemberAnalysisInspection
+                    .CallGraphAsyncSiblingScopeResult> results)
     {
         var candidatesByNode =
-            new Dictionary<int, HashSet<string>>();
-        foreach (Analysis.LibraryOptimizationAnalysisResult result
+            new Dictionary<
+                int,
+                HashSet<Analysis.Planning.AsyncSiblingRow>>();
+        foreach (ApiMemberAnalysisInspection
+            .CallGraphAsyncSiblingScopeResult scoped
             in results)
         {
-            IReadOnlySet<Analysis.TypeRef> generatedFrameworkTypes =
-                result.GeneratedFrameworkTypes;
-            foreach (Analysis.OptimizationOpportunity opportunity in
-                result.Opportunities.Where(opportunity =>
-                    opportunity.Shape == "sync-call-in-async"
-                    && LibraryMetadataService.IncludePerformanceOpportunity(
-                        opportunity,
-                        generatedFrameworkTypes)))
+            SyncCallsInAsyncResult result = scoped.Result;
+            SyncCallsInAsyncAnswer answer = result.AnswerTo(
+                SyncCallsInAsyncClosing.Rows);
+            if (answer is SyncCallsInAsyncAnswer.Failed failed)
             {
+                throw new InvalidOperationException(
+                    "Sync Calls in Async analysis failed: "
+                    + failed.Failure.Message);
+            }
+            if (answer is SyncCallsInAsyncAnswer.Aborted aborted)
+            {
+                throw new InvalidOperationException(
+                    "Sync Calls in Async analysis aborted: "
+                    + aborted.Critical.Message);
+            }
+            SyncCallsInAsyncAnswer.Rows rows =
+                (SyncCallsInAsyncAnswer.Rows)answer;
+            foreach (Analysis.Planning.AsyncSiblingRow row
+                in rows.Calls)
+            {
+                if (Analysis.OptimizationOpportunityRanking
+                    .IsGeneratedMethod(
+                        row.Caller,
+                        scoped.Session.AnalysisExecution
+                            .Optimization.GeneratedFrameworkTypes))
+                {
+                    continue;
+                }
                 if (projection.FindNode(
-                        opportunity.Method,
-                        out ILInspector.CallGraph.CallGraphNode node)
+                    row.Caller,
+                    out ILInspector.CallGraph.CallGraphNode node)
                     != ILInspector.CallGraph.CallGraphNodeMatch.Found)
                 {
                     continue;
                 }
 
-                string candidate = opportunity.CandidateId
-                    ?? $"{opportunity.Method.ModuleVersionId:N}:"
-                        + $"{opportunity.Method.MetadataToken:X8}:"
-                        + $"{opportunity.EvidenceMethodToken:X8}:"
-                        + $"{opportunity.ILOffset:X4}:"
-                        + $"{opportunity.OperandToken:X8}";
                 if (!candidatesByNode.TryGetValue(
                     node.Id,
-                    out HashSet<string>? candidates))
+                    out HashSet<
+                        Analysis.Planning.AsyncSiblingRow>?
+                        candidates))
                 {
-                    candidates = new HashSet<string>(
-                        StringComparer.Ordinal);
+                    candidates = [];
                     candidatesByNode.Add(node.Id, candidates);
                 }
-                candidates.Add(candidate);
+                candidates.Add(row);
             }
         }
         return candidatesByNode.ToDictionary(

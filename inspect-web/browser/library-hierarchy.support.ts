@@ -18,6 +18,12 @@ import type {
   BrowserHomeDemoRunResult,
   BrowserWorkspacePackageSourceRequirement,
 } from "../src/facades/inspect-web-catalog.d.ts";
+import type {
+  PackageQueryDurableRowDescriptors,
+} from "../src/package-query-durable-row.ts";
+import {
+  parseGeneratedStaticJson,
+} from "../scripts/generated-static-json.ts";
 import type { PlatformAssemblyRow, PlatformCatalogTarget } from "../src/platform-index.ts";
 
 function subjectTab(page: Page, subject: string) {
@@ -124,12 +130,14 @@ async function chooseSubject(page: Page, subject: string, label: string) {
 
 async function openApplicationAction(
   page: Page,
-  action: "settings" | "keyboard-help",
+  action: "settings" | "legend" | "keyboard-help",
 ): Promise<void> {
   const button = page.locator("#application-menu-button");
   const item = page.locator(`[data-application-action="${action}"]`);
   const outcome = page.locator(
-    action === "settings" ? "#settings-dialog" : "#keyboard-help-dialog");
+    action === "settings" ? "#settings-dialog"
+      : action === "legend" ? "#legend-dialog"
+      : "#keyboard-help-dialog");
   await expect(async () => {
     if (!await item.isVisible()) await button.click();
     await item.evaluate(element => {
@@ -373,6 +381,18 @@ interface PackageLoadingFixture {
 }
 
 type LibraryUploadFixture = "available" | "rejected" | "deferred";
+
+function isPackageQueryDurableRowDescriptors(
+  value: unknown,
+): value is PackageQueryDurableRowDescriptors {
+  return Array.isArray(value)
+    && value.length > 0
+    && value.every(descriptor =>
+      typeof descriptor === "object"
+      && descriptor !== null
+      && "schema" in descriptor
+      && "bindings" in descriptor);
+}
 
 // Exercise the production composition root and bindings with deterministic facade
 // responses. Codec and participant-query behavior have separate engine outcome gates.
@@ -637,6 +657,32 @@ async function installFacades(
     },
     noBody: false,
   };
+  const packageFacadeSource = await readFile(new URL(
+    "../DotnetInspect.Web/facades/inspect-web-package.ts",
+    import.meta.url), "utf8");
+  const descriptorLine = packageFacadeSource.split("\n").find(candidate =>
+    candidate.startsWith(
+      "export const jsonSchemaVocabularyDescriptors = "));
+  if (descriptorLine === undefined) {
+    throw new Error("Generated Package facade has no schema descriptors.");
+  }
+  const durableRowDescriptorsSource = descriptorLine.slice(
+    descriptorLine.indexOf("=") + 1,
+    descriptorLine.lastIndexOf(" as const;")).trim();
+  const parsedDescriptors =
+    parseGeneratedStaticJson(durableRowDescriptorsSource);
+  if (!isPackageQueryDurableRowDescriptors(parsedDescriptors)) {
+    throw new Error("Generated Package facade descriptor export is invalid.");
+  }
+  const durableRowDescriptors = parsedDescriptors;
+  const durableRowDescriptor = durableRowDescriptors[0];
+  if (durableRowDescriptor === undefined) {
+    throw new Error("Generated Package facade has no durable-row descriptor.");
+  }
+  const durableRowTerms =
+    durableRowDescriptor.bindings.map(binding => binding.term);
+  const durableRowSnapshotIdentity =
+    durableRowDescriptor.vocabularySnapshotIdentity;
   const modules: Record<string, string> = {
     host: `
       const diagnosticsOptions = ${JSON.stringify(diagnostics)};
@@ -675,6 +721,8 @@ async function installFacades(
       }`,
     package: `
       ${surfaceLookup}
+      export const jsonSchemaVocabularyDescriptors =
+         ${durableRowDescriptorsSource};
       ${diagnostics.packageDocumentTitles ? `
       const documentTitleReads = new Set();
       export async function getPackageDocument(packageId, version, path) {
@@ -1083,7 +1131,14 @@ async function installFacades(
           }],
         };
       }
-      export function listPackageQueryCatalog() { return { presets: [], terms: [] }; }
+      export function inspectPackageQueryFacets() {
+        return JSON.stringify({
+          selection: { kind: "query-facets", completeness: "Complete" },
+          facet_order: [],
+          facets: {},
+          bindings: {},
+        });
+      }
       const packageQueryOperations = new Map();
       function packageQueryRow(ecosystemId, index) {
         const packageId = index === 0
@@ -1496,7 +1551,11 @@ async function installFacades(
             id, version, framework, assembly, typeIdentity, memberName,
             selectorKey, metadataToken, implementationMember,
           ]);
-        const type = surfaceFor(id, version, framework).types.find(item =>
+        const memberSurface = implementationMember
+          ? implementationPerformanceSurface(
+              surfaceFor(id, version, framework))
+          : surfaceFor(id, version, framework);
+        const type = memberSurface.types.find(item =>
           item.definitionId === typeIdentity || item.queryId === typeIdentity);
         const member = type?.api.find(item =>
           item.name === memberName
@@ -1514,6 +1573,29 @@ async function installFacades(
               unavailable: "The selected declaration is unavailable.",
               compatibility: false,
             };
+      }
+      function implementationPerformanceSurface(surface) {
+        const source = surface.types.find(type =>
+          type.api.some(member => member.name === "PrivateWork"));
+        const implementationMembers = source?.api.filter(member =>
+          member.name === "PrivateWork" || member.name === "OtherWork");
+        if (!source || !implementationMembers?.length) return surface;
+        const implementationType = {
+          ...source,
+          id: source.assemblyId + ":Example.ImplementationOnlyWorker",
+          definitionId: "Example.ImplementationOnlyWorker",
+          queryId: "Example.ImplementationOnlyWorker",
+          metadataId: "Example.ImplementationOnlyWorker",
+          name: "ImplementationOnlyWorker",
+          displayName: "ImplementationOnlyWorker",
+          members: implementationMembers.length,
+          signature: "public sealed class ImplementationOnlyWorker",
+          api: implementationMembers,
+        };
+        return {
+          ...surface,
+          types: [...surface.types, implementationType],
+        };
       }
       function typeMemberPopulation(
         surface, typeIdentity, spelling, accessibility) {
@@ -1668,6 +1750,21 @@ async function installFacades(
           spelling,
           accessibility);
       }
+      export async function queryPerformanceTypeMemberPopulation(
+        id, version, framework, assembly, typeIdentity, spelling, accessibility) {
+        document.documentElement.dataset.performanceTypeMemberPopulationRequest =
+          JSON.stringify([
+            id, version, framework, assembly, typeIdentity, spelling,
+            accessibility,
+          ]);
+        await waitForTypeMemberPopulationGate();
+        return typeMemberPopulation(
+          implementationPerformanceSurface(
+            surfaceFor(id, version, framework)),
+          typeIdentity,
+          spelling,
+          accessibility);
+      }
       export async function queryPlatformTypeMemberPopulation(
         framework, version, assembly, pack, typeIdentity, spelling, accessibility) {
         document.documentElement.dataset.platformTypeMemberPopulationRequest =
@@ -1682,6 +1779,22 @@ async function installFacades(
           spelling,
           accessibility);
       }
+      export async function queryPlatformPerformanceTypeMemberPopulation(
+        framework, version, assembly, pack, typeIdentity, spelling, accessibility) {
+        document.documentElement.dataset
+          .platformPerformanceTypeMemberPopulationRequest =
+            JSON.stringify([
+              framework, version, assembly, pack, typeIdentity, spelling,
+              accessibility,
+            ]);
+        await waitForTypeMemberPopulationGate();
+        return typeMemberPopulation(
+          implementationPerformanceSurface(
+            surfaceFor("Microsoft.NETCore.App", version, framework)),
+          typeIdentity,
+          spelling,
+          accessibility);
+      }
       export async function queryUploadedLibraryTypeMemberPopulation(
         declaredName, content, typeIdentity, spelling, accessibility) {
         document.documentElement.dataset.uploadedTypeMemberPopulationRequest =
@@ -1692,6 +1805,21 @@ async function installFacades(
         await waitForTypeMemberPopulationGate();
         return typeMemberPopulation(
           surfaces[0],
+          typeIdentity,
+          spelling,
+          accessibility);
+      }
+      export async function queryUploadedLibraryPerformanceTypeMemberPopulation(
+        declaredName, content, typeIdentity, spelling, accessibility) {
+        document.documentElement.dataset
+          .uploadedPerformanceTypeMemberPopulationRequest =
+            JSON.stringify([
+              declaredName, content.length, typeIdentity, spelling,
+              accessibility,
+            ]);
+        await waitForTypeMemberPopulationGate();
+        return typeMemberPopulation(
+          implementationPerformanceSurface(surfaces[0]),
           typeIdentity,
           spelling,
           accessibility);
@@ -2780,30 +2908,76 @@ async function installFacades(
         return opportunitiesFor(
           surface.package, surface, selected, version, framework, selected.id);
       }
+      function implementationPerformanceSurface(surface) {
+        const source = surface.types.find(type =>
+          type.api.some(member => member.name === "PrivateWork"));
+        const implementationMembers = source?.api.filter(member =>
+          member.name === "PrivateWork" || member.name === "OtherWork");
+        if (!source || !implementationMembers?.length) return surface;
+        const implementationType = {
+          ...source,
+          id: source.assemblyId + ":Example.ImplementationOnlyWorker",
+          definitionId: "Example.ImplementationOnlyWorker",
+          queryId: "Example.ImplementationOnlyWorker",
+          metadataId: "Example.ImplementationOnlyWorker",
+          name: "ImplementationOnlyWorker",
+          displayName: "ImplementationOnlyWorker",
+          members: implementationMembers.length,
+          signature: "public sealed class ImplementationOnlyWorker",
+          api: implementationMembers,
+        };
+        return {
+          ...surface,
+          types: [...surface.types, implementationType],
+        };
+      }
       async function performanceFor(surface, selected, version, framework, requestKey) {
         const selectedType = surface.types.find(item => item.assemblyId === selected.id);
         if (!selectedType) throw new Error("Library has no projected type: " + selected.asset);
+        const privateType =
+          implementationPerformanceSurface(surface).types.find(type =>
+            type.definitionId === "Example.ImplementationOnlyWorker");
         const scenario = ${JSON.stringify(analysis)};
         if (scenario === "deferred") {
           await new Promise(resolve => document.addEventListener(
             "fixture-analysis-ready:" + requestKey, resolve, { once: true }));
         }
         if (scenario === "query-error") throw new Error("Analysis query unavailable.");
-        const member = (memberName, opportunityCount, inLoopCount, shapes, confidence) => ({
-          assembly: selected.name + ".dll",
-          typeId: selectedType.definitionId,
+        const memberToken = memberName => memberName === "Run"
+          ? 100663297 : memberName === "Write" ? 100663298 : 100663299;
+        const member = (
           memberName,
-          stableSelector: "Run",
-          bodyTokens: [100663297],
-          bodyTargets: [{ typeId: selectedType.definitionId, memberName, selectorKey: "Run", methodToken: 100663297, issueOffsets: null }],
           opportunityCount,
           inLoopCount,
           shapes,
-          confidence
-        });
+          confidence,
+          declaringType = selectedType,
+        ) => {
+          const { api: _, ...declaringTypeSurface } = declaringType;
+          return {
+            assembly: selected.name + ".dll",
+            typeId: declaringType.definitionId,
+            memberName,
+            stableSelector: memberName,
+            bodyTokens: [memberToken(memberName)],
+            bodyTargets: [{ typeId: declaringType.definitionId, memberName, selectorKey: memberName, methodToken: memberToken(memberName), issueOffsets: null }],
+            opportunityCount,
+            inLoopCount,
+            shapes,
+            confidence,
+            declaringType: declaringTypeSurface,
+          };
+        };
         const members = scenario === "empty" || scenario === "partial-empty" ? [] : [
           member("Run", 3, 1, ["box-value-type", "string-concat"], "high"),
-          member("Write", 1, 0, ["array-allocation"], "medium")
+          member("Write", 1, 0, ["array-allocation"], "medium"),
+          member(
+            "PrivateWork",
+            2,
+            0,
+            ["box-value-type"],
+            "high",
+            privateType ?? selectedType)
         ];
         if (scenario === "long") {
           members.splice(0, members.length, ...Array.from({ length: 80 }, (_, index) =>
@@ -2818,8 +2992,8 @@ async function installFacades(
         return {
           members,
           inspectionError: partial ? "A method body could not be analyzed." : null,
-          nonPublicOpportunities: 2,
-          totalOpportunities: members.reduce((total, item) => total + item.opportunityCount, 0) + 2,
+          nonPublicOpportunities: members.some(item => item.memberName === "PrivateWork") ? 2 : 0,
+          totalOpportunities: members.reduce((total, item) => total + item.opportunityCount, 0),
           compileLibrary: surface.compileLibrary
         };
       }
@@ -3382,8 +3556,19 @@ async function installFacades(
           content: {
             formatVersion: 1,
             catalog: { value: "dotnet-inspect.product" },
-            identity: { value: "sha256:${"0".repeat(64)}" },
-            vocabularies: [],
+            identity: { value: "${durableRowSnapshotIdentity}" },
+            vocabularies: [{
+              identity: { value: "package-query.durable-row" },
+              displayLabel: "Package Query durable row",
+              summary: "Durable Package Query fields.",
+              maps: [],
+              terms: ${JSON.stringify(durableRowTerms.map(term => ({
+                identity: { value: term },
+                displayLabel: `Label ${term}`,
+                summary: `Summary ${term}.`,
+                mapEntries: [],
+              })))},
+            }],
           },
           share: {
             kind: "nonProjectable",

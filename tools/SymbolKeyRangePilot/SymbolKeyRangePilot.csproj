@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    NativeAOT pilot comparing Fast Diff's current per-key byte arrays with
+    population-backed opaque ranges and STJ-style UTF-8 query matching.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <IsPublishable>true</IsPublishable>
+    <PublishAot>true</PublishAot>
+    <AssemblyName>symbol-key-range-pilot</AssemblyName>
+    <RootNamespace>SymbolKeyRangePilot</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Speed</OptimizationPreference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../src/ILInspector.Metadata/SymbolKey.cs"
+             Link="PrivateSymbolKey.cs" />
+  </ItemGroup>
+
+</Project>

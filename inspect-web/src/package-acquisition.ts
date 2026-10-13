@@ -1037,15 +1037,17 @@ export interface PackageAcquisitionDependencies {
     version: string,
     framework: string,
   ): Promise<BrowserPackageLoadResult>;
-  loadRuntimePack(framework: string, platformVersion: string): Promise<string>;
+  loadRuntimePack(
+    framework: string,
+    platformVersion: string,
+  ): Promise<PackageSurfaceFromPackageFacade>;
   loadRuntimePackAssembly(
     framework: string,
     platformVersion: string,
     assemblyFileName: string,
     pack: string,
     assetFileName: string,
-  ): Promise<string>;
-  parseRuntimeSurface(json: string): InspectedPackageSurface;
+  ): Promise<PackageSurfaceFromPackageFacade>;
   runtimePackage(): AppPackage | null;
   retainPackage(packageModel: AppPackage, replacedPackage?: AppPackage | null): void;
   recordRecentPackage(id: string, version: string, framework: string, nugetOrg: boolean, highestFramework?: string): void;
@@ -1260,10 +1262,9 @@ export function createPackageAcquisition(
         }
 
         return runRuntimeOperation(async () => {
-          const result = dependencies.parseRuntimeSurface(
-            await dependencies.loadRuntimePack(
-              requestedFramework,
-              requestedVersion));
+          const result = await dependencies.loadRuntimePack(
+            requestedFramework,
+            requestedVersion);
           if (!isCurrent()) return null;
           dependencies.refreshPackageStats();
           const current = dependencies.runtimePackage();
@@ -1324,13 +1325,12 @@ export function createPackageAcquisition(
         }
 
         return runRuntimeOperation(async () => {
-          const result = dependencies.parseRuntimeSurface(
-            await dependencies.loadRuntimePackAssembly(
-              requestedFramework,
-              requestedVersion,
-              assemblyFileName,
-              pack || "",
-              assetFileName));
+          const result = await dependencies.loadRuntimePackAssembly(
+            requestedFramework,
+            requestedVersion,
+            assemblyFileName,
+            pack || "",
+            assetFileName);
           if (!isCurrent()) return null;
           dependencies.refreshPackageStats();
           const existing = dependencies.runtimePackage();

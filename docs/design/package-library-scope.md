@@ -316,9 +316,12 @@ gates; this policy document does not redefine those internals.
 The Package children document preserves the exact ordered compile population
 issued by Package selection without entering Package Library Scope. It retains
 every compile asset ID and path but does not inspect the occurrence or carry
-facts from its Type population. The CLI uses that document for its native Tree,
-structured JSON and envelope, row formats, row windows, projections, and
-scalar Count. Every Library row carries the exact asset path used by
+facts from its Type population. Without `--tfm all`, the CLI uses that
+document for its native Tree, structured JSON and envelope, row formats, row
+windows, projections, and scalar Count. Under `--tfm all`, every one of those
+outputs instead comes from the discovery projection that
+[All-frameworks package discovery](package-tfm-all-discovery.md) owns.
+Without `--tfm all`, every Library row carries the exact asset path used by
 `package P --library <path>`; every RID Package row carries its exact Package
 selector. Inspect Web carries the same document and uses its exact asset IDs
 for Library navigation. Tool-package
@@ -344,16 +347,18 @@ CLI `library --package` and its namesake request do not yet adopt Library
 probes. When compile selection returns `NoCompileAssets`, and under
 `--tfm all`, the CLI's package Library routes search the extracted archive
 through `TfmSelector` instead of consuming a role population; #9833 records
-each route. Observed results
-include a runtime pack yielding its implementation assemblies, an analyzer
-package its analyzers, a framework-less root `lib/` package its root
-assemblies, and a satellite-only package its satellite resource assemblies.
-`--tfm all` also merges frameworks and roles and ignores explicit empty
-groups. Without `--tfm all`, a selected explicit empty compile group fails
-before the search and reports the group's own folder spelling, such as
-`netstandard`. #9833 records the search's exact rules and decides both paths
-after the root `lib/` and RID-implementation decisions above, and Browser
-adoption of Library probes is not yet recorded.
+each route. Observed results include a runtime pack yielding its
+implementation assemblies, an analyzer package its analyzers, a
+framework-less root `lib/` package its root assemblies, and a satellite-only
+package its satellite resource assemblies. Under `--tfm all` the search also
+merges frameworks and roles and ignores explicit empty groups; those routes
+are retired rather than repopulated, because `--tfm all` is package discovery
+under [All-frameworks package discovery](package-tfm-all-discovery.md), which
+records that adoption. Without `--tfm all`, a selected explicit empty compile
+group fails before the search and reports the group's own folder spelling,
+such as `netstandard`. #9833 records the search's exact rules and decides the
+`NoCompileAssets` path after the root `lib/` and RID-implementation decisions
+above, and Browser adoption of Library probes is not yet recorded.
 
 Later SourceLink and relationship adoptions remain separately scoped. Existing
 aggregate behavior is evidence, not an automatic conformance claim.

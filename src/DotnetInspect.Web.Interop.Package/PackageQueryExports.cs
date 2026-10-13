@@ -18,198 +18,28 @@ namespace DotnetInspect.Web.Interop.Package
     [SupportedOSPlatform("browser")]
     internal static partial class BrowserPackageQueryOperations
     {
-        private static readonly BrowserPackageQueryTermOptionDescriptor[]
-            TargetFrameworkOptions =
-        [
-            TargetFrameworkOption("net11.0"),
-            TargetFrameworkOption("net10.0"),
-            TargetFrameworkOption("net9.0"),
-            TargetFrameworkOption("net8.0"),
-            TargetFrameworkOption("net7.0"),
-            TargetFrameworkOption("net6.0"),
-            TargetFrameworkOption("netstandard2.1"),
-            TargetFrameworkOption("netstandard2.0"),
-            TargetFrameworkOption("net48"),
-            TargetFrameworkOption("net472"),
-        ];
+        private static readonly Lazy<JsonElement> QueryFacetData =
+            new(CreateQueryFacetData);
 
-        private static readonly PackageQueryRegisteredTerm[] ExposedTerms =
-        [
-            .. PackageQuery.RegisteredTerms.Where(term =>
-                PackageQueryCapabilityBinding.Binding.ExposedQueryTerms
-                    .Contains(
-                        PackageQuery.TermBindingIdentity(
-                            term.Descriptor.Key),
-                        StringComparer.Ordinal)),
-        ];
+        internal static JsonElement InspectQueryFacets() =>
+            QueryFacetData.Value;
 
-        internal static BrowserPackageQueryCatalog Catalog() =>
-            new(
-                [
-                    .. ExposedTerms
-                        .Where(IsFactTerm)
-                        .SelectMany(term =>
-                            term.Descriptor.Options.Select(option =>
-                    {
-                        (string categoryId, string categoryLabel,
-                            int categoryOrder) = FactCategory(
-                                term.Descriptor.Key);
-                        return new BrowserPackageQueryPresetDescriptor(
-                            term.Descriptor.Key,
-                            PortableQueryModel.TextOf(
-                                SingleControlOperator(term)),
-                            option.Value,
-                            option.Label,
-                            option.Summary,
-                            term.Descriptor.Weight,
-                            term.Descriptor.Tier switch
-                            {
-                                PackageQueryAcquisitionTier.Nuspec =>
-                                    BrowserPackageQueryAcquisitionTier.Nuspec,
-                                PackageQueryAcquisitionTier.PackageContent =>
-                                    BrowserPackageQueryAcquisitionTier.PackageContent,
-                                PackageQueryAcquisitionTier.SearchMetadata =>
-                                    BrowserPackageQueryAcquisitionTier.SearchMetadata,
-                                _ => throw new InvalidOperationException(
-                                    "Unknown package-query term tier."),
-                            },
-                            BrowserExecutionClass(
-                                term.Descriptor.ExecutionClass),
-                            term.Descriptor.SelectionGroupId,
-                            term.Descriptor.CombinesWithinSelectionGroup,
-                            term.Descriptor.ReplacementGroupId,
-                            term.Descriptor.DisplayGroupId,
-                            term.Descriptor.DisplayGroupLabel,
-                            categoryId,
-                            categoryLabel,
-                            categoryOrder);
-                    })),
-                ],
-                [
-                    .. ExposedTerms
-                        .Where(IsValueTerm)
-                        .Select(term =>
-                        new BrowserPackageQueryTermDescriptor(
-                            term.Descriptor.Key,
-                            term.Descriptor.Label,
-                            term.Descriptor.Summary,
-                            term.Descriptor.Weight,
-                            term.Descriptor.Tier switch
-                            {
-                                PackageQueryAcquisitionTier.Nuspec =>
-                                    BrowserPackageQueryAcquisitionTier.Nuspec,
-                                PackageQueryAcquisitionTier.PackageContent =>
-                                    BrowserPackageQueryAcquisitionTier.PackageContent,
-                                PackageQueryAcquisitionTier.SearchMetadata =>
-                                    BrowserPackageQueryAcquisitionTier.SearchMetadata,
-                                _ => throw new InvalidOperationException(
-                                    "Unknown package-query term tier."),
-                            },
-                            BrowserExecutionClass(
-                                term.Descriptor.ExecutionClass),
-                            [
-                                .. term.Operators.Select(
-                                    PortableQueryModel.TextOf),
-                            ],
-                            term.Descriptor.ValueKind,
-                            term.Descriptor.ExampleValue,
-                            term.Descriptor.ControlKind
-                                == PackageQueryTermControlKind.MultilineInput,
-                            (term.Descriptor.ControlKind
-                                is PackageQueryTermControlKind.Input
-                                    or PackageQueryTermControlKind.MultilineInput)
-                                && term.Descriptor.Key
-                                    != PackageQuery.DependsEcosystemTermKey,
-                            term.Descriptor.ReplacementGroupId,
-                            BrowserTermOptions(term.Descriptor))),
-                ]);
-
-        private static bool IsFactTerm(PackageQueryRegisteredTerm term) =>
-            term.Descriptor.ControlKind
-                is PackageQueryTermControlKind.Toggle
-                    or PackageQueryTermControlKind.Choice
-            && term.Descriptor.Key != PackageQuery.ToolFormatTermKey;
-
-        private static bool IsValueTerm(PackageQueryRegisteredTerm term) =>
-            term.Descriptor.ControlKind
-                is PackageQueryTermControlKind.Input
-                    or PackageQueryTermControlKind.MultilineInput
-            || term.Descriptor.Key == PackageQuery.ToolFormatTermKey;
-
-        private static BrowserPackageQueryTermOptionDescriptor[]
-            BrowserTermOptions(PackageQueryTermDescriptor term) =>
-            term.Key switch
+        private static JsonElement CreateQueryFacetData()
+        {
+            BrowserPackageQueryExplanationResult result =
+                PackageExports.ExplainPackageQueryCore(
+                    "inspect-resource:/package-query/query?projection=data",
+                    keys: null);
+            if (result.Outcome
+                    != BrowserPackageQueryExplanationOutcome.Explained
+                || result.Content is not JsonElement content)
             {
-                PackageQuery.DependsEcosystemTermKey =>
-                [
-                    .. EcosystemPackCatalog.Discover()
-                        .OrderBy(pack => pack.Order)
-                        .Select(pack =>
-                            new BrowserPackageQueryTermOptionDescriptor(
-                                pack.Id.Value,
-                                pack.Title,
-                                pack.Summary)),
-                ],
-                PackageQuery.DependencyTargetTermKey
-                    or PackageQuery.LibraryTargetTermKey =>
-                    [.. TargetFrameworkOptions],
-                _ =>
-                [
-                    .. term.Options.Select(option =>
-                        new BrowserPackageQueryTermOptionDescriptor(
-                            option.Value,
-                            option.Label,
-                            option.Summary)),
-                ],
-            };
-
-        private static BrowserPackageQueryTermOptionDescriptor
-            TargetFrameworkOption(string value) =>
-            new(
-                value,
-                value,
-                $"Use the exact NuGet target framework '{value}'.");
-
-        private static (string Id, string Label, int Order) FactCategory(
-            string key) =>
-            key switch
-            {
-                PackageQuery.DependenciesTermKey
-                    or PackageQuery.DependencyDepthTermKey =>
-                    ("dependencies", "Dependencies", 200),
-                PackageQuery.SkillTermKey =>
-                    ("package-contents", "Package contents", 300),
-                _ => ("package-metadata", "Package metadata", 100),
-            };
-
-        private static PortableQueryOperator SingleControlOperator(
-            PackageQueryRegisteredTerm term) =>
-            term.Operators.Length == 1
-                ? term.Operators[0]
-                : throw new InvalidOperationException(
-                    $"Package Query control '{term.Descriptor.Key}' requires "
-                    + "exactly one registered operator.");
-
-        private static BrowserPackageQueryExecutionClass
-            BrowserExecutionClass(
-                PackageQueryExecutionClass executionClass) =>
-            executionClass switch
-            {
-                PackageQueryExecutionClass.SearchMetadata =>
-                    BrowserPackageQueryExecutionClass.SearchMetadata,
-                PackageQueryExecutionClass.Nuspec =>
-                    BrowserPackageQueryExecutionClass.Nuspec,
-                PackageQueryExecutionClass.NuspecExpensive =>
-                    BrowserPackageQueryExecutionClass.NuspecExpensive,
-                PackageQueryExecutionClass.PackageContent =>
-                    BrowserPackageQueryExecutionClass.PackageContent,
-                PackageQueryExecutionClass.Metadata =>
-                    BrowserPackageQueryExecutionClass.Metadata,
-                PackageQueryExecutionClass.MetadataExpensive =>
-                    BrowserPackageQueryExecutionClass.MetadataExpensive,
-                _ => throw new InvalidOperationException(
-                    "Unknown package-query execution class."),
-            };
+                throw new InvalidOperationException(
+                    result.Message
+                    ?? "Package Query Resource Explanation data is unavailable.");
+            }
+            return content;
+        }
 
         internal static PackageQueryPlanResult Plan(
             string text,
@@ -1325,11 +1155,10 @@ namespace DotnetInspect.Web.Interop.Package
 public static partial class PackageExports
 {
     [JSExport]
-    public static string ListPackageQueryCatalog()
+    public static string InspectPackageQueryFacets()
     {
-        string result = JsonSerializer.Serialize(
-            BrowserPackageQueryOperations.Catalog(),
-            BrowserPackageJsonContext.Default.BrowserPackageQueryCatalog);
+        string result =
+            BrowserPackageQueryOperations.InspectQueryFacets().GetRawText();
         BrowserPackageQueryOperations.StartSerializationPreparation();
         return result;
     }
@@ -1508,15 +1337,29 @@ namespace DotnetInspect.Web.Interop.Package
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
         : IPackageQueryContentProvider
     {
-        public ValueTask<PackageQueryContentResult> GetContentAsync(
+        public ValueTask<PackageQueryContentResult> GetInventoryAsync(
             PackageQueryPackage package,
-            PackageQueryContentDemand demand,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
+            return BrowserPackageWorkspace
+                .AcquirePackageQueryInventoryAsync(
                 package,
-                demand,
+                BrowserPackageWorkspace.Gallery,
+                deadline);
+        }
+
+        public ValueTask<PackageQueryContentResult> GetFilesAsync(
+            PackageQueryPackage package,
+            PackageQueryContentInventory inventory,
+            IReadOnlyList<PackageContentEntry> entries,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return BrowserPackageWorkspace.AcquirePackageQueryFilesAsync(
+                package,
+                inventory,
+                entries,
                 BrowserPackageWorkspace.Gallery,
                 deadline);
         }

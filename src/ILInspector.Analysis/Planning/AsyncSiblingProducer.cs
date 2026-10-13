@@ -19,20 +19,30 @@ public enum AsyncSiblingPairKind
 /// callable async sibling.
 /// </summary>
 /// <param name="Caller">The async method as the source declares it.</param>
-/// <param name="Callee">The synchronous method called.</param>
+/// <param name="SynchronousCall">
+/// The exact physical synchronous call selected by Analysis.
+/// </param>
 /// <param name="Alternative">The async sibling that could be awaited instead.</param>
 /// <param name="PairKind">How the sibling relates to the callee.</param>
-/// <param name="CallOffset">The IL offset of the call in the evidence body.</param>
-/// <param name="InLoop">Whether the call site is inside a loop region.</param>
-/// <param name="EvidenceMethodToken">The physical MethodDef whose body holds the call.</param>
 public sealed record AsyncSiblingRow(
     MethodIdentity Caller,
-    MemberRef Callee,
+    DirectCall SynchronousCall,
     MemberRef Alternative,
-    AsyncSiblingPairKind PairKind,
-    int CallOffset,
-    bool InLoop,
-    int EvidenceMethodToken);
+    AsyncSiblingPairKind PairKind)
+{
+    /// <summary>The synchronous method called.</summary>
+    public MemberRef Callee => SynchronousCall.Callee;
+
+    /// <summary>The IL offset of the call in the evidence body.</summary>
+    public int CallOffset => SynchronousCall.ILOffset;
+
+    /// <summary>Whether the call site is inside a loop region.</summary>
+    public bool InLoop => SynchronousCall.InLoop;
+
+    /// <summary>The physical MethodDef whose body holds the call.</summary>
+    public int EvidenceMethodToken =>
+        SynchronousCall.EvidenceMethod.MetadataToken;
+}
 
 /// <summary>
 /// Detached rows and per-body diagnostics from one async-sibling execution.

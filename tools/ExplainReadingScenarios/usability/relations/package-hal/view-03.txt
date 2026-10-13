@@ -1,0 +1,1 @@
+["candidate_resource_count","is_truncated","match_count","query","results","returned_count","similarity_threshold"]

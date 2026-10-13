@@ -87,6 +87,28 @@ public sealed class DependsAssetView
     [MarkoutSkipNull]
     public int? LicenseUnavailable { get; init; }
 
+    [MarkoutPropertyName("Latest Versions")]
+    [MarkoutSkipNull]
+    public string? LatestVersionInventory
+    {
+        get => field;
+        init => field = value is null
+            ? null
+            : DependencyEvidenceViewText.Field(value).ToString();
+    }
+
+    [MarkoutPropertyName("Latest Version Packages")]
+    [MarkoutSkipNull]
+    public int? LatestVersionPackages { get; init; }
+
+    [MarkoutPropertyName("Latest Version Behind")]
+    [MarkoutSkipNull]
+    public int? LatestVersionBehind { get; init; }
+
+    [MarkoutPropertyName("Latest Version Discovery Failed")]
+    [MarkoutSkipNull]
+    public int? LatestVersionDiscoveryFailed { get; init; }
+
     [MarkoutPropertyName("Pruning Roots")]
     [MarkoutSkipNull]
     public int? PruningRoots { get; init; }
@@ -163,6 +185,9 @@ public sealed class DependsAssetView
     [MarkoutSection(Name = DependsAssetSections.Pruning)]
     public List<DependsPruningView>? PruningRows { get; init; }
 
+    [MarkoutSection(Name = DependsAssetSections.LatestVersions)]
+    public List<DependsLatestVersionView>? LatestVersions { get; init; }
+
     [MarkoutSection(Name = DependsAssetSections.RestoredEdges)]
     public List<DependsRestoredEdgeView>? RestoredEdges { get; init; }
 
@@ -187,6 +212,7 @@ public sealed class DependsAssetMarkdownView
             Roots = view.Roots,
             Dependencies = view.Dependencies,
             Pruning = view.PruningRows,
+            LatestVersions = view.LatestVersions,
             RestoredEdges = view.RestoredEdges,
             Failures = view.Failures,
             DependencyGroups = view.DependencyGroups,
@@ -206,6 +232,9 @@ public sealed class DependsAssetMarkdownView
 
     [MarkoutSection(Name = DependsAssetSections.Pruning)]
     public List<DependsPruningView>? Pruning { get; init; }
+
+    [MarkoutSection(Name = DependsAssetSections.LatestVersions)]
+    public List<DependsLatestVersionView>? LatestVersions { get; init; }
 
     [MarkoutSection(Name = DependsAssetSections.RestoredEdges)]
     public List<DependsRestoredEdgeView>? RestoredEdges { get; init; }
@@ -239,6 +268,9 @@ public sealed class DependsAssetTableView
 
     [MarkoutSection(Name = DependsAssetSections.Pruning)]
     public List<DependsPruningView>? Pruning { get; init; }
+
+    [MarkoutSection(Name = DependsAssetSections.LatestVersions)]
+    public List<DependsLatestVersionView>? LatestVersions { get; init; }
 
     [MarkoutSection(Name = DependsAssetSections.RestoredEdges)]
     public List<DependsRestoredEdgeView>? RestoredEdges { get; init; }
@@ -795,6 +827,57 @@ public sealed class DependsLicenseView
 }
 
 [MarkoutSerializable]
+public sealed class DependsLatestVersionView
+{
+    internal static DependsLatestVersionView From(
+        DependencyInspectionLatestVersion row) =>
+        new()
+        {
+            Root = row.RootOccurrence,
+            Package = row.PackageId,
+            Requested = row.VersionConstraint,
+            Current = row.CurrentVersion,
+            CurrentBasis = row.CurrentBasis?.ToString(),
+            LatestInMajor = row.LatestInMajor,
+            Latest = row.LatestVersion,
+            Behind = row.Behind?.ToString(),
+            MajorsBehind = row.MajorsBehind,
+            State = row.State.ToString(),
+        };
+
+    public int Root { get; init; }
+
+    public required string Package
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Field(value).ToString();
+    }
+
+    public required string Requested
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Field(value).ToString();
+    }
+
+    public string? Current { get; init; }
+
+    [MarkoutPropertyName("Current Basis")]
+    public string? CurrentBasis { get; init; }
+
+    [MarkoutPropertyName("Latest In Major")]
+    public string? LatestInMajor { get; init; }
+
+    public string? Latest { get; init; }
+
+    public string? Behind { get; init; }
+
+    [MarkoutPropertyName("Majors Behind")]
+    public int? MajorsBehind { get; init; }
+
+    public required string State { get; init; }
+}
+
+[MarkoutSerializable]
 public sealed class DependsPruningView
 {
     internal static DependsPruningView From(
@@ -1231,6 +1314,7 @@ public sealed class DependsFailureView
 [MarkoutContext(typeof(DependsDependencyView))]
 [MarkoutContext(typeof(DependsLicenseView))]
 [MarkoutContext(typeof(DependsPruningView))]
+[MarkoutContext(typeof(DependsLatestVersionView))]
 [MarkoutContext(typeof(DependsDependencyGroupView))]
 [MarkoutContext(typeof(DependsRestoredEdgeView))]
 [MarkoutContext(typeof(DependsRestoredPackageView))]

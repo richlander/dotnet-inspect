@@ -167,6 +167,122 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
+    public void LibraryStructuralRequest_PlansOnlyShallowStructuralWork()
+    {
+        LibraryBodyAnalysisRequest request =
+            LibraryBodyAnalysisRequest
+                .CreateLibraryStructuralReport();
+
+        Assert.Equal(
+            LibraryBodyAnalysisFeatures.None,
+            request.Features);
+        ImplementationMetricAnalysisPlan plan =
+            Assert.IsType<ImplementationMetricAnalysisPlan>(
+                request.Plan.ImplementationMetrics);
+        Assert.Equal(
+            ImplementationMetricAnalysisRequest
+                .LibraryStructuralReportV1,
+            plan.RequestedMetrics);
+        Assert.Equal(
+            ImplementationMetricRequestOrigin
+                .LibraryStructuralReport,
+            plan.Origin);
+        Assert.True(plan.UsesFocusedExecution);
+        Assert.True(request.Plan.ProducesLibraryStructuralReport);
+        Assert.True(
+            plan.RequiredFacts.HasFlag(
+                ImplementationMetricFactKind
+                    .StructuralInstructionStream));
+        Assert.True(
+            plan.RequiredFacts.HasFlag(
+                ImplementationMetricFactKind
+                    .GeneratedTypeProvenance));
+        Assert.False(plan.RequiresLocalSignatureDecode);
+        Assert.False(plan.RequiresCanonicalContext);
+        Assert.False(
+            request.Plan.Includes(
+                LibraryBodyAnalysisFeatures.MethodEvidence));
+        Assert.False(
+            request.Plan.Includes(
+                LibraryBodyAnalysisFeatures
+                    .ImplementationProfiles));
+    }
+
+    [Fact]
+    public void LibraryStructuralRequest_PublishesShallowStageReceipt()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                LibraryBodyAnalysisRequest
+                    .CreateLibraryStructuralReport()
+                    .WithStageParticipation());
+
+        Assert.True(execution.StructuralMetrics.WasRequested);
+        Assert.False(execution.ImplementationProfiles.WasRequested);
+        ImplementationMetricParticipationReceipt participation =
+            Assert.IsType<ImplementationMetricParticipationReceipt>(
+                execution.ImplementationMetrics.Participation);
+        Assert.Contains(
+            participation.ActualStages,
+            static stage => stage.Stage
+                == ImplementationMetricWorkStage
+                    .StructuralInstructionScan
+                && stage.AttemptedBodies > 0
+                && stage.AttemptedBodies
+                    == stage.CompletedBodies);
+        Assert.DoesNotContain(
+            participation.ActualStages,
+            static stage => stage.Stage is
+                ImplementationMetricWorkStage.LocalSignatureDecode
+                or ImplementationMetricWorkStage
+                    .CanonicalMethodContext
+                or ImplementationMetricWorkStage
+                    .DirectCallDiscovery);
+        LibraryBodyAnalysisStageParticipationReceipt stages =
+            Assert.IsType<
+                LibraryBodyAnalysisStageParticipationReceipt>(
+                    execution.Receipt.StageParticipation);
+        Assert.Equal(
+            0,
+            stages.For(
+                LibraryBodyAnalysisStage
+                    .LocalSignatureDecode).Attempts);
+        Assert.Equal(
+            0,
+            stages.For(
+                LibraryBodyAnalysisStage
+                    .CanonicalMethodContext).Attempts);
+    }
+
+    [Fact]
+    public void
+        LibraryStructuralRequest_PreservesMalformedAsyncAttributeDiagnostic()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisLookalike.AssemblyPath(),
+                LibraryBodyAnalysisRequest
+                    .CreateLibraryStructuralReport());
+
+        LibraryStructuralMethodAnalysis body = Assert.Single(
+            execution.StructuralMetrics.Bodies,
+            static body => body.EvidenceMethod.Name
+                == "MalformedAsyncAttributeEvidence");
+        AnalysisDiagnostic diagnostic = Assert.Single(
+            execution.StructuralMetrics.Receipt.Diagnostics,
+            diagnostic => diagnostic.MethodToken
+                == body.EvidenceMethod.MetadataToken);
+
+        Assert.False(body.IsComplete);
+        Assert.Contains(
+            "async state-machine attribute is malformed or ambiguous",
+            diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(diagnostic.Message, body.IncompleteReasons);
+    }
+
+    [Fact]
     public void CompleteProfileRequest_PreservesLegacyProfileResult()
     {
         string path =

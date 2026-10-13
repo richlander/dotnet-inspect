@@ -318,6 +318,12 @@ public static class MethodBodyAnalyzerDeclarations
             MethodBodyInstructionAccess.ForwardOnly,
             MethodBodyInstructionDetail.OpcodeAndExtent);
 
+    public static MethodBodyAnalyzerDeclaration ResolvedCalls { get; } =
+        MethodBodyCapabilityAuthority.Create(
+            "ResolvedCalls",
+            MethodBodyInstructionAccess.RetainedPrefix,
+            MethodBodyInstructionDetail.SelectiveOperands);
+
     public static MethodBodyAnalyzerDeclaration Allocations { get; } =
         MethodBodyCapabilityAuthority.Create(
             "Allocations",

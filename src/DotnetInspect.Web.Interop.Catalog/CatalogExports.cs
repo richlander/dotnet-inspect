@@ -100,8 +100,7 @@ public static partial class CatalogExports
                 content = explainer.SelectData(new ResourcePath(resourcePath)).ToJson(
                     static path => "inspect-resource:/" + path.Value,
                     hal: projection == "hal",
-                    bindHalAddress: static path => "inspect-resource:/" + path.Value + "?projection=hal",
-                    bindContractAddress: static path => "inspect-resource:/" + path.Value + "?projection=contract");
+                    bindHalAddress: static path => "inspect-resource:/" + path.Value + "?projection=hal");
             }
             catch (InvalidOperationException exception)
             {

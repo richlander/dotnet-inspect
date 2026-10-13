@@ -190,14 +190,7 @@ public partial class LibraryCommand
                 source,
                 preResolvedPackage: null);
         if (source.Selector is SourceSelector.PackageSource
-            && !packageAddress
-            && (options.WorkspacePacket is not null
-                || options.NamesakeLibrary
-                || string.IsNullOrWhiteSpace(options.AssemblyName)
-                || !string.Equals(
-                    options.Tfm,
-                    "all",
-                    StringComparison.OrdinalIgnoreCase)))
+            && !packageAddress)
         {
             return await ExecutePackageAsync(
                 options,
@@ -809,6 +802,37 @@ public partial class LibraryCommand
             }
         }
 
+        if (options.PerformanceTriage.HasFilters
+            && !SupportsSyncCallsInAsyncTriage(
+                options.PerformanceTriage)
+            && options.IncludeSections?.Contains(
+                SectionNames.PerformanceSyncCallsInAsync) == true)
+        {
+            if (options.ExactIncludeSections?.Contains(
+                    SectionNames.PerformanceSyncCallsInAsync) == true)
+            {
+                CommandError.Write(
+                    $"{SectionNames.PerformanceSyncCallsInAsync} supports "
+                        + "--triage-shape sync-call-in-async, but not "
+                        + "legacy Performance Triage predicates or ranking. "
+                        + "Use -n or --rows to limit rendered rows.");
+                return 1;
+            }
+
+            options = options with
+            {
+                IncludeSections =
+                    options.IncludeSections
+                        .Where(section =>
+                            !section.Equals(
+                                SectionNames
+                                    .PerformanceSyncCallsInAsync,
+                                StringComparison.OrdinalIgnoreCase))
+                        .ToHashSet(
+                            StringComparer.OrdinalIgnoreCase),
+            };
+        }
+
         options = options with
         {
             UserIncludeSectionsOverride = options.IncludeSections is { Count: > 0 }
@@ -823,8 +847,7 @@ public partial class LibraryCommand
                 is LibraryAddressRequest.FilePopulation
             || options.Discover is not null;
 
-        if (!rendersOwnPayload
-            && !IsAllTfmPackageSelection(options))
+        if (!rendersOwnPayload)
         {
             ExactTerminalAdmission admission =
                 LibrarySectionCardinality.AdmitExactTerminals(
@@ -930,9 +953,6 @@ public partial class LibraryCommand
                 "--depth requires exactly '-S \"Reference Hierarchy\"'.");
             return 1;
         }
-
-        if (!ValidateMultiTfmOutput(options))
-            return 1;
 
         bool typeHierarchy =
             options.CommandPlan is LibraryCommandPlan.TypeHierarchy;
@@ -1942,7 +1962,7 @@ public partial class LibraryCommand
                     return 1;
                 }
 
-                if (inspections.Count == 1 && !IsAllTfmPackageSelection(options))
+                if (inspections.Count == 1)
                     OutputFormatter.WriteLibraryResult(
                         renderInputs[0],
                         options,
@@ -2940,9 +2960,9 @@ public partial class LibraryCommand
     /// <c>## Metadata: TypeDef</c> headings whose rows silently belong to different images and
     /// whose row numbering restarts without saying so. Aggregate counts remain safe because they
     /// do not expose image-relative row identities. Package Library aggregate output is a separate
-    /// renderer that suffixes each metadata heading with the package-relative assembly path. The
-    /// direct-library rejection and count allowance are gated by
-    /// <c>MetadataLens_MultipleAssemblies_IsRejected</c> in DotnetInspect.Cli.Tests; all-libraries
+    /// renderer that suffixes each metadata heading with the package-relative assembly path.
+    /// Since <c>--tfm all</c> left <c>library</c>, no current route resolves a direct-library
+    /// package to more than one assembly, so this rejection remains only as a guard; all-libraries
     /// provenance is gated by
     /// <c>PackageCommand_AllLibraries_BareSelectCount_MapDescribesBareSelectRender</c>.
     /// </summary>
@@ -3756,70 +3776,15 @@ public partial class LibraryCommand
         return false;
     }
 
-    private static bool ValidateMultiTfmOutput(LibraryOptions options)
-    {
-        if (!IsAllTfmPackageSelection(options)
-            || options.Discover != null)
-        {
-            return true;
-        }
-
-        string? incompatibleShape = options.Tree && !options.Count ? "--tree"
-            : options.Print ? "--print"
-            : options.Value ? "--value"
-            : options.Urls ? "--urls"
-            : options.Paths ? "--paths"
-            : options.ExtractResources != null ? "--extract-resources"
-            : null;
-
-        if (incompatibleShape is not null)
-        {
-            if (options.Tree)
-            {
-                CommandError.Write(
-                    "--tree requires exactly one tree shape; --tfm all selects one tree per inspection. Use Markdown or JSON for all TFMs, or select one --tfm for --tree.");
-                return false;
-            }
-
-            CommandError.Write(
-                $"--tfm all supports full output only as Markdown or JSON, plus aggregate --count; it cannot be combined with {incompatibleShape}.");
-            return false;
-        }
-
-        if (options.Count)
-            return true;
-
-        if (options.Format is OutputFormat.Markdown or OutputFormat.Json)
-            return true;
-
-        var tabularFormatName = options.Format switch
-        {
-            OutputFormat.Table => "--table",
-            OutputFormat.Tsv => "--tsv",
-            OutputFormat.Jsonl => "--jsonl",
-            _ => null
-        };
-        if (tabularFormatName is not null)
-        {
-            CommandError.Write(
-                $"{tabularFormatName} requires exactly one table shape; --tfm all selects one table per inspection. Use Markdown or JSON, or aggregate --count for all TFMs.");
-            return false;
-        }
-
-        var formatName = options.Format switch
-        {
-            OutputFormat.PlainText => "plain-text output (--plaintext)",
-            OutputFormat.Mermaid => "Mermaid output (--mermaid)",
-            _ => options.Format.ToString()
-        };
-
-        CommandError.Write(
-            $"--tfm all supports full output only as Markdown or JSON, plus aggregate --count; {formatName} is not supported.");
-        return false;
-    }
-
-    private static bool IsAllTfmPackageSelection(LibraryOptions options)
-        => LibrarySectionCardinality.IsAllTfmPackageSelection(options);
+    private static bool SupportsSyncCallsInAsyncTriage(
+        PerformanceTriageOptions options) =>
+        !options.LoopOnly
+        && string.IsNullOrWhiteSpace(options.MinConfidence)
+        && options.Where.Length == 0
+        && !options.HasRanking
+        && options.Shapes is { Length: > 0 }
+        && options.Shapes.Any(static shape =>
+            PerformanceKinds.IsSyncCallsInAsyncShape(shape));
 
     private static int WriteLibraryShapeProjection(
         LibraryInspection inspection,
@@ -4467,7 +4432,7 @@ public partial class LibraryCommand
             resourceCatalog: "library",
             resourceCapabilities: LibraryOutputCapabilities.Catalog,
             sectionCardinalities:
-                LibrarySectionCardinality.ExactDeclarationsFor(options));
+                LibrarySectionCardinality.ExactDeclarations);
         return Math.Max(
             Math.Max(discoveryExitCode, inspectionFailureExitCode),
             IntegrityExitCode(
@@ -4710,7 +4675,7 @@ public partial class LibraryCommand
             resourceCatalog: "library",
             resourceCapabilities: LibraryOutputCapabilities.Catalog,
             sectionCardinalities:
-                LibrarySectionCardinality.ExactDeclarationsFor(options));
+                LibrarySectionCardinality.ExactDeclarations);
     }
 
     /// <summary>
@@ -5221,19 +5186,6 @@ public partial class LibraryCommand
                 resolvedPackageVersion = resolution.Version;
                 allDlls = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories);
             }
-        }
-
-        // --tfm all: return all assemblies from every TFM
-        if (string.Equals(tfm, "all", StringComparison.OrdinalIgnoreCase))
-        {
-            var (candidates, _) = TfmSelector.SelectHighestAssembliesFromPackage(extractPath, tfm);
-            if (candidates.Count == 0)
-            {
-                CommandError.Write("No DLLs found in package.");
-                DeleteTempDir(tempDir);
-                return null;
-            }
-            return (candidates, extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
         }
 
         if (!string.IsNullOrEmpty(assemblyName))

@@ -906,6 +906,18 @@ public sealed record MethodDefinitionSourceCoverage(
 
     public MethodDefinitionInstructionWorkCoverage InstructionWork
     { get; init; } = MethodDefinitionInstructionWorkCoverage.Empty;
+
+    public MemorySafetyContractCoverage MemorySafetyContracts
+    { get; init; } = MemorySafetyContractCoverage.Empty;
+
+    public SameModuleCallTargetCoverage CallTargets
+    { get; init; } = SameModuleCallTargetCoverage.Empty;
+
+    public MethodCallMetadataCoverage Calls
+    { get; init; } = MethodCallMetadataCoverage.Empty;
+
+    public MethodSemanticIdentityCoverage SemanticIdentity
+    { get; init; } = MethodSemanticIdentityCoverage.Empty;
 }
 
 /// <summary>Why one generated physical MethodDef entered source breadth.</summary>
@@ -1405,6 +1417,33 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
     readonly MethodDefinitionHandleCoverageBuilder _bodiesAttempted = new();
     readonly MethodDefinitionHandleCoverageBuilder _bodiesAcquired = new();
     readonly MethodDefinitionHandleCoverageBuilder _moduleLookupMethods = new();
+    readonly MethodDefinitionHandleCoverageBuilder _memorySafetyMethods = new();
+    bool _memorySafetyConstructed;
+    MemorySafetyMetadataWork _memorySafetyConstruction =
+        MemorySafetyMetadataWork.Empty;
+    MemorySafetyMetadataWork _memorySafetyQueries =
+        MemorySafetyMetadataWork.Empty;
+    int _memorySafetyQueryCount;
+    readonly MethodDefinitionHandleCoverageBuilder _callTargetMethods = new();
+    bool _callTargetsConstructed;
+    SameModuleCallTargetWork _callTargetQueries =
+        SameModuleCallTargetWork.Empty;
+    int _callTargetQueryCount;
+    readonly MethodDefinitionHandleCoverageBuilder _methodCallMethods = new();
+    bool _methodCallsConstructed;
+    MethodCallMetadataWork _methodCallWork =
+        MethodCallMetadataWork.Empty;
+    int _methodCallReads;
+    int _localSignatureReads;
+    int _fieldOperandReads;
+    readonly MethodDefinitionHandleCoverageBuilder _semanticIdentityMethods =
+        new();
+    bool _semanticIdentityConstructed;
+    MethodSemanticIdentityWork _semanticIdentityWork =
+        MethodSemanticIdentityWork.Empty;
+    int _semanticIdentitiesDecoded;
+    int _semanticIdentitiesBounded;
+    int _semanticIdentitiesMalformed;
     MethodDefinitionGeneratedExpansionCoverage _generatedExpansion =
         MethodDefinitionGeneratedExpansionCoverage.Empty;
     int _noRetentionSourcesOpened;
@@ -1480,6 +1519,109 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
             _moduleLookupMethods.Add(handle);
     }
 
+    public void RecordMemorySafetyConstruction(
+        MemorySafetyMetadataWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _memorySafetyConstructed = true;
+        _memorySafetyConstruction = work;
+    }
+
+    public void RecordMemorySafetyQuery(
+        MethodDefinitionHandle handle,
+        MemorySafetyMetadataWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _memorySafetyMethods.Add(handle);
+        _memorySafetyQueries = _memorySafetyQueries.Plus(work);
+        _memorySafetyQueryCount = checked(_memorySafetyQueryCount + 1);
+    }
+
+    public void RecordCallTargetConstruction()
+    {
+        if (_enabled)
+            _callTargetsConstructed = true;
+    }
+
+    public void RecordCallTargetQuery(
+        MethodDefinitionHandle handle,
+        SameModuleCallTargetWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _callTargetMethods.Add(handle);
+        _callTargetQueries = _callTargetQueries.Plus(work);
+        _callTargetQueryCount = checked(_callTargetQueryCount + 1);
+    }
+
+    public void RecordMethodCallConstruction()
+    {
+        if (_enabled)
+            _methodCallsConstructed = true;
+    }
+
+    public void RecordMethodCallQuery(
+        MethodDefinitionHandle handle,
+        MethodCallMetadataWork work,
+        int callReads,
+        int localSignatureReads,
+        int fieldOperandReads)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _methodCallMethods.Add(handle);
+        _methodCallWork = _methodCallWork.Plus(work);
+        _methodCallReads = checked(_methodCallReads + callReads);
+        _localSignatureReads =
+            checked(_localSignatureReads + localSignatureReads);
+        _fieldOperandReads =
+            checked(_fieldOperandReads + fieldOperandReads);
+    }
+
+    public void RecordSemanticIdentityConstruction()
+    {
+        if (_enabled)
+            _semanticIdentityConstructed = true;
+    }
+
+    public void RecordSemanticIdentity(
+        MethodDefinitionHandle handle,
+        MethodSemanticIdentityResult result,
+        MethodSemanticIdentityWork work)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (!_enabled)
+            return;
+
+        _semanticIdentityMethods.Add(handle);
+        _semanticIdentityWork = _semanticIdentityWork.Plus(work);
+        switch (result)
+        {
+            case MethodSemanticIdentityResult.Decoded:
+                _semanticIdentitiesDecoded =
+                    checked(_semanticIdentitiesDecoded + 1);
+                break;
+            case MethodSemanticIdentityResult.SignatureBoundExceeded:
+                _semanticIdentitiesBounded =
+                    checked(_semanticIdentitiesBounded + 1);
+                break;
+            default:
+                _semanticIdentitiesMalformed =
+                    checked(_semanticIdentitiesMalformed + 1);
+                break;
+        }
+    }
+
     public void RecordGeneratedExpansion(
         MethodDefinitionGeneratedExpansionCoverage coverage)
     {
@@ -1525,6 +1667,45 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
                     _noRetentionSourcesOpened,
                     _lazyRetainedSourcesOpened,
                     _instructionsVisited),
+            MemorySafetyContracts =
+                _memorySafetyConstructed || _memorySafetyQueryCount != 0
+                    ? new(
+                        _memorySafetyConstructed,
+                        _memorySafetyConstruction,
+                        _memorySafetyQueries,
+                        _memorySafetyQueryCount,
+                        _memorySafetyMethods.Build())
+                    : MemorySafetyContractCoverage.Empty,
+            CallTargets =
+                _callTargetsConstructed || _callTargetQueryCount != 0
+                    ? new(
+                        _callTargetsConstructed,
+                        _callTargetQueries,
+                        _callTargetQueryCount,
+                        _callTargetMethods.Build())
+                    : SameModuleCallTargetCoverage.Empty,
+            Calls =
+                _methodCallsConstructed
+                || _methodCallMethods.Count != 0
+                    ? new(
+                        _methodCallsConstructed,
+                        _methodCallWork,
+                        _methodCallReads,
+                        _localSignatureReads,
+                        _fieldOperandReads,
+                        _methodCallMethods.Build())
+                    : MethodCallMetadataCoverage.Empty,
+            SemanticIdentity =
+                _semanticIdentityConstructed
+                || _semanticIdentityMethods.Count != 0
+                    ? new(
+                        _semanticIdentityConstructed,
+                        _semanticIdentityWork,
+                        _semanticIdentityMethods.Build(),
+                        _semanticIdentitiesDecoded,
+                        _semanticIdentitiesBounded,
+                        _semanticIdentitiesMalformed)
+                    : MethodSemanticIdentityCoverage.Empty,
         };
 }
 

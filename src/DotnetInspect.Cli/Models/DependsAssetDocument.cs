@@ -26,6 +26,8 @@ internal sealed record DependsAssetDocument
 
     public List<DependsPruningJson>? Pruning { get; init; }
 
+    public List<DependsLatestVersionJson>? LatestVersions { get; init; }
+
     public List<DependencyEvidenceRestoredEdgeJson>? RestoredEdges
     { get; init; }
 
@@ -98,6 +100,12 @@ internal sealed record DependsAssetDocument
                 projection.Pruning,
                 rows,
                 row => DependsPruningJson.Create(row, tokens)),
+            LatestVersions = Project(
+                sections,
+                DependsAssetSections.LatestVersions,
+                projection.LatestVersions,
+                rows,
+                DependsLatestVersionJson.Create),
             RestoredEdges = Project(
                 sections,
                 DependsAssetSections.RestoredEdges,
@@ -267,6 +275,9 @@ internal sealed record DependsAssetSummaryJson
 
     public required DependencyInspectionLicenseSummary Licenses { get; init; }
 
+    public required DependencyInspectionLatestVersionSummary LatestVersions
+    { get; init; }
+
     public int? RequestedDepth { get; init; }
 
     public required int HierarchyOccurrences { get; init; }
@@ -292,6 +303,7 @@ internal sealed record DependsAssetSummaryJson
                 summary.RestoredRelationshipCompletion,
             Pruning = DependsPruningSummaryJson.Create(summary.Pruning),
             Licenses = summary.Licenses,
+            LatestVersions = summary.LatestVersions,
             RequestedDepth = summary.RequestedDepth,
             HierarchyOccurrences = summary.HierarchyOccurrences,
             CanonicalNodes = summary.CanonicalNodes,
@@ -299,6 +311,63 @@ internal sealed record DependsAssetSummaryJson
             PackagePrefix = summary.PackagePrefix is { } prefix
                 ? DependencyEvidencePrefixJson.Create(prefix, tokens)
                 : null,
+        };
+}
+
+internal sealed record DependsLatestVersionJson
+{
+    public required int Root { get; init; }
+
+    public required DependencyEvidenceRootIdentityJson RootIdentity { get; init; }
+
+    public required DependencyEvidenceDeclarationIdentityJson
+        DeclarationIdentity
+    { get; init; }
+
+    public required string Package { get; init; }
+
+    public required string Requested { get; init; }
+
+    public string? Current { get; init; }
+
+    public DependencyInspectionCurrentVersionBasis? CurrentBasis { get; init; }
+
+    public string? LatestInMajor { get; init; }
+
+    public string? Latest { get; init; }
+
+    public PackageVersionLag? Behind { get; init; }
+
+    public int? MajorsBehind { get; init; }
+
+    public required DependencyInspectionLatestVersionState State { get; init; }
+
+    public string? FailureKind { get; init; }
+
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString? FailureMessage { get; init; }
+
+    internal static DependsLatestVersionJson Create(
+        DependencyInspectionLatestVersion row) =>
+        new()
+        {
+            Root = row.RootOccurrence,
+            RootIdentity = DependencyEvidenceRootIdentityJson.Create(
+                row.RootIdentity),
+            DeclarationIdentity =
+                DependencyEvidenceDeclarationIdentityJson.Create(
+                    row.DeclarationIdentity),
+            Package = row.PackageId,
+            Requested = row.VersionConstraint,
+            Current = row.CurrentVersion,
+            CurrentBasis = row.CurrentBasis,
+            LatestInMajor = row.LatestInMajor,
+            Latest = row.LatestVersion,
+            Behind = row.Behind,
+            MajorsBehind = row.MajorsBehind,
+            State = row.State,
+            FailureKind = row.FailureKind,
+            FailureMessage = row.FailureMessage,
         };
 }
 
@@ -725,8 +794,15 @@ internal sealed record DependsPruningJson
         DependencyInspectionPruning row,
         DependencyEvidenceSourceTokens tokens)
     {
-        PackageHouseDependencyPruningResult.Evaluated? evaluated =
-            row.RuntimeResult as PackageHouseDependencyPruningResult.Evaluated;
+        (PlatformSubsumption Subsumption, bool DelegatesToPlatform)?
+            comparison = row.Result switch
+            {
+                DependencyInspectionPruningResult.Evaluated evaluated =>
+                    (evaluated.Subsumption, evaluated.DelegatesToPlatform),
+                DependencyInspectionPruningResult.RestoredResolution restored =>
+                    (restored.Subsumption, restored.DelegatesToPlatform),
+                _ => null,
+            };
         return new DependsPruningJson
         {
             Root = row.RootOccurrence,
@@ -774,9 +850,8 @@ internal sealed record DependsPruningJson
                         resolved.Candidate,
                         tokens)
                     : null,
-            Subsumption = evaluated?.Pruning.Supply.Subsumption,
-            DelegatesToPlatform =
-                evaluated?.Pruning.Supply.DelegatesToPlatform,
+            Subsumption = comparison?.Subsumption,
+            DelegatesToPlatform = comparison?.DelegatesToPlatform,
         };
     }
 }

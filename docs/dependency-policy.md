@@ -131,26 +131,35 @@ The checked-in rules provide full gate coverage for these dependency claims:
    staged claims.
 7. The Inspect Web CallGraph facade depends directly only on the .NET
    platform, Web Core, Queries, and Sections.
-8. The Inspect Web Package facade cannot expand beyond its current nine
-   evaluated project edges or its current fifteen repository assembly edges.
+8. The Inspect Web Package facade cannot expand beyond its current eleven
+   evaluated project edges or its current seventeen repository assembly edges.
    The direct-reference path consumes detached rows from Queries rather than
    projecting Metadata identities in the host, and the exact-Library path
    consumes a detached Queries-owned identity value. Web Core also projects
    Platform-forwarder display and route evidence without exposing Metadata
    values to the facade. Separate graph rules prevent the retired Metadata and
    Networking project edges, and the retired compiled Metadata edge, from
-   returning.
+   returning. Web Core owns package and Platform scope realization and
+   operation lifetime, while owner-issued Package Query, activity,
+   vulnerability, ecosystem, documentation, capability, and ranking operations
+   supply the facade's typed behavior. Those paths and the exact positive
+   ceilings own product semantics, so the facade retains only runtime
+   platform-hazard compiler bans.
 9. The Inspect Web Library facade cannot expand beyond its current five
    evaluated project edges or its current ten repository assembly edges.
    The separate graph rules preserve those different ceilings while focused
-   #8779 successors retire Metadata-facing composition. The facade retains the
-   broad semantic banned-symbol input until that positive boundary no longer
-   admits low-level product assemblies.
+   #8779 successors retire Metadata-facing composition. Its typed Library
+   operations and positive dependency ceilings own product semantics, so the
+   facade retains only the platform-hazard compiler bans that dependency
+   layering cannot distinguish.
 10. The Inspect Web Catalog facade cannot expand beyond its current six
    evaluated project edges or its current twelve repository and external
    assembly edges. Its home-demo call-graph path reaches the host-neutral
    projection through Web Core, so both graph rules reject a direct
-   `ILInspector.Analysis` dependency.
+   `ILInspector.Analysis` dependency. Owner-declared product vocabulary
+   factories account for its transitive Decompiler assembly edge; the typed
+   facade paths and positive dependency ceilings own product semantics, so its
+   compiler ban input retains only runtime platform hazards.
 11. The Inspect Web Metadata facade cannot expand beyond its current twelve
     evaluated project edges or its current twenty repository and external
     assembly edges. Queries owns exact type, declaration, and physical-body
@@ -164,6 +173,15 @@ The checked-in rules provide full gate coverage for these dependency claims:
     Queries, and Research project logical-member and physical-MethodDef values
     before the facade boundary, so the assembly rule also rejects the retired
     `ILInspector.MetadataPrimitives` dependency.
+13. Inspect Web Core cannot expand beyond its current fifteen evaluated project
+    edges or its current twenty-seven repository and external assembly edges.
+    Core composes Browser acquisition, workspace lifetime, cancellation,
+    navigation policy, and typed host projection over owner-issued product
+    APIs. The separate graph rules reject retired direct `CSharpText` and
+    `ILInspector.Research` dependencies and any new project or emitted assembly
+    edge. Core retains the semantic banned-symbol gate because its intentional
+    Metadata, Analysis, and CallGraph dependencies must not become authority to
+    open images, run producers, or reconstruct product semantics in the host.
 
 Claims not represented by a JSON rule remain unverified by this gate. Changing
 an allowed set requires changing the rule's cited owner contract or showing

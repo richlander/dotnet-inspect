@@ -83,6 +83,10 @@ The cue joins the opportunity's source `MethodIdentity` through
 then uses the typed structural identity of an evidence-free projection. The
 candidate set includes every indexed assembly participating in a cross-assembly
 graph and applies the same generated-code suppression as Performance Triage.
+Each participating session narrows direct producer breadth to the method
+definitions retained as graph nodes, then expands their authenticated generated
+execution bodies. The cue therefore retains every opportunity attributed to a
+projected method without rescanning unrelated methods in the assembly.
 This matters for classic async methods: their physical evidence can live in
 generated `MoveNext`. The source node receives the cue without inventing a
 logical edge that is absent from the source method's IL.

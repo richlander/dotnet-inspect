@@ -21,16 +21,17 @@ public sealed class VocabularyExplanation
     }
 
     /// <summary>
-    /// Selects the complete bounded reading dataset for a vocabulary root.
+    /// Selects a complete bounded reading dataset for a vocabulary root. Optional
+    /// native value identities retain only those values and their exact term context.
     /// Resolve the request with <see cref="Explain"/> first to retain typed
     /// path and depth rejections. Unsupported roots fail visibly.
     /// </summary>
-    public ResourceExplanationDataset SelectData(ResourcePath path)
+    public ResourceExplanationDataset SelectData(ResourcePath path, IEnumerable<string>? valueIds = null)
     {
         ArgumentNullException.ThrowIfNull(path);
         if (_catalog.Resolve(path.Value) is not ResourcePathResolution.Resolved resolved)
             throw new InvalidOperationException("The vocabulary data path must resolve exactly.");
-        return ResourceExplanationDataset.Create(_catalog, resolved);
+        return ResourceExplanationDataset.Create(_catalog, resolved, valueIds: valueIds);
     }
 
     /// <summary>

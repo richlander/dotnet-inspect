@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Output;
 using System.CommandLine;
+using System.CommandLine.Parsing;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Sections;
@@ -564,6 +565,13 @@ public static class PackageCommandDefinitions
                 "Exact package ID or literal package-ID prefix ending in '*'",
             Arity = ArgumentArity.ZeroOrOne
         };
+        var explainOption = new Option<string?>("--explain")
+        {
+            Description =
+                "Explain installed Package Query facets and CLI bindings as HAL JSON "
+                + "without executing a query (use -Q facet keys to narrow)",
+            Arity = ArgumentArity.ZeroOrOne
+        };
         var ecosystemOption = new Option<string?>("--ecosystem")
         {
             Description =
@@ -604,6 +612,7 @@ public static class PackageCommandDefinitions
             Description = "Minified JSON (use with --json or --envelope)"
         };
         queryCommand.Arguments.Add(inputArg);
+        queryCommand.Options.Add(explainOption);
         queryCommand.Options.Add(ecosystemOption);
         queryCommand.Options.Add(takeOption);
         queryCommand.Options.Add(prereleaseOption);
@@ -641,6 +650,45 @@ public static class PackageCommandDefinitions
             opts.Select);
         queryCommand.Validators.Add(result =>
         {
+            if (result.GetResult(explainOption) is { Implicit: false })
+            {
+                if (result.GetValue(explainOption) is not null)
+                {
+                    result.AddError(
+                        "Package Query --explain supports only the bare installed-query "
+                        + "explanation; dotted projections are not available.");
+                }
+                if (result.GetValue(inputArg) is not null
+                    || result.GetValue(inheritedPackageArgument) is { Length: > 0 })
+                {
+                    result.AddError(
+                        "Package Query --explain is command-only and cannot be "
+                        + "combined with a package argument.");
+                }
+                Option? unsupportedOption = null;
+                for (CommandResult? scope = result;
+                     scope is not null;
+                     scope = scope.Parent as CommandResult)
+                {
+                    unsupportedOption = scope.Command.Options.FirstOrDefault(
+                        option => option != explainOption
+                        && option != opts.Json
+                        && option != opts.QueryHelp
+                        && !(scope.Command is RootCommand
+                            && option.Name is "--offline" or HttpTimeoutConfiguration.Flag)
+                        && scope.GetResult(option) is { Implicit: false });
+                    if (unsupportedOption is not null)
+                        break;
+                }
+                if (unsupportedOption is not null)
+                {
+                    result.AddError(
+                        $"{unsupportedOption.Name} is not available with package query --explain; "
+                        + "only -Q facet keys, --json, and process-wide controls may accompany "
+                        + "the installed-query explanation.");
+                }
+                return;
+            }
             if (result.GetResult(compactOption) is { Implicit: false }
                 && !result.GetValue(opts.Json)
                 && !result.GetValue(opts.Envelope))
@@ -659,6 +707,25 @@ public static class PackageCommandDefinitions
 
         queryCommand.SetAction(async (parseResult, ct) =>
         {
+            if (parseResult.GetResult(explainOption) is { Implicit: false })
+            {
+                if (opts.ResolveFormat(parseResult, OutputFormat.Json) != OutputFormat.Json)
+                {
+                    CommandError.Write(
+                        "Package Query --explain requires HAL JSON; use --json "
+                        + "to override DOTNET_INSPECT_FORMAT.");
+                    return 1;
+                }
+                string[]? facetKeys = opts.ParseQueryHelp(parseResult);
+                if (parseResult.GetValue(opts.QueryHelp) is not null
+                    && facetKeys is not { Length: > 0 })
+                {
+                    CommandError.Write("-Q requires at least one exact facet key when a value is supplied.");
+                    return 1;
+                }
+                return ResourceExplanationCommand.ExplainPackageQuery(facetKeys);
+            }
+
             var acceptedParentOptions = new HashSet<Option>
             {
                 opts.Envelope,

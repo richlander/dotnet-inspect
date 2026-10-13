@@ -1,0 +1,76 @@
+{
+  "command_argv": [
+    "dnx",
+    "dotnet-inspect",
+    "-y",
+    "--",
+    "package",
+    "query",
+    "Microsoft.Azure.SignalR",
+    "--where",
+    "depends=Newtonsoft.Json",
+    "--where",
+    "dependency-depth=3",
+    "--where",
+    "dependency-target=net8.0",
+    "--json"
+  ],
+  "command_status": "Prepared only; not run.",
+  "answer": {
+    "predicate": "Exact depends (eq) is the preferred spelling for new queries. With dependency-depth=3, it matches direct or transitive declaration paths to Newtonsoft.Json with at most three declaration edges.",
+    "accepted_dependency_depths": [
+      "2",
+      "3",
+      "4"
+    ],
+    "depth_1_legal": false,
+    "target_all_legal_with_depth": false,
+    "target_requirement": "Traversal requires explicit dependency-target=<tfm>; net8.0 supplies it. The special value all is disallowed with dependency-depth or depends-transitive.",
+    "required_gestures": [
+      "Use package query with the exact package ID as positional argument.",
+      "Supply each facet through --where key=value.",
+      "Use exact depends, dependency-depth=3, and dependency-target=net8.0 together.",
+      "Use --json for structured output."
+    ],
+    "work_bound": "Traversal admits at most five package candidates; an exact package ID admits one. An explicit --take bound is required for prefix or ecosystem populations, not this exact ID.",
+    "legacy_spelling": "depends-transitive remains available but matches only depths 2 through the selected maximum, excluding direct-only dependencies."
+  },
+  "provenance": [
+    {
+      "response": "response-01.out",
+      "path": "package-query/query/facets/library-literal",
+      "use": "Starting HAL resource; links to CLI binding and embedded binding gesture."
+    },
+    {
+      "response": "response-02.out",
+      "path": "package-query/bindings/cli",
+      "use": "CLI gesture, --where, --json, candidate bound, and links to relevant facets."
+    },
+    {
+      "response": "response-03.out",
+      "path": "package-query/query/facets/dependency-depth",
+      "use": "Legal depth values, exact predicate preference, TFM requirement, candidate limit."
+    },
+    {
+      "response": "response-04.out",
+      "path": "package-query/query/facets/dependency-target",
+      "use": "Target scope and all restriction."
+    },
+    {
+      "response": "response-05.out",
+      "path": "package-query/query/facets/depends-transitive",
+      "use": "Legacy depth-2-or-greater semantics."
+    },
+    {
+      "response": "response-06.out",
+      "path": "package-query/query/facets/depends",
+      "use": "Exact depends semantics through maximum depth."
+    }
+  ],
+  "uncertainties": [
+    "No query or package inspection was executed, so the actual dependency match, selected package version, and result rows are unknown.",
+    "The installed resource contracts describe accepted inputs and semantics; they do not establish availability of package content or network acquisition outcome."
+  ],
+  "schema_navigation_friction": "The starting HAL facet concerns library literals; its binding link led to a full contract listing exposed facet hrefs. Following those hrefs provided the dependency rules. The full contracts report depth-0 traversal truncation, but the needed facet facts were present.",
+  "truncated_tool_rendering": "None."
+}
