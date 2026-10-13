@@ -108,9 +108,9 @@ and the assessment requires the full control interval to clear `1`.
 
 ## User-text presentation evidence
 
-Candidate `47b72faee5881e8cd4eca5831f05f10cd6d35712` ran as
+Candidate `8b61ed18e28103843d238eeaec42cd71c94bffcf` ran as
 linux-x64 NativeAOT on `dotnet-inspect-perf` under one `perf-guard` lease. The
-host was 98.55 percent idle when the lease began. Thirty rotated rounds measured
+host was 99.75 percent idle when the lease began. Thirty rotated rounds measured
 at least 50,000 keys per asset:
 
 ```text
@@ -123,21 +123,21 @@ perf-guard ./symbol-key-range-pilot present \
 ```
 
 The binary SHA-256 was
-`04c47a7cc60dbbee6cbfe6f4920709cee46d0c3c8aabd9fcb77b2a9be9698d49`.
+`885ee6954f968bdfd70e044b46f1b636e024968546fec57b4ef239909fefad5b`.
 Every normal and user-text cell produced identical output. Ratios are
 `ReuseHostText` divided by `DecodeAndContain`:
 
 | Asset | Keys | Matches | Scan and present | Matched presentation | Normal scan allocation | User-text allocation |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| CoreLib | 62,986 | 2,553 | 0.928x, inconclusive | 0.124x, win | 81,696 B | 0 B |
-| System.Text.Json | 53,662 | 2,422 | 0.915x, win | 0.125x, win | 77,504 B | 0 B |
-| Microsoft.Extensions.Configuration | 50,290 | 2,889 | 0.885x, inconclusive | 0.125x, win | 92,448 B | 0 B |
+| CoreLib | 62,986 | 2,553 | 0.927x, win | 0.124x, win | 81,696 B | 0 B |
+| System.Text.Json | 53,662 | 2,422 | 0.917x, win | 0.124x, win | 77,504 B | 0 B |
+| Microsoft.Extensions.Configuration | 50,290 | 2,889 | 0.881x, inconclusive | 0.124x, win | 92,448 B | 0 B |
 
 The isolated matched-presentation baseline allocated 32 bytes per operation;
 the user-text path allocated none. Its paired control intervals were
-0.077x-0.159x, 0.088x-0.162x, and 0.108x-0.143x. Full scan-and-presentation
-allocation also fell to zero, but only System.Text.Json had a timing interval
-fully below parity. CoreLib and Configuration remained inconclusive.
+0.079x-0.159x, 0.088x-0.161x, and 0.106x-0.142x. Full scan-and-presentation
+allocation also fell to zero. CoreLib and System.Text.Json had timing intervals
+fully below parity; Configuration remained inconclusive.
 
 The shortcut therefore has a clear post-match benefit and can materially help
 when one query presents many exact matches. It does not establish a general
