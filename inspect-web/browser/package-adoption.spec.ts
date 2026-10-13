@@ -579,6 +579,7 @@ declare global {
         packageId: string,
         currentVersion: string,
       ): Promise<PackageVersions>;
+      querySummary(packageId: string, version: string, framework: string): Promise<PackageLoadResult>;
       cacheStats(): Promise<CacheStats>;
       queryOccurrences(
         workspace: readonly {
@@ -705,6 +706,8 @@ async function boot(page: Page): Promise<void> {
         client.package.queryPackage(packageId, pkgVersion, framework),
       queryVersions: (packageId, currentVersion) =>
         client.package.queryPackageVersions(packageId, currentVersion),
+      querySummary: (packageId, pkgVersion, framework) =>
+        client.package.queryPackageSummary(packageId, pkgVersion, framework),
       cacheStats: () => client.package.packageCacheStats(),
       queryOccurrences: workspaceJson =>
         client.package.queryWorkspacePackageOccurrences(workspaceJson),
@@ -4805,4 +4808,67 @@ test("Spotlight finds literal package prefixes inline and keeps Activity in Comm
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator("#spotlight-input")).toBeFocused();
   expect(archives).toEqual([]);
+});
+
+
+test("directory-first complete packages survive production Worker restart", async ({ page, context }) => {
+  const packageId = "InspectWeb.Adoption.CompletePersistence";
+  const archive = storedZip([
+    { name: `${packageId}.nuspec`, bytes: packageQueryManifest(packageId, version, false, [], fixtureFramework) },
+    { name: `lib/${fixtureFramework}/${healthyAssemblyFileName}`, bytes: healthyAssembly },
+    { name: "padding.bin", bytes: Buffer.alloc(100_000, 1) },
+  ]);
+  expect(archive.byteLength).toBeGreaterThan(65_557);
+  expect(archive.byteLength).toBeLessThan(1_000_000);
+  const fixture = { packageId, version, archive };
+  const registry = new GalleryFixtureRegistry([fixture]);
+  await installGalleryRoutes(context, registry);
+  const requests: { range: string | undefined; bytes: number }[] = [];
+  await context.route(/^https:\/\/(?:globalcdn|api)\.nuget\.org\/.*\.nupkg(?:\?.*)?$/u, async route => {
+    if (route.request().method() === "OPTIONS") {
+      await route.fulfill({ status: 204, headers: corsHeaders });
+      return;
+    }
+    const range = route.request().headers()["range"];
+    const match = range?.match(/^bytes=(\d*)-(\d*)$/u);
+    if (!match) {
+      requests.push({ range, bytes: archive.byteLength });
+      await route.fulfill({ status: 200, headers: corsHeaders, body: archive });
+      return;
+    }
+    const start = match[1] === "" ? Math.max(0, archive.byteLength - Number(match[2])) : Number(match[1]);
+    const end = match[1] === "" ? archive.byteLength - 1 : Number(match[2]);
+    const bytes = archive.subarray(start, end + 1);
+    requests.push({ range, bytes: bytes.byteLength });
+    await route.fulfill({ status: 206, body: bytes, headers: {
+      ...corsHeaders, "content-type": "application/octet-stream",
+      "content-length": String(bytes.byteLength),
+      "content-range": `bytes ${start}-${end}/${archive.byteLength}`,
+      "last-modified": "Thu, 06 Feb 2025 12:33:33 GMT",
+      "access-control-expose-headers": "Content-Length,Last-Modified",
+    } });
+  });
+  await boot(page);
+  const read = () => page.evaluate(input => {
+    if (!window.__adoption) throw new Error("Worker driver unavailable.");
+    return window.__adoption.querySummary(input.packageId, input.version, input.framework);
+  }, { packageId, version, framework: fixtureFramework });
+  const first = await read();
+  expect(first.packageChildren).not.toBeNull();
+  expect(requests).toHaveLength(2);
+  expect(requests[0]?.range).toBe("bytes=-65557");
+  expect(requests[1]?.range).toBe(`bytes=0-${archive.byteLength - 65_558}`);
+  expect(requests.reduce((total, request) => total + request.bytes, 0)).toBe(archive.byteLength);
+  const archives = await page.evaluate(async () => {
+    const urls: string[] = [];
+    for (const name of await caches.keys())
+      for (const request of await (await caches.open(name)).keys())
+        if (request.url.endsWith("/archive")) urls.push(request.url);
+    return urls;
+  });
+  expect(archives).toHaveLength(1);
+  await boot(page);
+  const second = await read();
+  expect(second.packageChildren?.content).toEqual(first.packageChildren?.content);
+  expect(requests).toHaveLength(2);
 });

@@ -62,4 +62,17 @@ test("package-entry Cache Storage retains immutable binary items", async () => {
     entryCache.read("../package.nupkg"),
     /package-entry cache key is invalid/,
   );
+  const archiveKey = `${"c".repeat(64)}/archive`;
+  await entryCache.publish(archiveKey, Buffer.from([1, 2, 3]).toString("base64"));
+  assert.equal(await entryCache.archiveLength(archiveKey), 3);
+  assert.deepEqual(Buffer.from((await entryCache.readArchive(archiveKey, 3))!, "base64"),
+    Buffer.from([1, 2, 3]));
+  await assert.rejects(entryCache.readArchive(archiveKey, 2), /archive is invalid/);
+  const request = new Request(`https://inspect.example/.dotnet-inspect/package-entry-cache/${archiveKey}`);
+  await caches.get("package-authority-entries-v1")!.put(request,
+    new Response(new Uint8Array([1, 2, 3, 4]), { headers: {
+      "content-length": "3", "x-dotnet-inspect-package-entry-cache": "v1",
+    } }));
+  await assert.rejects(entryCache.readArchive(archiveKey, 3), /exceeds its declared length/);
+
 });

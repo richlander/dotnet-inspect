@@ -431,9 +431,28 @@ which is a further reason to cache small archives complete.
 Directory-first completion produces an assembled archive rather than a complete
 HTTP response. The browser session store retains that archive in memory, but
 it does not automatically receive the HTTP-cache retention described above.
-Explicit persistent complete-archive retention is a required Browser adoption
-follow-up before claiming equivalent reuse across page or worker restarts.
-The common policy and NativeAOT measurements do not establish that host claim.
+Inspect Web therefore publishes admitted complete archives to its explicit,
+authority-scoped Cache Storage store. A new session probes that complete tier
+before the entry cache or remote acquisition. Stores requiring asynchronous I/O
+participate through the optional host-neutral `IAsyncPackageCacheStore`
+capability, after their synchronous complete-cache tiers; the shared acquisition
+owner applies current payload admission and exact producer identity to its result.
+Filesystem stores retain their existing synchronous tiers.
+
+The Browser adapter reads only the retained length metadata first, reserves
+session capacity, then reads the archive within that declared bound. It applies
+current archive limits before publishing the retained content in memory. Missing
+or evicted records are cache misses; invalid records and storage failures are
+reported and permit ordinary acquisition fallback. Authority and coordinate keys
+use the same credential-free persistent identity as the entry cache. Concurrent
+restoration through one client is serialized and checks session memory again
+before reading persistent bytes. Publication retains the existing immutable-slot
+semantics and best-effort origin durability. Complete archives remain separate
+from directory and expanded-entry records.
+
+The artifact-backed Firefox restart gate and managed fresh-store/corruption gates
+own the restart-reuse claim. NativeAOT operation measurements do not establish
+Cache Storage I/O or actual browser latency.
 
 Ranged responses are not reused by the browser's HTTP cache, so Inspect Web
 keeps its entry cache in an explicit browser store. That and longer retention

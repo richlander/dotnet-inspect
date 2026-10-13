@@ -1,5 +1,5 @@
 const markerHeader = "x-dotnet-inspect-package-entry-cache";
-const keyPattern = /^[0-9a-f]{64}\/(?:directory|entries\/[0-9a-f]{64})$/;
+const keyPattern = /^[0-9a-f]{64}\/(?:archive|directory|entries\/[0-9a-f]{64})$/;
 let configuredName: string | undefined;
 let cache: Cache | undefined;
 
@@ -71,13 +71,58 @@ export async function publish(
   const request = requireKey(key);
   const target = requireCache();
   if (await target.match(request) !== undefined) return;
+  const bytes = decode(content);
   await target.put(
     request,
-    new Response(decode(content), {
+    new Response(bytes, {
       headers: {
         "content-type": "application/octet-stream",
+        "content-length": String(bytes.byteLength),
         [markerHeader]: "v1",
       },
     }),
   );
+}
+
+export async function archiveLength(key: string): Promise<number> {
+  const response = await requireCache().match(requireKey(key));
+  if (response === undefined) return -1;
+  const length = Number(response.headers.get("content-length"));
+  if (!response.ok || response.headers.get(markerHeader) !== "v1"
+    || !Number.isSafeInteger(length) || length <= 0 || length > 2147483647) {
+    throw new Error("The cached archive length is invalid.");
+  }
+  return length;
+}
+
+export async function readArchive(key: string, expectedLength: number): Promise<string | null> {
+  if (!Number.isSafeInteger(expectedLength) || expectedLength <= 0) {
+    throw new Error("The cached archive read limit is invalid.");
+  }
+  const response = await requireCache().match(requireKey(key));
+  if (response === undefined) return null;
+  if (!response.ok || response.headers.get(markerHeader) !== "v1"
+    || Number(response.headers.get("content-length")) !== expectedLength
+    || response.body === null) {
+    throw new Error("The cached archive is invalid.");
+  }
+  const bytes = new Uint8Array(expectedLength);
+  const reader = response.body.getReader();
+  let offset = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (offset + value.byteLength > expectedLength) {
+        throw new Error("The cached archive exceeds its declared length.");
+      }
+      bytes.set(value, offset);
+      offset += value.byteLength;
+    }
+    if (offset !== expectedLength) throw new Error("The cached archive is truncated.");
+    return encode(bytes);
+  } finally {
+    void reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
 }
