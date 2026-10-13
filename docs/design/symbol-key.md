@@ -29,6 +29,8 @@ This owner defines:
 
 - the part grammar: payload parts, the marker range, and their encoding;
 - the builder, its name sources, and nesting;
+- Name-part boundaries and their UTF-8 meaning, while consuming the shared
+  inert-flow and containment operations;
 - key domains and the compile-time separation between them;
 - the in-process and persisted profiles, including the persisted header,
   validation, and text form; and
@@ -156,6 +158,75 @@ names by encoding the query, never by decoding storage. A name built from
 
 Blobs are copied from a `BlobReader` without an intermediate array.
 
+## Name ownership and inert path
+
+Symbol Key owns `Name` as a grammar part. It owns the `0x02` tag, shortest-form
+length, exact payload boundary, source rules, and the fact that the payload is
+UTF-8 text. Inert Bytes does not search for names or attach metadata meaning to
+arbitrary ranges.
+
+After key validation, the Symbol Key part reader uses bounded structural reads
+to consume one tag and its length. For a `Name`, it receives the exact payload
+as a child `InertBytes` range and returns a typed Name view retaining that
+range. It never receives the containing key as a raw span and does not scan the
+rest of a large key to discover the Name boundary. The length prefix supplies
+the boundary in constant work, while the enclosing key's validation budget
+owns total traversal.
+
+The ownership chain is:
+
+```text
+Symbol Key grammar: this exact child range is a Name
+  -> InertBytes: preserve opaque storage and answer exact operations
+     -> Inert Bytes UTF-8 projection: apply one named TextPolicy
+        -> contained UTF-8 written directly
+        -> or InertString carrying the same contained spelling and evidence
+```
+
+Symbol Key therefore owns **which range is a Name**. Inert Bytes owns **how
+that range stays non-disclosing and reaches containment**. Inert Text owns
+**which scalars require a visible spelling and what that spelling is**.
+
+### Worked Name with required containment
+
+Consider the metadata name `invoice`, then `U+202E RIGHT-TO-LEFT OVERRIDE`,
+then `gpj.exe`. Its stored UTF-8 payload is:
+
+```text
+69 6E 76 6F 69 63 65 E2 80 AE 67 70 6A 2E 65 78 65
+```
+
+The path is:
+
+1. The builder writes `02 11` followed by those 17 payload bytes. It does not
+   decode or visually encode them.
+2. The part reader reads tag `02`, length `11`, and obtains exactly the next
+   17 bytes as a bounded Name range. The containing key remains opaque.
+3. Equality, hashing, and a pre-encoded query comparison operate on the exact
+   bytes. `U+202E` remains part of identity; the visible spelling
+   `\u202E` is not substituted into the key and would not match it as a query.
+4. A byte sink asks the Name view for contained UTF-8 under
+   `TextPolicy.Field`. The closed projector identifies `U+202E` as Unicode
+   category `Cf` and writes:
+
+   ```text
+   invoice\u202Egpj.exe
+   ```
+
+   It reports `VisualForm.BmpHex`, `TextConcern.Format`, and required
+   containment. The original three UTF-8 bytes never reach the sink.
+5. A string sink asks for `InertString` under the same policy and receives the
+   same spelling and evidence. Its unrestricted `ToString()` is safe because
+   the retained UTF-16 is already contained.
+6. A product sink may instead replace that value with
+   `InertString.ContainmentRequiredPlaceholder`. Disclosure changes; identity
+   and the inert-flow invariant do not.
+
+There is no eager `RequiresEncoding` bit on the Name or backing. Raw access is
+never admitted, including for ordinary names, so safety does not depend on
+predicting the eventual sink policy. The one policy-bearing projection scans
+only the exact Name range when presentation is requested.
+
 ## Profiles
 
 ### In-process
@@ -276,6 +347,8 @@ form are the exchange currency between the hosts and checked-in artifacts.
 | Domain separation | Keys of two domains do not compile as comparable; an invalid domain enum is rejected at first use | PR-fast |
 | Kind totality | The builder refuses to complete a key without a declared first marker; persisted validation refuses marker-free, leading-non-marker, and nested-header keys | PR-fast |
 | Shared backing | Every issued key and part view in one frozen population retains its one Inert Bytes backing; slots issue no mutable views, inline nested builds create no intermediate payload, and an independently retained key embedded as a `Key` part has only the duplicate bytes required by that grammar | PR-fast |
+| Name boundary | The part reader returns exactly the length-prefixed Name child range without exposing the containing key or including adjacent parts | PR-fast |
+| Name containment | A Name containing `U+202E` remains byte-exact for matching; direct UTF-8 and `InertString` projection both emit `\u202E`, `VisualForm.BmpHex`, and `TextConcern.Format`, while no untreated payload reaches either sink | PR-fast |
 | Persisted round trip | Every Type and member key of System.Private.CoreLib persisted, converted to text, read back, and compared | PR-fast |
 | Persisted validation | Truncated, trailing, wrong-domain, unknown-version, marker-free, leading-non-marker, undeclared-marker, `Ref`-bearing, nested-header, non-shortest LEB128, over-64-bit integer, over-`int` length, over-deep, and over-long keys are each refused; conversion refuses the same depth and length excesses | PR-fast |
 | Profile separation | In-process and persisted keys do not compile as comparable; a key without `Ref` parts round-trips byte-identically, while a `Ref`-bearing key persists by expansion and returns in `Key` form with the same expansion | PR-fast |
