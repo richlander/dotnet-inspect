@@ -33,10 +33,14 @@ and Package view survive refresh just as Library and Workspace views do.
 Ecosystems has its own `/ecosystems` page in product navigation and the shared
 data bar. The page projects the product-ordered `EcosystemPackCatalog` as inert
 descriptor metadata: identity, title, summary, and bounded capability
-counts/flags. Visiting the catalog preserves the active Workspace and does not
-activate an Ecosystem subject, acquire packages, or run package-prefix
-discovery. Those interactions remain future slices. No dedicated absence gate
-covers that boundary; by operator choice it is unverified beyond design review.
+counts/flags. Cards reuse the same local ecosystem glyph vocabulary as
+Spotlight and give identity, summary, capabilities, and the available Workspace
+action a consistent responsive hierarchy; an unknown future identity receives
+a deterministic title monogram rather than a network-loaded image. Visiting
+the catalog preserves the active Workspace and does not activate an Ecosystem
+subject, acquire packages, or run package-prefix discovery. Those interactions
+remain future slices. No dedicated absence gate covers that boundary; by
+operator choice it is unverified beyond design review.
 
 The previous browser host was a single 4,103-line `Program.cs` that re-derived
 package acquisition, target-framework ranking, symbol acquisition, and member
