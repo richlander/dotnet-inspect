@@ -11062,11 +11062,14 @@ function packageDependenciesStatus(
   const selectedGroup =
     groups.find(group => group.index === selectedGroupIndex) ?? groups[0];
   const dependencyCount = selectedGroup?.dependencies?.length ?? 0;
+  const platformCount = data.platformReferences?.length ?? 0;
   const completion = data.declarationFailures.length > 0
     ? " · incomplete"
     : "";
   return `${dependencyCount} package${
     dependencyCount === 1 ? "" : "s"
+  } · ${platformCount} platform${
+    platformCount === 1 ? "" : "s"
   }${completion}`;
 }
 
@@ -11140,12 +11143,24 @@ function renderPackageDependencies() {
     : "";
   const declarationFailureNotice =
     renderPackageDeclarationFailures(data.declarationFailures);
+  const platformReferenceSection =
+    platformReferenceSectionHtml(data);
+  const graphSection =
+    groups.length || data.platformReferences.length
+      ? `
+    <section class="document-section dependency-graph-section">
+      <div class="section-title"><h2>Dependency graph</h2><span>${DEPENDENCY_GRAPH_SUMMARY}</span></div>
+      ${workspaceDependencyErrorHtml()}
+      <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
+      ${dependencyGraphLegendHtml()}
+    </section>`
+      : "";
   if (!groups.length) {
     const emptyMessage = data.declarationFailures.length
       ? "No dependency rows could be normalized from the package manifest."
       : "The manifest declares no NuGet dependencies — a self-contained package.";
     return renderPackageDependenciesSurface(
-      `<div data-dependency-graph-surface>${dependencyGroupNotice}${declarationFailureNotice}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>${escapeHtml(emptyMessage)}</p></section></div>`,
+      `<div data-dependency-graph-surface>${dependencyGroupNotice}${declarationFailureNotice}${graphSection}</div>${platformReferenceSection}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No NuGet dependencies</h2><p>${escapeHtml(emptyMessage)}</p></section>`,
       packageDependenciesStatus(data, null));
   }
 
@@ -11162,16 +11177,26 @@ function renderPackageDependencies() {
 
   const depList = dependencyListSectionHtml(groups, selectedGroupIndex);
 
-  const graphSection = `
-    <section class="document-section dependency-graph-section">
-      <div class="section-title"><h2>Dependency graph</h2><span>${DEPENDENCY_GRAPH_SUMMARY}</span></div>
-      ${workspaceDependencyErrorHtml()}
-      <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
-      ${dependencyGraphLegendHtml()}
-    </section>`;
   return renderPackageDependenciesSurface(
-    `<div data-dependency-graph-surface>${dependencyGroupNotice}${declarationFailureNotice}${selector}${graphSection}</div>${depList}`,
+    `<div data-dependency-graph-surface>${dependencyGroupNotice}${declarationFailureNotice}${selector}${graphSection}</div>${platformReferenceSection}${depList}`,
     packageDependenciesStatus(data, selectedGroupIndex));
+}
+
+function platformReferenceSectionHtml(data: BrowserPackageDependencies) {
+  const references = data.platformReferences || [];
+  const failure = data.platformReferenceError
+    ? `<p class="graph-render-error" role="alert">${escapeHtml(data.platformReferenceError)}</p>`
+    : "";
+  if (!references.length && !failure) return "";
+  return `<section class="document-section" id="platform-reference-list-section">
+    <div class="section-title"><h2>Platform references</h2><span>${references.length} platform${references.length === 1 ? "" : "s"}</span></div>
+    ${references.length
+      ? `<ul class="dep-list">${references.map(reference =>
+          `<li><span class="dep-name">${escapeHtml(reference.label)}</span></li>`)
+        .join("")}</ul>`
+      : ""}
+    ${failure}
+  </section>`;
 }
 
 function renderLibraryReferences() {
@@ -22712,7 +22737,8 @@ async function renderDependencyGraph() {
   if (!container) return;
   const pending = createDependencyGraphPendingState(container.dataset);
   const groups = state.packageDependencies?.dependencyGroups || [];
-  if (!groups.length) {
+  if (!groups.length
+    && !(state.packageDependencies?.platformReferences?.length)) {
     depGraphRenderSequence.invalidate();
     pending.invalidate();
     return;
@@ -22720,13 +22746,26 @@ async function renderDependencyGraph() {
   const pkg = state.package;
   if (!pkg) return;
   const packages = state.packages.map(candidate => ({ ...candidate }));
+  const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
+  const selectedGroup =
+    groups.find(group => group.index === selectedGroupIndex)
+    || groups.find(group => group.isActive)
+    || groups[0];
+  const packageDependencies = state.packageDependencies
+    ? {
+        ...state.packageDependencies,
+        platformReferences: !selectedGroup || selectedGroup.isActive
+          ? state.packageDependencies.platformReferences
+          : [],
+      }
+    : null;
   const model = {
     package: { id: pkg.id, version: pkg.version, activeFramework: pkg.activeFramework },
     packages,
     dependenciesGroupIndex: state.dependenciesGroupIndex,
     workspaceDependencies: { ...state.workspaceDependencies },
-    ...(state.packageDependencies
-      ? { packageDependencies: state.packageDependencies }
+    ...(packageDependencies
+      ? { packageDependencies }
       : {}),
   };
   const requestSignature = JSON.stringify([
@@ -22812,7 +22851,8 @@ async function renderDependencyGraph() {
       keybindings,
       resolveDependencyGraphNode: nodeId => {
         const info = nodeId ? built.nodeInfoById.get(nodeId) : null;
-        if (!info || info.kind === "self") return null;
+        if (!info || info.kind === "self" || info.kind === "platform")
+          return null;
         const loaded = state.packages.find(candidate =>
           packageIdentityKey(candidate) === info.packageKey);
         return {

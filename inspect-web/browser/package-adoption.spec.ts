@@ -45,6 +45,8 @@ import {
 import {
   fixtureFramework,
   galleryDownloadPath,
+  aspNetCoreReferenceNupkg,
+  emptyDependencyGroupNupkg,
   healthyNupkg,
   malformedAlongsideHealthyNupkg,
   malformedAssemblyBytes,
@@ -317,6 +319,27 @@ const manifestOnly: FixtureCoordinate = {
     declaredDependency,
   ),
 };
+const runtimeReference: FixtureCoordinate = {
+  packageId: "InspectWeb.Adoption.RuntimeReference",
+  version,
+  archive: emptyDependencyGroupNupkg(
+    healthyAssembly,
+    healthyAssemblyFileName,
+    "InspectWeb.Adoption.RuntimeReference",
+    version,
+  ),
+};
+const aspNetCoreReference: FixtureCoordinate = {
+  packageId: "InspectWeb.Adoption.AspNetCoreReference",
+  version,
+  archive: aspNetCoreReferenceNupkg(
+    healthyAssembly,
+    healthyAssemblyFileName,
+    "InspectWeb.Adoption.AspNetCoreReference",
+    version,
+    declaredDependency,
+  ),
+};
 
 // DiffAsmLibA is an ordinary managed library with exactly one AssemblyRef row,
 // so the available case has an exact expected list rather than a shape probe.
@@ -371,6 +394,8 @@ const allFixtures: readonly FixtureCoordinate[] = [
   literalCoordinate,
   references,
   manifestOnly,
+  runtimeReference,
+  aspNetCoreReference,
   libraryDiffV1,
   libraryDiffV2,
   ...scopeCoordinates,
@@ -3055,6 +3080,51 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     expect(group.dependencies).toEqual([
       { id: declaredDependency.id, versionRange: declaredDependency.versionRange },
     ]);
+  });
+
+  test("projects runtime defaults and explicit ASP.NET Core platform references", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry(allFixtures);
+    await installGalleryRoutes(context, registry);
+    await boot(page);
+    const engine = driver(page);
+
+    const runtime = await engine.queryDependencies(
+      runtimeReference.packageId,
+      version,
+      fixtureFramework,
+      healthyAssemblyFileName,
+    );
+    expect(runtime.platformReferences).toEqual([
+      { family: "runtime", label: ".NET Runtime" },
+    ]);
+    expect(runtime.platformReferenceError).toBeNull();
+
+    const aspNetCore = await engine.queryDependencies(
+      aspNetCoreReference.packageId,
+      version,
+      fixtureFramework,
+      healthyAssemblyFileName,
+    );
+    expect(aspNetCore.platformReferences).toEqual([
+      { family: "aspnetcore", label: "ASP.NET Core" },
+    ]);
+    expect(aspNetCore.platformReferenceError).toBeNull();
+
+    await page.goto(
+      `/index.html?package=${runtimeReference.packageId}&version=${version}`
+        + `&framework=${fixtureFramework}#pkg:dependencies`,
+    );
+    const panel = page.locator("#inspector-panel");
+    await expect(
+      panel.getByRole("heading", { name: "References", exact: true }),
+    ).toBeVisible({ timeout: 60_000 });
+    await expect(panel).toContainText(".NET Runtime");
+    await expect(panel.getByRole("heading", { name: "Dependency graph" }))
+      .toBeVisible();
+    await expect(panel.locator("#dependency-graph-diagram svg")).toBeVisible();
   });
 
   test("renders the available reference rows on the production package page", async ({

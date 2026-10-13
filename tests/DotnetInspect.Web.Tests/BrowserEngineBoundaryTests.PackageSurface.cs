@@ -3043,7 +3043,119 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             JsonValueKind.Null,
             root.GetProperty("dependencyGroupError").ValueKind);
+        Assert.Empty(root.GetProperty("platformReferences").EnumerateArray());
+        Assert.Equal(
+            JsonValueKind.Null,
+            root.GetProperty("platformReferenceError").ValueKind);
         Assert.False(root.TryGetProperty("assemblyReferenceError", out _));
+    }
+
+    [Fact]
+    public async Task PackageDependencies_EmptyModernGroupDefaultsToRuntime()
+    {
+        string packageId = $"Browser.Dependency.Runtime.{Guid.NewGuid():N}";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] nupkg = PackageWithManifest(
+            image,
+            $"lib/net10.0/{packageId}.dll",
+            $"""
+             <package>
+               <metadata>
+                 <id>{packageId}</id>
+                 <version>1.0.0</version>
+                 <dependencies>
+                   <group targetFramework="net10.0" />
+                 </dependencies>
+               </metadata>
+             </package>
+             """);
+        var handler = new GalleryPackageHandler(
+            packageId,
+            "1.0.0",
+            nupkg);
+        using IPackageSourceClient source = Gallery(handler);
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+            await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                packageId,
+                "1.0.0",
+                "net10.0",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken)).Realization;
+
+        BrowserPackagePlatformReferenceProjection projection =
+            BrowserPackagePlatformReferences.Project(
+                realization.Coordinate,
+                dependencyGroupIsEmpty: true);
+        BrowserPackagePlatformReferenceProjection.Row platformReference =
+            Assert.Single(projection.References);
+        Assert.Equal(
+            BrowserPlatformWorkspace.RuntimeFamily,
+            platformReference.Family);
+        Assert.Equal(
+            ".NET Runtime",
+            platformReference.Label);
+        Assert.Null(projection.Error);
+    }
+
+    [Fact]
+    public async Task PackageDependencies_ProjectsExplicitAspNetCoreReference()
+    {
+        string packageId =
+            $"Browser.Dependency.AspNetCore.{Guid.NewGuid():N}";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] nupkg = PackageWithManifest(
+            image,
+            $"lib/net8.0/{packageId}.dll",
+            $"""
+             <package>
+               <metadata>
+                 <id>{packageId}</id>
+                 <version>1.0.0</version>
+                 <dependencies>
+                   <group targetFramework="net8.0">
+                     <dependency id="Browser.Dependency.Child" version="[2.0.0]" />
+                   </group>
+                 </dependencies>
+                 <frameworkReferences>
+                   <group targetFramework="net8.0">
+                     <frameworkReference name="Microsoft.AspNetCore.App" />
+                   </group>
+                 </frameworkReferences>
+               </metadata>
+             </package>
+             """);
+        var handler = new GalleryPackageHandler(
+            packageId,
+            "1.0.0",
+            nupkg);
+        using IPackageSourceClient source = Gallery(handler);
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+            await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                packageId,
+                "1.0.0",
+                "net8.0",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken)).Realization;
+
+        BrowserPackagePlatformReferenceProjection projection =
+            BrowserPackagePlatformReferences.Project(
+                realization.Coordinate,
+                dependencyGroupIsEmpty: false);
+        BrowserPackagePlatformReferenceProjection.Row platformReference =
+            Assert.Single(projection.References);
+        Assert.Equal(
+            BrowserPlatformWorkspace.AspNetCoreFamily,
+            platformReference.Family);
+        Assert.Equal(
+            "ASP.NET Core",
+            platformReference.Label);
+        Assert.Null(projection.Error);
     }
 
     [Fact]

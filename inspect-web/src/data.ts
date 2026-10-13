@@ -540,6 +540,11 @@ interface DependencyGroupDependency {
 export interface DependencyGroupData {
   dependencyGroups?: readonly DependencyGroup[];
   dependencyGroupError?: string | null;
+  platformReferences?: readonly {
+    family: string;
+    label: string;
+  }[];
+  platformReferenceError?: string | null;
 }
 
 export function dependencyGroupSelectionMessage(data: DependencyGroupData | null | undefined): string {

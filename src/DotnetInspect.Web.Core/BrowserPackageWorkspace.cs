@@ -973,9 +973,12 @@ internal static class BrowserPackageWorkspace
             acquired.Payload,
             cached.Bytes,
             store);
+        PackageHouseFrameworkReferenceOutcome frameworkReferences =
+            PackageHouseFrameworkReferenceProjection.Project(acquired);
         var coordinate = new BrowserPackageCoordinate(
             package,
-            contributed.Contribution.Binding);
+            contributed.Contribution.Binding,
+            frameworkReferences);
         var realization = new BrowserPackageRealization(
             coordinate,
             selectionRequest,
@@ -5611,7 +5614,8 @@ internal sealed class BrowserPackageCoordinate
 {
     public BrowserPackageCoordinate(
         BrowserPackage package,
-        PackageRootBinding binding)
+        PackageRootBinding binding,
+        PackageHouseFrameworkReferenceOutcome? frameworkReferences = null)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(binding);
@@ -5634,6 +5638,7 @@ internal sealed class BrowserPackageCoordinate
         Package = package;
         Binding = binding;
         Root = binding.Root;
+        FrameworkReferences = frameworkReferences;
     }
 
     public BrowserPackageCoordinate(
@@ -5663,6 +5668,9 @@ internal sealed class BrowserPackageCoordinate
     public BrowserPackage Package { get; }
 
     public PackageRootBinding? Binding { get; }
+
+    public PackageHouseFrameworkReferenceOutcome? FrameworkReferences
+    { get; }
 
     public PackageRootRealization Root { get; }
 

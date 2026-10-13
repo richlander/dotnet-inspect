@@ -287,3 +287,48 @@ test("dependency graph rendering contains artifact labels", async () => {
     definition.definition,
     /classDef inspected fill:var\(--graph-target-fill\),stroke:var\(--graph-target-stroke\),color:var\(--graph-target-text\)/);
 });
+
+test("dependency graph renders a direct non-navigable platform edge", async () => {
+  const root = packageAt("1.0.0", "net10.0");
+  let packageMatches = 0;
+  let classifiedIds: readonly string[] = [];
+  const graph = await buildDependencyGraphMermaid(
+    {
+      package: root,
+      packages: [root],
+      packageDependencies: {
+        dependencyGroupError: "",
+        dependencyGroups: [{
+          index: 0,
+          framework: "net10.0",
+          isActive: true,
+          dependencies: [],
+        }],
+        platformReferences: [{
+          family: "runtime",
+          label: ".NET Runtime",
+        }],
+      },
+      dependenciesGroupIndex: 0,
+      workspaceDependencies: {},
+    },
+    () => {
+      packageMatches++;
+      return null;
+    },
+    (inspectedPackageId, packageIds) => {
+      classifiedIds = packageIds;
+      return packageIds.map(packageId =>
+        packageId === inspectedPackageId ? "inspected" : "external");
+    });
+
+  assert.ok(graph);
+  assert.equal(packageMatches, 0);
+  assert.deepEqual(classifiedIds, [root.id]);
+  assert.match(graph.definition, /d1\["\.NET Runtime"\]:::platform/);
+  assert.match(graph.definition, /d0 --> d1/);
+  assert.equal(
+    [...graph.nodeInfoById.values()]
+      .find(info => info.kind === "platform")?.packageKey,
+    "");
+});

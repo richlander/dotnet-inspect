@@ -134,9 +134,11 @@ function dependencyResult(
       isActive: true,
       dependencies: [{ id: "Example.Dependency", versionRange: "[1.0.0,)" }],
     }],
+    platformReferences: [],
     declarationFailures: [],
     assemblyReferences: { references: [] },
     dependencyGroupError: error,
+    platformReferenceError: null,
     compileLibrary: selectedCompileLibrary,
   };
 }

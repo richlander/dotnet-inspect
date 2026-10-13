@@ -783,13 +783,18 @@ public static partial class PackageExports
         string targetFramework,
         string assemblyId)
     {
-        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-            await BrowserPackageWorkspace.OpenScopeAsync(
+        BrowserPackageCoordinate realizedCoordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
                 packageId,
                 version,
                 targetFramework);
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [realizedCoordinate],
+                CancellationToken.None);
         BrowserInspectionScope scope = scopeLease.Scope;
-        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserPackageCoordinate coordinate =
+            scope.Coordinate(realizedCoordinate);
         BrowserCompileLibraryAvailability compileLibrary =
             BrowserPackageWireProjection.Project(
                 BrowserCompileLibraryProjection.Project(coordinate.Selection));
@@ -871,6 +876,16 @@ public static partial class PackageExports
                     : null;
         BrowserPackageDependencyDeclarationFailure[] declarationFailures =
             ProjectDependencyDeclarationFailures(dependencies);
+        bool dependencyGroupIsEmpty =
+            dependencyEvidence.Selection.SelectedGroup is null
+            || !dependencies.Groups.Any(group =>
+                group.Identity
+                    == dependencyEvidence.Selection.SelectedGroup
+                && !group.Declarations.IsEmpty);
+        BrowserPackagePlatformReferenceProjection platformReferences =
+            BrowserPackagePlatformReferences.Project(
+                realizedCoordinate,
+                dependencyGroupIsEmpty);
         return new BrowserPackageDependencies(
                 coordinate.PackageId,
                 coordinate.Version,
@@ -891,9 +906,16 @@ public static partial class PackageExports
                                         dependency.SourceVersionConstraintSpelling.ToString())),
                             ])),
                 ],
+                [
+                    .. platformReferences.References.Select(reference =>
+                        new BrowserPackagePlatformReference(
+                            reference.Family,
+                            reference.Label)),
+                ],
                 declarationFailures,
                 assemblyReferences,
                 dependencyGroupError,
+                platformReferences.Error,
                 compileLibrary);
     }
 
