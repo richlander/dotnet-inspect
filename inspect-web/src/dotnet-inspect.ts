@@ -917,6 +917,8 @@ let engineClient: EngineClient;
 let cancelPackageActivity: EngineClient["package"]["cancelPackageActivity"];
 let cancelPackageQuery: EngineClient["package"]["cancelPackageQuery"];
 let inspectPackageDocument: EngineClient["package"]["getPackageDocument"];
+let containPackageDocumentHtml:
+  EngineClient["package"]["containPackageDocumentHtml"];
 let inspectLoadRuntimePack: EngineClient["package"]["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly:
   EngineClient["package"]["loadRuntimePackAssembly"];
@@ -1161,6 +1163,7 @@ async function loadEngineModule() {
       engineClient.source.cancelTypeExplorerQuery(...args);
     ({
       getPackageDocument: inspectPackageDocument,
+      containPackageDocumentHtml,
       loadRuntimePack: inspectLoadRuntimePack,
       loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
       getPlatformVersions: inspectPlatformVersions,
@@ -4164,6 +4167,7 @@ const documentInspection = createDocumentInspectionCoordinator({
     request.packageId,
     request.version,
     request.document.path),
+  renderText: renderDocumentText,
   renderMarkdown,
   renderMarkdownInline,
   describeError: errorMessage,
@@ -25033,13 +25037,19 @@ function markdownSanitizeConfig() {
 async function renderMarkdown(text: string) {
   const { marked, DOMPurify } = await markdownLibs();
   const html = marked.parse(text, { gfm: true, breaks: false, async: false });
-  return DOMPurify.sanitize(html, markdownSanitizeConfig());
+  const sanitized = DOMPurify.sanitize(html, markdownSanitizeConfig());
+  return (await containPackageDocumentHtml(sanitized)).html;
+}
+
+async function renderDocumentText(text: string) {
+  return (await containPackageDocumentHtml(escapeHtml(text))).html;
 }
 
 async function renderMarkdownInline(text: string) {
   const { marked, DOMPurify } = await markdownLibs();
   const html = marked.parseInline(text, { gfm: true, async: false });
-  return DOMPurify.sanitize(html, markdownSanitizeConfig());
+  const sanitized = DOMPurify.sanitize(html, markdownSanitizeConfig());
+  return (await containPackageDocumentHtml(sanitized)).html;
 }
 
 function openPackageDocument(path: string) {

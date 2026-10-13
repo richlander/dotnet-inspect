@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 
 namespace DotnetInspect.Cli.Tests;
@@ -48,6 +49,22 @@ public partial class CommandExecutionTests
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
         Assert.Contains("cannot preserve", result.Error);
+    }
+
+    [Fact]
+    public async Task PackageHierarchyShareUsesTraversalDefaultFramework()
+    {
+        var result = await RunAppAsync(
+            "package", "System.Text.Json@10.0.0",
+            "-S", "Dependency Hierarchy", "--share", "packet");
+
+        Assert.Equal(0, result.Exit);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            result.Error.Trim(),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework,
+            Assert.Single(packet.Tabs).Framework);
     }
 
     [Fact]

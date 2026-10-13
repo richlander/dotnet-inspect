@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using DotnetInspector.InspectionContracts;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using InertText;
 using TsJsExport;
 
 namespace DotnetInspect.Web.Interop.Package;
@@ -334,6 +335,10 @@ public sealed record BrowserPackageDocumentContent(
     string Name,
     string Path,
     string Text);
+
+public sealed record BrowserPackageDocumentHtml(
+    [property: JsonConverter(typeof(ProseInertStringJsonConverter))]
+    InertString Html);
 
 public sealed record BrowserExceptionSurface(
     string Type,
@@ -1450,6 +1455,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserPackageIconInspection))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
+[JsonSerializable(typeof(BrowserPackageDocumentHtml))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
 [JsonSerializable(typeof(BrowserEcosystemPackageCandidate[]))]
 [JsonSerializable(typeof(BrowserEcosystemPackageInventory))]

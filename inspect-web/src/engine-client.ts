@@ -30,6 +30,7 @@ type PackageOperations =
   | "activateWorkspacePackageOccurrence"
   | "classifyEcosystemPackages"
   | "classifyPackageGraphIdentities"
+  | "containPackageDocumentHtml"
   | "clearWorkspacePackageOccurrences"
   | "closePlatformForwarderView"
   | "getPlatformCatalog"

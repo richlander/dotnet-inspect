@@ -15,8 +15,7 @@ public partial class PackageCommand
         int exitCode,
         InspectionOptions options,
         PackageReferenceTarget target,
-        PackageExtractionResult resolution,
-        InspectionResult result)
+        PackageExtractionResult resolution)
     {
         if (options.ShareFormat is not { } format
             || options.WorkspacePacket is not null)
@@ -25,7 +24,7 @@ public partial class PackageCommand
         }
 
         int shareExitCode = WorkspaceShareOutput.Write(
-            ProjectDirectHierarchyShare(options, target, resolution, result),
+            ProjectDirectHierarchyShare(options, target, resolution),
             format);
         return Math.Max(exitCode, shareExitCode);
     }
@@ -33,8 +32,7 @@ public partial class PackageCommand
     private static InspectionShare ProjectDirectHierarchyShare(
         InspectionOptions options,
         PackageReferenceTarget target,
-        PackageExtractionResult resolution,
-        InspectionResult result)
+        PackageExtractionResult resolution)
     {
         static InspectionShare Refuse(string reason) =>
             new InspectionShare.NonProjectable(
@@ -69,7 +67,9 @@ public partial class PackageCommand
         if (!PackageExtractor.TryNormalizePackageVersion(
                 version, out string normalizedVersion)
             || !DependsShareProjection.TryNormalizeFramework(
-                result.Tfm, out string? framework))
+                options.Tfm
+                    ?? TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework,
+                out string? framework))
         {
             return Refuse(
                 "The resolved Package has no exact portable package, "

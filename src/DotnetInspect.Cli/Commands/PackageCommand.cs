@@ -1633,7 +1633,7 @@ public partial class PackageCommand
                     WritePackageDependencyHierarchyTree(result, options);
                 return WriteDirectHierarchyShare(
                     PackageIntegrityExitCode(result), options, target,
-                    resolution, result);
+                    resolution);
             }
 
             if (wantsSignals && options.Count && !effectiveDiscovery)
@@ -1791,7 +1791,7 @@ public partial class PackageCommand
                 }
                 return WriteDirectHierarchyShare(
                     PackageIntegrityExitCode(result), options, target,
-                    resolution, result);
+                    resolution);
             }
             if (options.Tabular)
             {
@@ -1953,7 +1953,7 @@ public partial class PackageCommand
 
             return WriteDirectHierarchyShare(
                 PackageIntegrityExitCode(result), options, target,
-                resolution, result);
+                resolution);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
