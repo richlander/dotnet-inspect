@@ -41,6 +41,74 @@ public sealed class MetadataDeclarationQueryTests
         Assert.Equal("2", declaration.Signature.Parameters[1].DefaultValueText);
     }
 
+    /// <remarks>
+    /// The raw <c>In</c>/<c>Out</c> parameter flags are interop marshalling directions:
+    /// <c>[In] ref</c> and <c>[In, Out] ref</c> are mutable <c>ref</c> parameters (#3537).
+    /// C# <c>in</c> and <c>ref readonly</c> are identified by their compiler attributes.
+    /// </remarks>
+    [Theory]
+    [InlineData(0, "ref")]
+    [InlineData(1, "ref")]
+    [InlineData(2, "ref")]
+    [InlineData(3, "out")]
+    [InlineData(4, "in")]
+    [InlineData(5, "ref readonly")]
+    public void MethodDeclaration_SpellsByRefParameterPassingFromCompilerAttributes(int index, string modifier)
+    {
+        var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures));
+        var method = GetMethod(type, nameof(MetadataDeclarationQueryFixtures.ByRefPassing));
+
+        var declaration = MetadataDeclarationQuery.GetMethod(Reader, type, method);
+
+        Assert.Equal(modifier, declaration.Signature.Parameters[index].Modifier);
+        Assert.Equal("int", declaration.Signature.Parameters[index].Type);
+    }
+
+    /// <remarks>
+    /// The motivating real asset (#3537): the runtime declares
+    /// <c>FindConnectionPoint([In] ref Guid riid, out IConnectionPoint ppCP)</c>, which was
+    /// rendered as <c>in System.Guid riid</c>, a readonly reference callers cannot assign through.
+    /// </remarks>
+    [Fact]
+    public void MethodDeclaration_SpellsCoreLibInteropInRefParameterAsRef()
+    {
+        using var peReader = new PEReader(File.OpenRead(
+            typeof(System.Runtime.InteropServices.ComTypes.IConnectionPointContainer).Assembly.Location));
+        var reader = peReader.GetMetadataReader();
+        var (type, method) = FindMethod(
+            reader,
+            "System.Runtime.InteropServices.ComTypes",
+            "IConnectionPointContainer",
+            "FindConnectionPoint");
+
+        var declaration = MetadataDeclarationQuery.GetMethod(reader, type, method);
+
+        Assert.Equal("ref", declaration.Signature.Parameters[0].Modifier);
+        Assert.Equal("out", declaration.Signature.Parameters[1].Modifier);
+    }
+
+    static (TypeDefinition Type, MethodDefinition Method) FindMethod(
+        MetadataReader reader,
+        string @namespace,
+        string typeName,
+        string methodName)
+    {
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(typeHandle);
+            if (reader.GetString(type.Namespace) != @namespace || reader.GetString(type.Name) != typeName)
+                continue;
+            foreach (var methodHandle in type.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if (reader.GetString(method.Name) == methodName)
+                    return (type, method);
+            }
+        }
+
+        throw new InvalidOperationException($"Method '{@namespace}.{typeName}.{methodName}' was not found.");
+    }
+
     [Fact]
     public void InitOnlySetter_PreservesReturnModifierDistinction()
     {
@@ -614,6 +682,14 @@ public class MetadataDeclarationQueryFixtures
         int count = 2) => value ?? count.ToString();
 
     public decimal DecimalDefault(decimal amount = 5m) => amount;
+
+    public void ByRefPassing(
+        ref int plain,
+        [In] ref int interopIn,
+        [In, Out] ref int interopInOut,
+        out int result,
+        in int readOnly,
+        ref readonly int location) => result = plain + interopIn + interopInOut + readOnly + location;
 
     public int Count() => _count;
 

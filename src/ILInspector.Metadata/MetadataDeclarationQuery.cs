@@ -858,13 +858,8 @@ public static class MetadataDeclarationQuery
             var attributes = parameter.GetCustomAttributes();
             var isParams = AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute")
                 || AttributeReader.HasAttribute(reader, attributes, KnownAttributeNames.ParamCollectionAttribute);
-            var isOut = (parameter.Attributes & ParameterAttributes.Out) != 0;
-            var isIn = (parameter.Attributes & ParameterAttributes.In) != 0;
-            var refKind = isOut && !isIn
-                ? "out"
-                : isIn && !isOut
-                    ? "in"
-                    : null;
+            // Applied only when the signature type is by-reference.
+            var refKind = ParameterByRefKinds.Classify(reader, parameter).CSharpModifier();
             var defaultParameter = (parameter.Attributes & ParameterAttributes.HasDefault) != 0
                 ? parameter
                 : (Parameter?)null;

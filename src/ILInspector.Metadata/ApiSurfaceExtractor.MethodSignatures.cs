@@ -444,16 +444,8 @@ public static partial class ApiSurfaceExtractor
                     handle,
                     beforeRetain: beforeRetain,
                     beforeMaterialize: beforeMaterialize);
-                // An interop-marshalled `ref` parameter sets both In and Out, so
-                // neither flag alone identifies a C# `out`/`in`. Spelling such a
-                // parameter `out` breaks definite assignment in the body.
-                bool isOut = (param.Attributes & System.Reflection.ParameterAttributes.Out) != 0;
-                bool isIn = (param.Attributes & System.Reflection.ParameterAttributes.In) != 0;
-                string? refKind = isOut && !isIn
-                    ? "out"
-                    : isIn && !isOut
-                        ? "in"
-                        : null;
+                // Applied only when the signature type is by-reference.
+                string? refKind = ParameterByRefKinds.Classify(reader, param, beforeMaterialize).CSharpModifier();
 
                 bool hasDefault = (param.Attributes & System.Reflection.ParameterAttributes.HasDefault) != 0;
                 object? defaultValue = null;
