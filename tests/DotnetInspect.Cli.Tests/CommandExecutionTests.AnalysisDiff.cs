@@ -12,6 +12,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
@@ -1839,6 +1840,99 @@ public partial class CommandExecutionTests
                 row.GetProperty("transition").GetString());
             Assert.Contains("https://", row.GetProperty("new").GetString());
         });
+    }
+
+    [Fact]
+    public async Task Diff_StringLiterals_PackageAssemblyRenameReportsBothSides()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"diff-literal-rename-{Guid.NewGuid():N}");
+        string packageName = $"Diff.Literal.Rename.{Guid.NewGuid():N}";
+        string assemblyPath = FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        Directory.CreateDirectory(directory);
+        try
+        {
+            NuGetCache.Initialize(
+                "dotnet-inspect-literal-rename",
+                Path.Combine(directory, "cache"),
+                skipNuGetCache: true);
+            foreach ((string version, string assemblyName) in new[]
+                {
+                    ("1.0.0", "Old.dll"),
+                    ("2.0.0", "New.dll"),
+                })
+            {
+                string packagePath = Path.Combine(
+                    directory, $"{packageName}.{version}.nupkg");
+                using (ZipArchive archive = ZipFile.Open(
+                    packagePath, ZipArchiveMode.Create))
+                {
+                    archive.CreateEntryFromFile(
+                        assemblyPath, $"lib/net10.0/{assemblyName}");
+                    ZipArchiveEntry nuspec = archive.CreateEntry(
+                        $"{packageName}.nuspec");
+                    await using Stream stream = nuspec.Open();
+                    await using var writer = new StreamWriter(stream);
+                    await writer.WriteAsync(
+                        $"""
+                        <package><metadata>
+                          <id>{packageName}</id><version>{version}</version>
+                          <authors>tests</authors><description>literal rename</description>
+                        </metadata></package>
+                        """);
+                }
+                string staged = Path.Combine(directory, $"staged-{version}");
+                ZipFile.ExtractToDirectory(packagePath, staged);
+                NuGetCache.CommitPackage(
+                    staged, packagePath, packageName, version,
+                    NuGetCache.GetSourceKey(directory));
+            }
+
+            var (exit, output, error) = await RunAppAsync(
+                "diff", $"{packageName}@1.0.0..2.0.0",
+                "--source", directory,
+                "--analysis", "string-literals",
+                "--where", "Literal contains https://",
+                "--json");
+
+            Assert.True(exit == 0, $"{error}\n{output}");
+            Assert.Empty(error);
+            using JsonDocument document = JsonDocument.Parse(output);
+            Assert.Equal("Compared", Assert.Single(
+                document.RootElement.GetProperty("outcomes").EnumerateArray())
+                .GetProperty("kind").GetString());
+            JsonElement[] transitions = [.. document.RootElement
+                .GetProperty("transitions").EnumerateArray()];
+            Assert.Equal(2, transitions.Length);
+            Assert.Contains(transitions, row =>
+                row.GetProperty("target").GetString() == "Old.dll"
+                && row.GetProperty("transition").GetString()
+                    == "PairFinding.Removed");
+            Assert.Contains(transitions, row =>
+                row.GetProperty("target").GetString() == "New.dll"
+                && row.GetProperty("transition").GetString()
+                    == "PairFinding.Added");
+
+            string oldPath = Path.Combine(
+                directory, "staged-1.0.0", "lib", "net10.0", "Old.dll");
+            string newPath = Path.Combine(
+                directory, "staged-2.0.0", "lib", "net10.0", "New.dll");
+            var local = await RunAppAsync(
+                "diff", "--library", $"{oldPath}..{newPath}",
+                "--analysis", "string-literals",
+                "--where", "Literal contains https://",
+                "--json");
+            Assert.Equal(0, local.Exit);
+            Assert.Empty(local.Error);
+            using JsonDocument localDocument = JsonDocument.Parse(local.Output);
+            Assert.Empty(localDocument.RootElement
+                .GetProperty("transitions").EnumerateArray());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Theory]

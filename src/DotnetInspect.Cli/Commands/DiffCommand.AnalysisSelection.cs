@@ -596,6 +596,11 @@ public partial class DiffCommand
             stringLiteralQuery: plan.StringLiteralQuery,
             prepareStringLiterals: plan.StringLiteralQuery is { } literal
                 ? fromPaths.Count == 1 && toPaths.Count == 1
+                    && (options.PackageVersionRange is null
+                        || string.Equals(
+                            Path.GetFileName(fromPaths[0]),
+                            Path.GetFileName(toPaths[0]),
+                            StringComparison.OrdinalIgnoreCase))
                     ? () => StringLiteralComparisonQuery.ExecutePaths(
                         fromPaths[0],
                         toPaths[0],

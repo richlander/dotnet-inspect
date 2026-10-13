@@ -950,7 +950,10 @@ assembly at the before and after endpoints. Assemblies correspond by their
 case-insensitive file name; each retains a distinct Library Finding subject and
 appears by file name in `Transitions.Target`. A Library present on only one side
 has an empty comparison side, so its matching literals are added or removed.
-The existing one-Library subject and output remain unchanged. A failed
+When a package selects one assembly at each endpoint with the same file name,
+the existing one-Library subject and output remain unchanged. A package rename
+uses separate one-sided assembly subjects. Direct local `--library` pairs retain
+their existing pairwise subject and output even when the file names differ. A failed
 inspection of any selected assembly remains a failed comparison rather than a
 partial success. This work remains explicit through `--analysis string-literals`
 and one `Literal` predicate.
