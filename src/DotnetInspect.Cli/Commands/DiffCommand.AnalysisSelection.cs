@@ -585,12 +585,12 @@ public partial class DiffCommand
                 : () => implementation,
             hostUnavailability:
                 plan.StringLiteralQuery is not null
-                    && (fromPaths.Count != 1 || toPaths.Count != 1)
+                    && (fromPaths.Count == 0 || toPaths.Count == 0)
                 ? [
                     new DiffAnalysisHostUnavailability(
                         new AnalysisDeclarationId("string-literals"),
-                        "String-literal Diff requires exactly one Library "
-                            + "assembly at each endpoint."),
+                        "String-literal Diff requires Library assemblies "
+                            + "at both endpoints."),
                 ]
                 : null,
             stringLiteralQuery: plan.StringLiteralQuery,
@@ -602,8 +602,18 @@ public partial class DiffCommand
                         $"library:{name}",
                         name,
                         literal)
-                    : () => throw new InvalidOperationException(
-                        "String-literal Diff endpoint cardinality was not admitted.")
+                    : fromPaths.Count > 0 && toPaths.Count > 0
+                        ? () => StringLiteralComparisonQuery.ExecutePathSets(
+                            [.. fromPaths.Select(path =>
+                                new StringLiteralComparisonPath(
+                                    Path.GetFileName(path), path))],
+                            [.. toPaths.Select(path =>
+                                new StringLiteralComparisonPath(
+                                    Path.GetFileName(path), path))],
+                            $"library:{name}",
+                            literal)
+                        : () => throw new InvalidOperationException(
+                            "String-literal Diff has no Library assemblies to compare.")
                 : null);
         return new AnalysisSetRun(
             DiffAnalysisInspection.Execute(

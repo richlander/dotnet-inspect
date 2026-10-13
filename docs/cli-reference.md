@@ -2133,8 +2133,9 @@ dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
   --type System.Text.Json.JsonSerializer --member "Serialize:1" \
   --analysis api,call-site,allocation
 
-dotnet-inspect diff --package Microsoft.Identity.Client@4.89.0..4.90.0 \
-  --analysis string-literals --where "Literal contains https://"
+dotnet-inspect diff --package Microsoft.Azure.SignalR@1.20.0..1.33.1 \
+  --analysis string-literals \
+  --where "Literal contains https://"
 
 dotnet-inspect diff --library old/Foo.dll..new/Foo.dll \
   --analysis string-literals --where "Literal starts-with https://" --json
@@ -2144,7 +2145,11 @@ String-literal predicates use exact ordinal UTF-16 matching. The key is
 case-sensitive `Literal`; the supported operators are `contains` and
 `starts-with`. Each Transition row retains the complete decoded literal. Two
 matching positions within one literal still produce one row, while separate
-physical `ldstr` instructions remain separate occurrences.
+physical `ldstr` instructions remain separate occurrences. Package diffs with
+several Library assemblies compare corresponding assemblies by file name and
+name each assembly in the Transition target. An assembly present at only one
+endpoint contributes added or removed literals. The single-Library target
+remains the package name.
 
 Omitting `--analysis` selects the default set, `api`, so `diff A B` output is
 unchanged. One selected analysis defaults to `Changes` for `api` and to

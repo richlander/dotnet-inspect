@@ -31,6 +31,7 @@
                      Version="[1.2.0]" />
     <PackageDownload Include="Newtonsoft.Json" Version="[13.0.4]" />
     <PackageDownload Include="System.Text.Json" Version="[9.0.0];[10.0.0]" />
+    <PackageDownload Include="Microsoft.Azure.SignalR" Version="[1.20.0];[1.33.1]" />
     <PackageDownload Include="NUnit" Version="[4.1.0];[4.2.2]" />
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-x64" Version="[11.0.0-rc.1.26425.128]" />
     <PackageDownload Include="Microsoft.NETCore.App.Ref" Version="[11.0.0-rc.1.26425.128]" />

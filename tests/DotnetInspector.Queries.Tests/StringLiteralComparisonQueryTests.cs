@@ -116,6 +116,74 @@ public sealed class StringLiteralComparisonQueryTests
         Assert.Equal(literal, pair.New.Payload.LiteralText.ToString());
     }
 
+    [Fact]
+    public void Path_set_comparison_keeps_assembly_identity_and_one_sided_additions()
+    {
+        StringLiteralComparisonQueryPlan plan =
+            Assert.IsType<StringLiteralComparisonQueryPlanResult.Accepted>(
+                StringLiteralComparisonQuery.ResolveIntent(
+                    StringLiteralComparisonQuery.CreateIntent(
+                        PortableQueryOperator.StartsWith,
+                        "https://"),
+                    TestContext.Current.CancellationToken)).Plan;
+        string path = FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+
+        RetainedFindingComparisonSet result =
+            StringLiteralComparisonQuery.ExecutePathSets(
+                [new("Common.dll", path)],
+                [new("common.DLL", path), new("Companion.dll", path)],
+                "library:fixture",
+                plan,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        var comparisons = result.Get<StringLiteralUseOccurrence>(
+            StringLiteralUseFindings.Descriptor);
+        Assert.Equal(2, comparisons.Length);
+        Assert.Equal("Common.dll", comparisons[0].Subject.Display);
+        Assert.IsType<PairFinding<StringLiteralUseOccurrence>.Present>(
+            Assert.Single(Assert.IsType<
+                FindingComparison<StringLiteralUseOccurrence>.Complete>(
+                comparisons[0].Comparison.Value).Pairs).Value);
+        Assert.Equal("Companion.dll", comparisons[1].Subject.Display);
+        Assert.IsType<PairFinding<StringLiteralUseOccurrence>.Added>(
+            Assert.Single(Assert.IsType<
+                FindingComparison<StringLiteralUseOccurrence>.Complete>(
+                comparisons[1].Comparison.Value).Pairs).Value);
+    }
+
+    [Fact]
+    public void Path_set_comparison_does_not_match_equal_literals_across_assemblies()
+    {
+        StringLiteralComparisonQueryPlan plan =
+            Assert.IsType<StringLiteralComparisonQueryPlanResult.Accepted>(
+                StringLiteralComparisonQuery.ResolveIntent(
+                    StringLiteralComparisonQuery.CreateIntent(
+                        PortableQueryOperator.StartsWith,
+                        "https://"),
+                    TestContext.Current.CancellationToken)).Plan;
+        string path = FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+
+        RetainedFindingComparisonSet result =
+            StringLiteralComparisonQuery.ExecutePathSets(
+                [new("Old.dll", path)],
+                [new("New.dll", path)],
+                "library:fixture",
+                plan,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        var comparisons = result.Get<StringLiteralUseOccurrence>(
+            StringLiteralUseFindings.Descriptor);
+        Assert.Equal(2, comparisons.Length);
+        Assert.IsType<PairFinding<StringLiteralUseOccurrence>.Added>(
+            Assert.Single(Assert.IsType<
+                FindingComparison<StringLiteralUseOccurrence>.Complete>(
+                comparisons[0].Comparison.Value).Pairs).Value);
+        Assert.IsType<PairFinding<StringLiteralUseOccurrence>.Removed>(
+            Assert.Single(Assert.IsType<
+                FindingComparison<StringLiteralUseOccurrence>.Complete>(
+                comparisons[1].Comparison.Value).Pairs).Value);
+    }
+
     private static PortableQueryFailure Rejection(
         PortableQueryIntent intent)
         => Assert.IsType<

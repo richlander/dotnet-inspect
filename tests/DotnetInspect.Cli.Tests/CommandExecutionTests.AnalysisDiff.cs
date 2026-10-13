@@ -1808,6 +1808,39 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task Diff_StringLiterals_MultiLibraryPackageReportsCompanionChanges()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff",
+            "Microsoft.Azure.SignalR@1.20.0..1.33.1",
+            "--analysis", "string-literals",
+            "--where", "Literal contains https://",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(
+            "Compared",
+            Assert.Single(document.RootElement.GetProperty("outcomes")
+                .EnumerateArray()).GetProperty("kind").GetString());
+        JsonElement.ArrayEnumerator transitions =
+            document.RootElement.GetProperty("transitions").EnumerateArray();
+        Assert.NotEmpty(transitions);
+        Assert.All(transitions, row =>
+        {
+            Assert.Equal(
+                "Microsoft.Azure.SignalR.Common.dll",
+                row.GetProperty("target").GetString());
+            Assert.Equal(
+                "PairFinding.Added",
+                row.GetProperty("transition").GetString());
+            Assert.Contains("https://", row.GetProperty("new").GetString());
+        });
+    }
+
     [Theory]
     [InlineData("Literal contains https://", "https://", 2)]
     [InlineData("Literal contains https:// ", "https:// ", 0)]
