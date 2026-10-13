@@ -66,6 +66,7 @@ type PackageOperationName =
   | "queryMemberDocumentation"
   | "queryPlatformMemberDocumentation"
   | "queryPackageDependencies"
+  | "queryPackageHierarchy"
   | "queryPackageVulnerabilities"
   | "queryPackageVersions"
   | "queryWorkspacePackageOccurrences"
@@ -1239,6 +1240,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<PackageFacade["queryPackageDependencies"]>
       ) => facades.package.queryPackageDependencies(...args),
+    ),
+    queryPackageHierarchy: valueOperation(
+      "ordinary-package-query-hierarchy",
+      3,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryPackageHierarchy"]>
+      ) => facades.package.queryPackageHierarchy(...args),
     ),
     queryPackageIcon: valueOperation(
       "ordinary-package-query-icon",
@@ -2507,6 +2516,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryPackageDependencies: bind(
         engineWorkerOrdinaryOperations.package.queryPackageDependencies,
+      ),
+      queryPackageHierarchy: bind(
+        engineWorkerOrdinaryOperations.package.queryPackageHierarchy,
       ),
       queryPackageIcon: bind(
         engineWorkerOrdinaryOperations.package.queryPackageIcon,

@@ -1868,6 +1868,11 @@ kbd {
   container: package-dependencies / inline-size;
   grid-template-rows: var(--content-heading-height) minmax(0, 1fr);
 }
+.package-hierarchy-tree { overflow-x: auto; font: 12px/1.7 var(--mono); }
+.package-hierarchy-tree ul { margin: 0; padding-left: 22px; list-style: none; border-left: 1px solid var(--line); }
+.package-hierarchy-tree > ul { padding-left: 0; border-left: 0; }
+.package-hierarchy-tree li { margin: 2px 0; white-space: nowrap; }
+.package-hierarchy-tree small { color: var(--muted); }
 .overview-surface { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: var(--content-heading-height) minmax(0, 1fr); container: overview-surface / inline-size; background: var(--bg); }
 .package-overview-surface { grid-template-rows: minmax(0, 1fr); }
 .overview-surface-label { color: var(--muted); font: 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; }

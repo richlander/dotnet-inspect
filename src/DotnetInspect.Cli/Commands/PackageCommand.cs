@@ -97,10 +97,17 @@ public partial class PackageCommand
         var sectionNames = sectionCatalog.SelectableSectionNames;
         bool packageLibraryMode = options.PackageLibrary != null || options.AllLibraries;
         if (options.WorkspacePacket is null
+            && options.ShareFormat is not null
+            && options.Discover is not null)
+        {
+            CommandError.Write("--share cannot preserve package discovery in the Browser.");
+            return 1;
+        }
+        if (packageLibraryMode
+            && options.WorkspacePacket is null
             && options.ShareFormat is not null)
         {
-            CommandError.Write(
-                "--share on package requires --workspace.");
+            CommandError.Write("--share on package library routes requires --workspace.");
             return 1;
         }
 #if DEBUG
@@ -275,6 +282,34 @@ public partial class PackageCommand
             if (SelectOutput.WriteUnresolved(selectResult)) return 1;
             if (selectResult.Sections != null)
                 options = options with { IncludeSections = selectResult.Sections };
+            if (options.WorkspacePacket is null
+                && options.ShareFormat is not null
+                && !IsSingleDependencyHierarchySelection(options))
+            {
+                CommandError.Write(
+                    "--share on package currently supports one explicit "
+                        + "'Dependency Hierarchy' section, or requires --workspace.");
+                return 1;
+            }
+            if (options.WorkspacePacket is null
+                && options.ShareFormat is not null
+                && (options.Count
+                    || options.Raw
+                    || options.Value
+                    || options.Paths
+                    || options.Roots
+                    || options.Print
+                    || options.ShowContent
+                    || options.Urls
+                    || options.ListVersions
+                    || options.Fields is not null
+                    || options.Columns is not null))
+            {
+                CommandError.Write(
+                    "--share cannot preserve this Dependency Hierarchy "
+                        + "output selection in the Browser.");
+                return 1;
+            }
             if (packageArgs.Length > 1
                 && options.IncludeSections?.Contains(
                     PackageSections.DependencyHierarchy) == true)
@@ -1596,7 +1631,9 @@ public partial class PackageCommand
                     WritePackageFilesTree(result, options);
                 else
                     WritePackageDependencyHierarchyTree(result, options);
-                return PackageIntegrityExitCode(result);
+                return WriteDirectHierarchyShare(
+                    PackageIntegrityExitCode(result), options, target,
+                    resolution, result);
             }
 
             if (wantsSignals && options.Count && !effectiveDiscovery)
@@ -1752,7 +1789,9 @@ public partial class PackageCommand
                 {
                     return 1;
                 }
-                return PackageIntegrityExitCode(result);
+                return WriteDirectHierarchyShare(
+                    PackageIntegrityExitCode(result), options, target,
+                    resolution, result);
             }
             if (options.Tabular)
             {
@@ -1912,7 +1951,9 @@ public partial class PackageCommand
                     });
             }
 
-            return PackageIntegrityExitCode(result);
+            return WriteDirectHierarchyShare(
+                PackageIntegrityExitCode(result), options, target,
+                resolution, result);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {

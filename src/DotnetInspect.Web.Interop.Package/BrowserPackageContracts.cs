@@ -1248,6 +1248,24 @@ public sealed record BrowserPackageDependencies(
     string? PlatformReferenceError,
     BrowserCompileLibraryAvailability CompileLibrary);
 
+/// <summary>One rooted transitive dependency occurrence for the Browser.</summary>
+public sealed record BrowserPackageHierarchyRow(
+    int Id,
+    int? ParentId,
+    int Depth,
+    string Label,
+    string Disposition,
+    string Resolution);
+
+public sealed record BrowserPackageHierarchy(
+    string Package,
+    string Version,
+    string Framework,
+    bool IsComplete,
+    string Completion,
+    BrowserPackageHierarchyRow[] Rows,
+    string[] Failures);
+
 public sealed record BrowserPackagePlatformReference(
     string Family,
     string Label);
@@ -1448,6 +1466,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageQueryCancellation))]
 [JsonSerializable(typeof(BrowserPackageQueryMatchCreditResponse))]
 [JsonSerializable(typeof(BrowserPackageDependencies))]
+[JsonSerializable(typeof(BrowserPackageHierarchy))]
 [JsonSerializable(typeof(BrowserLibraryQueryInspection))]
 [JsonSerializable(typeof(BrowserPackageVulnerabilityResult))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]

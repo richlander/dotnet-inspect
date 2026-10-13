@@ -850,6 +850,8 @@ import type {
   BrowserPackageChangesEcosystemDescriptor,
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
+  BrowserPackageHierarchy,
+  BrowserPackageHierarchyRow,
   BrowserPackageDependencyGroup,
   BrowserPackageIconInspection,
   BrowserPlatformForwarderRow,
@@ -937,6 +939,8 @@ let inspectLibraryDocument: EngineClient["library"]["inspectLibrary"];
 let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
 let inspectPackageDependencies:
   EngineClient["package"]["queryPackageDependencies"];
+let inspectPackageHierarchy:
+  EngineClient["package"]["queryPackageHierarchy"];
 let inspectPackageIcon: EngineClient["package"]["queryPackageIcon"];
 let inspectPackageVulnerabilities:
   EngineClient["package"]["queryPackageVulnerabilities"];
@@ -1172,6 +1176,7 @@ async function loadEngineModule() {
       queryPackageRoot: inspectPackageRoot,
       queryPackageSummary: inspectPackageSummary,
       queryPackageDependencies: inspectPackageDependencies,
+      queryPackageHierarchy: inspectPackageHierarchy,
       queryPackageIcon: inspectPackageIcon,
       queryPackageVulnerabilities: inspectPackageVulnerabilities,
       queryPackageVersions: inspectPackageVersions,
@@ -1573,6 +1578,10 @@ const initialState = {
   packageDependenciesLoading: false,
   packageDependenciesError: "",
   packageDependenciesKey: "",
+  packageHierarchy: null,
+  packageHierarchyLoading: false,
+  packageHierarchyError: "",
+  packageHierarchyKey: "",
   packageVulnerabilities: { status: "idle" as const },
   dependenciesGroupIndex: null,
   workspaceDependencies: {},
@@ -1757,6 +1766,7 @@ interface StateOverrides {
   libraryEnablements: Map<string, BrowserLibraryEnablements | null>;
   libraryEnablementLoads: Set<string>;
   packageDependencies: BrowserPackageDependencies | null;
+  packageHierarchy: BrowserPackageHierarchy | null;
   packageVulnerabilities: PackageVulnerabilityState;
   dependenciesGroupIndex: number | null;
   workspaceDependencies: Record<string, DependencyGroupData>;
@@ -7656,7 +7666,8 @@ function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): 
 function packageLensesFor(pkg: AppPackage | null) {
   return packageLenses.filter(([id]) => {
     if (pkg?.isRuntimePack) return id === "overview";
-    if (id === "vulnerabilities") return pkg?.source.kind === "nuget.org";
+    if (id === "vulnerabilities" || id === "hierarchy")
+      return pkg?.source.kind === "nuget.org";
     return true;
   });
 }
@@ -10032,6 +10043,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     maybeAutoLoadLibraryApi();
     maybeAutoLoadLibraryEnablements();
     maybeAutoLoadPackageDependencies();
+    maybeAutoLoadPackageHierarchy();
     maybeAutoLoadPackageVulnerabilities();
     maybeAutoLoadPackageIntegrations();
     maybeAutoLoadPackagePerformance();
@@ -11151,6 +11163,7 @@ function packageLensBody() {
       escapeHtml,
     });
     case "dependencies": return renderPackageDependencies();
+    case "hierarchy": return renderPackageHierarchy();
     case "vulnerabilities": {
       const pkg = currentPackage();
       const vulnerabilityState = state.packageVulnerabilities;
@@ -11364,6 +11377,45 @@ function renderPackageDependencies() {
   return renderPackageDependenciesSurface(
     `<div data-dependency-graph-surface>${dependencyGroupNotice}${declarationFailureNotice}${selector}${graphSection}</div>${platformReferenceSection}${depList}`,
     packageDependenciesStatus(data, selectedGroupIndex));
+}
+
+function packageHierarchySignature() {
+  const pkg = currentPackage();
+  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}`;
+}
+
+function renderPackageHierarchy() {
+  const fresh = state.packageHierarchyKey === packageHierarchySignature();
+  const hierarchy = fresh ? state.packageHierarchy : null;
+  let content: string;
+  if (fresh && state.packageHierarchyError) {
+    content = `<section class="document-section empty-document"><h2>Dependency hierarchy unavailable</h2><p>${escapeHtml(state.packageHierarchyError)}</p></section>`;
+  } else if (!hierarchy) {
+    content = `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving dependency hierarchy…</h2></section>`;
+  } else {
+    const children = new Map<number | null, BrowserPackageHierarchyRow[]>();
+    for (const row of hierarchy.rows) {
+      const siblings = children.get(row.parentId) ?? [];
+      siblings.push(row);
+      children.set(row.parentId, siblings);
+    }
+    const branch = (parentId: number | null): string => {
+      const rows = children.get(parentId) ?? [];
+      if (!rows.length) return "";
+      return `<ul>${rows.map(row => `<li><span>${escapeHtml(row.label)}</span>${row.disposition === "Revisit" || row.disposition === "Cycle" ? ` <small>(${escapeHtml(row.disposition.toLowerCase())})</small>` : ""}${row.resolution !== "Resolved" ? ` <small>(${escapeHtml(row.resolution.toLowerCase())})</small>` : ""}${branch(row.id)}</li>`).join("")}</ul>`;
+    };
+    const completion = hierarchy.isComplete
+      ? ""
+      : `<p class="inspection-notice">Traversal ${escapeHtml(hierarchy.completion.toLowerCase())}. Some dependencies may be missing.</p>`;
+    const failures = hierarchy.failures.length
+      ? `<details><summary>${hierarchy.failures.length} traversal issue${hierarchy.failures.length === 1 ? "" : "s"}</summary><ul>${hierarchy.failures.map(failure => `<li>${escapeHtml(failure)}</li>`).join("")}</ul></details>`
+      : "";
+    content = `<section class="document-section package-hierarchy-tree">${completion}${branch(null)}${failures}</section>`;
+  }
+  const status = hierarchy
+    ? `${hierarchy.rows.length - 1} occurrences${hierarchy.isComplete ? "" : " · incomplete"}`
+    : state.packageHierarchyLoading ? "resolving" : "unavailable";
+  return `<section class="package-dependencies-surface" aria-labelledby="package-hierarchy-title"><header class="api-surface-head package-dependencies-surface-head"><h1 id="package-hierarchy-title">Dependency Hierarchy</h1><p>${escapeHtml(status)}</p></header><div class="package-dependencies-scroll">${content}</div></section>`;
 }
 
 function platformReferenceSectionHtml(
@@ -11780,6 +11832,35 @@ function maybeAutoLoadPackageDependencies() {
     return;
   }
   observeAsync(loadPackageDependencies(), "Loading package dependencies");
+}
+
+function maybeAutoLoadPackageHierarchy() {
+  if (scope() !== "package"
+    || !state.atPackageRoot
+    || state.packageLens !== "hierarchy"
+    || state.package?.source.kind !== "nuget.org") return;
+  const pkg = currentPackage();
+  const key = packageHierarchySignature();
+  if (state.packageHierarchyKey === key) return;
+  state.packageHierarchyKey = key;
+  state.packageHierarchy = null;
+  state.packageHierarchyLoading = true;
+  state.packageHierarchyError = "";
+  observeAsync((async () => {
+    try {
+      const hierarchy = await inspectPackageHierarchy(
+        pkg.id, pkg.version, pkg.activeFramework);
+      if (state.packageHierarchyKey === key) state.packageHierarchy = hierarchy;
+    } catch (error) {
+      if (state.packageHierarchyKey === key)
+        state.packageHierarchyError = errorMessage(error);
+    } finally {
+      if (state.packageHierarchyKey === key) {
+        state.packageHierarchyLoading = false;
+        render();
+      }
+    }
+  })(), "Loading package dependency hierarchy");
 }
 
 function maybeAutoLoadPackageVulnerabilities() {
