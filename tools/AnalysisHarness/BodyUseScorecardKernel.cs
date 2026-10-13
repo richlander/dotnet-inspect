@@ -612,7 +612,7 @@ public static class BodyUseScorecardKernel
                                     methodHandle,
                                     method)),
                             terminal);
-                    ImmutableArray<BodyTypeUseOccurrence> occurrences =
+                    IReadOnlyList<BodyTypeUseOccurrence> occurrences =
                         answer.Add(
                             visit,
                             retainOccurrences: false,
@@ -840,7 +840,8 @@ public static class BodyUseScorecardKernel
                 answer;
             readonly ProducerTerminal _terminal = terminal;
             readonly bool _retainBodies = retainBodies;
-            ImmutableArray<BodyTypeUseOccurrence> _occurrences = [];
+            IReadOnlyList<BodyTypeUseOccurrence> _occurrences =
+                Array.Empty<BodyTypeUseOccurrence>();
             int _index;
 
             public BodyTypeUseOccurrence TryGetNext(
@@ -848,7 +849,7 @@ public static class BodyUseScorecardKernel
             {
                 while (true)
                 {
-                    if (_index < _occurrences.Length)
+                    if (_index < _occurrences.Count)
                     {
                         hasMore = true;
                         return _occurrences[_index++];
