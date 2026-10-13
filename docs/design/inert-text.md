@@ -224,23 +224,23 @@ Markdown but published those format controls unchanged, so the browser rendered
 package-authored text in a different visual order.
 
 Raw Markdown remains untreated through package acquisition because it still has
-structural meaning. The browser first resolves each publication fragment's
-structure: body and description Markdown are parsed and passed through the HTML
-allow list, while frontmatter name and version text are HTML-escaped. It then
-sends every resulting fragment through `TextPolicy.Prose` immediately before
-publication. Containment cannot introduce HTML structure: its spellings use
-visible ASCII backslash, caret, letters, and digits, while DOMPurify remains the
-owner of active-content removal and HTML escaping remains the owner of plain
-frontmatter structure. Applying containment before Markdown parsing is
-intentionally excluded because Markdown can consume backslash spellings and
-collapse distinct source text.
+structural meaning. [Contained document
+publication](contained-document-publication.md) now owns the composition from
+owner-issued structure and displayed leaves to one publishable document. This
+owner retains the scalar rule: each displayed leaf constructs `InertString`
+under its declared `TextPolicy` only after Markdown or plain-text structural
+handling. Applying containment before Markdown parsing remains intentionally
+excluded because Markdown can consume backslash spellings and collapse
+distinct source text.
 
 `PackageDocument_RealWrongTurnReadmeIsContainedForBrowserPublication` retains
 the exact package archive by `PackageDownload` and gates the observed bidi
 shape. `PackageDocumentHtml_ContainsBidiAfterStructuralSanitization` gates
 visual containment, literal-spelling distinction, and scalar JSON transport.
 The document coordinator tests gate the same distinction for separately
-published frontmatter name and version values.
+published frontmatter name and version values. These gates describe the safe
+transitional whole-HTML implementation; the contained-document adoption owns
+its eventual replacement.
 
 ### Package skills entering agent context
 
