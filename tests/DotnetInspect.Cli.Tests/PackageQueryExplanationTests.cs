@@ -67,6 +67,95 @@ public sealed class PackageQueryExplanationTests : IDisposable
         Assert.Equal(0, requests);
     }
 
+    [Theory]
+    [InlineData("depends,dependency-target", new[] { "dependency-target", "depends" })]
+    [InlineData("depends;dependency-target", new[] { "dependency-target", "depends" })]
+    [InlineData("depends,depends", new[] { "depends" })]
+    [InlineData("dependency-depth", new[] { "dependency-target", "dependency-depth" })]
+    [InlineData("library-literal", new[] { "library-literal", "library-target" })]
+    public async Task ExplainQueryKeys_NarrowSharedRecordsAndRetainRequiredContext(string keys, string[] expected)
+    {
+        var full = await Run("package", "query", "--explain", "--json");
+        var selected = await Run("package", "query", "--explain", "-Q", keys, "--json");
+        Assert.Equal(0, selected.ExitCode);
+        Assert.Empty(selected.Error);
+        using JsonDocument source = JsonDocument.Parse(full.Output);
+        using JsonDocument document = JsonDocument.Parse(selected.Output);
+        JsonElement root = document.RootElement;
+        Dictionary<string, JsonElement> originals = source.RootElement.GetProperty("_embedded").GetProperty("facets")
+            .EnumerateArray().ToDictionary(facet => facet.GetProperty("key").GetString()!);
+        JsonElement[] facets = root.GetProperty("_embedded").GetProperty("facets").EnumerateArray().ToArray();
+        Assert.Equal(expected, facets.Select(facet => facet.GetProperty("key").GetString()));
+        foreach (JsonElement facet in facets)
+            Assert.True(JsonElement.DeepEquals(originals[facet.GetProperty("key").GetString()!], facet));
+        Assert.Equal("query-preparation/v1", root.GetProperty("scope").GetProperty("profile").GetString());
+        Assert.Equal(19, root.GetProperty("scope").GetProperty("catalog_facets").GetInt32());
+        Assert.Equal("Complete", root.GetProperty("scope").GetProperty("completeness").GetString());
+        JsonElement binding = root.GetProperty("_embedded").GetProperty("bindings")[0];
+        Assert.True(JsonElement.DeepEquals(source.RootElement.GetProperty("_embedded").GetProperty("bindings")[0]
+            .GetProperty("input_rules"), binding.GetProperty("input_rules")));
+        Assert.All(binding.GetProperty("exposed_facets").EnumerateArray(), key => Assert.Contains(key.GetString()!, expected));
+        Assert.DoesNotContain(binding.GetProperty("exposed_facets").EnumerateArray(), key => key.GetString() == "library-target");
+        Assert.False(root.GetProperty("_links").TryGetProperty("self", out _));
+        string collection = root.GetProperty("_links").GetProperty("collection").GetProperty("href").GetString()!;
+        var followed = await Run("explain", collection, "--json");
+        Assert.Equal(0, followed.ExitCode);
+        Assert.Equal(full.Output, followed.Output);
+        Assert.Equal(0, requests);
+    }
+
+    [Theory]
+    [InlineData(new[] { "package", "query", "--explain", "-Q" }, 0)]
+    [InlineData(new[] { "--explain", "package", "query", "-Q" }, 0)]
+    [InlineData(new[] { "package", "query", "-Q", "--explain" }, 0)]
+    public async Task BareQueryModifier_ReturnsTheFullModel(string[] args, int expectedExitCode)
+    {
+        var full = await Run("package", "query", "--explain");
+        var actual = await Run(args);
+        Assert.Equal(expectedExitCode, actual.ExitCode);
+        Assert.Equal(full.Output, actual.Output);
+        Assert.Equal(0, requests);
+    }
+
+    [Theory]
+    [InlineData("unknown")]
+    [InlineData("depends*")]
+    [InlineData("Packages")]
+    [InlineData("Depends")]
+    [InlineData("")]
+    public async Task InvalidQueryKeySelection_FailsBeforeAcquisition(string keys)
+    {
+        var result = await Run("package", "query", "--explain", "-Q", keys);
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.NotEmpty(result.Error);
+        Assert.Equal(0, requests);
+    }
+
+    [Fact]
+    public async Task QueryHelpAliasAndPlacement_SelectTheSameDataset()
+    {
+        var expected = await Run("package", "query", "--explain", "-Q", "depends,dependency-target");
+        var actual = await Run("package", "--query-help", "depends,dependency-target", "query", "--explain");
+        Assert.Equal(0, expected.ExitCode);
+        Assert.Equal(0, actual.ExitCode);
+        Assert.Equal(expected.Output, actual.Output);
+        Assert.Equal(0, requests);
+    }
+
+    [Fact]
+    public async Task LegacyDiscoverySummary_ContainsTheRegisteredBindingGuidance()
+    {
+        var legacy = await Run("package", "query", "-Q", "Packages", "--json");
+        var explain = await Run("package", "query", "--explain");
+        using JsonDocument discovery = JsonDocument.Parse(legacy.Output);
+        using JsonDocument description = JsonDocument.Parse(explain.Output);
+        string summary = discovery.RootElement.GetProperty("sections")[0].GetProperty("summary").GetString()!;
+        foreach (JsonElement rule in description.RootElement.GetProperty("_embedded").GetProperty("bindings")[0].GetProperty("input_rules").EnumerateArray())
+            Assert.Contains(rule.GetString()!, summary, StringComparison.Ordinal);
+        Assert.Equal(0, requests);
+    }
+
     public void Dispose()
     {
         CoreHttpClientFactory.SetPackageSourceHandlerForTesting(null);
@@ -127,7 +216,6 @@ public sealed class PackageQueryExplanationTests : IDisposable
     [InlineData(new[] { "--fields", "Id" }, 1)]
     [InlineData(new[] { "--columns", "Id" }, 1)]
     [InlineData(new[] { "-D" }, 1)]
-    [InlineData(new[] { "-Q" }, 1)]
     [InlineData(new[] { "-S", "Packages" }, 1)]
     [InlineData(new[] { "--tree" }, 1)]
     [InlineData(new[] { "--source", "https://example.test/v3/index.json" }, 1)]
@@ -146,12 +234,14 @@ public sealed class PackageQueryExplanationTests : IDisposable
     [InlineData(new[] { "-E" }, 1)]
     public async Task QueryInputsAndOutputModifiers_FailBeforeAcquisition(string[] extra, int expectedExitCode)
     {
-        var result = await Run(["package", "query", "--explain", .. extra]);
-
-        Assert.Equal(expectedExitCode, result.ExitCode);
-        Assert.NotEmpty(result.Error);
-        Assert.DoesNotContain("\"_embedded\"", result.Output);
-        Assert.Equal(0, requests);
+        foreach (string[] narrowing in new[] { Array.Empty<string>(), new[] { "-Q", "depends" } })
+        {
+            var result = await Run(["package", "query", "--explain", .. narrowing, .. extra]);
+            Assert.Equal(expectedExitCode, result.ExitCode);
+            Assert.NotEmpty(result.Error);
+            Assert.DoesNotContain("\"_embedded\"", result.Output);
+            Assert.Equal(0, requests);
+        }
     }
 
     [Theory]

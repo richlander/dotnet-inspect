@@ -21,7 +21,9 @@ sidecar delivery is implemented under
 Browser/Wasm adoption remains proposed.
 The explicit `Latest Versions` section is designed under
 [#9967](https://github.com/richlander/dotnet-inspect/issues/9967) and not yet
-implemented.
+implemented. The `Pruning` section's library pruning policy for
+application-authored declarations is implemented under
+[#9981](https://github.com/richlander/dotnet-inspect/issues/9981).
 
 ## Owner and claim
 
@@ -76,6 +78,9 @@ It consumes owner-issued facts and does not redefine their construction:
 - [Package House](package-house.md) owns the candidate-bound pruning
   applicability, policy result, receipt, and distinction between package
   retention and platform delegation.
+- [Platform/package pruning](platform-package-pruning.md) owns the exact
+  target prune inventory and the subsumption comparison of a requested
+  package version against it.
 - [Package Dependency Traversal](package-dependency-traversal.md) owns
   package-manifest graph identity, direct source boundaries, root-relative
   reachability, failures, and completion while preserving owner-issued
@@ -783,7 +788,7 @@ The retail base section ladder is:
 | `Dependency Hierarchy` | One rooted dependency relationship occurrence. | Minimal |
 | `Dependencies` | One normalized direct declaration. | Normal when applicable |
 | `Licenses` | One distinct dependency package coordinate and its nuspec-derived semantic license answer. | Explicit only |
-| `Pruning` | One direct declaration's pruning applicability or candidate-bound policy result. | Explicit only |
+| `Pruning` | One direct declaration's pruning applicability, candidate-bound policy result, or restored-resolution policy result. | Explicit only |
 | `Latest Versions` | One direct declaration's current version and latest listed versions. | Explicit only |
 | `Failures` | One typed root, acquisition, projection, or traversal failure occurrence. | Normal when present |
 
@@ -1195,19 +1200,23 @@ Dependency Evidence:
 - one typed failure occurrence.
 
 `Pruning` composes one additional CLI row over those owner-issued currencies:
-one normalized direct declaration plus its PackageHouse pruning applicability
-or candidate-bound policy result. When a root has a selected declaration
-group, only that group's declarations participate. A post-processing root such
-as a restored project may report its earlier application-authored or already-
-processed outcome without manufacturing a selected package-manifest group.
+one normalized direct declaration plus its PackageHouse pruning applicability,
+candidate-bound policy result, or restored-resolution policy result. When a
+root has a selected declaration group, only that group's declarations
+participate. A post-processing root such as a restored project may report its
+already-processed outcome without manufacturing a selected package-manifest
+group; its application-authored declarations follow the
+[library pruning policy](#library-pruning-policy-for-application-authored-declarations).
 
 Candidate-free applicability runs before inventory or package-source work. It
 preserves application-authored exemption, unattributed authorship, unavailable
 or incomplete processing, runtime projection, and prior pruning evaluation as
 distinct outcomes. Only a package-manifest declaration that reaches
 `CandidateRequired` and whose root authorizes package-source candidate
-resolution proceeds to inventory and candidate acquisition. Direct nuspec and
-package-prefix roots remain source-bounded.
+resolution proceeds to inventory and candidate acquisition, except that an
+application-authored declaration continues under the
+[library pruning policy](#library-pruning-policy-for-application-authored-declarations).
+Direct nuspec and package-prefix roots remain source-bounded.
 
 The comparison uses one exact target-bound installed inventory per request.
 Candidate resolution remains declaration- and source-authorized. A policy
@@ -1250,6 +1259,35 @@ transitive package traversal does not retroactively change those evidence rows.
 Human output may use document-stable occurrence numbers where an opaque typed
 identity would not be useful. Machine output retains the typed identity and
 association fields.
+
+### Library pruning policy for application-authored declarations
+
+`Pruning` answers whether a reference needs to exist before `Latest Versions`
+asks whether it should move. It assumes the consumer prunes, as libraries and
+packages do, so a direct reference that the target platform already supplies
+at that version or higher is reported as `PlatformDelegation` with reason
+`ApplicationAuthored`, even when the application authored it. The guidance that
+follows is removal, not upgrade: upgrading such a reference past the platform's
+version gives up pruning and gains nothing.
+
+For example, a restored `net10.0` application that references
+`System.Text.Json` 8.0.5 reports `PlatformDelegation`, because the platform
+supplies a higher version. The same reference at 12.0.0 reports
+`PackageRetained`.
+
+The policy judges the version the project's restore resolved, so it needs no
+package-source work, and it changes only the section's report. These
+`PlatformDelegation` rows carry no PackageHouse delegation receipt.
+PackageHouse's application-authored exemption from graph delegation, its
+precedence, and the graph itself are unchanged. The policy never delegates on missing or partial
+evidence: a declaration without a restored version, or a restored graph whose
+processing is incomplete, keeps its existing `NotEvaluated` outcome, and an
+uncertain comparison retains the package.
+
+The section does not model behavior specific to applications, such as NuGet
+keeping a direct reference in restore with warning `NU1510`, or the SDK binding
+the framework copy at runtime. An agent that needs those answers observes them
+by running restore and build.
 
 ### Latest Versions
 
@@ -1799,7 +1837,8 @@ targeted Debug-build probe.
 | License completion includes root-set admission and treats an explicit depth boundary as a successful bounded inventory. | Release CLI tests combining one valid and one missing nuspec root, plus a depth-one direct-nuspec graph with a known deeper frontier. |
 | License manifest acquisition failures retain unavailable answer rows and enter `Failures` with the exact package coordinate and typed reason. | Release restored-project test with one available and one missing exact manifest, asserted across JSON, nonzero status, and exact-count rejection. |
 | Pruning is explicit-only and does not enter `@Dependencies`, verbosity, or bare effective discovery. | Release catalog, category, structural/effective discovery, and no-inventory tests. |
-| Candidate-free pruning outcomes perform no inventory or candidate work. | Restored-project application-authorship and direct-nuspec source-boundary tests with throwing producers. |
+| Candidate-free applicability outcomes other than the restored-resolution policy result perform no inventory or candidate work. | Direct-nuspec source-boundary and unattributed-authorship tests with throwing producers. |
+| Application-authored declarations use the library pruning policy without package-source work and never delegate on missing or partial evidence. | Restored `net10.0` application fixtures with a throwing package-source producer and one instrumented inventory read: `System.Text.Json` 8.0.5 is `PlatformDelegation` with `ApplicationAuthored`; 12.0.0 is `PackageRetained` with `ApplicationAuthored`; a declaration without a restored resolution and an incomplete restored graph each stay `NotEvaluated` with `ApplicationAuthoredExemption`, add no failure, and leave exit status unchanged; summary counts treat compared rows as evaluated and delegated or retained. |
 | `Subsumed` delegates, while an older platform-supplied version retains the newer package candidate. | CLI projection test for `System.Text.Json@9.0.0` against platform `11.0.0` and `System.Runtime@4.3.2` against platform `4.3.1`. |
 | Inventory failure and target mismatch remain typed failures and prevent candidate work. | Instrumented inventory tests asserting nonzero status, affected declarations, and `Failures` rows. |
 | Row windows and rendering formats do not reinterpret pruning policy. | Markdown, table, typed JSON, and one-row window tests over the same two policy outcomes. |
@@ -1834,6 +1873,8 @@ This design does not:
 - add automatic restore, build, project evaluation, or package mutation;
 - apply pruning to dependency graph edges or claim that PackageHouse or
   PlatformHouse execution occurred;
+- replicate NuGet's direct-reference restore exemption (`NU1510`) or the SDK's
+  build-time conflict resolution in the `Pruning` section;
 - report latest versions for transitive dependencies, report publication
   dates, find the newest version compatible with a target framework, classify
   build-only asset scope, or recommend upgrades from `Latest Versions`;

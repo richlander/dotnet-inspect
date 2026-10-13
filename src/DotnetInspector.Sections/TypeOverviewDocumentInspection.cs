@@ -19,7 +19,9 @@ public sealed record TypeOverviewDocumentInspectionPlan
             TypeMemberGroupReceiverFilter.All,
         bool includeHidden = false,
         InspectionHierarchyRequest<TypeOverviewHierarchyTopology>?
-            hierarchy = null)
+            hierarchy = null,
+        bool includeComposition = false,
+        bool includeSelectorCounts = false)
     {
         Type = type ?? throw new ArgumentNullException(nameof(type));
         ArgumentNullException.ThrowIfNull(rows);
@@ -28,6 +30,8 @@ public sealed record TypeOverviewDocumentInspectionPlan
         Members = new(
             count: null,
             rows: rows,
+            composition: includeComposition ? new() : null,
+            selectorCounts: includeSelectorCounts ? new() : null,
             spelling: spelling,
             accessibility: accessibility,
             receiver: receiver,

@@ -105,6 +105,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     matchPackageDependencyCoordinate: () =>
       unexpected("matchPackageDependencyCoordinate"),
     searchCapabilities: () => unexpected("searchCapabilities"),
+    explainPackageQuery: () => unexpected("explainPackageQuery"),
     searchTypes: () => unexpected("searchTypes"),
     activateWorkspacePackageOccurrence: () =>
       unexpected("activateWorkspacePackageOccurrence"),
@@ -154,6 +155,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryMemberGroupDocument"),
     queryPerformanceTypeMemberPopulation: () =>
       unexpected("queryPerformanceTypeMemberPopulation"),
+    queryTypeOverviewDocument: () =>
+      unexpected("queryTypeOverviewDocument"),
     queryTypeMemberPopulation: () =>
       unexpected("queryTypeMemberPopulation"),
     queryPlatformMemberDeclaration: () =>
@@ -164,6 +167,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformMemberGroupDocument"),
     queryPlatformPerformanceTypeMemberPopulation: () =>
       unexpected("queryPlatformPerformanceTypeMemberPopulation"),
+    queryPlatformTypeOverviewDocument: () =>
+      unexpected("queryPlatformTypeOverviewDocument"),
     queryUploadedLibraryMemberDocument: () =>
       unexpected("queryUploadedLibraryMemberDocument"),
     queryPlatformTypeMemberPopulation: () =>
@@ -174,6 +179,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryUploadedLibraryPerformanceTypeMemberPopulation"),
     queryUploadedLibraryTypeMemberPopulation: () =>
       unexpected("queryUploadedLibraryTypeMemberPopulation"),
+    queryUploadedLibraryTypeOverviewDocument: () =>
+      unexpected("queryUploadedLibraryTypeOverviewDocument"),
     queryTypeProjection: () => unexpected("queryTypeProjection"),
     queryPackageMetadataTable: () =>
       unexpected("queryPackageMetadataTable"),
@@ -548,7 +555,7 @@ test("uploaded Library Member document queries use the retained exact image", as
   const content = [0x4d, 0x5a, 0x00, 0x01];
   const identity = `sha256:${"a".repeat(64)}`;
   let received:
-    [string, number[], string, string] | undefined;
+    [string, number[], string, string, string, string, boolean] | undefined;
   let exactReceived:
     [string, number[], string, string, number, string] | undefined;
   let receivedPopulation:
@@ -624,8 +631,12 @@ test("uploaded Library Member document queries use the retained exact image", as
         bytes,
         typeIdentity,
         memberName,
+        accessibility,
+        receiver,
+        includeHidden,
       ) {
-        received = [declaredName, bytes, typeIdentity, memberName];
+        received = [declaredName, bytes, typeIdentity, memberName,
+          accessibility, receiver, includeHidden];
         return {
           outcome: "Available",
           detail: null,
@@ -680,6 +691,9 @@ test("uploaded Library Member document queries use the retained exact image", as
       identity,
       "Example.Widget",
       "Run",
+      "protected",
+      "all",
+      false,
     );
   await state.environment.flushAsync();
 
@@ -689,6 +703,9 @@ test("uploaded Library Member document queries use the retained exact image", as
     content,
     "Example.Widget",
     "Run",
+    "protected",
+    "all",
+    false,
   ]);
   const population =
     state.client.metadata.queryUploadedLibraryTypeMemberPopulation(
@@ -731,6 +748,9 @@ test("uploaded Library Member document queries use the retained exact image", as
       `sha256:${"b".repeat(64)}`,
       "Example.Widget",
       "Run",
+      "protected",
+      "all",
+      false,
     );
   const mismatchFailure = assert.rejects(
     mismatched,
@@ -1995,7 +2015,8 @@ test("malformed and oversized generated results reject only their calls", async 
       queryPackageVersions: async () =>
         contractViolation({ versions: [undefined] }),
       loadRuntimePack: async () =>
-        "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
+        contractViolation(
+          "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters)),
       packageCacheStats: () => ({
         packages: 1,
         resident: 1,
@@ -2256,6 +2277,30 @@ test("JSON tuple codec rejects unsafe trees and enforces explicit bounds", () =>
   assert.equal(encode(["id", null, excessive]).kind, "rejected");
 });
 
+test("query explanation transport preserves keys, addresses, and visible failure", async () => {
+  const calls: unknown[][] = [];
+  const result = { outcome: "InvalidSelection" as const, content: null, message: "Unknown facet key." };
+  const state = fixture({
+    package: {
+      explainPackageQuery: (...args) => {
+        calls.push(args);
+        return result;
+      },
+    },
+  });
+  const request = state.client.package.explainPackageQuery(
+    "inspect-resource:/package-query/query?projection=hal", ["depends", "dependency-target"],
+  );
+  const full = state.client.package.explainPackageQuery("package-query/query", null);
+  await state.environment.flushAsync();
+  assert.deepEqual(await request, result);
+  assert.deepEqual(await full, result);
+  assert.deepEqual(calls, [
+    ["inspect-resource:/package-query/query?projection=hal", ["depends", "dependency-target"]],
+    ["package-query/query", null],
+  ]);
+});
+
 test("forwarder transport preserves opaque actions, route evidence, and non-success", async () => {
   const calls: unknown[][] = [];
   const result = {
@@ -2383,6 +2428,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryWorkspacePackageOccurrences",
       "resolvePackageDependencyVersion",
       "searchCapabilities",
+      "explainPackageQuery",
       "searchTypes",
     ],
     metadata: [
@@ -2397,11 +2443,13 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberGroupDocument",
       "queryPerformanceTypeMemberPopulation",
       "queryTypeMemberPopulation",
+      "queryTypeOverviewDocument",
       "queryPlatformMemberDeclaration",
       "queryPlatformMemberDocument",
       "queryPlatformMemberGroupDocument",
       "queryPlatformPerformanceTypeMemberPopulation",
       "queryPlatformTypeMemberPopulation",
+      "queryPlatformTypeOverviewDocument",
       "queryPackageHeapEntries",
       "queryPackageMetadata",
       "queryPackageMetadataTable",
@@ -2413,6 +2461,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryUploadedLibraryMemberGroupDocument",
       "queryUploadedLibraryPerformanceTypeMemberPopulation",
       "queryUploadedLibraryTypeMemberPopulation",
+      "queryUploadedLibraryTypeOverviewDocument",
     ],
     analysis: [
       "queryCloneCandidates",
@@ -2503,7 +2552,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 126);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 130);
 
   const state = fixture();
   const groups = [

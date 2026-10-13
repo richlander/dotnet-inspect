@@ -11,6 +11,7 @@ import { packageRemoveButton } from "./package-removal.ts";
 import {
   replaceChildrenPreservingRenderedInteractions,
 } from "./rendered-interaction.ts";
+import { productEcosystemIconClass } from "./product-ecosystems.ts";
 import type {
   BrowserCapabilityCatalogSearchResult,
   BrowserCapabilityCatalogSearchResourceKind,
@@ -512,13 +513,9 @@ export function createSpotlight(options: SpotlightOptions) {
       const label = ecosystem ? `Package: ${ecosystem.title}; pruned` : "Package pruned";
       return `<span class="spotlight-svg-icon spotlight-pruned" role="img" aria-label="${escapeHtml(label)} for ${escapeHtml(pruning.traversalTfm)}" title="${escapeHtml(`Supplied by ${pruning.traversalTfm}${pruning.platformVersion ? ` @ ${pruning.platformVersion}` : ""}; eligible for package pruning`)}"></span>`;
     }
-    const classes: Readonly<Record<string, string>> = {
-      "ecosystem.runtime": "sl-ecosystem-runtime",
-      "ecosystem.aspnetcore": "sl-ecosystem-aspnetcore",
-      "ecosystem.microsoft-extensions": "sl-ecosystem-extensions",
-      "ecosystem.aspire": "sl-ecosystem-aspire",
-    };
-    const icon = ecosystem ? classes[ecosystem.id] : undefined;
+    const icon = ecosystem
+      ? productEcosystemIconClass(ecosystem.id)
+      : null;
     const label = escapeHtml(ecosystem ? `${kind}: ${ecosystem.title}` : kind);
     return icon
       ? `<span class="spotlight-icon-slot spotlight-ecosystem-icon ${icon}" role="img" aria-label="${label}" title="${escapeHtml(ecosystem?.title)}"></span>`

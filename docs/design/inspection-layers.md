@@ -1639,7 +1639,9 @@ canaries:
   immediately into `DotnetInspector.LibraryMetadata` values while
   `ILInspector.Metadata` remains the semantic vocabulary owner. The Browser
   Library facade therefore lowers exact-Library documents without a project or
-  compiled reference to either Metadata assembly.
+  compiled reference to either Metadata assembly. Its typed operation and
+  positive dependency ceilings own product semantics, so its compiler ban
+  input retains only runtime platform hazards.
 - Web Core's Platform-forwarder navigation projects forwarder display fields
   and ordered resolution routes into caller-shaped Browser values. The Package
   facade preserves the generated wire contract without referencing Metadata
@@ -1655,7 +1657,11 @@ canaries:
   caller-shaped candidates in Queries. Web Core carries only the projected
   Browser surface and a portable exact Library identity to Catalog; Catalog
   does not independently invoke Metadata member resolution or unwrap Metadata
-  assembly identities.
+  assembly identities. Catalog composes immutable product vocabulary
+  declarations from their owners, including Decompiler declaration factories,
+  without executing Decompiler producers. Its typed paths and positive
+  dependency ceilings therefore own product semantics, and its compiler ban
+  input retains only runtime platform hazards.
 - PDB source inspections project resolved and attributable browse URLs as
   detached Services-owned values. The Browser Source facade preserves those
   values without interpreting SourceLink documents, and its positive project

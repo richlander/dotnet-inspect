@@ -447,7 +447,9 @@ test("Ecosystems is a first-class product catalog destination", async ({
   if (ecosystemId === null) {
     throw new Error("The Workspace-ready Ecosystem omitted its catalog ID.");
   }
-  const ecosystemTitle = await firstReady.locator("strong").innerText();
+  const ecosystemTitle = await firstReady.getByRole("heading", {
+    level: 2,
+  }).innerText();
   await firstReady.locator("[data-ecosystem-open]").click();
   await expect(page).toHaveURL(`/ecosystems/${ecosystemId}`);
   await expect(page.locator(
@@ -545,6 +547,13 @@ test("Ecosystems is a first-class product catalog destination", async ({
   await page.getByRole("link", { name: "Ecosystems", exact: true }).click();
   await expect(page).toHaveURL("/ecosystems");
   await page.reload();
+  const ecosystemCards = page.locator(".ecosystem-catalog-row");
+  await expect(ecosystemCards).toHaveCount(2);
+  await expect(ecosystemCards.locator(".ecosystem-catalog-icon")).toHaveCount(2);
+  await expect(ecosystemCards.locator("h2")).toHaveText([
+    "Platform fixture",
+    "Package fixture",
+  ]);
   await expect(page.locator(
     "[data-ecosystem='ecosystem.fixture-platform']")).toBeVisible();
   await page.getByRole("link", { name: "Home", exact: true }).click();

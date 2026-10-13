@@ -70,6 +70,35 @@ accidentally compile a different second projection. Missing fully qualified
 target-assembly namespaces remain explicit shell-visibility noise (`CS0400`);
 the harness does not reference the inspected assembly and accidentally bind a
 different product version already present in its own runtime closure.
+When CS0165 names a local passed to an unresolved `out` invocation in the same
+executable body, and the call is required on the recognized path to the read,
+Roslyn's error recovery cannot establish that call's assignment effect.
+Conditional calls that can be skipped before the read retain CS0165, whether
+bound or unresolved. Unrecognized control flow also retains the defect.
+The same limitation can affect a bound `out` call in an `&&` guard
+containing another unresolved `out` call, when the read is in the guard's true
+arm. The validity lane reports `VLD0002` semantic coverage unavailable,
+retaining the raw CS0165 and unresolved-call evidence in its message. It does
+not claim validity, remove a product initializer, or repair the call. Independent
+defects in that body remain defects; a bound skipped-out-call read remains
+CS0165. Corpus and Render A/B report this decline rather than a validity success.
+Context-only declines do not count as completed semantic checks; a row with an
+independent defect retains its failed outcome. Attempted compilations are
+reported separately, so increasing the sample cap is not offered as a remedy
+for missing binding context.
+The motivating real asset is `dotnet-inspect.any` 0.14.0, its
+`ILInspector.Decompiler.Pipeline.TypeRef::DisplayName` body: the standalone shell
+cannot bind receiver properties or `s_keywords.TryGetValue`, while native RTS
+compiles the unchanged product artifact. `ValidityAssignmentContextTests`
+retains that observed body and bound-call, skipped-call, unrelated-local, and
+nested-body controls. The same package's `CSharpPrinter::EnumMemberName` and
+`Microsoft.CodeAnalysis.Common` 5.0.0's `AnalyzerConfig::get_GlobalLevel`
+motivate the dependent bound-call case: a first unresolved dictionary lookup
+precedes a bound dictionary lookup or `int.TryParse` in the same `&&` guard.
+The controls retain that dependency and keep reads after the guard or under
+`||` defective when the bound call can be skipped.
+This is a diagnostic coverage fix for #9939, not a new
+compilation-context composer or a native fidelity contract change.
 `CompilerFeatureOptionsTests.RuntimeAsyncUnsafeSpillBeforeAwait_ClosesUnsafeRunAndBindsFirstProjection`
 gates this ownership boundary with compiler-produced runtime-async IL.
 

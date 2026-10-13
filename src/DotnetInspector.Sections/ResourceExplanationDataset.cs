@@ -80,7 +80,7 @@ public sealed partial class ResourceExplanationDataset
                 : resource.Key.ResourceType == ResourceExplanationVocabulary.QuerySpaceType
                     ? ["query-facet"]
                     : resource.Key.ResourceType == ResourceExplanationVocabulary.QueryFacetType
-                        ? ["required-context", "exposed-by"] : [];
+                        ? ["required-context", "related-operation", "exposed-by"] : [];
             foreach (string relation in relations)
             {
                 foreach (ResourceExplanationRelationship edge in catalog.Relationships.Where(edge =>

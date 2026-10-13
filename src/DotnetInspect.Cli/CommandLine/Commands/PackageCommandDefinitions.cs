@@ -569,7 +569,7 @@ public static class PackageCommandDefinitions
         {
             Description =
                 "Explain installed Package Query facets and CLI bindings as HAL JSON "
-                + "without executing a query (no package argument or query options)",
+                + "without executing a query (use -Q facet keys to narrow)",
             Arity = ArgumentArity.ZeroOrOne
         };
         var ecosystemOption = new Option<string?>("--ecosystem")
@@ -673,6 +673,7 @@ public static class PackageCommandDefinitions
                     unsupportedOption = scope.Command.Options.FirstOrDefault(
                         option => option != explainOption
                         && option != opts.Json
+                        && option != opts.QueryHelp
                         && !(scope.Command is RootCommand
                             && option.Name is "--offline" or HttpTimeoutConfiguration.Flag)
                         && scope.GetResult(option) is { Implicit: false });
@@ -683,7 +684,7 @@ public static class PackageCommandDefinitions
                 {
                     result.AddError(
                         $"{unsupportedOption.Name} is not available with package query --explain; "
-                        + "only --json and process-wide controls may accompany "
+                        + "only -Q facet keys, --json, and process-wide controls may accompany "
                         + "the installed-query explanation.");
                 }
                 return;
@@ -715,7 +716,14 @@ public static class PackageCommandDefinitions
                         + "to override DOTNET_INSPECT_FORMAT.");
                     return 1;
                 }
-                return ResourceExplanationCommand.ExplainPackageQuery();
+                string[]? facetKeys = opts.ParseQueryHelp(parseResult);
+                if (parseResult.GetValue(opts.QueryHelp) is not null
+                    && facetKeys is not { Length: > 0 })
+                {
+                    CommandError.Write("-Q requires at least one exact facet key when a value is supplied.");
+                    return 1;
+                }
+                return ResourceExplanationCommand.ExplainPackageQuery(facetKeys);
             }
 
             var acceptedParentOptions = new HashSet<Option>

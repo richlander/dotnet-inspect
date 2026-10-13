@@ -421,61 +421,6 @@ public enum BrowserPackageQueryAcquisitionTier
     Assembly,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryExecutionClass>))]
-public enum BrowserPackageQueryExecutionClass
-{
-    SearchMetadata,
-    Nuspec,
-    NuspecExpensive,
-    PackageContent,
-    Metadata,
-    MetadataExpensive,
-}
-
-public sealed record BrowserPackageQueryPresetDescriptor(
-    string Key,
-    string Operator,
-    string Value,
-    string Label,
-    string Summary,
-    int Weight,
-    BrowserPackageQueryAcquisitionTier Tier,
-    BrowserPackageQueryExecutionClass ExecutionClass,
-    string? SelectionGroupId,
-    bool CombinesWithinSelectionGroup,
-    string? ReplacementGroupId,
-    string? DisplayGroupId,
-    string? DisplayGroupLabel,
-    string CategoryId,
-    string CategoryLabel,
-    int CategoryOrder,
-    string[] RelatedOperations);
-
-public sealed record BrowserPackageQueryCatalog(
-    BrowserPackageQueryPresetDescriptor[] Presets,
-    BrowserPackageQueryTermDescriptor[] Terms);
-
-public sealed record BrowserPackageQueryTermDescriptor(
-    string Key,
-    string Label,
-    string Summary,
-    int Weight,
-    BrowserPackageQueryAcquisitionTier Tier,
-    BrowserPackageQueryExecutionClass ExecutionClass,
-    string[] Operators,
-    string ValueKind,
-    string Example,
-    bool Multiline,
-    bool AllowsCustomValue,
-    string? ReplacementGroupId,
-    BrowserPackageQueryTermOptionDescriptor[] Options,
-    string[] RelatedOperations);
-
-public sealed record BrowserPackageQueryTermOptionDescriptor(
-    string Value,
-    string Label,
-    string Summary);
-
 public sealed record BrowserPackageQueryTerm(
     string Key,
     string Operator,
@@ -1483,7 +1428,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserEcosystemPackageInventory))]
 [JsonSerializable(typeof(BrowserEcosystemPackageClassification[]))]
 [JsonSerializable(typeof(BrowserPlatformCatalog))]
-[JsonSerializable(typeof(BrowserPackageQueryCatalog))]
+[JsonSerializable(typeof(BrowserPackageQueryExplanationResult))]
 [JsonSerializable(typeof(BrowserPackageQueryTerm[]))]
 [JsonSerializable(typeof(BrowserPackageQueryRow))]
 [JsonSerializable(typeof(BrowserPackageQueryEvent))]
