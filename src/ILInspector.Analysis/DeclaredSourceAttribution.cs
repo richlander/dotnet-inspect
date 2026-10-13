@@ -147,13 +147,16 @@ internal sealed class DeclaredSourceAttribution
     internal LibraryBodyDeclaredSourceResolver DeclaredSourceResolver { get; }
 
     /// <summary>
-    /// Adds the authenticated generated execution bodies of
-    /// <paramref name="directMethods"/> under the configured expansion work.
+    /// Adds the authenticated generated bodies of
+    /// <paramref name="directMethods"/> in the requested
+    /// <paramref name="roles"/> under the configured expansion work.
     /// </summary>
     internal MethodDefinitionGeneratedExpansionResult
         ExpandGeneratedExecutionBodies(
             System.Collections.Immutable.ImmutableArray<MethodDefinitionHandle>
-                directMethods)
+                directMethods,
+            MethodDefinitionGeneratedBodyRoles roles =
+                MethodDefinitionGeneratedBodyRoles.Execution)
     {
         if (GeneratedExpansionWork is null)
         {
@@ -163,7 +166,8 @@ internal sealed class DeclaredSourceAttribution
 
         return DeclaredSourceResolver.ExpandGeneratedExecutionBodies(
             directMethods,
-            GeneratedExpansionWork);
+            GeneratedExpansionWork,
+            roles);
     }
 
     /// <summary>

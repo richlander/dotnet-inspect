@@ -34,6 +34,36 @@ public enum MethodDefinitionSourceExpansion
     GeneratedExecutionBodies = 1,
 }
 
+/// <summary>
+/// Roles of the generated bodies a declared source owns. Generated-body
+/// expansion names the roles it includes; every role is owned by the source.
+/// </summary>
+[Flags]
+public enum MethodDefinitionGeneratedBodyRoles
+{
+    None = 0,
+
+    /// <summary>
+    /// The resolved state-machine <c>MoveNext</c> and authenticated lifted
+    /// bodies. Expansion always includes this role.
+    /// </summary>
+    Execution = 1,
+
+    /// <summary>
+    /// State-machine methods that are neither instance constructors nor
+    /// MethodImpl bodies, such as an iterator's <c>&lt;&gt;m__Finally1</c>.
+    /// </summary>
+    UserHelper = 2,
+
+    /// <summary>
+    /// State-machine instance constructors and MethodImpl bodies other than
+    /// <c>MoveNext</c>, such as <c>GetEnumerator</c> and <c>Dispose</c>.
+    /// </summary>
+    Scaffolding = 4,
+
+    All = Execution | UserHelper | Scaffolding,
+}
+
 /// <summary>Finite work bounds for generated execution-body discovery.</summary>
 public sealed record MethodDefinitionGeneratedExpansionLimits
 {
@@ -122,13 +152,16 @@ public sealed class MethodDefinitionSourceBreadth
         ImmutableArray<TypeDefinitionHandle> types,
         MethodDefinitionSourceExpansion expansion,
         MethodDefinitionGeneratedExpansionLimits?
-            generatedExpansionLimits)
+            generatedExpansionLimits,
+        MethodDefinitionGeneratedBodyRoles generatedRoles =
+            MethodDefinitionGeneratedBodyRoles.None)
     {
         Kind = kind;
         Methods = methods;
         Types = types;
         Expansion = expansion;
         GeneratedExpansionLimits = generatedExpansionLimits;
+        GeneratedRoles = generatedRoles;
     }
 
     public static MethodDefinitionSourceBreadth AllDefinitions { get; } =
@@ -150,6 +183,12 @@ public sealed class MethodDefinitionSourceBreadth
     public MethodDefinitionGeneratedExpansionLimits?
         GeneratedExpansionLimits
     { get; }
+
+    /// <summary>
+    /// The generated-body roles expansion includes; <see cref="MethodDefinitionGeneratedBodyRoles.None"/>
+    /// without expansion.
+    /// </summary>
+    public MethodDefinitionGeneratedBodyRoles GeneratedRoles { get; }
 
     public bool IsEmpty =>
         Kind switch
@@ -272,17 +311,28 @@ public sealed class MethodDefinitionSourceBreadth
     }
 
     /// <summary>
-    /// Includes authenticated generated execution bodies under finite
-    /// discovery bounds.
+    /// Includes authenticated generated bodies in the requested
+    /// <paramref name="roles"/> under finite discovery bounds. The
+    /// <see cref="MethodDefinitionGeneratedBodyRoles.Execution"/> role is
+    /// always included.
     /// </summary>
     public MethodDefinitionSourceBreadth IncludeGeneratedExecutionBodies(
-        MethodDefinitionGeneratedExpansionLimits? limits = null)
+        MethodDefinitionGeneratedExpansionLimits? limits = null,
+        MethodDefinitionGeneratedBodyRoles roles =
+            MethodDefinitionGeneratedBodyRoles.Execution)
     {
         if (Kind == MethodDefinitionSourceBreadthKind.AllDefinitions)
         {
             throw new InvalidOperationException(
                 "All-definition breadth already contains every generated "
                 + "physical MethodDef.");
+        }
+        if ((roles & ~MethodDefinitionGeneratedBodyRoles.All) != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(roles),
+                roles,
+                "Unknown generated-body role.");
         }
 
         return new(
@@ -291,7 +341,8 @@ public sealed class MethodDefinitionSourceBreadth
             Types,
             Expansion
                 | MethodDefinitionSourceExpansion.GeneratedExecutionBodies,
-            limits ?? MethodDefinitionGeneratedExpansionLimits.Default);
+            limits ?? MethodDefinitionGeneratedExpansionLimits.Default,
+            roles | MethodDefinitionGeneratedBodyRoles.Execution);
     }
 }
 
@@ -761,7 +812,8 @@ public static class MethodDefinitionSourceRequestSet
         && first.Types.SequenceEqual(second.Types)
         && first.Expansion == second.Expansion
         && first.GeneratedExpansionLimits
-            == second.GeneratedExpansionLimits;
+            == second.GeneratedExpansionLimits
+        && first.GeneratedRoles == second.GeneratedRoles;
 
     sealed class SourceGroupBuilder
     {
@@ -928,7 +980,9 @@ public enum MethodDefinitionGeneratedExpansionOriginKind
 public sealed record MethodDefinitionGeneratedExpansionOrigin(
     MethodDefinitionHandle Method,
     MethodDefinitionHandle DeclaredOwner,
-    MethodDefinitionGeneratedExpansionOriginKind Kind);
+    MethodDefinitionGeneratedExpansionOriginKind Kind,
+    MethodDefinitionGeneratedBodyRoles Role =
+        MethodDefinitionGeneratedBodyRoles.Execution);
 
 /// <summary>Exact generated breadth-discovery work.</summary>
 public sealed record MethodDefinitionGeneratedExpansionCoverage(

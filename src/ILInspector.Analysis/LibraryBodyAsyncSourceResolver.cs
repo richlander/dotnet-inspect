@@ -861,9 +861,23 @@ internal sealed class LibraryBodyAsyncSourceResolver
         MethodDefinitionHandle sourceHandle,
         MethodDefinition sourceMethod,
         MethodDefinitionGeneratedExpansionWork work,
-        out MethodDefinitionHandle executionMethod)
+        out MethodDefinitionHandle executionMethod) =>
+        TryResolveTargetedStateMachineExecutionMethod(
+            sourceHandle,
+            sourceMethod,
+            work,
+            out executionMethod,
+            out _);
+
+    internal bool TryResolveTargetedStateMachineExecutionMethod(
+        MethodDefinitionHandle sourceHandle,
+        MethodDefinition sourceMethod,
+        MethodDefinitionGeneratedExpansionWork work,
+        out MethodDefinitionHandle executionMethod,
+        out TypeDefinitionHandle resolvedStateMachine)
     {
         executionMethod = default;
+        resolvedStateMachine = default;
         StateMachineAttributeInfo attribute =
             StateMachineExecutionAttribute(
                 sourceMethod.GetCustomAttributes());
@@ -932,7 +946,59 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 "The state-machine source does not map to a unique valid "
                 + "execution body.");
         }
+        resolvedStateMachine = stateMachineHandle;
         return true;
+    }
+
+    /// <summary>
+    /// The other methods of an authenticated state-machine type, each with
+    /// its role decided from metadata alone: instance constructors and
+    /// MethodImpl bodies are scaffolding, and every other method is a user
+    /// helper. The resolved <paramref name="executionMethod"/> is excluded.
+    /// </summary>
+    internal ImmutableArray<(
+        MethodDefinitionHandle Method,
+        MethodDefinitionGeneratedBodyRoles Role)>
+        StateMachineHelperMethods(
+            TypeDefinitionHandle stateMachineType,
+            MethodDefinitionHandle executionMethod,
+            MethodDefinitionGeneratedExpansionWork work)
+    {
+        TypeDefinition type = _reader.GetTypeDefinition(stateMachineType);
+        var implementationBodies = new HashSet<MethodDefinitionHandle>();
+        foreach (MethodImplementationHandle handle
+            in type.GetMethodImplementations())
+        {
+            work.RecordRelationshipNode(handle);
+            EntityHandle body =
+                _reader.GetMethodImplementation(handle).MethodBody;
+            if (body.Kind == HandleKind.MethodDefinition)
+                implementationBodies.Add((MethodDefinitionHandle)body);
+        }
+
+        var methods = ImmutableArray.CreateBuilder<(
+            MethodDefinitionHandle,
+            MethodDefinitionGeneratedBodyRoles)>();
+        foreach (MethodDefinitionHandle handle in type.GetMethods())
+        {
+            if (handle == executionMethod)
+                continue;
+            work.RecordCandidateDefinition(handle);
+            MethodDefinition method = _reader.GetMethodDefinition(handle);
+            bool instanceConstructor =
+                (method.Attributes
+                    & (MethodAttributes.RTSpecialName
+                        | MethodAttributes.Static))
+                    == MethodAttributes.RTSpecialName
+                && _reader.StringComparer.Equals(method.Name, ".ctor");
+            methods.Add((
+                handle,
+                instanceConstructor
+                    || implementationBodies.Contains(handle)
+                    ? MethodDefinitionGeneratedBodyRoles.Scaffolding
+                    : MethodDefinitionGeneratedBodyRoles.UserHelper));
+        }
+        return methods.ToImmutable();
     }
 
     bool HasUniqueTargetedStateMachineClaim(
