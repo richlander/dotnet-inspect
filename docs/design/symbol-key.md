@@ -64,9 +64,10 @@ a U+FFFD collision. The key, its builder, and its `#Strings` name reader are
 
 The parent owner generalizes the representation evidence: one immutable backing
 supplies cheap `OpaqueByteRange` snapshots, generic byte operations, STJ-style
-UTF-8 query matching, and one explicit transition to `InertUtf8String`. Symbol
-Key is the first domain view. It adds a grammar and profiles without creating a
-second storage owner or applying presentation policy during analysis.
+UTF-8 query matching, and one opt-in presentation transition to
+`InertUtf8String`. Symbol Key is the first domain view. It adds a grammar and
+profiles without creating a second storage owner or applying presentation
+policy during analysis.
 
 Four planned consumers need the same thing, and each would otherwise grow a
 private copy:
@@ -182,27 +183,29 @@ supplies the boundary in constant work, while the enclosing key's validation
 budget owns total traversal.
 
 Symbol Key's responsibility ends after issuing that typed view. It does not
-match, decode, visually encode, or create `InertUtf8String`. A higher-level matcher
-uses the view's reader to answer a query. A presentation component, such as a
-renderer, a serializer, or a test diagnostic, passes that reader to
-`Utf8VisualEncoder` when it needs display text.
+match, decode, visually encode, or create `InertUtf8String`. A higher-level
+matcher uses the view's reader to answer a query and stops there. Separately,
+when display text is requested, a presentation component such as a renderer,
+serializer, or test diagnostic passes a reader to `Utf8VisualEncoder`.
 
-The ownership chain is:
+The ownership branches are:
 
 ```text
 Symbol Key grammar: this exact child range is a Name
   -> SymbolKeyName: retain the OpaqueByteRange without exposing it
      -> Utf8RangeReader: preserve the Name classification
-        -> matcher: ValueTextEquals answers exact UTF-8 queries
-        -> presentation: Utf8VisualEncoder + TextPolicy creates InertUtf8String
-           -> fixed UTF-8 output
-           -> or InertString with the same contained spelling and evidence
+        +-> ordinary matcher: ValueTextEquals answers; branch ends
+        +-> presentation request only
+              -> Utf8VisualEncoder + TextPolicy creates InertUtf8String
+                 -> fixed UTF-8 output
+                 -> or InertString with the same spelling and evidence
 ```
 
 Symbol Key therefore owns **which range is a Name** and preserves that fact in
 `SymbolKeyName`. The parent range owner owns **how that range stays opaque,
-answers closed queries, and reaches `InertUtf8String`**. Inert Text owns **which
-scalars require a visible spelling and what that spelling is**.
+answers closed queries, and can enter presentation containment on request**.
+Inert Text owns **which scalars require a visible spelling and what that
+spelling is**.
 
 ### Worked Name with required containment
 
@@ -213,7 +216,9 @@ then `gpj.exe`. Its stored UTF-8 payload is:
 69 6E 76 6F 69 63 65 E2 80 AE 67 70 6A 2E 65 78 65
 ```
 
-The path is:
+Steps 1 through 3 are the ordinary identity and matching path. Steps 4 through
+6 are a separate presentation example and run only when a caller requests
+display text:
 
 1. The builder writes `02 11` followed by those 17 payload bytes. It does not
    decode or visually encode them.
@@ -244,13 +249,14 @@ The path is:
    `ToString()` is safe because the retained UTF-16 is already contained.
 6. A product sink may instead replace that value with
    `InertString.ContainmentRequiredPlaceholder`. Disclosure changes; identity
-   and the inert-flow invariant do not.
+   and the presentation-containment invariant do not.
 
 There is no eager `RequiresEncoding` bit on the Name, range, or backing.
 `OpaqueByteRange` and `Utf8RangeReader` neither validate nor apply policy. The
 one policy-bearing encoder scans only the reader's exact classified source when
-presentation is requested. If every byte is valid and permitted, `InertUtf8String`
-may retain the original range after that scan proves the stronger invariant.
+presentation is requested. If every byte is valid and permitted,
+`InertUtf8String` may retain the original range after that scan proves the
+stronger invariant.
 
 ## Profiles
 
@@ -380,7 +386,7 @@ form are the exchange currency between the hosts and checked-in artifacts.
 | Shared backing | Every issued key and part view in one frozen population retains its one opaque-range backing; slots issue no mutable views, inline nested builds create no intermediate payload, and an independently retained key embedded as a `Key` part has only the duplicate bytes required by that grammar | PR-fast |
 | Name boundary | The part reader returns a `SymbolKeyName` retaining exactly the length-prefixed child range without exposing the containing key, its own range, or adjacent parts | PR-fast |
 | Name matching | A `Utf8RangeReader` issued by `SymbolKeyName` matches ordinary, non-ASCII, concerning, and ill-formed stored payloads byte-exactly against pre-encoded queries without decoding or policy work | PR-fast |
-| Name containment | A Name containing `U+202E` remains byte-exact for matching; a presentation consumer passing its Name-issued reader to `Utf8VisualEncoder` gets `InertUtf8String`, and direct UTF-8 and derived `InertString` output both emit `\u202E`, `VisualForm.BmpHex`, and `TextConcern.Format` | PR-fast |
+| Name containment | A Name containing `U+202E` remains byte-exact for matching without invoking containment; when presentation is requested, a consumer passing its Name-issued reader to `Utf8VisualEncoder` gets `InertUtf8String`, and direct UTF-8 and derived `InertString` output both emit `\u202E`, `VisualForm.BmpHex`, and `TextConcern.Format` | PR-fast |
 | Persisted round trip | Every Type and member key of System.Private.CoreLib persisted, converted to text, read back, and compared | PR-fast |
 | Persisted validation | Truncated, trailing, wrong-domain, unknown-version, marker-free, leading-non-marker, undeclared-marker, `Ref`-bearing, nested-header, non-shortest LEB128, over-64-bit integer, over-`int` length, over-deep, and over-long keys are each refused; conversion refuses the same depth and length excesses | PR-fast |
 | Profile separation | In-process and persisted keys do not compile as comparable; a key without `Ref` parts round-trips byte-identically, while a `Ref`-bearing key persists by expansion and returns in `Key` form with the same expansion | PR-fast |
@@ -397,7 +403,8 @@ Seven steps, tracked by
 
 1. **Opaque range and Inert UTF-8 design.** Parent PR #9993 defines immutable
    backing, `OpaqueByteRange`, scoped readers, STJ-style query matching, the
-   explicit exact-byte encoder, and the transition to `InertUtf8String`.
+   explicit exact-byte encoder, and the opt-in presentation transition to
+   `InertUtf8String`.
 2. **This Symbol Key design.** Define the first domain view over that backing.
 3. **Symbol Key representation pilot.** Compare current private Symbol Key
    with an `OpaqueByteRange`/`ValueTextEquals` prototype using time and memory
