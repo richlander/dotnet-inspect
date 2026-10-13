@@ -4374,12 +4374,14 @@ internal static class BrowserPackageWorkspace
         : IPackageStore,
           IPackagePayloadTransferPolicy,
           IPreparedPackageStore,
+          IAsyncPackageCacheStore,
           IPackageEntryStore
     {
         readonly IPackageSourceClient _source;
         readonly IPackageSourceAuthorization _authorization;
         readonly IBrowserPackageEntryPersistence? _entryPersistenceOverride;
         readonly string[] _producerKeys;
+        readonly SemaphoreSlim _completeCacheReadGate = new(1, 1);
 
         // This namespace represents one exact runtime client, not its producer or endpoint.
         // Only the adapter is per-client; all retained state and budgets remain session-wide.
@@ -4407,6 +4409,7 @@ internal static class BrowserPackageWorkspace
             _authorization = complete._authorization;
             _entryPersistenceOverride = complete._entryPersistenceOverride;
             _producerKeys = complete._producerKeys;
+            _completeCacheReadGate = complete._completeCacheReadGate;
             _cacheNamespace = CompositeKey(complete._cacheNamespace, selection);
         }
 
@@ -4643,7 +4646,7 @@ internal static class BrowserPackageWorkspace
             return content;
         }
 
-        ValueTask<PreparedPackageCommit> IPreparedPackageStore.CommitPreparedAsync(
+        async ValueTask<PreparedPackageCommit> IPreparedPackageStore.CommitPreparedAsync(
             string packageName,
             string version,
             string sourceKey,
@@ -4677,11 +4680,66 @@ internal static class BrowserPackageWorkspace
                 archive,
                 fromCache: false,
                 sourceKey);
+            if (EntryPersistence is IBrowserPackageArchivePersistence persistence
+                && EntryKey(packageName, version, "archive") is { } archiveKey)
+                await PublishEntryStoreItemAsync(persistence, archiveKey, bytes);
             reservation.Stage(bytes, content);
-            return ValueTask.FromResult(
-                new PreparedPackageCommit(
-                    content,
-                    RequiresAdmission: false));
+            return new PreparedPackageCommit(content, RequiresAdmission: false);
+        }
+
+        async ValueTask<IPackageContent?> IAsyncPackageCacheStore.ReadCachedAsync(
+            PackageSourceCoordinate coordinate,
+            string producerKey,
+            PackagePayloadLimits limits,
+            CancellationToken cancellationToken)
+        {
+            if (!_producerKeys.Contains(producerKey, StringComparer.Ordinal)
+                || EntryPersistence is not IBrowserPackageArchivePersistence persistence
+                || EntryKey(coordinate.PackageId, coordinate.Version, "archive") is not { } key)
+                return null;
+
+            await _completeCacheReadGate.WaitAsync(cancellationToken);
+            try
+            {
+                if (TryGetCached(coordinate.PackageId, coordinate.Version, [producerKey])
+                    is { } memory)
+                    return memory;
+                long? length = await persistence.GetArchiveLengthAsync(key);
+                if (length is null || length <= 0 || length > limits.MaxArchiveBytes
+                    || length > MaxCachedPackageBytes || length > int.MaxValue)
+                    return null;
+
+                using PackageDownloadReservation reservation =
+                    await ReservePackageDownloadAsync(
+                        PackageKey(coordinate.PackageId, coordinate.Version), length.Value);
+                cancellationToken.ThrowIfCancellationRequested();
+                byte[]? bytes = await persistence.ReadArchiveAsync(key, (int)length.Value);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (bytes is null)
+                    return null;
+                if (bytes.LongLength != length.Value)
+                    throw new BrowserPackageEntryPersistenceException(
+                        "The retained archive length changed.", new InvalidDataException());
+
+                var content = InMemoryPackageContent.CreateOwned(bytes, true, producerKey);
+                if (content.ValidateArchive(limits, cancellationToken)
+                    is not PackageArchiveValidation.Valid)
+                    throw new BrowserPackageEntryPersistenceException(
+                        "The retained archive failed admission.", new InvalidDataException());
+                reservation.Stage(bytes, content);
+                reservation.Complete();
+                Interlocked.Increment(ref _entryStoreHits);
+                return content;
+            }
+            catch (BrowserPackageEntryPersistenceException exception)
+            {
+                ReportEntryStoreFailure("complete archive read", exception);
+                return null;
+            }
+            finally
+            {
+                _completeCacheReadGate.Release();
+            }
         }
 
         public async ValueTask<IPackagePayloadReservation> ReserveAsync(
