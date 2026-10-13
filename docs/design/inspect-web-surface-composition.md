@@ -1055,6 +1055,23 @@ reinterpreting ranges or constructing another feed model. Each advisory keeps
 GHSA and optional CVE identity, severity, published and updated dates, and its
 GitHub destination.
 
+A Package Vulnerabilities request has one closed browser-owned state:
+`idle`, `loading` for one exact package-coordinate request, `ready` with its
+owner-issued result, or `failed` with its visible diagnostic. Only the current
+`loading` request may publish `ready` or `failed`; replacement and package
+invalidation retire the prior request without publication. Workspace snapshots
+retain `ready` and `failed` evidence but normalize an interrupted `loading`
+request to `idle`, since a snapshot has no live acquisition that can settle it.
+This contract owns only the Package Vulnerabilities surface; it does not define
+a generic asynchronous-state framework or migrate another Inspect Web
+resource.
+
+The motivating production flow is `Newtonsoft.Json` 12.0.1 from nuget.org:
+opening that exact coordinate, navigating away, and returning while advisory
+acquisition is pending must not let the retired request replace newer evidence.
+Focused coordinator tests preserve the same replacement and invalidation
+boundary deterministically.
+
 A complete empty result states only that no GitHub-reviewed NuGet advisory
 matched the exact package version. Partial and unavailable results retain typed
 acquisition failures and never present successful emptiness or describe the

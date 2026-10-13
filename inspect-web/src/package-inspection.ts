@@ -38,6 +38,36 @@ export type PackageLibraryMetrics = BrowserLibraryMetrics;
 export type PackageLibraryDependencyStructure =
   BrowserLibraryDependencyStructure;
 
+export type PackageVulnerabilityState =
+  | { readonly status: "idle" }
+  | {
+    readonly status: "loading";
+    readonly request: { readonly key: string };
+  }
+  | {
+    readonly status: "ready";
+    readonly key: string;
+    readonly result: BrowserPackageVulnerabilityResult;
+  }
+  | {
+    readonly status: "failed";
+    readonly key: string;
+    readonly error: string;
+  };
+
+export function packageVulnerabilityStateKey(
+  state: PackageVulnerabilityState,
+): string | null {
+  if (state.status === "idle") return null;
+  return state.status === "loading" ? state.request.key : state.key;
+}
+
+export function normalizePackageVulnerabilitySnapshot(
+  state: PackageVulnerabilityState,
+): PackageVulnerabilityState {
+  return state.status === "loading" ? { status: "idle" } : state;
+}
+
 export interface ResolvedPackagePerformanceMember {
   type: AppTypeSurface;
   member: AppMemberSurface;
@@ -107,10 +137,7 @@ export interface PackageInspectionState {
   packageDependenciesLoading: boolean;
   packageDependenciesError: string;
   packageDependenciesKey: string;
-  packageVulnerabilities: BrowserPackageVulnerabilityResult | null;
-  packageVulnerabilitiesLoading: boolean;
-  packageVulnerabilitiesError: string;
-  packageVulnerabilitiesKey: string;
+  packageVulnerabilities: PackageVulnerabilityState;
   workspaceDependencies: Record<string, DependencyGroupData>;
   workspaceDependencyErrors: Record<string, string>;
   workspaceDependencyLoads: Set<string>;
@@ -307,7 +334,6 @@ export function createPackageInspectionCoordinator(
   const { state } = dependencies;
   let packageResultGeneration = 0;
   let metadataRequestSequence = 0;
-  let vulnerabilityRequestSequence = 0;
 
   const platformCoordinates = (
     packageModel: AppPackage,
@@ -383,10 +409,7 @@ export function createPackageInspectionCoordinator(
       state.packageDependenciesLoading = false;
       state.packageDependenciesError = "";
       state.packageDependenciesKey = "";
-      state.packageVulnerabilities = null;
-      state.packageVulnerabilitiesLoading = false;
-      state.packageVulnerabilitiesError = "";
-      state.packageVulnerabilitiesKey = "";
+      state.packageVulnerabilities = { status: "idle" };
       state.packageIntegrations = null;
       state.packageIntegrationsLoading = false;
       state.packageIntegrationsError = "";
@@ -482,39 +505,35 @@ export function createPackageInspectionCoordinator(
     },
 
     async loadVulnerabilities(packageModel, signature) {
-      if (state.packageVulnerabilitiesKey === signature
-        && (state.packageVulnerabilities
-          || state.packageVulnerabilitiesError)) {
+      const current = state.packageVulnerabilities;
+      if ((current.status === "ready" || current.status === "failed")
+        && current.key === signature) {
         dependencies.render();
         return;
       }
-      const requestSequence = ++vulnerabilityRequestSequence;
-      const generation = packageResultGeneration;
+      const request = { key: signature };
       const ownsRequest = () =>
-        state.packageVulnerabilitiesKey === signature
-        && vulnerabilityRequestSequence === requestSequence
-        && generation === packageResultGeneration;
-      state.packageVulnerabilitiesKey = signature;
-      state.packageVulnerabilities = null;
-      state.packageVulnerabilitiesError = "";
-      state.packageVulnerabilitiesLoading = true;
+        state.packageVulnerabilities.status === "loading"
+        && state.packageVulnerabilities.request === request;
+      state.packageVulnerabilities = { status: "loading", request };
       dependencies.render();
       try {
         const result = await dependencies.queryVulnerabilities(packageModel);
-        if (ownsRequest()) {
-          state.packageVulnerabilities = result;
-        }
+        if (!ownsRequest()) return;
+        state.packageVulnerabilities = {
+          status: "ready",
+          key: signature,
+          result,
+        };
       } catch (error) {
-        if (ownsRequest()) {
-          state.packageVulnerabilitiesError =
-            dependencies.describeError(error);
-        }
-      } finally {
-        if (ownsRequest()) {
-          state.packageVulnerabilitiesLoading = false;
-          dependencies.render();
-        }
+        if (!ownsRequest()) return;
+        state.packageVulnerabilities = {
+          status: "failed",
+          key: signature,
+          error: dependencies.describeError(error),
+        };
       }
+      dependencies.render();
     },
 
     ensureWorkspaceDependencies,
