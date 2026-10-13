@@ -39,7 +39,8 @@ public static class FindOptionsParser
         Option<bool> CompactOption,
         Option<bool> NoHeaderOption,
         Option<string?> PackagePrefixOption,
-        Option<bool> MembersOption);
+        Option<bool> MembersOption,
+        Option<int?> TakeOption);
 
     /// <summary>
     /// Result of parsing find command options.
@@ -69,6 +70,7 @@ public static class FindOptionsParser
         var pattern = parseResult.GetValue(args.PatternArg);
         var packagePrefix = parseResult.GetValue(args.PackagePrefixOption);
         var typeFilter = parseResult.GetValue(args.TypeFilterOption);
+        int? take = parseResult.GetValue(args.TakeOption);
         if (!TryParseEcosystems(
                 parseResult,
                 args.EcosystemOption,
@@ -89,6 +91,24 @@ public static class FindOptionsParser
         {
             CommandError.Write(
                 "--ecosystem cannot be combined with another Find source selector.");
+            return new Invalid();
+        }
+        OutputFormat format = opts.ResolveFormat(parseResult, OutputFormat.Tsv);
+        if (take is not null
+            && (ecosystems is null
+                || parseResult.GetValue(opts.Count)
+                || format is not (OutputFormat.Tsv or OutputFormat.Jsonl)))
+        {
+            CommandError.Write(
+                "find --take bounds Ecosystem prefix package candidates "
+                + "and requires --ecosystem with TSV or JSONL output.");
+            return new Invalid();
+        }
+        if (take is <= 0 or > FindOptions.MaximumEcosystemPrefixPackagesLimit)
+        {
+            CommandError.Write(
+                "Find --take must be between 1 and "
+                + $"{FindOptions.MaximumEcosystemPrefixPackagesLimit}.");
             return new Invalid();
         }
         bool packagePrefixSpecified =
@@ -150,6 +170,8 @@ public static class FindOptionsParser
             SourceSelection = selection,
             Ecosystems = ecosystems,
             PackagePrefixLimitReached = packagePrefixLimitReached,
+            MaximumEcosystemPrefixPackages =
+                take ?? FindOptions.DefaultMaximumEcosystemPrefixPackages,
             Packages = [.. sources.Packages],
             Assemblies = [.. sources.Assemblies],
             PlatformAssemblies = [.. sources.PlatformAssemblies],
@@ -165,7 +187,7 @@ public static class FindOptionsParser
             TypeFilter = typeFilter,
             QueryPlan = queryPlan,
             Count = parseResult.GetValue(opts.Count),
-            JsonOutput = opts.ResolveFormat(parseResult, OutputFormat.Tsv) == OutputFormat.Json,
+            JsonOutput = format == OutputFormat.Json,
             CompactJson = parseResult.GetValue(args.CompactOption),
             Tabular = opts.ResolveTabular(parseResult, OutputFormat.Tsv),
             Tsv = opts.ResolveTsv(parseResult, OutputFormat.Tsv),

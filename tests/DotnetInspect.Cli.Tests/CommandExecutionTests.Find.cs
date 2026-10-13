@@ -26,7 +26,9 @@ public partial class CommandExecutionTests
             "ecosystem.aspire", row.GetProperty("ecosystem").GetString()));
         Assert.Contains(rows, row => row.GetProperty("member").GetString()
             is "AddContainer" or "AddProject");
-        Assert.Contains("not searched: ecosystem.aspnetcore", error);
+        Assert.Contains(
+            "Stopped before unsearched work: ecosystem.aspnetcore",
+            error);
         Assert.DoesNotContain("Searching ecosystem.aspnetcore", error);
         Assert.DoesNotContain("Searching ecosystem.runtime", error);
     }
@@ -40,7 +42,9 @@ public partial class CommandExecutionTests
             "-n", "3", "--json", "--compact");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        Assert.Contains(
+            "Package-prefix populations were not searched",
+            error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows =
             [.. document.RootElement.EnumerateArray()];
@@ -77,8 +81,12 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, completeExit);
         Assert.Equal(0, countExit);
-        Assert.Empty(completeError);
-        Assert.Empty(countError);
+        Assert.Contains(
+            "Package-prefix populations were not searched",
+            completeError);
+        Assert.Contains(
+            "Package-prefix populations were not searched",
+            countError);
         using JsonDocument complete =
             JsonDocument.Parse(completeOutput);
         Assert.Equal(
@@ -104,8 +112,12 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, completeExit);
         Assert.Equal(0, windowExit);
-        Assert.Empty(completeError);
-        Assert.Empty(windowError);
+        Assert.Contains(
+            "Package-prefix populations were not searched",
+            completeError);
+        Assert.Contains(
+            "Package-prefix populations were not searched",
+            windowError);
         using JsonDocument complete =
             JsonDocument.Parse(completeOutput);
         using JsonDocument window =
@@ -137,9 +149,11 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, completeExit);
         Assert.Equal(0, windowExit);
-        Assert.Empty(completeError);
         Assert.Contains(
-            "Stopped after ecosystem.aspnetcore; not searched:",
+            "Package-prefix populations were not searched",
+            completeError);
+        Assert.Contains(
+            "Stopped before unsearched work: ecosystem.microsoft-extensions",
             windowError,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -188,7 +202,9 @@ public partial class CommandExecutionTests
             "--json", "--compact");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        Assert.Contains(
+            "Package-prefix populations were not searched",
+            error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows = [.. document.RootElement.EnumerateArray()];
         Assert.Contains(rows, row =>
@@ -651,6 +667,21 @@ public partial class CommandExecutionTests
 
         Assert.NotEmpty(expected);
         Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public async Task Find_NonEcosystemJsonlDoesNotSelectOmittedMemberRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "TryGetProperty",
+            "--library", typeof(JsonElement).Assembly.Location,
+            "--jsonl", "--rows", "1..1");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "requires type row 1, but only 0 type rows are available",
+            error);
     }
 
     [Fact]

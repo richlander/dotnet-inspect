@@ -13,9 +13,17 @@ namespace DotnetInspect.Cli.Options;
 /// </summary>
 public record FindOptions : IAssemblySourceOptions, IProjectionOptions
 {
+    internal const int DefaultMaximumEcosystemPrefixPackages = 10;
+
+    internal const int MaximumEcosystemPrefixPackagesLimit =
+        PackageQuery.MaximumPackageContentCandidates;
+
     internal SearchSourceSelection? SourceSelection { get; init; }
 
     internal bool PackagePrefixLimitReached { get; init; }
+
+    internal int MaximumEcosystemPrefixPackages { get; init; } =
+        DefaultMaximumEcosystemPrefixPackages;
 
     internal FindTypeMatchIntent TypeMatchIntent { get; init; }
 
