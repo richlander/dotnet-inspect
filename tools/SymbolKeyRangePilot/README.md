@@ -131,5 +131,7 @@ That evidence supports the large-win side of the goal, but it is not the same
 full-key workload and cannot erase the private-`SymbolKey` regression here.
 
 The population-backed representation therefore does not yet meet its
-parity-or-better acceptance goal. Shared implementation and Fast Diff adoption
-remain blocked on a representation that closes the KeyMatch gap.
+parity-or-better goal. The operator accepted this pilot result as sufficient
+to proceed with staged implementation while retaining private `SymbolKey`
+parity as a final Fast Diff adoption gate. The remaining KeyMatch gap must be
+closed before that adoption is complete.
