@@ -2276,11 +2276,14 @@ internal receipt-binding primitive. It receives the exact
 intent, revalidates package-id and content-generation correspondence, and
 freezes the receipt's existing selection without another selector invocation.
 The receipt's selected output cannot reconstruct caller intent: owner-default
-and frozen House requests retain an absent original requested target, while
-explicit House and API-match requests retain their authored target. The public
-adapter remains in `DotnetInspector.PackageQueries`: its contribution pairs
-the resulting House-agnostic binding with the exact House result and compile
-receipt rather than storing House history on `PackageRootBinding`.
+and frozen House requests, including House's equivalent absent target context,
+retain an absent original requested target, while explicit House and API-match
+requests retain their authored target. Receipt-backed binding rejects compile
+or implementation-selection targets outside the durable Root target grammar
+before any contribution can issue an unreopenable request. The public adapter
+remains in `DotnetInspector.PackageQueries`: its contribution pairs the
+resulting House-agnostic binding with the exact House result and compile receipt
+rather than storing House history on `PackageRootBinding`.
 
 The current realized package-coordinate grammar admits the bounded published
 package-id grammar, Package Source portable producer tokens, the modern

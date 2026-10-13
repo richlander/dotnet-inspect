@@ -1051,9 +1051,10 @@ public static class PackageRootAcquisition
                 PackageRootAcquisitionFailureKind.InvalidCoordinate,
                 invalid.Message);
         }
-        if (!IsDurableTargetRepresentable(selectionTargetFramework)
+        if (!PackageRootBinding.IsDurableTargetRepresentable(
+                selectionTargetFramework)
             || (expected is not null
-                && !IsDurableTargetRepresentable(
+                && !PackageRootBinding.IsDurableTargetRepresentable(
                     expected.SelectionTargetFramework)))
         {
             return Failed(
@@ -1112,10 +1113,10 @@ public static class PackageRootAcquisition
                 pinnedProducer is not null);
         }
         if (expected is null
-            && (!IsDurableTargetRepresentable(
+            && (!PackageRootBinding.IsDurableTargetRepresentable(
                     PackageRootBinding.ReceiptCompileTargetFramework(
                         realization.Receipt))
-                || !IsDurableTargetRepresentable(
+                || !PackageRootBinding.IsDurableTargetRepresentable(
                     PackageRootBinding.ReceiptSelectionTargetFramework(
                         realization.Receipt))))
         {
@@ -1166,11 +1167,6 @@ public static class PackageRootAcquisition
             acquired.Payload,
             issued);
     }
-
-    static bool IsDurableTargetRepresentable(string? targetFramework) =>
-        targetFramework is null
-        || PackageCoordinateResolver.IsAcquisitionTargetText(
-            targetFramework);
 
     static PackageRootAcquisitionOutcome ProjectFailure(
         PackageHouseSettlement settlement,

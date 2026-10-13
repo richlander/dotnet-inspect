@@ -274,6 +274,84 @@ public sealed class PackageRootAcquisitionTests
 
     [Fact]
     public async Task
+        NullTargetHouseContribution_ReacquiresNestedSelectedCompileAsset()
+    {
+        using var http = new HttpClient(new FailingHandler());
+        IPackageStore store = await CachedStoreAsync(NestedLibraryPackage());
+        PackageRootHouseExecution execution = Options(http, store);
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PackageId, Version)),
+            execution.Operation,
+            targetContext: null,
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.PackageOnly,
+            assetDemand: PackageAssetDemand.SurfaceAndImplementation);
+        PackageHouseSettlement settlement =
+            await execution.Executor.ExecuteAsync(
+                request,
+                requiredProducerKey: null,
+                TestContext.Current.CancellationToken);
+        PackageHouseRootContribution contribution =
+            Assert.IsType<PackageHouseRootContributionOutcome.Contributed>(
+                PackageHouseRootContributionAdapter.Create(settlement))
+                .Contribution;
+        PackageRootReacquisitionRequest rootRequest =
+            contribution.Binding.CreateReacquisitionRequest();
+
+        Assert.Null(contribution.Binding.Root.RequestedTargetFramework);
+        Assert.Null(rootRequest.RequestedTargetFramework);
+        Assert.Equal(Framework, rootRequest.CompileTargetFramework);
+        Assert.Equal(Framework, rootRequest.SelectionTargetFramework);
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                rootRequest.Encode(),
+                out PackageRootReacquisitionRequest? decoded));
+
+        var reacquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                decoded,
+                Options(http, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(rootRequest, reacquired.Request);
+        Assert.Equal(
+            $"lib/{Framework}/nested/{AssemblyName}.dll",
+            reacquired.Binding.Root.AssetSelection.Assets.Single().Path);
+    }
+
+    [Fact]
+    public async Task
+        HouseContribution_UnrepresentableSelectionReturnsNoContribution()
+    {
+        const string selectedFramework = "net8.0_custom";
+        using var http = new HttpClient(new FailingHandler());
+        IPackageStore store = await CachedStoreAsync(
+            LibraryPackage(selectedFramework));
+        PackageRootHouseExecution execution = Options(http, store);
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PackageId, Version)),
+            execution.Operation,
+            PackageHouseTargetContext.OwnerDefault(),
+            PackageHouseAssetSelectionKind.Compile);
+        PackageHouseSettlement settlement =
+            await execution.Executor.ExecuteAsync(
+                request,
+                requiredProducerKey: null,
+                TestContext.Current.CancellationToken);
+
+        PackageHouseRootContributionOutcome.NoContribution outcome =
+            Assert.IsType<PackageHouseRootContributionOutcome.NoContribution>(
+                PackageHouseRootContributionAdapter.Create(settlement));
+
+        Assert.Equal(
+            PackageHouseRootNoContributionReason.CoordinateNotRepresentable,
+            outcome.Reason);
+    }
+
+    [Fact]
+    public async Task
         UntargetedRoot_ReplacementWithoutCompileAssetsReturnsTypedMismatch()
     {
         using var http = new HttpClient(new FailingHandler());

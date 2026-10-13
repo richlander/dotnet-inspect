@@ -190,6 +190,14 @@ public sealed class PackageRootBinding
             ReceiptCompileTargetFramework(receipt);
         bool usesCompatibleImplementationSelection =
             ReceiptUsesCompatibleImplementationSelection(receipt);
+        if (!IsDurableTargetRepresentable(compileTargetFramework)
+            || !IsDurableTargetRepresentable(
+                selectionTargetFramework))
+        {
+            throw new ArgumentException(
+                "The compile selection receipt contains a target that cannot be represented by a durable package Root request.",
+                nameof(receipt));
+        }
         return Create(
             payload,
             payload.Coordinate.PackageId,
@@ -282,6 +290,13 @@ public sealed class PackageRootBinding
             ReceiptSelectionTargetFramework(receipt);
         string? compileTargetFramework =
             ReceiptCompileTargetFramework(receipt);
+        if (!IsDurableTargetRepresentable(compileTargetFramework)
+            || !IsDurableTargetRepresentable(
+                selectionTargetFramework))
+        {
+            binding = null;
+            return false;
+        }
         return TryCreate(
             payload,
             payload.Coordinate.PackageId,
@@ -322,6 +337,12 @@ public sealed class PackageRootBinding
             : receipt.Selection.ImplementationTargetFramework
                 ?? receipt.RequestedTargetFramework
                 ?? receipt.Selection.TargetFramework;
+
+    internal static bool IsDurableTargetRepresentable(
+        string? targetFramework) =>
+        targetFramework is null
+        || PackageCoordinateResolver.IsAcquisitionTargetText(
+            targetFramework);
 
     internal static string? ReceiptCompileTargetFramework(
         PackageCompileAssetSelectionReceipt receipt) =>

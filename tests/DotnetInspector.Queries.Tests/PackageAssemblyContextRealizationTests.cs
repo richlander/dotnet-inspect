@@ -342,6 +342,45 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public void
+        PackageRootBinding_TrySourceSelectionRejectsUnrepresentableDurableTarget()
+    {
+        const string packageId = "unrepresentable.receipt";
+        const string selectedFramework = "net8.0_custom";
+        var content = new InMemoryPackageContent(
+            Archive(
+                ($"lib/{selectedFramework}/Unrepresentable.Receipt.dll", [0x01])),
+            fromCache: false,
+            producerKey: "tests");
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, "1.0.0"),
+            content,
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageCompileAssetSelectionReceipt receipt =
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                packageId,
+                PackageCompileAssetSelectionPolicy.HighestAvailable);
+
+        Assert.Equal(
+            selectedFramework,
+            receipt.Selection.TargetFramework);
+        Assert.False(
+            PackageRootBinding.TryCreateFromSourceSelection(
+                payload,
+                receipt,
+                requestedTargetFramework: null,
+                out PackageRootBinding? binding));
+        Assert.Null(binding);
+        Assert.Throws<ArgumentException>(
+            () => PackageRootBinding.CreateFromSourceSelection(
+                payload,
+                receipt,
+                requestedTargetFramework: null));
+    }
+
+    [Fact]
     public void PackageRootBinding_SourceSelectionPreservesInvalidSelectionReceipt()
     {
         const string packageId = "invalid.receipt";
